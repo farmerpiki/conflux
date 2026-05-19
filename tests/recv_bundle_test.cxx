@@ -14,6 +14,7 @@ import conflux.socket_io;
 #endif
 namespace {
 
+
 std::uint32_t recv_flags_for(
 	std::uint16_t buf_id) noexcept {
 	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
@@ -29,7 +30,7 @@ struct Rig {
 :uring{[]{
 				  auto r = conflux::uring::Ring::init(32, {});
 				  REQUIRE(r);
-				  return move(*r);
+				  return std::move(*r);
 }()},
 ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=mode},conflux::uring::detect_caps(uring.ref())}{}
 };

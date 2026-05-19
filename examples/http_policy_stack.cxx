@@ -88,14 +88,14 @@ int main() {
 	});
 
 	app.get("/v2/users", [](HttpRequest const &req) {
-		return HttpResponse::json(format(
+		return HttpResponse::json(std::format(
 			R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
 			req.remote_addr,
 			req.headers["x-request-id"]));
 	});
 
 	app.get("/form", [](HttpRequest const &req) {
-		return HttpResponse::html(format(
+		return HttpResponse::html(std::format(
 			"<html><body><h1>CSRF form</h1>"
 			"<form method='post' action='/submit'>"
 			"<input type='hidden' name='csrf_token' value='{}'>"
@@ -114,21 +114,21 @@ int main() {
 	app.get("/me", [](HttpRequest const &req) {
 		auto user = req.cookies["session"];
 		return user.empty() ? HttpResponse::unauthorized("Session") :
-							  HttpResponse::text(format("session user={}\n", user));
+							  HttpResponse::text(std::format("session user={}\n", user));
 	});
 
 	app.post("/submit", [](HttpRequest const &req) {
-		return HttpResponse::text(format("accepted value={}\n", req.form["value"]));
+		return HttpResponse::text(std::format("accepted value={}\n", req.form["value"]));
 	});
 
 	std::vector<Router::Middleware> openapi_auth;
 	openapi_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
 	app.router().get(
 		"/openapi.json",
-		openapi_handler_protected(app.router(), "conflux policy stack example", "0.1.0", move(openapi_auth)));
+		openapi_handler_protected(app.router(), "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
 
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);
-	auto const status = move(app).run({.port = 9100});
+	auto const status = std::move(app).run({.port = 9100});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

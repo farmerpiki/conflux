@@ -23,7 +23,7 @@ struct TempDir {
 	std::filesystem::path path;
 	TempDir() {
 		path = std::filesystem::temp_directory_path()
-			 / format("conflux_db_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+			 / std::format("conflux_db_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
 		std::filesystem::create_directories(path);
 	}
 	~TempDir() {
@@ -262,11 +262,11 @@ TEST_CASE(
 	"[db][unit]") {
 	Pipeline pipeline;
 	auto query = pipeline.query("SELECT 1::int8");
-	auto out = root::blocking_join(move(query));
+	auto out = root::blocking_join(std::move(query));
 	REQUIRE(out.is_failure());
 
 	auto sync = pipeline.sync();
-	auto sync_out = root::blocking_join(move(sync));
+	auto sync_out = root::blocking_join(std::move(sync));
 	REQUIRE(sync_out.is_failure());
 }
 TEST_CASE(
@@ -308,7 +308,7 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{std::string{"42"},std::string{"3.5"},std::string{"t"},nullopt,std::string{},std::string{"abc"}                 },
+			{std::string{"42"},std::string{"3.5"},std::string{"t"},std::nullopt,std::string{},std::string{"abc"}                 },
 			{std::string{"-7"},
 			 std::string{"-0.25"},
 			 std::string{"f"},
@@ -390,14 +390,14 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{std::string{"42"}, nullopt, std::string{"7"}}
+			{std::string{"42"}, std::nullopt, std::string{"7"}}
     },
 		{"a", "b", "c"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
 	CHECK(row.as_opt<std::int64_t>(0) == std::optional<std::int64_t>{42});
-	CHECK(row.as_opt<std::int64_t>(1) == nullopt);
+	CHECK(row.as_opt<std::int64_t>(1) == std::nullopt);
 	CHECK(row.as_opt<std::int64_t>(2) == std::optional<std::int64_t>{7});
 }
 TEST_CASE(

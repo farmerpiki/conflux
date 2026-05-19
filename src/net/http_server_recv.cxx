@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -62,7 +62,7 @@ import :state;
 void Ring::discard_recv_bufs(
 	int res,
 	std::uint32_t flags) noexcept {
-		HTTP_TRACE(format(
+		HTTP_TRACE(std::format(
 			"discard_recv_bufs res={} flags=0x{:x} has_buf={} mode={}",
 			res,
 			flags,
@@ -150,7 +150,7 @@ void Ring::handle_recv_cqe(
 	int res,
 	std::uint32_t flg,
 	std::uint32_t gen) {
-		HTTP_TRACE(format(
+		HTTP_TRACE(std::format(
 			"recv_cqe fd={} res={} flg=0x{:x} gen={} mode={} direct={}",
 			fd,
 			res,
@@ -282,7 +282,7 @@ void Ring::phase1_copy_recv_bufs() {
 					conn.have_incremental_buf_id = true;
 					if (!cqe_has_more(orig_flags)) [[unlikely]] {
 						eprintln(
-							format("incremental ring fault: fd={} !MORE+BUF_MORE; closing", static_cast<int>(ufd)));
+							std::format("incremental ring fault: fd={} !MORE+BUF_MORE; closing", static_cast<int>(ufd)));
 						queue_close(static_cast<int>(ufd));
 						continue;
 					}
@@ -328,7 +328,7 @@ void Ring::phase1_copy_recv_bufs() {
 			}
 #if CONFLUX_HAS_TLS
 			// Protocol sniff: ssl==nullptr && tls_hs_done==true is the "undecided" sentinel
-			// (set in handle_accept when ssl_ctx!=nullptr). Decide on the very first byte.
+			// (set in handle_accept when ssl_ctx!=nullptr). Decide on the very first std::byte.
 			if (!conn.ssl && conn.tls_hs_done && !conn.partial.empty()) {
 				if (static_cast<unsigned char>(conn.partial.front()) == 0x16U) {
 					// TLS ClientHello record type — create SSL and start handshake.
@@ -376,15 +376,15 @@ void Ring::finish_ready_ws_handoffs() {
 			if (it == ws_cancel_handoffs.end()) {
 				continue;
 			}
-			auto entry = move(it->second);
+			auto entry = std::move(it->second);
 			ws_cancel_handoffs.erase(it);
 #if CONFLUX_HAS_TLS
 			if (entry.ssl != nullptr) {
-				finish_tls_ws_handoff(fd, move(entry));
+				finish_tls_ws_handoff(fd, std::move(entry));
 				continue;
 			}
 #endif
-			finish_plain_ws_handoff(fd, move(entry));
+			finish_plain_ws_handoff(fd, std::move(entry));
 		}
 		ws_cancel_ready.clear();
 	}

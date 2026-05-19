@@ -53,7 +53,7 @@ export struct HttpResponse {
 		deferred,
 	};
 
-	using BodyPayload = variant<
+	using BodyPayload = std::variant<
 		std::string,
 		std::shared_ptr<SseChannel>,
 		std::shared_ptr<WsUpgrade>,
@@ -94,7 +94,7 @@ export struct HttpResponse {
 		if (!holds_alternative<std::string>(body_payload)) {
 			return {};
 		}
-		return move(get<std::string>(body_payload));
+		return std::move(get<std::string>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<SseChannel> const &sse_channel_ptr() const {
 		static std::shared_ptr<SseChannel> const empty{};
@@ -135,61 +135,61 @@ export struct HttpResponse {
 		if (!holds_alternative<std::shared_ptr<SseChannel>>(body_payload)) {
 			return {};
 		}
-		return move(get<std::shared_ptr<SseChannel>>(body_payload));
+		return std::move(get<std::shared_ptr<SseChannel>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<WsUpgrade> take_ws_upgrade() {
 		if (!holds_alternative<std::shared_ptr<WsUpgrade>>(body_payload)) {
 			return {};
 		}
-		return move(get<std::shared_ptr<WsUpgrade>>(body_payload));
+		return std::move(get<std::shared_ptr<WsUpgrade>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<MappedBody> take_mapped_file() {
 		if (!holds_alternative<std::shared_ptr<MappedBody>>(body_payload)) {
 			return {};
 		}
-		return move(get<std::shared_ptr<MappedBody>>(body_payload));
+		return std::move(get<std::shared_ptr<MappedBody>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<StreamedFile> take_streamed_file() {
 		if (!holds_alternative<std::shared_ptr<StreamedFile>>(body_payload)) {
 			return {};
 		}
-		return move(get<std::shared_ptr<StreamedFile>>(body_payload));
+		return std::move(get<std::shared_ptr<StreamedFile>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<DeferredResponse> take_deferred_response() {
 		if (!holds_alternative<std::shared_ptr<DeferredResponse>>(body_payload)) {
 			return {};
 		}
-		return move(get<std::shared_ptr<DeferredResponse>>(body_payload));
+		return std::move(get<std::shared_ptr<DeferredResponse>>(body_payload));
 	}
 	void set_text_body(
 		std::string text) {
 		body_kind = BodyKind::text;
-		body_payload = move(text);
+		body_payload = std::move(text);
 	}
 	void set_sse_channel(
 		std::shared_ptr<SseChannel> ch) {
 		body_kind = BodyKind::sse;
-		body_payload = move(ch);
+		body_payload = std::move(ch);
 	}
 	void set_ws_upgrade(
 		std::shared_ptr<WsUpgrade> up) {
 		body_kind = BodyKind::ws_upgrade;
-		body_payload = move(up);
+		body_payload = std::move(up);
 	}
 	void set_mapped_file(
 		std::shared_ptr<MappedBody> file) {
 		body_kind = BodyKind::mapped_file;
-		body_payload = move(file);
+		body_payload = std::move(file);
 	}
 	void set_streamed_file(
 		std::shared_ptr<StreamedFile> file) {
 		body_kind = BodyKind::streamed_file;
-		body_payload = move(file);
+		body_payload = std::move(file);
 	}
 	void set_deferred_response(
 		std::shared_ptr<DeferredResponse> deferred) {
 		body_kind = BodyKind::deferred;
-		body_payload = move(deferred);
+		body_payload = std::move(deferred);
 	}
 	[[nodiscard]] std::size_t content_length() const noexcept {
 		if (content_length_hint != 0) {
@@ -234,13 +234,13 @@ export struct HttpResponse {
 	[[nodiscard]] static HttpResponse with_body(
 		std::string body,
 		std::string content_type) {
-		return with_body(move(body), move(content_type), kHttpOk);
+		return with_body(std::move(body), std::move(content_type), kHttpOk);
 	}
 	[[nodiscard]] static HttpResponse with_body(
 		std::string body,
 		std::string content_type,
 		int status) {
-		return with_body(move(body), move(content_type), status, std::string{status_text_for(status)});
+		return with_body(std::move(body), std::move(content_type), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse with_body(
 		std::string body,
@@ -249,55 +249,55 @@ export struct HttpResponse {
 		std::string status_text) {
 		HttpResponse r;
 		r.status = status;
-		r.status_text = move(status_text);
-		r.content_type = move(content_type);
-		r.set_text_body(move(body));
+		r.status_text = std::move(status_text);
+		r.content_type = std::move(content_type);
+		r.set_text_body(std::move(body));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse html(
 		std::string body) {
-		return html(move(body), kHttpOk);
+		return html(std::move(body), kHttpOk);
 	}
 	[[nodiscard]] static HttpResponse html(
 		std::string body,
 		int status) {
-		return html(move(body), status, std::string{status_text_for(status)});
+		return html(std::move(body), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse html(
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(move(body), "text/html; charset=utf-8", status, move(status_text));
+		return with_body(std::move(body), "text/html; charset=utf-8", status, std::move(status_text));
 	}
 	[[nodiscard]] static HttpResponse json(
 		std::string body) {
-		return json(move(body), kHttpOk);
+		return json(std::move(body), kHttpOk);
 	}
 	[[nodiscard]] static HttpResponse json(
 		std::string body,
 		int status) {
-		return json(move(body), status, std::string{status_text_for(status)});
+		return json(std::move(body), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse json(
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(move(body), "application/json", status, move(status_text));
+		return with_body(std::move(body), "application/json", status, std::move(status_text));
 	}
 	[[nodiscard]] static HttpResponse text(
 		std::string body) {
-		return text(move(body), kHttpOk);
+		return text(std::move(body), kHttpOk);
 	}
 	[[nodiscard]] static HttpResponse text(
 		std::string body,
 		int status) {
-		return text(move(body), status, std::string{status_text_for(status)});
+		return text(std::move(body), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse text(
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(move(body), "text/plain; charset=utf-8", status, move(status_text));
+		return with_body(std::move(body), "text/plain; charset=utf-8", status, std::move(status_text));
 	}
 	[[nodiscard]] static HttpResponse redirect(
 		std::string_view location,
@@ -320,7 +320,7 @@ export struct HttpResponse {
 		r.status_text = "Not Found";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(
-			format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
+			std::format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse bad_request(
@@ -328,12 +328,12 @@ export struct HttpResponse {
 		auto body =
 			detail.empty() ?
 				std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
-				format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", response_html_escape(detail));
+				std::format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(move(body));
+		r.set_text_body(std::move(body));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse unauthorized(
@@ -353,12 +353,12 @@ export struct HttpResponse {
 		auto body =
 			detail.empty() ?
 				std::string{"<html><body><h1>403 Forbidden</h1></body></html>"} :
-				format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
+				std::format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpForbidden;
 		r.status_text = "Forbidden";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(move(body));
+		r.set_text_body(std::move(body));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse method_not_allowed(
@@ -376,21 +376,21 @@ export struct HttpResponse {
 				}
 				allow += *it;
 			}
-			r.headers["Allow"] = move(allow);
+			r.headers["Allow"] = std::move(allow);
 		}
 		return r;
 	}
 	[[nodiscard]] static HttpResponse unprocessable_entity(
 		std::string_view detail = {}) {
 		auto body = detail.empty() ? std::string{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
-									 format(
+									 std::format(
 										 "<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpUnprocessableEntity;
 		r.status_text = "Unprocessable Entity";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(move(body));
+		r.set_text_body(std::move(body));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse uri_too_long() {
@@ -429,26 +429,26 @@ export struct HttpResponse {
 	[[nodiscard]] static HttpResponse sse(
 		std::shared_ptr<SseChannel> ch) {
 		HttpResponse r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
-		r.set_sse_channel(move(ch));
+		r.set_sse_channel(std::move(ch));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse deferred(
 		std::shared_ptr<DeferredResponse> response) {
 		HttpResponse r;
-		r.set_deferred_response(move(response));
+		r.set_deferred_response(std::move(response));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse internal_error(
 		std::string_view detail = {}) {
 		auto body = detail.empty() ? std::string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
-									 format(
+									 std::format(
 										 "<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpInternalServerError;
 		r.status_text = "Internal Server Error";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(move(body));
+		r.set_text_body(std::move(body));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
@@ -467,9 +467,9 @@ export struct HttpResponse {
 		std::string_view cookie_value,
 		std::string_view attributes = {}) {
 		if (attributes.empty()) {
-			set_cookies.push_back(format("{}={}", name, cookie_value));
+			set_cookies.push_back(std::format("{}={}", name, cookie_value));
 		} else {
-			set_cookies.push_back(format("{}={}; {}", name, cookie_value, attributes));
+			set_cookies.push_back(std::format("{}={}; {}", name, cookie_value, attributes));
 		}
 		return *this;
 	}
@@ -505,7 +505,7 @@ export struct HttpResponse {
 			}
 			vary.remove_prefix(comma + 1);
 		}
-		headers["Vary"] = format("{}, {}", current, token);
+		headers["Vary"] = std::format("{}, {}", current, token);
 	}
 };
 
@@ -517,7 +517,7 @@ using Response = ::HttpResponse;
 
 export class DeferredResponse {
 	int efd_{-1};
-	mutable mutex mtx_{};
+	mutable std::mutex mtx_{};
 	std::unique_ptr<HttpResponse> ready_{};
 	std::chrono::steady_clock::time_point deadline_{};
 	conflux::work::root::TaskControl cancel_ctl_{};
@@ -549,7 +549,7 @@ DeferredResponse::DeferredResponse(
 	: efd_{::eventfd(0, EFD_CLOEXEC)}
 	, deadline_{std::chrono::steady_clock::now() + timeout} {
 	if (efd_ < 0) {
-		throw std::system_error{errno, system_category(), "eventfd"};
+		throw std::system_error{errno, std::system_category(), "eventfd"};
 	}
 }
 DeferredResponse::~DeferredResponse() noexcept {
@@ -567,11 +567,11 @@ void DeferredResponse::complete(
 		if (ready_) {
 			return;
 		}
-		ready_ = make_unique<HttpResponse>(move(response));
+		ready_ = std::make_unique<HttpResponse>(std::move(response));
 	}
 	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
-		eprintln(format("DeferredResponse::complete: eventfd write: {}", strerror(errno)));
+		eprintln(std::format("DeferredResponse::complete: eventfd write: {}", strerror(errno)));
 	}
 }
 bool DeferredResponse::is_ready() const {
@@ -581,9 +581,9 @@ bool DeferredResponse::is_ready() const {
 std::optional<HttpResponse> DeferredResponse::take_ready() {
 	std::scoped_lock const lk{mtx_};
 	if (!ready_) {
-		return nullopt;
+		return std::nullopt;
 	}
-	auto response = move(*ready_);
+	auto response = std::move(*ready_);
 	ready_.reset();
 	return response;
 }
@@ -599,7 +599,7 @@ void DeferredResponse::set_deadline(
 void DeferredResponse::attach_cancel(
 	conflux::work::root::TaskControl ctl) noexcept {
 	std::scoped_lock const lk{mtx_};
-	cancel_ctl_ = move(ctl);
+	cancel_ctl_ = std::move(ctl);
 }
 bool DeferredResponse::expire_if_past_deadline(
 	std::chrono::steady_clock::time_point now) {
@@ -612,13 +612,13 @@ bool DeferredResponse::expire_if_past_deadline(
 		if (now < deadline_) {
 			return false;
 		}
-		ready_ = make_unique<HttpResponse>(HttpResponse::gateway_timeout());
-		to_cancel = move(cancel_ctl_);
+		ready_ = std::make_unique<HttpResponse>(HttpResponse::gateway_timeout());
+		to_cancel = std::move(cancel_ctl_);
 	}
 	auto _ = to_cancel.request_cancel();
 	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
-		eprintln(format("DeferredResponse::expire_if_past_deadline: eventfd write: {}", strerror(errno)));
+		eprintln(std::format("DeferredResponse::expire_if_past_deadline: eventfd write: {}", strerror(errno)));
 	}
 	return true;
 }

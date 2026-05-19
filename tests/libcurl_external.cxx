@@ -17,7 +17,7 @@ struct CurlGlobal {
 	CurlGlobal() {
 		CURLcode const rc = curl_global_init(CURL_GLOBAL_DEFAULT);
 		if (rc != CURLE_OK) {
-			throw std::runtime_error{format("curl_global_init failed: {}", curl_easy_strerror(rc))};
+			throw std::runtime_error{std::format("curl_global_init failed: {}", curl_easy_strerror(rc))};
 		}
 	}
 	~CurlGlobal() { curl_global_cleanup(); }
@@ -94,7 +94,7 @@ void setopt(
 	long value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -104,7 +104,7 @@ void setopt(
 	char const *value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -114,7 +114,7 @@ void setopt_off(
 	curl_off_t value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -122,7 +122,7 @@ void setopt_write_cb(
 	CURL *easy) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_write_cb);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt write callback failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt write callback failed: {}", curl_error(rc))};
 	}
 }
 
@@ -131,7 +131,7 @@ void setopt_write_data(
 	std::string *body) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEDATA, body);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt write data failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt write data failed: {}", curl_error(rc))};
 	}
 }
 
@@ -140,7 +140,7 @@ void setopt_resolve(
 	curl_slist *resolve) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_RESOLVE, resolve);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt resolve failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt resolve failed: {}", curl_error(rc))};
 	}
 }
 
@@ -149,7 +149,7 @@ void setopt_resolve(
 	void *value) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_PRIVATE, value);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt private failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt private failed: {}", curl_error(rc))};
 	}
 }
 
@@ -259,31 +259,31 @@ public:
 [[nodiscard]] std::string http_url(
 	std::uint16_t port,
 	std::string_view path) {
-	return format("http://127.0.0.1:{}{}", port, path);
+	return std::format("http://127.0.0.1:{}{}", port, path);
 }
 
 [[nodiscard]] std::string https_url(
 	std::uint16_t port,
 	std::string_view path) {
-	return format("https://127.0.0.1:{}{}", port, path);
+	return std::format("https://127.0.0.1:{}{}", port, path);
 }
 
 [[nodiscard]] std::string h3_url(
 	std::uint16_t port,
 	std::string_view path) {
-	return format("https://localhost:{}{}", port, path);
+	return std::format("https://localhost:{}{}", port, path);
 }
 
 [[nodiscard]] std::string localhost_resolve(
 	std::uint16_t port) {
-	return format("localhost:{}:127.0.0.1", port);
+	return std::format("localhost:{}:127.0.0.1", port);
 }
 
 void require_ok(
 	CurlResponse const &resp,
 	long status,
 	std::string_view body) {
-	INFO(format(
+	INFO(std::format(
 		"curl={} {} status={} http_version={} verify={} connects={} time={} body_size={} body={}",
 		static_cast<int>(resp.code),
 		curl_error(resp.code),
@@ -303,7 +303,7 @@ void require_ok(
 	CurlResponse const &resp,
 	long status,
 	std::string_view needle) {
-	INFO(format(
+	INFO(std::format(
 		"curl={} {} status={} http_version={} body_size={} body={}",
 		static_cast<int>(resp.code),
 		curl_error(resp.code),
@@ -319,7 +319,7 @@ void require_ok(
 [[maybe_unused]] void require_forced_http_version(
 	CurlResponse const &resp,
 	long expected) {
-	INFO(format("effective http_version={} expected={}", resp.http_version, expected));
+	INFO(std::format("effective http_version={} expected={}", resp.http_version, expected));
 	REQUIRE(resp.http_version == expected);
 }
 
@@ -359,7 +359,7 @@ void require_ok(
 	req.body.clear();
 	req.url = url("/does-not-exist");
 	resp = curl.perform(req);
-	INFO(format(
+	INFO(std::format(
 		"curl={} {} status={} body_size={} body={}",
 		static_cast<int>(resp.code),
 		curl_error(resp.code),
@@ -501,7 +501,7 @@ TEST_CASE(
 
 	Router router;
 	router.serve_static("/static", dir);
-	conflux::tests::HttpsServerFixture const fx{move(router)};
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	CurlEasy curl;
 	auto resp = curl.perform(
 		CurlRequest{.url = https_url(fx.port(), "/static/large.bin"), .http_version = CURL_HTTP_VERSION_1_1});
@@ -564,7 +564,7 @@ enum class TortureVersion {
 
 [[nodiscard]] Router make_stress_router() {
 	Router r = make_matrix_router();
-	auto large = make_shared<std::string>(128UL * 1024, 'S');
+	auto large = std::make_shared<std::string>(128UL * 1024, 'S');
 	r.get("/static/large.bin", [large](HttpRequest const &) { return HttpResponse::text(*large); });
 	return r;
 }
@@ -653,7 +653,7 @@ struct ExpectedCurlRequest {
 void require_expected(
 	CurlResponse const &resp,
 	ExpectedCurlRequest const &expected) {
-	INFO(format(
+	INFO(std::format(
 		"curl={} {} status={} expected_status={} http_version={} body_size={} url={}",
 		static_cast<int>(resp.code),
 		curl_error(resp.code),
@@ -694,7 +694,7 @@ void setopt_abort_cb(
 	CURL *easy) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, abort_after_cb);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt abort callback failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt abort callback failed: {}", curl_error(rc))};
 	}
 }
 
@@ -703,7 +703,7 @@ void setopt_abort_data(
 	AbortAfter *state) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEDATA, state);
 	if (rc != CURLE_OK) {
-		throw std::runtime_error{format("curl_easy_setopt abort data failed: {}", curl_error(rc))};
+		throw std::runtime_error{std::format("curl_easy_setopt abort data failed: {}", curl_error(rc))};
 	}
 }
 
@@ -739,7 +739,7 @@ TEST_CASE(
 	Router router = make_stress_router();
 	#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 	if (version == TortureVersion::Http3) {
-		conflux::tests::Http3ServerFixture const fx{move(router)};
+		conflux::tests::Http3ServerFixture const fx{std::move(router)};
 		CurlEasy curl;
 		for (unsigned i = 0; i < iters; ++i) {
 			auto expected = make_expected_request(fx.port(), i, version, fresh);
@@ -748,7 +748,7 @@ TEST_CASE(
 		return;
 	}
 	#endif
-	conflux::tests::HttpsServerFixture const fx{move(router)};
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	CurlEasy curl;
 	for (unsigned i = 0; i < iters; ++i) {
 		auto expected = make_expected_request(fx.port(), i, version, fresh);
@@ -759,7 +759,7 @@ TEST_CASE(
 TEST_CASE(
 	"ext/libcurl/stress: parallel multi-interface mixed routes") {
 	unsigned const iters = env_uint("CONFLUX_CURL_TORTURE_ITERS", 1000U);
-	unsigned const concurrency = max(1U, env_uint("CONFLUX_CURL_TORTURE_CONCURRENCY", 32U));
+	unsigned const concurrency = std::max(1U, env_uint("CONFLUX_CURL_TORTURE_CONCURRENCY", 32U));
 	// Keep the default stress target on request handling/protocol behavior, not
 	// libcurl's TLS connection cache. Set the env var to 0 when explicitly
 	// probing keep-alive reuse behavior.
@@ -800,11 +800,11 @@ TEST_CASE(
 	std::vector<std::unique_ptr<Active>> owned;
 	owned.reserve(concurrency);
 	auto add_one = [&](unsigned index) {
-		auto active = make_unique<Active>();
+		auto active = std::make_unique<Active>();
 		active->multi = multi.get();
 		active->easy = curl_easy_init();
 		REQUIRE(active->easy != nullptr);
-		active->expected = make_unique<ExpectedCurlRequest>(make_expected_request(fx.port(), index, version, fresh));
+		active->expected = std::make_unique<ExpectedCurlRequest>(make_expected_request(fx.port(), index, version, fresh));
 		CurlRequest const &req = active->expected->request;
 		setopt(active->easy, CURLOPT_URL, req.url.c_str());
 		setopt(active->easy, CURLOPT_NOSIGNAL, 1L);
@@ -826,7 +826,7 @@ TEST_CASE(
 		CURLMcode const add_rc = curl_multi_add_handle(multi.get(), active->easy);
 		REQUIRE(add_rc == CURLM_OK);
 		active->added = true;
-		owned.push_back(move(active));
+		owned.push_back(std::move(active));
 	};
 
 	unsigned launched = 0;

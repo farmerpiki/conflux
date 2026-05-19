@@ -46,7 +46,7 @@ BenchStats bench_cancel_with_hook(
 	for (std::size_t i = 0; i < iters; ++i) {
 		auto [ctl, source] = root::make_task_control_source<int>();
 		(void)source.install_cancel_hook(
-			[&hook_calls](root::CancelReason) noexcept { hook_calls.fetch_add(1, memory_order_relaxed); });
+			[&hook_calls](root::CancelReason) noexcept { hook_calls.fetch_add(1, std::memory_order_relaxed); });
 		(void)ctl.request_cancel();
 		(void)source.try_set_cancelled(root::work_errc::cancelled_requested);
 	}

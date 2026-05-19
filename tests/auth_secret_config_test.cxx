@@ -16,7 +16,7 @@ class TempIni {
 public:
 	explicit TempIni(
 		std::string_view body) {
-		auto const name = format(
+		auto const name = std::format(
 			"conflux-auth-secret-config-test-{}-{}.ini",
 			std::chrono::steady_clock::now().time_since_epoch().count(),
 			reinterpret_cast<std::uintptr_t>(this));

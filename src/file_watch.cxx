@@ -37,10 +37,10 @@ export class FileWatcher {
 		std::unordered_map<int, std::string> watches{};
 		std::function<void(std::vector<FileEvent>)> on_events{};
 		std::function<void(std::exception_ptr)> on_error{};
-		atomic_flag started{};
-		atomic_flag stopped{};
-		mutex callback_mtx{};
-		mutex watches_mtx{};
+		std::atomic_flag started{};
+		std::atomic_flag stopped{};
+		std::mutex callback_mtx{};
+		std::mutex watches_mtx{};
 		~Impl() {
 			if (fd >= 0) {
 				::close(fd);
@@ -75,7 +75,7 @@ export class FileWatcher {
 				cb = on_events;
 			}
 			if (cb) {
-				cb(move(events));
+				cb(std::move(events));
 			}
 		}
 		static std::optional<FileEventKind> kind_from_mask(
@@ -98,7 +98,7 @@ export class FileWatcher {
 			if ((mask & IN_MOVED_TO) != 0U) {
 				return FileEventKind::moved_to;
 			}
-			return nullopt;
+			return std::nullopt;
 		}
 		void drain_ready() {
 			std::array<char, 16 * 1024> buf{};
@@ -108,7 +108,7 @@ export class FileWatcher {
 					if (errno == EAGAIN) {
 						break;
 					}
-					emit_error(make_exception_ptr(std::system_error{errno, system_category(), "inotify read"}));
+					emit_error(std::make_exception_ptr(std::system_error{errno, std::system_category(), "inotify read"}));
 					break;
 				}
 				if (n == 0) {
@@ -133,13 +133,13 @@ export class FileWatcher {
 						events.push_back(
 							FileEvent{
 								.kind = *kind,
-								.path = move(path),
+								.path = std::move(path),
 								.cookie = ev->cookie,
 								.is_directory = (ev->mask & IN_ISDIR) != 0U});
 					}
 					off += step;
 				}
-				emit(move(events));
+				emit(std::move(events));
 			}
 		}
 	};
@@ -147,10 +147,10 @@ export class FileWatcher {
 
 public:
 	FileWatcher()
-		: impl_{make_shared<Impl>()} {
+		: impl_{std::make_shared<Impl>()} {
 		impl_->fd = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 		if (impl_->fd < 0) {
-			throw std::system_error{errno, system_category(), "inotify_init1"};
+			throw std::system_error{errno, std::system_category(), "inotify_init1"};
 		}
 	}
 	~FileWatcher() { stop(); }
@@ -161,23 +161,23 @@ public:
 	void on_events(
 		std::function<void(std::vector<FileEvent>)> cb) {
 		std::scoped_lock const lk{impl_->callback_mtx};
-		impl_->on_events = move(cb);
+		impl_->on_events = std::move(cb);
 	}
 	void on_error(
 		std::function<void(std::exception_ptr)> cb) {
 		std::scoped_lock const lk{impl_->callback_mtx};
-		impl_->on_error = move(cb);
+		impl_->on_error = std::move(cb);
 	}
 	void watch_directory(
 		std::string path,
 		WatchOptions options = {}) {
 		int const wd = ::inotify_add_watch(impl_->fd, path.c_str(), options.mask);
 		if (wd < 0) {
-			throw std::system_error{errno, system_category(), "inotify_add_watch"};
+			throw std::system_error{errno, std::system_category(), "inotify_add_watch"};
 		}
 		{
 			std::scoped_lock const lk{impl_->watches_mtx};
-			impl_->watches.emplace(wd, move(path));
+			impl_->watches.emplace(wd, std::move(path));
 		}
 	}
 	void start() {
@@ -189,21 +189,21 @@ public:
 			impl_->started.clear();
 			throw std::logic_error{"FileWatcher::start requires an active conflux.file_io ring context"};
 		}
-		auto weak = weak_ptr<Impl>{impl_};
+		auto weak = std::weak_ptr<Impl>{impl_};
 		bool const ok = reader->poll_add_multi(impl_->fd, POLLIN, [weak](IoResult r) mutable {
 			auto self = weak.lock();
-			if (!self || self->stopped.test(memory_order_acquire)) {
+			if (!self || self->stopped.test(std::memory_order_acquire)) {
 				return;
 			}
 			if (r.res < 0) {
 				if (r.res != -ECANCELED) {
-					self->emit_error(make_exception_ptr(std::system_error{-r.res, system_category(), "inotify poll"}));
+					self->emit_error(std::make_exception_ptr(std::system_error{-r.res, std::system_category(), "inotify poll"}));
 				}
 				return;
 			}
 			try {
 				self->drain_ready();
-			} catch (...) { self->emit_error(current_exception()); }
+			} catch (...) { self->emit_error(std::current_exception()); }
 		});
 		if (!ok) {
 			impl_->started.clear();

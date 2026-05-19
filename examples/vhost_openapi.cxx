@@ -15,12 +15,12 @@ static Router make_api_router() {
 	Router api;
 	api.use(request_id_middleware());
 	api.get("/status", [](HttpRequest const &req) {
-		return HttpResponse::json(format(
+		return HttpResponse::json(std::format(
 			R"({{"host":"api","request_id":"{}"}})",
 			req.headers["x-request-id"]));
 	});
 	api.get("/users/{id}", [](HttpRequest const &req) {
-		return HttpResponse::json(format(
+		return HttpResponse::json(std::format(
 			R"({{"id":"{}","name":"example"}})",
 			req.params["id"]));
 	});
@@ -45,14 +45,14 @@ int main() {
 
 	Router fallback;
 	fallback.get("/status", [](HttpRequest const &req) {
-		return HttpResponse::text(format("default host handler: {}\n", req.headers["host"]));
+		return HttpResponse::text(std::format("default host handler: {}\n", req.headers["host"]));
 	});
-	hosts.set_default(move(fallback));
+	hosts.set_default(std::move(fallback));
 
 	Config cfg = Config::low_latency();
 	cfg.port = 9101;
 	std::println("virtual-host server listening on http://localhost:9101/");
-	HttpServer srv{cfg, move(hosts)};
+	HttpServer srv{cfg, std::move(hosts)};
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

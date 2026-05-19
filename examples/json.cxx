@@ -3,6 +3,7 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
+
 struct ApiResponse {
 	std::string model;
 	std::int64_t tokens{};
@@ -76,12 +77,12 @@ static void example_pull_parser() {
 struct CountHandler : JsonDefaultHandler {
 	std::size_t keys{};
 	std::size_t strings{};
-	expected<void, JsonError> on_key(
+	std::expected<void, JsonError> on_key(
 		std::string_view) {
 		++keys;
 		return {};
 	}
-	expected<void, JsonError> on_string(
+	std::expected<void, JsonError> on_string(
 		std::string_view) {
 		++strings;
 		return {};
@@ -114,7 +115,7 @@ static void example_arena() {
 	std::println("\n--- JsonArena (cross-parse reuse) ---");
 	JsonArena arena{JsonArenaOptions{.initial_slab = 4096}};
 	for (auto i: {1, 2, 3}) {
-		auto input = format(R"({{"n":{}}})", i);
+		auto input = std::format(R"({{"n":{}}})", i);
 		auto doc = *arena.parse_into(input);
 		auto obj = *doc.root().as_object();
 		std::println("  n={}", *obj.member("n")->as_i64());

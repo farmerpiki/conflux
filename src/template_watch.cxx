@@ -56,8 +56,8 @@ struct TemplateWatcher::Impl {
 	std::string template_dir;
 	TemplateWatchOptions options;
 	std::unique_ptr<FileWatcher> watcher;
-	jthread worker;
-	mutex mtx;
+	std::jthread worker;
+	std::mutex mtx;
 	std::condition_variable_any cv;
 	std::function<void()> on_reload_cb;
 	std::function<void(TemplateBuildReport const &)> on_reload_failed_cb;
@@ -71,8 +71,8 @@ struct TemplateWatcher::Impl {
 		std::string template_dir_,
 		TemplateWatchOptions options_)
 		: env{&env_}
-		, template_dir{move(template_dir_)}
-		, options{move(options_)} {}
+		, template_dir{std::move(template_dir_)}
+		, options{std::move(options_)} {}
 
 	~Impl() { stop(); }
 
@@ -176,9 +176,9 @@ struct TemplateWatcher::Impl {
 			dirty = false;
 		}
 		try {
-			auto fw = make_unique<FileWatcher>();
+			auto fw = std::make_unique<FileWatcher>();
 			fw->watch_directory(template_dir, options.file_watch);
-			auto weak = weak_ptr<Impl>{self};
+			auto weak = std::weak_ptr<Impl>{self};
 			fw->on_events([weak](std::vector<FileEvent> const &events) {
 				auto locked = weak.lock();
 				if (!locked) {
@@ -194,13 +194,13 @@ struct TemplateWatcher::Impl {
 			fw->on_error([weak](std::exception_ptr eptr) {
 				auto locked = weak.lock();
 				if (locked) {
-					locked->emit_watch_error(move(eptr));
+					locked->emit_watch_error(std::move(eptr));
 				}
 			});
 			{
 				std::scoped_lock const lk{mtx};
-				watcher = move(fw);
-				worker = jthread{[weak](std::stop_token stop) {
+				watcher = std::move(fw);
+				worker = std::jthread{[weak](std::stop_token stop) {
 					auto locked = weak.lock();
 					if (locked) {
 						locked->reload_loop(stop);
@@ -242,13 +242,13 @@ struct TemplateWatcher::Impl {
 TemplateWatcher::TemplateWatcher(
 	Environment &env,
 	std::string template_dir)
-	: TemplateWatcher{env, move(template_dir), {}} {}
+	: TemplateWatcher{env, std::move(template_dir), {}} {}
 
 TemplateWatcher::TemplateWatcher(
 	Environment &env,
 	std::string template_dir,
 	TemplateWatchOptions options)
-	: impl_{make_shared<Impl>(env, move(template_dir), move(options))} {}
+	: impl_{std::make_shared<Impl>(env, std::move(template_dir), std::move(options))} {}
 
 TemplateWatcher::~TemplateWatcher() {
 	stop();
@@ -257,19 +257,19 @@ TemplateWatcher::~TemplateWatcher() {
 void TemplateWatcher::on_reload(
 	std::function<void()> cb) {
 	std::scoped_lock const lk{impl_->mtx};
-	impl_->on_reload_cb = move(cb);
+	impl_->on_reload_cb = std::move(cb);
 }
 
 void TemplateWatcher::on_reload_failed(
 	std::function<void(TemplateBuildReport const &)> cb) {
 	std::scoped_lock const lk{impl_->mtx};
-	impl_->on_reload_failed_cb = move(cb);
+	impl_->on_reload_failed_cb = std::move(cb);
 }
 
 void TemplateWatcher::on_watch_error(
 	std::function<void(std::exception_ptr)> cb) {
 	std::scoped_lock const lk{impl_->mtx};
-	impl_->on_watch_error_cb = move(cb);
+	impl_->on_watch_error_cb = std::move(cb);
 }
 
 void TemplateWatcher::start() {

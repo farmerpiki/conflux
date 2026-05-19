@@ -55,23 +55,23 @@ public:
 		s.mode = SlotMode::single;
 		s.zc_bytes = 0;
 		s.zc_seen_send = false;
-		s.fn = move(fn);
+		s.fn = std::move(fn);
 		return {slot, s.gen};
 	}
 	[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> reserve_multishot(
 		CompletionFn fn) {
-		auto [slot, gen] = reserve(move(fn));
+		auto [slot, gen] = reserve(std::move(fn));
 		slots_[slot].mode = SlotMode::multishot;
 		return {slot, gen};
 	}
 	[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> reserve_zc(
 		CompletionFn fn) {
-		auto [slot, gen] = reserve(move(fn));
+		auto [slot, gen] = reserve(std::move(fn));
 		slots_[slot].mode = SlotMode::zc_send;
 		return {slot, gen};
 	}
 	void dispatch(
-		// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
+		// NOLINT(bugprone-std::exception-escape) — callbacks are noexcept by contract
 		std::uint32_t slot,
 		std::uint32_t gen,
 		int res,
@@ -100,7 +100,7 @@ public:
 				res = s.zc_seen_send ? s.zc_bytes : -EIO;
 			}
 		}
-		auto fn = move(s.fn);
+		auto fn = std::move(s.fn);
 		s.fn = {};
 		s.in_use = false;
 		s.mode = SlotMode::single;
@@ -122,7 +122,7 @@ public:
 	}
 	// Returns false (and cancels nothing) if ZC notification slots are pending.
 	// Caller must drain the CQ until has_pending_zc_notifications() returns false, then retry.
-	[[nodiscard]] bool cancel_all() noexcept { // NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
+	[[nodiscard]] bool cancel_all() noexcept { // NOLINT(bugprone-std::exception-escape) — callbacks are noexcept by contract
 		if (has_pending_zc_notifications()) {
 			return false;
 		}
@@ -132,7 +132,7 @@ public:
 			if (!s.in_use) {
 				continue;
 			}
-			auto fn = move(s.fn);
+			auto fn = std::move(s.fn);
 			s.fn = {};
 			s.in_use = false;
 			s.mode = SlotMode::single;

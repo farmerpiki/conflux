@@ -29,8 +29,8 @@ struct FailedAuthBucket {
 
 struct FailedAuthStore {
 	explicit FailedAuthStore(
-		std::size_t max)
-		: max_(max) {}
+		std::size_t max_entries)
+		: max_(max_entries) {}
 
 	[[nodiscard]] FailedAuthBucket *find(
 		std::string_view key) noexcept {
@@ -55,7 +55,7 @@ struct FailedAuthStore {
 		auto owned = std::string{key};
 		order_.push_back(owned);
 		auto [it, _] = map_.emplace(
-			move(owned),
+			std::move(owned),
 			Entry{
 				.bucket = FailedAuthBucket{.failures = 0, .window_start = now},
 				.order_it = std::prev(order_.end()),
@@ -78,11 +78,11 @@ private:
 		using is_transparent = void;
 		std::size_t operator ()(
 			std::string_view s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 		std::size_t operator ()(
 			std::string const &s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 	};
 	struct Entry {
@@ -96,22 +96,22 @@ private:
 };
 
 struct FailedAuthState {
-	mutex mtx;
+	std::mutex mtx;
 	FailedAuthStore store;
 
 	explicit FailedAuthState(
-		std::size_t max)
-		: store(std::max<std::size_t>(max, 1)) {}
+		std::size_t max_attempts)
+		: store(std::max<std::size_t>(max_attempts, 1)) {}
 };
 
 std::optional<std::string_view> credentials_for_scheme(
 	std::string_view auth,
 	std::string_view scheme) noexcept {
 	if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (!conflux::http::ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth.substr(scheme.size() + 1);
 }
@@ -143,7 +143,7 @@ HttpResponse too_many_auth_attempts(
 	r.content_type = "text/plain; charset=utf-8";
 	r.set_text_body("Too Many Requests");
 	r.headers["Retry-After"] =
-		format("{}", std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
+		std::format("{}", std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
 	return r;
 }
 
@@ -158,22 +158,22 @@ HttpResponse too_many_auth_attempts(
 	std::string_view key,
 	Clock::time_point now) {
 	if (!basic_auth_limiter_enabled(opts)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	std::scoped_lock const lock{state.mtx};
 	auto *bucket = state.store.find(key);
 	if (bucket == nullptr) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket->window_start);
 	if (elapsed >= opts.failed_window) {
 		state.store.erase(key);
-		return nullopt;
+		return std::nullopt;
 	}
 	if (bucket->failures < opts.failed_attempts) {
-		return nullopt;
+		return std::nullopt;
 	}
-	return max(std::chrono::seconds{1}, opts.failed_window - elapsed);
+	return std::max(std::chrono::seconds{1}, opts.failed_window - elapsed);
 }
 
 void record_basic_auth_failure(
@@ -280,11 +280,11 @@ struct AuthThrottleState {
 		using is_transparent = void;
 		std::size_t operator ()(
 			std::string_view s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 		std::size_t operator ()(
 			std::string const &s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 	};
 	struct Entry {
@@ -292,15 +292,15 @@ struct AuthThrottleState {
 		std::list<std::string>::iterator order_it;
 	};
 
-	mutex mtx;
+	std::mutex mtx;
 	std::size_t max_subjects{1};
 	std::list<std::string> order;
 	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> buckets;
 	AuthThrottleMetrics metrics{};
 
 	explicit AuthThrottleState(
-		std::size_t max)
-		: max_subjects(std::max<std::size_t>(max, 1)) {}
+		std::size_t max_subjects_hint)
+		: max_subjects(std::max<std::size_t>(max_subjects_hint, 1)) {}
 
 	[[nodiscard]] AuthThrottleBucket *find(
 		std::string_view subject) noexcept {
@@ -326,7 +326,7 @@ struct AuthThrottleState {
 		auto owned = std::string{subject};
 		order.push_back(owned);
 		auto [it, _] = buckets.emplace(
-			move(owned),
+			std::move(owned),
 			Entry{
 				.bucket = AuthThrottleBucket{.failures = 0, .window_start = now},
 				.order_it = std::prev(order.end()),
@@ -414,21 +414,21 @@ template<typename Key>
 [[nodiscard]] std::optional<std::string> normalize_auth_throttle_key(
 	Key &&key) {
 	using K = std::remove_cvref_t<Key>;
-	if constexpr (same_as<K, std::optional<std::string>>) {
-		return forward<Key>(key);
-	} else if constexpr (same_as<K, std::string>) {
+	if constexpr (std::same_as<K, std::optional<std::string>>) {
+		return std::forward<Key>(key);
+	} else if constexpr (std::same_as<K, std::string>) {
 		if (key.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
-		return std::string{forward<Key>(key)};
-	} else if constexpr (same_as<K, std::string_view>) {
+		return std::string{std::forward<Key>(key)};
+	} else if constexpr (std::same_as<K, std::string_view>) {
 		if (key.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return std::string{key};
 	} else {
 		if (!key || key->empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return std::string{*key};
 	}
@@ -453,7 +453,7 @@ AuthFailureLimiter::AuthFailureLimiter()
 
 AuthFailureLimiter::AuthFailureLimiter(
 	AuthThrottleOptions opts)
-	: state_(make_shared<auth_detail::AuthThrottleState>(std::max<std::size_t>(opts.max_subjects, 1)))
+	: state_(std::make_shared<auth_detail::AuthThrottleState>(std::max<std::size_t>(opts.max_subjects, 1)))
 	, opts_(opts) {}
 
 AuthThrottleOutcome AuthFailureLimiter::before_attempt(
@@ -531,7 +531,7 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 export [[nodiscard]] std::string auth_throttle_key(
 	std::string_view scope,
 	std::string_view subject) {
-	return format("{}:{}", scope, subject);
+	return std::format("{}:{}", scope, subject);
 }
 
 export [[nodiscard]] std::string auth_throttle_remote_key(
@@ -549,7 +549,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 	std::string_view scope = "account") {
 	auto value = req.form[field];
 	if (value.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth_throttle_key(scope, value);
 }
@@ -560,7 +560,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 	std::string_view scope = "account") {
 	auto value = req.query[field];
 	if (value.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth_throttle_key(scope, value);
 }
@@ -570,11 +570,11 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	std::string_view scope = "api-token") {
 	auto credentials = auth_detail::credentials_for_scheme(req.headers["authorization"], "Bearer");
 	if (!credentials) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto token = trim(*credentials);
 	if (token.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto digest = sha256(to_unsigned_span(token));
 	return auth_throttle_key(scope, base64url_encode(digest));
@@ -590,9 +590,9 @@ Router::Middleware auth_throttle_middleware(
 	AuthFailureLimiter limiter,
 	KeySelector &&selector,
 	AuthThrottleMiddlewareOptions opts = {}) {
-	return [limiter = move(limiter),
-			selector = std::decay_t<KeySelector>(forward<KeySelector>(selector)),
-			opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) mutable -> HttpResponse {
+	return [limiter = std::move(limiter),
+			selector = std::decay_t<KeySelector>(std::forward<KeySelector>(selector)),
+			opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) mutable -> HttpResponse {
 		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
 		if (!key) {
 			return next(req);
@@ -613,9 +613,9 @@ export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
-	auto state = make_shared<auth_detail::FailedAuthState>(max<std::size_t>(opts.max_failed_clients, 1));
-	return [v = std::decay_t<Validator>(forward<Validator>(validator)),
-			opts = move(opts),
+	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
+	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
+			opts = std::move(opts),
 			state](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
@@ -627,20 +627,20 @@ Router::Middleware basic_auth_middleware(
 		auto credentials = auth_detail::credentials_for_scheme(auth, "Basic");
 		if (!credentials) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(format("Basic realm=\"{}\"", opts.realm));
+			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
 		auto decoded = base64_decode(*credentials);
 		auto colon = decoded.find(':');
 		if (colon == std::string::npos) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(format("Basic realm=\"{}\"", opts.realm));
+			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
 		std::string_view const sv{decoded};
 		std::string_view const user = sv.substr(0, colon);
 		std::string_view const pass = sv.substr(colon + 1);
 		if (!v(user, pass)) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(format("Basic realm=\"{}\"", opts.realm));
+			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
 		auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
 		return next(req);
@@ -651,7 +651,7 @@ export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	std::string realm = "Restricted") {
-	return basic_auth_middleware(forward<Validator>(validator), BasicAuthOptions{.realm = move(realm)});
+	return basic_auth_middleware(std::forward<Validator>(validator), BasicAuthOptions{.realm = std::move(realm)});
 }
 
 // Middleware factory: Bearer token Authentication guard.
@@ -659,7 +659,7 @@ Router::Middleware basic_auth_middleware(
 export template<typename Validator>
 Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
-	return [v = std::decay_t<Validator>(forward<Validator>(
+	return [v = std::decay_t<Validator>(std::forward<Validator>(
 				validator))](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto auth = req.headers["authorization"];
 		auto credentials = auth_detail::credentials_for_scheme(auth, "Bearer");

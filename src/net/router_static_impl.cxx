@@ -41,10 +41,10 @@ import conflux.net.config;
 				delete fd;
 			}
 		}};
-	auto rd = move(root_dir);
+	auto rd = std::move(root_dir);
 
 	StaticRouteRegistration routes{
-		.pattern = move(pattern),
+		.pattern = std::move(pattern),
 		.get = [rd, root_dir_fd, sopts = effective_sopts, &static_cache](HttpRequestView const &req) -> HttpResponse {
 			return handle_static_get_request(rd, *root_dir_fd, sopts, req, static_cache);
 		},

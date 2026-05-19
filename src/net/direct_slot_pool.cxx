@@ -7,7 +7,7 @@ import std;
 import conflux.types;
 import conflux.utils;
 // Internal — do not include from public headers.
-// Requires: std::uint8_t, std::uint32_t, V, expected, unexpected, eprintln, format in scope.
+// Requires: std::uint8_t, std::uint32_t, V, std::expected, std::unexpected, eprintln, std::format in scope.
 
 export enum class DirectSlotState : std::uint8_t {
 	free_slot,
@@ -35,70 +35,70 @@ export struct DirectSlotPool {
 			free_stack_.push_back(i);
 		}
 	}
-	[[nodiscard]] expected<std::uint32_t, DirectSlotError> acquire() noexcept {
+	[[nodiscard]] std::expected<std::uint32_t, DirectSlotError> acquire() noexcept {
 		if (free_stack_.empty()) {
-			return unexpected(DirectSlotError::exhausted);
+			return std::unexpected(DirectSlotError::exhausted);
 		}
 		std::uint32_t const slot = free_stack_.back();
 		remove_from_free(slot);
 		set_state(slot, DirectSlotState::leased_empty);
 		return slot;
 	}
-	[[nodiscard]] expected<void, DirectSlotError> release_empty(
+	[[nodiscard]] std::expected<void, DirectSlotError> release_empty(
 		std::uint32_t slot) noexcept {
 		if (slot >= capacity_) {
-			return unexpected(DirectSlotError::out_of_range);
+			return std::unexpected(DirectSlotError::out_of_range);
 		}
 		if (slot_state(slot) != DirectSlotState::leased_empty) {
-			return unexpected(DirectSlotError::bad_state);
+			return std::unexpected(DirectSlotError::bad_state);
 		}
 		set_state(slot, DirectSlotState::free_slot);
 		push_to_free(slot);
 		return {};
 	}
-	[[nodiscard]] expected<void, DirectSlotError> install_os_fd(
+	[[nodiscard]] std::expected<void, DirectSlotError> install_os_fd(
 		std::uint32_t slot,
 		int) noexcept {
 		if (slot >= capacity_) {
-			return unexpected(DirectSlotError::out_of_range);
+			return std::unexpected(DirectSlotError::out_of_range);
 		}
 		if (slot_state(slot) != DirectSlotState::free_slot) {
-			return unexpected(DirectSlotError::bad_state);
+			return std::unexpected(DirectSlotError::bad_state);
 		}
 		remove_from_free(slot);
 		set_state(slot, DirectSlotState::populated);
 		return {};
 	}
-	[[nodiscard]] expected<void, DirectSlotError> adopt_kernel_allocated(
+	[[nodiscard]] std::expected<void, DirectSlotError> adopt_kernel_allocated(
 		std::uint32_t slot) noexcept {
 		if (slot >= capacity_) {
-			return unexpected(DirectSlotError::out_of_range);
+			return std::unexpected(DirectSlotError::out_of_range);
 		}
 		if (slot_state(slot) != DirectSlotState::free_slot) {
-			return unexpected(DirectSlotError::bad_state);
+			return std::unexpected(DirectSlotError::bad_state);
 		}
 		remove_from_free(slot);
 		set_state(slot, DirectSlotState::populated);
 		return {};
 	}
-	[[nodiscard]] expected<void, DirectSlotError> mark_closing(
+	[[nodiscard]] std::expected<void, DirectSlotError> mark_closing(
 		std::uint32_t slot) noexcept {
 		if (slot >= capacity_) {
-			return unexpected(DirectSlotError::out_of_range);
+			return std::unexpected(DirectSlotError::out_of_range);
 		}
 		if (slot_state(slot) != DirectSlotState::populated) {
-			return unexpected(DirectSlotError::bad_state);
+			return std::unexpected(DirectSlotError::bad_state);
 		}
 		set_state(slot, DirectSlotState::closing);
 		return {};
 	}
-	[[nodiscard]] expected<void, DirectSlotError> release_closed(
+	[[nodiscard]] std::expected<void, DirectSlotError> release_closed(
 		std::uint32_t slot) noexcept {
 		if (slot >= capacity_) {
-			return unexpected(DirectSlotError::out_of_range);
+			return std::unexpected(DirectSlotError::out_of_range);
 		}
 		if (slot_state(slot) != DirectSlotState::closing) {
-			return unexpected(DirectSlotError::bad_state);
+			return std::unexpected(DirectSlotError::bad_state);
 		}
 		push_to_free(slot);
 		set_state(slot, DirectSlotState::free_slot);
@@ -108,12 +108,12 @@ export struct DirectSlotPool {
 		std::uint32_t slot,
 		int close_res) {
 		if (slot >= capacity_) {
-			eprintln(format("DirectSlotPool::poison: slot={} out of range close_res={}", slot, close_res));
+			eprintln(std::format("DirectSlotPool::poison: slot={} out of range close_res={}", slot, close_res));
 			return;
 		}
 		auto const prev = slot_state(slot);
 		if (prev == DirectSlotState::free_slot) {
-			eprintln(format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}", slot, close_res));
+			eprintln(std::format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}", slot, close_res));
 			return;
 		}
 		assert(free_pos_[slot] == ~std::uint32_t{});
@@ -121,7 +121,7 @@ export struct DirectSlotPool {
 			set_state(slot, DirectSlotState::poisoned);
 			++poisoned_count_;
 		}
-		eprintln(format(
+		eprintln(std::format(
 			"DirectSlotPool::poison: slot={} close_res={} previous_state={}",
 			slot,
 			close_res,

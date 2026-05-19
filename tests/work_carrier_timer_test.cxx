@@ -165,7 +165,7 @@ TEST_CASE(
 
 	{
 		conflux::work::carrier::LaneTimerScope<> s1{svc, deadline, [&fired] { fired = true; }};
-		auto s2 = move(s1);
+		auto s2 = std::move(s1);
 		// s1 empty, s2 holds scope; destroy s2 at end of block → cancels
 	}
 

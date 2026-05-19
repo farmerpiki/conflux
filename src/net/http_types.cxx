@@ -100,7 +100,7 @@ public:
 				return std::string_view{v};
 			}
 		}
-		return nullopt;
+		return std::nullopt;
 	}
 	template<typename Self>
 	[[nodiscard]] std::size_t count(
@@ -212,12 +212,12 @@ public:
 	void emplace_back(
 		std::string k,
 		std::string v) {
-		data_.emplace_back(move(k), move(v));
+		data_.emplace_back(std::move(k), std::move(v));
 	}
 	void append(
 		std::string k,
 		std::string v) {
-		emplace_back(move(k), move(v));
+		emplace_back(std::move(k), std::move(v));
 	}
 	void set(
 		std::string key,
@@ -231,15 +231,15 @@ public:
 					continue;
 				}
 				found = true;
-				field.second = move(field_value);
+				field.second = std::move(field_value);
 			}
 			if (write != read) {
-				data_[write] = move(field);
+				data_[write] = std::move(field);
 			}
 			++write;
 		}
 		if (!found) {
-			data_.emplace_back(move(key), move(field_value));
+			data_.emplace_back(std::move(key), std::move(field_value));
 			return;
 		}
 		data_.resize(write);
@@ -258,7 +258,7 @@ export class HttpFieldsView : public HttpFieldsLookupAccessors {
 	friend struct HttpFieldsLookupAccessors;
 	struct OwnedStorage {
 		std::atomic<std::size_t> refs{1};
-		deque<std::string> values;
+		std::deque<std::string> values;
 	};
 	std::vector<std::pair<std::string_view, std::string_view>> data_;
 	OwnedStorage *owned_storage_{};
@@ -266,12 +266,12 @@ export class HttpFieldsView : public HttpFieldsLookupAccessors {
 	static void retain(
 		OwnedStorage *storage) noexcept {
 		if (storage != nullptr) {
-			storage->refs.fetch_add(1, memory_order_relaxed);
+			storage->refs.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
 	static void release(
 		OwnedStorage *storage) noexcept {
-		if (storage != nullptr && storage->refs.fetch_sub(1, memory_order_acq_rel) == 1) {
+		if (storage != nullptr && storage->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
 			delete storage;
 		}
 	}
@@ -280,7 +280,7 @@ export class HttpFieldsView : public HttpFieldsLookupAccessors {
 		if (owned_storage_ == nullptr) {
 			owned_storage_ = new OwnedStorage;
 		}
-		owned_storage_->values.push_back(move(owned_value));
+		owned_storage_->values.push_back(std::move(owned_value));
 		return owned_storage_->values.back();
 	}
 
@@ -305,9 +305,9 @@ public:
 	}
 	HttpFieldsView(
 		HttpFieldsView &&other) noexcept
-		: data_(move(other.data_))
-		, owned_storage_(exchange(other.owned_storage_, nullptr))
-		, case_insensitive_(exchange(other.case_insensitive_, false)) {}
+		: data_(std::move(other.data_))
+		, owned_storage_(std::exchange(other.owned_storage_, nullptr))
+		, case_insensitive_(std::exchange(other.case_insensitive_, false)) {}
 	~HttpFieldsView() { release(owned_storage_); }
 	HttpFieldsView &operator =(
 		HttpFieldsView const &other) {
@@ -327,9 +327,9 @@ public:
 			return *this;
 		}
 		release(owned_storage_);
-		data_ = move(other.data_);
-		owned_storage_ = exchange(other.owned_storage_, nullptr);
-		case_insensitive_ = exchange(other.case_insensitive_, false);
+		data_ = std::move(other.data_);
+		owned_storage_ = std::exchange(other.owned_storage_, nullptr);
+		case_insensitive_ = std::exchange(other.case_insensitive_, false);
 		return *this;
 	}
 	void emplace_back(
@@ -340,12 +340,12 @@ public:
 	void emplace_back_owned(
 		std::string k,
 		std::string v) {
-		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
+		data_.emplace_back(store_owned(std::move(k)), store_owned(std::move(v)));
 	}
 	void emplace_back_owned_value(
 		std::string_view k,
 		std::string v) {
-		data_.emplace_back(k, store_owned(move(v)));
+		data_.emplace_back(k, store_owned(std::move(v)));
 	}
 	void clear() noexcept {
 		data_.clear();
@@ -446,7 +446,7 @@ struct Url {
 	std::string path{"/"};
 	std::string query{}; // raw, without leading '?'
 
-	[[nodiscard]] static expected<Url, UrlError> parse(std::string_view input);
+	[[nodiscard]] static std::expected<Url, UrlError> parse(std::string_view input);
 	[[nodiscard]] std::string str() const {
 		std::string out;
 		out.reserve(scheme.size() + 3 + host.size() + 7 + path.size() + query.size() + 1);
@@ -457,8 +457,8 @@ struct Url {
 		if (!default_port) {
 			out += ':';
 			std::array<char, 5> port_buf{};
-			auto const [ptr, ec] = to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
-			if (ec == errc{}) {
+			auto const [ptr, ec] = std::to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
+			if (ec == std::errc{}) {
 				out.append(port_buf.data(), static_cast<std::size_t>(ptr - port_buf.data()));
 			}
 		}
@@ -519,19 +519,19 @@ struct Url {
 		append_encoded(value);
 	}
 };
-expected<Url, UrlError> Url::parse(
+std::expected<Url, UrlError> Url::parse(
 	std::string_view input) {
 	if (input.empty()) {
-		return unexpected(UrlError{UrlErrorKind::empty, "empty URL"});
+		return std::unexpected(UrlError{UrlErrorKind::empty, "empty URL"});
 	}
 	constexpr std::size_t kMaxUrl = 8192;
 	if (input.size() > kMaxUrl) {
-		return unexpected(UrlError{UrlErrorKind::too_long, "URL exceeds 8192 bytes"});
+		return std::unexpected(UrlError{UrlErrorKind::too_long, "URL exceeds 8192 bytes"});
 	}
 
 	auto const scheme_end = input.find("://");
 	if (scheme_end == std::string_view::npos) {
-		return unexpected(UrlError{UrlErrorKind::missing_scheme, "missing '://'"});
+		return std::unexpected(UrlError{UrlErrorKind::missing_scheme, "missing '://'"});
 	}
 
 	Url url;
@@ -541,38 +541,38 @@ expected<Url, UrlError> Url::parse(
 	}
 
 	if (url.scheme != "http" && url.scheme != "https") {
-		return unexpected(UrlError{UrlErrorKind::unsupported_scheme, format("unsupported scheme '{}'", url.scheme)});
+		return std::unexpected(UrlError{UrlErrorKind::unsupported_scheme, std::format("unsupported scheme '{}'", url.scheme)});
 	}
 	url.port = (url.scheme == "https") ? std::uint16_t{443} : std::uint16_t{80};
 
 	auto rest = input.substr(scheme_end + 3);
 	if (rest.empty()) {
-		return unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
+		return std::unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
 	}
 
 	auto const authority_end = rest.find_first_of("/?");
 	auto const authority = (authority_end == std::string_view::npos) ? rest : rest.substr(0, authority_end);
 
 	if (authority.empty()) {
-		return unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
+		return std::unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
 	}
 
 	if (authority.starts_with('[')) {
 		auto const bracket_end = authority.find(']');
 		if (bracket_end == std::string_view::npos) {
-			return unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
+			return std::unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
 		}
 		url.host = std::string{authority.substr(0, bracket_end + 1)};
 		auto const after = authority.substr(bracket_end + 1);
 		if (!after.empty()) {
 			if (after[0] != ':') {
-				return unexpected(UrlError{UrlErrorKind::invalid_port, "unexpected character after ']'"});
+				return std::unexpected(UrlError{UrlErrorKind::invalid_port, "std::unexpected character after ']'"});
 			}
 			auto const port_sv = after.substr(1);
 			std::uint16_t p = 0;
-			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
-			if (ec != errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
-				return unexpected(UrlError{UrlErrorKind::invalid_port, format("invalid port '{}'", port_sv)});
+			auto const [ptr, ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
+			if (ec != std::errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
+				return std::unexpected(UrlError{UrlErrorKind::invalid_port, std::format("invalid port '{}'", port_sv)});
 			}
 			url.port = p;
 		}
@@ -584,16 +584,16 @@ expected<Url, UrlError> Url::parse(
 			url.host = std::string{authority.substr(0, colon)};
 			auto const port_sv = authority.substr(colon + 1);
 			std::uint16_t p = 0;
-			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
-			if (ec != errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
-				return unexpected(UrlError{UrlErrorKind::invalid_port, format("invalid port '{}'", port_sv)});
+			auto const [ptr, ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
+			if (ec != std::errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
+				return std::unexpected(UrlError{UrlErrorKind::invalid_port, std::format("invalid port '{}'", port_sv)});
 			}
 			url.port = p;
 		}
 	}
 
 	if (url.host.empty()) {
-		return unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
+		return std::unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
 	}
 
 	if (authority_end == std::string_view::npos) {

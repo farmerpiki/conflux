@@ -47,14 +47,14 @@ int main() {
 
 		Params pa;
 		pa.add(std::string_view{"alpha"});
-		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
+		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pa)));
 		std::println("a: {}", ra[0].as<std::string_view>(0));
 
 		Params pb;
 		pb.add(std::string_view{"beta"});
-		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
+		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pb)));
 		std::println("b: {}", rb[0].as<std::string_view>(0));
-	} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 
 	pool->close();
 	::io_uring_queue_exit(&ring);

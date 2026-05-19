@@ -1,5 +1,5 @@
 // Cookie signing: HMAC-SHA256 in pure C++ (no OpenSSL dep).
-// Signed format: "value.BASE64URL(HMAC-SHA256(secret, value))".
+// Signed std::format: "value.BASE64URL(HMAC-SHA256(secret, value))".
 module;
 #include <cstdint>
 
@@ -41,11 +41,11 @@ export std::string sign_cookie(
 	out += mac;
 	return out;
 }
-export expected<std::string, std::string> sign_cookie(
+export std::expected<std::string, std::string> sign_cookie(
 	std::string_view value,
 	ResolvedSecretRotation const &secrets) {
 	if (auto valid = validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
-		return unexpected{valid.error()};
+		return std::unexpected{valid.error()};
 	}
 	return sign_cookie(value, secrets.active);
 }
@@ -55,12 +55,12 @@ export std::optional<std::string> verify_cookie(
 	std::string_view secret) {
 	auto dot = signed_value.rfind('.');
 	if (dot == std::string_view::npos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
 	if (!signed_value_matches(value, sig, secret)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return std::string{value};
 }
@@ -69,7 +69,7 @@ export std::optional<std::string> verify_cookie(
 	ResolvedSecretRotation const &secrets) {
 	auto dot = signed_value.rfind('.');
 	if (dot == std::string_view::npos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
@@ -81,7 +81,7 @@ export std::optional<std::string> verify_cookie(
 			return std::string{value};
 		}
 	}
-	return nullopt;
+	return std::nullopt;
 }
 export struct CookieSigningOptions {
 	ResolvedSecretRotation secrets{};
@@ -89,27 +89,27 @@ export struct CookieSigningOptions {
 	bool strip_invalid{true};
 };
 
-export [[nodiscard]] expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
+export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	AuthSecretsConfig const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
 	auto secrets = resolve_secret_rotation(cfg.cookie, "cookie", required);
 	if (!secrets) {
-		return unexpected{secrets.error()};
+		return std::unexpected{secrets.error()};
 	}
-	base.secrets = move(*secrets);
+	base.secrets = std::move(*secrets);
 	return base;
 }
 
-export [[nodiscard]] expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
+export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	Config const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
-	return cookie_signing_options_from_config(cfg.auth_secrets, move(base), required);
+	return cookie_signing_options_from_config(cfg.auth_secrets, std::move(base), required);
 }
 
 // Middleware: for every incoming cookie, attempt to verify its signature.
-// Cookies in "value.SIG" format are verified; on success the plain value is injected back.
+// Cookies in "value.SIG" std::format are verified; on success the plain value is injected back.
 // Cookies without a "." are passed through unchanged (not all cookies are signed).
 // On failure: if strip_invalid=true the cookie is cleared; otherwise it is passed as-is.
 export Router::Middleware cookie_signing_middleware(
@@ -117,7 +117,7 @@ export Router::Middleware cookie_signing_middleware(
 	if (auto valid = validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes); !valid) {
 		throw std::invalid_argument{valid.error()};
 	}
-	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {
@@ -125,7 +125,7 @@ export Router::Middleware cookie_signing_middleware(
 			} // unsigned cookie
 			auto plain = verify_cookie(value, opts.secrets);
 			if (plain) {
-				value = move(*plain);
+				value = std::move(*plain);
 			} else if (opts.strip_invalid) {
 				value.clear();
 			}

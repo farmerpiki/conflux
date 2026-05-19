@@ -49,7 +49,7 @@ TEST_CASE(
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
 	app.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	auto server = move(app).try_server({.port = 0});
+	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 }
 
@@ -78,7 +78,7 @@ TEST_CASE(
 		[](HttpRequest const &, RequestContext const &) -> conflux::work::root::Task<HttpResponse> {
 			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
 			(void)source.try_set_value(conflux::work::root::Success<HttpResponse>{HttpResponse::text("queued")});
-			return move(task);
+			return std::move(task);
 		});
 	CHECK(&ctx_added == &app);
 	CHECK(app.router().has_context_routes());
@@ -108,15 +108,15 @@ void ensure_server() {
 			return HttpResponse::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 		});
 		router.get("/hello/{name}", [](HttpRequest const &req) {
-			return HttpResponse::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+			return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 		});
 		router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 		// Pools captured by value so their lifetime ties to the router/server.
 		// Avoids atexit race: a function-local static here would destruct
 		// before the test server registry destructs (LIFO), while the ring
-		// thread can still be enqueueing into the pool.
-		auto defer_ok_pool = make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
-		auto defer_full_pool = make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+		// std::thread can still be enqueueing into the pool.
+		auto defer_ok_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
 		defer_full_pool->stop();
 		router.get("/api/defer-ok", [defer_ok_pool](HttpRequest const &) {
 			return conflux::http::defer(defer_ok_pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
@@ -130,7 +130,7 @@ void ensure_server() {
 			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
 			(void)source.try_set_value(
 				conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
-			return move(task);
+			return std::move(task);
 		});
 		router.get("/api/echo-header", [](HttpRequest const &req) {
 			auto v = req.headers["x-test-header"];
@@ -167,7 +167,7 @@ void ensure_server() {
 				return HttpResponse::not_found("file");
 			}
 			auto const &f = req.files[0];
-			return HttpResponse::json(format(
+			return HttpResponse::json(std::format(
 				R"({{"name":"{}","filename":"{}","content_type":"{}","size":{}}})",
 				f.name,
 				f.filename,
@@ -176,7 +176,7 @@ void ensure_server() {
 		});
 		router.post("/api/multipart-counts", [](HttpRequestView const &req) {
 			return HttpResponse::json(
-				format(R"({{"fields":{},"files":{}}})", req.form.values("field").size(), req.files.size()));
+				std::format(R"({{"fields":{},"files":{}}})", req.form.values("field").size(), req.files.size()));
 		});
 		router.get("/api/with-header", [](HttpRequest const &) {
 			auto r = HttpResponse::text("ok");
@@ -188,13 +188,13 @@ void ensure_server() {
 		router.get("/api/redirect-301", [](HttpRequest const &) { return HttpResponse::redirect("/api/ping", 301); });
 		// PUT / PATCH / DELETE / OPTIONS routes.
 		router.put("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
+			return HttpResponse::json(std::format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
 		});
 		router.patch("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(format(R"({{"method":"PATCH","id":"{}"}})", req.params["id"]));
+			return HttpResponse::json(std::format(R"({{"method":"PATCH","id":"{}"}})", req.params["id"]));
 		});
 		router.del("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(format(R"({{"method":"DELETE","id":"{}"}})", req.params["id"]));
+			return HttpResponse::json(std::format(R"({{"method":"DELETE","id":"{}"}})", req.params["id"]));
 		});
 		router.options("/api/resource", [](HttpRequest const &) {
 			auto r = HttpResponse::text("");
@@ -212,7 +212,7 @@ void ensure_server() {
 			});
 			g.get("/status", [](HttpRequest const &) { return HttpResponse::json(R"({"v":"2","status":"ok"})"); });
 			g.get("/item/{id}", [](HttpRequest const &req) {
-				return HttpResponse::json(format(R"({{"id":"{}"}})", req.params["id"]));
+				return HttpResponse::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 			});
 		});
 		// Route outside the group — must NOT have X-Api-Version header.
@@ -243,13 +243,13 @@ void ensure_server() {
 		});
 		// Named-param SSE endpoint.
 		router.sse("/events/{name}", [](HttpRequest const &req, std::shared_ptr<SseChannel> const &ch) {
-			auto _ = ch->send(format("data: hello {}\n\n", req.params["name"]));
+			auto _ = ch->send(std::format("data: hello {}\n\n", req.params["name"]));
 			ch->close();
 		});
 
-		// Create server on heap so port() can be queried from this thread
-		// while run() blocks on the worker thread.
-		g_test_port = test_servers().start(cfg, move(router));
+		// Create server on heap so port() can be queried from this std::thread
+		// while run() blocks on the worker std::thread.
+		g_test_port = test_servers().start(cfg, std::move(router));
 	});
 }
 void ensure_redirect_follow_servers() {
@@ -259,18 +259,18 @@ void ensure_redirect_follow_servers() {
 
 		Router target;
 		target.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(format(
+			return HttpResponse::text(std::format(
 				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
 				std::string{req.headers["authorization"]},
 				std::string{req.headers["cookie"]},
 				std::string{req.headers["proxy-authorization"]},
 				std::string{req.headers["host"]}));
 		});
-		g_redirect_follow_target_port = test_servers().start(cfg, move(target));
+		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
 
 		Router source;
 		source.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(format(
+			return HttpResponse::text(std::format(
 				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
 				std::string{req.headers["authorization"]},
 				std::string{req.headers["cookie"]},
@@ -279,12 +279,12 @@ void ensure_redirect_follow_servers() {
 		});
 		source.get("/same", [](HttpRequest const &) { return HttpResponse::redirect("/echo-headers"); });
 		source.get("/cross", [](HttpRequest const &) {
-			return HttpResponse::redirect(format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
+			return HttpResponse::redirect(std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
 		source.get("/loop", [](HttpRequest const &) { return HttpResponse::redirect("/loop"); });
 		source.get("/async-start", [](HttpRequest const &) { return HttpResponse::redirect("/async-final"); });
 		source.get("/async-final", [](HttpRequest const &) { return HttpResponse::text("async-ok"); });
-		g_redirect_follow_source_port = test_servers().start(cfg, move(source));
+		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
 
 		Router front;
 		auto popts = ProxyOptions{
@@ -298,17 +298,17 @@ void ensure_redirect_follow_servers() {
 				auto result = co_await async_send(
 					client,
 					ctx.ring,
-					chttp::ClientRequest::get(format("http://127.0.0.1:{}/async-start", popts.upstream_port))
+					chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/async-start", popts.upstream_port))
 						.follow_redirects(2));
 				if (!result) {
-					co_return HttpResponse::bad_gateway(format(
+					co_return HttpResponse::bad_gateway(std::format(
 						"redirect follow failed: {} ({})",
 						result.error().message,
 						static_cast<int>(result.error().kind)));
 				}
-				co_return HttpResponse::text(move(result->body));
+				co_return HttpResponse::text(std::move(result->body));
 			});
-		g_redirect_follow_async_port = test_servers().start(cfg, move(front));
+		g_redirect_follow_async_port = test_servers().start(cfg, std::move(front));
 	});
 }
 // Connect, send a GET, parse Content-Length, return the full response.
@@ -349,7 +349,7 @@ std::string http_get_sse(
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
-	auto req_str = format("GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n", path);
+	auto req_str = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n", path);
 	(void)client.send(req_str);
 	client.set_recv_timeout(std::chrono::seconds{5});
 	return client.read_until_close();
@@ -364,11 +364,11 @@ std::pair<std::string, std::string> http_two_gets(
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
-	auto r1_str = format("GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n", path1);
+	auto r1_str = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n", path1);
 	(void)client.send(r1_str);
 	auto resp1 = client.read_one_response();
 
-	auto r2_str = format("GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n", path2);
+	auto r2_str = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n", path2);
 	(void)client.send(r2_str);
 	auto resp2 = client.read_one_response();
 
@@ -381,7 +381,7 @@ bool server_closed_after(
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
-	auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\n{}\r\n", path, extra_headers);
+	auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\n{}\r\n", path, extra_headers);
 	(void)client.send(req);
 	(void)client.read_one_response(); // discard response
 
@@ -443,7 +443,7 @@ void ensure_compress_server() {
 			r.set_text_body(std::string(512, '\x00'));
 			return r;
 		});
-		g_compress_port = start_mw_server(mw_config(), move(router));
+		g_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_cors_compress_port = 0;
@@ -454,7 +454,7 @@ void ensure_cors_compress_server() {
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
 		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
-		g_cors_compress_port = start_mw_server(mw_config(), move(router));
+		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -470,7 +470,7 @@ void ensure_security_server() {
 		Router router;
 		router.use(security_headers_middleware(sopts));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_security_port = start_mw_server(mw_config(), move(router));
+		g_security_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -489,7 +489,7 @@ void ensure_cors_server() {
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
 		});
-		g_cors_port = start_mw_server(mw_config(), move(router));
+		g_cors_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_cors_cred_port = 0;
@@ -503,7 +503,7 @@ void ensure_cors_cred_server() {
 			.allow_credentials = true,
 		}));
 		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-		g_cors_cred_port = start_mw_server(mw_config(), move(router));
+		g_cors_cred_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_cors_wildcard_port = 0;
@@ -513,7 +513,7 @@ void ensure_cors_wildcard_server() {
 		Router router;
 		router.use(cors_middleware()); // default: allowed_origins={"*"}, no credentials
 		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-		g_cors_wildcard_port = start_mw_server(mw_config(), move(router));
+		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -528,7 +528,7 @@ void ensure_auth_server() {
 		router.use(basic_auth_middleware(
 			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-		g_auth_port = start_mw_server(mw_config(), move(router));
+		g_auth_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_bearer_port = 0;
@@ -538,7 +538,7 @@ void ensure_bearer_server() {
 		Router router;
 		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-		g_bearer_port = start_mw_server(mw_config(), move(router));
+		g_bearer_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -553,7 +553,7 @@ void ensure_rate_server() {
 		Router router;
 		router.use(rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_rate_port = start_mw_server(mw_config(), move(router));
+		g_rate_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_rate_burst_port = 0;
@@ -564,7 +564,7 @@ void ensure_rate_burst_server() {
 		// 1 base + 2 burst = 3 total capacity
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_rate_burst_port = start_mw_server(mw_config(), move(router));
+		g_rate_burst_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 void ensure_rate_zero_clients_server() {
@@ -573,7 +573,7 @@ void ensure_rate_zero_clients_server() {
 		Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_rate_zero_clients_port = start_mw_server(mw_config(), move(router));
+		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -591,7 +591,7 @@ void ensure_forwarded_server() {
 		router.use(forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
 		// Echo the remote_addr so tests can inspect it.
 		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
-		g_fwd_port = start_mw_server(mw_config(), move(router));
+		g_fwd_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 void ensure_forwarded_strict_empty_server() {
@@ -601,7 +601,7 @@ void ensure_forwarded_strict_empty_server() {
 		// Default strict_mode=true, empty trusted_proxies → no peer is trusted.
 		router.use(forwarded_middleware({}));
 		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
-		g_fwd_strict_empty_port = start_mw_server(mw_config(), move(router));
+		g_fwd_strict_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 void ensure_forwarded_lax_empty_server() {
@@ -611,7 +611,7 @@ void ensure_forwarded_lax_empty_server() {
 		// Legacy trust-all-on-empty behaviour.
 		router.use(forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
 		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
-		g_fwd_lax_empty_port = start_mw_server(mw_config(), move(router));
+		g_fwd_lax_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -628,7 +628,7 @@ void ensure_rid_server() {
 		router.get("/", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["x-request-id"]});
 		});
-		g_rid_port = start_mw_server(mw_config(), move(router));
+		g_rid_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -647,7 +647,7 @@ void ensure_ipallow_server() {
 			.cidrs = {"127.0.0.0/8"},
 		}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_ipallow_port = start_mw_server(mw_config(), move(router));
+		g_ipallow_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 void ensure_ipblock_server() {
@@ -660,7 +660,7 @@ void ensure_ipblock_server() {
 			.cidrs = {"127.0.0.1/32"},
 		}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_ipblock_port = start_mw_server(mw_config(), move(router));
+		g_ipblock_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_ipallow_block_port = 0;
@@ -674,7 +674,7 @@ void ensure_ipallow_block_server() {
 			.cidrs = {"192.168.0.0/24"},
 		}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_ipallow_block_port = start_mw_server(mw_config(), move(router));
+		g_ipallow_block_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_ipblock_pass_port = 0;
@@ -688,7 +688,7 @@ void ensure_ipblock_pass_server() {
 			.cidrs = {"10.0.0.0/8"},
 		}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_ipblock_pass_port = start_mw_server(mw_config(), move(router));
+		g_ipblock_pass_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -728,7 +728,7 @@ void ensure_cache_server() {
 			r.headers["Cache-Control"] = "max-age=999";
 			return r;
 		});
-		g_cache_port = start_mw_server(mw_config(), move(router));
+		g_cache_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -743,7 +743,7 @@ void ensure_ts_remove_server() {
 		Router router;
 		router.use(trailing_slash_middleware()); // default: remove
 		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
-		g_ts_remove_port = start_mw_server(mw_config(), move(router));
+		g_ts_remove_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 void ensure_ts_add_server() {
@@ -752,7 +752,7 @@ void ensure_ts_add_server() {
 		Router router;
 		router.use(trailing_slash_middleware({.mode = TrailingSlashMode::add}));
 		router.get("/bar/", [](HttpRequest const &) { return HttpResponse::text("bar"); });
-		g_ts_add_port = start_mw_server(mw_config(), move(router));
+		g_ts_add_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_ts_308_port = 0;
@@ -762,7 +762,7 @@ void ensure_ts_308_server() {
 		Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 308}));
 		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
-		g_ts_308_port = start_mw_server(mw_config(), move(router));
+		g_ts_308_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 std::uint16_t g_ts_307_port = 0;
@@ -772,7 +772,7 @@ void ensure_ts_307_server() {
 		Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 307}));
 		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
-		g_ts_307_port = start_mw_server(mw_config(), move(router));
+		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // POST to an explicit port with extra headers (for CSRF token etc.).
@@ -842,7 +842,7 @@ void ensure_redirect_server() {
         }));
 		router.get("/new", [](HttpRequest const &) { return HttpResponse::text("new"); });
 		router.get("/api/v2/users", [](HttpRequest const &) { return HttpResponse::text("v2-users"); });
-		g_redirect_port = start_mw_server(mw_config(), move(router));
+		g_redirect_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -857,7 +857,7 @@ void ensure_csrf_server() {
 		router.use(csrf_middleware());
 		router.get("/page", [](HttpRequest const &) { return HttpResponse::html("<form>"); });
 		router.post("/submit", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		g_csrf_port = start_mw_server(mw_config(), move(router));
+		g_csrf_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -872,7 +872,7 @@ void ensure_etag_server() {
 		router.use(etag_middleware());
 		router.get("/content", [](HttpRequest const &) { return HttpResponse::text("hello world"); });
 		router.get("/empty", [](HttpRequest const &) { return HttpResponse::text(""); });
-		g_etag_port = start_mw_server(mw_config(), move(router));
+		g_etag_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -891,11 +891,11 @@ void ensure_resp_cache_server() {
 		}));
 		router.get("/counted", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(format("visit {}", n));
+			return HttpResponse::text(std::format("visit {}", n));
 		});
 		router.post("/counted", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(format("post {}", n));
+			return HttpResponse::text(std::format("post {}", n));
 		});
 		router.get("/no-store", [](HttpRequest const &) {
 			auto r = HttpResponse::text("uncacheable");
@@ -904,43 +904,43 @@ void ensure_resp_cache_server() {
 		});
 		router.get("/vary", [](HttpRequest const &req) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("{} enc={}", n, req.headers["accept-encoding"]));
+			auto r = HttpResponse::text(std::format("{} enc={}", n, req.headers["accept-encoding"]));
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
 		});
 		router.get("/vary-star", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("star {}", n));
+			auto r = HttpResponse::text(std::format("star {}", n));
 			r.headers["Vary"] = "*";
 			return r;
 		});
 		router.get("/private", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("priv {}", n));
+			auto r = HttpResponse::text(std::format("priv {}", n));
 			r.headers["Cache-Control"] = "private";
 			return r;
 		});
 		router.get("/max-age-zero", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("zero {}", n));
+			auto r = HttpResponse::text(std::format("zero {}", n));
 			r.headers["Cache-Control"] = "max-age=0";
 			return r;
 		});
 		router.get("/no-cache", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("nocache {}", n));
+			auto r = HttpResponse::text(std::format("nocache {}", n));
 			r.headers["Cache-Control"] = "no-cache";
 			return r;
 		});
 		router.get("/cache-control-substrings", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("substrings {}", n));
+			auto r = HttpResponse::text(std::format("substrings {}", n));
 			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
 			return r;
 		});
 		router.get("/set-cookie-resp", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(format("cookie {}", n));
+			auto r = HttpResponse::text(std::format("cookie {}", n));
 			r.set_cookie("sid", "abc");
 			return r;
 		});
@@ -950,9 +950,9 @@ void ensure_resp_cache_server() {
 		});
 		router.get("/query", [](HttpRequest const &req) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(format("{} value={}", n, req.query["value"]));
+			return HttpResponse::text(std::format("{} value={}", n, req.query["value"]));
 		});
-		g_resp_cache_port = start_mw_server(mw_config(), move(router));
+		g_resp_cache_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -971,7 +971,7 @@ void ensure_slog_server() {
 		Router router;
 		router.use(structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
 		router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-		g_slog_port = start_mw_server(mw_config(), move(router));
+		g_slog_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -988,7 +988,7 @@ void ensure_trace_server() {
 		router.get("/", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["traceparent"]});
 		});
-		g_trace_port = start_mw_server(mw_config(), move(router));
+		g_trace_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
@@ -1012,14 +1012,14 @@ void ensure_vhost_server() {
 		Router def_router;
 		def_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("default"); });
 
-		auto vhr = make_shared<VHostRouter>();
-		vhr->add("api.example.com", move(api_router));
-		vhr->add("web.example.com", move(web_router));
-		vhr->set_default(move(def_router));
+		auto vhr = std::make_shared<VHostRouter>();
+		vhr->add("api.example.com", std::move(api_router));
+		vhr->add("web.example.com", std::move(web_router));
+		vhr->set_default(std::move(def_router));
 
 		Router main;
 		main.use([vhr](HttpRequest const &req, Router::Handler const &) { return vhr->dispatch(req); });
-		g_vhost_port = start_mw_server(mw_config(), move(main));
+		g_vhost_port = start_mw_server(mw_config(), std::move(main));
 	});
 }
 void ensure_vhost_direct_server() {
@@ -1032,10 +1032,10 @@ void ensure_vhost_direct_server() {
 		def_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("default-direct"); });
 
 		VHostRouter vhost_router;
-		vhost_router.add("api.example.com", move(api_router));
-		vhost_router.set_default(move(def_router));
+		vhost_router.add("api.example.com", std::move(api_router));
+		vhost_router.set_default(std::move(def_router));
 
-		g_vhost_direct_port = test_servers().start(mw_config(), move(vhost_router));
+		g_vhost_direct_port = test_servers().start(mw_config(), std::move(vhost_router));
 	});
 }
 void ensure_proxy_server() {
@@ -1050,7 +1050,7 @@ void ensure_proxy_server() {
 			resp.headers["X-Upstream"] = "yes";
 			return resp;
 		});
-		g_proxy_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
+		g_proxy_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 
 		Router front;
 		auto popts = ProxyOptions{
@@ -1061,9 +1061,9 @@ void ensure_proxy_server() {
 		front.add_context(
 			"GET",
 			"/proxy/ping",
-			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](HttpRequest const &req, RequestContext const &ctx)
 				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
-		g_proxy_front = make_shared<ScopedTestServer>(cfg, move(front));
+		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 		g_proxy_port = g_proxy_front->port();
 	});
 }
@@ -1154,7 +1154,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response") {
 	ensure_server();
 	auto response =
-		HttpClient{}.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		HttpClient{}.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
@@ -1165,7 +1165,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 	auto response =
-		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
@@ -1179,13 +1179,13 @@ TEST_CASE(
 	headers["X-Test-Header"] = "client-header";
 
 	auto response = client.blocking_send(
-		chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == "client-header");
 
 	auto with_headers =
-		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/with-header", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/with-header", g_test_port)));
 	REQUIRE(with_headers);
 	CHECK(with_headers->head.headers["x-custom"] == "hello");
 	CHECK(with_headers->head.headers["x-another"] == "world");
@@ -1196,7 +1196,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.blocking_send(
-		chttp::ClientRequest::post(format("http://127.0.0.1:{}/api/echo-json", g_test_port))
+		chttp::ClientRequest::post(std::format("http://127.0.0.1:{}/api/echo-json", g_test_port))
 			.content_type("application/json")
 			.body(R"({"from":"client"})"));
 	REQUIRE(response);
@@ -1210,7 +1210,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.blocking_send(
-		chttp::ClientRequest::put(format("http://127.0.0.1:{}/api/resource/42", g_test_port))
+		chttp::ClientRequest::put(std::format("http://127.0.0.1:{}/api/resource/42", g_test_port))
 			.content_type("application/json")
 			.body(R"({"x":1})"));
 	REQUIRE(response);
@@ -1224,7 +1224,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.blocking_send(
-		chttp::ClientRequest::patch(format("http://127.0.0.1:{}/api/resource/7", g_test_port))
+		chttp::ClientRequest::patch(std::format("http://127.0.0.1:{}/api/resource/7", g_test_port))
 			.content_type("application/json")
 			.body(R"({"delta":1})"));
 	REQUIRE(response);
@@ -1238,7 +1238,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response =
-		client.blocking_send(chttp::ClientRequest::del(format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::del(std::format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body.find("DELETE") != std::string::npos);
@@ -1250,7 +1250,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response =
-		client.blocking_send(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::head(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
@@ -1261,7 +1261,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 	auto response =
-		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");
@@ -1282,7 +1282,7 @@ TEST_CASE(
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response = client.blocking_send(
-		chttp::ClientRequest::get(format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
 			.header("Proxy-Authorization", "Basic proxy")
@@ -1292,14 +1292,14 @@ TEST_CASE(
 	CHECK(response->body.find("auth=Bearer secret") != std::string::npos);
 	CHECK(response->body.find("cookie=session=abc") != std::string::npos);
 	CHECK(response->body.find("proxy-authorization=Basic proxy") == std::string::npos);
-	CHECK(response->body.find(format("host=127.0.0.1:{}", g_redirect_follow_source_port)) != std::string::npos);
+	CHECK(response->body.find(std::format("host=127.0.0.1:{}", g_redirect_follow_source_port)) != std::string::npos);
 }
 TEST_CASE(
 	"http client: follow_redirects strips sensitive headers across host changes") {
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response = client.blocking_send(
-		chttp::ClientRequest::get(format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
 			.header("Proxy-Authorization", "Basic proxy")
@@ -1312,14 +1312,14 @@ TEST_CASE(
 	CHECK(response->body.find("Bearer secret") == std::string::npos);
 	CHECK(response->body.find("session=abc") == std::string::npos);
 	CHECK(response->body.find("Basic proxy") == std::string::npos);
-	CHECK(response->body.find(format("host=127.0.0.1:{}", g_redirect_follow_target_port)) != std::string::npos);
+	CHECK(response->body.find(std::format("host=127.0.0.1:{}", g_redirect_follow_target_port)) != std::string::npos);
 }
 TEST_CASE(
 	"http client: follow_redirects reports redirect limit exhaustion") {
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response = client.blocking_send(
-		chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port))
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port))
 			.follow_redirects(1));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::redirect_limit);
@@ -1460,7 +1460,7 @@ TEST_CASE(
 	client.set_recv_timeout(std::chrono::seconds{5});
 
 	std::string body = "hello server";
-	auto req = format(
+	auto req = std::format(
 		"POST /api/echo-body HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Content-Type: text/plain\r\n"
@@ -1488,7 +1488,7 @@ TEST_CASE(
 	client.set_recv_timeout(std::chrono::seconds{5});
 
 	std::string body = "first";
-	auto req = format(
+	auto req = std::format(
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nExpect: "
 		"100-continue\r\n\r\n",
 		body.size());
@@ -1533,7 +1533,7 @@ TEST_CASE(
 	cfg.request_timeout_ms = 1500;
 	Router router;
 	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -1657,7 +1657,7 @@ static std::string make_multipart_text(
 	std::string_view boundary,
 	std::string_view name,
 	std::string_view field_value) {
-	return format(
+	return std::format(
 		"--{}\r\n"
 		"Content-Disposition: form-data; name=\"{}\"\r\n"
 		"\r\n"
@@ -1675,7 +1675,7 @@ static std::string make_multipart_file(
 	std::string_view filename,
 	std::string_view content_type,
 	std::string_view data) {
-	return format(
+	return std::format(
 		"--{}\r\n"
 		"Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n"
 		"Content-Type: {}\r\n"
@@ -1697,7 +1697,7 @@ static std::string make_multipart_text_and_file(
 	std::string_view filename,
 	std::string_view content_type,
 	std::string_view data) {
-	return format(
+	return std::format(
 		"--{}\r\n"
 		"Content-Disposition: form-data; name=\"{}\"\r\n"
 		"\r\n"
@@ -1721,7 +1721,7 @@ static std::string make_multipart_text_and_file(
 TEST_CASE(
 	"multipart/form-data text field is parsed into req.form") {
 	auto body = make_multipart_text("boundary123", "field", "hello from multipart");
-	auto ct = format("multipart/form-data; boundary=boundary123");
+	auto ct = std::format("multipart/form-data; boundary=boundary123");
 	auto resp = http_post("/api/multipart-field", ct, body);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
@@ -1772,7 +1772,7 @@ TEST_CASE(
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
 	auto json = resp.substr(hdr_end + 4);
-	REQUIRE(json.find(format("\"size\":{}", data.size())) != std::string::npos);
+	REQUIRE(json.find(std::format("\"size\":{}", data.size())) != std::string::npos);
 }
 TEST_CASE(
 	"multipart/form-data part header without space after colon is parsed") {
@@ -1867,7 +1867,7 @@ TEST_CASE(
 		r.status_text = "Fine\r\nX-Injected: yes";
 		return r;
 	});
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/bad-status", "Connection: close\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 299 \r\n"));
 	REQUIRE(resp.find("X-Injected: yes") == std::string::npos);
@@ -1891,7 +1891,7 @@ TEST_CASE(
 	cfg.https_redirect_hosts = {"example.com"};
 	Router router;
 	router.get("/path", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	LocalTcpClient client{srv.port()};
 	std::string_view const req =
@@ -1958,7 +1958,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	// Verify it responds before shutdown.
@@ -2056,7 +2056,7 @@ TEST_CASE(
 		return HttpResponse::text(std::string{req.headers["x-injected"]});
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const mw_port = srv.port();
 
 	auto get = [&](std::string_view path, std::string_view extra = "") {
@@ -2066,7 +2066,7 @@ TEST_CASE(
 		addr.sin_port = htons(mw_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
+		auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -2124,7 +2124,7 @@ TEST_CASE(
 	Router router;
 	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const limit_port = srv.port();
 
 	auto post = [&](std::size_t body_size) {
@@ -2135,7 +2135,7 @@ TEST_CASE(
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
 		std::string body(body_size, 'A');
-		auto req = format(
+		auto req = std::format(
 			"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\n"
 			"Content-Length: {}\r\nConnection: close\r\n\r\n{}",
 			body_size,
@@ -2151,7 +2151,7 @@ TEST_CASE(
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	}
 
-	SECTION("body one byte over limit returns 413") {
+	SECTION("body one std::byte over limit returns 413") {
 		auto resp = post(65);
 		REQUIRE(resp.starts_with("HTTP/1.1 413 Content Too Large"));
 	}
@@ -2169,7 +2169,7 @@ TEST_CASE(
 	path.append(50, 'a');
 	Router router;
 	router.post(path, [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -2178,7 +2178,7 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	std::string body = "ABCD";
-	auto req = format(
+	auto req = std::format(
 		"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
 		path,
 		body.size(),
@@ -2237,7 +2237,7 @@ TEST_CASE(
 		}
 		pos += 16;
 		std::size_t v = 0;
-		from_chars(r.data() + pos, r.data() + r.size(), v);
+		std::from_chars(r.data() + pos, r.data() + r.size(), v);
 		return v;
 	};
 	REQUIRE(extract_cl(resp) == extract_cl(get_resp));
@@ -2332,12 +2332,12 @@ TEST_CASE(
 	Router router;
 
 	router.on_not_found([](HttpRequest const &req) {
-		return HttpResponse::json(format(R"({{"error":"not_found","path":"{}"}})", req.path));
+		return HttpResponse::json(std::format(R"({{"error":"not_found","path":"{}"}})", req.path));
 	});
 
-	router.on_error([](HttpRequest const &, exception const &ex) {
+	router.on_error([](HttpRequest const &, std::exception const &ex) {
 		return HttpResponse::json(
-			format(R"({{"error":"internal","detail":"{}"}})", ex.what()),
+			std::format(R"({{"error":"internal","detail":"{}"}})", ex.what()),
 			500,
 			"Internal Server Error");
 	});
@@ -2345,7 +2345,7 @@ TEST_CASE(
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("all good"); });
 	router.get("/boom", [](HttpRequest const &) -> HttpResponse { throw std::runtime_error{"something exploded"}; });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const err_port = srv.port();
 
 	auto get = [&](std::string_view path) {
@@ -2355,7 +2355,7 @@ TEST_CASE(
 		addr.sin_port = htons(err_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+		auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -2377,7 +2377,7 @@ TEST_CASE(
 		REQUIRE(resp.substr(hdr_end + 4) == R"({"error":"not_found","path":"/missing"})");
 	}
 
-	SECTION("throwing handler returns custom error response with exception message") {
+	SECTION("throwing handler returns custom error response with std::exception message") {
 		auto resp = get("/boom");
 		REQUIRE(resp.starts_with("HTTP/1.1 500 Internal Server Error"));
 		REQUIRE(resp.find("application/json") != std::string::npos);
@@ -2395,7 +2395,7 @@ TEST_CASE(
 		throw std::runtime_error{"middleware crash"};
 	});
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -2513,7 +2513,7 @@ TEST_CASE(
 	cfg.parser_limits.max_chunks = 20000;
 	Router router;
 	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	std::string chunks;
 	static constexpr int kChunkCount = 15000;
@@ -2633,7 +2633,7 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/static", std::string{tmpdir});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const static_port = srv.port();
 
 	auto get = [&](std::string_view path, std::string_view extra = "") {
@@ -2643,7 +2643,7 @@ TEST_CASE(
 		addr.sin_port = htons(static_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
+		auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -2685,7 +2685,7 @@ TEST_CASE(
 		auto etag_end = resp1.find("\r\n", etag_pos);
 		auto etag = resp1.substr(etag_pos, etag_end - etag_pos);
 
-		auto resp2 = get("/static/hello.txt", format("If-None-Match: {}\r\n", etag));
+		auto resp2 = get("/static/hello.txt", std::format("If-None-Match: {}\r\n", etag));
 		REQUIRE(resp2.starts_with("HTTP/1.1 304 Not Modified"));
 	}
 
@@ -2715,7 +2715,7 @@ TEST_CASE(
 		auto lm_end = resp1.find("\r\n", lm_pos);
 		auto last_modified = resp1.substr(lm_pos, lm_end - lm_pos);
 
-		auto resp2 = get("/static/hello.txt", format("If-Modified-Since: {}\r\n", last_modified));
+		auto resp2 = get("/static/hello.txt", std::format("If-Modified-Since: {}\r\n", last_modified));
 		REQUIRE(resp2.starts_with("HTTP/1.1 304 Not Modified"));
 	}
 
@@ -2760,7 +2760,7 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/static", std::string{tmpdir} + "/");
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = conflux::tests::http_get_on(srv.port(), "/static/hello.txt");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
@@ -2791,7 +2791,7 @@ TEST_CASE(
 	sopts.allow_delete = true;
 	router.serve_static("/static", std::string{tmpdir} + "/", sopts);
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	auto raw_request = [&](std::string_view method, std::string_view path, std::string_view body = "") {
@@ -2802,7 +2802,7 @@ TEST_CASE(
 		addr.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-		auto req = format(
+		auto req = std::format(
 			"{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
 			method,
 			path,
@@ -2868,14 +2868,14 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	auto pool = make_shared<WorkPool>();
+	auto pool = std::make_shared<WorkPool>();
 
 	Router router;
 	StaticOptions sopts{};
 	sopts.offload_pool = pool;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const static_port = srv.port();
 
 	auto get = [&](std::string_view path, std::string_view extra = "") {
@@ -2885,7 +2885,7 @@ TEST_CASE(
 		addr.sin_port = htons(static_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
+		auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -2916,7 +2916,7 @@ TEST_CASE(
 		etag_pos += 6;
 		auto etag_end = resp1.find("\r\n", etag_pos);
 		auto etag = resp1.substr(etag_pos, etag_end - etag_pos);
-		auto resp2 = get("/static/hello.txt", format("If-None-Match: {}\r\n", etag));
+		auto resp2 = get("/static/hello.txt", std::format("If-None-Match: {}\r\n", etag));
 		REQUIRE(resp2.starts_with("HTTP/1.1 304 Not Modified"));
 	}
 
@@ -2929,7 +2929,7 @@ TEST_CASE(
 
 	SECTION("many concurrent offloaded requests") {
 		constexpr int kClients = 32;
-		std::vector<jthread> threads;
+		std::vector<std::jthread> threads;
 		std::atomic<int> ok{0};
 		threads.reserve(kClients);
 		for (int i = 0; i < kClients; ++i) {
@@ -2980,7 +2980,7 @@ TEST_CASE(
 	sopts.allow_put = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	auto raw_request = [&](std::string_view method, std::string_view path, std::string_view body = "") {
@@ -2990,7 +2990,7 @@ TEST_CASE(
 		addr.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format(
+		auto req = std::format(
 			"{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
 			method,
 			path,
@@ -3063,7 +3063,7 @@ TEST_CASE(
 	sopts.allow_delete = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	auto raw_request = [&](std::string_view method, std::string_view path) {
@@ -3074,7 +3074,7 @@ TEST_CASE(
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
 		auto req =
-			format("{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", method, path);
+			std::format("{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", method, path);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -3134,7 +3134,7 @@ TEST_CASE(
 
 	Router router;
 	router.serve_static("/f", std::string{tmpdir});
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -3185,7 +3185,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 	Router router;
 	router.serve_static("/f", std::string{tmpdir});
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	// Request bytes 2-5 (inclusive): "2345"
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -3231,7 +3231,7 @@ TEST_CASE(
 
 	Router router;
 	router.serve_static("/f", std::string{tmpdir});
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -3278,7 +3278,7 @@ TEST_CASE(
 
 	Router router;
 	router.serve_static("/f", std::string{tmpdir});
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	// bytes=-5: last 5 bytes.
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -3316,7 +3316,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const timeout_port = srv.port();
 
 	// Connect but send nothing — the server should close the connection after ~1.5s.
@@ -3367,7 +3367,7 @@ TEST_CASE(
 		return HttpResponse::text("slow-ok");
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	auto const started = std::chrono::steady_clock::now();
@@ -3388,7 +3388,7 @@ TEST_CASE(
 TEST_CASE(
 	"make_access_log_middleware logs request lines via sink") {
 	std::vector<std::string> lines;
-	mutex lines_mtx;
+	std::mutex lines_mtx;
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -3406,7 +3406,7 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	router.get("/missing", [](HttpRequest const &req) { return HttpResponse::not_found(req.path); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const log_port = srv.port();
 
 	auto get = [&](std::string_view path) {
@@ -3416,7 +3416,7 @@ TEST_CASE(
 		addr.sin_port = htons(log_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+		auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -3464,7 +3464,7 @@ TEST_CASE(
 		}
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const ws_port = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -3478,7 +3478,7 @@ TEST_CASE(
 	// --- Handshake ---
 	// RFC 6455 §1.3 test V: key → accept.
 	std::string_view const ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
-	std::string upgrade_req = format(
+	std::string upgrade_req = std::format(
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -3638,7 +3638,7 @@ TEST_CASE(
 	router.use(security_headers_middleware(sopts));
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
 	REQUIRE(resp.find("Content-Security-Policy: default-src 'self'") != std::string::npos);
 }
@@ -3661,7 +3661,7 @@ TEST_CASE(
 	router.use(security_headers_middleware(sopts));
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
 	REQUIRE(resp.find("Strict-Transport-Security:") != std::string::npos);
 	REQUIRE(resp.find("includeSubDomains") == std::string::npos);
@@ -3674,7 +3674,7 @@ TEST_CASE(
 		Router router;
 		router.use(security_headers_middleware({.hsts_max_age = 0}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.find("Strict-Transport-Security") == std::string::npos);
@@ -3687,7 +3687,7 @@ TEST_CASE(
 		Router router;
 		router.use(security_headers_middleware({.frame_options = ""}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.find("X-Frame-Options") == std::string::npos);
@@ -3828,7 +3828,7 @@ TEST_CASE(
 		Router router;
 		router.use(basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
@@ -3888,7 +3888,7 @@ TEST_CASE(
 				.max_failed_clients = 8,
 			}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 
 	auto first = http_get_on(port, "/", "Authorization: Basic YmFkOmNyZWRz\r\n");
@@ -3981,7 +3981,7 @@ TEST_CASE(
 		Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{10}}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	http_get_on(port, "/"); // consume the one allowed request
 	auto resp = http_get_on(port, "/");
@@ -4024,7 +4024,7 @@ void ensure_tls_server() {
 			}
 			::close(fd);
 		}
-		std::string const cmd = format(
+		std::string const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
@@ -4039,18 +4039,18 @@ void ensure_tls_server() {
 		Router router;
 		router.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"tls":true})"); });
 		router.get("/hello/{name}", [](HttpRequest const &req) {
-			return HttpResponse::text(format("hello {}", req.params["name"]));
+			return HttpResponse::text(std::format("hello {}", req.params["name"]));
 		});
 		router.post("/echo", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 		router.put("/put/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(format(R"({{"id":"{}"}})", req.params["id"]));
+			return HttpResponse::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 		});
 		router.get("/notfound-test", [](HttpRequest const &) -> HttpResponse {
 			// deliberately absent — router returns 404
 			return HttpResponse::not_found("notfound-test");
 		});
 
-		g_tls_port = start_mw_server(cfg, move(router));
+		g_tls_port = start_mw_server(cfg, std::move(router));
 		// Cert+key are loaded; temp files no longer needed.
 		::unlink(cert_tmp);
 		::unlink(key_tmp);
@@ -4096,7 +4096,7 @@ std::string tls_raw(
 		cl_pos += 16;
 		auto cl_end = response.find("\r\n", cl_pos);
 		std::size_t body_len = 0;
-		from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
+		std::from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 		if (response.size() >= hdr_end + 4 + body_len) {
 			break;
 		}
@@ -4113,7 +4113,7 @@ std::string tls_get(
 	ensure_tls_server();
 	return tls_raw(
 		g_tls_port,
-		format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra));
+		std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra));
 }
 std::string tls_post(
 	std::string_view path,
@@ -4122,7 +4122,7 @@ std::string tls_post(
 	ensure_tls_server();
 	return tls_raw(
 		g_tls_port,
-		format(
+		std::format(
 			"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Type: {}\r\n"
 			"Content-Length: {}\r\nConnection: close\r\n\r\n{}",
 			path,
@@ -4146,9 +4146,9 @@ TEST_CASE(
 	ensure_tls_server();
 	HttpClientOptions tls_opts{};
 	tls_opts.verify_peer = false;
-	HttpClient tls_client{move(tls_opts)};
+	HttpClient tls_client{std::move(tls_opts)};
 	auto response = tls_client.blocking_send(
-		chttp::ClientRequest::get(format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
+		chttp::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]}.find("application/json") != std::string::npos);
@@ -4238,7 +4238,7 @@ TEST_CASE(
 			cl_pos += 16;
 			auto cl_end = resp.find("\r\n", cl_pos);
 			std::size_t body_len = 0;
-			from_chars(resp.data() + cl_pos, resp.data() + cl_end, body_len);
+			std::from_chars(resp.data() + cl_pos, resp.data() + cl_end, body_len);
 			if (resp.size() >= hdr_end + 4 + body_len) {
 				// Trim to exactly one response.
 				resp.resize(hdr_end + 4 + body_len);
@@ -4265,14 +4265,14 @@ TEST_CASE(
 TEST_CASE(
 	"same-port: HTTP and HTTPS on same port both serve correctly") {
 	ensure_tls_server();
-	// Plaintext GET to a TLS-capable port: first-byte sniff routes it as plain HTTP.
+	// Plaintext GET to a TLS-capable port: first-std::byte sniff routes it as plain HTTP.
 	auto plain_resp = http_get_on(g_tls_port, "/ping");
 	REQUIRE(plain_resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = plain_resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
 	REQUIRE(plain_resp.substr(hdr_end + 4) == R"({"tls":true})");
 
-	// TLS GET to the same port: first-byte 0x16 sniff routes it as HTTPS.
+	// TLS GET to the same port: first-std::byte 0x16 sniff routes it as HTTPS.
 	auto tls_resp = tls_get("/ping");
 	REQUIRE(tls_resp.starts_with("HTTP/1.1 200 OK"));
 	auto tls_hdr_end = tls_resp.find("\r\n\r\n");
@@ -4295,7 +4295,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = format(
+	std::string const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -4317,7 +4317,7 @@ TEST_CASE(
 		}
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const wss_port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
@@ -4487,7 +4487,7 @@ TEST_CASE(
 			.use_x_real_ip = true,
 		}));
 		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.remote_addr}); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// X-Forwarded-For is set but should be ignored; X-Real-IP wins.
 	auto resp = http_get_on(
@@ -4568,7 +4568,7 @@ TEST_CASE(
 		router.get("/", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["x-request-id"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Client sends a specific ID; middleware must ignore it and generate its own.
 	auto resp = http_get_on(port, "/", "X-Request-ID: client-provided-id\r\n");
@@ -4589,7 +4589,7 @@ TEST_CASE(
 		router.get("/", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["x-trace-id"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -4632,7 +4632,7 @@ TEST_CASE(
 		Router router;
 		router.use(ip_filter_middleware({.mode = IpFilterMode::allowlist, .cidrs = {}}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 403 Forbidden"));
@@ -4687,7 +4687,7 @@ TEST_CASE(
 			r.set_text_body("<p/>");
 			return r;
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.find("Cache-Control: max-age=60") != std::string::npos);
@@ -4702,7 +4702,7 @@ TEST_CASE(
 			.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
 		}));
 		router.get("/any", [](HttpRequest const &) { return HttpResponse::text("x"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/any");
 	REQUIRE(resp.find("Cache-Control: no-store") != std::string::npos);
@@ -4801,9 +4801,9 @@ void ensure_jwt_server() {
 		router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
 		router.get("/api/protected", [](HttpRequest const &req) {
 			auto sub = req.params["jwt_sub"];
-			return HttpResponse::json(format(R"({{"sub":"{}"}})", sub));
+			return HttpResponse::json(std::format(R"({{"sub":"{}"}})", sub));
 		});
-		g_jwt_port = test_servers().start(cfg, move(router));
+		g_jwt_port = test_servers().start(cfg, std::move(router));
 	});
 }
 std::string make_jwt(
@@ -4815,14 +4815,14 @@ std::string make_jwt_with_header(
 	std::string_view payload_json,
 	std::string_view secret) {
 	auto header_b64 =
-		base64url_encode(span{reinterpret_cast<unsigned char const *>(header_json.data()), header_json.size()});
+		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(header_json.data()), header_json.size()});
 	auto payload_b64 =
-		base64url_encode(span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
+		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
 	std::string const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(
-		span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
-		span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
-	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
+		std::span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
+		std::span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
+	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
 	return signing_input + '.' + sig_b64;
 }
 
@@ -4832,8 +4832,8 @@ TEST_CASE(
 	ensure_jwt_server();
 	auto now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	auto token = make_jwt(format(R"({{"sub":"user42","exp":{}}})", now + 3600));
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", format("Authorization: Bearer {}\r\n", token));
+	auto token = make_jwt(std::format(R"({{"sub":"user42","exp":{}}})", now + 3600));
+	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -4849,14 +4849,14 @@ TEST_CASE(
 	"jwt: wrong secret returns 401") {
 	ensure_jwt_server();
 	auto token = jwt_sign(R"({"sub":"bad","exp":9999999999})", "wrong-secret");
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
 	"jwt: expired token returns 401") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"x","exp":1})"); // exp = 1970
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
@@ -4869,7 +4869,7 @@ TEST_CASE(
 	"jwt: lowercase bearer scheme returns 200") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"user42","exp":9999999999})");
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", format("Authorization: bearer {}\r\n", token));
+	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 }
 TEST_CASE(
@@ -4878,11 +4878,11 @@ TEST_CASE(
 	Router router;
 	router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
 	router.get("/api/protected/{jwt_sub}", [](HttpRequest const &req) {
-		return HttpResponse::json(format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
+		return HttpResponse::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
 	});
-	auto port = test_servers().start(cfg, move(router));
+	auto port = test_servers().start(cfg, std::move(router));
 	auto token = jwt_sign(R"({"sub":"victim"})", "sec");
-	auto resp = http_get_with_header_on(port, "/api/protected/attacker", format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -4990,7 +4990,7 @@ TEST_CASE(
 	auto now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
-	auto token = jwt_sign(format(R"({{"sub":"x","exp":{}}})", now), "sec");
+	auto token = jwt_sign(std::format(R"({{"sub":"x","exp":{}}})", now), "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error() == "token expired");
@@ -5001,7 +5001,7 @@ TEST_CASE(
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()
 		+ 9999;
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
-	auto token = jwt_sign(format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
+	auto token = jwt_sign(std::format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("not yet valid") != std::string::npos);
@@ -5094,7 +5094,7 @@ void ensure_metrics_server() {
 		router.use(metrics_middleware(reg));
 		router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 		router.get("/metrics", metrics_handler(reg));
-		g_metrics_port = test_servers().start(cfg, move(router));
+		g_metrics_port = test_servers().start(cfg, std::move(router));
 	});
 }
 std::uint16_t g_protected_metrics_port = 0;
@@ -5107,8 +5107,8 @@ void ensure_protected_metrics_server() {
 		router.use(metrics_middleware(reg2));
 		std::vector<Router::Middleware> chain;
 		chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "supersecret"; }));
-		router.get("/metrics", metrics_handler_protected(reg2, move(chain)));
-		g_protected_metrics_port = test_servers().start(cfg, move(router));
+		router.get("/metrics", metrics_handler_protected(reg2, std::move(chain)));
+		g_protected_metrics_port = test_servers().start(cfg, std::move(router));
 	});
 }
 
@@ -5174,7 +5174,7 @@ TEST_CASE(
 		router.use(metrics_middleware(reg));
 		router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 		router.get("/metrics", metrics_handler(reg));
-		port = test_servers().start(cfg, move(router));
+		port = test_servers().start(cfg, std::move(router));
 	});
 	http_get_on(port, "/nonexistent"); // 404 → 4xx
 	auto resp = http_get_on(port, "/metrics");
@@ -5223,7 +5223,7 @@ void ensure_codec_server() {
 			r.headers["Vary"] = "X-Test";
 			return r;
 		});
-		g_codec_port = test_servers().start(cfg, move(router));
+		g_codec_port = test_servers().start(cfg, std::move(router));
 	});
 }
 
@@ -5371,7 +5371,7 @@ TEST_CASE(
 		Router router;
 		router.use(redirect_middleware({.rules = {{.from = "/x", .to = "/y", .status = 307}}}));
 		router.get("/y", [](HttpRequest const &) { return HttpResponse::text("y"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/x");
 	REQUIRE(resp.starts_with("HTTP/1.1 307"));
@@ -5395,7 +5395,7 @@ TEST_CASE(
 	port = ntohs(sa.sin_port);
 	REQUIRE(::listen(lfd, 1) == 0);
 
-	auto srv = thread([lfd] {
+	auto srv = std::thread([lfd] {
 		int const c = ::accept(lfd, nullptr, nullptr);
 		if (c < 0) {
 			return;
@@ -5422,7 +5422,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	auto result = HttpClient{}.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/", port)));
+	auto result = HttpClient{}.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/", port)));
 
 	srv.join();
 	::close(lfd);
@@ -5457,7 +5457,7 @@ TEST_CASE(
 		upstream.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["host"]});
 		});
-		s_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
+		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
 			.upstream_host = "127.0.0.1",
@@ -5467,9 +5467,9 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/echo",
-			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](HttpRequest const &req, RequestContext const &ctx)
 				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
-		s_front = make_shared<ScopedTestServer>(cfg, move(front));
+		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
 	auto resp = http_get_on(s_front->port(), "/echo");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5487,7 +5487,7 @@ TEST_CASE(
 		upstream.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["host"]});
 		});
-		s_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
+		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
 			.upstream_host = "127.0.0.1",
@@ -5497,9 +5497,9 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/echo",
-			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](HttpRequest const &req, RequestContext const &ctx)
 				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
-		s_front = make_shared<ScopedTestServer>(cfg, move(front));
+		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
 	// Send Host: localhost:9999 — proxy must connect to upstream, not myapp.example.com.
 	auto resp = http_get_on_host(s_front->port(), "localhost:9999", "/echo");
@@ -5517,7 +5517,7 @@ TEST_CASE(
 		upstream.get("/xff", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["x-forwarded-for"]});
 		});
-		s_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
+		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
 			.upstream_host = "127.0.0.1",
@@ -5526,9 +5526,9 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/xff",
-			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](HttpRequest const &req, RequestContext const &ctx)
 				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
-		s_front = make_shared<ScopedTestServer>(cfg, move(front));
+		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
 	// Client sends existing XFF; proxy appends remote_addr (127.0.0.1).
 	auto resp = http_get_on(s_front->port(), "/xff", "X-Forwarded-For: 1.2.3.4\r\n");
@@ -5601,10 +5601,10 @@ TEST_CASE(
 		router.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.cookies["session"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto signed_val = sign_cookie("user42", kCookieMiddlewareSecret);
-	auto resp = http_get_on(port, "/echo", format("Cookie: session={}\r\n", signed_val));
+	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", signed_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "user42");
 }
@@ -5619,11 +5619,11 @@ TEST_CASE(
 		router.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.cookies["session"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Forge a signed value with the wrong secret.
 	auto bad_val = sign_cookie("attacker", kOtherCookieSecret);
-	auto resp = http_get_on(port, "/echo", format("Cookie: session={}\r\n", bad_val));
+	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", bad_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Cookie was stripped → handler sees empty value → 200 with empty body.
 	REQUIRE(extract_body(resp).empty());
@@ -5639,7 +5639,7 @@ TEST_CASE(
 		router.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.cookies["plain"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/echo", "Cookie: plain=nodot\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5656,11 +5656,11 @@ TEST_CASE(
 		router.get("/echo", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.cookies["session"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Cookie with bad signature — handler receives the raw signed value unchanged.
 	auto bad_val = sign_cookie("user", "wrong-secret-key-1234");
-	auto resp = http_get_on(port, "/echo", format("Cookie: session={}\r\n", bad_val));
+	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", bad_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == bad_val);
 }
@@ -5708,7 +5708,7 @@ TEST_CASE(
 		"/submit",
 		"application/x-www-form-urlencoded",
 		"x=1",
-		format("Cookie: csrf_token={}\r\nX-CSRF-Token: {}\r\n", token, token));
+		std::format("Cookie: csrf_token={}\r\nX-CSRF-Token: {}\r\n", token, token));
 	REQUIRE(post_resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(post_resp) == "ok");
 }
@@ -5723,8 +5723,8 @@ TEST_CASE(
 		g_csrf_port,
 		"/submit",
 		"application/x-www-form-urlencoded",
-		format("csrf_token={}", token),
-		format("Cookie: csrf_token={}\r\n", token));
+		std::format("csrf_token={}", token),
+		std::format("Cookie: csrf_token={}\r\n", token));
 	REQUIRE(post_resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(post_resp) == "ok");
 }
@@ -5743,7 +5743,7 @@ TEST_CASE(
 		router.use(csrf_middleware({.protected_methods = {"POST"}}));
 		router.get("/page", [](HttpRequest const &) { return HttpResponse::html("<form>"); });
 		router.del("/resource", [](HttpRequest const &) { return HttpResponse::text("deleted"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// DELETE is not in protected_methods, so no token required.
 	auto resp = conflux::tests::http_request_on(port, "DELETE", "/resource", "", "", "");
@@ -5769,7 +5769,7 @@ TEST_CASE(
 	auto etag = extract_header(resp1, "ETag");
 	REQUIRE(!etag.empty());
 	// Second request: send If-None-Match with that ETag.
-	auto resp2 = http_get_on(g_etag_port, "/content", format("If-None-Match: {}\r\n", etag));
+	auto resp2 = http_get_on(g_etag_port, "/content", std::format("If-None-Match: {}\r\n", etag));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 	// RFC 9110 §15.4.5: 304 SHOULD include the same ETag as the 200 response.
 	CHECK(extract_header(resp2, "ETag") == etag);
@@ -5792,7 +5792,7 @@ TEST_CASE(
 	auto resp1 = http_get_on(g_etag_port, "/content");
 	auto etag = extract_header(resp1, "ETag");
 	REQUIRE(!etag.empty());
-	auto resp2 = http_get_on(g_etag_port, "/content", format("If-None-Match: W/{}\r\n", etag));
+	auto resp2 = http_get_on(g_etag_port, "/content", std::format("If-None-Match: W/{}\r\n", etag));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 	REQUIRE(extract_header(resp2, "ETag") == etag);
 }
@@ -5828,7 +5828,7 @@ TEST_CASE(
 		Router router;
 		router.use(etag_middleware({.weak = true}));
 		router.get("/w", [](HttpRequest const &) { return HttpResponse::text("body"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/w");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5842,8 +5842,8 @@ TEST_CASE(
 	auto resp1 = http_get_on(g_etag_port, "/content");
 	auto etag = extract_header(resp1, "ETag");
 	REQUIRE(!etag.empty());
-	auto inm = format("\"deadbeef\", {}, \"cafebabe\"", etag);
-	auto resp2 = http_get_on(g_etag_port, "/content", format("If-None-Match: {}\r\n", inm));
+	auto inm = std::format("\"deadbeef\", {}, \"cafebabe\"", etag);
+	auto resp2 = http_get_on(g_etag_port, "/content", std::format("If-None-Match: {}\r\n", inm));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 }
 TEST_CASE(
@@ -5854,7 +5854,7 @@ TEST_CASE(
 	REQUIRE(!etag.empty());
 	// Send back as weak variant: W/"abc123" must still match per weak comparison.
 	auto weak_inm = std::string{"W/"} + etag;
-	auto resp2 = http_get_on(g_etag_port, "/content", format("If-None-Match: {}\r\n", weak_inm));
+	auto resp2 = http_get_on(g_etag_port, "/content", std::format("If-None-Match: {}\r\n", weak_inm));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 }
 TEST_CASE(
@@ -5869,7 +5869,7 @@ TEST_CASE(
 			resp.headers["ETag"] = "\"custom-etag-42\"";
 			return resp;
 		});
-		port = start_mw_server(mw_config(), move(r));
+		port = start_mw_server(mw_config(), std::move(r));
 	});
 	auto resp = http_get_on(port, "/custom");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5952,8 +5952,8 @@ TEST_CASE(
 	auto a1 = http_get_on(g_resp_cache_port, "/query?value=a");
 	auto b1 = http_get_on(g_resp_cache_port, "/query?value=b");
 	auto a2 = http_get_on(g_resp_cache_port, "/query?value=a");
-	REQUIRE(extract_body(a1) == format("{} value=a", before + 1));
-	REQUIRE(extract_body(b1) == format("{} value=b", before + 2));
+	REQUIRE(extract_body(a1) == std::format("{} value=a", before + 1));
+	REQUIRE(extract_body(b1) == std::format("{} value=b", before + 2));
 	REQUIRE(extract_body(a2) == extract_body(a1));
 }
 TEST_CASE(
@@ -6042,7 +6042,7 @@ TEST_CASE(
 		return HttpResponse::text("c");
 	});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	// Populate: /a and /b fill the cache (max_entries=2).
 	http_get_on(srv.port(), "/a");
@@ -6084,7 +6084,7 @@ TEST_CASE(
 		return HttpResponse::text("hi"); // 2 bytes <= max_bytes
 	});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	// /big should never be cached.
 	http_get_on(srv.port(), "/big");
@@ -6099,11 +6099,11 @@ TEST_CASE(
 	srv.stop();
 }
 TEST_CASE(
-	"response_cache: expired entry properly frees byte budget for new entries") {
-	// max_bytes=16: fits exactly two 8-byte bodies.
+	"response_cache: expired entry properly frees std::byte budget for new entries") {
+	// max_bytes=16: fits exactly two 8-std::byte bodies.
 	// After both entries expire, total_bytes_ must be decremented so new entries
 	// can be cached without spurious eviction (regression: expiry path omitted the
-	// total_bytes_ decrement, leaving a phantom byte count that blocked new puts).
+	// total_bytes_ decrement, leaving a phantom std::byte count that blocked new puts).
 	std::atomic<int> hits{0};
 	Router router;
 	router.use(
@@ -6127,7 +6127,7 @@ TEST_CASE(
 		return r;
 	});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	// Fill cache: /a and /b each consume 8 bytes → total_bytes_=16.
 	http_get_on(srv.port(), "/a");
@@ -6142,7 +6142,7 @@ TEST_CASE(
 	http_get_on(srv.port(), "/b");
 	REQUIRE(hits.load() == 4);
 
-	// /c must now be cacheable: byte budget was freed by the two expired evictions.
+	// /c must now be cacheable: std::byte budget was freed by the two expired evictions.
 	http_get_on(srv.port(), "/c");
 	http_get_on(srv.port(), "/c");
 	REQUIRE(hits.load() == 5); // second GET is a cache hit
@@ -6190,7 +6190,7 @@ TEST_CASE(
 	Router router;
 	router.use(structured_log_middleware({.log_file = path}));
 	router.get("/x", [](HttpRequest const &) { return HttpResponse::text("x"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	auto resp = http_get_on(srv.port(), "/x");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -6223,7 +6223,7 @@ TEST_CASE(
 	router.use(structured_log_middleware({.log_file = path, .app_name = "test"}));
 	// Register a route that matches a path containing a percent-encoded quote.
 	router.get("/q", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 
 	// GET /q?x=1 — path itself is safe; verify basic log integrity.
 	auto resp = http_get_on(srv.port(), "/q");
@@ -6267,7 +6267,7 @@ TEST_CASE(
 	"tracing: incoming traceparent preserves trace_id, generates new span_id") {
 	ensure_trace_server();
 	std::string_view incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
-	auto resp = http_get_on(g_trace_port, "/", format("traceparent: {}\r\n", incoming));
+	auto resp = http_get_on(g_trace_port, "/", std::format("traceparent: {}\r\n", incoming));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto tp = extract_header(resp, "Traceparent");
 	REQUIRE(!tp.empty());
@@ -6310,7 +6310,7 @@ TEST_CASE(
 		Router router;
 		router.use(tracing_middleware({.propagate_in_response = false}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -6329,7 +6329,7 @@ TEST_CASE(
 			.propagate_in_response = false,
 		}));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -6350,7 +6350,7 @@ TEST_CASE(
 		router.get("/", [](HttpRequest const &req) {
 			return HttpResponse::text(std::string{req.headers["x-injected-span"]});
 		});
-		port = start_mw_server(mw_config(), move(router));
+		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -6411,7 +6411,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"vhost: subrouters share one work pool") {
-	auto shared_pool = make_shared<WorkPool>();
+	auto shared_pool = std::make_shared<WorkPool>();
 
 	Router api_router;
 	Router web_router;
@@ -6419,9 +6419,9 @@ TEST_CASE(
 
 	VHostRouter vhost;
 	vhost.set_work_pool(shared_pool);
-	vhost.add("api.example.com", move(api_router));
-	vhost.add("web.example.com", move(web_router));
-	vhost.set_default(move(def_router));
+	vhost.add("api.example.com", std::move(api_router));
+	vhost.add("web.example.com", std::move(web_router));
+	vhost.set_default(std::move(def_router));
 
 	CHECK(vhost.work_pool().get() == shared_pool.get());
 	CHECK(vhost.resolved_work_pool("api.example.com").get() == shared_pool.get());
@@ -6434,10 +6434,10 @@ TEST_CASE(
 	Router def_router;
 
 	VHostRouter vhost;
-	vhost.add("api.example.com", move(api_router));
-	vhost.set_default(move(def_router));
+	vhost.add("api.example.com", std::move(api_router));
+	vhost.set_default(std::move(def_router));
 
-	auto rebound_pool = make_shared<WorkPool>();
+	auto rebound_pool = std::make_shared<WorkPool>();
 	vhost.set_work_pool(rebound_pool);
 
 	CHECK(vhost.work_pool().get() == rebound_pool.get());
@@ -6452,10 +6452,10 @@ TEST_CASE(
 		Router api;
 		api.get("/status", [](HttpRequest const &) { return HttpResponse::text("api"); });
 		VHostRouter vhost;
-		vhost.add("api.example.com", move(api));
+		vhost.add("api.example.com", std::move(api));
 		// No set_default call.
 		Config const cfg{.port = 0, .rings = 1};
-		port = test_servers().start(cfg, move(vhost));
+		port = test_servers().start(cfg, std::move(vhost));
 	});
 	auto resp = http_get_on_host(port, "unknown.example.com", "/status");
 	REQUIRE(resp.starts_with("HTTP/1.1 404"));
@@ -6465,7 +6465,7 @@ TEST_CASE(
 	Router api;
 	api.get("/status", [](HttpRequest const &) { return HttpResponse::text("api-v6"); });
 	VHostRouter vhost;
-	vhost.add("[::1]", move(api));
+	vhost.add("[::1]", std::move(api));
 
 	HttpRequest req;
 	req.method = "GET";
@@ -6481,7 +6481,7 @@ TEST_CASE(
 	Router api;
 	api.get("/status", [](HttpRequest const &) { return HttpResponse::text("api-v6-noport"); });
 	VHostRouter vhost;
-	vhost.add("[::1]", move(api));
+	vhost.add("[::1]", std::move(api));
 
 	HttpRequest req;
 	req.method = "GET";
@@ -6548,10 +6548,10 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	std::vector<Router::Middleware> chain;
 	chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "apikey"; }));
-	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", move(chain)));
+	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
 
 	Config const cfg{.port = 0, .rings = 1};
-	std::uint16_t port = test_servers().start(cfg, move(router));
+	std::uint16_t port = test_servers().start(cfg, std::move(router));
 
 	auto resp_no_auth = http_get_on(port, "/openapi.json");
 	REQUIRE(resp_no_auth.starts_with("HTTP/1.1 401"));
@@ -6599,7 +6599,7 @@ TEST_CASE(
 	"parser: request line exceeding 8 KiB returns 414") {
 	std::string path = "/";
 	path.append(9000, 'a');
-	auto req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+	auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 414"));
 }
@@ -6617,7 +6617,7 @@ TEST_CASE(
 	"parser: single header line exceeding 8 KiB returns 431") {
 	std::string header_value(9000, 'v');
 	auto req =
-		format("GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n", header_value);
+		std::format("GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n", header_value);
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 431"));
 }
@@ -6625,7 +6625,7 @@ TEST_CASE(
 	"parser: more than 100 headers returns 431") {
 	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
 	for (int i = 0; i < 120; ++i) {
-		req += format("X-H-{}: v\r\n", i);
+		req += std::format("X-H-{}: v\r\n", i);
 	}
 	req += "\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6638,7 +6638,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 TEST_CASE(
-	"parser: NUL byte in header returns 400") {
+	"parser: NUL std::byte in header returns 400") {
 	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Bad: a";
 	req.push_back('\0');
 	req += "b\r\nConnection: close\r\n\r\n";
@@ -6839,7 +6839,7 @@ int ws_handshake(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	std::string req = format(
+	std::string req = std::format(
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -6890,7 +6890,7 @@ struct CloseFrame {
 };
 CloseFrame read_close(
 	int fd) {
-	auto read_exact = [fd](span<std::uint8_t> out) {
+	auto read_exact = [fd](std::span<std::uint8_t> out) {
 		std::size_t got = 0;
 		while (got < out.size()) {
 			auto n = ::recv(fd, out.data() + got, out.size() - got, 0);
@@ -6918,7 +6918,7 @@ CloseFrame read_close(
 		return {};
 	}
 	std::array<std::uint8_t, 125> payload{};
-	if (!read_exact(span{payload}.first(b1))) {
+	if (!read_exact(std::span{payload}.first(b1))) {
 		return {};
 	}
 	if (b1 < 2) {
@@ -6930,7 +6930,7 @@ CloseFrame read_close(
 	if (b1 > 2) {
 		reason.assign(reinterpret_cast<char const *>(payload.data()) + 2, static_cast<std::size_t>(b1) - 2);
 	}
-	return {.code = code, .reason = move(reason), .received = true};
+	return {.code = code, .reason = std::move(reason), .received = true};
 }
 
 } // namespace ws_test
@@ -6940,7 +6940,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	auto frame = ws_test::make_masked_frame(0xC1U, "x"); // FIN | RSV1 | text
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
@@ -6956,7 +6956,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	auto frame = ws_test::make_masked_frame(0x81U, "x", /*mask=*/false);
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
@@ -6972,7 +6972,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	std::array<std::uint8_t, 9> frame{
 		0x81U, // FIN | text
@@ -6992,12 +6992,12 @@ TEST_CASE(
 	srv.stop();
 }
 TEST_CASE(
-	"ws: oversized control frame (ping with 126-byte payload) triggers close 1002") {
+	"ws: oversized control frame (ping with 126-std::byte payload) triggers close 1002") {
 	Router router;
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	std::string big(126, 'p');
 	auto frame = ws_test::make_masked_frame(0x89U, big); // FIN | ping
@@ -7012,7 +7012,7 @@ TEST_CASE(
 	"ws: handshake without Upgrade header is rejected") {
 	Router router;
 	router.ws("/ws", [](HttpRequest const &, WsConn &) {});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in addr{};
@@ -7038,7 +7038,7 @@ TEST_CASE(
 	"ws: handshake with invalid Sec-WebSocket-Key is rejected") {
 	Router router;
 	router.ws("/ws", [](HttpRequest const &, WsConn &) {});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in addr{};
@@ -7062,12 +7062,12 @@ TEST_CASE(
 	srv.stop();
 }
 TEST_CASE(
-	"ws: one-byte close payload triggers close 1002") {
+	"ws: one-std::byte close payload triggers close 1002") {
 	Router router;
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	auto frame = ws_test::make_masked_frame(0x88U, "x"); // FIN | close, invalid payload length 1
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
@@ -7083,7 +7083,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	std::string code_payload;
 	code_payload.push_back('\x03');
@@ -7102,7 +7102,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	std::string close_payload;
 	close_payload.push_back('\x03');
@@ -7118,7 +7118,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"ws: close rejects invalid status code via public API") {
-	auto result = make_shared<std::promise<bool>>();
+	auto result = std::make_shared<std::promise<bool>>();
 	auto done = result->get_future();
 	Router router;
 	router.ws("/ws", [result](HttpRequest const &, WsConn &ws) {
@@ -7127,7 +7127,7 @@ TEST_CASE(
 			result->set_value(false);
 		} catch (std::invalid_argument const &) { result->set_value(true); }
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	REQUIRE(done.wait_for(std::chrono::seconds{2}) == std::future_status::ready);
 	REQUIRE(done.get());
@@ -7136,7 +7136,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"ws: close rejects invalid UTF-8 reason via public API") {
-	auto result = make_shared<std::promise<bool>>();
+	auto result = std::make_shared<std::promise<bool>>();
 	auto done = result->get_future();
 	Router router;
 	router.ws("/ws", [result](HttpRequest const &, WsConn &ws) {
@@ -7145,7 +7145,7 @@ TEST_CASE(
 			result->set_value(false);
 		} catch (std::invalid_argument const &) { result->set_value(true); }
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	REQUIRE(done.wait_for(std::chrono::seconds{2}) == std::future_status::ready);
 	REQUIRE(done.get());
@@ -7164,7 +7164,7 @@ TEST_CASE(
 			}
 		}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	auto part1 = ws_test::make_masked_frame(0x01U, "hel"); // FIN=0 | text
 	auto part2 = ws_test::make_masked_frame(0x80U, "lo"); // FIN=1 | continuation
@@ -7186,7 +7186,7 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (ws.recv()) {}
 	});
-	ScopedTestServer srv{ws_test::ws_cfg(), move(router)};
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
 	std::string bad{"\xC0\xAF"}; // overlong / illegal sequence
 	auto frame = ws_test::make_masked_frame(0x81U, bad);
@@ -7211,7 +7211,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = format(
+	std::string const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -7233,7 +7233,7 @@ TEST_CASE(
 
 	Router router;
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
@@ -7264,7 +7264,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = format(
+	std::string const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -7286,7 +7286,7 @@ TEST_CASE(
 
 	Router router;
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
@@ -7318,7 +7318,7 @@ TEST_CASE(
 	// Each frame is 10 bytes; queue holds at most 64 bytes → 6 fit.
 	for (int i = 0; i < 10; ++i) {
 		std::string frame(10, 'x');
-		(void)ch.send(move(frame));
+		(void)ch.send(std::move(frame));
 	}
 	REQUIRE(ch.dropped_count() == 4);
 	auto out = ch.drain();
@@ -7329,7 +7329,7 @@ TEST_CASE(
 	SseChannel ch{30, SseOverflowPolicy::DropOldest};
 	for (int i = 0; i < 5; ++i) {
 		std::string frame(10, static_cast<char>('a' + i));
-		(void)ch.send(move(frame));
+		(void)ch.send(std::move(frame));
 	}
 	REQUIRE(ch.dropped_count() >= 2);
 	auto out = ch.drain();
@@ -7372,11 +7372,11 @@ TEST_CASE(
 	// Handler returns a DeferredResponse with a 1-second deadline but never completes it.
 	// The idle-timer sweeper should expire it with a 504 shortly after.
 	router.get("/stuck", [](HttpRequest const &) {
-		auto d = make_shared<DeferredResponse>(std::chrono::milliseconds{1000});
+		auto d = std::make_shared<DeferredResponse>(std::chrono::milliseconds{1000});
 		return HttpResponse::deferred(d);
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const p = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -7406,15 +7406,15 @@ TEST_CASE(
 
 	Router router;
 	router.get("/fast", [](HttpRequest const &) {
-		auto d = make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
-		thread([d]() {
+		auto d = std::make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
+		std::thread([d]() {
 			std::this_thread::sleep_for(std::chrono::milliseconds{80});
 			d->complete(HttpResponse::text("pong"));
 		}).detach();
 		return HttpResponse::deferred(d);
 	});
 
-	ScopedTestServer srv{cfg, move(router)};
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const p = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -7569,7 +7569,7 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/s", std::string{tmpdir});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/hello%20world.txt");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -7596,7 +7596,7 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/s", std::string{tmpdir});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	// First request: get the Last-Modified header.
 	auto resp1 = conflux::tests::http_get_on(srv.port(), "/s/test.txt");
@@ -7606,7 +7606,7 @@ TEST_CASE(
 
 	// Second request with matching If-Modified-Since: should get 304.
 	auto resp2 =
-		conflux::tests::http_get_on(srv.port(), "/s/test.txt", format("If-Modified-Since: {}\r\n", last_modified));
+		conflux::tests::http_get_on(srv.port(), "/s/test.txt", std::format("If-Modified-Since: {}\r\n", last_modified));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 
 	srv.stop();
@@ -7647,7 +7647,7 @@ TEST_CASE(
 	"router: wildcard with prefix param captures both") {
 	Router router;
 	router.get("/{version}/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(format("{}/{}", req.params["version"], req.params["path"]));
+		return HttpResponse::text(std::format("{}/{}", req.params["version"], req.params["path"]));
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7713,7 +7713,7 @@ TEST_CASE(
 	"router: on_not_found custom handler called for unmatched path") {
 	Router router;
 	router.get("/exists", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	router.on_not_found([](HttpRequest const &req) { return HttpResponse::text(format("nope:{}", req.path)); });
+	router.on_not_found([](HttpRequest const &req) { return HttpResponse::text(std::format("nope:{}", req.path)); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/missing";
@@ -7726,7 +7726,7 @@ TEST_CASE(
 	Router router;
 	router.get("/boom", [](HttpRequest const &) -> HttpResponse { throw std::runtime_error{"oops"}; });
 	std::string captured_what;
-	router.on_error([&](HttpRequest const &, exception const &ex) {
+	router.on_error([&](HttpRequest const &, std::exception const &ex) {
 		captured_what = ex.what();
 		return HttpResponse::text("caught");
 	});
@@ -7825,7 +7825,7 @@ TEST_CASE(
 	REQUIRE(status == ParseStatus::UriTooLong);
 }
 TEST_CASE(
-	"http1_parser: header with null byte returns BadRequest") {
+	"http1_parser: header with null std::byte returns BadRequest") {
 	using namespace conflux::http1;
 	using namespace std::string_literals;
 	ParserLimits const limits{};
@@ -7938,7 +7938,7 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/s", std::string{tmpdir});
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 403 Forbidden"));
@@ -7967,7 +7967,7 @@ TEST_CASE(
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -8003,7 +8003,7 @@ TEST_CASE(
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -8042,7 +8042,7 @@ TEST_CASE(
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 
-	ScopedTestServer srv{mw_config(), move(router)};
+	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -8211,7 +8211,7 @@ TEST_CASE(
 	static constexpr int N = 20;
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-	ScopedTestServer srv{small_ring_cfg_pr_a(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_pr_a(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(N);
 	for (int i = 0; i < N; ++i) {
@@ -8219,7 +8219,7 @@ TEST_CASE(
 		REQUIRE(fd >= 0);
 		fds.push_back(fd);
 	}
-	// srv.stop() signals shutdown and joins the server thread; the thread only
+	// srv.stop() signals shutdown and joins the server std::thread; the std::thread only
 	// exits once all connections are closed, so by the time stop() returns
 	// every client fd must have received FIN.
 	srv.stop();
@@ -8244,7 +8244,7 @@ TEST_CASE(
 		// fires, increasing the chance that send_queued=true at shutdown time.
 		return HttpResponse::text(std::string(128 * 1024, 'z'));
 	});
-	ScopedTestServer srv{small_ring_cfg_pr_a(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_pr_a(), std::move(router)};
 	int const fd = connect_to(srv.port());
 	REQUIRE(fd >= 0);
 	std::string_view const req = "GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n";
@@ -8265,7 +8265,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 	router.get("/big", [](HttpRequest const &) { return HttpResponse::text(std::string(128 * 1024, 'z')); });
-	ScopedTestServer srv{small_ring_cfg_pr_a(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_pr_a(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(N_IDLE + 2);
 	// Idle connections — no request sent
@@ -8322,7 +8322,7 @@ TEST_CASE(
 	static constexpr int N = 30;
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-	ScopedTestServer srv{tiny_ring_cfg_p108b(), move(router)};
+	ScopedTestServer srv{tiny_ring_cfg_p108b(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(N);
 	for (int i = 0; i < N; ++i) {
@@ -8348,7 +8348,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 	router.get("/big", [](HttpRequest const &) { return HttpResponse::text(std::string(256 * 1024, 'z')); });
-	ScopedTestServer srv{tiny_ring_cfg_p108b(), move(router)};
+	ScopedTestServer srv{tiny_ring_cfg_p108b(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(N_IDLE + N_SEND);
 	for (int i = 0; i < N_IDLE; ++i) {
@@ -8382,7 +8382,7 @@ TEST_CASE(
 	"P1-08b: recv data queued before close_after_send is discarded") {
 	Router router;
 	router.get("/big", [](HttpRequest const &) { return HttpResponse::text(std::string(256 * 1024, 'z')); });
-	ScopedTestServer srv{small_ring_cfg_pr_a(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_pr_a(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(4);
 	for (int i = 0; i < 4; ++i) {
@@ -8413,7 +8413,7 @@ TEST_CASE(
 	"P1-08b: final recv CQE before send completion — clean shutdown") {
 	Router router;
 	router.get("/slow", [](HttpRequest const &) { return HttpResponse::text(std::string(16 * 1024, 'x')); });
-	ScopedTestServer srv{small_ring_cfg_pr_a(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_pr_a(), std::move(router)};
 	std::vector<int> fds;
 	fds.reserve(8);
 	for (int i = 0; i < 8; ++i) {

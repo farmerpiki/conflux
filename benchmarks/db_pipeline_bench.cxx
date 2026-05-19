@@ -22,7 +22,7 @@ struct PipeConfig {
 	std::size_t warmup_batches = 20;
 };
 PipeConfig parse_pipe_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	PipeConfig cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view a = args[i];
@@ -58,7 +58,7 @@ std::uint64_t run_plain(
 			p.add(id++).add("x");
 			(void)block_on(
 				reader,
-				conn->query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", move(p)),
+				conn->query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", std::move(p)),
 				std::chrono::seconds{30});
 		}
 	}
@@ -79,11 +79,11 @@ std::uint64_t run_pipeline(
 		for (std::size_t i = 0; i < batch_n; ++i) {
 			Params p;
 			p.add(id++).add("x");
-			pending.push_back(pipe.query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", move(p)));
+			pending.push_back(pipe.query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", std::move(p)));
 		}
 		block_on(reader, pipe.sync(), std::chrono::seconds{30});
 		for (auto &f: pending) {
-			(void)block_on(reader, move(f), std::chrono::seconds{30});
+			(void)block_on(reader, std::move(f), std::chrono::seconds{30});
 		}
 	}
 	auto const t1 = std::chrono::steady_clock::now();
@@ -102,7 +102,7 @@ int main(
 	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	auto pipe_cfg = parse_pipe_args(span{argv, static_cast<std::size_t>(argc)});
 	if (cfg.config_name.empty()) {
-		cfg.config_name = format("b{}_n{}", pipe_cfg.batches, pipe_cfg.batch_n);
+		cfg.config_name = std::format("b{}_n{}", pipe_cfg.batches, pipe_cfg.batch_n);
 	}
 
 	char const *raw = std::getenv("PG_CONNINFO");

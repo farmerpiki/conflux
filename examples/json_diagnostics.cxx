@@ -33,7 +33,7 @@ static void print_json_error(
 	std::println("{}: {} at {}", context, e.message, path);
 }
 
-static expected<std::string, JsonError> first_role_for_second_user(
+static std::expected<std::string, JsonError> first_role_for_second_user(
 	std::string_view input) {
 	JsonParseOptions opts{
 		.duplicate_key = DuplicateKeyPolicy::reject,
@@ -41,19 +41,19 @@ static expected<std::string, JsonError> first_role_for_second_user(
 	};
 	auto doc = parse_copy(input, opts);
 	if (!doc) {
-		return unexpected(move(doc).error());
+		return std::unexpected(std::move(doc).error());
 	}
 
 	auto path = JsonPath::from_pointer("/users/1/roles/0");
 	if (!path) {
-		return unexpected(move(path).error());
+		return std::unexpected(std::move(path).error());
 	}
 
 	auto role = doc->root().at(*path).and_then([](NodeRef node) {
 		return node.as_string();
 	});
 	if (!role) {
-		return unexpected(move(role).error());
+		return std::unexpected(std::move(role).error());
 	}
 
 	// The source document is local to this helper, so detach the returned view.

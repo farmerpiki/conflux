@@ -10,7 +10,7 @@ import conflux.net.router;
 // Public types
 // ---------------------------------------------------------------------------
 
-// Atomic counter (monotonically increasing, thread-safe).
+// Atomic counter (monotonically increasing, std::thread-safe).
 export class Counter {
 	std::atomic<std::uint64_t> value_;
 
@@ -18,9 +18,9 @@ public:
 	void inc() noexcept { inc(1); }
 	void inc(
 		std::uint64_t n) noexcept {
-		value_.fetch_add(n, memory_order_relaxed);
+		value_.fetch_add(n, std::memory_order_relaxed);
 	}
-	[[nodiscard]] std::uint64_t get() const noexcept { return value_.load(memory_order_relaxed); }
+	[[nodiscard]] std::uint64_t get() const noexcept { return value_.load(std::memory_order_relaxed); }
 };
 // Gauge (current value, can go up or down).
 export class Gauge {
@@ -29,17 +29,17 @@ export class Gauge {
 public:
 	void set(
 		double v) noexcept {
-		value_.store(v, memory_order_relaxed);
+		value_.store(v, std::memory_order_relaxed);
 	}
 	void inc(
 		double n) noexcept {
-		value_.fetch_add(n, memory_order_relaxed);
+		value_.fetch_add(n, std::memory_order_relaxed);
 	}
 	void dec(
 		double n) noexcept {
-		value_.fetch_sub(n, memory_order_relaxed);
+		value_.fetch_sub(n, std::memory_order_relaxed);
 	}
-	[[nodiscard]] double get() const noexcept { return value_.load(memory_order_relaxed); }
+	[[nodiscard]] double get() const noexcept { return value_.load(std::memory_order_relaxed); }
 };
 // Fixed-bucket histogram for latency measurements.
 // Buckets are upper bounds in seconds (standard Prometheus latency buckets).
@@ -48,19 +48,19 @@ public:
 	static constexpr std::array<double, 11> kBuckets = {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0};
 	void observe(
 		double seconds) noexcept {
-		sum_.fetch_add(seconds, memory_order_relaxed);
-		count_.fetch_add(1, memory_order_relaxed);
+		sum_.fetch_add(seconds, std::memory_order_relaxed);
+		count_.fetch_add(1, std::memory_order_relaxed);
 		for (auto [bound, cnt]: std::views::zip(kBuckets, buckets_)) {
 			if (seconds <= bound) {
-				cnt.fetch_add(1, memory_order_relaxed);
+				cnt.fetch_add(1, std::memory_order_relaxed);
 			}
 		}
 	}
-	[[nodiscard]] double sum() const noexcept { return sum_.load(memory_order_relaxed); }
-	[[nodiscard]] std::uint64_t count() const noexcept { return count_.load(memory_order_relaxed); }
+	[[nodiscard]] double sum() const noexcept { return sum_.load(std::memory_order_relaxed); }
+	[[nodiscard]] std::uint64_t count() const noexcept { return count_.load(std::memory_order_relaxed); }
 	[[nodiscard]] std::uint64_t bucket(
 		std::size_t i) const noexcept {
-		return buckets_.at(i).load(memory_order_relaxed);
+		return buckets_.at(i).load(std::memory_order_relaxed);
 	}
 
 private:
@@ -103,11 +103,11 @@ public:
 		auto const mi = method_idx(method);
 		auto const si = status_idx(status);
 		// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-		requests_[mi][si].fetch_add(1, memory_order_relaxed);
+		requests_[mi][si].fetch_add(1, std::memory_order_relaxed);
 		double const secs = std::chrono::duration<double>(elapsed).count();
 		duration_.observe(secs);
 	}
-	// Render Prometheus text exposition format (version 0.0.4).
+	// Render Prometheus text exposition std::format (version 0.0.4).
 	[[nodiscard]] std::string format_prometheus() const {
 		std::string out;
 		out.reserve(2048);
@@ -118,11 +118,11 @@ public:
 		for (std::size_t mi = 0; mi < N_METHODS; ++mi) {
 			for (std::size_t si = 0; si < N_STATUS; ++si) {
 				// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-				auto const v = requests_[mi][si].load(memory_order_relaxed);
+				auto const v = requests_[mi][si].load(std::memory_order_relaxed);
 				if (v == 0) {
 					continue;
 				}
-				out += format(
+				out += std::format(
 					"http_requests_total{{method=\"{}\",status=\"{}\"}} {}\n",
 					kMethodNames[mi],
 					kStatusLabels[si],
@@ -134,14 +134,14 @@ public:
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
 		out += "# TYPE http_request_duration_seconds histogram\n";
 		for (std::size_t i = 0; i < Histogram::kBuckets.size(); ++i) {
-			out += format(
+			out += std::format(
 				"http_request_duration_seconds_bucket{{le=\"{}\"}} {}\n",
 				Histogram::kBuckets[i],
 				duration_.bucket(i)); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		}
-		out += format("http_request_duration_seconds_bucket{{le=\"+Inf\"}} {}\n", duration_.count());
-		out += format("http_request_duration_seconds_sum {}\n", duration_.sum());
-		out += format("http_request_duration_seconds_count {}\n", duration_.count());
+		out += std::format("http_request_duration_seconds_bucket{{le=\"+Inf\"}} {}\n", duration_.count());
+		out += std::format("http_request_duration_seconds_sum {}\n", duration_.sum());
+		out += std::format("http_request_duration_seconds_count {}\n", duration_.count());
 
 		return out;
 	}
@@ -189,9 +189,9 @@ export Router::Handler metrics_handler_protected(
 	std::vector<Router::Middleware> chain) {
 	Router::Handler current = metrics_handler(registry);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-		Router::Middleware mw = move(*it);
-		Router::Handler next = move(current);
-		current = [mw = move(mw), next = move(next)](HttpRequestView const &req) -> HttpResponse {
+		Router::Middleware mw = std::move(*it);
+		Router::Handler next = std::move(current);
+		current = [mw = std::move(mw), next = std::move(next)](HttpRequestView const &req) -> HttpResponse {
 			return mw(req, next);
 		};
 	}

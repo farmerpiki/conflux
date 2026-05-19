@@ -97,18 +97,18 @@ public:
 		, stderr_fd_{err_fd} {}
 	Process(
 		Process &&o) noexcept
-		: pid_{exchange(o.pid_, -1)}
-		, stdin_fd_{exchange(o.stdin_fd_, -1)}
-		, stdout_fd_{exchange(o.stdout_fd_, -1)}
-		, stderr_fd_{exchange(o.stderr_fd_, -1)} {}
+		: pid_{std::exchange(o.pid_, -1)}
+		, stdin_fd_{std::exchange(o.stdin_fd_, -1)}
+		, stdout_fd_{std::exchange(o.stdout_fd_, -1)}
+		, stderr_fd_{std::exchange(o.stderr_fd_, -1)} {}
 	Process &operator =(
 		Process &&o) noexcept {
 		if (this != &o) {
 			close_pipes();
-			pid_ = exchange(o.pid_, -1);
-			stdin_fd_ = exchange(o.stdin_fd_, -1);
-			stdout_fd_ = exchange(o.stdout_fd_, -1);
-			stderr_fd_ = exchange(o.stderr_fd_, -1);
+			pid_ = std::exchange(o.pid_, -1);
+			stdin_fd_ = std::exchange(o.stdin_fd_, -1);
+			stdout_fd_ = std::exchange(o.stdout_fd_, -1);
+			stderr_fd_ = std::exchange(o.stderr_fd_, -1);
 		}
 		return *this;
 	}
@@ -140,7 +140,7 @@ public:
 	// Non-blocking wait.  Returns std::nullopt if still running.
 	[[nodiscard]] std::optional<int> try_wait() noexcept {
 		if (pid_ < 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		int status = 0;
 		pid_t r = 0;
@@ -148,10 +148,10 @@ public:
 			r = ::waitpid(pid_, &status, WNOHANG);
 		} while (r < 0 && errno == EINTR);
 		if (r == 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (r < 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		pid_ = -1;
 		if (WIFEXITED(status)) {
@@ -176,9 +176,9 @@ public:
 	[[nodiscard]] int stdout_fd() const noexcept { return stdout_fd_; }
 	[[nodiscard]] int stderr_fd() const noexcept { return stderr_fd_; }
 	// Transfer ownership — caller must ::close() the returned fd.
-	int take_stdin_fd() noexcept { return exchange(stdin_fd_, -1); }
-	int take_stdout_fd() noexcept { return exchange(stdout_fd_, -1); }
-	int take_stderr_fd() noexcept { return exchange(stderr_fd_, -1); }
+	int take_stdin_fd() noexcept { return std::exchange(stdin_fd_, -1); }
+	int take_stdout_fd() noexcept { return std::exchange(stdout_fd_, -1); }
+	int take_stderr_fd() noexcept { return std::exchange(stderr_fd_, -1); }
 };
 export struct RunResult {
 	int exit_code{};
@@ -345,8 +345,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 
 	if (child_in == -3 || child_out == -3 || child_err == -3) {
 		close_stdio_pipes();
-		return unexpected{
-			std::error_code{errno, system_category()}
+		return std::unexpected{
+			std::error_code{errno, std::system_category()}
         };
 	}
 
@@ -355,8 +355,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	if (::pipe2(exec_err_pipe, O_CLOEXEC) < 0) {
 		close_stdio_pipes();
-		return unexpected{
-			std::error_code{errno, system_category()}
+		return std::unexpected{
+			std::error_code{errno, std::system_category()}
         };
 	}
 
@@ -370,8 +370,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 		close_stdio_pipes();
 		::close(exec_err_pipe[0]);
 		::close(exec_err_pipe[1]);
-		return unexpected{
-			std::error_code{err, system_category()}
+		return std::unexpected{
+			std::error_code{err, std::system_category()}
         };
 	}
 
@@ -481,8 +481,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 		if (parent_err >= 0) {
 			::close(parent_err);
 		}
-		return unexpected{
-			std::error_code{child_errno, system_category()}
+		return std::unexpected{
+			std::error_code{child_errno, std::system_category()}
         };
 	}
 
@@ -504,7 +504,7 @@ export template<typename Target>
 	std::filesystem::path exe,
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
-	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	return async_run_on(target, [exe = std::move(exe), args = std::move(args), opts = std::move(opts)]() mutable {
 		std::vector<std::string_view> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
@@ -520,7 +520,7 @@ export template<typename Target>
 	std::filesystem::path exe,
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
-	return async_spawn_in(target, move(exe), move(args), move(opts));
+	return async_spawn_in(target, std::move(exe), std::move(args), std::move(opts));
 }
 // ---------------------------------------------------------------------------
 // run — spawn + drain stdout/stderr + wait
@@ -535,7 +535,7 @@ export std::expected<RunResult, std::error_code> run(
 
 	auto proc = spawn(exe, args, opts);
 	if (!proc) {
-		return unexpected{proc.error()};
+		return std::unexpected{proc.error()};
 	}
 
 	int const out_fd = proc->take_stdout_fd();
@@ -572,8 +572,8 @@ export std::expected<RunResult, std::error_code> run(
 				::close(pfds[1].fd);
 				pfds[1].fd = -1;
 			}
-			return unexpected{
-				std::error_code{poll_err, system_category()}
+			return std::unexpected{
+				std::error_code{poll_err, std::system_category()}
             };
 		}
 
@@ -616,13 +616,13 @@ export template<typename Target>
 	std::filesystem::path exe,
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
-	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	return async_run_on(target, [exe = std::move(exe), args = std::move(args), opts = std::move(opts)]() mutable {
 		std::vector<std::string_view> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
 			views.push_back(a);
 		}
-		return run(exe, views, move(opts));
+		return run(exe, views, std::move(opts));
 	});
 }
 
@@ -632,19 +632,19 @@ export template<typename Target>
 	std::filesystem::path exe,
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
-	return async_run_in(target, move(exe), move(args), move(opts));
+	return async_run_in(target, std::move(exe), std::move(args), std::move(opts));
 }
 
 export template<typename Target>
 [[nodiscard]] auto async_wait_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	return async_run_on(target, [proc = move(proc)]() mutable { return proc.wait(); });
+	return async_run_on(target, [proc = std::move(proc)]() mutable { return proc.wait(); });
 }
 
 export template<typename Target>
 [[nodiscard]] auto wait_async_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	return async_wait_in(target, move(proc));
+	return async_wait_in(target, std::move(proc));
 }

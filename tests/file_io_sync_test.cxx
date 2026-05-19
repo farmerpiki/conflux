@@ -17,21 +17,21 @@ struct TempDir {
 	TempDir(
 		std::string p,
 		int f) noexcept
-		: path{move(p)}
+		: path{std::move(p)}
 		, fd{f} {}
 	TempDir(TempDir const &) = delete;
 	TempDir &operator =(TempDir const &) = delete;
 	TempDir(
 		TempDir &&o) noexcept
-		: path{move(o.path)}
-		, fd{exchange(o.fd, -1)} {}
+		: path{std::move(o.path)}
+		, fd{std::exchange(o.fd, -1)} {}
 	TempDir &operator =(TempDir &&) = delete;
 	~TempDir() {
 		if (fd >= 0) {
 			::close(fd);
 		}
 		if (!path.empty()) {
-			auto cmd = format("rm -rf {}", path);
+			auto cmd = std::format("rm -rf {}", path);
 			auto _ = ::system(cmd.c_str());
 		}
 	}
@@ -41,11 +41,11 @@ struct TempDir {
 		REQUIRE(r != nullptr);
 		int f = ::open(p.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 		REQUIRE(f >= 0);
-		return TempDir{move(p), f};
+		return TempDir{std::move(p), f};
 	}
 	std::string read_file(
 		std::string_view name) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		int f = ::open(full.c_str(), O_RDONLY);
 		if (f < 0) {
 			return {};
@@ -60,14 +60,14 @@ struct TempDir {
 	}
 	bool file_exists(
 		std::string_view name) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		struct stat st{};
 		return ::stat(full.c_str(), &st) == 0;
 	}
 	void write_file(
 		std::string_view name,
 		std::string_view content) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		int f = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(f >= 0);
 		auto _ = ::write(f, content.data(), content.size());
@@ -75,7 +75,7 @@ struct TempDir {
 	}
 	void mkdir_sub(
 		std::string_view name) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		auto _ = ::mkdir(full.c_str(), 0755);
 	}
 };
@@ -223,8 +223,8 @@ TEST_CASE(
 	"file_io_sync: binary blocking_write_file_atomic_at round-trips bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	std::array<byte, 4> bytes{byte{0xDE}, byte{0xAD}, byte{0xBE}, byte{0xEF}};
-	auto r = blocking_write_file_atomic_at(dir.fd, std::string_view{"binary.bin"}, span{bytes});
+	std::array<std::byte, 4> bytes{std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}};
+	auto r = blocking_write_file_atomic_at(dir.fd, std::string_view{"binary.bin"}, std::span{bytes});
 	REQUIRE(r.has_value());
 	auto content = dir.read_file("binary.bin");
 	REQUIRE(content.size() == 4);
@@ -275,7 +275,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("text.txt", "hello text");
-	auto path = format("{}/{}", dir.path, "text.txt");
+	auto path = std::format("{}/{}", dir.path, "text.txt");
 	auto content = blocking_read_text_file(path);
 	REQUIRE(content.has_value());
 	CHECK(*content == "hello text");
@@ -294,9 +294,9 @@ TEST_CASE(
 	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
-	auto wr = write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
+	auto wr = write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, std::string_view{"legacy.txt"});
+	auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"legacy.txt"});
 	REQUIRE(pub.has_value());
 
 	auto file = blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
@@ -314,9 +314,9 @@ TEST_CASE(
 	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
-	auto wr = blocking_write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
+	auto wr = blocking_write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, std::string_view{"alias.txt"});
+	auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(pub.has_value());
 
 	auto stat = blocking_stat_at(dir.fd, std::string_view{"alias.txt"});
@@ -327,7 +327,7 @@ TEST_CASE(
 	REQUIRE(content.has_value());
 	CHECK(*content == text);
 
-	auto full = format("{}/{}", dir.path, "alias.txt");
+	auto full = std::format("{}/{}", dir.path, "alias.txt");
 	UniqueFd fd{::open(full.c_str(), O_RDONLY | O_CLOEXEC)};
 	REQUIRE(fd.valid());
 	auto fd_stat = blocking_fstat(fd.fd());
@@ -353,8 +353,8 @@ TEST_CASE(
 	REQUIRE(text.has_value());
 	CHECK(dir.read_file("text.txt") == "new name");
 
-	std::array<byte, 3> bytes{byte{0x41}, byte{0x42}, byte{0x43}};
-	auto binary = blocking_write_file_atomic_at(dir.fd, std::string_view{"bytes.bin"}, span{bytes});
+	std::array<std::byte, 3> bytes{std::byte{0x41}, std::byte{0x42}, std::byte{0x43}};
+	auto binary = blocking_write_file_atomic_at(dir.fd, std::string_view{"bytes.bin"}, std::span{bytes});
 	REQUIRE(binary.has_value());
 	CHECK(dir.read_file("bytes.bin") == "ABC");
 }

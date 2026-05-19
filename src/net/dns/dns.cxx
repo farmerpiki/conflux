@@ -83,10 +83,10 @@ export struct NameserverEndpoint {
 // Parse "ip", "ip:port", "[ipv6]:port", "[ipv6]". Returns endpoint with
 // AF_INET or AF_INET6 set in addr. On failure returns the unsupported
 // literal so callers can surface a useful diagnostic.
-export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
+export [[nodiscard]] std::expected<NameserverEndpoint, std::string> parse_nameserver(
 	std::string_view literal) {
 	if (literal.empty()) {
-		return unexpected{std::string{"empty nameserver literal"}};
+		return std::unexpected{std::string{"empty nameserver literal"}};
 	}
 
 	std::string host;
@@ -95,26 +95,26 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 	if (literal.front() == '[') {
 		auto const close = literal.find(']');
 		if (close == std::string_view::npos) {
-			return unexpected{std::string{"unterminated '[' in nameserver literal"}};
+			return std::unexpected{std::string{"unterminated '[' in nameserver literal"}};
 		}
 		host.assign(literal.substr(1, close - 1));
 		auto rest = literal.substr(close + 1);
 		if (!rest.empty()) {
 			if (rest.front() != ':') {
-				return unexpected{std::string{"expected ':<port>' after ']' in nameserver literal"}};
+				return std::unexpected{std::string{"std::expected ':<port>' after ']' in nameserver literal"}};
 			}
 			rest.remove_prefix(1);
 			if (rest.empty()) {
-				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
+				return std::unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
 			std::uint32_t parsed = 0;
 			for (char const c: rest) {
 				if (c < '0' || c > '9') {
-					return unexpected{format("invalid port '{}' in nameserver literal", rest)};
+					return std::unexpected{std::format("invalid port '{}' in nameserver literal", rest)};
 				}
 				parsed = parsed * 10 + static_cast<std::uint32_t>(c - '0');
 				if (parsed > 0xFFFFU) {
-					return unexpected{format("port out of range '{}' in nameserver literal", rest)};
+					return std::unexpected{std::format("port out of range '{}' in nameserver literal", rest)};
 				}
 			}
 			port = static_cast<std::uint16_t>(parsed);
@@ -130,16 +130,16 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 			host.assign(literal.substr(0, colon));
 			auto rest = literal.substr(colon + 1);
 			if (rest.empty()) {
-				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
+				return std::unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
 			std::uint32_t parsed = 0;
 			for (char const c: rest) {
 				if (c < '0' || c > '9') {
-					return unexpected{format("invalid port '{}' in nameserver literal", rest)};
+					return std::unexpected{std::format("invalid port '{}' in nameserver literal", rest)};
 				}
 				parsed = parsed * 10 + static_cast<std::uint32_t>(c - '0');
 				if (parsed > 0xFFFFU) {
-					return unexpected{format("port out of range '{}' in nameserver literal", rest)};
+					return std::unexpected{std::format("port out of range '{}' in nameserver literal", rest)};
 				}
 			}
 			port = static_cast<std::uint16_t>(parsed);
@@ -164,7 +164,7 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 		sin6->sin6_port = htons(port);
 		ns.addr_len = sizeof(::sockaddr_in6);
 	} else {
-		return unexpected{format("not an IP literal: '{}'", host)};
+		return std::unexpected{std::format("not an IP literal: '{}'", host)};
 	}
 	ns.port = port;
 	return ns;
@@ -208,7 +208,7 @@ export [[nodiscard]] bool is_valid_hostname(
 }
 // ─── numeric literal short-circuit ──────────────────────────────────────────
 
-// Returns an Endpoint if `host` is an IPv4 or IPv6 literal, else nullopt.
+// Returns an Endpoint if `host` is an IPv4 or IPv6 literal, else std::nullopt.
 // `port` is written into the sockaddr in network order.
 export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 	std::string_view host,
@@ -216,7 +216,7 @@ export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 	// inet_pton needs a NUL-terminated string. Stack-buffer common case.
 	std::array<char, 64> buf{};
 	if (host.size() >= buf.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	std::ranges::copy(host, buf.begin());
 	buf[host.size()] = '\0';
@@ -242,7 +242,7 @@ export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 		ep.family = AddressFamily::v6;
 		return ep;
 	}
-	return nullopt;
+	return std::nullopt;
 }
 // ─── DNS wire codec (RFC 1035 + EDNS0) ──────────────────────────────────────
 
@@ -364,8 +364,8 @@ export [[nodiscard]] std::vector<std::uint8_t> encode_query(
 			}
 			if (len > 63U) {
 				// caller didn't validate; truncate label gracefully by clamping
-				// no — refuse via assert-like exception. Use throw for codec contract.
-				throw DnsError{DnsErrorKind::invalid_hostname, format("encode_query: label > 63 bytes in '{}'", qname)};
+				// no — refuse via assert-like std::exception. Use throw for codec contract.
+				throw DnsError{DnsErrorKind::invalid_hostname, std::format("encode_query: label > 63 bytes in '{}'", qname)};
 			}
 			out.push_back(static_cast<std::uint8_t>(len));
 			out.insert(
@@ -405,7 +405,7 @@ export [[nodiscard]] std::vector<std::uint8_t> encode_query(
 // number of bytes consumed at the original offset (NOT following the
 // pointer chain to its end).
 export [[nodiscard]] size_t decode_name(
-	span<std::uint8_t const> wire,
+	std::span<std::uint8_t const> wire,
 	size_t offset,
 	std::string &out) {
 	out.clear();
@@ -436,7 +436,7 @@ export [[nodiscard]] size_t decode_name(
 				consumed = cursor + 2 - offset;
 			}
 			if (next >= cursor) {
-				throw DnsError{DnsErrorKind::malformed, format("decode_name: forward pointer {} >= {}", next, cursor)};
+				throw DnsError{DnsErrorKind::malformed, std::format("decode_name: forward pointer {} >= {}", next, cursor)};
 			}
 			++depth;
 			if (depth > kMaxDepth) {
@@ -447,7 +447,7 @@ export [[nodiscard]] size_t decode_name(
 			continue;
 		}
 		if ((len & 0xC0U) != 0) {
-			throw DnsError{DnsErrorKind::malformed, format("decode_name: reserved label flags 0x{:02x}", len)};
+			throw DnsError{DnsErrorKind::malformed, std::format("decode_name: reserved label flags 0x{:02x}", len)};
 		}
 		if (cursor + 1 + len > wire.size()) {
 			throw DnsError{DnsErrorKind::malformed, "decode_name: label runs past wire end"};
@@ -467,7 +467,7 @@ export [[nodiscard]] size_t decode_name(
 	return consumed;
 }
 [[nodiscard]] std::uint16_t read_u16(
-	span<std::uint8_t const> wire,
+	std::span<std::uint8_t const> wire,
 	size_t offset) {
 	if (offset + 2 > wire.size()) {
 		throw DnsError{DnsErrorKind::malformed, "read_u16: short read"};
@@ -475,7 +475,7 @@ export [[nodiscard]] size_t decode_name(
 	return static_cast<std::uint16_t>((static_cast<std::uint16_t>(wire[offset]) << 8) | wire[offset + 1]);
 }
 [[nodiscard]] std::uint32_t read_u32(
-	span<std::uint8_t const> wire,
+	std::span<std::uint8_t const> wire,
 	size_t offset) {
 	if (offset + 4 > wire.size()) {
 		throw DnsError{DnsErrorKind::malformed, "read_u32: short read"};
@@ -489,7 +489,7 @@ export [[nodiscard]] size_t decode_name(
 // RDATA is captured as raw bytes — callers project A/AAAA from it via the
 // rdata_to_endpoint helpers below.
 export [[nodiscard]] Message decode_message(
-	span<std::uint8_t const> wire) {
+	std::span<std::uint8_t const> wire) {
 	if (wire.size() < 12) {
 		throw DnsError{DnsErrorKind::malformed, "decode_message: header < 12 bytes"};
 	}
@@ -523,7 +523,7 @@ export [[nodiscard]] Message decode_message(
 		std::uint16_t const rdlen = read_u16(wire, pos + 8);
 		pos += 10;
 		if (pos + rdlen > wire.size()) {
-			throw DnsError{DnsErrorKind::malformed, format("decode_message: RDLENGTH {} overruns wire", rdlen)};
+			throw DnsError{DnsErrorKind::malformed, std::format("decode_message: RDLENGTH {} overruns wire", rdlen)};
 		}
 		rr.rdata.assign(
 			wire.begin() + static_cast<std::ptrdiff_t>(pos),
@@ -550,7 +550,7 @@ export [[nodiscard]] Message decode_message(
 	}
 	return m;
 }
-// Convert an A or AAAA RR into an Endpoint. Returns nullopt for other types.
+// Convert an A or AAAA RR into an Endpoint. Returns std::nullopt for other types.
 export [[nodiscard]] std::optional<Endpoint> rdata_to_endpoint(
 	ResourceRecord const &rr,
 	std::uint16_t port) {
@@ -573,13 +573,13 @@ export [[nodiscard]] std::optional<Endpoint> rdata_to_endpoint(
 		ep.family = AddressFamily::v6;
 		return ep;
 	}
-	return nullopt;
+	return std::nullopt;
 }
-// Map RCODE → DnsErrorKind. RCODE 0 = noerror returns nullopt.
+// Map RCODE → DnsErrorKind. RCODE 0 = noerror returns std::nullopt.
 export [[nodiscard]] std::optional<DnsErrorKind> rcode_to_error(
 	RCode r) noexcept {
 	switch (r) {
-	case RCode::noerror : return nullopt;
+	case RCode::noerror : return std::nullopt;
 	case RCode::formerr : return DnsErrorKind::formerr;
 	case RCode::servfail: return DnsErrorKind::servfail;
 	case RCode::nxdomain: return DnsErrorKind::nxdomain;
@@ -638,7 +638,7 @@ public:
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
 	resolve(SocketTaskRing &ring, std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
-	[[nodiscard]] expected<ResolveResult, DnsError>
+	[[nodiscard]] std::expected<ResolveResult, DnsError>
 	resolve_blocking(std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
 	void invalidate(std::string_view host);
@@ -660,7 +660,7 @@ private:
 	struct Impl;
 	std::shared_ptr<Impl> impl_;
 };
-// ─── thread-local current resolver ──────────────────────────────────────────
+// ─── std::thread-local current resolver ──────────────────────────────────────────
 
 export [[nodiscard]] Resolver *current_resolver() noexcept;
 

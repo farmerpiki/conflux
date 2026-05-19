@@ -43,7 +43,7 @@ std::string json_escape(
 		} else if (c == '\t') {
 			out += "\\t";
 		} else if (c < 0x20) {
-			out += format("\\u{:04x}", c);
+			out += std::format("\\u{:04x}", c);
 		} else {
 			out += static_cast<char>(c);
 		}
@@ -52,13 +52,13 @@ std::string json_escape(
 }
 
 } // namespace structured_log_detail
-// LogSink at module scope (not anonymous namespace) so make_shared<LogSink> works.
+// LogSink at module scope (not anonymous namespace) so std::make_shared<LogSink> works.
 class LogSink {
 public:
 	explicit LogSink(
 		std::string path,
 		bool daily_rotate)
-		: path_(move(path))
+		: path_(std::move(path))
 		, daily_rotate_(daily_rotate) {
 		if (path_.empty()) {
 			fd_ = STDERR_FILENO;
@@ -113,30 +113,30 @@ private:
 
 		std::string fpath = path_;
 		if (daily_rotate_) {
-			fpath += format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
+			fpath += std::format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
 		fd_ = ::open(
 			fpath.c_str(),
 			O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
 			0644); // NOLINT(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
 		if (fd_ < 0) {
-			auto msg = format("structured_log: open '{}' failed: {}\n", fpath, strerror(errno));
+			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, strerror(errno));
 			[[maybe_unused]] auto _ = ::write(STDERR_FILENO, msg.data(), msg.size());
 		}
 		current_day_ = today;
 	}
 	std::string path_;
 	bool daily_rotate_;
-	mutex mtx_;
+	std::mutex mtx_;
 	int fd_{-1};
 	int current_day_{-1};
 };
 export Router::Middleware structured_log_middleware(
 	StructuredLogOptions opts = {}) {
-	std::string app_name = move(opts.app_name);
-	auto sink = make_shared<LogSink>(move(opts.log_file), opts.daily_rotate);
+	std::string app_name = std::move(opts.app_name);
+	auto sink = std::make_shared<LogSink>(std::move(opts.log_file), opts.daily_rotate);
 
-	return [sink, app_name = move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [sink, app_name = std::move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
@@ -145,7 +145,7 @@ export Router::Middleware structured_log_middleware(
 		auto tt = std::chrono::system_clock::to_time_t(now);
 		tm tm_val{};
 		::gmtime_r(&tt, &tm_val);
-		auto ts = format(
+		auto ts = std::format(
 			"{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z",
 			tm_val.tm_year + 1900,
 			tm_val.tm_mon + 1,
@@ -154,7 +154,7 @@ export Router::Middleware structured_log_middleware(
 			tm_val.tm_min,
 			tm_val.tm_sec);
 
-		auto line = format(
+		auto line = std::format(
 			R"({{"ts":"{}","method":"{}","path":"{}","status":{},"bytes":{},"elapsed_ms":{},"remote":"{}"{}}})",
 			ts,
 			structured_log_detail::json_escape(req.method),
@@ -163,7 +163,7 @@ export Router::Middleware structured_log_middleware(
 			resp.content_length(),
 			ms,
 			structured_log_detail::json_escape(req.remote_addr),
-			app_name.empty() ? std::string{} : format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
+			app_name.empty() ? std::string{} : std::format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
 		sink->write(line);
 		return resp;
 	};

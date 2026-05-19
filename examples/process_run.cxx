@@ -8,7 +8,7 @@ import std;
 
 static void print_result(
 	std::string_view label,
-	expected<RunResult, std::error_code> const &result) {
+	std::expected<RunResult, std::error_code> const &result) {
 	if (!result) {
 		std::println("{}: spawn failed: {}", label, result.error().message());
 		return;

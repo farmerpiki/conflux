@@ -485,10 +485,10 @@ TEST_CASE(
 	std::vector<std::string> keys;
 	keys.reserve(65);
 	for (std::uint64_t i = 0; keys.size() < 65 && i < (1ULL << 24); ++i) {
-		std::string candidate = "k_" + to_string(i);
-		auto const h = static_cast<std::uint32_t>(hash<std::string_view>{}(std::string_view{candidate}));
+		std::string candidate = "k_" + std::to_string(i);
+		auto const h = static_cast<std::uint32_t>(std::hash<std::string_view>{}(std::string_view{candidate}));
 		if ((h & 0xFFu) == target_low) {
-			keys.push_back(move(candidate));
+			keys.push_back(std::move(candidate));
 		}
 	}
 	REQUIRE(keys.size() == 65);
@@ -503,7 +503,7 @@ TEST_CASE(
 		body += '"';
 		body += keys[i];
 		body += "\":";
-		body += to_string(i);
+		body += std::to_string(i);
 	}
 	body += '}';
 
@@ -562,7 +562,7 @@ TEST_CASE(
 	auto doc1 = json::parse(R"({"k": 42})");
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
-	Document doc2 = move(*doc1);
+	Document doc2 = std::move(*doc1);
 	auto obj = root_before.as_object();
 	REQUIRE(obj.has_value());
 	auto k = obj->find_member("k");
@@ -576,7 +576,7 @@ TEST_CASE(
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
 	Document doc2;
-	doc2 = move(*doc1);
+	doc2 = std::move(*doc1);
 	auto obj = root_before.as_object();
 	REQUIRE(obj.has_value());
 	CHECK(*obj->find_member("k")->as_number()->to_i64() == 42LL);
@@ -588,7 +588,7 @@ TEST_CASE(
 	REQUIRE(doc1.has_value());
 	auto obj_before = *doc1->root().as_object();
 	CHECK(obj_before.size() == 3UZ);
-	Document doc2 = move(*doc1);
+	Document doc2 = std::move(*doc1);
 	CHECK(obj_before.size() == 3UZ);
 	CHECK(*obj_before.find_member("b")->as_number()->to_i64() == 2LL);
 }
@@ -598,7 +598,7 @@ TEST_CASE(
 	auto doc1 = json::parse(R"([10, 20, 30])");
 	REQUIRE(doc1.has_value());
 	auto arr_before = *doc1->root().as_array();
-	Document doc2 = move(*doc1);
+	Document doc2 = std::move(*doc1);
 	CHECK(arr_before.size() == 3UZ);
 	CHECK(*arr_before.element(1)->as_number()->to_i64() == 20LL);
 }
@@ -608,7 +608,7 @@ TEST_CASE(
 	auto doc1 = json::parse(R"(3.14)");
 	REQUIRE(doc1.has_value());
 	auto num_before = *doc1->root().as_number();
-	Document doc2 = move(*doc1);
+	Document doc2 = std::move(*doc1);
 	auto v = num_before.to_f64();
 	REQUIRE(v.has_value());
 	CHECK(std::abs(*v - 3.14) < 1e-12);
@@ -626,7 +626,7 @@ TEST_CASE(
 	REQUIRE(doc1->warm_member_index(doc1->root()).has_value());
 	auto obj_before = *doc1->root().as_object();
 	CHECK(*obj_before.find_member("k5")->as_number()->to_i64() == 5LL);
-	Document doc2 = move(*doc1);
+	Document doc2 = std::move(*doc1);
 	// After move, the hash index pointer in the moved-from storage is now in
 	// doc2's storage; obj_before still holds the same DocumentStorage*, so
 	// hash lookups must continue to work.
@@ -739,7 +739,7 @@ TEST_CASE(
 		c = '1';
 	}
 	s = "[" + s + "]";
-	auto doc = json::parse_copy(move(s));
+	auto doc = json::parse_copy(std::move(s));
 	REQUIRE(doc.has_value());
 	auto arr = *doc->root().as_array();
 	CHECK(arr.size() == 1UZ);
@@ -896,16 +896,16 @@ TEST_CASE(
 	"phase1.5: builder produces Document with strings/numbers in owned_input",
 	"[conformance][phase15][builder]") {
 	auto b = value_builder();
-	auto obj = *move(b).begin_object();
+	auto obj = *std::move(b).begin_object();
 	REQUIRE(obj.insert_string("name", "alpha").has_value());
 	REQUIRE(obj.insert_i64("count", 42).has_value());
 	REQUIRE(obj.insert_f64("ratio", 3.5).has_value());
 	auto arr = *obj.insert_array("seq");
 	REQUIRE(arr.append_i64(1).has_value());
 	REQUIRE(arr.append_i64(2).has_value());
-	move(arr).commit();
-	move(obj).commit();
-	auto doc = *move(b).finish();
+	std::move(arr).commit();
+	std::move(obj).commit();
+	auto doc = *std::move(b).finish();
 
 	auto o = *doc.root().as_object();
 	CHECK(*o.member("name")->as_string() == "alpha");
@@ -976,14 +976,14 @@ TEST_CASE(
 	REQUIRE(tags.has_value());
 	REQUIRE(tags->append_string("admin").has_value());
 	REQUIRE(tags->append_string("user").has_value());
-	move(*tags).commit();
+	std::move(*tags).commit();
 	auto meta = ob->insert_object("meta");
 	REQUIRE(meta.has_value());
 	REQUIRE(meta->insert_bool("active", true).has_value());
 	REQUIRE(meta->insert_f64("score", 1.5).has_value());
-	move(*meta).commit();
-	move(*ob).commit();
-	auto doc = move(b).finish();
+	std::move(*meta).commit();
+	std::move(*ob).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto dumped = doc->dump();
@@ -1012,14 +1012,14 @@ TEST_CASE(
 	REQUIRE(items->append_i64(2LL).has_value());
 	REQUIRE(items->append_i64(3LL).has_value());
 	REQUIRE(items->append_i64(4LL).has_value());
-	move(*items).commit();
+	std::move(*items).commit();
 	auto mb = ob->insert_object("meta");
 	REQUIRE(mb.has_value());
 	REQUIRE(mb->insert_string("created", "2026-04-17").has_value());
-	move(*mb).commit();
+	std::move(*mb).commit();
 	REQUIRE(ob->insert_bool("flag", true).has_value());
-	move(*ob).commit();
-	auto doc = move(b).finish();
+	std::move(*ob).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto dumped = doc->dump();
@@ -1064,12 +1064,12 @@ TEST_CASE(
 	REQUIRE(list->append_i64(1LL).has_value());
 	REQUIRE(list->append_i64(2LL).has_value());
 	REQUIRE(list->append_i64(3LL).has_value());
-	move(*list).commit();
-	move(*ob_d).commit();
-	move(*ob_c).commit();
-	move(*ob_b).commit();
-	move(*ob_a).commit();
-	auto doc = move(b).finish();
+	std::move(*list).commit();
+	std::move(*ob_d).commit();
+	std::move(*ob_c).commit();
+	std::move(*ob_b).commit();
+	std::move(*ob_a).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto dumped = doc->dump();
@@ -1122,14 +1122,14 @@ TEST_CASE(
 	auto inner_arr = inner_ob->insert_array("object with 1 member");
 	REQUIRE(inner_arr.has_value());
 	REQUIRE(inner_arr->append_string("A with 1 element").has_value());
-	move(*inner_arr).commit();
-	move(*inner_ob).commit();
+	std::move(*inner_arr).commit();
+	std::move(*inner_ob).commit();
 	auto empty_ob = ab->append_object();
 	REQUIRE(empty_ob.has_value());
-	move(*empty_ob).commit();
+	std::move(*empty_ob).commit();
 	auto empty_arr = ab->append_array();
 	REQUIRE(empty_arr.has_value());
-	move(*empty_arr).commit();
+	std::move(*empty_arr).commit();
 	REQUIRE(ab->append_i64(-42LL).has_value());
 	REQUIRE(ab->append_bool(true).has_value());
 	REQUIRE(ab->append_bool(false).has_value());
@@ -1144,13 +1144,13 @@ TEST_CASE(
 	REQUIRE(stats_ob->insert_string("space", " ").has_value());
 	auto arr2 = stats_ob->insert_array("A");
 	REQUIRE(arr2.has_value());
-	move(*arr2).commit();
+	std::move(*arr2).commit();
 	auto ob2 = stats_ob->insert_object("object");
 	REQUIRE(ob2.has_value());
-	move(*ob2).commit();
-	move(*stats_ob).commit();
-	move(*ab).commit();
-	auto doc = move(b).finish();
+	std::move(*ob2).commit();
+	std::move(*stats_ob).commit();
+	std::move(*ab).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto dumped = doc->dump();

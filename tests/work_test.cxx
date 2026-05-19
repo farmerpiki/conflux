@@ -49,7 +49,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: WorkPool raw enqueue reports thrown exception to sink",
 	"[work]") {
-	mutex mtx;
+	std::mutex mtx;
 	std::condition_variable cv;
 	bool seen = false;
 	std::string message;
@@ -66,7 +66,7 @@ TEST_CASE(
 					}
 					{
 						std::scoped_lock const lk{mtx};
-						message = move(local);
+						message = std::move(local);
 						seen = true;
 					}
 					cv.notify_one();
@@ -81,7 +81,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: WorkPool stop abandons queued raw jobs",
 	"[work]") {
-	mutex mtx;
+	std::mutex mtx;
 	std::condition_variable cv;
 	bool first_started = false;
 	bool release_first = false;
@@ -111,7 +111,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: WorkPool drain_and_stop finishes queued raw jobs",
 	"[work]") {
-	mutex mtx;
+	std::mutex mtx;
 	std::condition_variable cv;
 	bool first_started = false;
 	bool release_first = false;
@@ -132,7 +132,7 @@ TEST_CASE(
 		second_ran = true;
 		cv.notify_all();
 	}));
-	jthread stopper{[&] { pool.drain_and_stop(); }};
+	std::jthread stopper{[&] { pool.drain_and_stop(); }};
 	{
 		std::scoped_lock const lk{mtx};
 		release_first = true;
@@ -162,25 +162,25 @@ TEST_CASE(
 		std::atomic<bool> start{false};
 		std::atomic<int> accepted{0};
 		std::atomic<int> ran{0};
-		std::vector<jthread> producers;
+		std::vector<std::jthread> producers;
 		for (int i = 0; i < 16; ++i) {
 			producers.emplace_back([&] {
-				while (!start.load(memory_order_acquire)) {
+				while (!start.load(std::memory_order_acquire)) {
 					conflux::work::root::detail::cpu_pause();
 				}
-				if (pool.enqueue([&] { ran.fetch_add(1, memory_order_release); })) {
-					accepted.fetch_add(1, memory_order_release);
+				if (pool.enqueue([&] { ran.fetch_add(1, std::memory_order_release); })) {
+					accepted.fetch_add(1, std::memory_order_release);
 				}
 			});
 		}
-		start.store(true, memory_order_release);
+		start.store(true, std::memory_order_release);
 		pool.drain_and_stop();
 		for (auto &p: producers) {
 			if (p.joinable()) {
 				p.join();
 			}
 		}
-		CHECK(ran.load(memory_order_acquire) == accepted.load(memory_order_acquire));
+		CHECK(ran.load(std::memory_order_acquire) == accepted.load(std::memory_order_acquire));
 	}
 }
 TEST_CASE(
@@ -193,25 +193,25 @@ TEST_CASE(
 		std::atomic<bool> start{false};
 		std::atomic<int> accepted{0};
 		std::atomic<int> ran{0};
-		std::vector<jthread> producers;
+		std::vector<std::jthread> producers;
 		for (int i = 0; i < 16; ++i) {
 			producers.emplace_back([&] {
-				while (!start.load(memory_order_acquire)) {
+				while (!start.load(std::memory_order_acquire)) {
 					conflux::work::root::detail::cpu_pause();
 				}
-				if (pool.enqueue([&] { ran.fetch_add(1, memory_order_release); })) {
-					accepted.fetch_add(1, memory_order_release);
+				if (pool.enqueue([&] { ran.fetch_add(1, std::memory_order_release); })) {
+					accepted.fetch_add(1, std::memory_order_release);
 				}
 			});
 		}
-		start.store(true, memory_order_release);
+		start.store(true, std::memory_order_release);
 		pool.drain_and_stop();
 		for (auto &p: producers) {
 			if (p.joinable()) {
 				p.join();
 			}
 		}
-		CHECK(ran.load(memory_order_acquire) == accepted.load(memory_order_acquire));
+		CHECK(ran.load(std::memory_order_acquire) == accepted.load(std::memory_order_acquire));
 	}
 }
 TEST_CASE(
@@ -257,7 +257,7 @@ TEST_CASE(
 	"[work]") {
 	::io_uring ring{};
 	if (int const rc = ::io_uring_queue_init(8, &ring, 0); rc != 0) {
-		FAIL(format("conflux requires a host that permits io_uring_queue_init: {}", rc));
+		FAIL(std::format("conflux requires a host that permits io_uring_queue_init: {}", rc));
 	}
 	struct RingGuard {
 		io_uring *ring;
@@ -274,7 +274,7 @@ TEST_CASE(
 	lane.adopt_current_thread();
 
 	std::atomic<int> observed{0};
-	jthread producer([&] { CHECK(lane.enqueue([&] { observed.store(42, memory_order_release); })); });
+	std::jthread producer([&] { CHECK(lane.enqueue([&] { observed.store(42, std::memory_order_release); })); });
 	producer.join();
 
 	io_uring_cqe *cqe = nullptr;
@@ -284,7 +284,7 @@ TEST_CASE(
 	::io_uring_cqe_seen(&ring, cqe);
 
 	CHECK(lane.drain() == 1);
-	CHECK(observed.load(memory_order_acquire) == 42);
+	CHECK(observed.load(std::memory_order_acquire) == 42);
 }
 TEST_CASE(
 	"work: ring lane failed wake does not keep rejected job",
@@ -301,32 +301,32 @@ TEST_CASE(
 
 	std::atomic<int> observed{0};
 	bool queued = true;
-	jthread producer([&] { queued = lane.enqueue([&] { observed.store(42, memory_order_release); }); });
+	std::jthread producer([&] { queued = lane.enqueue([&] { observed.store(42, std::memory_order_release); }); });
 	producer.join();
 
 	CHECK_FALSE(queued);
 	CHECK(lane.drain() == 0);
-	CHECK(observed.load(memory_order_acquire) == 0);
+	CHECK(observed.load(std::memory_order_acquire) == 0);
 }
 TEST_CASE(
 	"work: co_spawn fires and forgets",
 	"[work]") {
 	WorkPool pool;
 	std::atomic<int> counter{0};
-	auto gate = make_shared<barrier<>>(2);
-	[](std::shared_ptr<barrier<>>, auto t) -> root::Task<void> {
-		co_await move(t);
+	auto gate = std::make_shared<std::barrier<>>(2);
+	[](std::shared_ptr<std::barrier<>>, auto t) -> root::Task<void> {
+		co_await std::move(t);
 	}(gate, async_run_on(pool, [gate, &counter] {
-									 counter.fetch_add(1, memory_order_release);
+									 counter.fetch_add(1, std::memory_order_release);
 									 gate->arrive_and_wait();
 								 })).detach();
 	gate->arrive_and_wait();
-	CHECK(counter.load(memory_order_acquire) == 1);
+	CHECK(counter.load(std::memory_order_acquire) == 1);
 }
 TEST_CASE(
 	"work: IoBuffer from_string keeps std::string alive",
 	"[work]") {
 	IoBuffer const buf = IoBuffer::from_string("hello");
 	CHECK(buf.bytes.size() == 5);
-	CHECK(buf.bytes[0] == byte{'h'});
+	CHECK(buf.bytes[0] == std::byte{'h'});
 }

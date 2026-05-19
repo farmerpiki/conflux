@@ -30,7 +30,7 @@ int main() {
 
 	app.group("/public", [](Router::Group &g) {
 		g.get("/ping", [](HttpRequest const &req) {
-			return HttpResponse::json(format(
+			return HttpResponse::json(std::format(
 				R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
 				req.headers["x-request-id"],
 				req.headers["traceparent"]));
@@ -41,7 +41,7 @@ int main() {
 		g.use(basic_auth_middleware([](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
 		g.get("/profile", [](HttpRequest const &req) {
-			return HttpResponse::json(format(
+			return HttpResponse::json(std::format(
 				R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
 				req.headers["x-request-id"],
 				req.remote_addr));
@@ -57,6 +57,6 @@ int main() {
 		});
 	});
 
-	auto const status = move(app).run({.port = 9094});
+	auto const status = std::move(app).run({.port = 9094});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

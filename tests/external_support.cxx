@@ -43,7 +43,7 @@ std::pair<std::string, std::string> const &cached_test_cert() {
 			int const f = ::mkstemps(key_tmp, 4);
 			::close(f);
 		}
-		std::string const cmd = format(
+		std::string const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
@@ -146,7 +146,7 @@ void wait_for_port(
 void wait_for_https(
 	std::uint16_t port) {
 	for (int i = 0; i < 50; ++i) {
-		auto [code, out] = run_cmd(format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
+		auto [code, out] = run_cmd(std::format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
 		(void)out;
 		if (code == 0) {
 			return;
@@ -159,12 +159,12 @@ class HttpsServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
 	std::shared_ptr<HttpServer> server_;
-	thread srv_thread_;
+		std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
-		cert_path_ = move(cert);
-		key_path_ = move(key);
+		cert_path_ = std::move(cert);
+		key_path_ = std::move(key);
 	}
 
 public:
@@ -172,7 +172,7 @@ public:
 	HttpsServerFixture &operator =(HttpsServerFixture const &) = delete;
 	explicit HttpsServerFixture(
 		Router router)
-		: HttpsServerFixture(Config::test(), move(router)) {}
+		: HttpsServerFixture(Config::test(), std::move(router)) {}
 	HttpsServerFixture(
 		Config cfg,
 		Router router) {
@@ -184,8 +184,8 @@ public:
 		cfg.key_file = key_path_;
 		apply_external_server_env(cfg);
 
-		server_ = make_shared<HttpServer>(cfg, move(router));
-		srv_thread_ = thread([srv = server_] { (void)srv->run(); });
+		server_ = std::make_shared<HttpServer>(cfg, std::move(router));
+		srv_thread_ = std::thread([srv = server_] { (void)srv->run(); });
 
 		port_ = server_->port();
 		wait_for_port(port_);
@@ -205,15 +205,15 @@ public:
 	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] std::pair<int, std::string> curl_https(
 		std::string_view path) const {
-		return run_cmd_retry(format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}{}", port_, path));
+		return run_cmd_retry(std::format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}{}", port_, path));
 	}
 	[[nodiscard]] std::pair<int, std::string> curl_http(
 		std::string_view path) const {
-		return run_cmd_retry(format("curl -s --max-time 5 http://127.0.0.1:{}{}", port_, path));
+		return run_cmd_retry(std::format("curl -s --max-time 5 http://127.0.0.1:{}{}", port_, path));
 	}
 	[[nodiscard]] std::pair<int, std::string> curl_https_status(
 		std::string_view path) const {
-		return run_cmd_retry(format(
+		return run_cmd_retry(std::format(
 			"curl -sk --http1.1 -o /dev/null -w '%{{http_code}}' --max-time 5 "
 			"https://127.0.0.1:{}{}",
 			port_,
@@ -221,7 +221,7 @@ public:
 	}
 	[[nodiscard]] std::string sclient_get(
 		std::string_view path) const {
-		auto const cmd = format(
+		auto const cmd = std::format(
 			"printf 'GET {} HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' | "
 			"openssl s_client -connect 127.0.0.1:{} -quiet -ign_eof 2>/dev/null",
 			path,
@@ -230,7 +230,7 @@ public:
 		for (int i = 0; i < 3; ++i) {
 			auto [code, attempt] = run_cmd(cmd);
 			(void)code;
-			out = move(attempt);
+			out = std::move(attempt);
 			if (!out.empty()) {
 				break;
 			}
@@ -243,12 +243,12 @@ class Http3ServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
 	std::shared_ptr<HttpServer> server_;
-	thread srv_thread_;
+		std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
-		cert_path_ = move(cert);
-		key_path_ = move(key);
+		cert_path_ = std::move(cert);
+		key_path_ = std::move(key);
 	}
 
 public:
@@ -271,8 +271,8 @@ public:
 		cfg.key_file = key_path_;
 		cfg.http3.enabled = true;
 
-		server_ = make_shared<HttpServer>(cfg, move(router));
-		srv_thread_ = thread([srv = server_] { (void)srv->run(); });
+		server_ = std::make_shared<HttpServer>(cfg, std::move(router));
+		srv_thread_ = std::thread([srv = server_] { (void)srv->run(); });
 
 		port_ = server_->port();
 		wait_for_port(port_);
@@ -293,7 +293,7 @@ public:
 	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] std::pair<int, std::string> curl_h3(
 		std::string_view path) const {
-		return run_cmd_retry(format(
+		return run_cmd_retry(std::format(
 			"curl -sk --http3-only --max-time 5 "
 			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
 			port_,
@@ -302,7 +302,7 @@ public:
 	}
 	[[nodiscard]] std::pair<int, std::string> curl_h3_status(
 		std::string_view path) const {
-		return run_cmd_retry(format(
+		return run_cmd_retry(std::format(
 			"curl -sk --http3-only -o /dev/null -w '%{{http_code}}' --max-time 5 "
 			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
 			port_,
@@ -314,7 +314,7 @@ public:
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
 	r.get("/hello/{name}", [](HttpRequest const &req) {
-		return HttpResponse::text(format("hello {}", req.params["name"]));
+		return HttpResponse::text(std::format("hello {}", req.params["name"]));
 	});
 	r.post("/echo", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	return r;

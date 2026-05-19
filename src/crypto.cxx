@@ -45,7 +45,7 @@ constexpr std::array<std::int8_t, 256> make_b64_table(
 constexpr auto kB64Table = make_b64_table(kB64Alphabet);
 constexpr auto kB64UrlTable = make_b64_table(kB64UrlAlphabet);
 std::string b64_encode_impl(
-	span<unsigned char const> in,
+	std::span<unsigned char const> in,
 	std::string_view alphabet,
 	bool padding) {
 	std::string out;
@@ -75,7 +75,7 @@ std::string b64_encode_impl(
 }
 std::string b64_decode_impl(
 	std::string_view encoded,
-	span<std::int8_t const, 256> table) {
+	std::span<std::int8_t const, 256> table) {
 	std::string out;
 	out.reserve(((encoded.size() * 3) / 4) + 1);
 	int bits = 0;
@@ -127,7 +127,7 @@ export std::string base64url_decode(
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] std::vector<unsigned char> make_sha_padded(
-	span<unsigned char const> msg) {
+	std::span<unsigned char const> msg) {
 	std::size_t const with_marker = msg.size() + 1;
 	std::size_t const zero_pad = (56 + 64 - (with_marker % 64)) % 64;
 	std::size_t const total = with_marker + zero_pad + 8;
@@ -159,7 +159,7 @@ export std::array<unsigned char, 20> sha1(
 	for (std::size_t blk = 0; blk < padded.size(); blk += 64) {
 		std::array<std::uint32_t, 80> w{};
 		for (int i = 0; i < 16; ++i) {
-			auto b = span{padded}.subspan(blk + (static_cast<std::size_t>(i) * 4), 4);
+			auto b = std::span{padded}.subspan(blk + (static_cast<std::size_t>(i) * 4), 4);
 			w[static_cast<std::size_t>(i)] = (static_cast<std::uint32_t>(b[0]) << 24)
 										   | (static_cast<std::uint32_t>(b[1]) << 16)
 										   | (static_cast<std::uint32_t>(b[2]) << 8)
@@ -235,7 +235,7 @@ export std::array<unsigned char, 20> hmac_sha1(
 		outer_buf[i] = static_cast<unsigned char>(k_pad[i] ^ 0x5CU);
 	}
 	std::ranges::copy(inner, outer_buf.begin() + 64);
-	return sha1(span{outer_buf.data(), 84});
+	return sha1(std::span{outer_buf.data(), 84});
 }
 // ---------------------------------------------------------------------------
 // SHA-256 (FIPS 180-4)
@@ -274,7 +274,7 @@ export std::array<unsigned char, 32> sha256(
 	for (std::size_t blk = 0; blk < padded.size(); blk += 64) {
 		std::array<std::uint32_t, 64> w{};
 		for (std::size_t i = 0; i < 16; ++i) {
-			auto b = span{padded}.subspan(blk + (i * 4), 4);
+			auto b = std::span{padded}.subspan(blk + (i * 4), 4);
 			w[i] = (static_cast<std::uint32_t>(b[0]) << 24)
 				 | (static_cast<std::uint32_t>(b[1]) << 16)
 				 | (static_cast<std::uint32_t>(b[2]) << 8)
@@ -421,7 +421,7 @@ struct AesKey256 {
 	std::array<std::uint32_t, 60> rk{};
 };
 AesKey256 aes256_expand_key(
-	span<unsigned char const> key) {
+	std::span<unsigned char const> key) {
 	AesKey256 ek{};
 	for (std::size_t i = 0; i < 8; ++i) {
 		ek.rk[i] = aes_word(key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]);
@@ -491,7 +491,7 @@ void ghash_mult(
 	unsigned char const h[16],
 	unsigned char const x[16]) {
 	std::array<unsigned char, 16> v{};
-	std::ranges::copy(span{h, 16}, v.begin());
+	std::ranges::copy(std::span{h, 16}, v.begin());
 	std::array<unsigned char, 16> z{};
 
 	for (int i = 0; i < 128; ++i) {
@@ -515,11 +515,11 @@ void ghash_mult(
 void ghash_update(
 	unsigned char state[16],
 	unsigned char const h[16],
-	span<unsigned char const> data) {
+	std::span<unsigned char const> data) {
 	std::array<unsigned char, 16> block{};
 	std::size_t pos = 0;
 	while (pos < data.size()) {
-		std::size_t const chunk = min(std::size_t{16}, data.size() - pos);
+		std::size_t const chunk = std::min(std::size_t{16}, data.size() - pos);
 		block.fill(0);
 		std::ranges::copy(data.subspan(pos, chunk), block.begin());
 		for (std::size_t i = 0; i < 16; ++i) {
@@ -548,10 +548,10 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	std::span<unsigned char const> plaintext,
 	std::span<unsigned char const> aad) {
 	if (key.size() != 32) {
-		return unexpected(std::string{"aes_gcm_encrypt: key must be 32 bytes"});
+		return std::unexpected(std::string{"aes_gcm_encrypt: key must be 32 bytes"});
 	}
 	if (iv.size() != 12) {
-		return unexpected(std::string{"aes_gcm_encrypt: iv must be 12 bytes"});
+		return std::unexpected(std::string{"aes_gcm_encrypt: iv must be 12 bytes"});
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
@@ -584,7 +584,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	for (std::size_t i = 0; i < plaintext.size(); i += 16) {
 		gcm_inc32(ctr.data());
 		aes256_encrypt_block(ek, ctr.data(), keystream.data());
-		std::size_t const chunk = min(std::size_t{16}, plaintext.size() - i);
+		std::size_t const chunk = std::min(std::size_t{16}, plaintext.size() - i);
 		for (std::size_t j = 0; j < chunk; ++j) {
 			ct[i + j] = static_cast<unsigned char>(plaintext[i + j] ^ keystream[j]);
 		}
@@ -627,13 +627,13 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	std::span<unsigned char const> ciphertext_and_tag,
 	std::span<unsigned char const> aad) {
 	if (key.size() != 32) {
-		return unexpected(std::string{"aes_gcm_decrypt: key must be 32 bytes"});
+		return std::unexpected(std::string{"aes_gcm_decrypt: key must be 32 bytes"});
 	}
 	if (iv.size() != 12) {
-		return unexpected(std::string{"aes_gcm_decrypt: iv must be 12 bytes"});
+		return std::unexpected(std::string{"aes_gcm_decrypt: iv must be 12 bytes"});
 	}
 	if (ciphertext_and_tag.size() < 16) {
-		return unexpected(std::string{"aes_gcm_decrypt: input too short (need at least tag)"});
+		return std::unexpected(std::string{"aes_gcm_decrypt: input too short (need at least tag)"});
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
@@ -648,7 +648,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 		aad.size(),
 		pt.data());
 	if (rc != 0) {
-		return unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
 	}
 	return pt;
 #else
@@ -697,7 +697,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 		tag_diff = static_cast<unsigned char>(tag_diff | (expected_tag[i] ^ claimed_tag[i]));
 	}
 	if (tag_diff != 0) {
-		return unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
 	}
 
 	// Decrypt CTR
@@ -709,7 +709,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	for (std::size_t i = 0; i < ct_len; i += 16) {
 		gcm_inc32(ctr.data());
 		aes256_encrypt_block(ek, ctr.data(), keystream.data());
-		std::size_t const chunk = min(std::size_t{16}, ct_len - i);
+		std::size_t const chunk = std::min(std::size_t{16}, ct_len - i);
 		for (std::size_t j = 0; j < chunk; ++j) {
 			pt[i + j] = static_cast<unsigned char>(ct[i + j] ^ keystream[j]);
 		}

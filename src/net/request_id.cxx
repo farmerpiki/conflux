@@ -20,9 +20,9 @@ std::string generate_uuid() {
 	std::array<unsigned char, 16> bytes{};
 	random_bytes(bytes);
 
-	// Set UUID v4 version and variant bits.
+	// Set UUID v4 version and std::variant bits.
 	bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0F) | 0x40); // version 4
-	bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3F) | 0x80); // variant 1
+	bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3F) | 0x80); // std::variant 1
 
 	// Format as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
 	static constexpr char kHex[] = "0123456789abcdef";
@@ -48,8 +48,8 @@ export Router::Middleware request_id_middleware(
 	std::string lower_header = ascii_lower(opts.header);
 
 	return
-		[opts = move(opts),
-		 lower_header = move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+		[opts = std::move(opts),
+		 lower_header = std::move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 			std::string id;
 			if (opts.trust_incoming) {
 				auto existing = req.headers[lower_header];

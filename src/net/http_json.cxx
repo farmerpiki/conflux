@@ -17,7 +17,7 @@ inline ClientRequest::Builder &set_body_with(
 {
 	auto dumped = conflux::json::boundary::dump_with<Provider>(value, opts);
 	if (dumped) {
-		b.body(move(*dumped));
+		b.body(std::move(*dumped));
 	}
 	return b.content_type(conflux::json::boundary::kContentType);
 }
@@ -29,11 +29,11 @@ inline ClientRequest::Builder &&set_body_with(
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<Provider, T>
 {
-	return move(set_body_with<Provider>(b, value, opts));
+	return std::move(set_body_with<Provider>(b, value, opts));
 }
 
 template<class Provider, class T>
-[[nodiscard]] expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body_with(
+[[nodiscard]] std::expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body_with(
 	ClientRequest const &req,
 	conflux::json::boundary::DecodeOptions const &opts = {})
 	requires conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<T>>

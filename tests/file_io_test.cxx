@@ -51,7 +51,7 @@ struct RingFixture {
 				 }} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
-		auto fx = make_unique<RingFixture>();
+		auto fx = std::make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
 			return {};
 		}
@@ -82,7 +82,7 @@ struct TempFile {
 	static TempFile create(
 		std::string_view content = {}) {
 		TempFile t;
-		t.path = format("{}/conflux_file_io_test_XXXXXX", temp_file_root());
+		t.path = std::format("{}/conflux_file_io_test_XXXXXX", temp_file_root());
 		t.fd = ::mkstemp(t.path.data());
 		REQUIRE(t.fd >= 0);
 		if (!content.empty()) {
@@ -104,8 +104,8 @@ struct TempFile {
 	TempFile &operator =(TempFile const &) = delete;
 	TempFile(
 		TempFile &&o) noexcept
-		: path{move(o.path)}
-		, fd{exchange(o.fd, -1)} {}
+		: path{std::move(o.path)}
+		, fd{std::exchange(o.fd, -1)} {}
 	TempFile &operator =(TempFile &&) = delete;
 };
 
@@ -114,7 +114,7 @@ struct TempDir {
 	int fd{-1};
 	static TempDir create() {
 		TempDir t;
-		t.path = format("{}/conflux_file_io_dir_XXXXXX", temp_file_root());
+		t.path = std::format("{}/conflux_file_io_dir_XXXXXX", temp_file_root());
 		auto *r = ::mkdtemp(t.path.data());
 		REQUIRE(r != nullptr);
 		t.fd = ::open(t.path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -135,18 +135,18 @@ struct TempDir {
 	TempDir &operator =(TempDir const &) = delete;
 	TempDir(
 		TempDir &&o) noexcept
-		: path{move(o.path)}
-		, fd{exchange(o.fd, -1)} {}
+		: path{std::move(o.path)}
+		, fd{std::exchange(o.fd, -1)} {}
 	TempDir &operator =(TempDir &&) = delete;
 	void mkdir_sub(
 		std::string_view name) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		REQUIRE(::mkdir(full.c_str(), 0755) == 0);
 	}
 	void write_file(
 		std::string_view name,
 		std::string_view content) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		int const f = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 		REQUIRE(f >= 0);
 		auto const w = ::write(f, content.data(), content.size());
@@ -155,7 +155,7 @@ struct TempDir {
 	}
 	[[nodiscard]] std::string read_file(
 		std::string_view name) const {
-		auto full = format("{}/{}", path, name);
+		auto full = std::format("{}/{}", path, name);
 		int const f = ::open(full.c_str(), O_RDONLY | O_CLOEXEC);
 		REQUIRE(f >= 0);
 		std::string out(4096, '\0');
@@ -321,10 +321,10 @@ TEST_CASE(
 	FileStat const st = block_on(fx->reader, fx->reader.async_stat(handle), std::chrono::seconds{5});
 	CHECK(st.size == std::string_view{"hello file_io"}.size());
 
-	std::array<byte, 32> buf{};
+	std::array<std::byte, 32> buf{};
 	std::size_t const got = block_on(
 		fx->reader,
-		fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}),
+		fx->reader.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}),
 		std::chrono::seconds{5});
 	REQUIRE(got == std::string_view{"hello file_io"}.size());
 	CHECK(memcmp(buf.data(), "hello file_io", got) == 0);
@@ -353,7 +353,7 @@ TEST_CASE(
 	REQUIRE(handle.valid());
 
 	FileReader::ReadFixedResult const got =
-		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*buf)), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.read_fixed(handle, 0, std::move(*buf)), std::chrono::seconds{5});
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
 	for (std::size_t i = 0; i < got.bytes; ++i) {
@@ -383,7 +383,7 @@ TEST_CASE(
 
 	std::size_t const delivered = block_on(
 		fx->reader,
-		fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe)),
+		fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], std::move(*pipe)),
 		std::chrono::seconds{5});
 	CHECK(delivered == content.size());
 
@@ -430,15 +430,15 @@ TEST_CASE(
 	REQUIRE(handle.is_direct());
 	CHECK(handle.direct_slot() == 2);
 
-	std::array<byte, 32> buf{};
+	std::array<std::byte, 32> buf{};
 	std::size_t const got = block_on(
 		fx->reader,
-		fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}),
+		fx->reader.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}),
 		std::chrono::seconds{5});
 	REQUIRE(got == std::string_view{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
-	block_on(fx->reader, fx->reader.async_close(move(handle)), std::chrono::seconds{5});
+	block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
 	::io_uring_unregister_files(&fx->ring);
 }
 TEST_CASE(
@@ -503,7 +503,7 @@ TEST_CASE(
 	options.fixed_buffer_bytes = 4096;
 	auto storage = IopollStorageRing::create(options);
 	if (!storage) {
-		INFO(format("iopoll storage ring unavailable: {}", storage.error().what()));
+		INFO(std::format("iopoll storage ring unavailable: {}", storage.error().what()));
 		SKIP("iopoll storage ring unavailable");
 	}
 
@@ -511,7 +511,7 @@ TEST_CASE(
 	auto tf = TempFile::create(content);
 	int const fd = ::open(tf.path.c_str(), O_RDONLY | O_DIRECT | O_CLOEXEC);
 	if (fd < 0) {
-		INFO(format("O_DIRECT unavailable for test file: {}", strerror(errno)));
+		INFO(std::format("O_DIRECT unavailable for test file: {}", strerror(errno)));
 		SKIP("O_DIRECT unavailable for test file");
 	}
 	FileHandle handle = FileHandle::from_fd(fd);
@@ -521,14 +521,14 @@ TEST_CASE(
 	try {
 		auto got = block_on_iopoll(
 			(*storage)->reader(),
-			(*storage)->reader().read_nocache_fixed(handle, 0, move(*buf), content.size()),
+			(*storage)->reader().read_nocache_fixed(handle, 0, std::move(*buf), content.size()),
 			std::chrono::seconds{5});
 		REQUIRE(got.bytes == content.size());
 		CHECK(memcmp(got.buffer.view().data(), content.data(), content.size()) == 0);
 	} catch (std::system_error const &se) {
 		int const err = se.code().value();
 		if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS || err == ENOTSUP) {
-			INFO(format("IOPOLL/O_DIRECT read unsupported on this filesystem/device: {}", se.what()));
+			INFO(std::format("IOPOLL/O_DIRECT read unsupported on this filesystem/device: {}", se.what()));
 			SKIP("IOPOLL/O_DIRECT read unsupported on this filesystem/device");
 		}
 		throw;
@@ -563,7 +563,7 @@ TEST_CASE(
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
 	FileReader::WriteFixedResult const wresult =
-		block_on(fx->reader, fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size()), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.write_fixed(wh, 0, std::move(*write_buf), payload.size()), std::chrono::seconds{5});
 	REQUIRE(wresult.bytes == payload.size());
 
 	// Verify on-disk bytes via pread.
@@ -589,14 +589,14 @@ TEST_CASE(
 		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	std::array<byte, 64> buf_a{};
-	std::array<byte, 128> buf_b{};
+	std::array<std::byte, 64> buf_a{};
+	std::array<std::byte, 128> buf_b{};
 	std::vector<iovec> iovs{
 		iovec{.iov_base = buf_a.data(), .iov_len = buf_a.size()},
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	std::size_t const got = block_on(fx->reader, fx->reader.readv_into(handle, 0, move(iovs)), std::chrono::seconds{5});
+	std::size_t const got = block_on(fx->reader, fx->reader.readv_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
 
 	REQUIRE(got == content.size());
 	for (std::size_t i = 0; i < buf_a.size(); ++i) {
@@ -627,7 +627,7 @@ TEST_CASE(
 	};
 
 	std::size_t const written =
-		block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.writev_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
 	std::string verify(seg_a.size() + seg_b.size(), '\0');
@@ -668,7 +668,7 @@ TEST_CASE(
 	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
 	}
 	if (!handle.valid()) {
-		SKIP(format("O_DIRECT open failed: errno={}", open_err));
+		SKIP(std::format("O_DIRECT open failed: errno={}", open_err));
 	}
 
 	auto buf = pool.try_acquire();
@@ -679,7 +679,7 @@ TEST_CASE(
 	try {
 		got = block_on(
 			fx->reader,
-			fx->reader.read_nocache_fixed(handle, 0, move(*buf), content.size()),
+			fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), content.size()),
 			std::chrono::seconds{5});
 	} catch (std::system_error const &se) {
 		read_err = se.code().value();
@@ -733,7 +733,7 @@ TEST_CASE(
 	int read_err = 0;
 	// Request only 512 bytes from a 4096-byte file.
 	try {
-		got = block_on(fx->reader, fx->reader.read_nocache_fixed(handle, 0, move(*buf), 512), std::chrono::seconds{5});
+		got = block_on(fx->reader, fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), 512), std::chrono::seconds{5});
 	} catch (std::system_error const &se) {
 		read_err = se.code().value();
 	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
@@ -965,7 +965,7 @@ TEST_CASE(
 	try {
 		got = block_on(
 			fx->reader,
-			fx->reader.async_fgetxattr(handle, xattr_name, span<char>{buf.data(), buf.size()}),
+			fx->reader.async_fgetxattr(handle, xattr_name, std::span<char>{buf.data(), buf.size()}),
 			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { get_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1318,7 +1318,7 @@ TEST_CASE(
 	try {
 		got = block_on(
 			fx->reader,
-			fx->reader.async_getxattr(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}),
+			fx->reader.async_getxattr(tmp.path, "user.path_test_key", std::span<char>{buf.data(), buf.size()}),
 			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { get_err = se.code().value(); } catch (...) {
 	}
@@ -1460,7 +1460,7 @@ TEST_CASE(
 		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	std::array<byte, 64> buf{};
+	std::array<std::byte, 64> buf{};
 	std::vector<iovec> iovs{
 		iovec{.iov_base = buf.data(), .iov_len = buf.size()}
     };
@@ -1468,7 +1468,7 @@ TEST_CASE(
 	std::size_t got = 0;
 	int err = 0;
 	try {
-		got = block_on(fx->reader, fx->reader.readv2_into(handle, 0, move(iovs)), std::chrono::seconds{5});
+		got = block_on(fx->reader, fx->reader.readv2_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1499,7 +1499,7 @@ TEST_CASE(
 	std::size_t written = 0;
 	int err = 0;
 	try {
-		written = block_on(fx->reader, fx->reader.writev2_into(handle, 0, move(iovs)), std::chrono::seconds{5});
+		written = block_on(fx->reader, fx->reader.writev2_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1549,7 +1549,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_futex_waitv(move(waiters)), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_futex_waitv(std::move(waiters)), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1679,7 +1679,7 @@ TEST_CASE(
 		remove_ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
-	root::abandon_to(move(poll_flow), root::drop_on_abandon{});
+	root::abandon_to(std::move(poll_flow), root::drop_on_abandon{});
 
 	bool const passed = remove_ok || err == ENOENT || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1714,7 +1714,7 @@ TEST_CASE(
 	REQUIRE(::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&addr), &slen) == 0);
 
 	// Connect from a background thread.
-	jthread const connector{[addr]() {
+	std::jthread const connector{[addr]() {
 		int const c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (c >= 0) {
 			::connect(c, reinterpret_cast<sockaddr const *>(&addr), sizeof(addr));
@@ -1848,7 +1848,7 @@ TEST_CASE(
 	constexpr int kBufLen = 4096;
 	constexpr int kNr = 2;
 	constexpr int kBgid = 7;
-	auto region = make_unique<std::array<char, kBufLen * kNr>>();
+	auto region = std::make_unique<std::array<char, kBufLen * kNr>>();
 
 	bool ok{false};
 	int err{0};
@@ -2058,7 +2058,7 @@ TEST_CASE(
 	std::string const payload = "async atomic nested content";
 	block_on(
 		fx->reader,
-		fx->reader.async_atomic_write(dir.fd, std::string{"sub/out.txt"}, as_bytes(span{payload})),
+		fx->reader.async_atomic_write(dir.fd, std::string{"sub/out.txt"}, std::as_bytes(std::span{payload})),
 		std::chrono::seconds{5});
 
 	CHECK(dir.read_file("sub/out.txt") == payload);
@@ -2082,7 +2082,7 @@ TEST_CASE(
 			fx->reader.async_atomic_write(
 				dir.fd,
 				std::string{"target.txt"},
-				as_bytes(span{replacement}),
+				std::as_bytes(std::span{replacement}),
 				0644,
 				TempPublishMode::create_new),
 			std::chrono::seconds{5});
@@ -2162,7 +2162,7 @@ TEST_CASE(
 	auto rbuf = pool.try_acquire();
 	REQUIRE(rbuf.has_value());
 	FileReader::ReadFixedResult const rr =
-		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*rbuf)), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.read_fixed(handle, 0, std::move(*rbuf)), std::chrono::seconds{5});
 	REQUIRE(rr.bytes == content.size());
 	auto const rview = rr.buffer.view();
 	CHECK(memcmp(rview.data(), content.data(), content.size()) == 0);
@@ -2198,7 +2198,7 @@ TEST_CASE(
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == ENFILE;
 	CHECK(passed);
 	if (handle.valid()) {
-		block_on(fx->reader, fx->reader.async_close(move(handle)), std::chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
 	}
 	::io_uring_unregister_files(&fx->ring);
 }

@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -92,10 +92,10 @@ Ring::~Ring() {
 [[nodiscard]] std::optional<HttpResponse> Ring::try_dispatch_context(
 	HttpRequestView const &req) const {
 	if (!client_task_ring_) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (!has_context_routes()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	RequestContext const ctx{*client_task_ring_};
 	HttpRequest const owned = req.to_owned();
@@ -131,7 +131,7 @@ void Ring::queue_deferred_wait(
 	auto *sqe = get_sqe();
 	if (sqe == nullptr) {
 		defer_op([this, conn_fd, deferred_efd, response, stream_id]() mutable {
-			queue_deferred_wait(conn_fd, deferred_efd, move(response), stream_id);
+			queue_deferred_wait(conn_fd, deferred_efd, std::move(response), stream_id);
 		});
 		return;
 	}
@@ -139,17 +139,17 @@ void Ring::queue_deferred_wait(
 	auto &wait = deferred_waits[deferred_efd];
 	wait.conn_fd = conn_fd;
 	wait.stream_id = stream_id;
-	wait.response = move(response);
+	wait.response = std::move(response);
 
 	auto const conn_gen = conn_for(conn_fd).gen;
 	auto const ud = pack(Op::DeferredPoll, conn_gen, deferred_efd);
-	auto buf = make_unique<std::uint64_t>(0);
+	auto buf = std::make_unique<std::uint64_t>(0);
 	io_uring_prep_read(sqe, deferred_efd, buf.get(), sizeof(std::uint64_t), 0);
 	io_uring_sqe_set_data64(sqe, ud);
-	in_flight_read_bufs[ud] = move(buf);
+	in_flight_read_bufs[ud] = std::move(buf);
 }
 
-// Must be called from the thread that will run run_loop() (SINGLE_ISSUER).
+// Must be called from the std::thread that will run run_loop() (SINGLE_ISSUER).
 // `wq_fd`: when non-zero, sets IORING_SETUP_ATTACH_WQ so this ring shares
 // the parent ring's kernel io-wq. Pass ring[0].ring.ring_fd for rings 1..N.
 void Ring::init(
@@ -172,7 +172,7 @@ void Ring::init(
 		if (sz <= 0) {
 			throw std::runtime_error{"io_uring_mlock_size failed"};
 		}
-		auto *raw = static_cast<byte *>(
+		auto *raw = static_cast<std::byte *>(
 			::aligned_alloc(static_cast<std::size_t>(sysconf(_SC_PAGESIZE)), static_cast<std::size_t>(sz)));
 		if (raw == nullptr) {
 			throw std::bad_alloc{};
@@ -190,7 +190,7 @@ void Ring::init(
 				break;
 			}
 			if (rc != -EINVAL) {
-				throw std::runtime_error{format("io_uring_queue_init_params: {}", strerror(-rc))};
+				throw std::runtime_error{std::format("io_uring_queue_init_params: {}", strerror(-rc))};
 			}
 			auto const stripped = next_uring_setup_flag_to_strip(params.flags);
 			if (!stripped) {
@@ -212,7 +212,7 @@ void Ring::init(
 
 	listen_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 	if (listen_fd < 0) {
-		throw std::system_error{errno, system_category(), "socket"};
+		throw std::system_error{errno, std::system_category(), "socket"};
 	}
 
 	int opt = 1;
@@ -228,10 +228,10 @@ void Ring::init(
 	addr.sin6_port = htons(port);
 
 	if (::bind(listen_fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-		throw std::system_error{errno, system_category(), "bind"};
+		throw std::system_error{errno, std::system_category(), "bind"};
 	}
 	if (::listen(listen_fd, SOMAXCONN) < 0) {
-		throw std::system_error{errno, system_category(), "listen"};
+		throw std::system_error{errno, std::system_category(), "listen"};
 	}
 
 	// Read back actual port (port=0 → OS-assigned). Signal before io_uring
@@ -243,16 +243,16 @@ void Ring::init(
 			bound_port = ntohs(local.sin6_port);
 		}
 		if (port_signal != nullptr) {
-			port_signal->store(bound_port, memory_order_release);
+			port_signal->store(bound_port, std::memory_order_release);
 			port_signal->notify_all();
 		}
 	}
 
-	direct_fds_ = make_unique<DirectFdTable>(conflux::uring::RingRef{ring}, MAX_FILES);
+	direct_fds_ = std::make_unique<DirectFdTable>(conflux::uring::RingRef{ring}, MAX_FILES);
 	if (direct_fds_->registered() && direct_fds_->install(static_cast<std::uint32_t>(listen_fd), listen_fd)) {
 		listen_fixed = true;
 		caps.socket_direct_alloc = caps.op_socket && direct_fds_->registered();
-		direct_slots_ = make_unique<DirectSlotPool>(direct_fds_->capacity());
+		direct_slots_ = std::make_unique<DirectSlotPool>(direct_fds_->capacity());
 		if (!direct_slots_->install_os_fd(static_cast<std::uint32_t>(listen_fd), listen_fd)) {
 			direct_slots_.reset();
 			listen_fixed = false;
@@ -270,29 +270,29 @@ void Ring::init(
 	if (file_io_slabs > 0 && file_io_pipe_pairs > 0) {
 		auto const total_buf_slots =
 			static_cast<unsigned>(file_io_slabs + (send_fixed_buffers_enabled ? send_buffer_slabs : std::size_t{0}));
-		auto table = make_unique<RegisteredBufferTable>(&ring, total_buf_slots);
+		auto table = std::make_unique<RegisteredBufferTable>(&ring, total_buf_slots);
 		if (table->ok()) {
-			auto file_pool = make_unique<FixedBufferPool>(table.get(), 0, file_io_slabs, file_io_slab_bytes);
-			auto pipes = make_unique<PipePool>(file_io_pipe_pairs);
+			auto file_pool = std::make_unique<FixedBufferPool>(table.get(), 0, file_io_slabs, file_io_slab_bytes);
+			auto pipes = std::make_unique<PipePool>(file_io_pipe_pairs);
 			if (file_pool->ok() && file_pool->capacity() > 0 && pipes->capacity() > 0) {
-				file_completions = make_unique<CompletionTable>();
-				buf_table = move(table);
-				fixed_buffers = move(file_pool);
-				splice_pipes = move(pipes);
-				files = make_unique<FileReader>(
+				file_completions = std::make_unique<CompletionTable>();
+				buf_table = std::move(table);
+				fixed_buffers = std::move(file_pool);
+				splice_pipes = std::move(pipes);
+				files = std::make_unique<FileReader>(
 					&ring,
 					file_completions.get(),
 					[](std::uint32_t slot, std::uint32_t gen) noexcept {
 						return pack(Op::FileIo, gen, static_cast<int>(slot));
 					});
 				if (send_fixed_buffers_enabled && send_buffer_slabs > 0) {
-					auto sp = make_unique<FixedBufferPool>(
+					auto sp = std::make_unique<FixedBufferPool>(
 						buf_table.get(),
 						static_cast<unsigned>(file_io_slabs),
 						send_buffer_slabs,
 						send_buffer_bytes);
 					if (sp->ok() && sp->capacity() > 0) {
-						send_buffers = move(sp);
+						send_buffers = std::move(sp);
 						send_fixed_buffers_supported = true;
 					}
 				}
@@ -300,7 +300,7 @@ void Ring::init(
 		}
 	}
 
-	buf_ring_ = make_unique<BufferRing>(
+	buf_ring_ = std::make_unique<BufferRing>(
 		conflux::uring::RingRef{ring},
 		BufferRingOptions{
 			.count = entries * 4,
@@ -344,7 +344,7 @@ void Ring::conn_erase(
 		return;
 	}
 	if (conn.is_sse && conn.sse_channel) {
-		conn.sse_channel->close(); // notify handler thread
+		conn.sse_channel->close(); // notify handler std::thread
 	}
 	retire_incremental_partial(fd, gen, conn);
 	++conn.gen; // prevent a second Close CQE from erasing the next tenant
@@ -422,7 +422,7 @@ void Ring::defer_op(
 	if (ring_fatal_) {
 		return;
 	}
-	pending_ops.push_back(move(op));
+	pending_ops.push_back(std::move(op));
 }
 
 void Ring::cancel_multishot_recv_or_defer(
@@ -435,7 +435,7 @@ void Ring::cancel_multishot_recv_or_defer(
 void Ring::drain_pending_ops() {
 	std::size_t remaining = pending_ops.size();
 	while (remaining > 0 && !pending_ops.empty()) {
-		auto op = move(pending_ops.front());
+		auto op = std::move(pending_ops.front());
 		pending_ops.pop_front();
 		--remaining;
 		op();
@@ -584,15 +584,15 @@ void Ring::submit_conn_close_or_defer(
 														 }) :
 													 submit_close(raw_, handle, pack(Op::Close, gen, fd));
 	if (!submitted) {
-		HTTP_TRACE(format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+		HTTP_TRACE(std::format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 		defer_op([this, fd, gen] { submit_conn_close_or_defer(fd, gen); });
 		return;
 	}
-	HTTP_TRACE(format("conn_close_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+	HTTP_TRACE(std::format("conn_close_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 	fd_table[ufd].closing = true;
 	if (direct_slots_ && accepted_sockets_direct) {
 		if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-			eprintln(format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
+			eprintln(std::format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
 		}
 	}
 }
@@ -607,18 +607,18 @@ void Ring::submit_fd_shutdown_or_defer(
 	auto handle =
 		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 	if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, gen, fd))) {
-		HTTP_TRACE(format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+		HTTP_TRACE(std::format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 		defer_op([this, fd, gen] { submit_fd_shutdown_or_defer(fd, gen); });
 		return;
 	}
-	HTTP_TRACE(format("fd_shutdown_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+	HTTP_TRACE(std::format("fd_shutdown_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 }
 
 void Ring::handle_fd_shutdown(
 	int fd,
 	int res,
 	std::uint32_t gen) {
-	HTTP_TRACE(format(
+	HTTP_TRACE(std::format(
 		"fd_shutdown fd={} res={} gen={} direct={} mode={}",
 		fd,
 		res,
@@ -637,7 +637,7 @@ void Ring::queue_close(
 	int fd) {
 	auto const ufd = static_cast<std::size_t>(fd);
 	auto const gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : std::uint32_t{0};
-	HTTP_TRACE(format(
+	HTTP_TRACE(std::format(
 		"queue_close fd={} gen={} direct={} closing={} recv_armed={} zc_waiting={} mode={}",
 		fd,
 		gen,
@@ -691,12 +691,12 @@ void Ring::queue_sse_wait(
 		return;
 	}
 	auto const ud = pack(Op::SsePoll, conn.gen, fd);
-	auto buf = make_unique<std::uint64_t>(0);
+	auto buf = std::make_unique<std::uint64_t>(0);
 	// Blocking read on the eventfd — io_uring uses io-wq when the fd
 	// is not immediately readable.  Offset 0 is ignored for eventfd.
 	io_uring_prep_read(sqe, conn.sse_efd, buf.get(), sizeof(std::uint64_t), 0);
 	io_uring_sqe_set_data64(sqe, ud);
-	in_flight_read_bufs[ud] = move(buf);
+	in_flight_read_bufs[ud] = std::move(buf);
 }
 
 void Ring::queue_deferred_wait(
@@ -769,7 +769,7 @@ void Ring::handle_timer() {
 		} // mid-send: handler already responded
 		// TLS sniff-undecided sentinel: ssl==nullptr && tls_hs_done==true && partial empty.
 		// Use the (usually shorter) sniff timeout to reap silent connections that opened
-		// the TCP socket but never sent a byte.
+		// the TCP socket but never sent a std::byte.
 		bool const sniff_undecided = conn.ssl == nullptr && conn.tls_hs_done && conn.partial.empty();
 		if (sniff_undecided && tls_sniff_timeout_ms != 0) {
 			if (now - conn.last_activity > sniff_limit) {
@@ -818,7 +818,7 @@ void Ring::handle_accept(
 	int res,
 	std::uint32_t flg) {
 	if (res < 0) {
-		HTTP_TRACE(format(
+		HTTP_TRACE(std::format(
 			"accept_err res={} direct={} recv_bundle={} mode={} more={}",
 			res,
 			accepted_sockets_direct,
@@ -830,7 +830,7 @@ void Ring::handle_accept(
 		}
 		return;
 	}
-	HTTP_TRACE(format(
+	HTTP_TRACE(std::format(
 		"accept fd={} direct={} recv_bundle={} mode={} more={}",
 		res,
 		accepted_sockets_direct,
@@ -840,7 +840,7 @@ void Ring::handle_accept(
 	if (accepted_sockets_direct && direct_slots_) {
 		if (!direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
 			++accepted_direct_failures_;
-			eprintln(format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
+			eprintln(std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
 			accepted_sockets_direct = false;
 			submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
@@ -899,8 +899,8 @@ void Ring::handle_accept(
 	conn.tls_send_pending.clear();
 	conn.tls_send_inflight.clear();
 	conn.tls_send_off = 0;
-	// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first byte".
-	// SSL_new() is deferred to phase1_copy_recv_bufs after the first-byte sniff.
+	// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first std::byte".
+	// SSL_new() is deferred to phase1_copy_recv_bufs after the first-std::byte sniff.
 	// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
 	conn.tls_hs_done = (ssl_ctx != nullptr);
 	conn.tls_sending_response = false;
@@ -946,7 +946,7 @@ RunStatus Ring::run_loop() {
 		CPU_ZERO(&cs);
 		CPU_SET(static_cast<unsigned>(ring_core_), &cs);
 		if (::sched_setaffinity(0, sizeof(cs), &cs) < 0) {
-			eprintln(format("run_loop: sched_setaffinity ring_core={} failed errno={}", ring_core_, errno));
+			eprintln(std::format("run_loop: sched_setaffinity ring_core={} failed errno={}", ring_core_, errno));
 		}
 	}
 	if (worker_core_ >= 0 && ring.ring_fd >= 0) {
@@ -959,7 +959,7 @@ RunStatus Ring::run_loop() {
 			&cs,
 			static_cast<unsigned>(sizeof(cs)));
 		if (rc < 0) {
-			eprintln(format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
+			eprintln(std::format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
 		}
 	}
 	CurrentFileReaderScope const file_reader_scope{files.get()};

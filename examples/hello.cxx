@@ -28,7 +28,7 @@ int main() {
 	});
 
 	app.get("/hello/{name}", [](http::Request const &req) {
-		return http::Response::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		return http::Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
 	app.get("/api/ping", [](http::Request const &) {
@@ -39,14 +39,14 @@ int main() {
 		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
 		auto _ = source.try_set_value(
 			conflux::work::root::Success<http::Response>{http::Response::json(R"({"status":"ok","mode":"async"})")});
-		return move(task);
+		return std::move(task);
 	});
 
 	app.get("/api/defer-ping", [](http::Request const &) {
-		static auto pool = make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+		static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
 		return http::defer(pool, [] { return http::Response::json(R"({"status":"ok","mode":"defer"})"); });
 	});
 
-	auto const status = move(app).run({.port = 9090});
+	auto const status = std::move(app).run({.port = 9090});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

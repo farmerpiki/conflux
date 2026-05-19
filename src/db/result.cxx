@@ -11,7 +11,7 @@ namespace conflux::db {
 namespace detail {
 
 // PQfnumber needs a NUL-terminated C std::string. Postgres NAMEDATALEN is 64,
-// so a 128-byte stack buffer covers any real column name without heap alloc.
+// so a 128-std::byte stack buffer covers any real column name without heap alloc.
 // Names longer than that cannot exist in a real result, so report not-found.
 inline int fnumber_sv_(
 	PGresult const *res,
@@ -166,7 +166,7 @@ public:
 	Result() = default;
 	explicit Result(
 		PGResultPtr r) noexcept
-		: res_{move(r)} {}
+		: res_{std::move(r)} {}
 	Result(Result const &) = delete;
 	Result &operator =(Result const &) = delete;
 	Result(Result &&) noexcept;

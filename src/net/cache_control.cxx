@@ -8,7 +8,7 @@ export struct CacheRule {
 	// Empty std::string matches everything — useful as a fallback rule.
 	std::string mime_prefix;
 
-	// Value for the Cache-Control header (e.g. "max-age=3600, public").
+	// Value for the Cache-Control header (e.g. "std::max-age=3600, public").
 	// Set to "no-store" to explicitly disable caching.
 	std::string directive;
 };
@@ -25,7 +25,7 @@ export struct CacheControlOptions {
 // First matching rule wins; falls back to default_directive if set.
 export Router::Middleware cache_control_middleware(
 	CacheControlOptions opts = {}) {
-	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto resp = next(req);
 
 		// Don't overwrite an explicit Cache-Control already set by the handler.

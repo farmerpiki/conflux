@@ -14,7 +14,7 @@ struct InnerCap {};
 struct OuterCap : InnerCap {};
 root::Task<int> await_task_value(
 	root::Task<int> task) {
-	co_return co_await move(task);
+	co_return co_await std::move(task);
 }
 
 #if CONFLUX_WORK_ALLOC_STATS
@@ -71,7 +71,7 @@ TEST_CASE(
 		CHECK(stats.control_block_allocations == 1);
 		CHECK(stats.control_block_deallocations == 0);
 		REQUIRE(src.try_set_value(root::Success<int>{3}));
-		CHECK(root::value(move(task)) == 3);
+		CHECK(root::value(std::move(task)) == 3);
 	}
 	{
 		auto stats = root::task_allocation_stats();
@@ -82,7 +82,7 @@ TEST_CASE(
 	root::reset_task_allocation_stats();
 	{
 		auto task = stats_probe_task();
-		CHECK(root::value(move(task)) == 7);
+		CHECK(root::value(std::move(task)) == 7);
 	}
 	auto stats = root::task_allocation_stats();
 	CHECK(stats.control_block_allocations >= 1);
@@ -133,17 +133,17 @@ TEST_CASE(
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{42}));
-	auto val = root::value(move(task));
+	auto val = root::value(std::move(task));
 	CHECK(val == 42);
 }
 TEST_CASE(
 	"work.root: try_join_ready leaves pending task joinable",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto pending = root::try_join_ready(move(task));
+	auto pending = root::try_join_ready(std::move(task));
 	CHECK_FALSE(pending.has_value());
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
-	auto ready = root::try_join_ready(move(task));
+	auto ready = root::try_join_ready(std::move(task));
 	REQUIRE(ready.has_value());
 	REQUIRE(ready->is_success());
 	CHECK(ready->success().value == 5);
@@ -152,9 +152,9 @@ TEST_CASE(
 	"work.root: join_ready rejects pending task without consuming it",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	CHECK_THROWS_AS(root::join_ready(move(task)), root::JoinError);
+	CHECK_THROWS_AS(root::join_ready(std::move(task)), root::JoinError);
 	REQUIRE(src.try_set_value(root::Success<int>{6}));
-	auto out = root::blocking_join(move(task));
+	auto out = root::blocking_join(std::move(task));
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 6);
 }
@@ -163,10 +163,10 @@ TEST_CASE(
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	{
-		auto src_holder = std::make_optional(move(src));
+		auto src_holder = std::make_optional(std::move(src));
 		src_holder.reset();
 	}
-	auto out = root::blocking_join(move(task));
+	auto out = root::blocking_join(std::move(task));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::abandoned);
 }
@@ -175,11 +175,11 @@ TEST_CASE(
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	{
-		auto guard = root::guard_abandon(move(task));
-		task = move(guard).release();
+		auto guard = root::guard_abandon(std::move(task));
+		task = std::move(guard).release();
 	}
 	REQUIRE(src.try_set_value(root::Success<int>{17}));
-	auto val17 = root::value(move(task));
+	auto val17 = root::value(std::move(task));
 	CHECK(val17 == 17);
 }
 TEST_CASE(
@@ -202,7 +202,7 @@ TEST_CASE(
 	CHECK(control.cancel_requested());
 	CHECK_FALSE(control.stop_token().stop_possible());
 
-	root::abandon_to(move(task), root::drop_on_abandon{});
+	root::abandon_to(std::move(task), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -242,13 +242,13 @@ TEST_CASE(
 	std::atomic<bool> ran{false};
 	REQUIRE(src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.store(true, memory_order_release);
+			ran.store(true, std::memory_order_release);
 		}
 	}));
 
 	CHECK(task.control().request_cancel());
-	CHECK(ran.load(memory_order_acquire));
-	root::abandon_to(move(task), root::drop_on_abandon{});
+	CHECK(ran.load(std::memory_order_acquire));
+	root::abandon_to(std::move(task), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -264,8 +264,8 @@ TEST_CASE(
 	CHECK_FALSE(posted.control().stop_token().stop_possible());
 	CHECK_FALSE(op.control().stop_token().stop_possible());
 
-	root::abandon_to(move(posted), root::drop_on_abandon{});
-	root::abandon_to(move(op), root::drop_on_abandon{});
+	root::abandon_to(std::move(posted), root::drop_on_abandon{});
+	root::abandon_to(std::move(op), root::drop_on_abandon{});
 	(void)posted_src;
 	(void)op_src;
 }
@@ -279,21 +279,21 @@ TEST_CASE(
 	std::atomic<int> ran{0};
 	REQUIRE(posted_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.fetch_add(1, memory_order_acq_rel);
+			ran.fetch_add(1, std::memory_order_acq_rel);
 		}
 	}));
 	REQUIRE(op_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.fetch_add(1, memory_order_acq_rel);
+			ran.fetch_add(1, std::memory_order_acq_rel);
 		}
 	}));
 
 	CHECK(posted.control().request_cancel());
 	CHECK(op.control().request_cancel());
-	CHECK(ran.load(memory_order_acquire) == 2);
+	CHECK(ran.load(std::memory_order_acquire) == 2);
 
-	root::abandon_to(move(posted), root::drop_on_abandon{});
-	root::abandon_to(move(op), root::drop_on_abandon{});
+	root::abandon_to(std::move(posted), root::drop_on_abandon{});
+	root::abandon_to(std::move(op), root::drop_on_abandon{});
 	(void)posted_src;
 	(void)op_src;
 }
@@ -304,12 +304,12 @@ TEST_CASE(
 	std::atomic<bool> ran{false};
 	REQUIRE(src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.store(true, memory_order_release);
+			ran.store(true, std::memory_order_release);
 		}
 	}));
 
 	CHECK(control.request_cancel());
-	CHECK(ran.load(memory_order_acquire));
+	CHECK(ran.load(std::memory_order_acquire));
 }
 TEST_CASE(
 	"work.root: no-cancellation posted/operation control sources run installed cancel hooks",
@@ -321,18 +321,18 @@ TEST_CASE(
 	std::atomic<int> ran{0};
 	REQUIRE(posted_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.fetch_add(1, memory_order_acq_rel);
+			ran.fetch_add(1, std::memory_order_acq_rel);
 		}
 	}));
 	REQUIRE(operation_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
-			ran.fetch_add(1, memory_order_acq_rel);
+			ran.fetch_add(1, std::memory_order_acq_rel);
 		}
 	}));
 
 	CHECK(posted_control.request_cancel());
 	CHECK(operation_control.request_cancel());
-	CHECK(ran.load(memory_order_acquire) == 2);
+	CHECK(ran.load(std::memory_order_acquire) == 2);
 }
 TEST_CASE(
 	"work.root: request_cancel returns false after terminal and for moved-from control",
@@ -345,7 +345,7 @@ TEST_CASE(
 
 	{
 		auto [control, src] = root::make_task_control_source<int>();
-		auto moved = move(control);
+		auto moved = std::move(control);
 		CHECK_FALSE(control.request_cancel()); // NOLINT(bugprone-use-after-move) — testing empty-handle post-move
 		CHECK(moved.request_cancel());
 		(void)src;
@@ -360,7 +360,7 @@ TEST_CASE(
 	auto ctrl = posted.control();
 	CHECK(root::can_join(owner, ctrl));
 	CHECK_FALSE(root::can_join(other, ctrl));
-	root::abandon_to(move(posted), root::drop_on_abandon{});
+	root::abandon_to(std::move(posted), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -381,7 +381,7 @@ TEST_CASE(
 	OwnerCap other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
-	CHECK_THROWS_AS(root::blocking_join(other, move(posted)), root::JoinError);
+	CHECK_THROWS_AS(root::blocking_join(other, std::move(posted)), root::JoinError);
 }
 TEST_CASE(
 	"work.root: operation join uses driver capability",
@@ -389,16 +389,16 @@ TEST_CASE(
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
 	REQUIRE(src.try_set_value(root::Success<int>{9}));
-	auto val9 = root::value(driver, move(op));
+	auto val9 = root::value(driver, std::move(op));
 	CHECK(val9 == 9);
 }
 TEST_CASE(
 	"work.root: task join handle roundtrip",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto h = root::into_join_handle(move(task));
+	auto h = root::into_join_handle(std::move(task));
 	REQUIRE(src.try_set_value(root::Success<int>{11}));
-	auto val11 = root::value(move(h));
+	auto val11 = root::value(std::move(h));
 	CHECK(val11 == 11);
 }
 TEST_CASE(
@@ -407,9 +407,9 @@ TEST_CASE(
 	OwnerCap owner{};
 	OwnerCap other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
-	auto h = root::into_join_handle(move(posted));
+	auto h = root::into_join_handle(std::move(posted));
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
-	CHECK_THROWS_AS(root::blocking_join(other, move(h)), root::JoinError);
+	CHECK_THROWS_AS(root::blocking_join(other, std::move(h)), root::JoinError);
 }
 TEST_CASE(
 	"work.root: abandon_to dispatches failure sink",
@@ -420,24 +420,24 @@ TEST_CASE(
 		std::atomic<bool> *flag{};
 		void operator ()(
 			root::Failure const &) const noexcept {
-			flag->store(true, memory_order_release);
+			flag->store(true, std::memory_order_release);
 		}
 		void operator ()(
 			root::Cancelled const &) const noexcept {}
 	};
-	root::abandon_to(move(task), Sink{&saw_failure});
+	root::abandon_to(std::move(task), Sink{&saw_failure});
 	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"boom"})));
-	CHECK(saw_failure.load(memory_order_acquire));
+	CHECK(saw_failure.load(std::memory_order_acquire));
 }
 TEST_CASE(
-	"work.root: late abandon_to runs sink on caller thread",
+	"work.root: late abandon_to runs sink on caller std::thread",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"late"})));
 
-	thread::id seen{};
+	std::thread::id seen{};
 	struct Sink {
-		thread::id *seen{};
+		std::thread::id *seen{};
 		void operator ()(
 			root::Failure const &) const noexcept {
 			*seen = std::this_thread::get_id();
@@ -446,20 +446,20 @@ TEST_CASE(
 			root::Cancelled const &) const noexcept {}
 	};
 	auto caller_tid = std::this_thread::get_id();
-	root::abandon_to(move(task), Sink{&seen});
+	root::abandon_to(std::move(task), Sink{&seen});
 	CHECK(seen == caller_tid);
 }
 TEST_CASE(
-	"work.root: armed abandon_to runs sink on commit thread",
+	"work.root: armed abandon_to runs sink on commit std::thread",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 
-	mutex seen_mtx{};
-	thread::id seen{};
+	std::mutex seen_mtx{};
+	std::thread::id seen{};
 	std::atomic<bool> done{false};
 	struct Sink {
-		mutex *seen_mtx{};
-		thread::id *seen{};
+		std::mutex *seen_mtx{};
+		std::thread::id *seen{};
 		std::atomic<bool> *done{};
 		void operator ()(
 			root::Failure const &) const noexcept {
@@ -467,23 +467,23 @@ TEST_CASE(
 				std::scoped_lock const lk{*seen_mtx};
 				*seen = std::this_thread::get_id();
 			}
-			done->store(true, memory_order_release);
+			done->store(true, std::memory_order_release);
 		}
 		void operator ()(
 			root::Cancelled const &) const noexcept {
-			done->store(true, memory_order_release);
+			done->store(true, std::memory_order_release);
 		}
 	};
-	root::abandon_to(move(task), Sink{&seen_mtx, &seen, &done});
+	root::abandon_to(std::move(task), Sink{&seen_mtx, &seen, &done});
 
-	jthread const worker{
-		[source = move(src)]() mutable { (void)source.try_set_exception(make_exception_ptr(std::runtime_error{"armed"})); }};
+	std::jthread const worker{
+		[source = std::move(src)]() mutable { (void)source.try_set_exception(make_exception_ptr(std::runtime_error{"armed"})); }};
 	auto worker_tid = worker.get_id();
 
-	for (int i = 0; i < 100 && !done.load(memory_order_acquire); ++i) {
+	for (int i = 0; i < 100 && !done.load(std::memory_order_acquire); ++i) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
-	REQUIRE(done.load(memory_order_acquire));
+	REQUIRE(done.load(std::memory_order_acquire));
 	std::scoped_lock const lk{seen_mtx};
 	CHECK(seen == worker_tid);
 }
@@ -503,8 +503,8 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::value() && supports move-only payload",
 	"[work.root][r3]") {
-	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{make_unique<int>(13)}};
-	auto p = move(ok).value();
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(13)}};
+	auto p = std::move(ok).value();
 	REQUIRE(p);
 	CHECK(*p == 13);
 }
@@ -524,7 +524,7 @@ TEST_CASE(
 	"work.root: Outcome<T>::match() dispatches by branch with unwrapped value",
 	"[work.root][r3]") {
 	root::Outcome<int> ok{root::Success<int>{5}};
-	auto r1 = move(ok).match(
+	auto r1 = std::move(ok).match(
 		[](int &&v) { return v + 1; },
 		[](root::Failure const &) { return -1; },
 		[](root::Cancelled const &) { return -2; });
@@ -557,8 +557,8 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::match() && moves into success branch",
 	"[work.root][r3]") {
-	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{make_unique<int>(99)}};
-	auto out = move(ok).match(
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(99)}};
+	auto out = std::move(ok).match(
 		[](std::unique_ptr<int> &&p) { return *p; },
 		[](root::Failure const &) { return -1; },
 		[](root::Cancelled const &) { return -2; });
@@ -587,15 +587,15 @@ TEST_CASE(
 	"work.root: R6 BasicJoinHandle operator bool is true when live, false when moved-from",
 	"[work.root][r6]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	REQUIRE(bool(handle));
 
-	auto moved = move(handle);
+	auto moved = std::move(handle);
 	CHECK(!bool(handle)); // NOLINT(bugprone-use-after-move) — testing moved state
 	REQUIRE(bool(moved));
 
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
-	auto out = root::blocking_join(move(moved));
+	auto out = root::blocking_join(std::move(moved));
 	CHECK(out.is_success());
 }
 TEST_CASE(
@@ -608,7 +608,7 @@ TEST_CASE(
 	"work.root: R2 try_set_on_ready installs callback — fires on commit",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
 	std::atomic<bool> fired{false};
@@ -619,7 +619,7 @@ TEST_CASE(
 
 	REQUIRE(src.try_set_value(root::Success<int>{42}));
 	CHECK(fired.load());
-	auto out = root::blocking_join(move(handle));
+	auto out = root::blocking_join(std::move(handle));
 	REQUIRE(out.is_success());
 	CHECK(out.value() == 42);
 }
@@ -627,7 +627,7 @@ TEST_CASE(
 	"work.root: R2 try_set_on_ready already_ready returns rejected_fn and fires immediately",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
 	auto ctrl = handle.control();
@@ -639,14 +639,14 @@ TEST_CASE(
 	result.rejected_fn();
 	CHECK(fired.load());
 
-	auto out = root::blocking_join(move(handle));
+	auto out = root::blocking_join(std::move(handle));
 	CHECK(out.is_success());
 }
 TEST_CASE(
 	"work.root: R2 second try_set_on_ready returns already_installed with rejected_fn",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
 	std::atomic<int> count{0};
@@ -660,7 +660,7 @@ TEST_CASE(
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
 	CHECK(count.load() == 1);
 
-	root::abandon_to(move(handle), root::drop_on_abandon{});
+	root::abandon_to(std::move(handle), root::drop_on_abandon{});
 }
 TEST_CASE(
 	"work.root: co_await fails deterministically when ready callback already installed",
@@ -671,8 +671,8 @@ TEST_CASE(
 	auto r = ctrl.try_set_on_ready([]() noexcept {});
 	REQUIRE(r.status == root::ReadyRegistration::installed);
 
-	auto outer = await_task_value(move(task));
-	auto out = root::blocking_join(move(outer));
+	auto outer = await_task_value(std::move(task));
+	auto out = root::blocking_join(std::move(outer));
 	REQUIRE(out.is_failure());
 	try {
 		rethrow_exception(out.failure().error);
@@ -687,7 +687,7 @@ TEST_CASE(
 	"work.root: R7 clear_on_ready clears armed callback — commit fires no callback",
 	"[work.root][r2][r7]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
 	std::atomic<bool> fired{false};
@@ -700,31 +700,31 @@ TEST_CASE(
 	REQUIRE(src.try_set_value(root::Success<int>{3}));
 	CHECK(!fired.load());
 
-	auto out = root::blocking_join(move(handle));
+	auto out = root::blocking_join(std::move(handle));
 	CHECK(out.is_success());
 }
 TEST_CASE(
 	"work.root: R7 clear_on_ready on terminal control returns already_terminal",
 	"[work.root][r2][r7]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
 	auto cs = ctrl.clear_on_ready();
 	CHECK(cs == root::ClearOnReadyStatus::already_terminal);
-	(void)root::blocking_join(move(handle));
+	(void)root::blocking_join(std::move(handle));
 }
 TEST_CASE(
 	"work.root: R7 clear_on_ready without armed hook returns not_armed",
 	"[work.root][r2][r7]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
 	auto cs = ctrl.clear_on_ready();
 	CHECK(cs == root::ClearOnReadyStatus::not_armed);
-	root::abandon_to(move(handle), root::drop_on_abandon{});
+	root::abandon_to(std::move(handle), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -732,21 +732,21 @@ TEST_CASE(
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{9}));
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
 	std::atomic<bool> ran{false};
 	ctrl.set_on_ready_or_run([&ran]() noexcept { ran.store(true); });
 	CHECK(ran.load());
-	(void)root::blocking_join(move(handle));
+	(void)root::blocking_join(std::move(handle));
 }
 TEST_CASE(
 	"work.root: try_abandon_to installed returns installed status",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 
-	auto status = root::try_abandon_to(move(handle), root::drop_on_abandon{});
+	auto status = root::try_abandon_to(std::move(handle), root::drop_on_abandon{});
 	CHECK(status == root::AbandonStatus::installed);
 	(void)src;
 }
@@ -754,14 +754,14 @@ TEST_CASE(
 	"work.root: try_abandon_to already_abandoned when called twice via guard",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto handle = root::into_join_handle(move(task));
+	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 
-	auto s1 = root::try_abandon_to(move(handle), root::drop_on_abandon{});
+	auto s1 = root::try_abandon_to(std::move(handle), root::drop_on_abandon{});
 	REQUIRE(s1 == root::AbandonStatus::installed);
 
 	root::TaskJoinHandle<int> h2;
-	auto s2 = root::try_abandon_to(move(h2), root::drop_on_abandon{});
+	auto s2 = root::try_abandon_to(std::move(h2), root::drop_on_abandon{});
 	CHECK(s2 == root::AbandonStatus::empty);
 	(void)ctrl;
 	(void)src;
@@ -775,9 +775,9 @@ TEST_CASE(
 	"[work.root][r4]") {
 	OwnerCap owner{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
-	auto jh = root::into_join_handle(move(posted));
+	auto jh = root::into_join_handle(std::move(posted));
 	CHECK(root::joinable(owner, jh));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -786,9 +786,9 @@ TEST_CASE(
 	OwnerCap owner{};
 	OwnerCap const other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
-	auto jh = root::into_join_handle(move(posted));
+	auto jh = root::into_join_handle(std::move(posted));
 	CHECK_FALSE(root::joinable(other, jh));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -797,10 +797,10 @@ TEST_CASE(
 	OwnerCap owner{};
 	OwnerCap const other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
-	auto jh = root::into_join_handle(move(posted));
+	auto jh = root::into_join_handle(std::move(posted));
 	CHECK(root::joinable(owner, jh) == root::can_join(owner, jh.control()));
 	CHECK(root::joinable(other, jh) == root::can_join(other, jh.control()));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -808,9 +808,9 @@ TEST_CASE(
 	"[work.root][r4]") {
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
-	auto jh = root::into_join_handle(move(op));
+	auto jh = root::into_join_handle(std::move(op));
 	CHECK(root::joinable(driver, jh));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -819,9 +819,9 @@ TEST_CASE(
 	DriverCap driver{};
 	DriverCap const other{};
 	auto [op, src] = root::make_operation_source<int>(driver);
-	auto jh = root::into_join_handle(move(op));
+	auto jh = root::into_join_handle(std::move(op));
 	CHECK_FALSE(root::joinable(other, jh));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 TEST_CASE(
@@ -830,10 +830,10 @@ TEST_CASE(
 	DriverCap driver{};
 	DriverCap const other{};
 	auto [op, src] = root::make_operation_source<int>(driver);
-	auto jh = root::into_join_handle(move(op));
+	auto jh = root::into_join_handle(std::move(op));
 	CHECK(root::joinable(driver, jh) == root::can_join(driver, jh.control()));
 	CHECK(root::joinable(other, jh) == root::can_join(other, jh.control()));
-	root::abandon_to(move(jh), root::drop_on_abandon{});
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
 // ---------------------------------------------------------------------------

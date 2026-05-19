@@ -1269,7 +1269,7 @@ public:
 	}
 	[[nodiscard]] int register_files_update(
 		unsigned off,
-		span<int const> fds) const noexcept {
+		std::span<int const> fds) const noexcept {
 		assert(ring_ != nullptr);
 		return io_uring_register_files_update(ring_, off, fds.data(), static_cast<unsigned>(fds.size()));
 	}
@@ -1303,44 +1303,44 @@ public:
 		assert(ring_ != nullptr);
 		return ring_->cq.ring_entries;
 	}
-	[[nodiscard]] expected<void, int> resize(
+	[[nodiscard]] std::expected<void, int> resize(
 		RingSize sz) const noexcept {
 		if (!valid()) {
-			return unexpected{-EINVAL};
+			return std::unexpected{-EINVAL};
 		}
 		if (sz.sq_entries == 0 || sz.cq_entries == 0) {
-			return unexpected{-EINVAL};
+			return std::unexpected{-EINVAL};
 		}
 		if (cq_has_overflow()) {
-			return unexpected{-EBUSY};
+			return std::unexpected{-EBUSY};
 		}
 		if (io_uring_sq_ready(ring_) != 0) {
-			return unexpected{-EBUSY};
+			return std::unexpected{-EBUSY};
 		}
 // no CQ-ready guard: kernel copies pending CQEs during resize; only CQ overflow is illegal
 #if defined(CONFLUX_HAVE_IO_URING_RESIZE_RINGS) && CONFLUX_HAVE_IO_URING_RESIZE_RINGS
 		if ((ring_->flags & IORING_SETUP_DEFER_TASKRUN) == 0) {
-			return unexpected{-EINVAL};
+			return std::unexpected{-EINVAL};
 		}
 		if ((ring_->flags & IORING_SETUP_NO_MMAP) != 0) {
-			return unexpected{-EOPNOTSUPP};
+			return std::unexpected{-EOPNOTSUPP};
 		}
 		io_uring_params p{};
 		p.flags = IORING_SETUP_CQSIZE; // required: without it kernel ignores cq_entries and derives from sq_entries
 		p.sq_entries = sz.sq_entries;
 		p.cq_entries = sz.cq_entries;
 		if (int rc = io_uring_resize_rings(ring_, &p); rc < 0) {
-			return unexpected{rc};
+			return std::unexpected{rc};
 		}
 		return {};
 #else
-		return unexpected{-ENOSYS};
+		return std::unexpected{-ENOSYS};
 #endif
 	}
-	[[nodiscard]] expected<void, int> grow_cq_to(
+	[[nodiscard]] std::expected<void, int> grow_cq_to(
 		std::uint32_t entries) const noexcept {
 		if (!valid()) {
-			return unexpected{-EINVAL};
+			return std::unexpected{-EINVAL};
 		}
 		std::uint32_t const cur_sq = ring_->sq.ring_entries;
 		std::uint32_t const cur_cq = ring_->cq.ring_entries;
@@ -1385,34 +1385,34 @@ public:
 			io_uring_queue_exit(&ring_);
 		}
 	}
-	[[nodiscard]] static expected<Ring, int> init(
+	[[nodiscard]] static std::expected<Ring, int> init(
 		unsigned entries,
 		SetupFlags flags) noexcept {
 		Ring r;
 		if (int const rc = io_uring_queue_init(entries, &r.ring_, flags.raw()); rc < 0) {
-			return unexpected{rc};
+			return std::unexpected{rc};
 		}
 		r.valid_ = true;
 		return r;
 	}
-	[[nodiscard]] static expected<Ring, int> init_params(
+	[[nodiscard]] static std::expected<Ring, int> init_params(
 		unsigned entries,
 		io_uring_params &p) noexcept {
 		Ring r;
 		if (int const rc = io_uring_queue_init_params(entries, &r.ring_, &p); rc < 0) {
-			return unexpected{rc};
+			return std::unexpected{rc};
 		}
 		r.valid_ = true;
 		return r;
 	}
-	[[nodiscard]] static expected<Ring, int> init_mem(
+	[[nodiscard]] static std::expected<Ring, int> init_mem(
 		unsigned entries,
 		io_uring_params &p,
 		void *buf,
 		std::size_t buf_sz) noexcept {
 		Ring r;
 		if (int const rc = io_uring_queue_init_mem(entries, &r.ring_, &p, buf, buf_sz); rc < 0) {
-			return unexpected{rc};
+			return std::unexpected{rc};
 		}
 		r.valid_ = true;
 		return r;
@@ -1445,11 +1445,11 @@ public:
 		auto *p = ring_.cq.koverflow;
 		return p != nullptr ? *p : 0u;
 	}
-	[[nodiscard]] expected<void, int> resize(
+	[[nodiscard]] std::expected<void, int> resize(
 		RingSize sz) noexcept {
 		return ref().resize(sz);
 	}
-	[[nodiscard]] expected<void, int> grow_cq_to(
+	[[nodiscard]] std::expected<void, int> grow_cq_to(
 		std::uint32_t entries) noexcept {
 		return ref().grow_cq_to(entries);
 	}
@@ -1495,7 +1495,7 @@ public:
 	// ── Registration: files ─────────────────────────────────────────────────
 
 	int register_files(
-		span<int const> fds) noexcept {
+		std::span<int const> fds) noexcept {
 		return io_uring_register_files(&ring_, fds.data(), static_cast<unsigned>(fds.size()));
 	}
 	int register_files_sparse(
@@ -1504,14 +1504,14 @@ public:
 	}
 	int register_files_update(
 		unsigned off,
-		span<int const> fds) noexcept {
+		std::span<int const> fds) noexcept {
 		return io_uring_register_files_update(&ring_, off, fds.data(), static_cast<unsigned>(fds.size()));
 	}
 	int unregister_files() noexcept { return io_uring_unregister_files(&ring_); }
 	// ── Registration: buffers ───────────────────────────────────────────────
 
 	int register_buffers(
-		span<iovec const> iovs) noexcept {
+		std::span<iovec const> iovs) noexcept {
 		return io_uring_register_buffers(&ring_, iovs.data(), static_cast<unsigned>(iovs.size()));
 	}
 	int register_buffers_sparse(
@@ -1521,7 +1521,7 @@ public:
 	// tags: one __u64 tag per iovec slot; null = no tags
 	int register_buffers_update_tag(
 		unsigned off,
-		span<iovec const> iovs,
+		std::span<iovec const> iovs,
 		std::uint64_t const *tags) noexcept {
 		return io_uring_register_buffers_update_tag(
 			&ring_,
@@ -1602,7 +1602,7 @@ public:
 			io_uring_free_buf_ring(ring_, p_, count_, group_.v);
 		}
 	}
-	[[nodiscard]] static expected<BufRing, int> setup(
+	[[nodiscard]] static std::expected<BufRing, int> setup(
 		Ring &ring,
 		unsigned count,
 		BufGroupId group,
@@ -1610,7 +1610,7 @@ public:
 		int err{};
 		auto *p = io_uring_setup_buf_ring(ring.raw(), count, group.v, flags, &err);
 		if (p == nullptr) {
-			return unexpected{err};
+			return std::unexpected{err};
 		}
 		BufRing br;
 		br.p_ = p;
@@ -1620,7 +1620,7 @@ public:
 		br.mask_ = static_cast<std::uint32_t>(io_uring_buf_ring_mask(count));
 		return br;
 	}
-	[[nodiscard]] static expected<BufRing, int> setup(
+	[[nodiscard]] static std::expected<BufRing, int> setup(
 		RingRef ring,
 		unsigned count,
 		BufGroupId group,
@@ -1628,7 +1628,7 @@ public:
 		int err{};
 		auto *p = io_uring_setup_buf_ring(ring.raw(), count, group.v, flags, &err);
 		if (p == nullptr) {
-			return unexpected{err};
+			return std::unexpected{err};
 		}
 		BufRing br;
 		br.p_ = p;

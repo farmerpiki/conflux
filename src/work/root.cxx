@@ -81,30 +81,30 @@ inline std::atomic<std::uint64_t> g_control_block_deallocations{0};
 inline std::atomic<std::uint64_t> g_coroutine_frame_allocations{0};
 inline std::atomic<std::uint64_t> g_coroutine_frame_deallocations{0};
 inline void note_control_block_allocation() noexcept {
-	g_control_block_allocations.fetch_add(1, memory_order_relaxed);
+	g_control_block_allocations.fetch_add(1, std::memory_order_relaxed);
 }
 inline void note_control_block_deallocation() noexcept {
-	g_control_block_deallocations.fetch_add(1, memory_order_relaxed);
+	g_control_block_deallocations.fetch_add(1, std::memory_order_relaxed);
 }
 inline void note_coroutine_frame_allocation() noexcept {
-	g_coroutine_frame_allocations.fetch_add(1, memory_order_relaxed);
+	g_coroutine_frame_allocations.fetch_add(1, std::memory_order_relaxed);
 }
 inline void note_coroutine_frame_deallocation() noexcept {
-	g_coroutine_frame_deallocations.fetch_add(1, memory_order_relaxed);
+	g_coroutine_frame_deallocations.fetch_add(1, std::memory_order_relaxed);
 }
 [[nodiscard]] inline TaskAllocationStats task_allocation_stats_impl() noexcept {
 	return {
-		.control_block_allocations = g_control_block_allocations.load(memory_order_relaxed),
-		.control_block_deallocations = g_control_block_deallocations.load(memory_order_relaxed),
-		.coroutine_frame_allocations = g_coroutine_frame_allocations.load(memory_order_relaxed),
-		.coroutine_frame_deallocations = g_coroutine_frame_deallocations.load(memory_order_relaxed),
+		.control_block_allocations = g_control_block_allocations.load(std::memory_order_relaxed),
+		.control_block_deallocations = g_control_block_deallocations.load(std::memory_order_relaxed),
+		.coroutine_frame_allocations = g_coroutine_frame_allocations.load(std::memory_order_relaxed),
+		.coroutine_frame_deallocations = g_coroutine_frame_deallocations.load(std::memory_order_relaxed),
 	};
 }
 inline void reset_task_allocation_stats_impl() noexcept {
-	g_control_block_allocations.store(0, memory_order_relaxed);
-	g_control_block_deallocations.store(0, memory_order_relaxed);
-	g_coroutine_frame_allocations.store(0, memory_order_relaxed);
-	g_coroutine_frame_deallocations.store(0, memory_order_relaxed);
+	g_control_block_allocations.store(0, std::memory_order_relaxed);
+	g_control_block_deallocations.store(0, std::memory_order_relaxed);
+	g_coroutine_frame_allocations.store(0, std::memory_order_relaxed);
+	g_coroutine_frame_deallocations.store(0, std::memory_order_relaxed);
 }
 #else
 inline void note_control_block_allocation() noexcept {}
@@ -231,7 +231,7 @@ std::error_category const &work_category() noexcept {
 }
 template<typename T>
 concept work_value =
-	same_as<std::remove_cv_t<T>, void> || (!std::is_reference_v<T> && std::is_nothrow_move_constructible_v<T>);
+	std::same_as<std::remove_cv_t<T>, void> || (!std::is_reference_v<T> && std::is_nothrow_move_constructible_v<T>);
 template<typename T>
 class Outcome final {
 	using success_t = Success<T>;
@@ -249,24 +249,24 @@ public:
 		success_t success)
 		noexcept(
 			std::is_nothrow_move_constructible_v<success_t>)
-		: storage_{std::in_place_type<success_t>, move(success)} {}
+		: storage_{std::in_place_type<success_t>, std::move(success)} {}
 	Outcome(
 		Failure failure) noexcept
-		: storage_{std::in_place_type<Failure>, move(failure)} {}
+		: storage_{std::in_place_type<Failure>, std::move(failure)} {}
 	Outcome(
 		Cancelled cancelled) noexcept
-		: storage_{std::in_place_type<Cancelled>, move(cancelled)} {}
+		: storage_{std::in_place_type<Cancelled>, std::move(cancelled)} {}
 	Outcome(Outcome const &) = default;
 	Outcome(
 		Outcome &&other) noexcept
-		: storage_{move(other.storage_)} {}
+		: storage_{std::move(other.storage_)} {}
 	Outcome &operator =(
 		Outcome const &other)
 		requires std::copy_constructible<storage_t>
 	{
 		if (this != std::addressof(other)) {
 			Outcome staged{other};
-			storage_ = move(staged.storage_);
+			storage_ = std::move(staged.storage_);
 		}
 		return *this;
 	}
@@ -317,8 +317,8 @@ public:
 		requires std::invocable<F &, success_t &>
 			  && std::invocable<F &, Failure &>
 			  && std::invocable<F &, Cancelled &>
-			  && same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Failure &>>
-			  && same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Cancelled &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Failure &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Cancelled &>>
 	auto visit(
 		F &&f)
 		& noexcept(
@@ -326,9 +326,9 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure &>
 			&& std::is_nothrow_invocable_v<F &, Cancelled &>) -> std::invoke_result_t<F &, success_t &> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, success());
-		case OutcomeKind::failure  : return invoke(f, failure());
-		case OutcomeKind::cancelled: return invoke(f, cancelled());
+		case OutcomeKind::success  : return std::invoke(f, success());
+		case OutcomeKind::failure  : return std::invoke(f, failure());
+		case OutcomeKind::cancelled: return std::invoke(f, cancelled());
 		}
 		std::unreachable();
 	}
@@ -336,8 +336,8 @@ public:
 		requires std::invocable<F &, success_t const &>
 			  && std::invocable<F &, Failure const &>
 			  && std::invocable<F &, Cancelled const &>
-			  && same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
-			  && same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
 	auto visit(
 		F &&f)
 		const & noexcept(
@@ -345,9 +345,9 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure const &>
 			&& std::is_nothrow_invocable_v<F &, Cancelled const &>) -> std::invoke_result_t<F &, success_t const &> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, success());
-		case OutcomeKind::failure  : return invoke(f, failure());
-		case OutcomeKind::cancelled: return invoke(f, cancelled());
+		case OutcomeKind::success  : return std::invoke(f, success());
+		case OutcomeKind::failure  : return std::invoke(f, failure());
+		case OutcomeKind::cancelled: return std::invoke(f, cancelled());
 		}
 		std::unreachable();
 	}
@@ -355,8 +355,8 @@ public:
 		requires std::invocable<F &, success_t &&>
 			  && std::invocable<F &, Failure &&>
 			  && std::invocable<F &, Cancelled &&>
-			  && same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Failure &&>>
-			  && same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Cancelled &&>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Failure &&>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Cancelled &&>>
 	auto visit(
 		F &&f)
 		&& noexcept(
@@ -364,16 +364,16 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure &&>
 			&& std::is_nothrow_invocable_v<F &, Cancelled &&>) -> std::invoke_result_t<F &, success_t &&> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, move(*this).success());
-		case OutcomeKind::failure  : return invoke(f, move(*this).failure());
-		case OutcomeKind::cancelled: return invoke(f, move(*this).cancelled());
+		case OutcomeKind::success  : return std::invoke(f, std::move(*this).success());
+		case OutcomeKind::failure  : return std::invoke(f, std::move(*this).failure());
+		case OutcomeKind::cancelled: return std::invoke(f, std::move(*this).cancelled());
 		}
 		std::unreachable();
 	}
 	[[nodiscard]] T &value() & {
 		switch (kind()) {
 		case OutcomeKind::success  : return success().value;
-		case OutcomeKind::failure  : rethrow_exception(failure().error);
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
 		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
 		}
 		std::unreachable();
@@ -381,15 +381,15 @@ public:
 	[[nodiscard]] T const &value() const & {
 		switch (kind()) {
 		case OutcomeKind::success  : return success().value;
-		case OutcomeKind::failure  : rethrow_exception(failure().error);
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
 		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
 		}
 		std::unreachable();
 	}
 	[[nodiscard]] T value() && {
 		switch (kind()) {
-		case OutcomeKind::success  : return move(success().value);
-		case OutcomeKind::failure  : rethrow_exception(move(*this).failure().error);
+		case OutcomeKind::success  : return std::move(success().value);
+		case OutcomeKind::failure  : std::rethrow_exception(std::move(*this).failure().error);
 		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
 		}
 		std::unreachable();
@@ -398,16 +398,16 @@ public:
 		requires std::invocable<OnSuccess, T &&>
 			  && std::invocable<OnFailure, Failure const &>
 			  && std::invocable<OnCancelled, Cancelled const &>
-			  && same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnFailure, Failure const &>>
-			  && same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnCancelled, Cancelled const &>>
+			  && std::same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnCancelled, Cancelled const &>>
 	auto match(
 		OnSuccess &&on_success,
 		OnFailure &&on_failure,
 		OnCancelled &&on_cancelled) && -> std::invoke_result_t<OnSuccess, T &&> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(forward<OnSuccess>(on_success), move(success().value));
-		case OutcomeKind::failure  : return invoke(forward<OnFailure>(on_failure), failure());
-		case OutcomeKind::cancelled: return invoke(forward<OnCancelled>(on_cancelled), cancelled());
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success), std::move(success().value));
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
 		}
 		std::unreachable();
 	}
@@ -415,8 +415,8 @@ public:
 		requires std::invocable<OnSuccess, T const &>
 			  && std::invocable<OnFailure, Failure const &>
 			  && std::invocable<OnCancelled, Cancelled const &>
-			  && same_as<std::invoke_result_t<OnSuccess, T const &>, std::invoke_result_t<OnFailure, Failure const &>>
-			  && same_as<
+			  && std::same_as<std::invoke_result_t<OnSuccess, T const &>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<
 					 std::invoke_result_t<OnSuccess, T const &>,
 					 std::invoke_result_t<OnCancelled, Cancelled const &>>
 	auto match(
@@ -424,9 +424,9 @@ public:
 		OnFailure &&on_failure,
 		OnCancelled &&on_cancelled) const & -> std::invoke_result_t<OnSuccess, T const &> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(forward<OnSuccess>(on_success), success().value);
-		case OutcomeKind::failure  : return invoke(forward<OnFailure>(on_failure), failure());
-		case OutcomeKind::cancelled: return invoke(forward<OnCancelled>(on_cancelled), cancelled());
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success), success().value);
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
 		}
 		std::unreachable();
 	}
@@ -449,19 +449,19 @@ public:
 		: storage_{std::in_place_type<success_t>, success} {}
 	Outcome(
 		Failure failure) noexcept
-		: storage_{std::in_place_type<Failure>, move(failure)} {}
+		: storage_{std::in_place_type<Failure>, std::move(failure)} {}
 	Outcome(
 		Cancelled cancelled) noexcept
 		: storage_{std::in_place_type<Cancelled>, cancelled} {}
 	Outcome(Outcome const &) = default;
 	Outcome(
 		Outcome &&other) noexcept
-		: storage_{move(other.storage_)} {}
+		: storage_{std::move(other.storage_)} {}
 	Outcome &operator =(
 		Outcome const &other) {
 		if (this != std::addressof(other)) {
 			Outcome staged{other};
-			storage_ = move(staged.storage_);
+			storage_ = std::move(staged.storage_);
 		}
 		return *this;
 	}
@@ -507,8 +507,8 @@ public:
 		requires std::invocable<F &, success_t &>
 			  && std::invocable<F &, Failure &>
 			  && std::invocable<F &, Cancelled &>
-			  && same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Failure &>>
-			  && same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Cancelled &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Failure &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &>, std::invoke_result_t<F &, Cancelled &>>
 	auto visit(
 		F &&f)
 		& noexcept(
@@ -516,9 +516,9 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure &>
 			&& std::is_nothrow_invocable_v<F &, Cancelled &>) -> std::invoke_result_t<F &, success_t &> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, success());
-		case OutcomeKind::failure  : return invoke(f, failure());
-		case OutcomeKind::cancelled: return invoke(f, cancelled());
+		case OutcomeKind::success  : return std::invoke(f, success());
+		case OutcomeKind::failure  : return std::invoke(f, failure());
+		case OutcomeKind::cancelled: return std::invoke(f, cancelled());
 		}
 		std::unreachable();
 	}
@@ -526,8 +526,8 @@ public:
 		requires std::invocable<F &, success_t const &>
 			  && std::invocable<F &, Failure const &>
 			  && std::invocable<F &, Cancelled const &>
-			  && same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
-			  && same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
+			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
 	auto visit(
 		F &&f)
 		const & noexcept(
@@ -535,9 +535,9 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure const &>
 			&& std::is_nothrow_invocable_v<F &, Cancelled const &>) -> std::invoke_result_t<F &, success_t const &> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, success());
-		case OutcomeKind::failure  : return invoke(f, failure());
-		case OutcomeKind::cancelled: return invoke(f, cancelled());
+		case OutcomeKind::success  : return std::invoke(f, success());
+		case OutcomeKind::failure  : return std::invoke(f, failure());
+		case OutcomeKind::cancelled: return std::invoke(f, cancelled());
 		}
 		std::unreachable();
 	}
@@ -545,8 +545,8 @@ public:
 		requires std::invocable<F &, success_t &&>
 			  && std::invocable<F &, Failure &&>
 			  && std::invocable<F &, Cancelled &&>
-			  && same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Failure &&>>
-			  && same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Cancelled &&>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Failure &&>>
+			  && std::same_as<std::invoke_result_t<F &, success_t &&>, std::invoke_result_t<F &, Cancelled &&>>
 	auto visit(
 		F &&f)
 		&& noexcept(
@@ -554,16 +554,16 @@ public:
 			&& std::is_nothrow_invocable_v<F &, Failure &&>
 			&& std::is_nothrow_invocable_v<F &, Cancelled &&>) -> std::invoke_result_t<F &, success_t &&> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(f, move(*this).success());
-		case OutcomeKind::failure  : return invoke(f, move(*this).failure());
-		case OutcomeKind::cancelled: return invoke(f, move(*this).cancelled());
+		case OutcomeKind::success  : return std::invoke(f, std::move(*this).success());
+		case OutcomeKind::failure  : return std::invoke(f, std::move(*this).failure());
+		case OutcomeKind::cancelled: return std::invoke(f, std::move(*this).cancelled());
 		}
 		std::unreachable();
 	}
 	void value() const {
 		switch (kind()) {
 		case OutcomeKind::success  : return;
-		case OutcomeKind::failure  : rethrow_exception(failure().error);
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
 		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
 		}
 		std::unreachable();
@@ -572,16 +572,16 @@ public:
 		requires std::invocable<OnSuccess>
 			  && std::invocable<OnFailure, Failure const &>
 			  && std::invocable<OnCancelled, Cancelled const &>
-			  && same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnFailure, Failure const &>>
-			  && same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnCancelled, Cancelled const &>>
+			  && std::same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnCancelled, Cancelled const &>>
 	auto match(
 		OnSuccess &&on_success,
 		OnFailure &&on_failure,
 		OnCancelled &&on_cancelled) const -> std::invoke_result_t<OnSuccess> {
 		switch (kind()) {
-		case OutcomeKind::success  : return invoke(forward<OnSuccess>(on_success));
-		case OutcomeKind::failure  : return invoke(forward<OnFailure>(on_failure), failure());
-		case OutcomeKind::cancelled: return invoke(forward<OnCancelled>(on_cancelled), cancelled());
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success));
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
 		}
 		std::unreachable();
 	}
@@ -589,11 +589,11 @@ public:
 template<work_value T>
 [[nodiscard]] T value(
 	Outcome<T> &&outcome) {
-	return move(outcome).visit([](auto &&arm) -> T {
+	return std::move(outcome).visit([](auto &&arm) -> T {
 		using arm_t = std::remove_cvref_t<decltype(arm)>;
-		if constexpr (same_as<arm_t, Success<T>>) {
-			return move(arm.value);
-		} else if constexpr (same_as<arm_t, Failure>) {
+		if constexpr (std::same_as<arm_t, Success<T>>) {
+			return std::move(arm.value);
+		} else if constexpr (std::same_as<arm_t, Failure>) {
 			throw FailureError{arm.error};
 		} else {
 			throw CancelledError{arm.reason};
@@ -602,11 +602,11 @@ template<work_value T>
 }
 inline void value(
 	Outcome<void> &&outcome) {
-	move(outcome).visit([](auto &&arm) -> void {
+	std::move(outcome).visit([](auto &&arm) -> void {
 		using arm_t = std::remove_cvref_t<decltype(arm)>;
-		if constexpr (same_as<arm_t, Success<void>>) {
+		if constexpr (std::same_as<arm_t, Success<void>>) {
 			return;
-		} else if constexpr (same_as<arm_t, Failure>) {
+		} else if constexpr (std::same_as<arm_t, Failure>) {
 			throw FailureError{arm.error};
 		} else {
 			throw CancelledError{arm.reason};
@@ -655,7 +655,7 @@ inline constexpr capability_id_t capability_id{};
 
 template<class C>
 concept progress_capability = requires(C const &c) {
-	{ capability_id(c) } noexcept -> same_as<CapabilityId>;
+	{ capability_id(c) } noexcept -> std::same_as<CapabilityId>;
 };
 class JoinError : public std::logic_error {
 public:
@@ -755,7 +755,7 @@ class small_move_only_function;
 template<typename R, typename... Args, std::size_t InlineBytes>
 class small_move_only_function<R(Args...), InlineBytes> {
 	struct storage_t {
-		alignas(std::max_align_t) byte bytes[InlineBytes];
+		alignas(std::max_align_t) std::byte bytes[InlineBytes];
 	};
 	using invoke_fn = R (*)(void *, Args &&...);
 	using destroy_fn = void (*)(void *) noexcept;
@@ -771,7 +771,7 @@ class small_move_only_function<R(Args...), InlineBytes> {
 	static R invoke_inline(
 		void *obj,
 		Args &&...args) {
-		return invoke(*reinterpret_cast<F *>(obj), forward<Args>(args)...);
+		return std::invoke(*reinterpret_cast<F *>(obj), std::forward<Args>(args)...);
 	}
 	template<typename F>
 	static void destroy_inline(
@@ -783,14 +783,14 @@ class small_move_only_function<R(Args...), InlineBytes> {
 		void *dst,
 		void *src) noexcept {
 		auto *src_fn = reinterpret_cast<F *>(src);
-		new (dst) F(move(*src_fn));
+		new (dst) F(std::move(*src_fn));
 		src_fn->~F();
 	}
 	template<typename F>
 	static R invoke_heap(
 		void *obj,
 		Args &&...args) {
-		return invoke(*reinterpret_cast<F *>(obj), forward<Args>(args)...);
+		return std::invoke(*reinterpret_cast<F *>(obj), std::forward<Args>(args)...);
 	}
 	template<typename F>
 	static void destroy_heap(
@@ -831,7 +831,7 @@ class small_move_only_function<R(Args...), InlineBytes> {
 			return;
 		}
 
-		object_ = exchange(other.object_, nullptr);
+		object_ = std::exchange(other.object_, nullptr);
 		other.invoke_ = nullptr;
 		other.destroy_ = nullptr;
 		other.move_ = nullptr;
@@ -846,7 +846,7 @@ public:
 	small_move_only_function &operator =(small_move_only_function const &) = delete;
 	small_move_only_function(
 		small_move_only_function &&other) noexcept {
-		move_from(move(other));
+		move_from(std::move(other));
 	}
 	small_move_only_function &operator =(
 		small_move_only_function &&other) noexcept {
@@ -857,7 +857,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-		requires(!same_as<std::remove_cvref_t<F>, small_move_only_function>)
+		requires(!std::same_as<std::remove_cvref_t<F>, small_move_only_function>)
 	small_move_only_function(
 		F &&fn) {
 		using fn_t = std::remove_cvref_t<F>;
@@ -868,13 +868,13 @@ public:
 			&& alignof(fn_t) <= alignof(storage_t)
 			&& std::is_nothrow_move_constructible_v<fn_t>) {
 			object_ = &inline_storage_;
-			new (object_) fn_t(forward<F>(fn));
+			new (object_) fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_inline<fn_t>;
 			destroy_ = &destroy_inline<fn_t>;
 			move_ = &move_inline<fn_t>;
 			inlined_ = true;
 		} else {
-			object_ = new fn_t(forward<F>(fn));
+			object_ = new fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_heap<fn_t>;
 			destroy_ = &destroy_heap<fn_t>;
 			move_ = nullptr;
@@ -885,7 +885,7 @@ public:
 	[[nodiscard]] explicit operator bool() const noexcept { return invoke_ != nullptr; }
 	R operator ()(
 		Args... args) const { // NOLINT(performance-unnecessary-value-param): pack must be forwarded
-		return invoke_(object_, forward<Args>(args)...);
+		return invoke_(object_, std::forward<Args>(args)...);
 	}
 };
 struct ReadyRegistrationResult {
@@ -910,7 +910,7 @@ enum class ReadyHookState : std::uint8_t {
 // Dropped-outcome sink — stored once at startup; reads use acquire load to
 // skip the mutex on the hot path.
 struct DroppedOutcomeSinkStore {
-	mutex mtx;
+	std::mutex mtx;
 	small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)> fn;
 	std::atomic<bool> installed{false};
 };
@@ -923,10 +923,10 @@ inline void invoke_dropped_outcome_sink(
 	OutcomeKind kind,
 	std::exception_ptr const &cause) noexcept {
 	auto &s = dropped_outcome_sink_store();
-	if (!s.installed.load(memory_order_acquire)) {
+	if (!s.installed.load(std::memory_order_acquire)) {
 		return;
 	}
-	lock_guard const lk{s.mtx};
+	std::lock_guard const lk{s.mtx};
 	if (s.fn) {
 		s.fn(loc, kind, cause);
 	}
@@ -985,13 +985,13 @@ public:
 	[[nodiscard]] virtual bool try_set_exception(std::exception_ptr error) = 0;
 	[[nodiscard]] virtual bool try_set_error(
 		std::error_code ec) {
-		return try_set_exception(make_exception_ptr(std::system_error(ec)));
+		return try_set_exception(std::make_exception_ptr(std::system_error(ec)));
 	}
 	[[nodiscard]] virtual bool try_set_error(
 		std::error_code ec,
 		std::string_view msg) noexcept {
 		try {
-			return try_set_exception(make_exception_ptr(std::system_error(ec, std::string{msg})));
+			return try_set_exception(std::make_exception_ptr(std::system_error(ec, std::string{msg})));
 		} catch (...) { return try_set_error(ec); }
 	}
 	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
@@ -1009,7 +1009,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
-	alignas(64) mutable mutex mtx_{};
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	std::optional<Outcome<T>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1025,18 +1025,18 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
 		}
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return {};
 		}
 		hook_claimed_ = true;
-		return move(hook_fn_);
+		return std::move(hook_fn_);
 	}
 	void invoke_requested_hook_if_needed() noexcept {
 		auto fn = claim_requested_hook_if_present();
 		if (!fn) {
 			return;
 		}
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return;
 		}
 		try {
@@ -1048,29 +1048,29 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		if (ready_hook_state_.compare_exchange_strong(
 				prev,
 				ReadyHookState::committing,
-				memory_order_acq_rel,
-				memory_order_acquire)) {
-			ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+				std::memory_order_acq_rel,
+				std::memory_order_acquire)) {
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
 			small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
-				fn = move(on_ready_fn_);
-				ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+				fn = std::move(on_ready_fn_);
+				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			}
 			if (fn) {
 				fn();
 			}
 		} else if (prev == ReadyHookState::disarmed) {
 			std::unique_lock lk{mtx_};
-			ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 		}
 	}
 	[[nodiscard]] bool try_claim_terminal() noexcept {
 		bool expected = false;
-		return terminal_claimed_.compare_exchange_strong(expected, true, memory_order_acq_rel, memory_order_acquire);
+		return terminal_claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 	[[nodiscard]] static WorkState map_terminal(
 		TerminalState s) noexcept {
@@ -1090,9 +1090,9 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
 				return;
 			}
-			sink = move(abandon_sink_);
+			sink = std::move(abandon_sink_);
 			abandon_sink_ = nullptr;
-			local.emplace(move(*outcome_));
+			local.emplace(std::move(*outcome_));
 			outcome_.reset();
 		}
 		try {
@@ -1103,37 +1103,37 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 public:
 	void set_required_capability(
 		CapabilityId id) noexcept override {
-		required_capability_address_.store(id.address, memory_order_relaxed);
-		required_capability_type_tag_.store(id.type_tag, memory_order_relaxed);
-		requires_capability_.store(true, memory_order_release);
+		required_capability_address_.store(id.address, std::memory_order_relaxed);
+		required_capability_type_tag_.store(id.type_tag, std::memory_order_relaxed);
+		requires_capability_.store(true, std::memory_order_release);
 	}
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return true;
 		}
 		CapabilityId const expected{
-			.address = required_capability_address_.load(memory_order_relaxed),
-			.type_tag = required_capability_type_tag_.load(memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 		return expected == id;
 	}
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(memory_order_acquire)) {
-			return nullopt;
+		if (!requires_capability_.load(std::memory_order_acquire)) {
+			return std::nullopt;
 		}
 		return CapabilityId{
-			.address = required_capability_address_.load(memory_order_relaxed),
-			.type_tag = required_capability_type_tag_.load(memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
 	[[nodiscard]] bool request_cancel() noexcept override {
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return false;
 		}
 
 		bool expected = false;
-		if (!cancel_requested_.compare_exchange_strong(expected, true, memory_order_acq_rel, memory_order_acquire)) {
+		if (!cancel_requested_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
 			return false;
 		}
 
@@ -1151,17 +1151,17 @@ public:
 		}
 	}
 	[[nodiscard]] bool cancel_requested() const noexcept override {
-		return cancel_requested_.load(memory_order_acquire);
+		return cancel_requested_.load(std::memory_order_acquire);
 	}
 	[[nodiscard]] bool ready() const noexcept override {
-		return terminal_state_.load(memory_order_acquire) != TerminalState::none;
+		return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
 	}
 	[[nodiscard]] WorkState state() const noexcept override {
-		TerminalState const terminal = terminal_state_.load(memory_order_acquire);
+		TerminalState const terminal = terminal_state_.load(std::memory_order_acquire);
 		if (terminal != TerminalState::none) {
 			return map_terminal(terminal);
 		}
-		if (cancel_requested_.load(memory_order_acquire)) {
+		if (cancel_requested_.load(std::memory_order_acquire)) {
 			return WorkState::cancel_requested;
 		}
 		return WorkState::pending;
@@ -1177,19 +1177,19 @@ public:
 			if (hook_installed_) {
 				return false;
 			}
-			if (terminal_claimed_.load(memory_order_acquire)) {
+			if (terminal_claimed_.load(std::memory_order_acquire)) {
 				return false;
 			}
 			hook_installed_ = true;
-			hook_fn_ = move(fn);
+			hook_fn_ = std::move(fn);
 			if (!hook_claimed_
-				&& cancel_requested_.load(memory_order_acquire)
-				&& !terminal_claimed_.load(memory_order_acquire)) {
+				&& cancel_requested_.load(std::memory_order_acquire)
+				&& !terminal_claimed_.load(std::memory_order_acquire)) {
 				hook_claimed_ = true;
 				invoke_now = std::move(hook_fn_);
 			}
 		}
-		if (invoke_now && !terminal_claimed_.load(memory_order_acquire)) {
+		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }
@@ -1204,7 +1204,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{std::move(success)});
-			terminal_state_.store(TerminalState::success, memory_order_release);
+			terminal_state_.store(TerminalState::success, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1219,7 +1219,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Failure{error}});
-			terminal_state_.store(TerminalState::failure, memory_order_release);
+			terminal_state_.store(TerminalState::failure, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1238,7 +1238,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Cancelled{reason}});
-			terminal_state_.store(TerminalState::cancelled, memory_order_release);
+			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1250,28 +1250,28 @@ public:
 		if (!fn) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
-		if (ready_hook_state_.load(memory_order_acquire) == ReadyHookState::terminal) {
-			return {ReadyRegistration::already_ready, move(fn)};
+		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
 		std::unique_lock lk{mtx_};
-		auto s = ready_hook_state_.load(memory_order_acquire);
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
-			return {ReadyRegistration::already_ready, move(fn)};
+			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
 		if (s == ReadyHookState::open) {
-			on_ready_fn_ = move(fn);
+			on_ready_fn_ = std::move(fn);
 			auto expected = ReadyHookState::open;
 			if (ready_hook_state_.compare_exchange_strong(
 					expected,
 					ReadyHookState::armed,
-					memory_order_acq_rel,
-					memory_order_acquire)) {
+					std::memory_order_acq_rel,
+					std::memory_order_acquire)) {
 				return {ReadyRegistration::installed, {}};
 			}
 			// Lost race vs fire_ready_hook_if_armed_: it CAS'd open→committing
 			// before our CAS, then stored terminal. Our fn was never seen by it.
 			// Take it back and report already_ready so caller dispatches it.
-			auto rejected = move(on_ready_fn_);
+			auto rejected = std::move(on_ready_fn_);
 			return {ReadyRegistration::already_ready, std::move(rejected)};
 		}
 		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
@@ -1280,7 +1280,7 @@ public:
 		return {ReadyRegistration::already_ready, std::move(fn)};
 	}
 	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept override {
-		auto s = ready_hook_state_.load(memory_order_acquire);
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
 		}
@@ -1291,7 +1291,7 @@ public:
 			return ClearOnReadyStatus::not_armed;
 		}
 		std::unique_lock lk{mtx_};
-		s = ready_hook_state_.load(memory_order_acquire);
+		s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
 		}
@@ -1302,11 +1302,11 @@ public:
 			return ClearOnReadyStatus::not_armed;
 		}
 		on_ready_fn_ = nullptr;
-		ready_hook_state_.store(ReadyHookState::disarmed, memory_order_release);
+		ready_hook_state_.store(ReadyHookState::disarmed, std::memory_order_release);
 		return ClearOnReadyStatus::cleared;
 	}
 	[[nodiscard]] Outcome<T> compatibility_blocking_take_outcome() override {
-		auto const terminal = [&] { return terminal_state_.load(memory_order_acquire) != TerminalState::none; };
+		auto const terminal = [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
 		static constexpr int kSpinIter = 400;
@@ -1322,24 +1322,24 @@ public:
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
-		Outcome<T> out = move(*outcome_);
+		Outcome<T> out = std::move(*outcome_);
 		outcome_.reset();
 		return out;
 	}
 	[[nodiscard]] std::optional<Outcome<T>> try_take_ready_outcome() override {
-		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
-			return nullopt;
+		if (terminal_state_.load(std::memory_order_acquire) == TerminalState::none) {
+			return std::nullopt;
 		}
 		std::unique_lock lk{mtx_};
-		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
-			return nullopt;
+		if (terminal_state_.load(std::memory_order_acquire) == TerminalState::none) {
+			return std::nullopt;
 		}
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
-		Outcome<T> out = move(*outcome_);
+		Outcome<T> out = std::move(*outcome_);
 		outcome_.reset();
-		return std::optional<Outcome<T>>{move(out)};
+		return std::optional<Outcome<T>>{std::move(out)};
 	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
@@ -1352,7 +1352,7 @@ public:
 				std::terminate();
 			}
 			abandoned_ = true;
-			abandon_sink_ = move(sink);
+			abandon_sink_ = std::move(sink);
 		}
 		run_abandon_path_if_present();
 	}
@@ -1367,7 +1367,7 @@ public:
 				return AbandonStatus::already_abandoned;
 			}
 			abandoned_ = true;
-			abandon_sink_ = move(sink);
+			abandon_sink_ = std::move(sink);
 		}
 		run_abandon_path_if_present();
 		return AbandonStatus::installed;
@@ -1381,7 +1381,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
-	alignas(64) mutable mutex mtx_{};
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	std::optional<Outcome<void>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1397,18 +1397,18 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
 		}
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return {};
 		}
 		hook_claimed_ = true;
-		return move(hook_fn_);
+		return std::move(hook_fn_);
 	}
 	void invoke_requested_hook_if_needed() noexcept {
 		auto fn = claim_requested_hook_if_present();
 		if (!fn) {
 			return;
 		}
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return;
 		}
 		try {
@@ -1417,7 +1417,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	}
 	[[nodiscard]] bool try_claim_terminal() noexcept {
 		bool expected = false;
-		return terminal_claimed_.compare_exchange_strong(expected, true, memory_order_acq_rel, memory_order_acquire);
+		return terminal_claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 	[[nodiscard]] static WorkState map_terminal(
 		TerminalState s) noexcept {
@@ -1434,24 +1434,24 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		if (ready_hook_state_.compare_exchange_strong(
 				prev,
 				ReadyHookState::committing,
-				memory_order_acq_rel,
-				memory_order_acquire)) {
-			ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+				std::memory_order_acq_rel,
+				std::memory_order_acquire)) {
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
 			small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
-				fn = move(on_ready_fn_);
-				ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+				fn = std::move(on_ready_fn_);
+				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			}
 			if (fn) {
 				fn();
 			}
 		} else if (prev == ReadyHookState::disarmed) {
 			std::unique_lock lk{mtx_};
-			ready_hook_state_.store(ReadyHookState::terminal, memory_order_release);
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 		}
 	}
 	void run_abandon_path_if_present() noexcept {
@@ -1462,9 +1462,9 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
 				return;
 			}
-			sink = move(abandon_sink_);
+			sink = std::move(abandon_sink_);
 			abandon_sink_ = nullptr;
-			local.emplace(move(*outcome_));
+			local.emplace(std::move(*outcome_));
 			outcome_.reset();
 		}
 		try {
@@ -1475,37 +1475,37 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 public:
 	void set_required_capability(
 		CapabilityId id) noexcept override {
-		required_capability_address_.store(id.address, memory_order_relaxed);
-		required_capability_type_tag_.store(id.type_tag, memory_order_relaxed);
-		requires_capability_.store(true, memory_order_release);
+		required_capability_address_.store(id.address, std::memory_order_relaxed);
+		required_capability_type_tag_.store(id.type_tag, std::memory_order_relaxed);
+		requires_capability_.store(true, std::memory_order_release);
 	}
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return true;
 		}
 		CapabilityId const expected{
-			.address = required_capability_address_.load(memory_order_relaxed),
-			.type_tag = required_capability_type_tag_.load(memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 		return expected == id;
 	}
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(memory_order_acquire)) {
-			return nullopt;
+		if (!requires_capability_.load(std::memory_order_acquire)) {
+			return std::nullopt;
 		}
 		return CapabilityId{
-			.address = required_capability_address_.load(memory_order_relaxed),
-			.type_tag = required_capability_type_tag_.load(memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
 	[[nodiscard]] bool request_cancel() noexcept override {
-		if (terminal_claimed_.load(memory_order_acquire)) {
+		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return false;
 		}
 
 		bool expected = false;
-		if (!cancel_requested_.compare_exchange_strong(expected, true, memory_order_acq_rel, memory_order_acquire)) {
+		if (!cancel_requested_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
 			return false;
 		}
 
@@ -1523,17 +1523,17 @@ public:
 		}
 	}
 	[[nodiscard]] bool cancel_requested() const noexcept override {
-		return cancel_requested_.load(memory_order_acquire);
+		return cancel_requested_.load(std::memory_order_acquire);
 	}
 	[[nodiscard]] bool ready() const noexcept override {
-		return terminal_state_.load(memory_order_acquire) != TerminalState::none;
+		return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
 	}
 	[[nodiscard]] WorkState state() const noexcept override {
-		TerminalState const terminal = terminal_state_.load(memory_order_acquire);
+		TerminalState const terminal = terminal_state_.load(std::memory_order_acquire);
 		if (terminal != TerminalState::none) {
 			return map_terminal(terminal);
 		}
-		if (cancel_requested_.load(memory_order_acquire)) {
+		if (cancel_requested_.load(std::memory_order_acquire)) {
 			return WorkState::cancel_requested;
 		}
 		return WorkState::pending;
@@ -1549,19 +1549,19 @@ public:
 			if (hook_installed_) {
 				return false;
 			}
-			if (terminal_claimed_.load(memory_order_acquire)) {
+			if (terminal_claimed_.load(std::memory_order_acquire)) {
 				return false;
 			}
 			hook_installed_ = true;
-			hook_fn_ = move(fn);
+			hook_fn_ = std::move(fn);
 			if (!hook_claimed_
-				&& cancel_requested_.load(memory_order_acquire)
-				&& !terminal_claimed_.load(memory_order_acquire)) {
+				&& cancel_requested_.load(std::memory_order_acquire)
+				&& !terminal_claimed_.load(std::memory_order_acquire)) {
 				hook_claimed_ = true;
 				invoke_now = std::move(hook_fn_);
 			}
 		}
-		if (invoke_now && !terminal_claimed_.load(memory_order_acquire)) {
+		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }
@@ -1576,7 +1576,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{success});
-			terminal_state_.store(TerminalState::success, memory_order_release);
+			terminal_state_.store(TerminalState::success, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1591,7 +1591,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{Failure{error}});
-			terminal_state_.store(TerminalState::failure, memory_order_release);
+			terminal_state_.store(TerminalState::failure, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1610,7 +1610,7 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{Cancelled{reason}});
-			terminal_state_.store(TerminalState::cancelled, memory_order_release);
+			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
 		}
 		cv_.notify_all();
 		fire_ready_hook_if_armed_();
@@ -1622,28 +1622,28 @@ public:
 		if (!fn) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
-		if (ready_hook_state_.load(memory_order_acquire) == ReadyHookState::terminal) {
-			return {ReadyRegistration::already_ready, move(fn)};
+		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
 		std::unique_lock lk{mtx_};
-		auto s = ready_hook_state_.load(memory_order_acquire);
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
-			return {ReadyRegistration::already_ready, move(fn)};
+			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
 		if (s == ReadyHookState::open) {
-			on_ready_fn_ = move(fn);
+			on_ready_fn_ = std::move(fn);
 			auto expected = ReadyHookState::open;
 			if (ready_hook_state_.compare_exchange_strong(
 					expected,
 					ReadyHookState::armed,
-					memory_order_acq_rel,
-					memory_order_acquire)) {
+					std::memory_order_acq_rel,
+					std::memory_order_acquire)) {
 				return {ReadyRegistration::installed, {}};
 			}
 			// Lost race vs fire_ready_hook_if_armed_: it CAS'd open→committing
 			// before our CAS, then stored terminal. Our fn was never seen by it.
 			// Take it back and report already_ready so caller dispatches it.
-			auto rejected = move(on_ready_fn_);
+			auto rejected = std::move(on_ready_fn_);
 			return {ReadyRegistration::already_ready, std::move(rejected)};
 		}
 		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
@@ -1652,7 +1652,7 @@ public:
 		return {ReadyRegistration::already_ready, std::move(fn)};
 	}
 	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept override {
-		auto s = ready_hook_state_.load(memory_order_acquire);
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
 		}
@@ -1663,7 +1663,7 @@ public:
 			return ClearOnReadyStatus::not_armed;
 		}
 		std::unique_lock lk{mtx_};
-		s = ready_hook_state_.load(memory_order_acquire);
+		s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
 		}
@@ -1674,11 +1674,11 @@ public:
 			return ClearOnReadyStatus::not_armed;
 		}
 		on_ready_fn_ = nullptr;
-		ready_hook_state_.store(ReadyHookState::disarmed, memory_order_release);
+		ready_hook_state_.store(ReadyHookState::disarmed, std::memory_order_release);
 		return ClearOnReadyStatus::cleared;
 	}
 	[[nodiscard]] Outcome<void> compatibility_blocking_take_outcome() override {
-		auto const terminal = [&] { return terminal_state_.load(memory_order_acquire) != TerminalState::none; };
+		auto const terminal = [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
 		static constexpr int kSpinIter = 400;
@@ -1694,24 +1694,24 @@ public:
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
-		Outcome<void> out = move(*outcome_);
+		Outcome<void> out = std::move(*outcome_);
 		outcome_.reset();
 		return out;
 	}
 	[[nodiscard]] std::optional<Outcome<void>> try_take_ready_outcome() override {
-		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
-			return nullopt;
+		if (terminal_state_.load(std::memory_order_acquire) == TerminalState::none) {
+			return std::nullopt;
 		}
 		std::unique_lock lk{mtx_};
-		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
-			return nullopt;
+		if (terminal_state_.load(std::memory_order_acquire) == TerminalState::none) {
+			return std::nullopt;
 		}
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
-		Outcome<void> out = move(*outcome_);
+		Outcome<void> out = std::move(*outcome_);
 		outcome_.reset();
-		return std::optional<Outcome<void>>{move(out)};
+		return std::optional<Outcome<void>>{std::move(out)};
 	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
@@ -1724,7 +1724,7 @@ public:
 				std::terminate();
 			}
 			abandoned_ = true;
-			abandon_sink_ = move(sink);
+			abandon_sink_ = std::move(sink);
 		}
 		run_abandon_path_if_present();
 	}
@@ -1739,7 +1739,7 @@ public:
 				return AbandonStatus::already_abandoned;
 			}
 			abandoned_ = true;
-			abandon_sink_ = move(sink);
+			abandon_sink_ = std::move(sink);
 		}
 		run_abandon_path_if_present();
 		return AbandonStatus::installed;
@@ -1748,7 +1748,7 @@ public:
 template<work_value T, bool EnableCancellation>
 [[nodiscard]] std::shared_ptr<ControlBlockInterface<T>> make_control_block_shared() {
 	using model_t = ControlBlockModel<T, EnableCancellation>;
-	return make_shared<model_t>();
+	return std::make_shared<model_t>();
 }
 [[nodiscard]] inline std::pmr::memory_resource &task_coroutine_frame_resource() noexcept {
 	// Process-lifetime fallback pool: coroutine frames can be destroyed from any
@@ -1799,7 +1799,7 @@ struct TaskFrameBucket {
 	TaskFrameBucket &bucket) noexcept {
 	constexpr std::size_t slab_bytes = 1024u * 1024u;
 	std::size_t const block_bytes = align_frame_bytes(sizeof(TaskFrameHeader) + bucket.payload_size);
-	std::size_t const allocation_bytes = max(slab_bytes, block_bytes);
+	std::size_t const allocation_bytes = std::max(slab_bytes, block_bytes);
 	void *raw = mmap(nullptr, allocation_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (raw == MAP_FAILED) {
 		return false;
@@ -1901,7 +1901,7 @@ public:
 	BasicControl() = default;
 	explicit BasicControl(
 		std::shared_ptr<ControlBlockBase> core) noexcept
-		: core_{move(core)} {}
+		: core_{std::move(core)} {}
 	[[nodiscard]] bool request_cancel() noexcept { return core_ ? core_->request_cancel() : false; }
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
 		return core_ ? core_->stop_token() : std::stop_token{};
@@ -1914,7 +1914,7 @@ public:
 		return core_ && core_->can_join_with(id);
 	}
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept {
-		return core_ ? core_->required_capability() : nullopt;
+		return core_ ? core_->required_capability() : std::nullopt;
 	}
 	[[nodiscard]] static constexpr ControlCategory category() noexcept { return Category; }
 	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
@@ -1922,7 +1922,7 @@ public:
 		if (!core_) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
-		return core_->try_set_on_ready(move(fn));
+		return core_->try_set_on_ready(std::move(fn));
 	}
 	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept {
 		if (!core_) {
@@ -1934,8 +1934,8 @@ public:
 		requires std::invocable<F> && std::is_nothrow_invocable_v<F>
 	void set_on_ready_or_run(
 		F &&fn) noexcept {
-		auto materialised = small_move_only_function<void()>{forward<F>(fn)};
-		auto result = try_set_on_ready(move(materialised));
+		auto materialised = small_move_only_function<void()>{std::forward<F>(fn)};
+		auto result = try_set_on_ready(std::move(materialised));
 		switch (result.status) {
 		case ReadyRegistration::installed: return;
 		case ReadyRegistration::already_ready:
@@ -1961,7 +1961,7 @@ class BasicSource {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
 	explicit BasicSource(
 		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
-		: state_{move(state)} {}
+		: state_{std::move(state)} {}
 	template<work_value U>
 	std::pair<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
@@ -2001,7 +2001,7 @@ public:
 	}
 	[[nodiscard]] bool try_set_value(
 		Success<T> value) {
-		return state_ ? state_->try_set_value(move(value)) : false;
+		return state_ ? state_->try_set_value(std::move(value)) : false;
 	}
 	[[nodiscard]] bool try_set_exception(
 		std::exception_ptr error) {
@@ -2022,7 +2022,7 @@ public:
 	}
 	[[nodiscard]] bool install_cancel_hook(
 		detail::small_move_only_function<void(CancelReason)> fn) noexcept {
-		return state_ ? state_->install_cancel_hook(move(fn)) : false;
+		return state_ ? state_->install_cancel_hook(std::move(fn)) : false;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
 		return state_ ? state_->stop_token() : std::stop_token{};
@@ -2033,7 +2033,7 @@ class BasicSource<void, Category> {
 	std::shared_ptr<detail::ControlBlockInterface<void>> state_{};
 	explicit BasicSource(
 		std::shared_ptr<detail::ControlBlockInterface<void>> state) noexcept
-		: state_{move(state)} {}
+		: state_{std::move(state)} {}
 	template<work_value U>
 	std::pair<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
@@ -2094,7 +2094,7 @@ public:
 	}
 	[[nodiscard]] bool install_cancel_hook(
 		detail::small_move_only_function<void(CancelReason)> fn) noexcept {
-		return state_ ? state_->install_cancel_hook(move(fn)) : false;
+		return state_ ? state_->install_cancel_hook(std::move(fn)) : false;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
 		return state_ ? state_->stop_token() : std::stop_token{};
@@ -2218,14 +2218,14 @@ struct TaskAwaiter {
 		if (!outcome) [[unlikely]] {
 			raise_join_not_ready(loc_);
 		}
-		return move(*outcome).visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
+		return std::move(*outcome).visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
 				using arm_t = std::remove_cvref_t<decltype(arm)>;
-				if constexpr (same_as<arm_t, Success<T>>) {
+				if constexpr (std::same_as<arm_t, Success<T>>) {
 					if constexpr (!std::is_void_v<T>) {
-						return move(arm.value);
+						return std::move(arm.value);
 					}
-				} else if constexpr (same_as<arm_t, Failure>) {
-					rethrow_exception(arm.error);
+				} else if constexpr (std::same_as<arm_t, Failure>) {
+					std::rethrow_exception(arm.error);
 				} else {
 					throw CancelledError{arm.reason};
 				}
@@ -2260,7 +2260,7 @@ struct OutcomeAwaiter {
 		if (!outcome) [[unlikely]] {
 			raise_join_not_ready(loc_);
 		}
-		return move(*outcome);
+		return std::move(*outcome);
 	}
 };
 template<class A>
@@ -2272,7 +2272,7 @@ concept awaitable = requires(A &a, std::coroutine_handle<> h) {
 	a.await_resume();
 };
 template<class A, class T>
-concept awaits_outcome = awaitable<A> && same_as<await_resume_t<A>, Outcome<T>>;
+concept awaits_outcome = awaitable<A> && std::same_as<await_resume_t<A>, Outcome<T>>;
 
 } // namespace detail
 template<work_value T, ControlCategory Category>
@@ -2281,7 +2281,7 @@ class BasicResult {
 	join_state state_js_ = join_state::empty;
 	explicit BasicResult(
 		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
-		: state_{move(state)}
+		: state_{std::move(state)}
 		, state_js_{state_ ? join_state::joinable : join_state::empty} {}
 	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume(
 		join_state target) noexcept {
@@ -2289,7 +2289,7 @@ class BasicResult {
 			return {};
 		}
 		state_js_ = target;
-		return move(state_);
+		return std::move(state_);
 	}
 	void detach_noexcept() noexcept {
 		auto loc = state_ ? state_->spawn_location() : std::source_location{};
@@ -2323,20 +2323,20 @@ public:
 		if (state) {
 			state->set_spawn_location(loc);
 		}
-		return BasicResult{move(state)};
+		return BasicResult{std::move(state)};
 	}
 	BasicResult(
 		BasicResult &&other) noexcept
-		: state_{move(other.state_)}
-		, state_js_{exchange(other.state_js_, join_state::empty)} {}
+		: state_{std::move(other.state_)}
+		, state_js_{std::exchange(other.state_js_, join_state::empty)} {}
 	BasicResult &operator =(
 		BasicResult &&other) noexcept {
 		if (this != &other) {
 			if (state_js_ == join_state::joinable) {
 				detach_noexcept();
 			}
-			state_ = move(other.state_);
-			state_js_ = exchange(other.state_js_, join_state::empty);
+			state_ = std::move(other.state_);
+			state_js_ = std::exchange(other.state_js_, join_state::empty);
 		}
 		return *this;
 	}
@@ -2379,7 +2379,7 @@ public:
 	void abandon_to(
 		Sink &&sink) && noexcept {
 		if (state_js_ == join_state::joinable) {
-			abandon_impl(move(*this), forward<Sink>(sink));
+			abandon_impl(std::move(*this), std::forward<Sink>(sink));
 		}
 	}
 	// Hard contract: only rvalue can be awaited (R4 v6 #9).
@@ -2413,7 +2413,7 @@ public:
 		[[nodiscard]] BasicResult get_return_object() noexcept;
 		[[nodiscard]] std::suspend_never initial_suspend() const noexcept { return {}; }
 		[[nodiscard]] std::suspend_never final_suspend() const noexcept { return {}; }
-		void unhandled_exception() noexcept { auto _ = this->state_->try_set_exception(current_exception()); }
+		void unhandled_exception() noexcept { auto _ = this->state_->try_set_exception(std::current_exception()); }
 	};
 };
 template<work_value T, ControlCategory Category>
@@ -2443,7 +2443,7 @@ public:
 	JoinTask(
 		Task<T> &&task,
 		std::source_location origin) noexcept
-		: inner_{move(task)}
+		: inner_{std::move(task)}
 		, origin_{origin} {}
 	JoinTask(JoinTask &&) noexcept = default;
 	JoinTask &operator =(
@@ -2452,7 +2452,7 @@ public:
 			if (inner_.state() == join_state::joinable) {
 				std::terminate();
 			}
-			inner_ = move(other.inner_);
+			inner_ = std::move(other.inner_);
 			origin_ = other.origin_;
 		}
 		return *this;
@@ -2472,15 +2472,15 @@ public:
 	void cancel() noexcept { inner_.cancel(); }
 	// Downgrade to Task<T> (enables combinators). Caller accepts auto-detach.
 	[[nodiscard]] Task<T> detach_to_task() && noexcept {
-		auto out = move(inner_);
+		auto out = std::move(inner_);
 		inner_ = Task<T>{};
 		return out;
 	}
 	[[nodiscard]] std::source_location origin() const noexcept { return origin_; }
 	[[nodiscard("JoinTask must be consumed: use co_await std::move(jt) or co_await jt.consume()")]] auto
 	operator co_await() & = delete;
-	[[nodiscard]] auto operator co_await() && noexcept { return move(inner_).operator co_await(); }
-	[[nodiscard]] auto outcome() && noexcept { return move(inner_).outcome(); }
+	[[nodiscard]] auto operator co_await() && noexcept { return std::move(inner_).operator co_await(); }
+	[[nodiscard]] auto outcome() && noexcept { return std::move(inner_).outcome(); }
 };
 template<work_value T>
 [[nodiscard]] JoinTask<T> require_join(
@@ -2494,7 +2494,7 @@ template<class Fn>
 [[nodiscard]] auto spawn(
 	Fn &&fn,
 	std::source_location loc = std::source_location::current()) -> std::invoke_result_t<Fn> {
-	auto task = invoke(forward<Fn>(fn));
+	auto task = std::invoke(std::forward<Fn>(fn));
 	if (task.state_) {
 		task.state_->set_spawn_location(loc);
 	}
@@ -2506,7 +2506,7 @@ template<class Fn>
 	Fn &&fn,
 	std::source_location loc = std::source_location::current())
 	-> JoinTask<typename std::invoke_result_t<Fn>::value_type> {
-	return require_join(spawn(forward<Fn>(fn), loc), loc);
+	return require_join(spawn(std::forward<Fn>(fn), loc), loc);
 }
 // [REVISIT] Collapse BasicResult/BasicJoinHandle?
 // [option] Rename to BasicJoinHandle (join-by-default, explicit abandon())
@@ -2527,14 +2527,14 @@ class BasicJoinHandle {
 	bool live_ = false;
 	explicit BasicJoinHandle(
 		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
-		: state_{move(state)}
+		: state_{std::move(state)}
 		, live_{static_cast<bool>(state_)} {}
 	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume() noexcept {
 		if (!live_) {
 			return {};
 		}
 		live_ = false;
-		return move(state_);
+		return std::move(state_);
 	}
 
 	template<work_value U, class Sink>
@@ -2556,16 +2556,16 @@ public:
 	BasicJoinHandle() = default;
 	BasicJoinHandle(
 		BasicJoinHandle &&other) noexcept
-		: state_{move(other.state_)}
-		, live_{exchange(other.live_, false)} {}
+		: state_{std::move(other.state_)}
+		, live_{std::exchange(other.live_, false)} {}
 	BasicJoinHandle &operator =(
 		BasicJoinHandle &&other) noexcept {
 		if (this != &other) {
 			if (live_ && state_) {
 				std::terminate();
 			}
-			state_ = move(other.state_);
-			live_ = exchange(other.live_, false);
+			state_ = std::move(other.state_);
+			live_ = std::exchange(other.live_, false);
 		}
 		return *this;
 	}
@@ -2599,17 +2599,17 @@ using OperationJoinHandle = BasicJoinHandle<T, ControlCategory::operation>;
 template<class H>
 concept work_handle = work_value<typename H::value_type> && requires(H h, H const ch) {
 	ch.control();
-	requires detail::awaits_outcome<decltype(move(h).outcome()), typename H::value_type>;
+	requires detail::awaits_outcome<decltype(std::move(h).outcome()), typename H::value_type>;
 };
 template<class Sink, work_value T>
 [[nodiscard]] detail::small_move_only_function<void(Outcome<T> const &)> make_abandon_dispatch_sink(
 	Sink &&sink) noexcept {
 	using sink_t = std::remove_cvref_t<Sink>;
 	if constexpr (std::is_nothrow_invocable_v<sink_t &, Outcome<T> const &>) {
-		return detail::small_move_only_function<void(Outcome<T> const &)>{forward<Sink>(sink)};
+		return detail::small_move_only_function<void(Outcome<T> const &)>{std::forward<Sink>(sink)};
 	} else {
 		return detail::small_move_only_function<void(Outcome<T> const &)>{
-			[sink = forward<Sink>(sink)](Outcome<T> const &outcome) mutable noexcept {
+			[sink = std::forward<Sink>(sink)](Outcome<T> const &outcome) mutable noexcept {
 				if (outcome.is_failure()) {
 					sink(outcome.failure());
 				} else if (outcome.is_cancelled()) {
@@ -2626,7 +2626,7 @@ void abandon_impl(
 	if (!state) {
 		return; // empty or already-detached/joined — no-op
 	}
-	state->install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(forward<Sink>(sink)));
+	state->install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 }
 template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
@@ -2636,49 +2636,49 @@ void abandon_impl(
 	if (!state) {
 		std::terminate();
 	}
-	state->install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(forward<Sink>(sink)));
+	state->install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	Task<T> &&task,
 	Sink &&sink) noexcept {
-	abandon_impl(move(task), forward<Sink>(sink));
+	abandon_impl(std::move(task), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	Posted<T> &&posted,
 	Sink &&sink) noexcept {
-	abandon_impl(move(posted), forward<Sink>(sink));
+	abandon_impl(std::move(posted), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	Operation<T> &&op,
 	Sink &&sink) noexcept {
-	abandon_impl(move(op), forward<Sink>(sink));
+	abandon_impl(std::move(op), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	TaskJoinHandle<T> &&h,
 	Sink &&sink) noexcept {
-	abandon_impl(move(h), forward<Sink>(sink));
+	abandon_impl(std::move(h), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	PostedJoinHandle<T> &&h,
 	Sink &&sink) noexcept {
-	abandon_impl(move(h), forward<Sink>(sink));
+	abandon_impl(std::move(h), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
 void abandon_to(
 	OperationJoinHandle<T> &&h,
 	Sink &&sink) noexcept {
-	abandon_impl(move(h), forward<Sink>(sink));
+	abandon_impl(std::move(h), std::forward<Sink>(sink));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
@@ -2692,7 +2692,7 @@ template<work_value T, class Sink>
 	if (!state) {
 		return AbandonStatus::empty;
 	}
-	auto result = state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(forward<Sink>(sink)));
+	auto result = state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 	return result;
 }
 template<work_value T, class Sink>
@@ -2707,7 +2707,7 @@ template<work_value T, class Sink>
 	if (!state) {
 		return AbandonStatus::empty;
 	}
-	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(forward<Sink>(sink)));
+	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 }
 template<work_value T, class Sink>
 	requires abandon_sink<Sink, T>
@@ -2721,7 +2721,7 @@ template<work_value T, class Sink>
 	if (!state) {
 		return AbandonStatus::empty;
 	}
-	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(forward<Sink>(sink)));
+	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 }
 struct CarrierDiagnosticSink {
 	void (*emit)(char const *msg) noexcept = nullptr;
@@ -2750,9 +2750,9 @@ template<class Fn>
 inline void set_dropped_outcome_sink(
 	Fn &&fn) {
 	auto &s = detail::dropped_outcome_sink_store();
-	lock_guard const lk{s.mtx};
-	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{forward<Fn>(fn)};
-	s.installed.store(true, memory_order_release);
+	std::lock_guard const lk{s.mtx};
+	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{std::forward<Fn>(fn)};
+	s.installed.store(true, std::memory_order_release);
 }
 template<class R, class Sink = drop_on_abandon>
 class scoped_abandon {
@@ -2769,15 +2769,15 @@ public:
 		, armed_{true} {}
 	scoped_abandon(
 		scoped_abandon &&other) noexcept
-		: value_{move(other.value_)}
-		, sink_{move(other.sink_)}
-		, armed_{exchange(other.armed_, false)} {}
+		: value_{std::move(other.value_)}
+		, sink_{std::move(other.sink_)}
+		, armed_{std::exchange(other.armed_, false)} {}
 	scoped_abandon &operator =(scoped_abandon &&) = delete;
 	scoped_abandon(scoped_abandon const &) = delete;
 	scoped_abandon &operator =(scoped_abandon const &) = delete;
 	~scoped_abandon() noexcept {
 		if (armed_ && value_) {
-			abandon_to(move(*value_), move(*sink_));
+			abandon_to(std::move(*value_), std::move(*sink_));
 		}
 	}
 	[[nodiscard]] R release() && {
@@ -2792,7 +2792,7 @@ template<class R>
 [[nodiscard]] auto guard_abandon(
 	R &&value) {
 	using result_t = std::remove_cvref_t<R>;
-	return scoped_abandon<result_t, drop_on_abandon>{forward<R>(value), drop_on_abandon{}};
+	return scoped_abandon<result_t, drop_on_abandon>{std::forward<R>(value), drop_on_abandon{}};
 }
 template<work_value T>
 [[nodiscard]] std::pair<Task<T>, TaskSource<T>> make_task_source(
@@ -2818,7 +2818,7 @@ template<work_value T, progress_capability Owner>
 		state = detail::make_control_block_shared<T, false>();
 	}
 	state->set_required_capability(capability_id(owner));
-	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(move(state))};
+	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(std::move(state))};
 }
 template<work_value T, progress_capability Driver>
 [[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
@@ -2832,12 +2832,12 @@ template<work_value T, progress_capability Driver>
 		state = detail::make_control_block_shared<T, false>();
 	}
 	state->set_required_capability(capability_id(driver));
-	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(move(state))};
+	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(std::move(state))};
 }
 template<work_value T, ControlCategory C>
 [[nodiscard]] BasicJoinHandle<T, C> into_join_handle(
 	BasicResult<T, C> &&result) noexcept {
-	return BasicJoinHandle<T, C>::adopt(move(result));
+	return BasicJoinHandle<T, C>::adopt(std::move(result));
 }
 template<progress_capability Owner>
 [[nodiscard]] bool can_join(
@@ -2872,7 +2872,7 @@ template<work_value T>
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join_compatibility_adapter(
@@ -2897,13 +2897,13 @@ template<work_value T>
 		raise_join_lifetime_violation(loc);
 	}
 	if (!task.control().ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = task.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
@@ -2918,13 +2918,13 @@ template<progress_capability Owner, work_value T>
 		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
 	}
 	if (!control.ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = posted.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
@@ -2939,13 +2939,13 @@ template<progress_capability Driver, work_value T>
 		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
 	}
 	if (!control.ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = op.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
@@ -2955,13 +2955,13 @@ template<work_value T>
 		raise_join_lifetime_violation(loc);
 	}
 	if (!h.control().ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = h.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
@@ -2976,13 +2976,13 @@ template<progress_capability Owner, work_value T>
 		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
 	}
 	if (!control.ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = h.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
@@ -2997,84 +2997,84 @@ template<progress_capability Driver, work_value T>
 		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
 	}
 	if (!control.ready()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto state = h.consume_for_join();
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(move(task), loc);
+	auto outcome = try_join_ready(std::move(task), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	Owner &owner,
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(owner, move(posted), loc);
+	auto outcome = try_join_ready(owner, std::move(posted), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	Driver &driver,
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(driver, move(op), loc);
+	auto outcome = try_join_ready(driver, std::move(op), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(move(h), loc);
+	auto outcome = try_join_ready(std::move(h), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	Owner &owner,
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(owner, move(h), loc);
+	auto outcome = try_join_ready(owner, std::move(h), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join_ready(
 	Driver &driver,
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto outcome = try_join_ready(driver, move(h), loc);
+	auto outcome = try_join_ready(driver, std::move(h), loc);
 	if (!outcome) [[unlikely]] {
 		raise_join_not_ready(loc);
 	}
-	return move(*outcome);
+	return std::move(*outcome);
 }
 
 template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	return detail::blocking_join_compatibility_adapter(task.consume_for_join(), nullopt, loc);
+	return detail::blocking_join_compatibility_adapter(task.consume_for_join(), std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
@@ -3100,7 +3100,7 @@ template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	return detail::blocking_join_compatibility_adapter(h.consume_for_join(), nullopt, loc);
+	return detail::blocking_join_compatibility_adapter(h.consume_for_join(), std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
@@ -3125,68 +3125,68 @@ template<progress_capability Driver, work_value T>
 template<work_value T>
 [[nodiscard]] T value(
 	Task<T> &&task) {
-	return root::value(blocking_join(move(task)));
+	return root::value(blocking_join(std::move(task)));
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] T value(
 	Owner &owner,
 	Posted<T> &&posted) {
-	return root::value(blocking_join(owner, move(posted)));
+	return root::value(blocking_join(owner, std::move(posted)));
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] T value(
 	Driver &driver,
 	Operation<T> &&op) {
-	return root::value(blocking_join(driver, move(op)));
+	return root::value(blocking_join(driver, std::move(op)));
 }
 template<work_value T>
 [[nodiscard]] T value(
 	TaskJoinHandle<T> &&h) {
-	return root::value(blocking_join(move(h)));
+	return root::value(blocking_join(std::move(h)));
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] T value(
 	Owner &owner,
 	PostedJoinHandle<T> &&h) {
-	return root::value(blocking_join(owner, move(h)));
+	return root::value(blocking_join(owner, std::move(h)));
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] T value(
 	Driver &driver,
 	OperationJoinHandle<T> &&h) {
-	return root::value(blocking_join(driver, move(h)));
+	return root::value(blocking_join(driver, std::move(h)));
 }
 inline void value(
 	Task<void> &&task) {
-	root::value(blocking_join(move(task)));
+	root::value(blocking_join(std::move(task)));
 }
 template<progress_capability Owner>
 inline void value(
 	Owner &owner,
 	Posted<void> &&posted) {
-	root::value(blocking_join(owner, move(posted)));
+	root::value(blocking_join(owner, std::move(posted)));
 }
 template<progress_capability Driver>
 inline void value(
 	Driver &driver,
 	Operation<void> &&op) {
-	root::value(blocking_join(driver, move(op)));
+	root::value(blocking_join(driver, std::move(op)));
 }
 inline void value(
 	TaskJoinHandle<void> &&h) {
-	root::value(blocking_join(move(h)));
+	root::value(blocking_join(std::move(h)));
 }
 template<progress_capability Owner>
 inline void value(
 	Owner &owner,
 	PostedJoinHandle<void> &&h) {
-	root::value(blocking_join(owner, move(h)));
+	root::value(blocking_join(owner, std::move(h)));
 }
 template<progress_capability Driver>
 inline void value(
 	Driver &driver,
 	OperationJoinHandle<void> &&h) {
-	root::value(blocking_join(driver, move(h)));
+	root::value(blocking_join(driver, std::move(h)));
 }
 template<work_value T>
 [[nodiscard]] std::pair<TaskControl, TaskSource<T>> make_task_control_source() {

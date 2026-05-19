@@ -82,11 +82,11 @@ TEST_CASE(
 	"[carrier.deadline]") {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{99});
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::DeadlineScope scope{std::chrono::seconds{60}};
-	auto chain = scope.admit(move(jh));
-	auto out = move(chain).release_outcome();
+	auto chain = scope.admit(std::move(jh));
+	auto out = std::move(chain).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 99);
 	CHECK(!scope.is_cancelled());
@@ -96,11 +96,11 @@ TEST_CASE(
 	"[carrier.deadline]") {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::DeadlineScope scope{std::chrono::seconds{60}};
-	auto chain = scope.admit(move(jh));
-	auto out = move(chain).release_outcome();
+	auto chain = scope.admit(std::move(jh));
+	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -108,23 +108,23 @@ TEST_CASE(
 	"[carrier.deadline]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto stop_token = src.stop_token();
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::DeadlineScope scope{std::chrono::milliseconds{5}};
 
-	auto worker_src = move(src);
+	auto worker_src = std::move(src);
 	auto worker_token = stop_token;
-	thread worker{[ws = move(worker_src), wt = move(worker_token)]() mutable {
+	std::thread worker{[ws = std::move(worker_src), wt = std::move(worker_token)]() mutable {
 		while (!wt.stop_requested()) {
 			std::this_thread::yield();
 		}
 		(void)ws.try_set_cancelled(root::work_errc::cancelled_deadline);
 	}};
 
-	auto chain = scope.admit(move(jh));
+	auto chain = scope.admit(std::move(jh));
 	worker.join();
 
-	auto out = move(chain).release_outcome();
+	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 	CHECK(scope.is_cancelled());
 	CHECK(scope.cancel_reason() == root::CancelReason::deadline);

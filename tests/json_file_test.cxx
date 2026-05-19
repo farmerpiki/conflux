@@ -22,13 +22,13 @@ struct TempDir {
 	TempDir(
 		std::string p,
 		int f) noexcept
-		: path{move(p)}
+		: path{std::move(p)}
 		, fd{f} {}
 	TempDir(TempDir const &) = delete;
 	TempDir &operator =(TempDir const &) = delete;
 	TempDir(
 		TempDir &&o) noexcept
-		: path{move(o.path)}
+		: path{std::move(o.path)}
 		, fd{exchange(o.fd, -1)} {}
 	TempDir &operator =(TempDir &&) = delete;
 	~TempDir() {
@@ -36,7 +36,7 @@ struct TempDir {
 			::close(fd);
 		}
 		if (!path.empty()) {
-			auto cmd = format("rm -rf {}", path);
+			auto cmd = std::format("rm -rf {}", path);
 			auto _ = ::system(cmd.c_str());
 		}
 	}
@@ -47,7 +47,7 @@ struct TempDir {
 		REQUIRE(r != nullptr);
 		int f = ::open(p.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 		REQUIRE(f >= 0);
-		return TempDir{move(p), f};
+		return TempDir{std::move(p), f};
 	}
 };
 

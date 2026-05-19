@@ -12,8 +12,8 @@ BenchStats measure(
 	std::size_t iters,
 	std::size_t batch = 1,
 	std::size_t bytes = 0) {
-	iters = max(iters, std::size_t{1});
-	batch = max(batch, std::size_t{1});
+	iters = std::max(iters, std::size_t{1});
+	batch = std::max(batch, std::size_t{1});
 	for (std::size_t i = 0; i < warmup * batch; ++i) {
 		fn();
 	}
@@ -77,7 +77,7 @@ int main(
 		std::vector<unsigned char> pt(sz);
 		crypto_random_bytes(pt);
 
-		auto enc_name = format("gcm_encrypt/{}", sz);
+		auto enc_name = std::format("gcm_encrypt/{}", sz);
 		emit(
 			enc_name,
 			measure(
@@ -91,7 +91,7 @@ int main(
 				sz));
 
 		auto ct = aes_gcm_encrypt(key, iv, pt, aad).value();
-		auto dec_name = format("gcm_decrypt/{}", sz);
+		auto dec_name = std::format("gcm_decrypt/{}", sz);
 		emit(
 			dec_name,
 			measure(
@@ -109,7 +109,7 @@ int main(
 		std::vector<unsigned char> data(sz);
 		crypto_random_bytes(data);
 
-		auto name = format("hex_encode/{}", sz);
+		auto name = std::format("hex_encode/{}", sz);
 		emit(
 			name,
 			measure(
@@ -127,7 +127,7 @@ int main(
 		std::vector<unsigned char> msg(sz);
 		crypto_random_bytes(msg);
 
-		auto name = format("sha256/{}", sz);
+		auto name = std::format("sha256/{}", sz);
 		emit(
 			name,
 			measure(
@@ -138,7 +138,7 @@ int main(
 				cfg.warmup / 10,
 				cfg.iterations / 10));
 
-		auto hmac_name = format("hmac_sha256/{}", sz);
+		auto hmac_name = std::format("hmac_sha256/{}", sz);
 		emit(
 			hmac_name,
 			measure(
@@ -165,7 +165,7 @@ int main(
 
 	for (std::size_t sz: {32UZ, 128UZ, 512UZ, 4096UZ}) {
 		std::vector<char> buf(sz, 'X');
-		auto lower_name = format("ascii_lower/{}", sz);
+		auto lower_name = std::format("ascii_lower/{}", sz);
 		emit(
 			lower_name,
 			measure(

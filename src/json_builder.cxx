@@ -12,23 +12,23 @@ ValueBuilder::ValueBuilder(
 	BuilderState *borrowed) noexcept
 	: state_{borrowed} {}
 
-expected<void, JsonError> ValueBuilder::check_can_set() const {
+std::expected<void, JsonError> ValueBuilder::check_can_set() const {
 	if (state_ == nullptr) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
 				.message = "ValueBuilder has been discarded"});
 	}
 	if (state_->root_set) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
 				.message = "root value already fixed; use reset() to start over"});
 	}
 	if (state_->child_active) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -37,7 +37,7 @@ expected<void, JsonError> ValueBuilder::check_can_set() const {
 	return {};
 }
 
-expected<void, JsonError> ValueBuilder::set_node(
+std::expected<void, JsonError> ValueBuilder::set_node(
 	Node n) {
 	auto ok = check_can_set();
 	if (!ok) {
@@ -50,12 +50,12 @@ expected<void, JsonError> ValueBuilder::set_node(
 }
 
 ValueBuilder::ValueBuilder()
-	: owned_{make_unique<BuilderState>()}
+        : owned_{std::make_unique<BuilderState>()}
 	, state_{owned_.get()} {}
 
 ValueBuilder::ValueBuilder(
 	ValueBuilder &&o) noexcept
-	: owned_{move(o.owned_)}
+	: owned_{std::move(o.owned_)}
 	, state_{owned_ ? owned_.get() : o.state_} {
 	o.state_ = nullptr;
 }
@@ -63,23 +63,23 @@ ValueBuilder::ValueBuilder(
 ValueBuilder &ValueBuilder::operator =(
 	ValueBuilder &&o) noexcept {
 	if (this != &o) {
-		owned_ = move(o.owned_);
+		owned_ = std::move(o.owned_);
 		state_ = owned_ ? owned_.get() : o.state_;
 		o.state_ = nullptr;
 	}
 	return *this;
 }
 
-expected<void, JsonError> ValueBuilder::set_null() {
+std::expected<void, JsonError> ValueBuilder::set_null() {
 	return set_node(detail::make_null());
 }
 
-expected<void, JsonError> ValueBuilder::set_bool(
+std::expected<void, JsonError> ValueBuilder::set_bool(
 	bool v) {
 	return set_node(detail::make_bool(v));
 }
 
-expected<void, JsonError> ValueBuilder::set_string(
+std::expected<void, JsonError> ValueBuilder::set_string(
 	std::string_view sv) {
 	auto ok = check_can_set();
 	if (!ok) {
@@ -91,14 +91,14 @@ expected<void, JsonError> ValueBuilder::set_string(
 		detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(sv.size()), kStorageInputView));
 }
 
-expected<void, JsonError> ValueBuilder::set_number(
+std::expected<void, JsonError> ValueBuilder::set_number(
 	std::string_view lexeme) {
 	if (!validate_number_lexeme(lexeme)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_number,
-				.message = format("invalid number lexeme: {}", lexeme)});
+				.message = std::format("invalid number lexeme: {}", lexeme)});
 	}
 	auto ok = check_can_set();
 	if (!ok) {
@@ -112,12 +112,12 @@ expected<void, JsonError> ValueBuilder::set_number(
 		kStorageInputView | kRawJsonSlice,
 		lexeme);
 	if (!node) {
-		return unexpected(move(node).error());
+		return std::unexpected(std::move(node).error());
 	}
 	return set_node(*node);
 }
 
-expected<void, JsonError> ValueBuilder::set_i64(
+std::expected<void, JsonError> ValueBuilder::set_i64(
 	std::int64_t v) {
 	auto ok = check_can_set();
 	if (!ok) {
@@ -126,7 +126,7 @@ expected<void, JsonError> ValueBuilder::set_i64(
 	std::size_t const off = state_->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	state_->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = state_->built_input.size() - off;
 	return set_node(
@@ -137,7 +137,7 @@ expected<void, JsonError> ValueBuilder::set_i64(
 			v));
 }
 
-expected<void, JsonError> ValueBuilder::set_u64(
+std::expected<void, JsonError> ValueBuilder::set_u64(
 	std::uint64_t v) {
 	auto ok = check_can_set();
 	if (!ok) {
@@ -146,7 +146,7 @@ expected<void, JsonError> ValueBuilder::set_u64(
 	std::size_t const off = state_->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	state_->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = state_->built_input.size() - off;
 	if (v <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -165,10 +165,10 @@ expected<void, JsonError> ValueBuilder::set_u64(
 			v));
 }
 
-expected<void, JsonError> ValueBuilder::set_f64(
+std::expected<void, JsonError> ValueBuilder::set_f64(
 	double v) {
-	if (!isfinite(v)) {
-		return unexpected(
+	if (!std::isfinite(v)) {
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::number_out_of_range,
@@ -181,7 +181,7 @@ expected<void, JsonError> ValueBuilder::set_f64(
 	std::size_t const off = state_->built_input.size();
 	std::array<char, 32> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	state_->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = state_->built_input.size() - off;
 	std::string_view const lex = std::string_view{state_->built_input.data() + off, len};
@@ -195,10 +195,10 @@ expected<void, JsonError> ValueBuilder::set_f64(
 			is_int));
 }
 
-expected<ObjectBuilder, JsonError> ValueBuilder::begin_object() {
+std::expected<ObjectBuilder, JsonError> ValueBuilder::begin_object() {
 	auto ok = check_can_set();
 	if (!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	bool const prev_root_set = state_->root_set;
 	state_->child_active = true;
@@ -213,10 +213,10 @@ expected<ObjectBuilder, JsonError> ValueBuilder::begin_object() {
 	return child;
 }
 
-expected<ArrayBuilder, JsonError> ValueBuilder::begin_array() {
+std::expected<ArrayBuilder, JsonError> ValueBuilder::begin_array() {
 	auto ok = check_can_set();
 	if (!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	bool const prev_root_set = state_->root_set;
 	state_->child_active = true;
@@ -245,9 +245,9 @@ void ValueBuilder::discard() && noexcept {
 	state_ = nullptr;
 }
 
-expected<Document, JsonError> ValueBuilder::finish() && {
+std::expected<Document, JsonError> ValueBuilder::finish() && {
 	if ((state_ == nullptr) || !state_->root_set || state_->child_active) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -260,37 +260,37 @@ expected<Document, JsonError> ValueBuilder::finish() && {
 	// insert site (Correction S); this is the final guard.
 	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
 	if (state_->built_input.size() >= kU32Ceiling) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::input_too_large,
 				.message = "Builder input buffer exceeds 4 GiB hard ceiling"});
 	}
-	auto storage = make_unique<DocumentStorage>(move(state_->store));
+        auto storage = std::make_unique<DocumentStorage>(std::move(state_->store));
 	storage->root_node = static_cast<std::uint32_t>(state_->root_node);
-	storage->owned_input = make_unique<std::string>(move(state_->built_input));
+        storage->owned_input = std::make_unique<std::string>(std::move(state_->built_input));
 	storage->input_view = *storage->owned_input;
 	owned_.reset();
 	state_ = nullptr;
-	return ::make_document(move(storage));
+	return ::make_document(std::move(storage));
 }
 
 // ---------------------------------------------------------------------------
 // ObjectBuilder member insert helpers
 // ---------------------------------------------------------------------------
 
-expected<void, JsonError> ObjectBuilder::do_insert_node(
+std::expected<void, JsonError> ObjectBuilder::do_insert_node(
 	std::string_view name,
 	std::size_t node_idx) {
 	auto *st = frame_.state;
 	auto [it, inserted] = frame_.dup_check.try_emplace(std::string{name}, node_idx);
 	if (!inserted) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::duplicate_member,
 				.member_name = std::string{name},
-				.message = format("duplicate member: {}", name)});
+				.message = std::format("duplicate member: {}", name)});
 	}
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
@@ -301,17 +301,17 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 		 kStorageInputView});
 	return {};
 }
-expected<void, JsonError> ObjectBuilder::do_insert_node_view(
+std::expected<void, JsonError> ObjectBuilder::do_insert_node_view(
 	std::string_view name,
 	std::size_t node_idx) {
 	auto [it, inserted] = frame_.dup_check.try_emplace(std::string{name}, node_idx);
 	if (!inserted) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::duplicate_member,
 				.member_name = std::string{name},
-				.message = format("duplicate member: {}", name)});
+				.message = std::format("duplicate member: {}", name)});
 	}
 	MemberEntry m{};
 	m.name_off = static_cast<std::uint32_t>(frame_.local_external_ptrs_.size());
@@ -322,7 +322,7 @@ expected<void, JsonError> ObjectBuilder::do_insert_node_view(
 	frame_.local_members.push_back(m);
 	return {};
 }
-expected<void, JsonError> ObjectBuilder::insert_null(
+std::expected<void, JsonError> ObjectBuilder::insert_null(
 	std::string_view name) {
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
@@ -331,7 +331,7 @@ expected<void, JsonError> ObjectBuilder::insert_null(
 	st->store.nodes.push_back(detail::make_null());
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_bool(
+std::expected<void, JsonError> ObjectBuilder::insert_bool(
 	std::string_view name,
 	bool v) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -341,7 +341,7 @@ expected<void, JsonError> ObjectBuilder::insert_bool(
 	st->store.nodes.push_back(detail::make_bool(v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_string(
+std::expected<void, JsonError> ObjectBuilder::insert_string(
 	std::string_view name,
 	std::string_view value) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -357,40 +357,40 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 			kStorageInputView));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_string_checked(
+std::expected<void, JsonError> ObjectBuilder::insert_string_checked(
 	std::string_view name,
 	std::string_view value) {
 	for (std::size_t i = 0; i < value.size();) {
 		auto const c = static_cast<unsigned char>(value[i]);
 		std::size_t const seq = utf8_seq_len(c);
 		if (seq == 0) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::invalid_utf8,
-					.message = format("invalid UTF-8 byte at offset {}", i)});
+					.message = std::format("invalid UTF-8 std::byte at offset {}", i)});
 		}
 		if (i + seq > value.size()) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::invalid_utf8,
-					.message = format("truncated UTF-8 at offset {}", i)});
+					.message = std::format("truncated UTF-8 at offset {}", i)});
 		}
 		for (std::size_t k = 1; k < seq; ++k) {
 			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::invalid_utf8,
-						.message = format("invalid UTF-8 continuation at offset {}", i + k)});
+						.message = std::format("invalid UTF-8 continuation at offset {}", i + k)});
 			}
 		}
 		i += seq;
 	}
 	return insert_string(name, value);
 }
-expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
+std::expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
 	std::string_view name,
 	std::string_view value) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -406,7 +406,7 @@ expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
 			kStorageInputView));
 	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
+std::expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
 	std::string_view name,
 	std::string_view value) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -419,18 +419,18 @@ expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
 		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
 	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_number(
+std::expected<void, JsonError> ObjectBuilder::insert_number(
 	std::string_view name,
 	std::string_view lexeme) {
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	if (!validate_number_lexeme(lexeme)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_number,
-				.message = format("invalid number lexeme: {}", lexeme)});
+				.message = std::format("invalid number lexeme: {}", lexeme)});
 	}
 	auto *st = frame_.state;
 	std::size_t const off = st->built_input.size();
@@ -441,12 +441,12 @@ expected<void, JsonError> ObjectBuilder::insert_number(
 		kStorageInputView | kRawJsonSlice,
 		lexeme);
 	if (!node) {
-		return unexpected(move(node).error());
+		return std::unexpected(std::move(node).error());
 	}
 	st->store.nodes.push_back(*node);
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_i64(
+std::expected<void, JsonError> ObjectBuilder::insert_i64(
 	std::string_view name,
 	std::int64_t v) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -456,7 +456,7 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	st->store.nodes.push_back(
@@ -467,7 +467,7 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 			v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_u64(
+std::expected<void, JsonError> ObjectBuilder::insert_u64(
 	std::string_view name,
 	std::uint64_t v) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -477,7 +477,7 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	if (v <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -497,14 +497,14 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 	}
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_f64(
+std::expected<void, JsonError> ObjectBuilder::insert_f64(
 	std::string_view name,
 	double v) {
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
-	if (!isfinite(v)) {
-		return unexpected(
+	if (!std::isfinite(v)) {
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::number_out_of_range,
@@ -514,7 +514,7 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 32> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	std::string_view const lex = std::string_view{st->built_input.data() + off, len};
@@ -528,20 +528,20 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 			is_int));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
+std::expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	std::string_view name) {
 	if (auto ok = check_can_insert(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	// Duplicate check before any work (O(1) amortized via hash).
+	// Duplicate check before any work (O(1) amortized via std::hash).
 	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
 	if (!inserted) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::duplicate_member,
 				.member_name = std::string{name},
-				.message = format("duplicate member: {}", name)});
+				.message = std::format("duplicate member: {}", name)});
 	}
 	auto *st = frame_.state;
 	// Store name in arena; the member entry will be pushed when child commits.
@@ -559,20 +559,20 @@ expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	child.frame_.depth = child_depth;
 	return child;
 }
-expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
+std::expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 	std::string_view name) {
 	if (auto ok = check_can_insert(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	// Duplicate check before any work (O(1) amortized via hash).
+	// Duplicate check before any work (O(1) amortized via std::hash).
 	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
 	if (!inserted) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::duplicate_member,
 				.member_name = std::string{name},
-				.message = format("duplicate member: {}", name)});
+				.message = std::format("duplicate member: {}", name)});
 	}
 	auto *st = frame_.state;
 	// Store name in arena; the member entry will be pushed when child commits.
@@ -594,9 +594,9 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 // ArrayBuilder append helpers
 // ---------------------------------------------------------------------------
 
-expected<void, JsonError> ArrayBuilder::append_null() {
+std::expected<void, JsonError> ArrayBuilder::append_null() {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -607,10 +607,10 @@ expected<void, JsonError> ArrayBuilder::append_null() {
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_bool(
+std::expected<void, JsonError> ArrayBuilder::append_bool(
 	bool v) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -621,10 +621,10 @@ expected<void, JsonError> ArrayBuilder::append_bool(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_string(
+std::expected<void, JsonError> ArrayBuilder::append_string(
 	std::string_view value) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -641,42 +641,42 @@ expected<void, JsonError> ArrayBuilder::append_string(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_string_checked(
+std::expected<void, JsonError> ArrayBuilder::append_string_checked(
 	std::string_view value) {
 	for (std::size_t i = 0; i < value.size();) {
 		auto const c = static_cast<unsigned char>(value[i]);
 		std::size_t const seq = utf8_seq_len(c);
 		if (seq == 0) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::invalid_utf8,
-					.message = format("invalid UTF-8 byte at offset {}", i)});
+					.message = std::format("invalid UTF-8 std::byte at offset {}", i)});
 		}
 		if (i + seq > value.size()) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::invalid_utf8,
-					.message = format("truncated UTF-8 at offset {}", i)});
+					.message = std::format("truncated UTF-8 at offset {}", i)});
 		}
 		for (std::size_t k = 1; k < seq; ++k) {
 			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::invalid_utf8,
-						.message = format("invalid UTF-8 continuation at offset {}", i + k)});
+						.message = std::format("invalid UTF-8 continuation at offset {}", i + k)});
 			}
 		}
 		i += seq;
 	}
 	return append_string(value);
 }
-expected<void, JsonError> ArrayBuilder::append_string_borrowed(
+std::expected<void, JsonError> ArrayBuilder::append_string_borrowed(
 	std::string_view value) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -690,21 +690,21 @@ expected<void, JsonError> ArrayBuilder::append_string_borrowed(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_number(
+std::expected<void, JsonError> ArrayBuilder::append_number(
 	std::string_view lexeme) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	if (!validate_number_lexeme(lexeme)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_number,
-				.message = format("invalid number lexeme: {}", lexeme)});
+				.message = std::format("invalid number lexeme: {}", lexeme)});
 	}
 	auto *st = frame_.state;
 	std::size_t const off = st->built_input.size();
@@ -715,16 +715,16 @@ expected<void, JsonError> ArrayBuilder::append_number(
 		kStorageInputView | kRawJsonSlice,
 		lexeme);
 	if (!node) {
-		return unexpected(move(node).error());
+		return std::unexpected(std::move(node).error());
 	}
 	st->store.nodes.push_back(*node);
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_i64(
+std::expected<void, JsonError> ArrayBuilder::append_i64(
 	std::int64_t v) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -734,7 +734,7 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	st->store.nodes.push_back(
@@ -746,10 +746,10 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_u64(
+std::expected<void, JsonError> ArrayBuilder::append_u64(
 	std::uint64_t v) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -759,7 +759,7 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	if (v <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -780,17 +780,17 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<void, JsonError> ArrayBuilder::append_f64(
+std::expected<void, JsonError> ArrayBuilder::append_f64(
 	double v) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
-	if (!isfinite(v)) {
-		return unexpected(
+	if (!std::isfinite(v)) {
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::number_out_of_range,
@@ -800,7 +800,7 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 	std::size_t const off = st->built_input.size();
 	std::array<char, 32> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	std::string_view const lex = std::string_view{st->built_input.data() + off, len};
@@ -815,9 +815,9 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
-expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
+std::expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -834,9 +834,9 @@ expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
 	child.frame_.depth = child_depth;
 	return child;
 }
-expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
+std::expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -862,11 +862,11 @@ ValueBuilder value_builder() {
 // appending new patch members in patch order.
 namespace detail {
 
-expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
-expected<void, JsonError> copy_node_into(ObjectBuilder &out, std::string_view name, NodeRef node);
-expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
-expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
-expected<void, JsonError> merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
+std::expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
+std::expected<void, JsonError> copy_node_into(ObjectBuilder &out, std::string_view name, NodeRef node);
+std::expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
+std::expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
+std::expected<void, JsonError> merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
 
 [[nodiscard]] JsonError merge_patch_wrong_kind(
 	JsonKind actual) {
@@ -875,10 +875,10 @@ expected<void, JsonError> merge_patch_into(ObjectBuilder &out, std::string_view 
 		.code = JsonIssueCode::wrong_kind,
 		.expected_kind = JsonKind::object,
 		.actual_kind = actual,
-		.message = "expected object while applying JSON merge patch"};
+		.message = "std::expected object while applying JSON merge patch"};
 }
 
-expected<void, JsonError> copy_members_into(
+std::expected<void, JsonError> copy_members_into(
 	ObjectBuilder &out,
 	ObjectView obj) {
 	for (auto const &[name, value]: obj.members()) {
@@ -889,7 +889,7 @@ expected<void, JsonError> copy_members_into(
 	return {};
 }
 
-expected<void, JsonError> copy_elements_into(
+std::expected<void, JsonError> copy_elements_into(
 	ArrayBuilder &out,
 	ArrayView arr) {
 	for (auto value: arr.elements()) {
@@ -900,7 +900,7 @@ expected<void, JsonError> copy_elements_into(
 	return {};
 }
 
-expected<void, JsonError> copy_node_into(
+std::expected<void, JsonError> copy_node_into(
 	ValueBuilder &out,
 	NodeRef node) {
 	switch (node.kind()) {
@@ -912,39 +912,39 @@ expected<void, JsonError> copy_node_into(
 		{
 			auto arr = node.as_array();
 			if (!arr) {
-				return unexpected(move(arr).error());
+				return std::unexpected(std::move(arr).error());
 			}
 			auto child = out.begin_array();
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_elements_into(*child, *arr); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	case JsonKind::object:
 		{
 			auto obj = node.as_object();
 			if (!obj) {
-				return unexpected(move(obj).error());
+				return std::unexpected(std::move(obj).error());
 			}
 			auto child = out.begin_object();
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_members_into(*child, *obj); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
+	return std::unexpected(merge_patch_wrong_kind(node.kind()));
 }
 
-expected<void, JsonError> copy_node_into(
+std::expected<void, JsonError> copy_node_into(
 	ObjectBuilder &out,
 	std::string_view name,
 	NodeRef node) {
@@ -957,39 +957,39 @@ expected<void, JsonError> copy_node_into(
 		{
 			auto arr = node.as_array();
 			if (!arr) {
-				return unexpected(move(arr).error());
+				return std::unexpected(std::move(arr).error());
 			}
 			auto child = out.insert_array(name);
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_elements_into(*child, *arr); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	case JsonKind::object:
 		{
 			auto obj = node.as_object();
 			if (!obj) {
-				return unexpected(move(obj).error());
+				return std::unexpected(std::move(obj).error());
 			}
 			auto child = out.insert_object(name);
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_members_into(*child, *obj); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
+	return std::unexpected(merge_patch_wrong_kind(node.kind()));
 }
 
-expected<void, JsonError> copy_node_into(
+std::expected<void, JsonError> copy_node_into(
 	ArrayBuilder &out,
 	NodeRef node) {
 	switch (node.kind()) {
@@ -1001,39 +1001,39 @@ expected<void, JsonError> copy_node_into(
 		{
 			auto arr = node.as_array();
 			if (!arr) {
-				return unexpected(move(arr).error());
+				return std::unexpected(std::move(arr).error());
 			}
 			auto child = out.append_array();
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_elements_into(*child, *arr); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	case JsonKind::object:
 		{
 			auto obj = node.as_object();
 			if (!obj) {
-				return unexpected(move(obj).error());
+				return std::unexpected(std::move(obj).error());
 			}
 			auto child = out.append_object();
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			if (auto ok = copy_members_into(*child, *obj); !ok) {
 				return ok;
 			}
-			move(*child).commit();
+			std::move(*child).commit();
 			return {};
 		}
 	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
+	return std::unexpected(merge_patch_wrong_kind(node.kind()));
 }
 
-expected<void, JsonError> merge_object_members_into(
+std::expected<void, JsonError> merge_object_members_into(
 	ObjectBuilder &out,
 	std::optional<ObjectView> target,
 	ObjectView patch) {
@@ -1065,7 +1065,7 @@ expected<void, JsonError> merge_object_members_into(
 	return {};
 }
 
-expected<void, JsonError> merge_patch_into(
+std::expected<void, JsonError> merge_patch_into(
 	ValueBuilder &out,
 	NodeRef target,
 	NodeRef patch) {
@@ -1074,28 +1074,28 @@ expected<void, JsonError> merge_patch_into(
 	}
 	auto patch_obj = patch.as_object();
 	if (!patch_obj) {
-		return unexpected(move(patch_obj).error());
+		return std::unexpected(std::move(patch_obj).error());
 	}
 	std::optional<ObjectView> target_obj;
 	if (target.kind() == JsonKind::object) {
 		auto obj = target.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 		target_obj.emplace(*obj);
 	}
 	auto child = out.begin_object();
 	if (!child) {
-		return unexpected(move(child).error());
+		return std::unexpected(std::move(child).error());
 	}
 	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
 		return ok;
 	}
-	move(*child).commit();
+	std::move(*child).commit();
 	return {};
 }
 
-expected<void, JsonError> merge_patch_into(
+std::expected<void, JsonError> merge_patch_into(
 	ObjectBuilder &out,
 	std::string_view name,
 	NodeRef target,
@@ -1105,40 +1105,40 @@ expected<void, JsonError> merge_patch_into(
 	}
 	auto patch_obj = patch.as_object();
 	if (!patch_obj) {
-		return unexpected(move(patch_obj).error());
+		return std::unexpected(std::move(patch_obj).error());
 	}
 	std::optional<ObjectView> target_obj;
 	if (target.kind() == JsonKind::object) {
 		auto obj = target.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 		target_obj.emplace(*obj);
 	}
 	auto child = out.insert_object(name);
 	if (!child) {
-		return unexpected(move(child).error());
+		return std::unexpected(std::move(child).error());
 	}
 	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
 		return ok;
 	}
-	move(*child).commit();
+	std::move(*child).commit();
 	return {};
 }
 
 } // namespace detail
 
-expected<Document, JsonError> merge_patch(
+std::expected<Document, JsonError> merge_patch(
 	NodeRef target,
 	NodeRef patch) {
 	auto out = value_builder();
 	if (auto ok = detail::merge_patch_into(out, target, patch); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	return move(out).finish();
+	return std::move(out).finish();
 }
 
-expected<Document, JsonError> merge_patch(
+std::expected<Document, JsonError> merge_patch(
 	Document const &target,
 	Document const &patch) {
 	return merge_patch(target.root(), patch.root());

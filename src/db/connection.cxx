@@ -434,7 +434,7 @@ struct ConnectState : std::enable_shared_from_this<ConnectState> {
 			} else if (status == PGRES_POLLING_WRITING) {
 				mask = POLLOUT;
 			} else {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: unexpected polling status"}));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: std::unexpected polling status"}));
 				return;
 			}
 			int const fd = ::PQsocket(conn.get());
@@ -800,7 +800,7 @@ void Connection::after_send_drive_flush_(
 	}
 	int const fd = ::PQsocket(conn_.get());
 	auto self = shared_from_this();
-	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
+	// NOLINTNEXTLINE(bugprone-std::exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLOUT, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
 			auto _ = dst->try_set_cancelled(root::work_errc::cancelled_requested);
@@ -866,7 +866,7 @@ void Connection::drive_consume_loop_(
 	}
 	int const fd = ::PQsocket(conn_.get());
 	auto self = shared_from_this();
-	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
+	// NOLINTNEXTLINE(bugprone-std::exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLIN, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
 			auto _ = dst->try_set_cancelled(root::work_errc::cancelled_requested);
@@ -1320,7 +1320,7 @@ void Pipeline::drive_wire_consume_loop_(
 			return;
 		}
 		if (st->next_wire_result >= st->wire_results.size()) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: unexpected extra pipeline result"}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: std::unexpected extra pipeline result"}));
 			conn->op_done_();
 			return;
 		}
@@ -1340,7 +1340,7 @@ void Pipeline::drive_wire_consume_loop_(
 				conn->prepared_names_.insert(wire.prepared_name);
 			} else {
 				auto _ = wire.dst->try_set_exception(
-					std::make_exception_ptr(PgError{wire.label + ": unexpected result status", {}, status}));
+					std::make_exception_ptr(PgError{wire.label + ": std::unexpected result status", {}, status}));
 			}
 			continue;
 		}
@@ -1348,7 +1348,7 @@ void Pipeline::drive_wire_consume_loop_(
 			auto _ = wire.dst->try_set_value(root::Success<Result>{Result{std::move(next)}});
 		} else {
 			auto _ = wire.dst->try_set_exception(
-				std::make_exception_ptr(PgError{wire.label + ": unexpected result status", {}, status}));
+				std::make_exception_ptr(PgError{wire.label + ": std::unexpected result status", {}, status}));
 		}
 	}
 	int const fd = ::PQsocket(conn->conn_.get());

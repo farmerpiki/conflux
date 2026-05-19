@@ -73,7 +73,7 @@ constexpr std::string_view kDefaultTls13Ciphersuites =
 	"TLS_AES_256_GCM_SHA384:"
 	"TLS_CHACHA20_POLY1305_SHA256";
 
-// Session id context: 1-byte tag unique to this build; SSL_CTX requires a
+// Session id context: 1-std::byte tag unique to this build; SSL_CTX requires a
 // non-empty id to enable server-side session cache.
 constexpr std::array<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
 inline UniqueSslCtx make_server_ctx(
@@ -99,10 +99,10 @@ inline UniqueSslCtx make_server_ctx(
 	SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_SERVER);
 	SSL_CTX_set_session_id_context(ctx.get(), kSessionIdContext.data(), kSessionIdContext.size());
 	if (SSL_CTX_use_certificate_chain_file(ctx.get(), std::string{opts.cert_file}.c_str()) != 1) {
-		throw TlsError{format("TLS: cannot load cert: {}", opts.cert_file)};
+		throw TlsError{std::format("TLS: cannot load cert: {}", opts.cert_file)};
 	}
 	if (SSL_CTX_use_PrivateKey_file(ctx.get(), std::string{opts.key_file}.c_str(), SSL_FILETYPE_PEM) != 1) {
-		throw TlsError{format("TLS: cannot load key: {}", opts.key_file)};
+		throw TlsError{std::format("TLS: cannot load key: {}", opts.key_file)};
 	}
 	return ctx;
 }
@@ -234,13 +234,13 @@ public:
 	TlsStream &operator =(TlsStream const &) = delete;
 	TlsStream(
 		TlsStream &&other) noexcept
-		: ssl_{move(other.ssl_)}
-		, fd_{exchange(other.fd_, -1)} {}
+		: ssl_{std::move(other.ssl_)}
+		, fd_{std::exchange(other.fd_, -1)} {}
 	TlsStream &operator =(
 		TlsStream &&other) noexcept {
 		if (this != &other) {
-			ssl_ = move(other.ssl_);
-			fd_ = exchange(other.fd_, -1);
+			ssl_ = std::move(other.ssl_);
+			fd_ = std::exchange(other.fd_, -1);
 		}
 		return *this;
 	}
@@ -332,7 +332,7 @@ export class TlsAsyncStream : public tls_detail::ClientNameAccessors {
 	BIO *wbio_{nullptr}; // owned by ssl_ after SSL_set_bio
 	FileReader *files_{nullptr};
 	FileHandle sock_{};
-	std::array<byte, static_cast<std::size_t>(16U) * 1024U> scratch_{};
+	std::array<std::byte, static_cast<std::size_t>(16U) * 1024U> scratch_{};
 
 public:
 	TlsAsyncStream(
@@ -341,7 +341,7 @@ public:
 		FileHandle sock)
 		: ssl_{SSL_new(ctx.native_handle())}
 		, files_{&files}
-		, sock_{move(sock)} {
+		, sock_{std::move(sock)} {
 		if (!ssl_) {
 			throw TlsError{"TlsAsyncStream: SSL_new failed"};
 		}
@@ -358,20 +358,20 @@ public:
 	TlsAsyncStream &operator =(TlsAsyncStream const &) = delete;
 	TlsAsyncStream(
 		TlsAsyncStream &&other) noexcept
-		: ssl_{move(other.ssl_)}
-		, rbio_{exchange(other.rbio_, nullptr)}
-		, wbio_{exchange(other.wbio_, nullptr)}
-		, files_{exchange(other.files_, nullptr)}
-		, sock_{move(other.sock_)}
+		: ssl_{std::move(other.ssl_)}
+		, rbio_{std::exchange(other.rbio_, nullptr)}
+		, wbio_{std::exchange(other.wbio_, nullptr)}
+		, files_{std::exchange(other.files_, nullptr)}
+		, sock_{std::move(other.sock_)}
 		, scratch_{other.scratch_} {}
 	TlsAsyncStream &operator =(
 		TlsAsyncStream &&other) noexcept {
 		if (this != &other) {
-			ssl_ = move(other.ssl_);
-			rbio_ = exchange(other.rbio_, nullptr);
-			wbio_ = exchange(other.wbio_, nullptr);
-			files_ = exchange(other.files_, nullptr);
-			sock_ = move(other.sock_);
+			ssl_ = std::move(other.ssl_);
+			rbio_ = std::exchange(other.rbio_, nullptr);
+			wbio_ = std::exchange(other.wbio_, nullptr);
+			files_ = std::exchange(other.files_, nullptr);
+			sock_ = std::move(other.sock_);
 			scratch_ = other.scratch_;
 		}
 		return *this;
@@ -396,7 +396,7 @@ public:
 		}
 	}
 	conflux::work::root::Task<std::size_t> read_some(
-		span<byte> dst) {
+		std::span<std::byte> dst) {
 		for (;;) {
 			int const n = SSL_read(ssl_.get(), dst.data(), static_cast<int>(dst.size()));
 			if (n > 0) {
@@ -418,7 +418,7 @@ public:
 		}
 	}
 	conflux::work::root::Task<void> write_all(
-		span<byte const> src) {
+		std::span<std::byte const> src) {
 		std::size_t sent = 0;
 		while (sent < src.size()) {
 			int const n = SSL_write(ssl_.get(), src.data() + sent, static_cast<int>(src.size() - sent));
@@ -449,7 +449,7 @@ private:
 			if (pend <= 0) {
 				co_return;
 			}
-			int const want = static_cast<int>(min(scratch_.size(), static_cast<std::size_t>(pend)));
+			int const want = static_cast<int>(std::min(scratch_.size(), static_cast<std::size_t>(pend)));
 			int const got = BIO_read(wbio_, reinterpret_cast<char *>(scratch_.data()), want);
 			if (got <= 0) {
 				co_return;
@@ -459,7 +459,7 @@ private:
 				auto const w = co_await files_->write_into(
 					sock_,
 					0,
-					span<byte const>{scratch_.data() + off, static_cast<std::size_t>(got) - off});
+					std::span<std::byte const>{scratch_.data() + off, static_cast<std::size_t>(got) - off});
 				if (w == 0) {
 					throw TlsError{"TlsAsyncStream: socket write 0"};
 				}
@@ -468,7 +468,7 @@ private:
 		}
 	}
 	conflux::work::root::Task<void> fill_rbio() {
-		auto const got = co_await files_->read_into(sock_, 0, span<byte>{scratch_});
+		auto const got = co_await files_->read_into(sock_, 0, std::span<std::byte>{scratch_});
 		if (got == 0) {
 			throw TlsError{"TlsAsyncStream: socket EOF"};
 		}
@@ -496,7 +496,7 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 			if (pend <= 0) {
 				co_return;
 			}
-			int const want = static_cast<int>(min(scratch_.size(), static_cast<std::size_t>(pend)));
+			int const want = static_cast<int>(std::min(scratch_.size(), static_cast<std::size_t>(pend)));
 			int const got = BIO_read(wbio_, reinterpret_cast<char *>(scratch_.data()), want);
 			if (got <= 0) {
 				co_return;
@@ -514,10 +514,10 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 				}
 				auto remaining = std::chrono::ceil<ms>(deadline - now);
 				auto child = stream_.async_write_borrowed(
-					span<std::uint8_t const>{scratch_.data() + off, static_cast<std::size_t>(got) - off},
+					std::span<std::uint8_t const>{scratch_.data() + off, static_cast<std::size_t>(got) - off},
 					remaining);
 				try {
-					std::size_t const n = co_await cancel_->await_child(move(child));
+					std::size_t const n = co_await cancel_->await_child(std::move(child));
 					if (n == 0) {
 						throw IoError{ECONNRESET, "tcp: connection closed"};
 					}
@@ -539,7 +539,7 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 			if (pend <= 0) {
 				co_return;
 			}
-			int const want = static_cast<int>(min(scratch_.size(), static_cast<std::size_t>(pend)));
+			int const want = static_cast<int>(std::min(scratch_.size(), static_cast<std::size_t>(pend)));
 			int const got = BIO_read(wbio_, reinterpret_cast<char *>(scratch_.data()), want);
 			if (got <= 0) {
 				co_return;
@@ -552,10 +552,10 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 					co_return;
 				}
 				auto child = stream_.async_write_borrowed(
-					span<std::uint8_t const>{scratch_.data() + off, static_cast<std::size_t>(got) - off},
+					std::span<std::uint8_t const>{scratch_.data() + off, static_cast<std::size_t>(got) - off},
 					per_write);
 				try {
-					std::size_t const n = co_await cancel_->await_child(move(child));
+					std::size_t const n = co_await cancel_->await_child(std::move(child));
 					if (n == 0) {
 						throw IoError{ECONNRESET, "tcp: connection closed"};
 					}
@@ -577,8 +577,8 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 			throw IoError{ETIMEDOUT, "tcp: recv timed out"};
 		}
 		auto remaining = std::chrono::ceil<ms>(deadline - now);
-		auto child = stream_.async_recv_borrowed(span<std::uint8_t>{scratch_}, remaining);
-		auto const got = co_await cancel_->await_child(move(child));
+		auto child = stream_.async_recv_borrowed(std::span<std::uint8_t>{scratch_}, remaining);
+		auto const got = co_await cancel_->await_child(std::move(child));
 		if (got == 0) {
 			throw TlsError{"TcpTlsStream: socket EOF"};
 		}
@@ -589,10 +589,10 @@ public:
 	TcpTlsStream(
 		TlsContext &ctx,
 		TcpStream stream,
-		std::shared_ptr<ActiveTaskCancelRelay> cancel = make_shared<ActiveTaskCancelRelay>())
+		std::shared_ptr<ActiveTaskCancelRelay> cancel = std::make_shared<ActiveTaskCancelRelay>())
 		: ssl_{SSL_new(ctx.native_handle())}
-		, stream_{move(stream)}
-		, cancel_{move(cancel)} {
+		, stream_{std::move(stream)}
+		, cancel_{std::move(cancel)} {
 		if (!ssl_) {
 			throw TlsError{"TcpTlsStream: SSL_new failed"};
 		}
@@ -609,20 +609,20 @@ public:
 	TcpTlsStream &operator =(TcpTlsStream const &) = delete;
 	TcpTlsStream(
 		TcpTlsStream &&other) noexcept
-		: ssl_{move(other.ssl_)}
-		, rbio_{exchange(other.rbio_, nullptr)}
-		, wbio_{exchange(other.wbio_, nullptr)}
-		, stream_{move(other.stream_)}
-		, cancel_{move(other.cancel_)}
+		: ssl_{std::move(other.ssl_)}
+		, rbio_{std::exchange(other.rbio_, nullptr)}
+		, wbio_{std::exchange(other.wbio_, nullptr)}
+		, stream_{std::move(other.stream_)}
+		, cancel_{std::move(other.cancel_)}
 		, scratch_{other.scratch_} {}
 	TcpTlsStream &operator =(
 		TcpTlsStream &&other) noexcept {
 		if (this != &other) {
-			ssl_ = move(other.ssl_);
-			rbio_ = exchange(other.rbio_, nullptr);
-			wbio_ = exchange(other.wbio_, nullptr);
-			stream_ = move(other.stream_);
-			cancel_ = move(other.cancel_);
+			ssl_ = std::move(other.ssl_);
+			rbio_ = std::exchange(other.rbio_, nullptr);
+			wbio_ = std::exchange(other.wbio_, nullptr);
+			stream_ = std::move(other.stream_);
+			cancel_ = std::move(other.cancel_);
 			scratch_ = other.scratch_;
 		}
 		return *this;
@@ -649,7 +649,7 @@ public:
 		}
 	}
 	[[nodiscard]] wroot::Task<std::size_t> read_some(
-		span<std::uint8_t> dst,
+		std::span<std::uint8_t> dst,
 		ms per_recv) {
 		auto const deadline = std::chrono::steady_clock::now() + per_recv;
 		for (;;) {
@@ -674,7 +674,7 @@ public:
 		}
 	}
 	[[nodiscard]] wroot::Task<void> write_all(
-		span<std::uint8_t const> src,
+		std::span<std::uint8_t const> src,
 		ms per_write) {
 		std::size_t sent = 0;
 		while (sent < src.size()) {

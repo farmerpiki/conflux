@@ -46,7 +46,7 @@ T block_on_ring(
 			} else if constexpr (!std::is_void_v<T>) {
 				slot->value.emplace(std::move(outcome).success().value);
 			}
-		} catch (...) { slot->err = current_exception(); }
+		} catch (...) { slot->err = std::current_exception(); }
 		slot->done.test_and_set(std::memory_order_release);
 	});
 	auto const deadline = std::chrono::steady_clock::now() + budget;
@@ -105,7 +105,7 @@ struct RingFixture {
 					}} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
-		auto fx = make_unique<RingFixture>();
+		auto fx = std::make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
 			return {};
 		}
@@ -635,7 +635,7 @@ TEST_CASE(
 	int err = 0;
 	try {
 		fx->run(std::move(read_task));
-	} catch (IoError const &e) { err = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	bool const cancelled = got_cancel || err == ECANCELED;
@@ -677,7 +677,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	try {
 		fx->run(std::move(read_task));
-	} catch (exception const &) { got_cancel = true; }
+	} catch (std::exception const &) { got_cancel = true; }
 	CHECK(owner_called);
 	CHECK(got_cancel);
 	// close drains the unsubmitted read SQE
@@ -799,7 +799,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	CHECK(got_cancel);
@@ -850,7 +850,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	CHECK(got_cancel);
@@ -885,7 +885,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task));
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	CHECK(owner_called);
@@ -920,7 +920,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{10});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	CHECK(got_cancel);
@@ -1187,7 +1187,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	bool const cancelled = got_cancel || err_code == ECANCELED;
@@ -1261,7 +1261,7 @@ TEST_CASE(
 	auto counter = std::make_shared<std::atomic<int>>(0);
 	using Task_v = conflux::work::root::Task<void>;
 	std::function<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
-		counter->fetch_add(1, memory_order_relaxed);
+		counter->fetch_add(1, std::memory_order_relaxed);
 		co_await s.async_close();
 	};
 	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, std::move(handler));
@@ -1310,7 +1310,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{10});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	bool const cancelled = got_cancel || err_code == ECANCELED;
@@ -1375,7 +1375,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	bool const cancelled = got_cancel || err_code == ECANCELED;
@@ -1417,7 +1417,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	bool const cancelled = got_cancel || err_code == ECANCELED;
@@ -1447,7 +1447,7 @@ TEST_CASE(
 		fx->completions,
 		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
 		opts};
-	auto l = make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
+	auto l = std::make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
 	int const fd_before = count_proc_fds();
 	using Task_v4 = conflux::work::root::Task<void>;
 	std::function<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.async_close(); };
@@ -1460,7 +1460,7 @@ TEST_CASE(
 	int err_code = 0;
 	try {
 		fx->run(std::move(task), std::chrono::seconds{5});
-	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
 		got_cancel = true;
 	}
 	// accepted either as cancelled (cancel_requested=true→complete_cancelled)

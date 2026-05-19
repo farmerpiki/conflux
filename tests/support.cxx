@@ -35,7 +35,7 @@ std::string read_one_response(
 		cl_pos += 16;
 		auto const cl_end = response.find("\r\n", cl_pos);
 		std::size_t body_len = 0;
-		from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
+	std::from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 		if (response.size() >= hdr_end + 4 + body_len) {
 			break;
 		}
@@ -69,12 +69,12 @@ public:
 	LocalTcpClient &operator =(LocalTcpClient const &) = delete;
 	LocalTcpClient(
 		LocalTcpClient &&other) noexcept
-		: fd_(exchange(other.fd_, -1)) {}
+		: fd_(std::exchange(other.fd_, -1)) {}
 	LocalTcpClient &operator =(
 		LocalTcpClient &&other) noexcept {
 		if (this != &other) {
 			close();
-			fd_ = exchange(other.fd_, -1);
+			fd_ = std::exchange(other.fd_, -1);
 		}
 		return *this;
 	}
@@ -144,9 +144,9 @@ std::string http_request_on(
 
 	std::string request;
 	if (content_type.empty() && body.empty()) {
-		request = format("{} {} HTTP/1.1\r\nHost: {}\r\n{}\r\n", method, path, host, extra_headers);
+		request = std::format("{} {} HTTP/1.1\r\nHost: {}\r\n{}\r\n", method, path, host, extra_headers);
 	} else {
-		request = format(
+		request = std::format(
 			"{} {} HTTP/1.1\r\nHost: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}\r\n{}",
 			method,
 			path,
@@ -185,7 +185,7 @@ std::string http_options_on(
 	std::string_view path,
 	std::string_view extra_headers = "") {
 	LocalTcpClient const client{port};
-	auto request = format("OPTIONS {} HTTP/1.1\r\nHost: localhost\r\n{}\r\n", path, extra_headers);
+	auto request = std::format("OPTIONS {} HTTP/1.1\r\nHost: localhost\r\n{}\r\n", path, extra_headers);
 	(void)client.send(request);
 	client.set_recv_timeout(std::chrono::seconds{2});
 	return client.read_headers();
@@ -209,9 +209,9 @@ void wait_for_server(
 	throw std::runtime_error{"server did not start in time"};
 }
 class TestServerRegistry {
-	mutex mu_;
+		std::mutex mu_;
 	std::vector<std::shared_ptr<HttpServer>> servers_;
-	std::vector<thread> threads_;
+		std::vector<std::thread> threads_;
 
 public:
 	std::uint16_t start(
@@ -219,9 +219,9 @@ public:
 		Router router) {
 		// TLS server probing in wait_for_server() triggers SIGPIPE without this.
 		(void)::signal(SIGPIPE, SIG_IGN);
-		auto srv = make_shared<HttpServer>(cfg, move(router));
+		auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
 		{
-			lock_guard const lock{mu_};
+			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] { (void)srv->run(); });
 			servers_.push_back(srv);
 		}
@@ -233,9 +233,9 @@ public:
 		Config const &cfg,
 		VHostRouter vhost_router) {
 		(void)::signal(SIGPIPE, SIG_IGN);
-		auto srv = make_shared<HttpServer>(cfg, move(vhost_router));
+		auto srv = std::make_shared<HttpServer>(cfg, std::move(vhost_router));
 		{
-			lock_guard const lock{mu_};
+			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] { (void)srv->run(); });
 			servers_.push_back(srv);
 		}
@@ -260,7 +260,7 @@ TestServerRegistry &test_servers() {
 }
 class ScopedTestServer {
 	std::shared_ptr<HttpServer> server_;
-	thread thread_;
+		std::thread thread_;
 
 public:
 	ScopedTestServer(
@@ -269,7 +269,7 @@ public:
 		: server_([&] {
 			auto local_cfg = cfg;
 			local_cfg.startup_banner = false;
-			return make_shared<HttpServer>(local_cfg, move(router));
+			return std::make_shared<HttpServer>(local_cfg, std::move(router));
 		}())
 		, thread_([srv = server_] { (void)srv->run(); }) {
 		wait_for_server(server_->port());
@@ -307,7 +307,7 @@ public:
 std::uint16_t start_mw_server(
 	Config const &cfg,
 	Router router) {
-	return test_servers().start(cfg, move(router));
+	return test_servers().start(cfg, std::move(router));
 }
 
 } // namespace conflux::tests

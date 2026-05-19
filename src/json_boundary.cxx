@@ -83,22 +83,22 @@ struct Error {
 
 template<class Provider, class T>
 concept JsonDumpProvider = requires(T const &value, DumpOptions const &opts) {
-	{ Provider::dump_json(value, opts) } -> same_as<expected<std::string, Error>>;
+	{ Provider::dump_json(value, opts) } -> std::same_as<std::expected<std::string, Error>>;
 };
 
 template<class Provider, class T>
 concept JsonDecodeProvider = requires(std::string_view input, DecodeOptions const &opts) {
-	{ Provider::template decode_json<T>(input, opts) } -> same_as<expected<T, Error>>;
+	{ Provider::template decode_json<T>(input, opts) } -> std::same_as<std::expected<T, Error>>;
 };
 
 template<class Sink>
 concept JsonChunkSink = requires(Sink &&sink, std::string_view chunk) {
-	{ std::invoke(std::forward<Sink>(sink), chunk) } -> same_as<void>;
+	{ std::invoke(std::forward<Sink>(sink), chunk) } -> std::same_as<void>;
 };
 
 template<class Provider, class T, class Sink>
 concept JsonDirectWriteProvider = JsonChunkSink<Sink> && requires(T const &value, DumpOptions const &opts) {
-	{ Provider::write_json(value, opts, std::declval<Sink>()) } -> same_as<expected<void, Error>>;
+	{ Provider::write_json(value, opts, std::declval<Sink>()) } -> std::same_as<std::expected<void, Error>>;
 };
 
 template<class Provider, class T, class Sink>
@@ -108,13 +108,13 @@ concept JsonWritableProvider =
 template<class Provider>
 concept JsonDocumentProvider = requires(std::string_view input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
 	typename Provider::document_type;
-	{ Provider::parse_json_document(input, decode_opts) } -> same_as<expected<typename Provider::document_type, Error>>;
-	{ Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts) } -> same_as<expected<std::string, Error>>;
+	{ Provider::parse_json_document(input, decode_opts) } -> std::same_as<std::expected<typename Provider::document_type, Error>>;
+	{ Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts) } -> std::same_as<std::expected<std::string, Error>>;
 };
 
 template<class Provider, class T>
 struct SerdeTraits {
-	static expected<std::string, Error> dump(
+	static std::expected<std::string, Error> dump(
 		T const &value,
 		DumpOptions const &opts = {})
 		requires JsonDumpProvider<Provider, T>
@@ -122,7 +122,7 @@ struct SerdeTraits {
 		return Provider::dump_json(value, opts);
 	}
 
-	static expected<T, Error> decode(
+	static std::expected<T, Error> decode(
 		std::string_view input,
 		DecodeOptions const &opts = {})
 		requires JsonDecodeProvider<Provider, T>
@@ -131,7 +131,7 @@ struct SerdeTraits {
 	}
 
 	template<class Sink>
-	static expected<void, Error> write(
+	static std::expected<void, Error> write(
 		T const &value,
 		Sink &&sink,
 		DumpOptions const &opts = {})
@@ -142,7 +142,7 @@ struct SerdeTraits {
 		} else {
 			auto dumped = dump(value, opts);
 			if (!dumped) {
-				return unexpected(dumped.error());
+				return std::unexpected(dumped.error());
 			}
 			std::invoke(std::forward<Sink>(sink), std::string_view{*dumped});
 			return {};
@@ -151,7 +151,7 @@ struct SerdeTraits {
 };
 
 template<class Provider, class T>
-[[nodiscard]] expected<std::string, Error> dump_with(
+[[nodiscard]] std::expected<std::string, Error> dump_with(
 	T const &value,
 	DumpOptions const &opts = {})
 	requires JsonDumpProvider<Provider, T>
@@ -160,7 +160,7 @@ template<class Provider, class T>
 }
 
 template<class Provider, class T>
-[[nodiscard]] expected<std::remove_cvref_t<T>, Error> decode_with(
+[[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> decode_with(
 	std::string_view input,
 	DecodeOptions const &opts = {})
 	requires JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
@@ -169,7 +169,7 @@ template<class Provider, class T>
 }
 
 template<class Provider, class T, class Sink>
-[[nodiscard]] expected<void, Error> write_with(
+[[nodiscard]] std::expected<void, Error> write_with(
 	T const &value,
 	Sink &&sink,
 	DumpOptions const &opts = {})

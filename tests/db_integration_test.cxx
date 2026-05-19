@@ -31,7 +31,7 @@ struct RingFixture {
 				 }} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 128) {
-		auto fx = make_unique<RingFixture>();
+		auto fx = std::make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
 			return {};
 		}
@@ -57,7 +57,7 @@ std::unique_ptr<RingFixture> require_ring_fixture() {
 std::optional<std::string> conninfo() {
 	char const *p = std::getenv("PG_TEST_CONNINFO");
 	if (p == nullptr || *p == '\0') {
-		return nullopt;
+		return std::nullopt;
 	}
 	return std::string{p};
 }
@@ -134,7 +134,7 @@ TEST_CASE(
 		p.add(std::int64_t{1}).add("alpha").add_null();
 		auto r = block_on(
 			fx->reader,
-			conn->query("INSERT INTO t (id, name, note) VALUES ($1, $2, $3)", move(p)),
+			conn->query("INSERT INTO t (id, name, note) VALUES ($1, $2, $3)", std::move(p)),
 			std::chrono::seconds{30});
 		REQUIRE(r.ok());
 		CHECK(r.command_tag() == "1");
@@ -145,7 +145,7 @@ TEST_CASE(
 		p.add(std::int64_t{1});
 		auto r = block_on(
 			fx->reader,
-			conn->query("SELECT name, note FROM t WHERE id = $1", move(p)),
+			conn->query("SELECT name, note FROM t WHERE id = $1", std::move(p)),
 			std::chrono::seconds{30});
 		REQUIRE(r.ok());
 		REQUIRE(r.rows() == 1);
@@ -159,7 +159,7 @@ TEST_CASE(
 		try {
 			(void)block_on(
 				fx->reader,
-				conn->query("INSERT INTO t (id, name, note) VALUES ($1, $2, $3)", move(p)),
+				conn->query("INSERT INTO t (id, name, note) VALUES ($1, $2, $3)", std::move(p)),
 				std::chrono::seconds{30});
 			FAIL("expected unique violation");
 		} catch (PgError const &e) { CHECK(e.is_unique_violation()); }
@@ -173,7 +173,7 @@ TEST_CASE(
 			conn->query(
 				R"(INSERT INTO t(id,name)VALUES($1,$2)
 ON CONFLICT(id)DO UPDATE SET name=EXCLUDED.name)",
-				move(p)),
+				std::move(p)),
 			std::chrono::seconds{30});
 		REQUIRE(r.ok());
 	}
@@ -201,14 +201,14 @@ TEST_CASE(
 	{
 		Params p;
 		p.add(std::int64_t{40}).add(std::int64_t{2});
-		auto r = block_on(fx->reader, conn->exec_prepared("p_add", move(p)), std::chrono::seconds{30});
+		auto r = block_on(fx->reader, conn->exec_prepared("p_add", std::move(p)), std::chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::int64_t>(0) == 42);
 	}
 	{
 		Params p;
 		p.add(std::int64_t{100}).add(std::int64_t{-1});
-		auto r = block_on(fx->reader, conn->exec_prepared("p_add", move(p)), std::chrono::seconds{30});
+		auto r = block_on(fx->reader, conn->exec_prepared("p_add", std::move(p)), std::chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::int64_t>(0) == 99);
 	}
@@ -232,9 +232,9 @@ TEST_CASE(
 
 	block_on(fx->reader, pipeline.sync(), std::chrono::seconds{30});
 
-	auto r1 = block_on(fx->reader, move(f1), std::chrono::seconds{30});
-	auto r2 = block_on(fx->reader, move(f2), std::chrono::seconds{30});
-	auto r3 = block_on(fx->reader, move(f3), std::chrono::seconds{30});
+	auto r1 = block_on(fx->reader, std::move(f1), std::chrono::seconds{30});
+	auto r2 = block_on(fx->reader, std::move(f2), std::chrono::seconds{30});
+	auto r3 = block_on(fx->reader, std::move(f3), std::chrono::seconds{30});
 
 	REQUIRE(r1.rows() == 1);
 	REQUIRE(r2.rows() == 1);
@@ -262,13 +262,13 @@ TEST_CASE(
 	p1.add(std::int64_t{20}).add(std::int64_t{22});
 	Params p2;
 	p2.add(std::int64_t{100}).add(std::int64_t{23});
-	auto f1 = pipeline.exec_cached(stmt, move(p1));
-	auto f2 = pipeline.exec_cached(stmt, move(p2));
+	auto f1 = pipeline.exec_cached(stmt, std::move(p1));
+	auto f2 = pipeline.exec_cached(stmt, std::move(p2));
 
 	block_on(fx->reader, pipeline.sync(), std::chrono::seconds{30});
 
-	auto r1 = block_on(fx->reader, move(f1), std::chrono::seconds{30});
-	auto r2 = block_on(fx->reader, move(f2), std::chrono::seconds{30});
+	auto r1 = block_on(fx->reader, std::move(f1), std::chrono::seconds{30});
+	auto r2 = block_on(fx->reader, std::move(f2), std::chrono::seconds{30});
 
 	REQUIRE(r1.rows() == 1);
 	REQUIRE(r2.rows() == 1);
@@ -295,9 +295,9 @@ TEST_CASE(
 	auto sync = pipeline.sync();
 	auto rejected = pipeline.exec_cached(stmt);
 
-	CHECK_THROWS_AS(block_on(fx->reader, move(rejected), std::chrono::seconds{30}), PgError);
-	block_on(fx->reader, move(sync), std::chrono::seconds{30});
-	auto r = block_on(fx->reader, move(slow), std::chrono::seconds{30});
+	CHECK_THROWS_AS(block_on(fx->reader, std::move(rejected), std::chrono::seconds{30}), PgError);
+	block_on(fx->reader, std::move(sync), std::chrono::seconds{30});
+	auto r = block_on(fx->reader, std::move(slow), std::chrono::seconds{30});
 	REQUIRE(r.ok());
 }
 
@@ -340,12 +340,12 @@ TEST_CASE(
 
 	block_on(fx->reader, pipeline.sync(), std::chrono::seconds{30});
 
-	auto r1 = block_on(fx->reader, move(ok1), std::chrono::seconds{30});
+	auto r1 = block_on(fx->reader, std::move(ok1), std::chrono::seconds{30});
 	REQUIRE(r1.rows() == 1);
 	CHECK(r1[0].as<std::int64_t>(0) == 7);
 
-	CHECK_THROWS_AS(block_on(fx->reader, move(bad), std::chrono::seconds{30}), PgError);
-	CHECK_THROWS_AS(block_on(fx->reader, move(after), std::chrono::seconds{30}), PgError);
+	CHECK_THROWS_AS(block_on(fx->reader, std::move(bad), std::chrono::seconds{30}), PgError);
+	CHECK_THROWS_AS(block_on(fx->reader, std::move(after), std::chrono::seconds{30}), PgError);
 }
 TEST_CASE(
 	"db: pipeline teardown rejects queued work",
@@ -364,7 +364,7 @@ TEST_CASE(
 		pending.emplace(pipeline.query("SELECT 123::int8"));
 	}
 	REQUIRE(pending);
-	CHECK_THROWS_AS(block_on(fx->reader, move(*pending), std::chrono::seconds{30}), PgError);
+	CHECK_THROWS_AS(block_on(fx->reader, std::move(*pending), std::chrono::seconds{30}), PgError);
 }
 TEST_CASE(
 	"db: server-side disconnect surfaces as connection_lost",
@@ -403,13 +403,13 @@ TEST_CASE(
 
 	auto conn = connect_or_skip(*fx, *ci);
 
-	atomic_flag sleep_done{};
+	std::atomic_flag sleep_done{};
 	std::exception_ptr sleep_err;
-	[](atomic_flag *done, std::exception_ptr *err, decltype(conn->query("")) qt) -> Task<void> {
+	[](std::atomic_flag *done, std::exception_ptr *err, decltype(conn->query("")) qt) -> Task<void> {
 		try {
-			co_await move(qt);
-		} catch (...) { *err = current_exception(); }
-		done->test_and_set(memory_order_release);
+			co_await std::move(qt);
+		} catch (...) { *err = std::current_exception(); }
+		done->test_and_set(std::memory_order_release);
 	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)"))
 																						.detach();
 
@@ -442,7 +442,7 @@ TEST_CASE(
 		.max_connections = 2,
 		.acquire_timeout = std::chrono::seconds{5},
 	};
-	auto pool = Pool::create(move(cfg));
+	auto pool = Pool::create(std::move(cfg));
 
 	{
 		std::optional<Pool::Lease> lease1{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
@@ -527,7 +527,7 @@ TEST_CASE(
 	CurrentFileReaderScope const scope{&fx->reader};
 
 	auto root = std::filesystem::temp_directory_path()
-			  / format("conflux_db_qc_int_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+			  / std::format("conflux_db_qc_int_{}", std::chrono::steady_clock::now().time_since_epoch().count());
 	std::filesystem::create_directories(root);
 	{
 		std::ofstream out{root / "select_two.psql"};
@@ -558,13 +558,13 @@ TEST_CASE(
 
 	auto conn = connect_or_skip(*fx, *ci);
 
-	atomic_flag done{};
+	std::atomic_flag done{};
 	std::exception_ptr err;
-	[](atomic_flag *d, std::exception_ptr *e, decltype(conn->query("")) qt) -> Task<void> {
+	[](std::atomic_flag *d, std::exception_ptr *e, decltype(conn->query("")) qt) -> Task<void> {
 		try {
-			co_await move(qt);
-		} catch (...) { *e = current_exception(); }
-		d->test_and_set(memory_order_release);
+			co_await std::move(qt);
+		} catch (...) { *e = std::current_exception(); }
+		d->test_and_set(std::memory_order_release);
 	}(&done, &err, conn->query("SELECT pg_sleep(10)"))
 																				   .detach();
 
@@ -615,14 +615,14 @@ TEST_CASE(
 	{
 		Params p;
 		p.add(std::int64_t{10}).add(std::int64_t{32});
-		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), std::chrono::seconds{30});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, std::move(p)), std::chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::int64_t>(0) == 42);
 	}
 	{
 		Params p;
 		p.add(std::int64_t{1}).add(std::int64_t{99});
-		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), std::chrono::seconds{30});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, std::move(p)), std::chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::int64_t>(0) == 100);
 	}

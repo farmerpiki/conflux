@@ -4,6 +4,7 @@ import conflux.work;
 import conflux.types;
 import std;
 
+
 static bool is_prime(std::int64_t n) {
 	if (n < 2) {
 		return false;
@@ -33,12 +34,12 @@ int main() {
 		async_run_on(pool, [] { return count_primes(50'000, 75'000); }),
 		async_run_on(pool, [] { return count_primes(75'000, 100'000); }));
 
-	auto [a, b, c, d] = sync_wait(move(counts));
+	auto [a, b, c, d] = sync_wait(std::move(counts));
 	std::println("primes below 100000: {}", a + b + c + d);
 
 	try {
 		(void)sync_wait(async_run_on(pool, []() -> std::int64_t { throw std::runtime_error{"worker-side failure"}; }));
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		std::println("failure propagated through task outcome: {}", e.what());
 	}
 

@@ -6,7 +6,7 @@ import conflux.types;
 
 // Phase 3 — Tokenizer owns input bytes / source coordinates and emits S
 // + number lexemes; TreeBuilder consumes those + structural punctuation and
-// builds Nodes. Splitting them keeps the byte-level scan layer reusable
+// builds Nodes. Splitting them keeps the std::byte-level scan layer reusable
 // (SIMD prerequisite) without changing semantics.
 struct Tokenizer {
 	std::string_view src;
@@ -30,7 +30,7 @@ struct Tokenizer {
 			.stage = JsonStage::parse,
 			.code = code,
 			.source = JsonSourceLocation{.offset = pos + bom_prefix_bytes, .line = line, .column = col},
-			.message = move(msg)
+			.message = std::move(msg)
         };
 	}
 	[[nodiscard]] JsonError whitespace_error() const {
@@ -170,8 +170,8 @@ next_ws:;
 	// the result then lives in escape_arena with flags = 0.
 	// Phase 8: SIMD-accelerated bulk-ASCII fast-forward via
 	// detail::simd::scan_str_until_special; scalar fallback handles the
-	// boundary byte (terminator / escape / control / UTF-8 lead).
-	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body() {
+	// boundary std::byte (terminator / escape / control / UTF-8 lead).
+	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_str_body() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
 		auto const start_pos = static_cast<std::uint32_t>(pos);
 		while (pos < src.size()) {
@@ -189,7 +189,7 @@ next_ws:;
 				return ParsedStr{start_pos, len, static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
 			}
 			if (c < kCtrlEnd) {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				// Slow path: copy bytes seen so far to escape_arena, then keep decoding.
@@ -199,22 +199,22 @@ next_ws:;
 			}
 			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
 			if (pos + seq > src.size()) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
-					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
 			pos += seq;
 			col += 1;
 		}
-		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
-	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_decode_tail(
+	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_str_decode_tail(
 		std::size_t arena_off) {
 		constexpr unsigned char kCtrlEnd = 0x20U;
 		while (pos < src.size()) {
@@ -225,12 +225,12 @@ next_ws:;
 				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
 			if (c < kCtrlEnd) {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				adv();
 				if (pos >= src.size()) {
-					return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+					return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 				}
 				switch (src[pos]) {
 				case '"':
@@ -270,53 +270,53 @@ next_ws:;
 						adv();
 						std::uint32_t cp = 0;
 						if (!hex4(cp)) {
-							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
 						// NOLINTBEGIN(readability-magic-numbers)
 						if (cp >= 0xD800U && cp <= 0xDBFFU) {
 							if (pos + 6 > src.size() || src[pos] != '\\' || src[pos + 1] != 'u') {
-								return unexpected(
+								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 							}
 							adv(2);
 							std::uint32_t lo = 0;
 							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
-								return unexpected(
+								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 							}
 							cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
 						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
-							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 						}
 						// NOLINTEND(readability-magic-numbers)
 						append_utf8(cp, store.string_arena);
 						break;
 					}
-				default: return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+				default: return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
 				}
 				continue;
 			}
 			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
 			if (pos + seq > src.size()) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
-					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
 			store.string_arena.append(src.data() + pos, seq);
 			pos += seq;
 			col += 1;
 		}
-		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 	// JSON5: single-quoted string. Scalar scan (no SIMD). Allows \' escape.
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body_sq() {
+	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_str_body_sq() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
 		std::size_t const arena_off = store.string_arena.size();
 		while (pos < src.size()) {
@@ -327,12 +327,12 @@ next_ws:;
 				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
 			if (c < kCtrlEnd) {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				adv();
 				if (pos >= src.size()) {
-					return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+					return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 				}
 				switch (src[pos]) {
 				case '\'':
@@ -376,56 +376,56 @@ next_ws:;
 						adv();
 						std::uint32_t cp = 0;
 						if (!hex4(cp)) {
-							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
 						// NOLINTBEGIN(readability-magic-numbers)
 						if (cp >= 0xD800U && cp <= 0xDBFFU) {
 							if (pos + 6 > src.size() || src[pos] != '\\' || src[pos + 1] != 'u') {
-								return unexpected(
+								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 							}
 							adv(2);
 							std::uint32_t lo = 0;
 							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
-								return unexpected(
+								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 							}
 							cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
 						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
-							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 						}
 						// NOLINTEND(readability-magic-numbers)
 						append_utf8(cp, store.string_arena);
 						break;
 					}
-				default: return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+				default: return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
 				}
 				continue;
 			}
 			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
 			if (pos + seq > src.size()) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
-					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
 			store.string_arena.append(src.data() + pos, seq);
 			pos += seq;
 			col += 1;
 		}
-		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 	// JSON5: unquoted key — [A-Za-z_$][A-Za-z0-9_$]*
-	[[nodiscard]] expected<ParsedStr, JsonError> parse_unquoted_key() {
+	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_unquoted_key() {
 		std::size_t const start = pos;
 		char const first = src[pos];
 		if (!((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || first == '_' || first == '$')) {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key or identifier"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key or identifier"));
 		}
 		adv();
 		while (pos < src.size()) {
@@ -447,19 +447,19 @@ next_ws:;
 	// covering it. Caller (TreeBuilder) classifies the value and stores the
 	// node; the lexeme references input_view directly (Phase 1: zero-copy).
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] expected<std::string_view, JsonError> parse_number_lexeme() {
+	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme() {
 		std::size_t const start = pos;
 		bool const neg = src[pos] == '-';
 		if (neg) {
 			adv();
 		}
 		if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
 		}
 		bool const starts_zero = src[pos] == '0';
 		adv();
 		if (starts_zero && pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
 		}
 		while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 			adv();
@@ -467,7 +467,7 @@ next_ws:;
 		if (pos < src.size() && src[pos] == '.') {
 			adv();
 			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
 			}
 			while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 				adv();
@@ -479,14 +479,14 @@ next_ws:;
 				adv();
 			}
 			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
 			}
 			while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 				adv();
 			}
 		}
 		if (pos - start > kMaxNumberLexemeLen) {
-			return unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+			return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
 		}
 		return src.substr(start, pos - start);
 	}
@@ -507,26 +507,26 @@ struct TreeBuilder {
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
 		std::string msg) const {
-		return tok.mk_err(code, move(msg));
+		return tok.mk_err(code, std::move(msg));
 	}
-	[[nodiscard]] expected<void, JsonError> skip_ws_checked() {
+	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked() {
 		tok.skip_ws();
 		if (tok.unterminated_block_comment) {
-			return unexpected(tok.whitespace_error());
+			return std::unexpected(tok.whitespace_error());
 		}
 		return {};
 	}
 	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<std::size_t, JsonError> parse_value(
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_value(
 		std::size_t depth) {
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (tok.pos >= tok.src.size()) {
-			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
+			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 		}
 		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) {
-			return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+			return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 		}
 
 		char const c = tok.src[tok.pos];
@@ -546,7 +546,7 @@ struct TreeBuilder {
 		}
 		if (c == 't') {
 			if (tok.src.substr(tok.pos, 4) != "true") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(4);
 			store.nodes.push_back(detail::make_bool(true));
@@ -554,7 +554,7 @@ struct TreeBuilder {
 		}
 		if (c == 'f') {
 			if (tok.src.substr(tok.pos, 5) != "false") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(5);
 			store.nodes.push_back(detail::make_bool(false));
@@ -562,7 +562,7 @@ struct TreeBuilder {
 		}
 		if (c == 'n') {
 			if (tok.src.substr(tok.pos, 4) != "null") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(4);
 			store.nodes.push_back(detail::make_null());
@@ -571,36 +571,36 @@ struct TreeBuilder {
 		if (c == '-' || (c >= '0' && c <= '9')) {
 			return parse_number();
 		}
-		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, std::format("std::unexpected character '{}'", c)));
 	}
-	[[nodiscard]] expected<std::size_t, JsonError> parse_str_node() {
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_str_node() {
 		auto parsed = tok.parse_str_body();
 		if (!parsed) {
-			return unexpected(move(parsed).error());
+			return std::unexpected(std::move(parsed).error());
 		}
 		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-			return unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+			return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
-	[[nodiscard]] expected<std::size_t, JsonError> parse_str_node_sq() {
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_str_node_sq() {
 		auto parsed = tok.parse_str_body_sq();
 		if (!parsed) {
-			return unexpected(move(parsed).error());
+			return std::unexpected(std::move(parsed).error());
 		}
 		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-			return unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+			return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
 	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<std::size_t, JsonError> parse_array(
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_array(
 		std::size_t depth) {
 		tok.adv(); // '['
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 			tok.adv();
@@ -614,14 +614,14 @@ struct TreeBuilder {
 		while (true) {
 			auto child = parse_value(depth + 1);
 			if (!child) {
-				return unexpected(move(child).error());
+				return std::unexpected(std::move(child).error());
 			}
 			staging.push_back(static_cast<std::uint32_t>(*child));
 			if (auto ok = skip_ws_checked(); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 			if (tok.pos >= tok.src.size()) {
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
 			}
 			if (tok.src[tok.pos] == ']') {
 				tok.adv();
@@ -637,12 +637,12 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] != ',') {
 				staging.resize(children_start);
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'"));
 			}
 			tok.adv();
 			if (opts.mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
-					return unexpected(move(ok).error());
+					return std::unexpected(std::move(ok).error());
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 					tok.adv();
@@ -662,7 +662,7 @@ struct TreeBuilder {
 	// Phase 5: linear dedup for n <= 8 (no allocation), lazy US
 	// promotion above the threshold. The set is constructed only when the
 	// object actually exceeds the linear-scan window — typical configs
-	// (small flat objects) pay zero hash-table cost.
+	// (small flat objects) pay zero std::hash-table cost.
 	static constexpr std::size_t kDedupLinearMax = 8;
 	[[nodiscard]] bool dedup_member_present(
 		std::size_t members_start,
@@ -679,7 +679,7 @@ struct TreeBuilder {
 		}
 		return false;
 	}
-	// Destroy hash tables in store.nodes[from..store.nodes.size()) before resize.
+	// Destroy std::hash tables in store.nodes[from..store.nodes.size()) before resize.
 	void destroy_nodes_range(
 		std::size_t from) noexcept {
 		for (std::size_t i = from; i < store.nodes.size(); ++i) {
@@ -690,7 +690,7 @@ struct TreeBuilder {
 		}
 	}
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
-	[[nodiscard]] expected<std::size_t, JsonError> parse_object(
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_object(
 		std::size_t depth) {
 		struct StorageMark {
 			std::size_t nodes;
@@ -700,7 +700,7 @@ struct TreeBuilder {
 		};
 		tok.adv(); // '{'
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 			tok.adv();
@@ -712,20 +712,20 @@ struct TreeBuilder {
 		// flushed to object_members at close.
 		std::size_t const members_start = staging_members.size();
 		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
-		// hash set is built once and reused for the remainder of this object.
+		// std::hash set is built once and reused for the remainder of this object.
 		std::optional<std::unordered_set<std::string_view>> seen_hash;
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			if (auto ok = skip_ws_checked(); !ok) {
 				staging_members.resize(members_start);
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 			if (tok.pos >= tok.src.size()) {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
-			expected<Tokenizer::ParsedStr, JsonError> parsed_name =
-				unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+			std::expected<Tokenizer::ParsedStr, JsonError> parsed_name =
+				std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 			char const key_ch = tok.src[tok.pos];
 			if (key_ch == '"') {
 				tok.adv();
@@ -738,13 +738,13 @@ struct TreeBuilder {
 			}
 			if (!parsed_name) {
 				staging_members.resize(members_start);
-				return unexpected(move(parsed_name).error());
+				return std::unexpected(std::move(parsed_name).error());
 			}
 			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
 			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
+				return std::unexpected(mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
 			}
 			if (!is_dup && seen_hash.has_value()) {
 				seen_hash->insert(name_sv);
@@ -752,11 +752,11 @@ struct TreeBuilder {
 
 			if (auto ok = skip_ws_checked(); !ok) {
 				staging_members.resize(members_start);
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ':'"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ':'"));
 			}
 			tok.adv();
 
@@ -773,7 +773,7 @@ struct TreeBuilder {
 			auto val = parse_value(depth + 1);
 			if (!val) {
 				staging_members.resize(members_start);
-				return unexpected(move(val).error());
+				return std::unexpected(std::move(val).error());
 			}
 
 			if (is_dup) {
@@ -798,7 +798,7 @@ struct TreeBuilder {
 				staging_members.push_back(
 					{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
 
-				// Promote linear → hash once we cross the threshold.
+				// Promote linear → std::hash once we cross the threshold.
 				std::size_t const cur_count = staging_members.size() - members_start;
 				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
 					seen_hash.emplace();
@@ -816,11 +816,11 @@ struct TreeBuilder {
 
 			if (auto ok = skip_ws_checked(); !ok) {
 				staging_members.resize(members_start);
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 			if (tok.pos >= tok.src.size()) {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
 			if (tok.src[tok.pos] == '}') {
 				tok.adv();
@@ -856,13 +856,13 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] != ',') {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
 			}
 			tok.adv();
 			if (opts.mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
 					staging_members.resize(members_start);
-					return unexpected(move(ok).error());
+					return std::unexpected(std::move(ok).error());
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 					tok.adv();
@@ -898,11 +898,11 @@ struct TreeBuilder {
 			}
 		}
 	}
-	[[nodiscard]] expected<std::size_t, JsonError> parse_number() {
+	[[nodiscard]] std::expected<std::size_t, JsonError> parse_number() {
 		std::size_t const start = tok.pos;
 		auto lex_result = tok.parse_number_lexeme();
 		if (!lex_result) {
-			return unexpected(move(lex_result).error());
+			return std::unexpected(std::move(lex_result).error());
 		}
 		std::string_view const lex = *lex_result;
 		// Phase 1: number lexemes reference input_view directly — zero-copy.
@@ -912,7 +912,7 @@ struct TreeBuilder {
 			static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice),
 			lex);
 		if (!node) {
-			return unexpected(move(node).error());
+			return std::unexpected(std::move(node).error());
 		}
 		store.nodes.push_back(*node);
 		return store.nodes.size() - 1;
@@ -922,7 +922,7 @@ struct TreeBuilder {
 // parse()
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] inline expected<void, JsonError> check_input_limits(
+[[nodiscard]] inline std::expected<void, JsonError> check_input_limits(
 	std::size_t input_size,
 	JsonParseOptions const &opts) noexcept {
 	// 4 GiB hard ceiling — Fix F / Correction P. Unbypassable by
@@ -930,14 +930,14 @@ struct TreeBuilder {
 	// array_children entries are all u32.
 	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
 	if (input_size >= kU32Ceiling) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
 				.message = "input exceeds 4 GiB hard ceiling"});
 	}
 	if (opts.max_input_size.exceeds(input_size, kDefaultMaxInput)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
@@ -945,10 +945,10 @@ struct TreeBuilder {
 	}
 	return {};
 }
-[[nodiscard]] inline expected<void, JsonError> parse_inplace(
+[[nodiscard]] inline std::expected<void, JsonError> parse_inplace(
 	DocumentStorage &store,
 	JsonParseOptions const &opts) {
-	std::size_t const reserve_n = max<std::size_t>(64, store.input_view.size() / 16 + 16);
+	std::size_t const reserve_n = std::max<std::size_t>(64, store.input_view.size() / 16 + 16);
 	store.nodes.reserve(reserve_n);
 	store.array_children.reserve(reserve_n);
 	store.object_members.reserve(reserve_n);
@@ -967,22 +967,22 @@ struct TreeBuilder {
 		.staging_members = {}
     };
 	if (auto ok = tb.skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (tb.tok.pos >= store.input_view.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
 	}
 	auto root = tb.parse_value(0);
 	if (!root) {
-		return unexpected(move(root).error());
+		return std::unexpected(std::move(root).error());
 	}
 	store.root_node = static_cast<std::uint32_t>(*root);
 	if (auto ok = tb.skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (tb.tok.pos < store.input_view.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
@@ -996,7 +996,7 @@ struct TreeBuilder {
 	}
 	return {};
 }
-[[nodiscard]] inline expected<Document, JsonError> parse_with_storage(
+[[nodiscard]] inline std::expected<Document, JsonError> parse_with_storage(
 	DocumentStorage &storage_ref,
 	std::unique_ptr<DocumentStorage> storage,
 	JsonParseOptions const &opts) {
@@ -1007,12 +1007,12 @@ struct TreeBuilder {
 	// prescan was tried and rejected — the branchful in-std::string scan
 	// (~1 GB/s) cost more than the realloc copies it saved on the
 	// 4 KB / 200 KB corpora in this bench.
-	std::size_t const reserve_n = max<std::size_t>(64, storage_ref.input_view.size() / 16 + 16);
+	std::size_t const reserve_n = std::max<std::size_t>(64, storage_ref.input_view.size() / 16 + 16);
 	storage->nodes.reserve(reserve_n);
 	storage->array_children.reserve(reserve_n);
 	storage->object_members.reserve(reserve_n);
 	// Reserve string_arena up-front so it never reallocates mid-parse.
-	// The dedup hash set in parse_object stores SVs into string_arena;
+	// The dedup std::hash set in parse_object stores SVs into string_arena;
 	// any realloc would dangle them (TSan UAF, json.cxx:2598). Decoded
 	// strings are always ≤ input size (escapes only ever shrink), so the
 	// input length is a safe upper bound.
@@ -1031,24 +1031,24 @@ struct TreeBuilder {
 		.staging_members = {}
     };
 	if (auto ok = tb.skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (tb.tok.pos >= storage_ref.input_view.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
 	}
 
 	auto root = tb.parse_value(0);
 	if (!root) {
-		return unexpected(move(root).error());
+		return std::unexpected(std::move(root).error());
 	}
 	storage->root_node = static_cast<std::uint32_t>(*root);
 
 	if (auto ok = tb.skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (tb.tok.pos < storage_ref.input_view.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
@@ -1061,15 +1061,15 @@ struct TreeBuilder {
         });
 	}
 
-	return make_document(move(storage));
+	return make_document(std::move(storage));
 }
-expected<ArenaDocument, JsonError> JsonArena::parse_into(
+std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	// Clear storage for reuse — hash tables use ::operator delete (safe before mbr release).
+	// Clear storage for reuse — std::hash tables use ::operator delete (safe before mbr release).
 	for (auto &n: storage_->nodes) {
 		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
 			ObjHashTable::destroy(n.hash_idx_raw);
@@ -1084,7 +1084,7 @@ expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 
-	storage_->owned_input = make_unique<std::string>(input);
+	storage_->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage_->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1095,15 +1095,15 @@ expected<ArenaDocument, JsonError> JsonArena::parse_into(
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
-		return unexpected(move(r).error());
+		return std::unexpected(std::move(r).error());
 	}
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
-expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
+std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	for (auto &n: storage_->nodes) {
 		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
@@ -1129,15 +1129,15 @@ expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
-		return unexpected(move(r).error());
+		return std::unexpected(std::move(r).error());
 	}
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
-expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
+std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	std::string input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	for (auto &n: storage_->nodes) {
 		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
@@ -1153,7 +1153,7 @@ expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 
-	storage_->owned_input = make_unique<std::string>(move(input));
+	storage_->owned_input = std::make_unique<std::string>(std::move(input));
 	std::string_view src = *storage_->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1164,7 +1164,7 @@ expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
-		return unexpected(move(r).error());
+		return std::unexpected(std::move(r).error());
 	}
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
@@ -1178,21 +1178,21 @@ void JsonArena::reset() noexcept {
 	}
 	storage_ = nullptr; // ~DocumentStorage: pmr dealloc is no-op on monotonic
 	mbr_.release(); // actually frees the slab
-	storage_ = make_unique<DocumentStorage>(&mbr_);
+        storage_ = std::make_unique<DocumentStorage>(&mbr_);
 }
 namespace conflux::json {
 
 // Explicit owning parse: copies input into the Document's owned buffer.
 // Number lexemes index directly into that buffer (zero-copy on read paths).
-expected<Document, JsonError> parse_copy(
+std::expected<Document, JsonError> parse_copy(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
-	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<std::string>(input);
+	auto storage = std::make_unique<DocumentStorage>();
+        storage->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1202,20 +1202,20 @@ expected<Document, JsonError> parse_copy(
 	storage->input_view = src;
 
 	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, move(storage), opts);
+	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
 // Move-in owning overload: avoids the input copy. Keep this a concrete
 // std::string rvalue overload so unrelated string-like temporaries continue to
 // select parse_copy(string_view) instead of trying to become owned storage.
-expected<Document, JsonError> parse_copy(
+std::expected<Document, JsonError> parse_copy(
 	std::string &&input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
-	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<std::string>(move(input));
+	auto storage = std::make_unique<DocumentStorage>();
+        storage->owned_input = std::make_unique<std::string>(std::move(input));
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1225,18 +1225,18 @@ expected<Document, JsonError> parse_copy(
 	storage->input_view = src;
 
 	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, move(storage), opts);
+	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
 // Borrow-only overload: caller guarantees the bytes outlive the Document.
 // Rvalue overload is deleted to prevent obvious lifetime mistakes.
-expected<Document, JsonError> parse_borrowed(
+std::expected<Document, JsonError> parse_borrowed(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
-	auto storage = make_unique<DocumentStorage>();
+	auto storage = std::make_unique<DocumentStorage>();
 	std::string_view src = input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1246,21 +1246,21 @@ expected<Document, JsonError> parse_borrowed(
 	storage->input_view = src;
 
 	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, move(storage), opts);
+	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
-expected<Document, JsonError> parse_borrowed_unsafe(
+std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
 }
-expected<Document, JsonError> parse_view(
+std::expected<Document, JsonError> parse_view(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
 }
 // Performance-default parse: borrows/view-parses from stable caller-owned
 // storage. Use parse_copy(...) when the returned Document must own the bytes.
-expected<Document, JsonError> parse(
+std::expected<Document, JsonError> parse(
 	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
@@ -1268,15 +1268,15 @@ expected<Document, JsonError> parse(
 
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
-expected<Document, JsonError> parse_copy(
+std::expected<Document, JsonError> parse_copy(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	auto storage = make_unique<DocumentStorage>(resource);
-	storage->owned_input = make_unique<std::string>(input);
+	auto storage = std::make_unique<DocumentStorage>(resource);
+        storage->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1285,16 +1285,16 @@ expected<Document, JsonError> parse_copy(
 	}
 	storage->input_view = src;
 	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, move(storage), opts);
+	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
-expected<Document, JsonError> parse_borrowed(
+std::expected<Document, JsonError> parse_borrowed(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
-	auto storage = make_unique<DocumentStorage>(resource);
+	auto storage = std::make_unique<DocumentStorage>(resource);
 	std::string_view src = input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1303,21 +1303,21 @@ expected<Document, JsonError> parse_borrowed(
 	}
 	storage->input_view = src;
 	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, move(storage), opts);
+	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
-expected<Document, JsonError> parse_borrowed_unsafe(
+std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
 }
-expected<Document, JsonError> parse_view(
+std::expected<Document, JsonError> parse_view(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
 }
-expected<Document, JsonError> parse(
+std::expected<Document, JsonError> parse(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
@@ -1335,87 +1335,87 @@ namespace conflux::json::detail {
 	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = std::string{message}};
 }
 
-[[nodiscard]] expected<void, JsonError> require_dom_storage(
+[[nodiscard]] std::expected<void, JsonError> require_dom_storage(
 	JsonDomPolicy const &policy,
-	JsonDomStorageModel expected,
+	JsonDomStorageModel expected_storage,
 	std::string_view api_name) {
-	if (policy.storage == expected) {
+	if (policy.storage == expected_storage) {
 		return {};
 	}
-	return unexpected(dom_policy_error(format("{} called with incompatible JsonDomPolicy storage model", api_name)));
+	return std::unexpected(dom_policy_error(std::format("{} called with incompatible JsonDomPolicy storage model", api_name)));
 }
 
 } // namespace conflux::json::detail
 
 namespace conflux::json {
 
-[[nodiscard]] expected<Document, JsonError> parse_dom(
+[[nodiscard]] std::expected<Document, JsonError> parse_dom(
 	std::string_view input,
 	JsonDomPolicy const &policy) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(
+		return std::unexpected(
 			detail::dom_policy_error(
 				"parse_dom(string_view) needs the memory_resource overload for caller_pmr_document"));
 	}
 	if (auto ok =
 			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(string_view)");
 		!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse);
 	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse);
 	case JsonDomInputOwnership::owned_move:
-		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(std::string&&)"));
+		return std::unexpected(detail::dom_policy_error("owned_move requires parse_dom(std::string&&)"));
 	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+	return std::unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
 }
 
-[[nodiscard]] expected<Document, JsonError> parse_dom(
+[[nodiscard]] std::expected<Document, JsonError> parse_dom(
 	std::string &&input,
 	JsonDomPolicy const &policy) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(
+		return std::unexpected(
 			detail::dom_policy_error(
 				"parse_dom(std::string&&) needs the memory_resource overload for caller_pmr_document"));
 	}
 	if (auto ok =
 			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(std::string&&)");
 		!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (policy.input == JsonDomInputOwnership::borrowed_view) {
-		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(std::string&&)"));
+		return std::unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(std::string&&)"));
 	}
-	return parse_copy(move(input), policy.parse);
+	return parse_copy(std::move(input), policy.parse);
 }
 
-[[nodiscard]] expected<Document, JsonError> parse_dom(
+[[nodiscard]] std::expected<Document, JsonError> parse_dom(
 	std::string_view input,
 	std::pmr::memory_resource *resource,
 	JsonDomPolicy const &policy) {
 	if (resource == nullptr) {
-		return unexpected(detail::dom_policy_error("parse_dom(memory_resource*) requires a non-null resource"));
+		return std::unexpected(detail::dom_policy_error("parse_dom(memory_resource*) requires a non-null resource"));
 	}
 	if (auto ok = detail::require_dom_storage(
 			policy,
 			JsonDomStorageModel::caller_pmr_document,
 			"parse_dom(memory_resource*)");
 		!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse, resource);
 	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse, resource);
 	case JsonDomInputOwnership::owned_move:
-		return unexpected(
+		return std::unexpected(
 			detail::dom_policy_error(
 				"owned_move requires a std::string&& overload; caller_pmr cannot move-own input today"));
 	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+	return std::unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
 }
 
-[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
+[[nodiscard]] std::expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	std::string_view input,
 	JsonDomPolicy const &policy) {
@@ -1424,18 +1424,18 @@ namespace conflux::json {
 			JsonDomStorageModel::reusable_arena,
 			"parse_dom(JsonArena&, string_view)");
 		!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return arena.parse_borrowed_into(input, policy.parse);
 	case JsonDomInputOwnership::owned_copy   : return arena.parse_into(input, policy.parse);
 	case JsonDomInputOwnership::owned_move:
-		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(JsonArena&, std::string&&)"));
+		return std::unexpected(detail::dom_policy_error("owned_move requires parse_dom(JsonArena&, std::string&&)"));
 	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+	return std::unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
 }
 
-[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
+[[nodiscard]] std::expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	std::string &&input,
 	JsonDomPolicy const &policy) {
@@ -1444,12 +1444,12 @@ namespace conflux::json {
 			JsonDomStorageModel::reusable_arena,
 			"parse_dom(JsonArena&, std::string&&)");
 		!ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (policy.input == JsonDomInputOwnership::borrowed_view) {
-		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
+		return std::unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
 	}
-	return arena.parse_moved_into(move(input), policy.parse);
+	return arena.parse_moved_into(std::move(input), policy.parse);
 }
 
 } // namespace conflux::json

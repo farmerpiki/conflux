@@ -47,7 +47,7 @@ std::uint64_t parse_u64(
 
 } // namespace
 Config parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	Config cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view a = args[i];
@@ -146,7 +146,7 @@ void run_server(
 
 	std::array<char, 128> buf{};
 	std::size_t held = 0;
-	while (!stop.test(memory_order_acquire)) {
+	while (!stop.test(std::memory_order_acquire)) {
 		int got = SSL_read(ssl.get(), buf.data() + held, static_cast<int>(buf.size() - held));
 		if (got <= 0) {
 			break;
@@ -185,7 +185,7 @@ void run_server(
 		}
 		if (scan > 0) {
 			std::size_t const remain = held - scan;
-			memmove(buf.data(), buf.data() + scan, remain);
+			memstd::move(buf.data(), buf.data() + scan, remain);
 			held = remain;
 		}
 		if (held == buf.size()) {
@@ -243,7 +243,7 @@ int connect_to(
 	return fd;
 }
 std::size_t encode_line(
-	span<char> out,
+	std::span<char> out,
 	std::uint64_t n) {
 	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
 	if (r.ec != errc{}) {
@@ -286,7 +286,7 @@ struct AsyncTlsLineReader {
 		if (drop >= held) {
 			held = 0;
 		} else {
-			memmove(buf.data(), buf.data() + drop, held - drop);
+			memstd::move(buf.data(), buf.data() + drop, held - drop);
 			held -= drop;
 		}
 	}
@@ -387,7 +387,7 @@ int main(
 		TlsContext cctx;
 		cctx.set_verify_peer(false);
 		FileHandle sock = FileHandle::from_fd(csock);
-		TlsAsyncStream tls{cctx, files, move(sock)};
+		TlsAsyncStream tls{cctx, files, std::move(sock)};
 		(void)tls.set_server_name("localhost");
 
 		try {

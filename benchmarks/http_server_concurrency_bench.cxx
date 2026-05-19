@@ -82,7 +82,7 @@ struct BenchClient {
 		}
 	}
 	[[nodiscard]] std::size_t recv_response(
-		span<char> buf) const {
+		std::span<char> buf) const {
 		std::size_t total = 0;
 		std::size_t hdr_end_pos = std::string_view::npos;
 		std::size_t body_len = 0;
@@ -171,7 +171,7 @@ ServerHandle start_server(
 	Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = make_shared<HttpServer>(cfg, move(router));
+	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -179,7 +179,7 @@ ServerHandle start_server(
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
-	return {.server = srv, .thr = move(t), .port = p};
+	return {.server = srv, .thr = std::move(t), .port = p};
 }
 Config bench_config(
 	unsigned rings = 1,
@@ -252,7 +252,7 @@ std::string make_post_request(
 	std::string_view path,
 	std::size_t body_size) {
 	std::string body(body_size, 'X');
-	return format(
+	return std::format(
 		"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
 		path,
 		body_size,
@@ -286,7 +286,7 @@ WorkerResult run_worker(
 	ConcVariant const &v,
 	int conn_count,
 	std::atomic<bool> const &stop,
-	span<char> buf,
+	std::span<char> buf,
 	std::string_view post_req) {
 	WorkerResult result;
 	result.latencies.reserve(static_cast<std::size_t>(conn_count) * 1000);
@@ -298,19 +298,19 @@ WorkerResult run_worker(
 	}
 
 	if (v.is_idle) {
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			std::this_thread::sleep_for(std::chrono::milliseconds{100});
 		}
 		return result;
 	}
 
 	std::atomic<std::uint64_t> mixed_seq{0};
-	while (!stop.load(memory_order_relaxed)) {
+	while (!stop.load(std::memory_order_relaxed)) {
 		for (auto &c: clients) {
 			try {
 				std::string_view req = v.request;
 				if (v.mixed) {
-					auto seq = mixed_seq.fetch_add(1, memory_order_relaxed);
+					auto seq = mixed_seq.fetch_add(1, std::memory_order_relaxed);
 					req = (seq % 10 < 7) ? kGetPing : std::string_view{post_req};
 				}
 
@@ -357,7 +357,7 @@ void emit_result(
 		total_requests > 0 ? static_cast<double>(total_ns) / static_cast<double>(total_requests) : 0.0;
 
 	if (json) {
-		std::string line = format(
+		std::string line = std::format(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}"
 			",\"connections\":{},\"duration_s\":{},\"total_requests\":{},\"requests_per_sec\":{:.1f}"
 			",\"p50_ns\":{},\"p90_ns\":{},\"p99_ns\":{},\"p999_ns\":{},\"max_ns\":{}"
@@ -379,7 +379,7 @@ void emit_result(
 			errors,
 			pinned ? "true" : "false");
 		if (fd_start >= 0) {
-			line += format(
+			line += std::format(
 				",\"fd_count_start\":{},\"fd_count_end\":{},\"rss_kb_start\":{},\"rss_kb_end\":{}",
 				fd_start,
 				fd_end,
@@ -505,7 +505,7 @@ int main(
 
 	for (auto const &cfg: configs) {
 		for (auto const &v: variants) {
-			auto const variant_name = format("{}{}", v.name, cfg.suffix);
+			auto const variant_name = std::format("{}{}", v.name, cfg.suffix);
 			auto const dur = v.duration;
 			auto const num_threads =
 				min(static_cast<int>(v.connections), can_pin ? static_cast<int>(half) : static_cast<int>(np));
@@ -537,7 +537,7 @@ int main(
 			}
 
 			std::this_thread::sleep_for(dur);
-			stop.store(true, memory_order_relaxed);
+			stop.store(true, std::memory_order_relaxed);
 
 			for (auto &w: workers) {
 				w.join();

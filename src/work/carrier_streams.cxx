@@ -23,16 +23,16 @@ class DroppableSlot {
 	void drain_() noexcept {
 		auto ctrl = state_->handle.control();
 		if (ctrl.ready()) {
-			auto out = root::join_ready(move(state_->handle));
+			auto out = root::join_ready(std::move(state_->handle));
 			if (state_->on_drop_fn) {
-				state_->on_drop_fn(move(out));
+				state_->on_drop_fn(std::move(out));
 			}
 			return;
 		}
-		auto result = ctrl.try_set_on_ready([s = move(state_)]() mutable noexcept {
-			auto out = root::join_ready(move(s->handle));
+		auto result = ctrl.try_set_on_ready([s = std::move(state_)]() mutable noexcept {
+			auto out = root::join_ready(std::move(s->handle));
 			if (s->on_drop_fn) {
-				s->on_drop_fn(move(out));
+				s->on_drop_fn(std::move(out));
 			}
 		});
 		switch (result.status) {
@@ -55,7 +55,7 @@ class DroppableSlot {
 public:
 	explicit DroppableSlot(
 		root::TaskJoinHandle<T> &&h)
-		: state_{make_unique<DrainState>(DrainState{move(h), {}})} {}
+		: state_{std::make_unique<DrainState>(DrainState{std::move(h), {}})} {}
 	DroppableSlot(DroppableSlot &&) noexcept = default;
 	DroppableSlot &operator =(DroppableSlot &&) noexcept = default;
 	DroppableSlot(DroppableSlot const &) = delete;
@@ -71,25 +71,25 @@ public:
 	void on_drop(
 		F &&fn) noexcept {
 		if (!consumed_ && state_) {
-			state_->on_drop_fn = forward<F>(fn);
+			state_->on_drop_fn = std::forward<F>(fn);
 		}
 	}
 	[[nodiscard]] bool ready() const noexcept { return state_ && state_->handle.control().ready(); }
 	[[nodiscard]] std::optional<root::Outcome<T>> try_get() && {
 		if (!state_) {
-			return nullopt;
+			return std::nullopt;
 		}
-		auto out = root::try_join_ready(move(state_->handle));
+		auto out = root::try_join_ready(std::move(state_->handle));
 		if (!out) {
-			return nullopt;
+			return std::nullopt;
 		}
 		consumed_ = true;
 		return out;
 	}
 	[[nodiscard]] Chain<T> wait() && {
-		auto out = root::blocking_join(move(state_->handle));
+		auto out = root::blocking_join(std::move(state_->handle));
 		consumed_ = true;
-		return Chain<T>{move(out), CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 	[[nodiscard]] DroppableSlotAwaiter<T> operator co_await() && noexcept;
 };
@@ -105,7 +105,7 @@ class DroppableSlotAwaiter {
 public:
 	explicit DroppableSlotAwaiter(
 		std::unique_ptr<DrainState> s) noexcept
-		: state_{move(s)}
+		: state_{std::move(s)}
 		, control_{state_->handle.control()} {}
 	~DroppableSlotAwaiter() noexcept {
 		if (consumed_ || !state_) {
@@ -123,14 +123,14 @@ public:
 					"— best-effort abandon (awaiter=%p)",
 					static_cast<void *>(this));
 #endif
-				auto _ = root::try_abandon_to(move(state_->handle), root::drop_on_abandon{});
+				auto _ = root::try_abandon_to(std::move(state_->handle), root::drop_on_abandon{});
 				return;
 			}
 		}
-		auto result = control_.try_set_on_ready([s = move(state_)]() mutable noexcept {
-			auto out = root::join_ready(move(s->handle));
+		auto result = control_.try_set_on_ready([s = std::move(state_)]() mutable noexcept {
+			auto out = root::join_ready(std::move(s->handle));
 			if (s->on_drop_fn) {
-				s->on_drop_fn(move(out));
+				s->on_drop_fn(std::move(out));
 			}
 		});
 		switch (result.status) {
@@ -164,20 +164,20 @@ public:
 	}
 	[[nodiscard]] Chain<T> await_resume() {
 		callback_installed_ = false;
-		auto out = root::join_ready(move(state_->handle));
+		auto out = root::join_ready(std::move(state_->handle));
 		consumed_ = true;
-		return Chain<T>{move(out), CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 };
 template<root::work_value T>
 DroppableSlotAwaiter<T> DroppableSlot<T>::operator co_await() && noexcept {
 	consumed_ = true;
-	return DroppableSlotAwaiter<T>{move(state_)};
+	return DroppableSlotAwaiter<T>{std::move(state_)};
 }
 template<root::work_value T>
-	requires(!same_as<T, void>)
+	requires(!std::same_as<T, void>)
 class CoalescingSlot {
-	mutable mutex mu_;
+	mutable std::mutex mu_;
 	std::optional<T> slot_;
 
 public:
@@ -190,15 +190,15 @@ public:
 	CoalescingSlot &operator =(CoalescingSlot const &) = delete;
 	void commit(
 		T value) noexcept {
-		lock_guard const lock{mu_};
-		slot_ = move(value);
+		std::lock_guard const lock{mu_};
+		slot_ = std::move(value);
 	}
 	[[nodiscard]] std::optional<T> take() noexcept {
-		lock_guard const lock{mu_};
-		return exchange(slot_, nullopt);
+		std::lock_guard const lock{mu_};
+		return std::exchange(slot_, std::nullopt);
 	}
 	[[nodiscard]] bool available() const noexcept {
-		lock_guard const lock{mu_};
+		std::lock_guard const lock{mu_};
 		return slot_.has_value();
 	}
 };

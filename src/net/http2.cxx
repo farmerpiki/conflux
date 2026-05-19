@@ -15,7 +15,7 @@ export inline std::string_view const kH2Alpn = "h2";
 export void http2_configure_alpn(
 	SSL_CTX *ctx) {
 	// Server-side ALPN callback: prefer h2, fall back to http/1.1.
-	// Uses SSL_select_next_proto which handles NPN wire-format length prefixes
+	// Uses SSL_select_next_proto which handles NPN wire-std::format length prefixes
 	// correctly. nghttp2_select_next_protocol only matches h2/h2-14 and leaves
 	// *out undefined on no-overlap, corrupting non-h2 handshakes.
 	SSL_CTX_set_alpn_select_cb(

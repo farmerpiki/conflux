@@ -82,8 +82,8 @@ export struct StaticCacheKeyHash {
 	}
 	[[nodiscard]] std::size_t operator ()(
 		StaticCacheKeyView key) const noexcept {
-		auto const h1 = hash<std::string_view>{}(key.path);
-		auto const h2 = hash<std::string_view>{}(key.content_encoding);
+		auto const h1 = std::hash<std::string_view>{}(key.path);
+		auto const h2 = std::hash<std::string_view>{}(key.content_encoding);
 		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
 	}
 };
@@ -108,7 +108,7 @@ export struct StaticCacheKeyEqual {
 };
 
 export struct StaticCacheStore {
-	mutex mtx;
+	std::mutex mtx;
 	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
 	std::size_t total_bytes{};
 	std::uint64_t tick{};
@@ -159,7 +159,7 @@ export struct StaticCacheStore {
 		}
 		entry.tick = ++tick;
 		total_bytes += entry.body.size();
-		entries.emplace(StaticCacheKey{move(path), move(content_encoding)}, move(entry));
+		entries.emplace(StaticCacheKey{std::move(path), std::move(content_encoding)}, std::move(entry));
 	}
 	void evict(
 		std::string_view path,
@@ -187,11 +187,11 @@ export [[nodiscard]] std::optional<std::string> normalize_static_path(
 		auto const next = raw.find('/', pos);
 		std::string_view const seg = next == std::string_view::npos ? raw.substr(pos) : raw.substr(pos, next - pos);
 		if (seg.find('\0') != std::string_view::npos) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (seg == "..") {
 			if (result.empty()) {
-				return nullopt;
+				return std::nullopt;
 			}
 			auto const slash = result.rfind('/');
 			if (slash == 0) {

@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -155,7 +155,7 @@ void Ring::handle_deferred_poll(
 				return;
 			}
 			stream_it->second.deferred_efd = -1;
-			h2_submit_response(conn, stream_id, move(*ready));
+			h2_submit_response(conn, stream_id, std::move(*ready));
 			h2_do_send(conn);
 			if (conn.h2_sse_pending_wait) {
 				conn.h2_sse_pending_wait = false;
@@ -206,15 +206,15 @@ void Ring::handle_conn_close(
 	int fd,
 	int res,
 	std::uint32_t gen) {
-		HTTP_TRACE(format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
+		HTTP_TRACE(std::format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
 		if (direct_slots_ && accepted_sockets_direct) {
 			auto const slot = static_cast<std::uint32_t>(fd);
 			if (res >= 0 || res == -EBADF) {
 				if (res == -EBADF) {
-					HTTP_TRACE(format("conn_close_direct_empty slot={} gen={}", slot, gen));
+					HTTP_TRACE(std::format("conn_close_direct_empty slot={} gen={}", slot, gen));
 				}
 				if (!direct_slots_->release_closed(slot)) {
-					eprintln(format("handle_conn_close: release_closed failed slot={}", slot));
+					eprintln(std::format("handle_conn_close: release_closed failed slot={}", slot));
 				}
 			} else {
 				direct_slots_->poison(slot, res);
@@ -233,10 +233,10 @@ void Ring::handle_direct_slot_close(
 		auto const slot = static_cast<std::uint32_t>(fd);
 		if (res >= 0 || res == -EBADF) {
 			if (res == -EBADF) {
-				HTTP_TRACE(format("direct_slot_close_empty slot={}", slot));
+				HTTP_TRACE(std::format("direct_slot_close_empty slot={}", slot));
 			}
 			if (!direct_slots_->release_closed(slot)) {
-				eprintln(format("handle_direct_slot_close: release_closed failed slot={}", slot));
+				eprintln(std::format("handle_direct_slot_close: release_closed failed slot={}", slot));
 			}
 		} else {
 			direct_slots_->poison(slot, res);

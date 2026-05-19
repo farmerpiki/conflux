@@ -45,7 +45,7 @@ T block_on_ring(
 			} else if constexpr (!std::is_void_v<T>) {
 				slot->value.emplace(std::move(outcome).success().value);
 			}
-		} catch (...) { slot->err = current_exception(); }
+		} catch (...) { slot->err = std::current_exception(); }
 		slot->done.test_and_set(std::memory_order_release);
 	});
 	auto const deadline = std::chrono::steady_clock::now() + budget;
@@ -104,7 +104,7 @@ struct RingFixture {
 					}} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
-		auto fx = make_unique<RingFixture>();
+		auto fx = std::make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
 			return {};
 		}

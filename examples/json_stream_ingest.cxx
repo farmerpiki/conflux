@@ -3,6 +3,7 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
+
 struct ApiEvent {
 	std::int64_t id{};
 	std::string type;
@@ -58,7 +59,7 @@ static void print_json_error(
 	std::println("{}: {} at {}", context, e.message, path);
 }
 
-static expected<IngestStats, JsonError> ingest_ndjson(
+static std::expected<IngestStats, JsonError> ingest_ndjson(
 	std::string_view input) {
 	JsonParseOptions parse_opts{
 		.duplicate_key = DuplicateKeyPolicy::reject,
@@ -71,11 +72,11 @@ static expected<IngestStats, JsonError> ingest_ndjson(
 	// input buffer must remain stable for the current iteration.
 	for (auto const &line: NdjsonRange{input, parse_opts}) {
 		if (!line) {
-			return unexpected(line.error());
+			return std::unexpected(line.error());
 		}
 		auto event = decode<ApiEvent>(*line, decode_opts);
 		if (!event) {
-			return unexpected(move(event).error());
+			return std::unexpected(std::move(event).error());
 		}
 
 		++stats.rows;

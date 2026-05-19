@@ -14,7 +14,7 @@ Ring make_ring(
 	unsigned sq = 16) {
 	auto r = Ring::init(sq, {});
 	REQUIRE(r);
-	return move(*r);
+	return std::move(*r);
 }
 // Submit n NOP SQEs in batches of sq_size without draining the CQ.
 void submit_nops_no_drain(
@@ -23,7 +23,7 @@ void submit_nops_no_drain(
 	unsigned sq_size) {
 	unsigned submitted = 0;
 	while (submitted < n) {
-		unsigned const batch = min(n - submitted, sq_size);
+		unsigned const batch = std::min(n - submitted, sq_size);
 		for (unsigned j = 0; j < batch; ++j) {
 			auto sqe = ring.get_sqe();
 			if (!sqe) {
@@ -129,7 +129,7 @@ TEST_CASE(
 	// SQ=4 → CQ=8 (2×SQ default)
 	auto ring_exp = Ring::init(4, {});
 	REQUIRE(ring_exp);
-	auto ring = move(*ring_exp);
+	auto ring = std::move(*ring_exp);
 
 	// Verify NODROP: influences how we interpret koverflow.
 	bool const nodrop = ring.has_feature(IORING_FEAT_NODROP);
@@ -176,7 +176,7 @@ TEST_CASE(
 	"[cq_overflow]") {
 	auto ring_exp = Ring::init(4, {});
 	REQUIRE(ring_exp);
-	auto ring = move(*ring_exp);
+	auto ring = std::move(*ring_exp);
 
 	if (ring.has_feature(IORING_FEAT_NODROP)) {
 		SKIP("koverflow counts dropped CQEs only; with NODROP no drops occur — counter stays 0");

@@ -81,7 +81,7 @@ std::string make_config_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(
+		out += std::format(
 			R"("key_{}":{{"value":{},"label":"item_{}","active":{}}})",
 			i,
 			i * 17,
@@ -100,7 +100,7 @@ std::string make_decode_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(R"({{"id":{},"name":"user_{}","score":{}}})", i, i, i * 3.14);
+		out += std::format(R"({{"id":{},"name":"user_{}","score":{}}})", i, i, i * 3.14);
 	}
 	out += ']';
 	return out;
@@ -114,7 +114,7 @@ std::string make_lookup_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(R"("member_{}":{},)", i, i); // extra comma intentional — remove after
+		out += std::format(R"("member_{}":{},)", i, i); // extra comma intentional — remove after
 		out.pop_back();
 	}
 	out += '}';
@@ -129,7 +129,7 @@ std::string make_array_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += to_string(i);
+		out += std::to_string(i);
 	}
 	out += ']';
 	return out;
@@ -143,7 +143,7 @@ std::string make_large_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(
+		out += std::format(
 			R"({{"id":{},"name":"entry_{}","tags":["alpha","beta","gamma"],"meta":{{"score":{},"active":{}}}}})",
 			i,
 			i,
@@ -184,9 +184,9 @@ std::string make_pretty_ws_corpus() {
 	constexpr int kMembers = 16000;
 	for (int i = 0; i < kMembers; ++i) {
 		out += "  \"key_";
-		out += to_string(i);
+		out += std::to_string(i);
 		out += "\" : ";
-		out += to_string(i * 17);
+		out += std::to_string(i * 17);
 		if (i + 1 < kMembers) {
 			out += ',';
 		}
@@ -236,10 +236,10 @@ std::string make_mixed_numbers_corpus() {
 		}
 		first = false;
 		switch (i % 4) {
-		case 0 : out += to_string(i); break;
-		case 1 : out += format("{}.{}e{}", i, i * 3, (i % 7) - 3); break;
-		case 2 : out += format("0.{}", i); break;
-		case 3 : out += format("-{}.{}", i, i * 9); break;
+		case 0 : out += std::to_string(i); break;
+		case 1 : out += std::format("{}.{}e{}", i, i * 3, (i % 7) - 3); break;
+		case 2 : out += std::format("0.{}", i); break;
+		case 3 : out += std::format("-{}.{}", i, i * 9); break;
 		default: break;
 		}
 		++i;
@@ -356,10 +356,10 @@ void bench_builder() {
 				return;
 			}
 			for (int i = 0; i < 64; ++i) {
-				(void)obj->insert_string(format("key_{}", i), format("value_{}", i));
+				(void)obj->insert_string(std::format("key_{}", i), std::format("value_{}", i));
 			}
-			move(*obj).commit();
-			(void)move(b).finish();
+			std::move(*obj).commit();
+			(void)std::move(b).finish();
 		},
 		50,
 		500);
@@ -404,7 +404,7 @@ void bench_accumulate_chunked(
 			std::size_t remaining = corpus.size();
 			while (remaining > 0) {
 				std::size_t const n = std::min(chunk_size, remaining);
-				auto feed = acc.feed(span<byte const>{
+				auto feed = acc.feed(std::span<byte const>{
 					reinterpret_cast<byte const *>(ptr),
 					n});
 				if (!feed) {
@@ -535,7 +535,7 @@ conflux::work::root::Task<void> decode_file_once(
 			break;
 		}
 		off += got;
-		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		auto feed = acc.feed(std::span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
 		if (!feed) {
 			throw std::runtime_error{"json accumulator feed failed"};
 		}
@@ -554,11 +554,11 @@ conflux::work::root::Task<void> decode_socket_once(
 	JsonAccumulator acc;
 	std::array<std::uint8_t, 8192> buf{};
 	for (;;) {
-		auto got = co_await stream.async_recv_borrowed(span<std::uint8_t>{buf.data(), buf.size()});
+		auto got = co_await stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()});
 		if (got == 0) {
 			break;
 		}
-		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		auto feed = acc.feed(std::span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
 		if (!feed) {
 			throw std::runtime_error{"json accumulator feed failed"};
 		}
@@ -591,7 +591,7 @@ void bench_e2e_decode(
 			20,
 			1,
 			corpus.size());
-		print_row(format("{}/file_reader", name), file_stats);
+		print_row(std::format("{}/file_reader", name), file_stats);
 		{
 			std::uint16_t port = 0;
 			int listener_fd = start_listener(port);
@@ -604,7 +604,7 @@ void bench_e2e_decode(
 					20,
 					1,
 					corpus.size());
-				print_row(format("{}/socket_task_ring", name), socket_stats);
+				print_row(std::format("{}/socket_task_ring", name), socket_stats);
 			} catch (...) {
 				stop.test_and_set(std::memory_order_release);
 				(void)::shutdown(listener_fd, SHUT_RDWR);
@@ -638,7 +638,7 @@ std::string make_lookup_escaped_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format("\"\\u006Dember_{}\":{}", i, i);
+		out += std::format("\"\\u006Dember_{}\":{}", i, i);
 	}
 	out += '}';
 	return out;
@@ -656,9 +656,9 @@ std::string make_lookup_mixed_corpus() {
 			out += ',';
 		}
 		if (i % 2 == 0) {
-			out += format("\"member_{}\":{}", i, i);
+			out += std::format("\"member_{}\":{}", i, i);
 		} else {
-			out += format("\"\\u006Dember_{}\":{}", i, i);
+			out += std::format("\"\\u006Dember_{}\":{}", i, i);
 		}
 	}
 	out += '}';
@@ -672,7 +672,7 @@ std::string make_below_threshold_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(R"("field_{}":{})", i, i);
+		out += std::format(R"("field_{}":{})", i, i);
 	}
 	out += '}';
 	return out;
@@ -685,7 +685,7 @@ std::string make_linear31_corpus() {
 		if (i > 0) {
 			out += ',';
 		}
-		out += format(R"("member_{}":{},)", i, i);
+		out += std::format(R"("member_{}":{},)", i, i);
 		out.pop_back(); // remove trailing comma left by format string
 	}
 	out += '}';
@@ -771,11 +771,11 @@ void bench_builder_name_length() {
 		std::vector<std::string> keys;
 		keys.reserve(n);
 		for (std::size_t i = 0; i < n; ++i) {
-			std::string const suffix = to_string(i);
+			std::string const suffix = std::to_string(i);
 			std::size_t const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
 			std::string k(pad, 'k');
 			k += suffix;
-			keys.push_back(move(k));
+			keys.push_back(std::move(k));
 		}
 		return keys;
 	};
@@ -794,8 +794,8 @@ void bench_builder_name_length() {
 				for (int i = 0; i < kMembers; ++i) {
 					(void)obj->insert_string(keys[static_cast<std::size_t>(i)], "v");
 				}
-				move(*obj).commit();
-				(void)move(b).finish();
+				std::move(*obj).commit();
+				(void)std::move(b).finish();
 			},
 			50,
 			500);
@@ -818,8 +818,8 @@ void bench_builder_name_length() {
 				for (std::size_t i = 0; i < static_cast<std::size_t>(kMembers); ++i) {
 					(void)obj->insert_string_borrowed_name(keys[i], "v");
 				}
-				move(*obj).commit();
-				(void)move(b).finish();
+				std::move(*obj).commit();
+				(void)std::move(b).finish();
 			},
 			50,
 			500);
@@ -916,7 +916,7 @@ void bench_parse_reject_named(
 }
 void bench_file_corpora(
 	std::string_view title,
-	span<CorpusFileSpec const> specs) {
+	std::span<CorpusFileSpec const> specs) {
 	bool printed_header = false;
 	for (CorpusFileSpec const &spec: specs) {
 		auto corpus = load_corpus_file(spec.file);
@@ -928,15 +928,15 @@ void bench_file_corpora(
 			std::println("[json-bench] -- {} --", title);
 			printed_header = true;
 		}
-		bench_parse_required_named(format("parse/{}", spec.label), *corpus, spec.warmup, spec.iters);
+		bench_parse_required_named(std::format("parse/{}", spec.label), *corpus, spec.warmup, spec.iters);
 		if (spec.dump) {
-			bench_dump_named(format("dump/{}", spec.label), *corpus, spec.warmup, spec.iters);
+			bench_dump_named(std::format("dump/{}", spec.label), *corpus, spec.warmup, spec.iters);
 		}
 	}
 }
 void bench_reject_file_corpora(
 	std::string_view title,
-	span<CorpusFileSpec const> specs) {
+	std::span<CorpusFileSpec const> specs) {
 	bool printed_header = false;
 	for (CorpusFileSpec const &spec: specs) {
 		auto corpus = load_corpus_file(spec.file);
@@ -948,7 +948,7 @@ void bench_reject_file_corpora(
 			std::println("[json-bench] -- {} --", title);
 			printed_header = true;
 		}
-		bench_parse_reject_named(format("reject/{}", spec.label), *corpus, spec.warmup, spec.iters);
+		bench_parse_reject_named(std::format("reject/{}", spec.label), *corpus, spec.warmup, spec.iters);
 	}
 }
 void bench_duplicate_policy_fixture(
@@ -1011,7 +1011,7 @@ void bench_fi1_sentinel(
 			100);
 		double const build_ns = parse_find.ns_per_iter - parse_only.ns_per_iter;
 		BenchStats diff{};
-		diff.ns_per_iter = max(0.0, build_ns);
+		diff.ns_per_iter = std::max(0.0, build_ns);
 		print_row("FI-1/sentinel: (B) build+lookup overhead (parse+find − parse-only)", diff);
 	}
 }
@@ -1049,7 +1049,7 @@ std::string make_reject_corpus(
 	out.reserve(extra_members * 30 + 128);
 	out += R"({"id":42,"name":"bench","score":3.14,"active":true,"tag":"x")";
 	for (std::size_t i = 0; i < extra_members; ++i) {
-		out += format(R"(,"extra_field_{}":{})", i, i);
+		out += std::format(R"(,"extra_field_{}":{})", i, i);
 	}
 	out += '}';
 	return out;
@@ -1076,7 +1076,7 @@ void bench_reject_policy() {
 			},
 			20,
 			500);
-		print_row(format("decode/reject 5+{} members", extra), s_reject);
+		print_row(std::format("decode/reject 5+{} members", extra), s_reject);
 
 		// ignore policy: no extra scan
 		auto s_ignore = measure(
@@ -1092,7 +1092,7 @@ void bench_reject_policy() {
 			},
 			20,
 			500);
-		print_row(format("decode/ignore 5+{} members", extra), s_ignore);
+		print_row(std::format("decode/ignore 5+{} members", extra), s_ignore);
 	}
 }
 

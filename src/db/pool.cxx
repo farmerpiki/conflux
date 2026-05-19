@@ -118,7 +118,7 @@ private:
 	void dispatch_lease_(std::shared_ptr<root::TaskSource<Lease>> const &src, std::shared_ptr<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
-	thread::id owner_{};
+	std::thread::id owner_{};
 	std::vector<std::shared_ptr<Connection>> idle_{};
 	std::deque<std::shared_ptr<root::TaskSource<Lease>>> waiters_{};
 	std::size_t total_{0};
@@ -149,7 +149,7 @@ auto with_transaction(
 		if constexpr (std::same_as<R, void>) {
 			try {
 				co_await body(c);
-			} catch (...) { err = current_exception(); }
+			} catch (...) { err = std::current_exception(); }
 			if (!err) {
 				co_await c.query("COMMIT");
 				co_return;
@@ -158,7 +158,7 @@ auto with_transaction(
 			std::optional<R> result{};
 			try {
 				result.emplace(co_await body(c));
-			} catch (...) { err = current_exception(); }
+			} catch (...) { err = std::current_exception(); }
 			if (!err) {
 				co_await c.query("COMMIT");
 				co_return std::move(*result);
@@ -194,9 +194,9 @@ auto with_transaction(
 	using R = detail::awaitable_value_t<std::invoke_result_t<Body, Connection &>>;
 	auto lease = co_await p.acquire();
 	if constexpr (std::same_as<R, void>) {
-		co_await with_transaction(*lease, opt, forward<Body>(body));
+		co_await with_transaction(*lease, opt, std::forward<Body>(body));
 	} else {
-		co_return co_await with_transaction(*lease, opt, forward<Body>(body));
+		co_return co_await with_transaction(*lease, opt, std::forward<Body>(body));
 	}
 }
 // ===========================================================================
@@ -209,7 +209,7 @@ std::shared_ptr<Pool> Pool::create(
 	p->grow_if_needed_();
 	return p;
 }
-// NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
+// NOLINTNEXTLINE(bugprone-std::exception-escape) — try-block guards the only throwing call.
 void Pool::close() noexcept {
 	if (closed_) {
 		return;
@@ -230,7 +230,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 	}
 	if (std::this_thread::get_id() != owner_) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool acquire off owner std::thread"}));
 		return std::move(task);
 	}
 	if (!idle_.empty()) {
@@ -255,7 +255,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 				self->dispatch_lease_(shared_src, std::move(conn));
 			} catch (...) {
 				--self->total_;
-				auto _ = shared_src->try_set_exception(current_exception());
+				auto _ = shared_src->try_set_exception(std::current_exception());
 			}
 		}(self, shared_src, Connection::connect(cfg_.conn))
 														.detach();
@@ -281,7 +281,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 	}
 	return std::move(task);
 }
-// NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
+// NOLINTNEXTLINE(bugprone-std::exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
 	std::shared_ptr<Connection> conn) noexcept {
 	if (closed_ || !conn || !conn->ok()) {
@@ -329,7 +329,7 @@ void Pool::grow_if_needed_() {
 																	   .detach();
 	}
 }
-// NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
+// NOLINTNEXTLINE(bugprone-std::exception-escape,misc-no-recursion)
 void Pool::dispatch_lease_(
 	std::shared_ptr<root::TaskSource<Lease>> const &src,
 	std::shared_ptr<Connection> conn) noexcept {
@@ -366,14 +366,14 @@ void Pool::dispatch_lease_(
 			} catch (...) {
 				conn->close();
 				--self->total_;
-				auto _ = src->try_set_exception(current_exception());
+				auto _ = src->try_set_exception(std::current_exception());
 			}
 		}(self, src, conn, cfg_.on_acquire(*conn))
 												.detach();
 	} catch (...) {
 		conn->close();
 		--self->total_;
-		auto _ = src->try_set_exception(current_exception());
+		auto _ = src->try_set_exception(std::current_exception());
 	}
 }
 

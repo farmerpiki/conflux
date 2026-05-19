@@ -110,9 +110,9 @@ public:
 		}
 		capacity_ = cap;
 		mask_ = cap - 1;
-		slots_ = make_unique<Slot[]>(cap);
+		slots_ = std::make_unique<Slot[]>(cap);
 		for (std::size_t i = 0; i < cap; ++i) {
-			slots_[i].seq.store(i, memory_order_relaxed);
+			slots_[i].seq.store(i, std::memory_order_relaxed);
 		}
 	}
 	MpmcRing(MpmcRing const &) = delete;
@@ -124,45 +124,45 @@ public:
 		if (capacity_ == 0) {
 			return false;
 		}
-		std::size_t pos = head_.load(memory_order_relaxed);
+		std::size_t pos = head_.load(std::memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
-			std::size_t const seq = slot.seq.load(memory_order_acquire);
+			std::size_t const seq = slot.seq.load(std::memory_order_acquire);
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos);
 			if (diff == 0) {
-				if (head_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
-					slot.item = move(item);
-					slot.seq.store(pos + 1, memory_order_release);
+				if (head_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+					slot.item = std::move(item);
+					slot.seq.store(pos + 1, std::memory_order_release);
 					return true;
 				}
 			} else if (diff < 0) {
 				return false;
 			} else {
 				conflux::work::root::detail::cpu_pause();
-				pos = head_.load(memory_order_relaxed);
+				pos = head_.load(std::memory_order_relaxed);
 			}
 		}
 	}
 	[[nodiscard]] std::optional<T> try_pop() noexcept {
 		if (capacity_ == 0) {
-			return nullopt;
+			return std::nullopt;
 		}
-		std::size_t pos = tail_.load(memory_order_relaxed);
+		std::size_t pos = tail_.load(std::memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
-			std::size_t const seq = slot.seq.load(memory_order_acquire);
+			std::size_t const seq = slot.seq.load(std::memory_order_acquire);
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos + 1);
 			if (diff == 0) {
-				if (tail_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
-					T item = move(slot.item);
-					slot.seq.store(pos + capacity_, memory_order_release);
-					return std::optional<T>{move(item)};
+				if (tail_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+					T item = std::move(slot.item);
+					slot.seq.store(pos + capacity_, std::memory_order_release);
+					return std::optional<T>{std::move(item)};
 				}
 			} else if (diff < 0) {
-				return nullopt;
+				return std::nullopt;
 			} else {
 				conflux::work::root::detail::cpu_pause();
-				pos = tail_.load(memory_order_relaxed);
+				pos = tail_.load(std::memory_order_relaxed);
 			}
 		}
 	}
@@ -203,15 +203,15 @@ class WorkPoolQueueCounters {
 
 	static void add(
 		std::atomic<std::uint64_t> &counter) noexcept {
-		counter.fetch_add(1, memory_order_relaxed);
+		counter.fetch_add(1, std::memory_order_relaxed);
 	}
 	static void clear(
 		std::atomic<std::uint64_t> &counter) noexcept {
-		counter.store(0, memory_order_relaxed);
+		counter.store(0, std::memory_order_relaxed);
 	}
 	[[nodiscard]] static std::uint64_t get(
 		std::atomic<std::uint64_t> const &counter) noexcept {
-		return counter.load(memory_order_relaxed);
+		return counter.load(std::memory_order_relaxed);
 	}
 
 public:
@@ -483,8 +483,8 @@ export template<typename Target, typename Fn>
 	using T = std::invoke_result_t<fn_t &>;
 	using namespace conflux::work::root;
 	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<TaskSource<T>>(move(src));
-	auto job = [shared_src, fn = fn_t{forward<Fn>(fn)}]() mutable {
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	auto job = [shared_src, fn = fn_t{std::forward<Fn>(fn)}]() mutable {
 		try {
 			if constexpr (std::is_void_v<T>) {
 				fn();
@@ -492,28 +492,28 @@ export template<typename Target, typename Fn>
 			} else {
 				auto _ = shared_src->try_set_value(Success<T>{fn()});
 			}
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	};
-	if (!target.enqueue(move(job))) {
+	if (!target.enqueue(std::move(job))) {
 		auto _ = shared_src->try_set_cancelled(work_errc::cancelled_requested);
 	}
-	return move(task);
+	return std::move(task);
 }
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
-// Useful when the task completes on a thread pool (not io_uring).
+// Useful when the task completes on a std::thread pool (not io_uring).
 export template<typename T>
 T sync_wait(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
-	auto outcome = blocking_join(into_join_handle(move(task)));
+	auto outcome = blocking_join(into_join_handle(std::move(task)));
 	if (outcome.is_failure()) {
-		rethrow_exception(move(outcome).failure().error);
+		std::rethrow_exception(std::move(outcome).failure().error);
 	}
 	if (outcome.is_cancelled()) {
 		throw ::Cancelled{};
 	}
 	if constexpr (!std::is_void_v<T>) {
-		return move(outcome).success().value;
+		return std::move(outcome).success().value;
 	}
 }
 export namespace conflux::work {
@@ -539,7 +539,7 @@ using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for
 } // namespace conflux::work
 // P9 join_all: single-allocation implementation.
 // Two allocs total: make_task_source (output control block) +
-// make_shared<JoinState> (slots, handles, and join state in one block).
+// std::make_shared<JoinState> (slots, handles, and join state in one block).
 // Each input handle stored in JoinState — no per-task shared_ptr.
 // The ready callback for slot I fires after the control block lock is dropped,
 // calls join_ready() to extract the rvalue outcome without a blocking bridge,
@@ -551,15 +551,15 @@ namespace join_all_detail {
 
 template<class T>
 using JoinResultT = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
-class AggregateError : public exception {
+class AggregateError : public std::exception {
 	std::vector<std::exception_ptr> causes_;
 
 public:
 	explicit AggregateError(
 		std::vector<std::exception_ptr> causes) noexcept
-		: causes_{move(causes)} {}
+		: causes_{std::move(causes)} {}
 	char const *what() const noexcept override { return "join_all: multiple task failures"; }
-	[[nodiscard]] span<std::exception_ptr const> causes_view() const noexcept { return causes_; }
+	[[nodiscard]] std::span<std::exception_ptr const> causes_view() const noexcept { return causes_; }
 };
 template<typename... Ts>
 struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
@@ -567,7 +567,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	using Slots = std::tuple<std::optional<JoinResultT<Ts>>...>;
 
 	std::atomic<std::size_t> remaining{sizeof...(Ts)};
-	mutex mtx;
+	std::mutex mtx;
 	std::vector<std::exception_ptr> errors;
 	bool any_cancelled = false;
 	Slots slots;
@@ -576,8 +576,8 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	JoinState(
 		conflux::work::root::TaskSource<Result> s,
 		conflux::work::root::TaskJoinHandle<Ts>... hs)
-		: handles{move(hs)...}
-		, src{move(s)} {
+		: handles{std::move(hs)...}
+		, src{std::move(s)} {
 		errors.reserve(sizeof...(Ts));
 	}
 	void cancel_all() noexcept {
@@ -592,33 +592,33 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 			return;
 		}
 		if (errors.size() == 1) {
-			auto _ = src.try_set_exception(move(errors[0]));
+			auto _ = src.try_set_exception(std::move(errors[0]));
 			return;
 		}
 		if (errors.size() > 1) {
-			auto _ = src.try_set_exception(make_exception_ptr(AggregateError{move(errors)}));
+			auto _ = src.try_set_exception(std::make_exception_ptr(AggregateError{std::move(errors)}));
 			return;
 		}
 		try {
-			auto result = std::apply([](auto &...opts) { return Result{move(*opts)...}; }, slots);
-			auto _ = src.try_set_value(conflux::work::root::Success<Result>{move(result)});
-		} catch (...) { auto _ = src.try_set_exception(current_exception()); }
+			auto result = std::apply([](auto &...opts) { return Result{std::move(*opts)...}; }, slots);
+			auto _ = src.try_set_value(conflux::work::root::Success<Result>{std::move(result)});
+		} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
 	}
 	template<std::size_t I>
 	void on_ready() noexcept {
 		using namespace conflux::work::root;
 		using T = std::tuple_element_t<I, std::tuple<Ts...>>;
-		auto outcome = join_ready(move(std::get<I>(handles)));
+		auto outcome = join_ready(std::move(std::get<I>(handles)));
 		bool should_cancel = false;
 		if (outcome.is_success()) {
 			if constexpr (std::is_void_v<T>) {
 				std::get<I>(slots).emplace();
 			} else {
-				std::get<I>(slots) = move(outcome).success().value;
+				std::get<I>(slots) = std::move(outcome).success().value;
 			}
 		} else if (outcome.is_failure()) {
 			std::scoped_lock lk{mtx};
-			errors.push_back(move(outcome).failure().error);
+			errors.push_back(std::move(outcome).failure().error);
 		} else {
 			std::scoped_lock lk{mtx};
 			if (!any_cancelled) {
@@ -629,7 +629,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 		if (should_cancel) {
 			cancel_all();
 		}
-		if (remaining.fetch_sub(1, memory_order_acq_rel) == 1) {
+		if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
 			commit();
 		}
 	}
@@ -646,11 +646,11 @@ export template<typename... Ts>
 	if constexpr (sizeof...(Ts) == 0) {
 		auto [t, s] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
 		auto _ = s.try_set_value(Success<Result>{Result{}});
-		return move(t);
+		return std::move(t);
 	}
 
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
-	auto state = make_shared<join_all_detail::JoinState<Ts...>>(move(src), into_join_handle(move(tasks))...);
+	auto state = std::make_shared<join_all_detail::JoinState<Ts...>>(std::move(src), into_join_handle(std::move(tasks))...);
 
 	[&state]<std::size_t... Is>(std::index_sequence<Is...>) {
 		auto attach = [&state]<std::size_t I>() noexcept {
@@ -661,5 +661,5 @@ export template<typename... Ts>
 		(attach.template operator ()<Is>(), ...);
 	}(std::index_sequence_for<Ts...>{});
 
-	return move(root_task);
+	return std::move(root_task);
 }

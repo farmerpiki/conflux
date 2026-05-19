@@ -34,6 +34,7 @@ import std.compat;
 import conflux.types;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
+
 // ---------------------------------------------------------------------------
 // Forward declarations (exported types)
 // ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ export struct JsonPathMember {
 export struct JsonPathIndex {
 	std::size_t index{};
 };
-export using JsonPathSegment = variant<JsonPathMember, JsonPathIndex>;
+export using JsonPathSegment = std::variant<JsonPathMember, JsonPathIndex>;
 export class JsonPath {
 	std::vector<JsonPathSegment> segs_;
 
@@ -184,12 +185,12 @@ public:
 					}
 				}
 			} else {
-				out += to_string(get<JsonPathIndex>(seg).index);
+				out += std::to_string(get<JsonPathIndex>(seg).index);
 			}
 		}
 		return out;
 	}
-	static expected<JsonPath, JsonError> from_pointer(std::string_view sv);
+	static std::expected<JsonPath, JsonError> from_pointer(std::string_view sv);
 
 	bool friend operator ==(JsonPath const &, JsonPath const &) = default;
 };
@@ -200,8 +201,8 @@ struct std::hash<JsonPath> {
 		std::size_t h = 0;
 		for (auto const &seg: p) {
 			std::size_t const sh = holds_alternative<JsonPathMember>(seg) ?
-									   hash<std::string>{}(get<JsonPathMember>(seg).name) :
-									   hash<std::size_t>{}(get<JsonPathIndex>(seg).index);
+									   std::hash<std::string>{}(get<JsonPathMember>(seg).name) :
+									   std::hash<std::size_t>{}(get<JsonPathIndex>(seg).index);
 			h ^= sh + 0x9e3779b9U + (h << 6U) + (h >> 2U);
 		}
 		return h;
@@ -242,7 +243,7 @@ export struct JsonError {
 				full.push_index(get<JsonPathIndex>(s).index);
 			}
 		}
-		copy.path = move(full);
+		copy.path = std::move(full);
 		return copy;
 	}
 	[[nodiscard]] JsonError with_prefix(
@@ -285,7 +286,7 @@ public:
 		if (tag_ == Tag::bound) {
 			return value_;
 		}
-		return nullopt;
+		return std::nullopt;
 	}
 	[[nodiscard]] constexpr bool exceeds(
 		std::size_t n,
@@ -446,7 +447,7 @@ constexpr std::uint8_t kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
 constexpr std::uint8_t kValKindInt = 0x10; // ival valid
 constexpr std::uint8_t kValKindUint = 0x20; // uval valid
 constexpr std::uint8_t kValKindF64 = 0x40; // dval valid
-constexpr std::uint8_t kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; from_chars deferred to to_f64()
+constexpr std::uint8_t kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; std::from_chars deferred to to_f64()
 
 // All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
 
@@ -502,7 +503,7 @@ struct ObjHashTable {
 constexpr std::uint32_t kHashThreshold = 32;
 constexpr std::uint32_t kProbeChainMax = 64;
 constexpr std::uint32_t kMaxHashTableCapacity = 1u << 30;
-// FI-7 — practical byte budget on the per-object hash index to bound
+// FI-7 — practical std::byte budget on the per-object std::hash index to bound
 // DoS payloads. 256 MiB / 8 B per slot = 32 Mi slots; well above any
 // realistic object size.
 constexpr std::size_t kMaxHashIndexBytes = 256ULL * 1024 * 1024;
@@ -516,7 +517,7 @@ inline ObjHashTable *const kHashBuildFailedSentinel = reinterpret_cast<ObjHashTa
 // ---------------------------------------------------------------------------
 // Phase 0 (v11) — Node, 24 B, std::uint32_t offsets, union payload.
 //
-// The 8-byte union's active member is determined by (kind, flags):
+// The 8-std::byte union's active member is determined by (kind, flags):
 //   kind == null_                          → none (zero-init via _raw)
 //   kind == boolean                        → bool_val
 //   kind == string_                        → none (bytes via off/len)
@@ -757,7 +758,7 @@ struct ClassifiedDouble {
 	} kind;
 	double value;
 };
-[[nodiscard]] inline expected<ClassifiedDouble, JsonError> classify_range_error_slow(
+[[nodiscard]] inline std::expected<ClassifiedDouble, JsonError> classify_range_error_slow(
 	char const *first,
 	char const *last) noexcept {
 	auto const n = static_cast<std::size_t>(last - first);
@@ -765,23 +766,23 @@ struct ClassifiedDouble {
 		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 	}
 	double dv{};
-	auto const [p, ec] = from_chars(first, last, dv, std::chars_format::general);
-	if (ec == errc{} && p == last) {
-		if (isfinite(dv)) {
+	auto const [p, ec] = std::from_chars(first, last, dv, std::chars_format::general);
+	if (ec == std::errc{} && p == last) {
+		if (std::isfinite(dv)) {
 			return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, dv};
 		}
 		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 	}
-	if (ec == errc::result_out_of_range) {
+	if (ec == std::errc::result_out_of_range) {
 		// libc++ sets dv=inf for overflow; libstdc++ sets dv=0 for both cases.
-		// When from_chars is informative (isinf), use it directly.
-		if (isinf(dv)) {
+		// When std::from_chars is informative (std::isinf), use it directly.
+		if (std::isinf(dv)) {
 			return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 		}
 
 		auto const &lh = c_locale_holder();
 		if (!lh.ok) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::parse,
 					.code = JsonIssueCode::resource_exhausted,
@@ -797,7 +798,7 @@ struct ClassifiedDouble {
 		} else {
 			heap_buf = std::unique_ptr<char[]>{new (std::nothrow) char[n + 1]};
 			if (!heap_buf) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::parse,
 						.code = JsonIssueCode::resource_exhausted,
@@ -813,28 +814,28 @@ struct ClassifiedDouble {
 		double const v = ::strtod_l(cp, &end, lh.loc);
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (end != cp + n) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::parse,
 					.code = JsonIssueCode::invalid_number,
 					.message = "strtod_l rejected deferred lexeme"});
 		}
-		if (isinf(v)) {
+		if (std::isinf(v)) {
 			return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 		}
 		return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, v};
 	}
-	return unexpected(
+	return std::unexpected(
 		JsonError{
 			.stage = JsonStage::parse,
 			.code = JsonIssueCode::invalid_number,
-			.message = format("from_chars rejected deferred lexeme: {}", std::string_view{first, last})});
+			.message = std::format("std::from_chars rejected deferred lexeme: {}", std::string_view{first, last})});
 }
 // Pre-parsed number factory: takes a syntactically valid JSON number lexeme
 // (caller validates) plus its arena offset/length, runs the two-stage parse
-// (std::int64_t → std::uint64_t → f64 with from_chars fallback for range-error f64), and returns
+// (std::int64_t → std::uint64_t → f64 with std::from_chars fallback for range-error f64), and returns
 // the appropriate Node.
-[[nodiscard]] inline expected<Node, JsonError> build_number_node_from_lexeme(
+[[nodiscard]] inline std::expected<Node, JsonError> build_number_node_from_lexeme(
 	std::uint32_t off,
 	std::uint32_t len,
 	std::uint8_t storage_flags,
@@ -847,36 +848,36 @@ struct ClassifiedDouble {
 
 	if (int_form) {
 		std::int64_t iv{};
-		if (auto [p, ec] = from_chars(b, e, iv); ec == errc{} && p == e) {
+		if (auto [p, ec] = std::from_chars(b, e, iv); ec == std::errc{} && p == e) {
 			return make_number_int(off, len, storage_flags, iv);
 		}
 		if (!neg) {
 			std::uint64_t uv{};
-			if (auto [p2, ec2] = from_chars(b, e, uv); ec2 == errc{} && p2 == e) {
+			if (auto [p2, ec2] = std::from_chars(b, e, uv); ec2 == std::errc{} && p2 == e) {
 				return make_number_uint(off, len, storage_flags, uv);
 			}
 		}
 	}
 
 	double dv{};
-	auto const [p, ec] = from_chars(b, e, dv, std::chars_format::general);
-	if (ec == errc{} && p == e) {
-		if (isfinite(dv)) {
+	auto const [p, ec] = std::from_chars(b, e, dv, std::chars_format::general);
+	if (ec == std::errc{} && p == e) {
+		if (std::isfinite(dv)) {
 			return make_number_f64(off, len, storage_flags, dv, int_form);
 		}
 		return make_number_overflow(off, len, storage_flags, int_form);
 	}
-	if (ec == errc::result_out_of_range) {
+	if (ec == std::errc::result_out_of_range) {
 		if (static_cast<std::size_t>(e - b) > kSlowFloatLexemeCopyLimit) {
 			return make_number_overflow(off, len, storage_flags, int_form);
 		}
 		return make_number_deferred(off, len, storage_flags);
 	}
-	return unexpected(
+	return std::unexpected(
 		JsonError{
 			.stage = JsonStage::parse,
 			.code = JsonIssueCode::invalid_number,
-			.message = format("number rejected by from_chars: {}", lex)});
+			.message = std::format("number rejected by std::from_chars: {}", lex)});
 }
 
 } // namespace detail
@@ -911,42 +912,42 @@ public:
 	[[nodiscard]] JsonNumberForm form() const noexcept {
 		return (flags_ & kLexIntForm) != 0 ? JsonNumberForm::integer : JsonNumberForm::non_integer;
 	}
-	[[nodiscard]] expected<std::int64_t, JsonError> to_i64() const;
-	[[nodiscard]] expected<std::uint64_t, JsonError> to_u64() const;
-	[[nodiscard]] expected<double, JsonError> to_f64() const;
+	[[nodiscard]] std::expected<std::int64_t, JsonError> to_i64() const;
+	[[nodiscard]] std::expected<std::uint64_t, JsonError> to_u64() const;
+	[[nodiscard]] std::expected<double, JsonError> to_f64() const;
 	template<class T>
-		requires((std::integral<T> && !same_as<T, bool>) || std::floating_point<T>)
-	[[nodiscard]] expected<T, JsonError> get_as() const {
+		requires((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+	[[nodiscard]] std::expected<T, JsonError> get_as() const {
 		if constexpr (std::floating_point<T>) {
 			return to_f64().transform([](double v) noexcept { return static_cast<T>(v); });
 		} else if constexpr (std::is_signed_v<T>) {
 			auto v = to_i64();
 			if (!v) {
-				return unexpected(move(v).error());
+				return std::unexpected(std::move(v).error());
 			}
 			if constexpr (sizeof(T) < sizeof(std::int64_t)) {
 				if (*v < static_cast<std::int64_t>(std::numeric_limits<T>::min())
 					|| *v > static_cast<std::int64_t>(std::numeric_limits<T>::max())) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::lookup,
 							.code = JsonIssueCode::number_out_of_range,
-							.message = format("value {} out of range for target type", lexeme_)});
+							.message = std::format("value {} out of range for target type", lexeme_)});
 				}
 			}
 			return static_cast<T>(*v);
 		} else {
 			auto v = to_u64();
 			if (!v) {
-				return unexpected(move(v).error());
+				return std::unexpected(std::move(v).error());
 			}
 			if constexpr (sizeof(T) < sizeof(std::uint64_t)) {
 				if (*v > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::lookup,
 							.code = JsonIssueCode::number_out_of_range,
-							.message = format("value {} out of range for target type", lexeme_)});
+							.message = std::format("value {} out of range for target type", lexeme_)});
 				}
 			}
 			return static_cast<T>(*v);
@@ -984,7 +985,7 @@ namespace detail {
 		} else if (c >= 'A' && c <= 'F') {
 			d = static_cast<std::uint32_t>(c - 'A') + kA;
 		} else {
-			return nullopt;
+			return std::nullopt;
 		}
 		// NOLINTNEXTLINE(hicpp-signed-bitwise)
 		out = (out << 4U) | d;
@@ -1020,7 +1021,7 @@ inline void append_utf8_to_sv(
 	writer(std::string_view{buf, len});
 }
 template<class Writer>
-[[nodiscard]] expected<std::size_t, JsonError> decode_str_body(
+[[nodiscard]] std::expected<std::size_t, JsonError> decode_str_body(
 	std::string_view body,
 	Writer &&writer,
 	LimitOption max_sz)
@@ -1039,7 +1040,7 @@ template<class Writer>
 			writer(chunk);
 			total += chunk.size();
 			if (max_sz.exceeds(total, kDefaultMaxString)) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::string_too_large,
@@ -1049,7 +1050,7 @@ template<class Writer>
 		}
 		++i; // skip '\\'
 		if (i >= body.size()) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::syntax_error, .message = "EOF in escape"});
 		}
 		char esc_char[1]{};
@@ -1069,7 +1070,7 @@ template<class Writer>
 				simple = false;
 				++i;
 				if (i + 4 > body.size()) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::decode,
 							.code = JsonIssueCode::invalid_unicode_escape,
@@ -1077,7 +1078,7 @@ template<class Writer>
 				}
 				auto cp_opt = hex4_from_sv(body, i);
 				if (!cp_opt) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::decode,
 							.code = JsonIssueCode::invalid_unicode_escape,
@@ -1088,7 +1089,7 @@ template<class Writer>
 				// NOLINTBEGIN(readability-magic-numbers)
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
 					if (i + 6 > body.size() || body[i] != '\\' || body[i + 1] != 'u') {
-						return unexpected(
+						return std::unexpected(
 							JsonError{
 								.stage = JsonStage::decode,
 								.code = JsonIssueCode::invalid_unicode_escape,
@@ -1097,7 +1098,7 @@ template<class Writer>
 					i += 2;
 					auto lo_opt = hex4_from_sv(body, i);
 					if (!lo_opt) {
-						return unexpected(
+						return std::unexpected(
 							JsonError{
 								.stage = JsonStage::decode,
 								.code = JsonIssueCode::invalid_unicode_escape,
@@ -1106,7 +1107,7 @@ template<class Writer>
 					std::uint32_t const lo = *lo_opt;
 					i += 4;
 					if (lo < 0xDC00U || lo > 0xDFFFU) {
-						return unexpected(
+						return std::unexpected(
 							JsonError{
 								.stage = JsonStage::decode,
 								.code = JsonIssueCode::invalid_unicode_escape,
@@ -1120,7 +1121,7 @@ template<class Writer>
 					total += chunk.size();
 				});
 				if (max_sz.exceeds(total, kDefaultMaxString)) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::decode,
 							.code = JsonIssueCode::string_too_large,
@@ -1129,7 +1130,7 @@ template<class Writer>
 				break;
 			}
 		default:
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::syntax_error,
@@ -1140,7 +1141,7 @@ template<class Writer>
 			writer(std::string_view{esc_char, 1});
 			total += 1;
 			if (max_sz.exceeds(total, kDefaultMaxString)) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::string_too_large,
@@ -1177,7 +1178,7 @@ public:
 	[[nodiscard]] bool has_escapes() const noexcept { return has_escapes_; }
 	[[nodiscard]] std::optional<std::string_view> unescaped_borrow() const noexcept {
 		if (has_escapes_) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (unquoted_) {
 			return raw_lexeme_;
@@ -1190,7 +1191,7 @@ public:
 		}
 		return raw_lexeme_.size() >= 2 ? raw_lexeme_.size() - 2 : 0;
 	}
-	[[nodiscard]] expected<void, JsonError> append_decoded_to(
+	[[nodiscard]] std::expected<void, JsonError> append_decoded_to(
 		std::string &out) const {
 		if (unquoted_) {
 			out.append(raw_lexeme_.data(), raw_lexeme_.size());
@@ -1209,12 +1210,12 @@ public:
 			[&](std::string_view chunk) { out.append(chunk.data(), chunk.size()); },
 			max_string_size_);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return {};
 	}
-	[[nodiscard]] expected<std::string_view, JsonError> decode_into(
-		span<char> buf) const {
+	[[nodiscard]] std::expected<std::string_view, JsonError> decode_into(
+		std::span<char> buf) const {
 		if (unquoted_) {
 			std::ranges::copy(raw_lexeme_, buf.data());
 			return std::string_view{buf.data(), raw_lexeme_.size()};
@@ -1236,7 +1237,7 @@ public:
 			},
 			max_string_size_);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return std::string_view{buf.data(), written};
 	}
@@ -1299,20 +1300,20 @@ private:
 	void set_error(JsonError e) noexcept;
 	[[nodiscard]] JsonError mk_err(JsonIssueCode code, std::string msg) const;
 	void skip_ws();
-	[[nodiscard]] expected<void, JsonError> skip_ws_checked();
+	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked();
 	void adv(std::size_t n = 1) noexcept;
-	[[nodiscard]] expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
-	[[nodiscard]] expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
-	[[nodiscard]] expected<void, JsonError> parse_number_into_val();
-	[[nodiscard]] expected<Event, JsonError> parse_value_event();
+	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
+	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
+	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
+	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
 	[[nodiscard]] Checkpoint checkpoint() const;
 	void restore(Checkpoint checkpoint);
 	void replace_input(std::string_view input) noexcept;
 
 public:
 	explicit JsonReader(std::string_view input, JsonParseOptions const &opts = {});
-	explicit JsonReader(span<byte const> input, JsonParseOptions const &opts = {});
-	[[nodiscard]] expected<std::optional<Event>, JsonError> next();
+	explicit JsonReader(std::span<std::byte const> input, JsonParseOptions const &opts = {});
+	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next();
 	[[nodiscard]] JsonStringToken key_token() const noexcept;
 	[[nodiscard]] JsonStringToken string_token() const noexcept;
 	[[nodiscard]] JsonNumberView number_val() const noexcept;
@@ -1323,7 +1324,7 @@ public:
 	[[nodiscard]] std::size_t pos() const noexcept;
 	[[nodiscard]] std::size_t value_start_pos() const noexcept;
 	void reset() noexcept;
-	[[nodiscard]] expected<JsonByteRange, JsonError> skip_next_value();
+	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();
 };
 export class JsonStreamReader {
 public:
@@ -1348,10 +1349,10 @@ private:
 
 public:
 	explicit JsonStreamReader(JsonParseOptions const &opts = {});
-	[[nodiscard]] expected<void, JsonError> feed(std::string_view chunk);
-	[[nodiscard]] expected<void, JsonError> feed(span<byte const> chunk);
-	[[nodiscard]] expected<void, JsonError> close();
-	[[nodiscard]] expected<std::optional<Event>, JsonError> next();
+	[[nodiscard]] std::expected<void, JsonError> feed(std::string_view chunk);
+	[[nodiscard]] std::expected<void, JsonError> feed(std::span<std::byte const> chunk);
+	[[nodiscard]] std::expected<void, JsonError> close();
+	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next();
 	[[nodiscard]] JsonStringToken key_token() const noexcept;
 	[[nodiscard]] JsonStringToken string_token() const noexcept;
 	[[nodiscard]] JsonNumberView number_val() const noexcept;
@@ -1412,55 +1413,55 @@ public:
 		return JsonKind::null;
 	}
 	[[nodiscard]] bool is_null() const noexcept { return rec().kind == NodeKind::null_; }
-	[[nodiscard]] expected<ObjectView, JsonError> as_object() const;
-	[[nodiscard]] expected<ArrayView, JsonError> as_array() const;
-	[[nodiscard]] expected<bool, JsonError> as_bool() const {
+	[[nodiscard]] std::expected<ObjectView, JsonError> as_object() const;
+	[[nodiscard]] std::expected<ArrayView, JsonError> as_array() const;
+	[[nodiscard]] std::expected<bool, JsonError> as_bool() const {
 		if (rec().kind != NodeKind::boolean) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::wrong_kind,
 					.expected_kind = JsonKind::boolean,
 					.actual_kind = kind(),
-					.message = "expected boolean"});
+					.message = "std::expected boolean"});
 		}
 		return rec().bool_val;
 	}
-	[[nodiscard]] expected<std::string_view, JsonError> as_string() const {
+	[[nodiscard]] std::expected<std::string_view, JsonError> as_string() const {
 		if (rec().kind != NodeKind::string_) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::wrong_kind,
 					.expected_kind = JsonKind::string,
 					.actual_kind = kind(),
-					.message = "expected string"});
+					.message = "std::expected string"});
 		}
 		return storage_->bytes_at(rec().off, rec().len, rec().flags);
 	}
-	[[nodiscard]] expected<JsonNumberView, JsonError> as_number() const {
+	[[nodiscard]] std::expected<JsonNumberView, JsonError> as_number() const {
 		if (rec().kind != NodeKind::number) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::wrong_kind,
 					.expected_kind = JsonKind::number,
 					.actual_kind = kind(),
-					.message = "expected number"});
+					.message = "std::expected number"});
 		}
 		return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
 	}
-	[[nodiscard]] expected<std::int64_t, JsonError> as_i64() const {
+	[[nodiscard]] std::expected<std::int64_t, JsonError> as_i64() const {
 		return as_number().and_then([](JsonNumberView n) { return n.to_i64(); });
 	}
-	[[nodiscard]] expected<std::uint64_t, JsonError> as_u64() const {
+	[[nodiscard]] std::expected<std::uint64_t, JsonError> as_u64() const {
 		return as_number().and_then([](JsonNumberView n) { return n.to_u64(); });
 	}
-	[[nodiscard]] expected<double, JsonError> as_double() const {
+	[[nodiscard]] std::expected<double, JsonError> as_double() const {
 		return as_number().and_then([](JsonNumberView n) { return n.to_f64(); });
 	}
-	[[nodiscard]] expected<NodeRef, JsonError> at(JsonPath const &path) const;
-	[[nodiscard]] expected<NodeRef, JsonError> at_pointer(std::string_view pointer) const;
+	[[nodiscard]] std::expected<NodeRef, JsonError> at(JsonPath const &path) const;
+	[[nodiscard]] std::expected<NodeRef, JsonError> at_pointer(std::string_view pointer) const;
 };
 // ---------------------------------------------------------------------------
 // ObjectMember (after NodeRef — NodeRef used by value)
@@ -1471,7 +1472,7 @@ export struct ObjectMember {
 	NodeRef value;
 };
 // ---------------------------------------------------------------------------
-// Phase 6 helpers — hash table build + lookup
+// Phase 6 helpers — std::hash table build + lookup
 // ---------------------------------------------------------------------------
 
 namespace detail {
@@ -1482,7 +1483,7 @@ namespace detail {
 	return static_cast<std::uint32_t>(XXH3_64bits_withSeed(name.data(), name.size(), seed));
 }
 // Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
-// at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — byte-budget cap).
+// at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — std::byte-budget cap).
 // Returns 0 on overflow so the caller can fall back to linear scan.
 [[nodiscard]] inline std::uint32_t clamped_capacity(
 	std::uint32_t count) noexcept {
@@ -1510,9 +1511,9 @@ namespace detail {
 			return m.val_node;
 		}
 	}
-	return nullopt;
+	return std::nullopt;
 }
-// Probe hash table; fall back to linear if probe chain exceeds kProbeChainMax.
+// Probe std::hash table; fall back to linear if probe chain exceeds kProbeChainMax.
 [[nodiscard]] inline std::optional<std::size_t> lookup_in(
 	ObjHashTable const &ht,
 	DocumentStorage const *storage,
@@ -1527,7 +1528,7 @@ namespace detail {
 	for (std::uint32_t probe = 0; probe < kProbeChainMax; ++probe) {
 		auto const &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (s.member_index == kEmptySlot) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (s.name_hash == h) {
 			auto const &m = storage->object_members
@@ -1588,7 +1589,7 @@ export class ObjectView {
 
 	friend class NodeRef;
 	friend class Document;
-	friend expected<void, JsonError> warm_member_index_impl(DocumentStorage *, NodeRef);
+	friend std::expected<void, JsonError> warm_member_index_impl(DocumentStorage *, NodeRef);
 	bool friend is_value_equal(NodeRef, NodeRef);
 	bool friend is_value_equal_exact(NodeRef, NodeRef);
 	ObjectView(
@@ -1607,20 +1608,20 @@ public:
 		std::string_view name) const noexcept {
 		auto to_ref = [&](std::optional<std::size_t> idx) -> std::optional<NodeRef> {
 			if (!idx) {
-				return nullopt;
+				return std::nullopt;
 			}
 			return NodeRef{storage_, *idx};
 		};
 		if (mem_count_ < kHashThreshold) {
 			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
 		}
-		// Lazy hash table build via Atom CAS. The hash slot is the only
+		// Lazy std::hash table build via Atom CAS. The std::hash slot is the only
 		// mutable surface on a published Document — see post-publication
 		// freeze contract; const_cast is justified by that invariant.
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 		auto &raw = const_cast<ObjHashTable *&>(storage_->nodes[node_idx_].hash_idx_raw);
 		auto ref = std::atomic_ref<ObjHashTable *>{raw};
-		auto *ht = ref.load(memory_order_acquire);
+		auto *ht = ref.load(std::memory_order_acquire);
 		// FI-1: prior build failed and was cached. Skip the rebuild; go linear.
 		if (ht == kHashBuildFailedSentinel) {
 			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
@@ -1637,8 +1638,8 @@ public:
 						if (ref.compare_exchange_strong(
 								expected_null,
 								owned,
-								memory_order_release,
-								memory_order_acquire)) {
+								std::memory_order_release,
+								std::memory_order_acquire)) {
 							ht = owned;
 							owned = nullptr; // CAS won — table published
 							build_ok = true;
@@ -1655,8 +1656,8 @@ public:
 				auto _ = ref.compare_exchange_strong(
 					expected_null,
 					kHashBuildFailedSentinel,
-					memory_order_release,
-					memory_order_acquire);
+					std::memory_order_release,
+					std::memory_order_acquire);
 			}
 			ObjHashTable::destroy(owned);
 		}
@@ -1665,16 +1666,16 @@ public:
 		}
 		return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
 	}
-	[[nodiscard]] expected<NodeRef, JsonError> member(
+	[[nodiscard]] std::expected<NodeRef, JsonError> member(
 		std::string_view name) const {
 		auto found = find_member(name);
 		if (!found) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::missing_member,
 					.member_name = std::string{name},
-					.message = format("missing member: {}", name)});
+					.message = std::format("missing member: {}", name)});
 		}
 		return *found;
 	}
@@ -1698,16 +1699,16 @@ export class ArrayView {
 
 public:
 	[[nodiscard]] std::size_t size() const noexcept { return child_count_; }
-	[[nodiscard]] expected<NodeRef, JsonError> element(
+	[[nodiscard]] std::expected<NodeRef, JsonError> element(
 		std::size_t index) const {
 		if (index >= child_count_) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::index_out_of_range,
 					.requested_index = index,
 					.container_size = child_count_,
-					.message = format("index {} out of range (size={})", index, child_count_)});
+					.message = std::format("index {} out of range (size={})", index, child_count_)});
 		}
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 		return NodeRef{storage_, storage_->array_children[child_start_ + index]};
@@ -1964,7 +1965,7 @@ export bool is_value_equal_exact(
 export struct NodeIdentityHash {
 	std::size_t operator ()(
 		NodeRef n) const noexcept {
-		return hash<void const *>{}(n.storage_) ^ (hash<std::size_t>{}(n.idx_) << 1U);
+		return std::hash<void const *>{}(n.storage_) ^ (std::hash<std::size_t>{}(n.idx_) << 1U);
 	}
 };
 export struct NodeIdentityEqual {
@@ -1990,7 +1991,7 @@ export struct WarmIndexOptions {
 	std::size_t max_objects{SIZE_MAX};
 	std::size_t max_extra_bytes{SIZE_MAX};
 };
-[[nodiscard]] expected<void, JsonError> warm_member_index_impl(DocumentStorage *storage, NodeRef node);
+[[nodiscard]] std::expected<void, JsonError> warm_member_index_impl(DocumentStorage *storage, NodeRef node);
 export class Document {
 	std::unique_ptr<DocumentStorage> storage_;
 
@@ -1998,7 +1999,7 @@ export class Document {
 	Document friend make_document(std::unique_ptr<DocumentStorage>) noexcept;
 	explicit Document(
 		std::unique_ptr<DocumentStorage> s) noexcept
-		: storage_{move(s)} {}
+		: storage_{std::move(s)} {}
 
 public:
 	Document() = default;
@@ -2010,11 +2011,11 @@ public:
 		assert(storage_ && "Document::root() called on empty Document");
 		return NodeRef{storage_.get(), storage_->root_node};
 	}
-	[[nodiscard]] expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
-	// Pre-build hash index for the given object node (idempotent, thread-safe).
-	[[nodiscard]] expected<void, JsonError> warm_member_index(NodeRef node) const;
-	// Pre-build hash indices for every object node in the document.
-	[[nodiscard]] expected<void, JsonError> warm_member_indices(WarmIndexOptions const &opts = {}) const;
+	[[nodiscard]] std::expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
+	// Pre-build std::hash index for the given object node (idempotent, std::thread-safe).
+	[[nodiscard]] std::expected<void, JsonError> warm_member_index(NodeRef node) const;
+	// Pre-build std::hash indices for every object node in the document.
+	[[nodiscard]] std::expected<void, JsonError> warm_member_indices(WarmIndexOptions const &opts = {}) const;
 };
 // Module-private factory: parse and builder use this to construct Documents.
 Document make_document(std::unique_ptr<DocumentStorage> s) noexcept;
@@ -2045,8 +2046,8 @@ public:
 		check_live();
 		return NodeRef{storage_, storage_->root_node};
 	}
-	[[nodiscard]] expected<void, JsonError> warm_member_index(NodeRef node) const;
-	[[nodiscard]] expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
+	[[nodiscard]] std::expected<void, JsonError> warm_member_index(NodeRef node) const;
+	[[nodiscard]] std::expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
 };
 export class JsonArena {
 	std::size_t initial_slab_;
@@ -2059,19 +2060,19 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, storage_{make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
+		, storage_{std::make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;
 	JsonArena(JsonArena &&) = delete;
 	JsonArena &operator =(JsonArena &&) = delete;
 
-	[[nodiscard]] expected<ArenaDocument, JsonError>
+	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_into(std::string_view input, JsonParseOptions const &opts = {});
 
-	[[nodiscard]] expected<ArenaDocument, JsonError>
+	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_borrowed_into(std::string_view input, JsonParseOptions const &opts = {});
 
-	[[nodiscard]] expected<ArenaDocument, JsonError>
+	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_moved_into(std::string input, JsonParseOptions const &opts = {});
 
 	void reset() noexcept;
@@ -2082,20 +2083,20 @@ public:
 // Field accessor helpers (Phase 1.1)
 // ---------------------------------------------------------------------------
 
-export [[nodiscard]] expected<std::string, JsonError> require_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::int64_t, JsonError> require_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::string>, JsonError>
+export [[nodiscard]] std::expected<std::string, JsonError> require_string(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] std::expected<std::int64_t, JsonError> require_int(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] std::expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] std::expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] std::expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] std::expected<std::optional<std::string>, JsonError>
 optional_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::int64_t>, JsonError>
+export [[nodiscard]] std::expected<std::optional<std::int64_t>, JsonError>
 optional_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::uint64_t>, JsonError>
+export [[nodiscard]] std::expected<std::optional<std::uint64_t>, JsonError>
 optional_uint(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<double>, JsonError>
+export [[nodiscard]] std::expected<std::optional<double>, JsonError>
 optional_double(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<bool>, JsonError>
+export [[nodiscard]] std::expected<std::optional<bool>, JsonError>
 optional_bool(ObjectView const &obj, std::string_view name);
 // ---------------------------------------------------------------------------
 // Parser
@@ -2174,68 +2175,68 @@ export namespace conflux::json {
 
 // Explicit owning parse: copies input into the Document's owned buffer.
 // Number lexemes index directly into that buffer (zero-copy on read paths).
-expected<Document, JsonError> parse_copy(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_copy(std::string_view input, JsonParseOptions const &opts = {});
 // Move-in owning overload: avoids the input copy. Keep this a concrete
 // std::string rvalue overload so unrelated string-like temporaries continue to
 // select parse_copy(string_view) instead of trying to become owned storage.
-expected<Document, JsonError> parse_copy(std::string &&input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_copy(std::string &&input, JsonParseOptions const &opts = {});
 // Borrow-only overload: caller guarantees the bytes outlive the Document.
 // Rvalue overload is deleted to prevent obvious lifetime mistakes.
-expected<Document, JsonError> parse_borrowed(std::string_view input, JsonParseOptions const &opts = {});
-expected<Document, JsonError> parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts = {});
-expected<Document, JsonError> parse_view(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_borrowed(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_view(std::string_view input, JsonParseOptions const &opts = {});
 // Performance-default parse: borrows/view-parses from stable caller-owned
 // storage. Use parse_copy(...) when the returned Document must own the bytes.
-expected<Document, JsonError> parse(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse(std::string_view input, JsonParseOptions const &opts = {});
 
 // Deleted std::string rvalue overloads (Correction T) — borrowing requires
 // caller-owned bytes. String literals and string_view temporaries still select
 // the string_view overloads; only owned string temporaries are rejected.
 template<typename T>
-	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const & = {}) = delete;
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-expected<Document, JsonError> parse_borrowed_unsafe(T &&, JsonParseOptions const & = {}) = delete;
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse_borrowed_unsafe(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {}) = delete;
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {}) = delete;
 
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
-expected<Document, JsonError>
+std::expected<Document, JsonError>
 parse_copy(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
-expected<Document, JsonError>
+std::expected<Document, JsonError>
 parse_borrowed(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
-expected<Document, JsonError>
+std::expected<Document, JsonError>
 parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
-expected<Document, JsonError>
+std::expected<Document, JsonError>
 parse_view(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
-expected<Document, JsonError>
+std::expected<Document, JsonError>
 parse(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 
 template<typename T>
-	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
 
 export namespace conflux::json {
 
-[[nodiscard]] expected<Document, JsonError>
+[[nodiscard]] std::expected<Document, JsonError>
 parse_dom(std::string_view input, JsonDomPolicy const &policy = JsonDomPolicy::view_first());
-[[nodiscard]] expected<Document, JsonError>
+[[nodiscard]] std::expected<Document, JsonError>
 parse_dom(std::string &&input, JsonDomPolicy const &policy = JsonDomPolicy::owning_document());
-[[nodiscard]] expected<Document, JsonError> parse_dom(
+[[nodiscard]] std::expected<Document, JsonError> parse_dom(
 	std::string_view input,
 	std::pmr::memory_resource *resource,
 	JsonDomPolicy const &policy = JsonDomPolicy::caller_pmr());
-[[nodiscard]] expected<ArenaDocument, JsonError>
+[[nodiscard]] std::expected<ArenaDocument, JsonError>
 parse_dom(JsonArena &arena, std::string_view input, JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse());
-[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
+[[nodiscard]] std::expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	std::string &&input,
 	JsonDomPolicy const &policy =
@@ -2248,7 +2249,7 @@ parse_dom(JsonArena &arena, std::string_view input, JsonDomPolicy const &policy 
 // ---------------------------------------------------------------------------
 
 export template<class M>
-using JsonConstraintFn = expected<void, JsonError> (*)(M const &);
+using JsonConstraintFn = std::expected<void, JsonError> (*)(M const &);
 
 export template<class T>
 struct JsonMembers;
@@ -2323,7 +2324,7 @@ struct PathFrame {
 	std::size_t index{};
 };
 [[nodiscard]] inline JsonPath materialize_path(
-	span<PathFrame const> frames) {
+	std::span<PathFrame const> frames) {
 	JsonPath p;
 	for (auto const &f: frames) {
 		if (f.kind == PathFrame::Kind::member) {
@@ -2380,7 +2381,7 @@ struct TransparentStringHash {
 	using is_transparent = void;
 	[[nodiscard]] std::size_t operator ()(
 		std::string_view value) const noexcept {
-		return hash<std::string_view>{}(value);
+		return std::hash<std::string_view>{}(value);
 	}
 	[[nodiscard]] std::size_t operator ()(
 		std::string const &value) const noexcept {
@@ -2445,16 +2446,16 @@ export class ObjectBuilder {
 			  .local_members = {},
 			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
-	[[nodiscard]] expected<void, JsonError> check_can_insert() const {
+	[[nodiscard]] std::expected<void, JsonError> check_can_insert() const {
 		if (frame_.committed) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::constraint_violation,
 					.message = "ObjectBuilder already committed"});
 		}
 		if (frame_.state != nullptr && frame_.state->active_depth != frame_.depth) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::constraint_violation,
@@ -2462,27 +2463,27 @@ export class ObjectBuilder {
 		}
 		return {};
 	}
-	expected<void, JsonError> do_insert_node(std::string_view name, std::size_t node_idx);
-	expected<void, JsonError> do_insert_node_view(std::string_view name, std::size_t node_idx);
+	std::expected<void, JsonError> do_insert_node(std::string_view name, std::size_t node_idx);
+	std::expected<void, JsonError> do_insert_node_view(std::string_view name, std::size_t node_idx);
 
 public:
 	ObjectBuilder(
 		ObjectBuilder &&o) noexcept
-		: frame_{move(o.frame_)} {
+		: frame_{std::move(o.frame_)} {
 		o.frame_.state = nullptr;
 	}
 	ObjectBuilder &operator =(
 		ObjectBuilder &&o) noexcept {
 		if (this != &o) {
 			abort_if_open();
-			frame_ = move(o.frame_);
+			frame_ = std::move(o.frame_);
 			o.frame_.state = nullptr;
 		}
 		return *this;
 	}
 	ObjectBuilder(ObjectBuilder const &) = delete;
 	ObjectBuilder &operator =(ObjectBuilder const &) = delete;
-	// NOLINTNEXTLINE(bugprone-exception-escape)
+	// NOLINTNEXTLINE(bugprone-std::exception-escape)
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
@@ -2499,24 +2500,24 @@ public:
 		}
 	}
 	~ObjectBuilder() noexcept { abort_if_open(); }
-	expected<void, JsonError> insert_null(std::string_view name);
-	expected<void, JsonError> insert_bool(std::string_view name, bool v);
-	expected<void, JsonError> insert_string(std::string_view name, std::string_view value);
-	expected<void, JsonError> insert_string_checked(std::string_view name, std::string_view value);
-	expected<void, JsonError> insert_string_borrowed_name(std::string_view name, std::string_view value);
-	expected<void, JsonError> insert_string_borrowed(std::string_view name, std::string_view value);
-	expected<void, JsonError> insert_number(std::string_view name, std::string_view lexeme);
-	expected<void, JsonError> insert_i64(std::string_view name, std::int64_t v);
-	expected<void, JsonError> insert_u64(std::string_view name, std::uint64_t v);
-	expected<void, JsonError> insert_f64(std::string_view name, double v);
+	std::expected<void, JsonError> insert_null(std::string_view name);
+	std::expected<void, JsonError> insert_bool(std::string_view name, bool v);
+	std::expected<void, JsonError> insert_string(std::string_view name, std::string_view value);
+	std::expected<void, JsonError> insert_string_checked(std::string_view name, std::string_view value);
+	std::expected<void, JsonError> insert_string_borrowed_name(std::string_view name, std::string_view value);
+	std::expected<void, JsonError> insert_string_borrowed(std::string_view name, std::string_view value);
+	std::expected<void, JsonError> insert_number(std::string_view name, std::string_view lexeme);
+	std::expected<void, JsonError> insert_i64(std::string_view name, std::int64_t v);
+	std::expected<void, JsonError> insert_u64(std::string_view name, std::uint64_t v);
+	std::expected<void, JsonError> insert_f64(std::string_view name, double v);
 
-	expected<ObjectBuilder, JsonError> insert_object(std::string_view name);
-	expected<ArrayBuilder, JsonError> insert_array(std::string_view name);
+	std::expected<ObjectBuilder, JsonError> insert_object(std::string_view name);
+	std::expected<ArrayBuilder, JsonError> insert_array(std::string_view name);
 
 	template<class T>
 		requires has_json_codec<T>
-	expected<void, JsonError> insert(std::string_view name, T const &value);
-	// NOLINTNEXTLINE(bugprone-exception-escape)
+	std::expected<void, JsonError> insert(std::string_view name, T const &value);
+	// NOLINTNEXTLINE(bugprone-std::exception-escape)
 	void commit() && noexcept {
 		if ((frame_.state == nullptr) || frame_.committed) {
 			return;
@@ -2577,7 +2578,7 @@ export class ArrayBuilder {
 			  .local_members = {},
 			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
-	// NOLINTNEXTLINE(bugprone-exception-escape)
+	// NOLINTNEXTLINE(bugprone-std::exception-escape)
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
@@ -2595,14 +2596,14 @@ export class ArrayBuilder {
 public:
 	ArrayBuilder(
 		ArrayBuilder &&o) noexcept
-		: frame_{move(o.frame_)} {
+		: frame_{std::move(o.frame_)} {
 		o.frame_.state = nullptr;
 	}
 	ArrayBuilder &operator =(
 		ArrayBuilder &&o) noexcept {
 		if (this != &o) {
 			abort_if_open();
-			frame_ = move(o.frame_);
+			frame_ = std::move(o.frame_);
 			o.frame_.state = nullptr;
 		}
 		return *this;
@@ -2610,23 +2611,23 @@ public:
 	ArrayBuilder(ArrayBuilder const &) = delete;
 	ArrayBuilder &operator =(ArrayBuilder const &) = delete;
 	~ArrayBuilder() noexcept { abort_if_open(); }
-	expected<void, JsonError> append_null();
-	expected<void, JsonError> append_bool(bool v);
-	expected<void, JsonError> append_string(std::string_view value);
-	expected<void, JsonError> append_string_checked(std::string_view value);
-	expected<void, JsonError> append_string_borrowed(std::string_view value);
-	expected<void, JsonError> append_number(std::string_view lexeme);
-	expected<void, JsonError> append_i64(std::int64_t v);
-	expected<void, JsonError> append_u64(std::uint64_t v);
-	expected<void, JsonError> append_f64(double v);
+	std::expected<void, JsonError> append_null();
+	std::expected<void, JsonError> append_bool(bool v);
+	std::expected<void, JsonError> append_string(std::string_view value);
+	std::expected<void, JsonError> append_string_checked(std::string_view value);
+	std::expected<void, JsonError> append_string_borrowed(std::string_view value);
+	std::expected<void, JsonError> append_number(std::string_view lexeme);
+	std::expected<void, JsonError> append_i64(std::int64_t v);
+	std::expected<void, JsonError> append_u64(std::uint64_t v);
+	std::expected<void, JsonError> append_f64(double v);
 
-	expected<ObjectBuilder, JsonError> append_object();
-	expected<ArrayBuilder, JsonError> append_array();
+	std::expected<ObjectBuilder, JsonError> append_object();
+	std::expected<ArrayBuilder, JsonError> append_array();
 
 	template<class T>
 		requires has_json_codec<T>
-	expected<void, JsonError> append(T const &value);
-	// NOLINTNEXTLINE(bugprone-exception-escape)
+	std::expected<void, JsonError> append(T const &value);
+	// NOLINTNEXTLINE(bugprone-std::exception-escape)
 	void commit() && noexcept {
 		if ((frame_.state == nullptr) || frame_.committed) {
 			return;
@@ -2666,10 +2667,10 @@ public:
 namespace detail {
 
 template<class T>
-expected<std::size_t, JsonError> encode_into(BuilderState *st, T const &value);
+std::expected<std::size_t, JsonError> encode_into(BuilderState *st, T const &value);
 
 template<class T>
-expected<void, JsonError> encode_dispatch(ValueBuilder &b, T const &value);
+std::expected<void, JsonError> encode_dispatch(ValueBuilder &b, T const &value);
 
 } // namespace detail
 export class ValueBuilder {
@@ -2679,10 +2680,10 @@ export class ValueBuilder {
 	friend class ObjectBuilder;
 	friend class ArrayBuilder;
 	template<class T>
-	expected<std::size_t, JsonError> friend detail::encode_into(BuilderState *, T const &);
+	std::expected<std::size_t, JsonError> friend detail::encode_into(BuilderState *, T const &);
 	explicit ValueBuilder(BuilderState *borrowed) noexcept;
-	[[nodiscard]] expected<void, JsonError> check_can_set() const;
-	expected<void, JsonError> set_node(Node n);
+	[[nodiscard]] std::expected<void, JsonError> check_can_set() const;
+	std::expected<void, JsonError> set_node(Node n);
 
 public:
 	ValueBuilder();
@@ -2690,33 +2691,33 @@ public:
 	ValueBuilder &operator =(ValueBuilder &&o) noexcept;
 	ValueBuilder(ValueBuilder const &) = delete;
 	ValueBuilder &operator =(ValueBuilder const &) = delete;
-	expected<void, JsonError> set_null();
-	expected<void, JsonError> set_bool(bool v);
-	expected<void, JsonError> set_string(std::string_view sv);
-	expected<void, JsonError> set_number(std::string_view lexeme);
-	expected<void, JsonError> set_i64(std::int64_t v);
-	expected<void, JsonError> set_u64(std::uint64_t v);
-	expected<void, JsonError> set_f64(double v);
-	[[nodiscard]] expected<ObjectBuilder, JsonError> begin_object();
-	[[nodiscard]] expected<ArrayBuilder, JsonError> begin_array();
+	std::expected<void, JsonError> set_null();
+	std::expected<void, JsonError> set_bool(bool v);
+	std::expected<void, JsonError> set_string(std::string_view sv);
+	std::expected<void, JsonError> set_number(std::string_view lexeme);
+	std::expected<void, JsonError> set_i64(std::int64_t v);
+	std::expected<void, JsonError> set_u64(std::uint64_t v);
+	std::expected<void, JsonError> set_f64(double v);
+	[[nodiscard]] std::expected<ObjectBuilder, JsonError> begin_object();
+	[[nodiscard]] std::expected<ArrayBuilder, JsonError> begin_array();
 
 	template<class T>
 		requires has_json_codec<T>
-	expected<void, JsonError> set(T const &value);
+	std::expected<void, JsonError> set(T const &value);
 	void reset() noexcept;
 	void discard() && noexcept;
-	[[nodiscard]] expected<Document, JsonError> finish() &&;
+	[[nodiscard]] std::expected<Document, JsonError> finish() &&;
 };
 export ValueBuilder value_builder();
-export [[nodiscard]] expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
-export [[nodiscard]] expected<Document, JsonError> merge_patch(Document const &target, Document const &patch);
+export [[nodiscard]] std::expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
+export [[nodiscard]] std::expected<Document, JsonError> merge_patch(Document const &target, Document const &patch);
 // Internal helpers: encode a value of type T into a shared BuilderState,
 // returning the resulting node index. Rolls back on failure.
 // Used by ArrayBuilder::append<T> and ObjectBuilder::insert<T>.
 namespace detail {
 
 template<class T>
-expected<std::size_t, JsonError> encode_into(
+std::expected<std::size_t, JsonError> encode_into(
 	BuilderState *st,
 	T const &value) {
 	std::size_t const nodes_saved = st->store.nodes.size();
@@ -2740,7 +2741,7 @@ expected<std::size_t, JsonError> encode_into(
 		st->root_set = root_set_saved;
 		st->child_active = child_active_saved;
 		st->active_depth = active_depth_saved;
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	std::size_t const node_idx = st->root_node;
 	st->root_set = root_set_saved;
@@ -2766,7 +2767,7 @@ public:
 	// NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
 	constexpr Nullable(
 		T value)
-		: val_{move(value)} {}
+		: val_{std::move(value)} {}
 	Nullable(Nullable const &) = default;
 	Nullable(Nullable &&) noexcept = default;
 	Nullable &operator =(Nullable const &) = default;
@@ -2776,7 +2777,7 @@ public:
 	[[nodiscard]] constexpr explicit operator bool() const noexcept { return has_value(); }
 	[[nodiscard]] constexpr T &value() & { return *val_; }
 	[[nodiscard]] constexpr T const &value() const & { return *val_; }
-	[[nodiscard]] constexpr T &&value() && { return move(*val_); }
+	[[nodiscard]] constexpr T &&value() && { return std::move(*val_); }
 	[[nodiscard]] constexpr T &operator *() & noexcept { return *val_; }
 	[[nodiscard]] constexpr T const &operator *() const & noexcept { return *val_; }
 	[[nodiscard]] constexpr T *operator ->() noexcept { return &*val_; }
@@ -2785,13 +2786,13 @@ public:
 		requires std::convertible_to<U, T>
 	[[nodiscard]] constexpr T value_or(
 		U &&fallback) const & {
-		return val_ ? *val_ : static_cast<T>(forward<U>(fallback));
+		return val_ ? *val_ : static_cast<T>(std::forward<U>(fallback));
 	}
 	template<class U>
 		requires std::convertible_to<U, T>
 	[[nodiscard]] constexpr T value_or(
 		U &&fallback) && {
-		return val_ ? move(*val_) : static_cast<T>(forward<U>(fallback));
+		return val_ ? std::move(*val_) : static_cast<T>(std::forward<U>(fallback));
 	}
 	bool friend operator ==(
 		Nullable const &a,
@@ -2815,7 +2816,7 @@ struct std::hash<Nullable<T>> {
 		if (!n.has_value()) {
 			return 0;
 		}
-		return hash<T>{}(n.value());
+		return std::hash<T>{}(n.value());
 	}
 };
 // ---------------------------------------------------------------------------
@@ -2837,17 +2838,17 @@ namespace detail {
 
 template<class T>
 concept codec_decodes_node = requires(NodeRef root) {
-	{ JsonCodec<T>::decode(root) } -> same_as<expected<T, JsonError>>;
+	{ JsonCodec<T>::decode(root) } -> std::same_as<std::expected<T, JsonError>>;
 };
 
 template<class T>
 concept codec_decodes_node_with_options = requires(NodeRef root, JsonDecodeOptions const &opts) {
-	{ JsonCodec<T>::decode(root, opts) } -> same_as<expected<T, JsonError>>;
+	{ JsonCodec<T>::decode(root, opts) } -> std::same_as<std::expected<T, JsonError>>;
 };
 
 template<class T>
 concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
-	{ JsonCodec<T>::encode(builder, value) } -> same_as<expected<void, JsonError>>;
+	{ JsonCodec<T>::encode(builder, value) } -> std::same_as<std::expected<void, JsonError>>;
 };
 
 template<class T>
@@ -2855,7 +2856,7 @@ struct has_codec_spec<T>
 	: std::bool_constant<codec_encodes_value<T> && (codec_decodes_node<T> || codec_decodes_node_with_options<T>)> {};
 
 template<class T>
-expected<T, JsonError> decode_codec(
+std::expected<T, JsonError> decode_codec(
 	NodeRef root,
 	JsonDecodeOptions const &opts) {
 	if constexpr (codec_decodes_node_with_options<T>) {
@@ -2923,19 +2924,19 @@ template<class T>
 struct JsonCodec<std::unordered_map<std::string, T>>;
 
 export template<class T>
-expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts = {});
+std::expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts = {});
 
 export template<class T>
-expected<T, JsonError> decode(JsonReader &reader, JsonDecodeOptions const &opts = {});
+std::expected<T, JsonError> decode(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
-expected<T, JsonError> decode_next(JsonReader &reader, JsonDecodeOptions const &opts = {});
+std::expected<T, JsonError> decode_next(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
-expected<T, JsonError> decode_full(JsonReader &reader, JsonDecodeOptions const &opts = {});
+std::expected<T, JsonError> decode_full(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
-expected<T, JsonError>
+std::expected<T, JsonError>
 decode_full(std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
 export template<class T>
-expected<T, JsonError> decode(
+std::expected<T, JsonError> decode(
 	Document const &d,
 	JsonDecodeOptions const &opts = {}) {
 	return decode<T>(d.root(), opts);
@@ -2944,11 +2945,11 @@ expected<T, JsonError> decode(
 
 template<>
 struct JsonCodec<bool> {
-	static expected<bool, JsonError> decode(
+	static std::expected<bool, JsonError> decode(
 		NodeRef n) {
 		return n.as_bool();
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		bool v) {
 		return b.set_bool(v);
@@ -2957,15 +2958,15 @@ struct JsonCodec<bool> {
 };
 template<>
 struct JsonCodec<std::int64_t> {
-	static expected<std::int64_t, JsonError> decode(
+	static std::expected<std::int64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
 		if (!num) {
-			return unexpected(move(num).error());
+			return std::unexpected(std::move(num).error());
 		}
 		return num->to_i64();
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::int64_t v) {
 		return b.set_i64(v);
@@ -2974,15 +2975,15 @@ struct JsonCodec<std::int64_t> {
 };
 template<>
 struct JsonCodec<std::uint64_t> {
-	static expected<std::uint64_t, JsonError> decode(
+	static std::expected<std::uint64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
 		if (!num) {
-			return unexpected(move(num).error());
+			return std::unexpected(std::move(num).error());
 		}
 		return num->to_u64();
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::uint64_t v) {
 		return b.set_u64(v);
@@ -2991,15 +2992,15 @@ struct JsonCodec<std::uint64_t> {
 };
 template<>
 struct JsonCodec<double> {
-	static expected<double, JsonError> decode(
+	static std::expected<double, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
 		if (!num) {
-			return unexpected(move(num).error());
+			return std::unexpected(std::move(num).error());
 		}
 		return num->to_f64();
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		double v) {
 		return b.set_f64(v);
@@ -3008,15 +3009,15 @@ struct JsonCodec<double> {
 };
 template<>
 struct JsonCodec<std::string> {
-	static expected<std::string, JsonError> decode(
+	static std::expected<std::string, JsonError> decode(
 		NodeRef n) {
 		auto sv = n.as_string();
 		if (!sv) {
-			return unexpected(move(sv).error());
+			return std::unexpected(std::move(sv).error());
 		}
 		return std::string{*sv};
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::string const &v) {
 		return b.set_string(v);
@@ -3025,11 +3026,11 @@ struct JsonCodec<std::string> {
 };
 template<>
 struct JsonCodec<std::string_view> {
-	static expected<std::string_view, JsonError> decode(
+	static std::expected<std::string_view, JsonError> decode(
 		NodeRef n) {
 		return n.as_string();
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::string_view v) {
 		return b.set_string(v);
@@ -3038,17 +3039,17 @@ struct JsonCodec<std::string_view> {
 };
 template<class T>
 struct JsonCodec<std::optional<T>> {
-	static expected<std::optional<T>, JsonError> decode(
+	static std::expected<std::optional<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
 			if constexpr (detail::is_nullable_type<T>::value) {
 				auto v = ::decode<T>(n);
 				if (!v) {
-					return unexpected(move(v).error());
+					return std::unexpected(std::move(v).error());
 				}
-				return std::optional<T>{move(*v)};
+				return std::optional<T>{std::move(*v)};
 			} else {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::wrong_kind,
@@ -3060,11 +3061,11 @@ struct JsonCodec<std::optional<T>> {
 		}
 		auto v = ::decode<T>(n);
 		if (!v) {
-			return unexpected(move(v).error());
+			return std::unexpected(std::move(v).error());
 		}
-		return std::optional<T>{move(*v)};
+		return std::optional<T>{std::move(*v)};
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::optional<T> const &v) {
 		if (!v) {
@@ -3076,18 +3077,18 @@ struct JsonCodec<std::optional<T>> {
 };
 template<class T>
 struct JsonCodec<Nullable<T>> {
-	static expected<Nullable<T>, JsonError> decode(
+	static std::expected<Nullable<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
 			return Nullable<T>{};
 		}
 		auto v = ::decode<T>(n);
 		if (!v) {
-			return unexpected(move(v).error());
+			return std::unexpected(std::move(v).error());
 		}
-		return Nullable<T>{move(*v)};
+		return Nullable<T>{std::move(*v)};
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		Nullable<T> const &v) {
 		if (v.is_null()) {
@@ -3100,22 +3101,22 @@ struct JsonCodec<Nullable<T>> {
 namespace detail {
 
 template<class T>
-expected<std::vector<T>, JsonError> decode_array_elements(
+std::expected<std::vector<T>, JsonError> decode_array_elements(
 	ArrayView const &arr) {
 	std::vector<T> result;
 	result.reserve(arr.size());
 	for (std::size_t i = 0; i < arr.size(); ++i) {
 		auto elem = arr.element(i);
 		if (!elem) {
-			return unexpected(move(elem).error());
+			return std::unexpected(std::move(elem).error());
 		}
 		auto v = ::decode<T>(*elem);
 		if (!v) {
 			JsonPath prefix;
 			prefix.push_index(i);
-			return unexpected(move(v).error().with_prefix(prefix));
+			return std::unexpected(std::move(v).error().with_prefix(prefix));
 		}
-		result.push_back(move(*v));
+		result.push_back(std::move(*v));
 	}
 	return result;
 }
@@ -3123,160 +3124,160 @@ expected<std::vector<T>, JsonError> decode_array_elements(
 } // namespace detail
 template<class T>
 struct JsonCodec<std::vector<T>> {
-	static expected<std::vector<T>, JsonError> decode(
+	static std::expected<std::vector<T>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
 		if (!arr) {
-			return unexpected(move(arr).error());
+			return std::unexpected(std::move(arr).error());
 		}
 		return detail::decode_array_elements<T>(*arr);
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::vector<T> const &v) {
 		auto arr_res = b.begin_array();
 		if (!arr_res) {
-			return unexpected(move(arr_res).error());
+			return std::unexpected(std::move(arr_res).error());
 		}
 		auto &arr = *arr_res;
 		for (auto const &elem: v) {
 			if (auto ok = arr.template append<T>(elem); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 		}
-		move(arr).commit();
+		std::move(arr).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "V"; }
 };
 template<class T, std::size_t N>
 struct JsonCodec<std::array<T, N>> {
-	static expected<std::array<T, N>, JsonError> decode(
+	static std::expected<std::array<T, N>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
 		if (!arr) {
-			return unexpected(move(arr).error());
+			return std::unexpected(std::move(arr).error());
 		}
 		if (arr->size() != N) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
 					.target_type = std::string{type_name()},
 					.container_size = N,
-					.message = format("expected array of length {}, got {}", N, arr->size())});
+					.message = std::format("std::expected array of length {}, got {}", N, arr->size())});
 		}
 		std::array<T, N> result{};
 		for (std::size_t i = 0; i < N; ++i) {
 			auto elem = arr->element(i);
 			if (!elem) {
-				return unexpected(move(elem).error());
+				return std::unexpected(std::move(elem).error());
 			}
 			auto v = ::decode<T>(*elem);
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_index(i);
-				return unexpected(move(v).error().with_prefix(prefix));
+				return std::unexpected(std::move(v).error().with_prefix(prefix));
 			}
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-			result[i] = move(*v);
+			result[i] = std::move(*v);
 		}
 		return result;
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::array<T, N> const &v) {
 		auto arr_res = b.begin_array();
 		if (!arr_res) {
-			return unexpected(move(arr_res).error());
+			return std::unexpected(std::move(arr_res).error());
 		}
 		auto &arr = *arr_res;
 		for (std::size_t i = 0; i < N; ++i) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 			if (auto ok = arr.template append<T>(v[i]); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 		}
-		move(arr).commit();
+		std::move(arr).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "array"; }
 };
 template<class A, class B>
 struct JsonCodec<std::pair<A, B>> {
-	static expected<std::pair<A, B>, JsonError> decode(
+	static std::expected<std::pair<A, B>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
 		if (!arr) {
-			return unexpected(move(arr).error());
+			return std::unexpected(std::move(arr).error());
 		}
 		if (arr->size() != 2) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
 					.target_type = std::string{type_name()},
 					.container_size = 2UZ,
-					.message = format("expected array of length 2, got {}", arr->size())});
+					.message = std::format("std::expected array of length 2, got {}", arr->size())});
 		}
 		auto e0 = arr->element(0);
 		if (!e0) {
-			return unexpected(move(e0).error());
+			return std::unexpected(std::move(e0).error());
 		}
 		auto first = ::decode<A>(*e0);
 		if (!first) {
 			JsonPath prefix;
 			prefix.push_index(0);
-			return unexpected(move(first).error().with_prefix(prefix));
+			return std::unexpected(std::move(first).error().with_prefix(prefix));
 		}
 		auto e1 = arr->element(1);
 		if (!e1) {
-			return unexpected(move(e1).error());
+			return std::unexpected(std::move(e1).error());
 		}
 		auto second = ::decode<B>(*e1);
 		if (!second) {
 			JsonPath prefix;
 			prefix.push_index(1);
-			return unexpected(move(second).error().with_prefix(prefix));
+			return std::unexpected(std::move(second).error().with_prefix(prefix));
 		}
-		return std::pair<A, B>{move(*first), move(*second)};
+		return std::pair<A, B>{std::move(*first), std::move(*second)};
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::pair<A, B> const &v) {
 		auto arr_res = b.begin_array();
 		if (!arr_res) {
-			return unexpected(move(arr_res).error());
+			return std::unexpected(std::move(arr_res).error());
 		}
 		auto &arr = *arr_res;
 		if (auto ok = arr.template append<A>(v.first); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (auto ok = arr.template append<B>(v.second); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
-		move(arr).commit();
+		std::move(arr).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "P"; }
 };
 template<class... Ts>
 struct JsonCodec<std::tuple<Ts...>> {
-	static expected<std::tuple<Ts...>, JsonError> decode(
+	static std::expected<std::tuple<Ts...>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
 		if (!arr) {
-			return unexpected(move(arr).error());
+			return std::unexpected(std::move(arr).error());
 		}
 		constexpr std::size_t N = sizeof...(Ts);
 		if (arr->size() != N) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
 					.target_type = std::string{type_name()},
 					.container_size = N,
-					.message = format("expected array of length {}, got {}", N, arr->size())});
+					.message = std::format("std::expected array of length {}, got {}", N, arr->size())});
 		}
 		std::tuple<Ts...> result{};
 		bool ok = true;
@@ -3289,7 +3290,7 @@ struct JsonCodec<std::tuple<Ts...>> {
 				 auto elem = arr->element(I);
 				 if (!elem) {
 					 ok = false;
-					 first_err = move(elem).error();
+					 first_err = std::move(elem).error();
 					 return;
 				 }
 				 auto v = ::decode<std::tuple_element_t<I, std::tuple<Ts...>>>(*elem);
@@ -3297,24 +3298,24 @@ struct JsonCodec<std::tuple<Ts...>> {
 					 ok = false;
 					 JsonPath prefix;
 					 prefix.push_index(I);
-					 first_err = move(v).error().with_prefix(prefix);
+					 first_err = std::move(v).error().with_prefix(prefix);
 					 return;
 				 }
-				 get<I>(result) = move(*v);
+				 get<I>(result) = std::move(*v);
 			 }.template operator ()<Is>()),
 			 ...);
 		}(std::make_index_sequence<N>{});
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
 		return result;
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::tuple<Ts...> const &v) {
 		auto arr_res = b.begin_array();
 		if (!arr_res) {
-			return unexpected(move(arr_res).error());
+			return std::unexpected(std::move(arr_res).error());
 		}
 		auto &arr = *arr_res;
 		bool ok = true;
@@ -3327,26 +3328,26 @@ struct JsonCodec<std::tuple<Ts...>> {
 				 auto res = arr.template append<std::tuple_element_t<I, std::tuple<Ts...>>>(get<I>(v));
 				 if (!res) {
 					 ok = false;
-					 first_err = move(res).error();
+					 first_err = std::move(res).error();
 				 }
 			 }.template operator ()<Is>()),
 			 ...);
 		}(std::make_index_sequence<sizeof...(Ts)>{});
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
-		move(arr).commit();
+		std::move(arr).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "Tup"; }
 };
 template<class T>
 struct JsonCodec<std::map<std::string, T>> {
-	static expected<std::map<std::string, T>, JsonError> decode(
+	static std::expected<std::map<std::string, T>, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 		std::map<std::string, T> result;
 		for (auto const &[name, val]: obj->members()) {
@@ -3354,37 +3355,37 @@ struct JsonCodec<std::map<std::string, T>> {
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_member(name);
-				return unexpected(move(v).error().with_prefix(prefix));
+				return std::unexpected(std::move(v).error().with_prefix(prefix));
 			}
-			result.emplace(std::string{name}, move(*v));
+			result.emplace(std::string{name}, std::move(*v));
 		}
 		return result;
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::map<std::string, T> const &v) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
-			return unexpected(move(obj_res).error());
+			return std::unexpected(std::move(obj_res).error());
 		}
 		auto &obj = *obj_res;
 		for (auto const &[key, val]: v) {
 			if (auto ok = obj.template insert<T>(key, val); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 		}
-		move(obj).commit();
+		std::move(obj).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "M"; }
 };
 template<class T>
 struct JsonCodec<std::unordered_map<std::string, T>> {
-	static expected<std::unordered_map<std::string, T>, JsonError> decode(
+	static std::expected<std::unordered_map<std::string, T>, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 		std::unordered_map<std::string, T> result;
 		result.reserve(obj->size());
@@ -3393,26 +3394,26 @@ struct JsonCodec<std::unordered_map<std::string, T>> {
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_member(name);
-				return unexpected(move(v).error().with_prefix(prefix));
+				return std::unexpected(std::move(v).error().with_prefix(prefix));
 			}
-			result.emplace(std::string{name}, move(*v));
+			result.emplace(std::string{name}, std::move(*v));
 		}
 		return result;
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		std::unordered_map<std::string, T> const &v) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
-			return unexpected(move(obj_res).error());
+			return std::unexpected(std::move(obj_res).error());
 		}
 		auto &obj = *obj_res;
 		for (auto const &[key, val]: v) {
 			if (auto ok = obj.template insert<T>(key, val); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 		}
-		move(obj).commit();
+		std::move(obj).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "UM"; }
@@ -3423,7 +3424,7 @@ struct JsonCodec<std::unordered_map<std::string, T>> {
 
 namespace detail {
 
-[[nodiscard]] inline expected<void, JsonError> skip_remaining_reader(
+[[nodiscard]] inline std::expected<void, JsonError> skip_remaining_reader(
 	JsonReader &r,
 	JsonReader::Event ev) {
 	using Ev = JsonReader::Event;
@@ -3434,10 +3435,10 @@ namespace detail {
 	while (depth > 0) {
 		auto ne = r.next();
 		if (!ne) {
-			return unexpected(move(ne).error());
+			return std::unexpected(std::move(ne).error());
 		}
 		if (!*ne) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::parse,
 					.code = JsonIssueCode::unexpected_eof,
@@ -3453,68 +3454,68 @@ namespace detail {
 }
 
 template<class T>
-expected<T, JsonError> decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts);
+std::expected<T, JsonError> decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts);
 template<class T>
-expected<T, JsonError> decode_with_reader(
+std::expected<T, JsonError> decode_with_reader(
 	JsonReader &r,
 	JsonDecodeOptions const &opts) {
 	auto ne = r.next();
 	if (!ne) {
-		return unexpected(move(ne).error());
+		return std::unexpected(std::move(ne).error());
 	}
 	if (!*ne) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::decode,
 				.code = JsonIssueCode::unexpected_eof,
-				.message = "unexpected end of input"});
+				.message = "std::unexpected end of input"});
 	}
 	return decode_from_event<T>(r, **ne, opts);
 }
 template<class T>
-expected<T, JsonError> decode_from_event(
+std::expected<T, JsonError> decode_from_event(
 	JsonReader &r,
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts) {
 	using Ev = JsonReader::Event;
 
-	if constexpr (same_as<T, bool>) {
+	if constexpr (std::same_as<T, bool>) {
 		if (ev != Ev::bool_value) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected bool"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected bool"});
 		}
 		return r.bool_val();
-	} else if constexpr (same_as<T, std::int64_t>) {
+	} else if constexpr (std::same_as<T, std::int64_t>) {
 		if (ev != Ev::number_value) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
 		}
 		return r.number_val().to_i64();
-	} else if constexpr (same_as<T, std::uint64_t>) {
+	} else if constexpr (std::same_as<T, std::uint64_t>) {
 		if (ev != Ev::number_value) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
 		}
 		return r.number_val().to_u64();
-	} else if constexpr (same_as<T, double>) {
+	} else if constexpr (std::same_as<T, double>) {
 		if (ev != Ev::number_value) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
 		}
 		return r.number_val().to_f64();
-	} else if constexpr (same_as<T, std::string>) {
+	} else if constexpr (std::same_as<T, std::string>) {
 		if (ev != Ev::string_value) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected string"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected string"});
 		}
 		std::string out;
 		auto res = r.string_token().append_decoded_to(out);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return out;
-	} else if constexpr (same_as<T, std::string_view>) {
-		static_assert(!same_as<T, std::string_view>, "decode<string_view>(JsonReader&) is deleted; use std::string");
+	} else if constexpr (std::same_as<T, std::string_view>) {
+		static_assert(!std::same_as<T, std::string_view>, "decode<string_view>(JsonReader&) is deleted; use std::string");
 	} else if constexpr (is_optional<T>::value) {
 		using Inner = typename T::value_type;
 		if (ev == Ev::null_value) {
@@ -3522,9 +3523,9 @@ expected<T, JsonError> decode_from_event(
 		}
 		auto v = decode_from_event<Inner>(r, ev, opts);
 		if (!v) {
-			return unexpected(move(v).error());
+			return std::unexpected(std::move(v).error());
 		}
-		return T{move(*v)};
+		return T{std::move(*v)};
 	} else if constexpr (is_nullable_type<T>::value) {
 		if (ev == Ev::null_value) {
 			return T{};
@@ -3532,23 +3533,23 @@ expected<T, JsonError> decode_from_event(
 		using Inner = nullable_inner_t<T>;
 		auto v = decode_from_event<Inner>(r, ev, opts);
 		if (!v) {
-			return unexpected(move(v).error());
+			return std::unexpected(std::move(v).error());
 		}
-		return T{move(*v)};
+		return T{std::move(*v)};
 	} else if constexpr (is_vector_of_v<T>) {
 		using E = typename T::value_type;
 		if (ev != Ev::begin_array) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
 		}
 		T result;
 		while (true) {
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
@@ -3559,71 +3560,71 @@ expected<T, JsonError> decode_from_event(
 			}
 			auto elem = decode_from_event<E>(r, **ne, opts);
 			if (!elem) {
-				return unexpected(move(elem).error());
+				return std::unexpected(std::move(elem).error());
 			}
-			result.push_back(move(*elem));
+			result.push_back(std::move(*elem));
 		}
 	} else if constexpr (is_std_array_v<T>) {
 		using E = typename T::value_type;
 		constexpr std::size_t N = std::tuple_size_v<T>;
 		if (ev != Ev::begin_array) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
 		}
 		T result;
 		for (std::size_t i = 0; i < N; ++i) {
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in array"});
 			}
 			if (**ne == Ev::end_array) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
-						.message = format("expected array of length {}", N)});
+						.message = std::format("std::expected array of length {}", N)});
 			}
 			auto elem = decode_from_event<E>(r, **ne, opts);
 			if (!elem) {
-				return unexpected(move(elem).error());
+				return std::unexpected(std::move(elem).error());
 			}
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-			result[i] = move(*elem);
+			result[i] = std::move(*elem);
 		}
 		auto ne = r.next();
 		if (!ne) {
-			return unexpected(move(ne).error());
+			return std::unexpected(std::move(ne).error());
 		}
 		if (!*ne || **ne != Ev::end_array) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
-					.message = format("expected array of length {}", N)});
+					.message = std::format("std::expected array of length {}", N)});
 		}
 		return result;
 	} else if constexpr (is_pair_v<T>) {
 		using FA = typename T::first_type;
 		using FB = typename T::second_type;
 		if (ev != Ev::begin_array) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
 		}
 		T result;
 		{
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
@@ -3631,17 +3632,17 @@ expected<T, JsonError> decode_from_event(
 			}
 			auto v = decode_from_event<FA>(r, **ne, opts);
 			if (!v) {
-				return unexpected(move(v).error());
+				return std::unexpected(std::move(v).error());
 			}
-			result.first = move(*v);
+			result.first = std::move(*v);
 		}
 		{
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
@@ -3649,28 +3650,28 @@ expected<T, JsonError> decode_from_event(
 			}
 			auto v = decode_from_event<FB>(r, **ne, opts);
 			if (!v) {
-				return unexpected(move(v).error());
+				return std::unexpected(std::move(v).error());
 			}
-			result.second = move(*v);
+			result.second = std::move(*v);
 		}
 		{
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne || **ne != Ev::end_array) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
-						.message = "expected pair of length 2"});
+						.message = "std::expected pair of length 2"});
 			}
 		}
 		return result;
 	} else if constexpr (is_tuple_of_v<T>) {
 		if (ev != Ev::begin_array) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
 		}
 		T result;
 		bool ok = true;
@@ -3684,7 +3685,7 @@ expected<T, JsonError> decode_from_event(
 				 auto ne = r.next();
 				 if (!ne) {
 					 ok = false;
-					 first_err = move(ne).error();
+					 first_err = std::move(ne).error();
 					 return;
 				 }
 				 if (!*ne) {
@@ -3700,49 +3701,49 @@ expected<T, JsonError> decode_from_event(
 					 first_err = JsonError{
 						 .stage = JsonStage::decode,
 						 .code = JsonIssueCode::invalid_value,
-						 .message = format("expected tuple of length {}", N)};
+						 .message = std::format("std::expected tuple of length {}", N)};
 					 return;
 				 }
 				 using E = std::tuple_element_t<Is, T>;
 				 auto v = decode_from_event<E>(r, **ne, opts);
 				 if (!v) {
 					 ok = false;
-					 first_err = move(v).error();
+					 first_err = std::move(v).error();
 					 return;
 				 }
-				 get<Is>(result) = move(*v);
+				 get<Is>(result) = std::move(*v);
 			 })(),
 			 ...);
 		}(std::make_index_sequence<N>{});
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
 		auto ne = r.next();
 		if (!ne) {
-			return unexpected(move(ne).error());
+			return std::unexpected(std::move(ne).error());
 		}
 		if (!*ne || **ne != Ev::end_array) {
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
-					.message = format("expected tuple of length {}", N)});
+					.message = std::format("std::expected tuple of length {}", N)});
 		}
 		return result;
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		using Vt = typename T::mapped_type;
 		if (ev != Ev::begin_object) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected object"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected object"});
 		}
 		T result;
 		while (true) {
 			auto ne = r.next();
 			if (!ne) {
-				return unexpected(move(ne).error());
+				return std::unexpected(std::move(ne).error());
 			}
 			if (!*ne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
@@ -3752,23 +3753,23 @@ expected<T, JsonError> decode_from_event(
 				return result;
 			}
 			if (**ne != Ev::key) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::syntax_error,
-						.message = "expected key"});
+						.message = "std::expected key"});
 			}
 			std::string key;
 			auto key_res = r.key_token().append_decoded_to(key);
 			if (!key_res) {
-				return unexpected(move(key_res).error());
+				return std::unexpected(std::move(key_res).error());
 			}
 			auto vne = r.next();
 			if (!vne) {
-				return unexpected(move(vne).error());
+				return std::unexpected(std::move(vne).error());
 			}
 			if (!*vne) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
@@ -3776,21 +3777,21 @@ expected<T, JsonError> decode_from_event(
 			}
 			auto val = decode_from_event<Vt>(r, **vne, opts);
 			if (!val) {
-				return unexpected(move(val).error());
+				return std::unexpected(std::move(val).error());
 			}
-			result.emplace(move(key), move(*val));
+			result.emplace(std::move(key), std::move(*val));
 		}
-	} else if constexpr (same_as<T, Document>) {
+	} else if constexpr (std::same_as<T, Document>) {
 		std::size_t const start = r.value_start_pos();
 		if (auto ok = skip_remaining_reader(r, ev); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		std::string_view const slice = r.input().substr(start, r.pos() - start);
 		return conflux::json::parse(slice);
 	} else if constexpr (has_members_spec<T>::value) {
 		if (ev != Ev::begin_object) {
-			return unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected object"});
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected object"});
 		}
 		T result{};
 		auto const members = JsonMembers<T>::members();
@@ -3803,7 +3804,7 @@ expected<T, JsonError> decode_from_event(
 			auto ne = r.next();
 			if (!ne) {
 				ok = false;
-				first_err = move(ne).error();
+				first_err = std::move(ne).error();
 				break;
 			}
 			if (!*ne) {
@@ -3822,13 +3823,13 @@ expected<T, JsonError> decode_from_event(
 				first_err = JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::syntax_error,
-					.message = "expected key"};
+					.message = "std::expected key"};
 				break;
 			}
 			std::string key_name;
 			if (auto kr = r.key_token().append_decoded_to(key_name); !kr) {
 				ok = false;
-				first_err = move(kr).error();
+				first_err = std::move(kr).error();
 				break;
 			}
 
@@ -3850,7 +3851,7 @@ expected<T, JsonError> decode_from_event(
 							 auto vne = r.next();
 							 if (!vne || !*vne) {
 								 ok = false;
-								 first_err = !vne ? move(vne).error() :
+								 first_err = !vne ? std::move(vne).error() :
 													JsonError{
 														.stage = JsonStage::decode,
 														.code = JsonIssueCode::unexpected_eof,
@@ -3861,16 +3862,16 @@ expected<T, JsonError> decode_from_event(
 							 auto decoded = decode_from_event<M>(r, **vne, opts);
 							 if (!decoded) {
 								 ok = false;
-								 first_err = move(decoded).error();
+								 first_err = std::move(decoded).error();
 								 ++idx;
 								 return;
 							 }
-							 result.*m.pointer = move(*decoded);
+							 result.*m.pointer = std::move(*decoded);
 							 auto cfn = jm_constraint(entry);
 							 if (cfn != nullptr) {
 								 if (auto cr = cfn(result.*m.pointer); !cr) {
 									 ok = false;
-									 first_err = move(cr).error();
+									 first_err = std::move(cr).error();
 									 first_err.member_name = std::string{m.name};
 								 }
 							 }
@@ -3888,12 +3889,12 @@ expected<T, JsonError> decode_from_event(
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
 						.member_name = key_name,
-						.message = format("unknown member: {}", key_name)};
+						.message = std::format("unknown member: {}", key_name)};
 				} else {
 					auto vne = r.next();
 					if (!vne) {
 						ok = false;
-						first_err = move(vne).error();
+						first_err = std::move(vne).error();
 					} else if (!*vne) {
 						ok = false;
 						first_err = JsonError{
@@ -3902,14 +3903,14 @@ expected<T, JsonError> decode_from_event(
 							.message = "EOF in object value"};
 					} else if (auto skip_res = skip_remaining_reader(r, **vne); !skip_res) {
 						ok = false;
-						first_err = move(skip_res).error();
+						first_err = std::move(skip_res).error();
 					}
 				}
 			}
 		}
 
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
 
 		apply(
@@ -3929,7 +3930,7 @@ expected<T, JsonError> decode_from_event(
 							 .stage = JsonStage::decode,
 							 .code = JsonIssueCode::missing_member,
 							 .member_name = std::string{m.name},
-							 .message = format("missing member: {}", m.name)};
+							 .message = std::format("missing member: {}", m.name)};
 					 }
 					 ++idx;
 				 })(ms),
@@ -3938,7 +3939,7 @@ expected<T, JsonError> decode_from_event(
 			members);
 
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
 		return result;
 	} else if constexpr (has_codec_spec<T>::value) {
@@ -3946,56 +3947,56 @@ expected<T, JsonError> decode_from_event(
 		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
 		std::size_t const start = r.value_start_pos();
 		if (auto ok = skip_remaining_reader(r, ev); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		std::string_view const slice = r.input().substr(start, r.pos() - start);
 		auto doc = conflux::json::parse(slice);
 		if (!doc) {
-			return unexpected(move(doc).error());
+			return std::unexpected(std::move(doc).error());
 		}
 		return decode_codec<T>(doc->root(), opts);
 	} else {
-		static_assert(!same_as<T, T>, "No JsonReader support for type T");
+		static_assert(!std::same_as<T, T>, "No JsonReader support for type T");
 	}
 }
 
 } // namespace detail
 export template<class T>
-expected<T, JsonError> decode(
+std::expected<T, JsonError> decode(
 	JsonReader &reader,
 	JsonDecodeOptions const &opts) {
 	return decode_full<T>(reader, opts);
 }
 export template<class T>
-expected<T, JsonError> decode_next(
+std::expected<T, JsonError> decode_next(
 	JsonReader &reader,
 	JsonDecodeOptions const &opts) {
 	return detail::decode_with_reader<T>(reader, opts);
 }
 export template<class T>
-expected<T, JsonError> decode_full(
+std::expected<T, JsonError> decode_full(
 	JsonReader &reader,
 	JsonDecodeOptions const &opts) {
 	auto value = decode_next<T>(reader, opts);
 	if (!value) {
-		return unexpected(move(value).error());
+		return std::unexpected(std::move(value).error());
 	}
 	auto next = reader.next();
 	if (!next) {
-		return unexpected(move(next).error());
+		return std::unexpected(std::move(next).error());
 	}
 	if (*next) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
 				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
 				.message = "trailing JSON value after document root"});
 	}
-	return move(value);
+	return std::move(value);
 }
 export template<class T>
-expected<T, JsonError> decode_full(
+std::expected<T, JsonError> decode_full(
 	std::string_view input,
 	JsonParseOptions const &parse_opts,
 	JsonDecodeOptions const &decode_opts) {
@@ -4005,7 +4006,7 @@ expected<T, JsonError> decode_full(
 namespace detail {
 
 template<class T>
-expected<T, JsonError> decode_with_frames(
+std::expected<T, JsonError> decode_with_frames(
 	NodeRef root,
 	std::vector<PathFrame> &frames,
 	JsonDecodeOptions const &opts) {
@@ -4014,7 +4015,7 @@ expected<T, JsonError> decode_with_frames(
 	} else if constexpr (has_members_spec<T>::value) {
 		auto obj = root.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 		T result{};
 		auto const members = JsonMembers<T>::members();
@@ -4039,7 +4040,7 @@ expected<T, JsonError> decode_with_frames(
 								 .code = JsonIssueCode::missing_member,
 								 .path = materialize_path(frames),
 								 .member_name = std::string{m.name},
-								 .message = format("missing member: {}", m.name)};
+								 .message = std::format("missing member: {}", m.name)};
 						 }
 						 return;
 					 }
@@ -4047,7 +4048,7 @@ expected<T, JsonError> decode_with_frames(
 					 auto decoded = decode_with_frames<M>(*val, frames, opts);
 					 if (!decoded) {
 						 ok = false;
-						 first_err = move(decoded).error();
+						 first_err = std::move(decoded).error();
 						 if (first_err.path.empty()) {
 							 first_err.path = materialize_path(frames);
 						 }
@@ -4055,12 +4056,12 @@ expected<T, JsonError> decode_with_frames(
 						 return;
 					 }
 					 frames.pop_back();
-					 result.*m.pointer = move(*decoded);
+					 result.*m.pointer = std::move(*decoded);
 					 auto cfn = jm_constraint(entry);
 					 if (cfn != nullptr) {
 						 if (auto cr = cfn(result.*m.pointer); !cr) {
 							 ok = false;
-							 first_err = move(cr).error();
+							 first_err = std::move(cr).error();
 							 first_err.member_name = std::string{m.name};
 							 if (first_err.path.empty()) {
 								 first_err.path = materialize_path(frames);
@@ -4072,20 +4073,20 @@ expected<T, JsonError> decode_with_frames(
 			},
 			members);
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
 		if (opts.unknown_members == UnknownMemberPolicy::reject) {
 			for (auto const &[name, val]: obj->members()) {
 				bool found = false;
 				apply([&](auto const &...ms) { ((found = found || name == jm_member(ms).name), ...); }, members);
 				if (!found) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::decode,
 							.code = JsonIssueCode::invalid_value,
 							.path = materialize_path(frames),
 							.member_name = std::string{name},
-							.message = format("unknown member: {}", name)});
+							.message = std::format("unknown member: {}", name)});
 				}
 			}
 		}
@@ -4098,7 +4099,7 @@ expected<T, JsonError> decode_with_frames(
 } // namespace detail
 // decode<T> dispatch
 export template<class T>
-expected<T, JsonError> decode(
+std::expected<T, JsonError> decode(
 	NodeRef root,
 	JsonDecodeOptions const &opts) {
 	std::vector<detail::PathFrame> frames;
@@ -4111,10 +4112,10 @@ expected<T, JsonError> decode(
 
 template<class T>
 	requires has_json_codec<T>
-expected<void, JsonError> ArrayBuilder::append(
+std::expected<void, JsonError> ArrayBuilder::append(
 	T const &value) {
 	if (!arr_check_active(frame_)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
@@ -4123,14 +4124,14 @@ expected<void, JsonError> ArrayBuilder::append(
 	auto *st = frame_.state;
 	auto node_or = detail::encode_into<T>(st, value);
 	if (!node_or) {
-		return unexpected(move(node_or).error());
+		return std::unexpected(std::move(node_or).error());
 	}
 	frame_.local_children.push_back(*node_or);
 	return {};
 }
 template<class T>
 	requires has_json_codec<T>
-expected<void, JsonError> ObjectBuilder::insert(
+std::expected<void, JsonError> ObjectBuilder::insert(
 	std::string_view name,
 	T const &value) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -4138,17 +4139,17 @@ expected<void, JsonError> ObjectBuilder::insert(
 	}
 	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
 	if (frame_.dup_check.contains(name)) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::duplicate_member,
 				.member_name = std::string{name},
-				.message = format("duplicate member: {}", name)});
+				.message = std::format("duplicate member: {}", name)});
 	}
 	auto *st = frame_.state;
 	auto node_or = detail::encode_into<T>(st, value);
 	if (!node_or) {
-		return unexpected(move(node_or).error());
+		return std::unexpected(std::move(node_or).error());
 	}
 	return do_insert_node(name, *node_or);
 }
@@ -4156,7 +4157,7 @@ namespace detail {
 
 // Encode dispatch: mirrors the decode<T> dispatch logic.
 template<class T>
-expected<void, JsonError> encode_dispatch(
+std::expected<void, JsonError> encode_dispatch(
 	ValueBuilder &b,
 	T const &value) {
 	if constexpr (has_codec_spec<T>::value) {
@@ -4164,7 +4165,7 @@ expected<void, JsonError> encode_dispatch(
 	} else if constexpr (has_members_spec<T>::value) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
-			return unexpected(move(obj_res).error());
+			return std::unexpected(std::move(obj_res).error());
 		}
 		auto &obj = *obj_res;
 		auto const members = JsonMembers<T>::members();
@@ -4180,16 +4181,16 @@ expected<void, JsonError> encode_dispatch(
 					 auto res = obj.template insert<M>(m.name, value.*m.pointer);
 					 if (!res) {
 						 ok = false;
-						 first_err = move(res).error();
+						 first_err = std::move(res).error();
 					 }
 				 })(ms),
 				 ...);
 			},
 			members);
 		if (!ok) {
-			return unexpected(move(first_err));
+			return std::unexpected(std::move(first_err));
 		}
-		move(obj).commit();
+		std::move(obj).commit();
 		return {};
 	} else {
 		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
@@ -4199,7 +4200,7 @@ expected<void, JsonError> encode_dispatch(
 } // namespace detail
 template<class T>
 	requires has_json_codec<T>
-expected<void, JsonError> ValueBuilder::set(
+std::expected<void, JsonError> ValueBuilder::set(
 	T const &value) {
 	if (auto ok = check_can_set(); !ok) {
 		return ok;
@@ -4215,21 +4216,21 @@ namespace detail {
 template<class M>
 constexpr std::string_view json_type_name() noexcept {
 	using Raw = std::remove_cvref_t<M>;
-	if constexpr (same_as<Raw, bool>) {
+	if constexpr (std::same_as<Raw, bool>) {
 		return "boolean";
 	} else if constexpr (
-		same_as<Raw, std::int64_t>
-		|| same_as<Raw, std::uint64_t>
-		|| same_as<Raw, std::int32_t>
-		|| same_as<Raw, std::uint32_t>
-		|| same_as<Raw, std::int16_t>
-		|| same_as<Raw, std::uint16_t>
-		|| same_as<Raw, std::int8_t>
-		|| same_as<Raw, std::uint8_t>) {
+		std::same_as<Raw, std::int64_t>
+		|| std::same_as<Raw, std::uint64_t>
+		|| std::same_as<Raw, std::int32_t>
+		|| std::same_as<Raw, std::uint32_t>
+		|| std::same_as<Raw, std::int16_t>
+		|| std::same_as<Raw, std::uint16_t>
+		|| std::same_as<Raw, std::int8_t>
+		|| std::same_as<Raw, std::uint8_t>) {
 		return "integer";
-	} else if constexpr (same_as<Raw, double> || same_as<Raw, float>) {
+	} else if constexpr (std::same_as<Raw, double> || std::same_as<Raw, float>) {
 		return "number";
-	} else if constexpr (same_as<Raw, std::string> || same_as<Raw, std::string_view>) {
+	} else if constexpr (std::same_as<Raw, std::string> || std::same_as<Raw, std::string_view>) {
 		return "string";
 	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
 		return "array";
@@ -4242,7 +4243,7 @@ constexpr std::string_view json_type_name() noexcept {
 	}
 }
 template<class M>
-expected<void, JsonError> schema_insert_type(
+std::expected<void, JsonError> schema_insert_type(
 	ObjectBuilder &obj) {
 	using Raw = std::remove_cvref_t<M>;
 	if constexpr (is_optional<Raw>::value) {
@@ -4262,15 +4263,15 @@ expected<void, JsonError> schema_insert_type(
 } // namespace detail
 export template<class T>
 	requires(detail::has_members_spec<T>::value || detail::has_codec_spec<T>::value)
-expected<Document, JsonError> schema_for() {
+std::expected<Document, JsonError> schema_for() {
 	ValueBuilder vb;
 	auto obj_r = vb.begin_object();
 	if (!obj_r) {
-		return unexpected(move(obj_r).error());
+		return std::unexpected(std::move(obj_r).error());
 	}
 	auto &schema = *obj_r;
 	if (auto ok = schema.insert_string("type", "object"); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
 	if constexpr (detail::has_members_spec<T>::value) {
@@ -4290,18 +4291,18 @@ expected<Document, JsonError> schema_for() {
 					 auto field_r = props.insert_object(m.name);
 					 auto &field = *field_r;
 					 if (auto ok = detail::schema_insert_type<M>(field); !ok) {
-						 first_error = move(ok).error();
+						 first_error = std::move(ok).error();
 						 return;
 					 }
-					 move(field).commit();
+					 std::move(field).commit();
 				 })(ms),
 				 ...);
 			},
 			members);
 		if (first_error) {
-			return unexpected(move(*first_error));
+			return std::unexpected(std::move(*first_error));
 		}
-		move(props).commit();
+		std::move(props).commit();
 
 		auto req_r = schema.insert_array("required");
 		auto &req = *req_r;
@@ -4315,7 +4316,7 @@ expected<Document, JsonError> schema_for() {
 					 using M = std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
 					 if constexpr (!detail::is_optional<std::remove_cvref_t<M>>::value) {
 						 if (auto ok = req.append_string(m.name); !ok) {
-							 first_error = move(ok).error();
+							 first_error = std::move(ok).error();
 						 }
 					 }
 				 })(ms),
@@ -4323,34 +4324,34 @@ expected<Document, JsonError> schema_for() {
 			},
 			members);
 		if (first_error) {
-			return unexpected(move(*first_error));
+			return std::unexpected(std::move(*first_error));
 		}
-		move(req).commit();
+		std::move(req).commit();
 	}
 
-	move(schema).commit();
-	return move(vb).finish();
+	std::move(schema).commit();
+	return std::move(vb).finish();
 }
-export [[nodiscard]] expected<void, JsonError> validate(NodeRef root, NodeRef schema);
+export [[nodiscard]] std::expected<void, JsonError> validate(NodeRef root, NodeRef schema);
 
 // ---------------------------------------------------------------------------
 // JsonWritable concept + make_object / make_array factories (Phase 1.4)
 // ---------------------------------------------------------------------------
 
 export template<class T>
-concept JsonWritable = same_as<std::remove_cvref_t<T>, bool>
+concept JsonWritable = std::same_as<std::remove_cvref_t<T>, bool>
 					|| has_json_codec<std::remove_cvref_t<T>>
-					|| same_as<std::remove_cvref_t<T>, std::string>
+					|| std::same_as<std::remove_cvref_t<T>, std::string>
 					|| std::convertible_to<std::remove_cvref_t<T>, std::string_view>
 					|| (std::integral<std::remove_cvref_t<T>>
-						&& !same_as<std::remove_cvref_t<T>, bool>
-						&& !same_as<std::remove_cvref_t<T>, char>
-						&& !same_as<std::remove_cvref_t<T>, char8_t>
-						&& !same_as<std::remove_cvref_t<T>, signed char>
-						&& !same_as<std::remove_cvref_t<T>, unsigned char>
-						&& !same_as<std::remove_cvref_t<T>, wchar_t>
-						&& !same_as<std::remove_cvref_t<T>, char16_t>
-						&& !same_as<std::remove_cvref_t<T>, char32_t>)
+						&& !std::same_as<std::remove_cvref_t<T>, bool>
+						&& !std::same_as<std::remove_cvref_t<T>, char>
+						&& !std::same_as<std::remove_cvref_t<T>, char8_t>
+						&& !std::same_as<std::remove_cvref_t<T>, signed char>
+						&& !std::same_as<std::remove_cvref_t<T>, unsigned char>
+						&& !std::same_as<std::remove_cvref_t<T>, wchar_t>
+						&& !std::same_as<std::remove_cvref_t<T>, char16_t>
+						&& !std::same_as<std::remove_cvref_t<T>, char32_t>)
 					|| std::floating_point<std::remove_cvref_t<T>>;
 
 export template<class P>
@@ -4361,27 +4362,27 @@ concept JsonObjectPair = std::tuple_size<std::remove_cvref_t<P>>::value == 2
 namespace detail {
 
 template<class T>
-expected<void, JsonError> write_writable(
+std::expected<void, JsonError> write_writable(
 	ObjectBuilder &obj,
 	std::string_view name,
 	T const &value) {
 	using U = std::remove_cvref_t<T>;
-	if constexpr (same_as<U, bool>) {
+	if constexpr (std::same_as<U, bool>) {
 		return obj.insert_bool(name, value);
 	} else if constexpr (has_json_codec<U>) {
 		return obj.template insert<U>(name, value);
-	} else if constexpr (same_as<U, std::string>) {
+	} else if constexpr (std::same_as<U, std::string>) {
 		return obj.insert_string(name, std::string_view{value});
 	} else if constexpr (std::convertible_to<U, std::string_view>) {
 		std::string_view sv = static_cast<std::string_view>(value);
-		if constexpr (same_as<U, char const *> || std::is_pointer_v<U>) {
+		if constexpr (std::same_as<U, char const *> || std::is_pointer_v<U>) {
 			if (sv.data() == nullptr) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::invalid_value,
 						.member_name = std::string{name},
-						.message = format("null pointer for member '{}'", name)});
+						.message = std::format("null pointer for member '{}'", name)});
 			}
 		}
 		return obj.insert_string(name, sv);
@@ -4391,12 +4392,12 @@ expected<void, JsonError> write_writable(
 		} else {
 			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min())
 				|| value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::number_out_of_range,
 						.member_name = std::string{name},
-						.message = format("value out of std::int64_t range for member '{}'", name)});
+						.message = std::format("value out of std::int64_t range for member '{}'", name)});
 			}
 			return obj.insert_i64(name, static_cast<std::int64_t>(value));
 		}
@@ -4407,21 +4408,21 @@ expected<void, JsonError> write_writable(
 	}
 }
 template<class T>
-expected<void, JsonError> write_writable_arr(
+std::expected<void, JsonError> write_writable_arr(
 	ArrayBuilder &arr,
 	T const &value) {
 	using U = std::remove_cvref_t<T>;
-	if constexpr (same_as<U, bool>) {
+	if constexpr (std::same_as<U, bool>) {
 		return arr.append_bool(value);
 	} else if constexpr (has_json_codec<U>) {
 		return arr.template append<U>(value);
-	} else if constexpr (same_as<U, std::string>) {
+	} else if constexpr (std::same_as<U, std::string>) {
 		return arr.append_string(std::string_view{value});
 	} else if constexpr (std::convertible_to<U, std::string_view>) {
 		std::string_view sv = static_cast<std::string_view>(value);
-		if constexpr (same_as<U, char const *> || std::is_pointer_v<U>) {
+		if constexpr (std::same_as<U, char const *> || std::is_pointer_v<U>) {
 			if (sv.data() == nullptr) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::invalid_value,
@@ -4435,7 +4436,7 @@ expected<void, JsonError> write_writable_arr(
 		} else {
 			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min())
 				|| value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
-				return unexpected(
+				return std::unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::number_out_of_range,
@@ -4454,12 +4455,12 @@ expected<void, JsonError> write_writable_arr(
 // Heterogeneous variadic form.
 export template<class... Pairs>
 	requires(JsonObjectPair<std::remove_cvref_t<Pairs>> && ...)
-[[nodiscard]] expected<Document, JsonError> make_object(
+[[nodiscard]] std::expected<Document, JsonError> make_object(
 	Pairs &&...pairs) {
 	ValueBuilder vb;
 	auto obj_or = vb.begin_object();
 	if (!obj_or) {
-		return unexpected(move(obj_or).error());
+		return std::unexpected(std::move(obj_or).error());
 	}
 	auto &obj = *obj_or;
 	bool ok = true;
@@ -4472,45 +4473,45 @@ export template<class... Pairs>
 		 auto res = detail::write_writable(obj, key, std::get<1>(p));
 		 if (!res) {
 			 ok = false;
-			 first_err = move(res).error();
+			 first_err = std::move(res).error();
 		 }
-	 })(forward<Pairs>(pairs)),
+	 })(std::forward<Pairs>(pairs)),
 	 ...);
 	if (!ok) {
-		return unexpected(move(first_err));
+		return std::unexpected(std::move(first_err));
 	}
-	move(obj).commit();
-	return move(vb).finish();
+	std::move(obj).commit();
+	return std::move(vb).finish();
 }
 // Homogeneous initializer_list form.
 export template<class V>
 	requires JsonWritable<V>
-[[nodiscard]] expected<Document, JsonError> make_object(
+[[nodiscard]] std::expected<Document, JsonError> make_object(
 	std::initializer_list<std::pair<std::string_view, V>> pairs) {
 	ValueBuilder vb;
 	auto obj_or = vb.begin_object();
 	if (!obj_or) {
-		return unexpected(move(obj_or).error());
+		return std::unexpected(std::move(obj_or).error());
 	}
 	auto &obj = *obj_or;
 	for (auto const &[k, v]: pairs) {
 		auto res = detail::write_writable(obj, k, v);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 	}
-	move(obj).commit();
-	return move(vb).finish();
+	std::move(obj).commit();
+	return std::move(vb).finish();
 }
 // Heterogeneous variadic array form.
 export template<class... Elems>
 	requires(JsonWritable<std::remove_cvref_t<Elems>> && ...)
-[[nodiscard]] expected<Document, JsonError> make_array(
+[[nodiscard]] std::expected<Document, JsonError> make_array(
 	Elems &&...elems) {
 	ValueBuilder vb;
 	auto arr_or = vb.begin_array();
 	if (!arr_or) {
-		return unexpected(move(arr_or).error());
+		return std::unexpected(std::move(arr_or).error());
 	}
 	auto &arr = *arr_or;
 	bool ok = true;
@@ -4519,44 +4520,44 @@ export template<class... Elems>
 		 if (!ok) {
 			 return;
 		 }
-		 auto res = detail::write_writable_arr(arr, forward<decltype(e)>(e));
+		 auto res = detail::write_writable_arr(arr, std::forward<decltype(e)>(e));
 		 if (!res) {
 			 ok = false;
-			 first_err = move(res).error();
+			 first_err = std::move(res).error();
 		 }
-	 })(forward<Elems>(elems)),
+	 })(std::forward<Elems>(elems)),
 	 ...);
 	if (!ok) {
-		return unexpected(move(first_err));
+		return std::unexpected(std::move(first_err));
 	}
-	move(arr).commit();
-	return move(vb).finish();
+	std::move(arr).commit();
+	return std::move(vb).finish();
 }
 // Homogeneous initializer_list array form.
 export template<class V>
 	requires JsonWritable<V>
-[[nodiscard]] expected<Document, JsonError> make_array(
+[[nodiscard]] std::expected<Document, JsonError> make_array(
 	std::initializer_list<V> elems) {
 	ValueBuilder vb;
 	auto arr_or = vb.begin_array();
 	if (!arr_or) {
-		return unexpected(move(arr_or).error());
+		return std::unexpected(std::move(arr_or).error());
 	}
 	auto &arr = *arr_or;
 	for (auto const &e: elems) {
 		auto res = detail::write_writable_arr(arr, e);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 	}
-	move(arr).commit();
-	return move(vb).finish();
+	std::move(arr).commit();
+	return std::move(vb).finish();
 }
 
 // ─── Phase 3 — SAX / Event Interface ────────────────────────────────────────
 
 export template<class R>
-concept HandlerReturn = same_as<R, void> || std::convertible_to<R, expected<void, JsonError>>;
+concept HandlerReturn = std::same_as<R, void> || std::convertible_to<R, std::expected<void, JsonError>>;
 
 export template<class H>
 concept JsonHandler = requires(H &h, std::string_view sv, std::int64_t i, std::uint64_t u, double d, bool b) {
@@ -4573,50 +4574,50 @@ concept JsonHandler = requires(H &h, std::string_view sv, std::int64_t i, std::u
 	requires HandlerReturn<decltype(h.on_end_array())>;
 };
 export struct JsonDefaultHandler {
-	expected<void, JsonError> on_null() { return {}; }
-	expected<void, JsonError> on_bool(
+	std::expected<void, JsonError> on_null() { return {}; }
+	std::expected<void, JsonError> on_bool(
 		bool) {
 		return {};
 	}
-	expected<void, JsonError> on_string(
+	std::expected<void, JsonError> on_string(
 		std::string_view) {
 		return {};
 	}
-	expected<void, JsonError> on_i64(
+	std::expected<void, JsonError> on_i64(
 		std::int64_t) {
 		return {};
 	}
-	expected<void, JsonError> on_u64(
+	std::expected<void, JsonError> on_u64(
 		std::uint64_t) {
 		return {};
 	}
-	expected<void, JsonError> on_double(
+	std::expected<void, JsonError> on_double(
 		double) {
 		return {};
 	}
-	expected<void, JsonError> on_begin_object() { return {}; }
-	expected<void, JsonError> on_key(
+	std::expected<void, JsonError> on_begin_object() { return {}; }
+	std::expected<void, JsonError> on_key(
 		std::string_view) {
 		return {};
 	}
-	expected<void, JsonError> on_end_object() { return {}; }
-	expected<void, JsonError> on_begin_array() { return {}; }
-	expected<void, JsonError> on_end_array() { return {}; }
+	std::expected<void, JsonError> on_end_object() { return {}; }
+	std::expected<void, JsonError> on_begin_array() { return {}; }
+	std::expected<void, JsonError> on_end_array() { return {}; }
 	// on_number_raw intentionally absent
 };
 namespace detail {
 
-// Invoke callable, normalize return to expected<void,JsonError>.
+// Invoke callable, normalize return to std::expected<void,JsonError>.
 // Avoids passing void as a function argument.
 template<class F>
-[[nodiscard]] inline expected<void, JsonError> invoke_handler(
+[[nodiscard]] inline std::expected<void, JsonError> invoke_handler(
 	F &&f) {
 	using R = decltype(std::forward<F>(f)());
-	if constexpr (same_as<R, void>) {
-		forward<F>(f)();
+	if constexpr (std::same_as<R, void>) {
+		std::forward<F>(f)();
 		return {};
 	} else {
-		expected<void, JsonError> e = forward<F>(f)();
+		std::expected<void, JsonError> e = std::forward<F>(f)();
 		return e;
 	}
 }
@@ -4624,19 +4625,19 @@ template<class F>
 // If H provides on_number_raw: call it only (raw bytes, no typed conversion).
 // Otherwise dispatch on_i64 / on_u64 / on_double based on value kind.
 template<JsonHandler H>
-[[nodiscard]] expected<void, JsonError> dispatch_number(
+[[nodiscard]] std::expected<void, JsonError> dispatch_number(
 	H &h,
 	JsonNumberView nv) {
 	if constexpr (requires { h.on_number_raw(std::string_view{}); }) {
 		static_assert(
 			HandlerReturn<decltype(h.on_number_raw(std::string_view{}))>,
-			"on_number_raw must return void or expected<void,JsonError>");
+			"on_number_raw must return void or std::expected<void,JsonError>");
 		return invoke_handler([&] { return h.on_number_raw(nv.lexeme()); });
 	} else {
 		if (nv.form() == JsonNumberForm::non_integer) {
 			auto d = nv.to_f64();
 			if (!d) {
-				return unexpected(move(d).error());
+				return std::unexpected(std::move(d).error());
 			}
 			return invoke_handler([&] { return h.on_double(*d); });
 		}
@@ -4651,31 +4652,31 @@ template<JsonHandler H>
 		}
 		auto dv = nv.to_f64();
 		if (!dv) {
-			return unexpected(move(dv).error());
+			return std::unexpected(std::move(dv).error());
 		}
 		return invoke_handler([&] { return h.on_double(*dv); });
 	}
 }
 // Decode a JsonStringToken to string_view or std::string, call cb(std::string_view).
 template<class Cb>
-[[nodiscard]] expected<void, JsonError> dispatch_string_cb(
+[[nodiscard]] std::expected<void, JsonError> dispatch_string_cb(
 	JsonStringToken const &tok,
 	Cb &&cb) {
 	if (auto borrow = tok.unescaped_borrow()) {
-		return forward<Cb>(cb)(*borrow);
+		return std::forward<Cb>(cb)(*borrow);
 	}
 	std::string buf;
 	buf.reserve(tok.max_decoded_size());
 	auto r = tok.append_decoded_to(buf);
 	if (!r) {
-		return unexpected(move(r).error());
+		return std::unexpected(std::move(r).error());
 	}
-	return forward<Cb>(cb)(std::string_view{buf});
+	return std::forward<Cb>(cb)(std::string_view{buf});
 }
 
 } // namespace detail
 export template<JsonHandler H>
-[[nodiscard]] expected<void, JsonError> parse_sax(
+[[nodiscard]] std::expected<void, JsonError> parse_sax(
 	std::string_view input,
 	H &handler,
 	JsonParseOptions const &opts = {}) {
@@ -4685,14 +4686,14 @@ export template<JsonHandler H>
 	for (;;) {
 		auto ev_or = reader.next();
 		if (!ev_or) {
-			return unexpected(move(ev_or).error());
+			return std::unexpected(std::move(ev_or).error());
 		}
 		if (!*ev_or) {
 			break; // EOF
 		}
 
 		Ev ev = **ev_or;
-		expected<void, JsonError> res{};
+		std::expected<void, JsonError> res{};
 
 		switch (ev) {
 		case Ev::begin_object: res = detail::invoke_handler([&] { return handler.on_begin_object(); }); break;
@@ -4715,7 +4716,7 @@ export template<JsonHandler H>
 		}
 
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 	}
 	return {};
@@ -4730,7 +4731,7 @@ public:
 	explicit NdjsonRange(std::string_view input, JsonParseOptions const &opts = {}) noexcept;
 	struct Iterator {
 		using iterator_category = std::input_iterator_tag;
-		using value_type = expected<Document, JsonError>;
+		using value_type = std::expected<Document, JsonError>;
 		using difference_type = std::ptrdiff_t;
 		using pointer = value_type const *;
 		using reference = value_type const &;
@@ -4760,9 +4761,9 @@ export class JsonAccumulator {
 
 public:
 	explicit JsonAccumulator(JsonParseOptions const &opts = {}) noexcept;
-	[[nodiscard]] expected<void, JsonError> feed(std::string_view chunk);
-	[[nodiscard]] expected<void, JsonError> feed(span<byte const> chunk);
-	[[nodiscard]] expected<Document, JsonError> finish();
+	[[nodiscard]] std::expected<void, JsonError> feed(std::string_view chunk);
+	[[nodiscard]] std::expected<void, JsonError> feed(std::span<std::byte const> chunk);
+	[[nodiscard]] std::expected<Document, JsonError> finish();
 	void reset() noexcept;
 	[[nodiscard]] std::size_t buffered_bytes() const noexcept;
 };

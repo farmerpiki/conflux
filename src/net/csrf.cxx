@@ -42,10 +42,10 @@ export Router::Middleware csrf_middleware(
 	std::string lower_header = ascii_lower(opts.header_name);
 	std::string lower_field = ascii_lower(opts.form_field);
 
-	return [opts = move(opts),
-			lower_cookie = move(lower_cookie),
-			lower_header = move(lower_header),
-			lower_field = move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts),
+			lower_cookie = std::move(lower_cookie),
+			lower_header = std::move(lower_header),
+			lower_field = std::move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto is_protected =
 			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
 

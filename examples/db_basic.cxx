@@ -43,13 +43,13 @@ int main() {
 		Params p;
 		p.add(std::int64_t{3});
 		auto rs =
-			block_on(reader, conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", move(p)));
+			block_on(reader, conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", std::move(p)));
 		std::println("rows: {} cols: {}", rs.rows(), rs.cols());
 		for (auto row: rs) {
 			std::println("  {} = {}", row.as<std::int64_t>(0), row.as<std::string_view>(1));
 		}
 		conn->close();
-	} catch (exception const &e) {
+		} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		return 1;

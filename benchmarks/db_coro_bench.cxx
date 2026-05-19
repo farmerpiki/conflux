@@ -29,7 +29,7 @@ void consume(
 		acc += static_cast<std::size_t>(row.as<std::int64_t>(0));
 		acc += row.as<std::string_view>(1).size();
 	}
-	sink.fetch_add(acc, memory_order_relaxed);
+	sink.fetch_add(acc, std::memory_order_relaxed);
 }
 Params make_params(
 	std::int64_t n,
@@ -98,17 +98,17 @@ int main(
 			from_chars(sv.data(), sv.data() + sv.size(), v);
 			rows = static_cast<std::int64_t>(v);
 			if (cfg.config_name.empty()) {
-				cfg.config_name = format("rows_{}", rows);
+				cfg.config_name = std::format("rows_{}", rows);
 			}
 		} else if (a == "--binary") {
 			binary = true;
 			if (cfg.config_name.empty()) {
-				cfg.config_name = format("rows_{}_binary", rows);
+				cfg.config_name = std::format("rows_{}_binary", rows);
 			}
 		}
 	}
 	if (cfg.config_name.empty()) {
-		cfg.config_name = binary ? format("rows_{}_binary", rows) : format("rows_{}", rows);
+		cfg.config_name = binary ? std::format("rows_{}_binary", rows) : std::format("rows_{}", rows);
 	}
 
 	char const *raw = std::getenv("PG_CONNINFO");
@@ -152,7 +152,7 @@ int main(
 		if (!cfg.json_out) {
 			double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
 			std::println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
-			std::println("  sink       {}", sink.load(memory_order_relaxed));
+			std::println("  sink       {}", sink.load(std::memory_order_relaxed));
 		}
 
 		conn->close();

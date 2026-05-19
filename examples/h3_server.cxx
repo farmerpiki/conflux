@@ -14,7 +14,7 @@ import conflux.types;
 int main() {
 	std::string cert_path = "/tmp/conflux_h3_server_cert.pem";
 	std::string key_path = "/tmp/conflux_h3_server_key.pem";
-	std::string const gen_cmd = format(
+	std::string const gen_cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_path,
@@ -38,7 +38,7 @@ int main() {
 	});
 	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"transport":"h3-ready"})"); });
 
-	HttpServer srv{cfg, move(router)};
+	HttpServer srv{cfg, std::move(router)};
 	std::println(std::cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;

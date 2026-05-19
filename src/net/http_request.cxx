@@ -53,9 +53,9 @@ class ClientRequest::Builder {
 		std::string_view raw) {
 		auto r = Url::parse(raw);
 		if (!r) {
-			throw std::invalid_argument(format("invalid URL: {}", r.error().message));
+			throw std::invalid_argument(std::format("invalid URL: {}", r.error().message));
 		}
-		return move(*r);
+		return std::move(*r);
 	}
 	void assert_single_body() {
 #ifndef NDEBUG
@@ -75,11 +75,11 @@ public:
 		std::string_view method_str,
 		Url url) {
 		req_.method_ = std::string{method_str};
-		req_.url_ = move(url);
+		req_.url_ = std::move(url);
 	}
 	// Implicit conversion: Builder&& → ClientRequest (no-copy).
-	operator ClientRequest() && { return move(req_); } // NOLINT(google-explicit-constructor)
-	[[nodiscard]] ClientRequest build() && { return move(req_); }
+	operator ClientRequest() && { return std::move(req_); } // NOLINT(google-explicit-constructor)
+	[[nodiscard]] ClientRequest build() && { return std::move(req_); }
 	// ── verbs / URL ──────────────────────────────────────────────────────────
 
 	Builder &method(
@@ -92,31 +92,31 @@ public:
 		req_.url_ = parse_or_throw(raw);
 		return *this;
 	}
-	[[nodiscard]] expected<void, UrlError> try_url(
+	[[nodiscard]] std::expected<void, UrlError> try_url(
 		std::string_view raw) & {
 		auto parsed = Url::parse(raw);
 		if (!parsed) {
-			return unexpected{move(parsed.error())};
+			return std::unexpected{std::move(parsed.error())};
 		}
-		req_.url_ = move(*parsed);
+		req_.url_ = std::move(*parsed);
 		return {};
 	}
 	Builder &url(
 		Url u) & {
-		req_.url_ = move(u);
+		req_.url_ = std::move(u);
 		return *this;
 	}
 	Builder &&method(
 		std::string_view m) && {
-		return move(method(m));
+		return std::move(method(m));
 	}
 	Builder &&url(
 		std::string_view raw) && {
-		return move(url(raw));
+		return std::move(url(raw));
 	}
 	Builder &&url(
 		Url u) && {
-		return move(url(move(u)));
+		return std::move(url(std::move(u)));
 	}
 	// ── query ─────────────────────────────────────────────────────────────────
 
@@ -136,11 +136,11 @@ public:
 	Builder &&query(
 		std::string_view name,
 		std::string_view value) && {
-		return move(query(name, value));
+		return std::move(query(name, value));
 	}
 	Builder &&query_params(
 		HttpFields const &kv) && {
-		return move(query_params(kv));
+		return std::move(query_params(kv));
 	}
 	// ── headers ───────────────────────────────────────────────────────────────
 
@@ -159,13 +159,13 @@ public:
 	}
 	Builder &bearer(
 		std::string_view token) & {
-		return header("Authorization", format("Bearer {}", token));
+		return header("Authorization", std::format("Bearer {}", token));
 	}
 	Builder &basic(
 		std::string_view user,
 		std::string_view pass) & {
 		// Base64-encode user:pass.
-		auto const creds = format("{}:{}", user, pass);
+		auto const creds = std::format("{}:{}", user, pass);
 		// Simple base64 without external lib.
 		static constexpr std::string_view kAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 		std::string b64;
@@ -179,7 +179,7 @@ public:
 			b64 += (i + 1 < creds.size()) ? kAlpha[((b << 2) | (c >> 6)) & 0x3Fu] : '=';
 			b64 += (i + 2 < creds.size()) ? kAlpha[c & 0x3Fu] : '=';
 		}
-		return header("Authorization", format("Basic {}", b64));
+		return header("Authorization", std::format("Basic {}", b64));
 	}
 	Builder &user_agent(
 		std::string_view ua) & {
@@ -204,7 +204,7 @@ public:
 	}
 	Builder &if_modified_since(
 		std::chrono::system_clock::time_point tp) & {
-		// RFC 9110 HTTP-date format.
+		// RFC 9110 HTTP-date std::format.
 		auto const tt = std::chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
@@ -224,49 +224,49 @@ public:
 	Builder &&header(
 		std::string_view name,
 		std::string_view value) && {
-		return move(header(name, value));
+		return std::move(header(name, value));
 	}
 	Builder &&headers(
 		HttpFields h) && {
-		return move(headers(move(h)));
+		return std::move(headers(std::move(h)));
 	}
 	Builder &&bearer(
 		std::string_view token) && {
-		return move(bearer(token));
+		return std::move(bearer(token));
 	}
 	Builder &&basic(
 		std::string_view user,
 		std::string_view pass) && {
-		return move(basic(user, pass));
+		return std::move(basic(user, pass));
 	}
 	Builder &&user_agent(
 		std::string_view ua) && {
-		return move(user_agent(ua));
+		return std::move(user_agent(ua));
 	}
 	Builder &&accept(
 		std::string_view mime) && {
-		return move(accept(mime));
+		return std::move(accept(mime));
 	}
-	Builder &&accept_json() && { return move(accept_json()); }
+	Builder &&accept_json() && { return std::move(accept_json()); }
 	Builder &&content_type(
 		std::string_view ct) && {
-		return move(content_type(ct));
+		return std::move(content_type(ct));
 	}
 	Builder &&if_match(
 		std::string_view etag) && {
-		return move(if_match(etag));
+		return std::move(if_match(etag));
 	}
 	Builder &&if_none_match(
 		std::string_view etag) && {
-		return move(if_none_match(etag));
+		return std::move(if_none_match(etag));
 	}
 	Builder &&if_modified_since(
 		std::chrono::system_clock::time_point tp) && {
-		return move(if_modified_since(tp));
+		return std::move(if_modified_since(tp));
 	}
 	Builder &&if_unmodified_since(
 		std::chrono::system_clock::time_point tp) && {
-		return move(if_unmodified_since(tp));
+		return std::move(if_unmodified_since(tp));
 	}
 	// ── body ──────────────────────────────────────────────────────────────────
 	// Each body_* method asserts in debug that no prior body was set.
@@ -275,7 +275,7 @@ public:
 	Builder &body(
 		std::string s) & {
 		assert_single_body();
-		req_.body_ = move(s);
+		req_.body_ = std::move(s);
 		return *this;
 	}
 	Builder &body_view(
@@ -287,7 +287,7 @@ public:
 	Builder &body_json_raw(
 		std::string already_serialized) & {
 		assert_single_body();
-		req_.body_ = move(already_serialized);
+		req_.body_ = std::move(already_serialized);
 		return content_type("application/json");
 	}
 	Builder &body_form(
@@ -329,7 +329,7 @@ public:
 			encoded += '=';
 			append_encoded(v);
 		}
-		req_.body_ = move(encoded);
+		req_.body_ = std::move(encoded);
 		return content_type("application/x-www-form-urlencoded");
 	}
 	Builder &clear_body() & {
@@ -339,21 +339,21 @@ public:
 	}
 	Builder &&body(
 		std::string s) && {
-		return move(body(move(s)));
+		return std::move(body(std::move(s)));
 	}
 	Builder &&body_view(
 		std::string_view sv) && {
-		return move(body_view(sv));
+		return std::move(body_view(sv));
 	}
 	Builder &&body_json_raw(
 		std::string s) && {
-		return move(body_json_raw(move(s)));
+		return std::move(body_json_raw(std::move(s)));
 	}
 	Builder &&body_form(
 		HttpFields f) && {
-		return move(body_form(move(f)));
+		return std::move(body_form(std::move(f)));
 	}
-	Builder &&clear_body() && { return move(clear_body()); }
+	Builder &&clear_body() && { return std::move(clear_body()); }
 	// ── execution policy ──────────────────────────────────────────────────────
 
 	Builder &timeouts(
@@ -362,8 +362,8 @@ public:
 		return *this;
 	}
 	Builder &follow_redirects(
-		int max = 10) & {
-		req_.max_redirects_ = max;
+		int max_redirects = 10) & {
+		req_.max_redirects_ = max_redirects;
 		return *this;
 	}
 	Builder &disable_redirects() & {
@@ -382,20 +382,20 @@ public:
 	}
 	Builder &&timeouts(
 		HttpTimeouts t) && {
-		return move(timeouts(t));
+		return std::move(timeouts(t));
 	}
 	Builder &&follow_redirects(
-		int max) && {
-		return move(follow_redirects(max));
+		int max_redirects) && {
+		return std::move(follow_redirects(max_redirects));
 	}
-	Builder &&disable_redirects() && { return move(disable_redirects()); }
+	Builder &&disable_redirects() && { return std::move(disable_redirects()); }
 	Builder &&verify_peer(
 		bool v) && {
-		return move(verify_peer(v));
+		return std::move(verify_peer(v));
 	}
 	Builder &&server_name(
 		std::string_view s) && {
-		return move(server_name(s));
+		return std::move(server_name(s));
 	}
 };
 // ─── Static factory implementations ──────────────────────────────────────────
@@ -429,45 +429,45 @@ ClientRequest::Builder ClientRequest::method(
 	std::string_view url) {
 	return Builder{m, url};
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_method(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_method(
 	std::string_view method,
 	std::string_view url) {
 	auto parsed = Url::parse(url);
 	if (!parsed) {
-		return unexpected{move(parsed.error())};
+		return std::unexpected{std::move(parsed.error())};
 	}
-	return ClientRequest::Builder{method, move(*parsed)};
+	return ClientRequest::Builder{method, std::move(*parsed)};
 }
-[[nodiscard]] expected<ClientRequest, UrlError> try_request(
+[[nodiscard]] std::expected<ClientRequest, UrlError> try_request(
 	std::string_view method,
 	std::string_view url) {
 	auto builder = try_method(method, url);
 	if (!builder) {
-		return unexpected{move(builder.error())};
+		return std::unexpected{std::move(builder.error())};
 	}
-	return move(*builder).build();
+	return std::move(*builder).build();
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_get(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_get(
 	std::string_view url) {
 	return try_method("GET", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_post(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_post(
 	std::string_view url) {
 	return try_method("POST", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_put(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_put(
 	std::string_view url) {
 	return try_method("PUT", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_patch(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_patch(
 	std::string_view url) {
 	return try_method("PATCH", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_del(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_del(
 	std::string_view url) {
 	return try_method("DELETE", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_head(
+[[nodiscard]] std::expected<ClientRequest::Builder, UrlError> try_head(
 	std::string_view url) {
 	return try_method("HEAD", url);
 }

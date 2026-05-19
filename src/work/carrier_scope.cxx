@@ -14,10 +14,10 @@ export namespace conflux::work::carrier {
 // concurrent tasks. Track controls before joining; cancel() fires
 // request_cancel() on all tracked controls concurrently with any blocking join.
 //
-// Thread-safe: track(), cancel(), and admit() may be called from any thread.
-// The mutex is not held during root::blocking_join() to avoid blocking cancel() callers.
+// Thread-safe: track(), cancel(), and admit() may be called from any std::thread.
+// The std::mutex is not held during root::blocking_join() to avoid blocking cancel() callers.
 class Scope {
-	mutable mutex mu_;
+	mutable std::mutex mu_;
 	std::vector<root::TaskControl> task_ctrls_;
 	std::vector<root::PostedControl> posted_ctrls_;
 	std::vector<root::OperationControl> op_ctrls_;
@@ -46,7 +46,7 @@ public:
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
 					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
 #endif
-				task_ctrls_.push_back(move(ctrl));
+				task_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
 			lock.unlock();
@@ -63,7 +63,7 @@ public:
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
 					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
 #endif
-				posted_ctrls_.push_back(move(ctrl));
+				posted_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
 			lock.unlock();
@@ -80,7 +80,7 @@ public:
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
 					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
 #endif
-				op_ctrls_.push_back(move(ctrl));
+				op_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
 			lock.unlock();
@@ -93,7 +93,7 @@ public:
 		std::vector<root::PostedControl> posted;
 		std::vector<root::OperationControl> op;
 		{
-			lock_guard const lock{mu_};
+			std::lock_guard const lock{mu_};
 			if (cancelled_) {
 				return;
 			}
@@ -114,11 +114,11 @@ public:
 		}
 	}
 	[[nodiscard]] bool is_cancelled() const noexcept {
-		lock_guard const lock{mu_};
+		std::lock_guard const lock{mu_};
 		return cancelled_;
 	}
 	[[nodiscard]] root::CancelReason cancel_reason() const noexcept {
-		lock_guard const lock{mu_};
+		std::lock_guard const lock{mu_};
 		return cancel_reason_;
 	}
 	// Track the join handle's control then join: cancel() fired concurrently
@@ -127,35 +127,35 @@ public:
 	[[nodiscard]] Chain<T> admit(
 		root::TaskJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(move(jh)), CarrierKind::task};
+		return Chain<T>{root::blocking_join(std::move(jh)), CarrierKind::task};
 	}
 	template<root::work_value T, root::progress_capability Owner>
 	[[nodiscard]] Chain<T> admit(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(owner, move(jh)), CarrierKind::posted, root::capability_id(owner)};
+		return Chain<T>{root::blocking_join(owner, std::move(jh)), CarrierKind::posted, root::capability_id(owner)};
 	}
 	template<root::work_value T, root::progress_capability Owner>
 	[[nodiscard]] Chain<T> admit_unbound(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(owner, move(jh)), CarrierKind::posted};
+		return Chain<T>{root::blocking_join(owner, std::move(jh)), CarrierKind::posted};
 	}
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] Chain<T> admit(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(driver, move(jh)), CarrierKind::operation, root::capability_id(driver)};
+		return Chain<T>{root::blocking_join(driver, std::move(jh)), CarrierKind::operation, root::capability_id(driver)};
 	}
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] Chain<T> admit_unbound(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(driver, move(jh)), CarrierKind::operation};
+		return Chain<T>{root::blocking_join(driver, std::move(jh)), CarrierKind::operation};
 	}
 };
 

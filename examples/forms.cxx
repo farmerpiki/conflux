@@ -44,7 +44,7 @@ int main() {
 	router.get("/search", [](HttpRequestView const &req) {
 		auto q = req.query["q"];
 		auto lang = req.query["lang"];
-		return HttpResponse::html(format(
+		return HttpResponse::html(std::format(
 			"<html><body>"
 			"<h1>Search results</h1>"
 			"<p>Query: <strong>{}</strong></p>"
@@ -59,7 +59,7 @@ int main() {
 	router.post("/submit", [](HttpRequestView const &req) {
 		auto name = req.form["name"];
 		auto age = req.form["age"];
-		return HttpResponse::html(format(
+		return HttpResponse::html(std::format(
 			"<html><body>"
 			"<h1>Submitted</h1>"
 			"<p>Name: <strong>{}</strong></p>"
@@ -70,7 +70,7 @@ int main() {
 			age.empty() ? "(none)" : age));
 	});
 
-	HttpServer srv{cfg, move(router)};
+	HttpServer srv{cfg, std::move(router)};
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

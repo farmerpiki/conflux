@@ -100,7 +100,7 @@ export Router::Middleware trailing_slash_middleware(
 				.status = opts.redirect_status,
 				.status_text = status_text,
 				.content_type = "text/plain; charset=utf-8"};
-			r.headers["Location"] = move(new_path);
+			r.headers["Location"] = std::move(new_path);
 			return r;
 		};
 
@@ -110,7 +110,7 @@ export Router::Middleware trailing_slash_middleware(
 		if (opts.mode == TrailingSlashMode::add && !has_slash) {
 			std::string new_path{path};
 			new_path.push_back('/');
-			return make_redirect(move(new_path));
+			return make_redirect(std::move(new_path));
 		}
 
 		return next(req);

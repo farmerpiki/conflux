@@ -13,6 +13,7 @@ import conflux.types;
 import conflux.work.root;
 export namespace conflux::work::carrier {
 
+
 template<class Clock>
 class LaneTimerScope;
 class TimerService {
@@ -22,7 +23,7 @@ public:
 		std::uint64_t cqe_tag) {
 		tfd_ = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 		if (tfd_ < 0) {
-			throw std::system_error{errno, system_category(), "timerfd_create"};
+			throw std::system_error{errno, std::system_category(), "timerfd_create"};
 		}
 		ring_ = ring;
 		cqe_tag_ = cqe_tag;
@@ -72,7 +73,7 @@ private:
 	};
 	io_uring *ring_ = nullptr;
 	std::uint64_t cqe_tag_{};
-	thread::id owner_{};
+	std::thread::id owner_{};
 	int tfd_ = -1;
 	std::uint64_t read_buf_{};
 	std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap_;
@@ -82,10 +83,10 @@ private:
 		std::chrono::steady_clock::time_point deadline,
 		std::function<void()> fn) {
 		check_thread_();
-		auto gen = make_shared<std::uint64_t>(0);
+		auto gen = std::make_shared<std::uint64_t>(0);
 		bool const was_empty = heap_.empty();
 		bool const is_new_min = !was_empty && deadline < heap_.top().deadline;
-		heap_.push(Entry{deadline, 0, gen, move(fn)});
+		heap_.push(Entry{deadline, 0, gen, std::move(fn)});
 		if (was_empty || is_new_min) {
 			rearm_();
 		}
@@ -131,13 +132,13 @@ private:
 				break;
 			}
 			if (*top.gen == top.expected_gen) {
-				auto fn = move(top.fn);
+				auto fn = std::move(top.fn);
 				heap_.pop();
 				if (fn) {
 					try {
 						fn();
 					} catch (...) {
-						root::emit_carrier_diagnostic("TimerService: timer callback threw — exception swallowed");
+						root::emit_carrier_diagnostic("TimerService: timer callback threw — std::exception swallowed");
 					}
 				}
 			} else {
@@ -158,14 +159,14 @@ private:
 	void compact_() {
 		std::vector<Entry> survivors;
 		while (!heap_.empty()) {
-			auto e = move(const_cast<Entry &>(heap_.top()));
+			auto e = std::move(const_cast<Entry &>(heap_.top()));
 			heap_.pop();
 			if (*e.gen == e.expected_gen) {
-				survivors.push_back(move(e));
+				survivors.push_back(std::move(e));
 			}
 		}
 		for (auto &s: survivors) {
-			heap_.push(move(s));
+			heap_.push(std::move(s));
 		}
 		tombstone_count_ = 0;
 		cancel_count_ = 0;
@@ -185,7 +186,7 @@ private:
 		assert(std::this_thread::get_id() == owner_);
 #else
 		if (std::this_thread::get_id() != owner_) {
-			root::emit_carrier_diagnostic("TimerService: cross-thread access detected");
+			root::emit_carrier_diagnostic("TimerService: cross-std::thread access detected");
 		}
 #endif
 	}
@@ -199,26 +200,26 @@ public:
 		std::function<void()> cancel_fn)
 		: svc_{&svc} {
 		auto const steady_deadline = [&] {
-			if constexpr (same_as<Clock, std::chrono::steady_clock>) {
+			if constexpr (std::same_as<Clock, std::chrono::steady_clock>) {
 				return deadline;
 			} else {
 				auto const delta = deadline - Clock::now();
 				return std::chrono::steady_clock::now() + delta;
 			}
 		}();
-		gen_ = svc.insert_(steady_deadline, move(cancel_fn));
+		gen_ = svc.insert_(steady_deadline, std::move(cancel_fn));
 	}
 	~LaneTimerScope() noexcept { cancel_(); }
 	LaneTimerScope(
 		LaneTimerScope &&o) noexcept
 		: svc_{o.svc_}
-		, gen_{exchange(o.gen_, {})} {}
+		, gen_{std::exchange(o.gen_, {})} {}
 	LaneTimerScope &operator =(
 		LaneTimerScope &&o) noexcept {
 		if (this != &o) {
 			cancel_();
 			svc_ = o.svc_;
-			gen_ = exchange(o.gen_, {});
+			gen_ = std::exchange(o.gen_, {});
 		}
 		return *this;
 	}

@@ -476,7 +476,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_null().has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(doc->root().is_null());
 }
@@ -485,7 +485,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_bool(true).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_bool() == true);
 }
@@ -494,7 +494,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_string("hello").has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_string() == "hello");
 }
@@ -503,7 +503,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_i64(-99LL).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_number()->to_i64() == -99LL);
 }
@@ -512,7 +512,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_u64(std::numeric_limits<std::uint64_t>::max()).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_number()->to_u64() == std::numeric_limits<std::uint64_t>::max());
 }
@@ -521,7 +521,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_f64(1.5).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_number()->to_f64() == Catch::Approx(1.5));
 }
@@ -537,7 +537,7 @@ TEST_CASE(
 	"json: builder finish without set returns error",
 	"[json][builder]") {
 	auto b = value_builder();
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	CHECK_FALSE(doc.has_value());
 	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
 }
@@ -548,7 +548,7 @@ TEST_CASE(
 	REQUIRE(b.set_i64(1LL).has_value());
 	b.reset();
 	REQUIRE(b.set_i64(2LL).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_number()->to_i64() == 2LL);
 }
@@ -573,8 +573,8 @@ TEST_CASE(
 	REQUIRE(ob->insert_string("name", "alice").has_value());
 	REQUIRE(ob->insert_bool("ok", true).has_value());
 	REQUIRE(ob->insert_null("nothing").has_value());
-	move(*ob).commit();
-	auto doc = move(b).finish();
+	std::move(*ob).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
 	CHECK(*o.member("x")->as_number()->to_i64() == 10LL);
@@ -606,8 +606,8 @@ TEST_CASE(
 	REQUIRE(ab->append_i64(1LL).has_value());
 	REQUIRE(ab->append_i64(2LL).has_value());
 	REQUIRE(ab->append_i64(3LL).has_value());
-	move(*ab).commit();
-	auto doc = move(b).finish();
+	std::move(*ab).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto a = *doc->root().as_array();
 	CHECK(a.size() == 3UZ);
@@ -624,8 +624,8 @@ TEST_CASE(
 	REQUIRE(ab->append_bool(false).has_value());
 	REQUIRE(ab->append_string("hi").has_value());
 	REQUIRE(ab->append_f64(2.5).has_value());
-	move(*ab).commit();
-	auto doc = move(b).finish();
+	std::move(*ab).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto a = *doc->root().as_array();
 	CHECK(a.size() == 4UZ);
@@ -643,7 +643,7 @@ TEST_CASE(
 	"[json][builder]") {
 	auto b = value_builder();
 	REQUIRE(b.set_number("1.5e2").has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_number()->to_f64() == Catch::Approx(150.0));
 }
@@ -1104,11 +1104,11 @@ enum class Color {
 };
 template<>
 struct JsonCodec<Color> {
-	static expected<Color, JsonError> decode(
+	static std::expected<Color, JsonError> decode(
 		NodeRef n) {
 		auto s = n.as_string();
 		if (!s) {
-			return unexpected(move(s).error());
+			return std::unexpected(std::move(s).error());
 		}
 		if (*s == "red") {
 			return Color::red;
@@ -1119,14 +1119,14 @@ struct JsonCodec<Color> {
 		if (*s == "blue") {
 			return Color::blue;
 		}
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::decode,
 				.code = JsonIssueCode::invalid_value,
 				.target_type = std::string{type_name()},
-				.message = format("unknown Color spelling: {}", *s)});
+				.message = std::format("unknown Color spelling: {}", *s)});
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		Color c) {
 		switch (c) {
@@ -1134,7 +1134,7 @@ struct JsonCodec<Color> {
 		case Color::green: return b.set_string("green");
 		case Color::blue : return b.set_string("blue");
 		}
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_value,
@@ -1413,7 +1413,7 @@ TEST_CASE(
 	auto b = value_builder();
 	auto ok = b.set<std::int64_t>(42LL);
 	REQUIRE(ok.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::int64_t>(doc->root());
 	REQUIRE(r.has_value());
@@ -1426,7 +1426,7 @@ TEST_CASE(
 	std::vector<std::int64_t> const v{1LL, 2LL, 3LL};
 	auto ok = b.set<std::vector<std::int64_t>>(v);
 	REQUIRE(ok.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::vector<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1441,7 +1441,7 @@ TEST_CASE(
 	auto b = value_builder();
 	auto ok = b.set<std::pair<std::string, std::int64_t>>({"hello", 7LL});
 	REQUIRE(ok.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::pair<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1454,7 +1454,7 @@ TEST_CASE(
 	auto b = value_builder();
 	auto ok = b.set<std::tuple<bool, std::int64_t>>(std::tuple{true, 99LL});
 	REQUIRE(ok.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::tuple<bool, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1471,7 +1471,7 @@ TEST_CASE(
     };
 	auto ok = b.set<std::map<std::string, std::int64_t>>(m);
 	REQUIRE(ok.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::map<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1488,8 +1488,8 @@ TEST_CASE(
 	auto &obj = *obj_res;
 	auto ok = obj.insert<Color>("color", Color::blue);
 	REQUIRE(ok.has_value());
-	move(obj).commit();
-	auto doc = move(b).finish();
+	std::move(obj).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = doc->root().as_object();
 	REQUIRE(r.has_value());
@@ -1508,8 +1508,8 @@ TEST_CASE(
 	auto &arr = *arr_res;
 	REQUIRE(arr.append<std::int64_t>(10LL).has_value());
 	REQUIRE(arr.append<std::int64_t>(20LL).has_value());
-	move(arr).commit();
-	auto doc = move(b).finish();
+	std::move(arr).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::vector<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1534,10 +1534,10 @@ TEST_CASE(
 	auto &user = *user_res;
 	REQUIRE(user.insert_i64("id", 42LL).has_value());
 	REQUIRE(user.insert_string("name", "alice").has_value());
-	move(user).commit();
+	std::move(user).commit();
 
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto obj = doc->root().as_object();
@@ -1566,10 +1566,10 @@ TEST_CASE(
 	auto &tags = *tags_res;
 	REQUIRE(tags.append_string("x").has_value());
 	REQUIRE(tags.append_string("y").has_value());
-	move(tags).commit();
+	std::move(tags).commit();
 
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto obj = doc->root().as_object();
@@ -1594,10 +1594,10 @@ TEST_CASE(
 	REQUIRE(item_res.has_value());
 	auto &item = *item_res;
 	REQUIRE(item.insert_string("k", "v").has_value());
-	move(item).commit();
+	std::move(item).commit();
 
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto arr = doc->root().as_array();
@@ -1620,10 +1620,10 @@ TEST_CASE(
 	auto &inner = *inner_res;
 	REQUIRE(inner.append_i64(1LL).has_value());
 	REQUIRE(inner.append_i64(2LL).has_value());
-	move(inner).commit();
+	std::move(inner).commit();
 
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto outer = doc->root().as_array();
@@ -1648,17 +1648,17 @@ TEST_CASE(
 	auto &user = *user_res;
 	REQUIRE(user.insert_i64("id", 42LL).has_value());
 	REQUIRE(user.insert_string("name", "alice").has_value());
-	move(user).commit();
+	std::move(user).commit();
 
 	auto tags_res = root.insert_array("tags");
 	REQUIRE(tags_res.has_value());
 	auto &tags = *tags_res;
 	REQUIRE(tags.append_string("x").has_value());
 	REQUIRE(tags.append_string("y").has_value());
-	move(tags).commit();
+	std::move(tags).commit();
 
-	move(root).commit();
-	auto doc = move(vb).finish();
+	std::move(root).commit();
+	auto doc = std::move(vb).finish();
 	REQUIRE(doc.has_value());
 
 	auto dumped = doc->dump();
@@ -1689,9 +1689,9 @@ TEST_CASE(
 
 	// After abort, root should be active again and "inner" should not be present.
 	REQUIRE(root.insert_i64("kept", 1LL).has_value());
-	move(root).commit();
+	std::move(root).commit();
 
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto obj = doc->root().as_object();
@@ -1716,9 +1716,9 @@ TEST_CASE(
 	}
 
 	REQUIRE(root.insert_string("kept", "yes").has_value());
-	move(root).commit();
+	std::move(root).commit();
 
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	auto obj = doc->root().as_object();
@@ -1737,7 +1737,7 @@ TEST_CASE(
 	}
 	// After abort, we should be able to set root again.
 	REQUIRE(b.set_null().has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(doc->root().is_null());
 }
@@ -1786,7 +1786,7 @@ TEST_CASE(
 	"[json][builder][phase3]") {
 	auto b = value_builder();
 	REQUIRE(b.set_number("1.0").has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto dumped = doc->dump();
 	REQUIRE(dumped.has_value());
@@ -1829,8 +1829,8 @@ TEST_CASE(
 	auto &arr = *arr_res;
 	REQUIRE(arr.append_number("3.14").has_value());
 	REQUIRE(arr.append_number("1e10").has_value());
-	move(arr).commit();
-	auto doc = move(b).finish();
+	std::move(arr).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto dumped = doc->dump();
 	REQUIRE(dumped.has_value());
@@ -1844,8 +1844,8 @@ TEST_CASE(
 	REQUIRE(root_res.has_value());
 	auto &root = *root_res;
 	REQUIRE(root.insert_number("pi", "3.14159").has_value());
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -1862,7 +1862,7 @@ TEST_CASE(
 	REQUIRE(b.set_i64(42LL).has_value());
 	b.reset();
 	REQUIRE(b.set_string("fresh").has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_string() == "fresh");
 }
@@ -1871,13 +1871,13 @@ TEST_CASE(
 	"[json][builder][phase3]") {
 	auto b = value_builder();
 	REQUIRE(b.set_null().has_value());
-	move(b).discard();
+	std::move(b).discard();
 }
 TEST_CASE(
 	"json: finish() fails when root never set",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(!doc.has_value());
 	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
 }
@@ -1887,7 +1887,7 @@ TEST_CASE(
 	auto b = value_builder();
 	auto obj_res = b.begin_object();
 	REQUIRE(obj_res.has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(!doc.has_value());
 	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
 	// Cleanup: let obj fall off scope to abort cleanly
@@ -1898,7 +1898,7 @@ TEST_CASE(
 	auto b = value_builder();
 	Point const p{.x = 3LL, .y = 7LL};
 	REQUIRE(b.set<Point>(p).has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<Point>(doc->root());
 	REQUIRE(r.has_value());
@@ -1914,8 +1914,8 @@ TEST_CASE(
 	auto &root = *root_res;
 	Point const p{.x = 1LL, .y = 2LL};
 	REQUIRE(root.insert<Point>("pt", p).has_value());
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -1935,8 +1935,8 @@ TEST_CASE(
 	auto &arr = *arr_res;
 	REQUIRE(arr.append<Point>({.x = 10LL, .y = 20LL}).has_value());
 	REQUIRE(arr.append<Point>({.x = 30LL, .y = 40LL}).has_value());
-	move(arr).commit();
-	auto doc = move(b).finish();
+	std::move(arr).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto r = decode<std::vector<Point>>(doc->root());
 	REQUIRE(r.has_value());
@@ -1962,12 +1962,12 @@ TEST_CASE(
 	REQUIRE(elem_res.has_value());
 	auto &elem = *elem_res;
 	REQUIRE(elem.insert_bool("active", true).has_value());
-	move(elem).commit();
+	std::move(elem).commit();
 
-	move(items).commit();
-	move(root).commit();
+	std::move(items).commit();
+	std::move(root).commit();
 
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 
 	JsonPath path;
@@ -1989,12 +1989,12 @@ TEST_CASE(
 
 	auto a_res = root.insert_object("a");
 	REQUIRE(a_res.has_value());
-	move(*a_res).commit();
+	std::move(*a_res).commit();
 
 	REQUIRE(root.insert_i64("b", 2LL).has_value());
-	move(root).commit();
+	std::move(root).commit();
 
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -2280,7 +2280,7 @@ TEST_CASE(
 	{
 		auto b = value_builder();
 		REQUIRE(b.set_number("1e100").has_value());
-		auto doc = move(b).finish();
+		auto doc = std::move(b).finish();
 		REQUIRE(doc.has_value());
 		auto n = doc->root().as_number();
 		REQUIRE(n.has_value());
@@ -2293,7 +2293,7 @@ TEST_CASE(
 	{
 		auto b = value_builder();
 		REQUIRE(b.set_number("99999999999999999999999999999999").has_value());
-		auto doc = move(b).finish();
+		auto doc = std::move(b).finish();
 		REQUIRE(doc.has_value());
 		auto n = doc->root().as_number();
 		REQUIRE(n.has_value());
@@ -2302,7 +2302,7 @@ TEST_CASE(
 	{
 		auto b = value_builder();
 		REQUIRE(b.set_number("1.0").has_value());
-		auto doc = move(b).finish();
+		auto doc = std::move(b).finish();
 		REQUIRE(doc.has_value());
 		auto dumped = doc->dump();
 		REQUIRE(dumped.has_value());
@@ -2324,36 +2324,36 @@ TEST_CASE(
 TEST_CASE(
 	"json: example — commit-on-success abort-on-error child builder patterns",
 	"[json][examples]") {
-	auto build_doc = [](bool inject_error) -> expected<Document, JsonError> {
+	auto build_doc = [](bool inject_error) -> std::expected<Document, JsonError> {
 		auto vb = value_builder();
 		auto root_res = vb.begin_object();
 		if (!root_res) {
-			return unexpected(move(root_res).error());
+			return std::unexpected(std::move(root_res).error());
 		}
 		auto &root = *root_res;
 
 		{
 			auto child_res = root.insert_object("user");
 			if (!child_res) {
-				return unexpected(move(child_res).error());
+				return std::unexpected(std::move(child_res).error());
 			}
 			auto &child = *child_res;
 			auto id_res = child.insert_i64("id", inject_error ? -1LL : 1LL);
 			if (inject_error) {
 				auto dup_res = child.insert_i64("id", 99LL);
 				if (!dup_res) {
-					return unexpected(move(dup_res).error());
+					return std::unexpected(std::move(dup_res).error());
 				}
 			}
 			if (!id_res) {
-				return unexpected(move(id_res).error());
+				return std::unexpected(std::move(id_res).error());
 			}
 			REQUIRE(child.insert_string("name", "bob").has_value());
-			move(child).commit();
+			std::move(child).commit();
 		}
 
-		move(root).commit();
-		return move(vb).finish();
+		std::move(root).commit();
+		return std::move(vb).finish();
 	};
 
 	{
@@ -2390,8 +2390,8 @@ TEST_CASE(
 	}
 
 	REQUIRE(root.insert_string("kept", "yes").has_value());
-	move(root).commit();
-	auto doc = move(b).finish();
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -2413,7 +2413,7 @@ TEST_CASE(
 	b.reset();
 
 	REQUIRE(b.set_string("after-reset").has_value());
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_string() == "after-reset");
 }
@@ -2429,9 +2429,9 @@ TEST_CASE(
 	REQUIRE(obj_res.has_value());
 	auto &obj = *obj_res;
 	REQUIRE(obj.insert_i64("v", 42LL).has_value());
-	move(obj).commit();
+	std::move(obj).commit();
 
-	auto doc = move(b).finish();
+	auto doc = std::move(b).finish();
 	REQUIRE(doc.has_value());
 	auto o = doc->root().as_object();
 	REQUIRE(o.has_value());
@@ -2534,11 +2534,11 @@ struct OuterWithPrefix {
 };
 template<>
 struct JsonCodec<OuterWithPrefix> {
-	static expected<OuterWithPrefix, JsonError> decode(
+	static std::expected<OuterWithPrefix, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
 		if (!obj) {
-			return unexpected(move(obj).error());
+			return std::unexpected(std::move(obj).error());
 		}
 
 		JsonPath prefix;
@@ -2546,29 +2546,29 @@ struct JsonCodec<OuterWithPrefix> {
 
 		auto inner_node = n.at(prefix);
 		if (!inner_node) {
-			return unexpected(move(inner_node).error().with_prefix(prefix));
+			return std::unexpected(std::move(inner_node).error().with_prefix(prefix));
 		}
 
 		auto inner = ::decode<InnerData>(*inner_node);
 		if (!inner) {
-			return unexpected(move(inner).error().with_prefix(prefix));
+			return std::unexpected(std::move(inner).error().with_prefix(prefix));
 		}
 
-		return OuterWithPrefix{.inner = move(*inner)};
+		return OuterWithPrefix{.inner = std::move(*inner)};
 	}
-	static expected<void, JsonError> encode(
+	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		OuterWithPrefix const &v) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
-			return unexpected(move(obj_res).error());
+			return std::unexpected(std::move(obj_res).error());
 		}
 		auto &obj = *obj_res;
 		auto inner_res = obj.insert<InnerData>("inner", v.inner);
 		if (!inner_res) {
-			return unexpected(move(inner_res).error());
+			return std::unexpected(std::move(inner_res).error());
 		}
-		move(obj).commit();
+		std::move(obj).commit();
 		return {};
 	}
 	static constexpr std::string_view type_name() { return "OuterWithPrefix"; }
@@ -2607,7 +2607,7 @@ TEST_CASE(
 		auto b = value_builder();
 		OuterWithPrefix const v{.inner = InnerData{.value = 42LL}};
 		REQUIRE(b.set<OuterWithPrefix>(v).has_value());
-		auto doc = move(b).finish();
+		auto doc = std::move(b).finish();
 		REQUIRE(doc.has_value());
 		auto r = decode<OuterWithPrefix>(doc->root());
 		REQUIRE(r.has_value());
@@ -2675,7 +2675,7 @@ TEST_CASE(
 		REQUIRE_FALSE(res.has_value());
 		CHECK(res.error().code == JsonIssueCode::input_too_large);
 	}
-	// size-1: single byte passes only for "1", "0", etc.
+	// size-1: single std::byte passes only for "1", "0", etc.
 	{
 		JsonParseOptions opts;
 		opts.max_input_size = LimitOption::bound(1);
@@ -2702,7 +2702,7 @@ TEST_CASE(
 			if (i > 0) {
 				big += ',';
 			}
-			big += to_string(i);
+			big += std::to_string(i);
 		}
 		big += ']';
 		CHECK(parse(big, opts).has_value());
@@ -2855,7 +2855,7 @@ TEST_CASE(
 		if (i > 0) {
 			js += ',';
 		}
-		js += format(R"("k{}": {})", i, i);
+		js += std::format(R"("k{}": {})", i, i);
 	}
 	js += R"(, "\u0061_key": 999)"; // decodes to "a_key"
 	js += "}";
@@ -2882,10 +2882,10 @@ TEST_CASE(
 	std::vector<std::string> formerly_colliding_keys;
 	formerly_colliding_keys.reserve(kTargetCount);
 	for (std::size_t i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1000000UZ; ++i) {
-		std::string s = format("k_{}", i);
-		auto const h = static_cast<std::uint32_t>(hash<std::string_view>{}(std::string_view{s}));
+		std::string s = std::format("k_{}", i);
+		auto const h = static_cast<std::uint32_t>(std::hash<std::string_view>{}(std::string_view{s}));
 		if ((h & 0xFFu) == 0u) {
-			formerly_colliding_keys.push_back(move(s));
+			formerly_colliding_keys.push_back(std::move(s));
 		}
 	}
 	if (formerly_colliding_keys.size() < kTargetCount) {
@@ -2897,7 +2897,7 @@ TEST_CASE(
 		if (i > 0) {
 			js += ',';
 		}
-		js += format(R"("{}": {})", formerly_colliding_keys[i], i);
+		js += std::format(R"("{}": {})", formerly_colliding_keys[i], i);
 	}
 	js += "}";
 	auto doc = parse(js);
@@ -2924,7 +2924,7 @@ TEST_CASE(
 		if (i > 0) {
 			js += ',';
 		}
-		js += format(R"("k{}": {})", i, i);
+		js += std::format(R"("k{}": {})", i, i);
 	}
 	js += R"(, "k3": 99})";
 	auto doc = parse(js, opts);
@@ -2969,9 +2969,9 @@ struct JsonMembers<Rect> {
 		return std::tuple{
 			make_tuple(
 				json_member("width", &Rect::width),
-				static_cast<JsonConstraintFn<std::int64_t>>([](std::int64_t const &v) -> expected<void, JsonError> {
+				static_cast<JsonConstraintFn<std::int64_t>>([](std::int64_t const &v) -> std::expected<void, JsonError> {
 					if (v <= 0) {
-						return unexpected(
+						return std::unexpected(
 							JsonError{
 								.stage = JsonStage::decode,
 								.code = JsonIssueCode::constraint_violation,
@@ -3132,11 +3132,11 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"phase4: JsonReader accepts byte-span input",
+	"phase4: JsonReader accepts std::byte-span input",
 	"[phase4]") {
 	auto const json = std::string_view{R"({"x":1,"y":2})"};
 	JsonReader r{
-		span<byte const>{reinterpret_cast<byte const *>(json.data()), json.size()}
+		std::span<std::byte const>{reinterpret_cast<std::byte const *>(json.data()), json.size()}
     };
 
 	auto e0 = r.next();
@@ -3272,7 +3272,7 @@ TEST_CASE(
 	CHECK(r.depth() == 0UZ);
 }
 TEST_CASE(
-	"phase4: JsonReader skip_next_value returns byte range",
+	"phase4: JsonReader skip_next_value returns std::byte range",
 	"[phase4]") {
 	JsonReader r{R"({"a":{"b":1},"c":2})"};
 
@@ -3675,7 +3675,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		bool got_null = false;
-		expected<void, JsonError> on_null() {
+		std::expected<void, JsonError> on_null() {
 			got_null = true;
 			return {};
 		}
@@ -3689,7 +3689,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		std::vector<bool> vals;
-		expected<void, JsonError> on_bool(
+		std::expected<void, JsonError> on_bool(
 			bool b) {
 			vals.push_back(b);
 			return {};
@@ -3706,7 +3706,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		std::string got;
-		expected<void, JsonError> on_string(
+		std::expected<void, JsonError> on_string(
 			std::string_view sv) {
 			got = sv;
 			return {};
@@ -3721,7 +3721,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		std::string got;
-		expected<void, JsonError> on_string(
+		std::expected<void, JsonError> on_string(
 			std::string_view sv) {
 			got = sv;
 			return {};
@@ -3736,7 +3736,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		int64_t val{};
-		expected<void, JsonError> on_i64(
+		std::expected<void, JsonError> on_i64(
 			int64_t v) {
 			val = v;
 			return {};
@@ -3751,7 +3751,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		uint64_t val{};
-		expected<void, JsonError> on_u64(
+		std::expected<void, JsonError> on_u64(
 			uint64_t v) {
 			val = v;
 			return {};
@@ -3767,7 +3767,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		double val{};
-		expected<void, JsonError> on_double(
+		std::expected<void, JsonError> on_double(
 			double v) {
 			val = v;
 			return {};
@@ -3782,7 +3782,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		std::string raw;
-		expected<void, JsonError> on_number_raw(
+		std::expected<void, JsonError> on_number_raw(
 			std::string_view sv) {
 			raw = sv;
 			return {};
@@ -3799,20 +3799,20 @@ TEST_CASE(
 		int begin_obj{}, end_obj{};
 		std::vector<std::string> keys;
 		std::vector<std::string> strings;
-		expected<void, JsonError> on_begin_object() {
+		std::expected<void, JsonError> on_begin_object() {
 			++begin_obj;
 			return {};
 		}
-		expected<void, JsonError> on_end_object() {
+		std::expected<void, JsonError> on_end_object() {
 			++end_obj;
 			return {};
 		}
-		expected<void, JsonError> on_key(
+		std::expected<void, JsonError> on_key(
 			std::string_view k) {
 			keys.emplace_back(k);
 			return {};
 		}
-		expected<void, JsonError> on_string(
+		std::expected<void, JsonError> on_string(
 			std::string_view v) {
 			strings.emplace_back(v);
 			return {};
@@ -3834,15 +3834,15 @@ TEST_CASE(
 	struct H : JsonDefaultHandler {
 		int begin_arr{}, end_arr{};
 		std::vector<int64_t> nums;
-		expected<void, JsonError> on_begin_array() {
+		std::expected<void, JsonError> on_begin_array() {
 			++begin_arr;
 			return {};
 		}
-		expected<void, JsonError> on_end_array() {
+		std::expected<void, JsonError> on_end_array() {
 			++end_arr;
 			return {};
 		}
-		expected<void, JsonError> on_i64(
+		std::expected<void, JsonError> on_i64(
 			int64_t v) {
 			nums.push_back(v);
 			return {};
@@ -3861,11 +3861,11 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		int count{};
-		expected<void, JsonError> on_i64(
+		std::expected<void, JsonError> on_i64(
 			int64_t) {
 			++count;
 			if (count >= 2) {
-				return unexpected(JsonError{.code = JsonIssueCode::invalid_value, .message = "stop"});
+				return std::unexpected(JsonError{.code = JsonIssueCode::invalid_value, .message = "stop"});
 			}
 			return {};
 		}
@@ -3899,12 +3899,12 @@ TEST_CASE(
 	struct H : JsonDefaultHandler {
 		int depth_max{};
 		int current{};
-		expected<void, JsonError> on_begin_object() {
+		std::expected<void, JsonError> on_begin_object() {
 			++current;
-			depth_max = max(depth_max, current);
+			depth_max = std::max(depth_max, current);
 			return {};
 		}
-		expected<void, JsonError> on_end_object() {
+		std::expected<void, JsonError> on_end_object() {
 			--current;
 			return {};
 		}
@@ -4080,7 +4080,7 @@ TEST_CASE(
 	JsonArena arena;
 	auto doc = [&] {
 		std::string input = std::string{"\xEF\xBB\xBF"} + R"({"name":"Bob","age":41})";
-		return arena.parse_moved_into(move(input));
+		return arena.parse_moved_into(std::move(input));
 	}();
 	REQUIRE(doc.has_value());
 
@@ -4226,11 +4226,11 @@ TEST_CASE(
 	CHECK(*sv == "hello");
 }
 TEST_CASE(
-	"phase7: JsonAccumulator accepts byte-span feed",
+	"phase7: JsonAccumulator accepts std::byte-span feed",
 	"[phase7]") {
 	JsonAccumulator acc;
 	auto const json = std::string_view{R"({"a":[1,2,3],"b":true})"};
-	REQUIRE(acc.feed(span<byte const>{reinterpret_cast<byte const *>(json.data()), json.size()}).has_value());
+	REQUIRE(acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(json.data()), json.size()}).has_value());
 	auto doc = acc.finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();

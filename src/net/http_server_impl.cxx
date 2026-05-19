@@ -93,7 +93,7 @@ struct HttpServer::Impl {
 		std::vector<std::unique_ptr<Ring>> ring_vec;
 		std::vector<int> shutdown_efds;
 		std::atomic<std::uint16_t> bound_port_;
-		mutex startup_error_mu;
+		std::mutex startup_error_mu;
 		std::exception_ptr startup_error{};
 		std::atomic_bool startup_failed{false};
 		std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(RunStatus::stopped_normally)};
@@ -104,7 +104,7 @@ struct HttpServer::Impl {
 		std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
 #endif
 #if CONFLUX_HAS_HTTP3
-		mutex http3_mu;
+		std::mutex http3_mu;
 		std::unique_ptr<Http3Listener> http3_listener;
 #endif
 	};
@@ -112,7 +112,7 @@ struct HttpServer::Impl {
 void HttpServer::initialize(
 	Config const &cfg) {
 		impl_->cfg = cfg;
-		impl_->rings = cfg.rings == 0 ? thread::hardware_concurrency() : cfg.rings;
+		impl_->rings = cfg.rings == 0 ? std::thread::hardware_concurrency() : cfg.rings;
 		impl_->uring_flags = build_uring_flags(cfg);
 
 #if CONFLUX_HAS_TLS
@@ -160,16 +160,16 @@ void HttpServer::initialize(
 		impl_->ring_vec.reserve(impl_->rings);
 		impl_->shutdown_efds.reserve(impl_->rings);
 		for (unsigned i = 0; i < impl_->rings; ++i) {
-			impl_->ring_vec.emplace_back(make_unique<Ring>());
+			impl_->ring_vec.emplace_back(std::make_unique<Ring>());
 			int efd = ::eventfd(0, EFD_CLOEXEC);
 			if (efd < 0) {
-				throw std::system_error{errno, system_category(), "eventfd (shutdown)"};
+				throw std::system_error{errno, std::system_category(), "eventfd (shutdown)"};
 			}
 			if (efd <= 2) {
 				int const dup = ::fcntl(efd, F_DUPFD_CLOEXEC, 3);
 				::close(efd);
 				if (dup < 0) {
-					throw std::system_error{errno, system_category(), "eventfd dup above stdio"};
+					throw std::system_error{errno, std::system_category(), "eventfd dup above stdio"};
 				}
 				efd = dup;
 			}
@@ -181,7 +181,7 @@ HttpServer::HttpServer(
 		Config const &cfg,
 		Router &&router)
 		: impl_(new Impl{}) {
-		impl_->router = move(router);
+		impl_->router = std::move(router);
 		initialize(cfg);
 	}
 
@@ -190,7 +190,7 @@ HttpServer::HttpServer(
 		VHostRouter &&vhost_router)
 		: impl_(new Impl{}) {
 		impl_->use_vhost = true;
-		impl_->vhost_router = move(vhost_router);
+		impl_->vhost_router = std::move(vhost_router);
 		initialize(cfg);
 	}
 
@@ -203,27 +203,27 @@ HttpServer::~HttpServer() {
 	}
 }
 
-expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
+std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	Config const &cfg,
 	Router &&router) {
 	try {
-		return make_unique<HttpServer>(cfg, move(router));
-	} catch (exception const &ex) {
-		return unexpected{std::string{ex.what()}};
+		return std::make_unique<HttpServer>(cfg, std::move(router));
+	} catch (std::exception const &ex) {
+		return std::unexpected{std::string{ex.what()}};
 	} catch (...) {
-		return unexpected{std::string{"unknown HttpServer construction error"}};
+		return std::unexpected{std::string{"unknown HttpServer construction error"}};
 	}
 }
 
-expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
+std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	Config const &cfg,
 	VHostRouter &&vhost_router) {
 	try {
-		return make_unique<HttpServer>(cfg, move(vhost_router));
-	} catch (exception const &ex) {
-		return unexpected{std::string{ex.what()}};
+		return std::make_unique<HttpServer>(cfg, std::move(vhost_router));
+	} catch (std::exception const &ex) {
+		return std::unexpected{std::string{ex.what()}};
 	} catch (...) {
-		return unexpected{std::string{"unknown HttpServer construction error"}};
+		return std::unexpected{std::string{"unknown HttpServer construction error"}};
 	}
 }
 
@@ -240,7 +240,7 @@ void HttpServer::shutdown() {
 		std::unique_ptr<Http3Listener> to_stop;
 		{
 			std::scoped_lock const lk{impl_->http3_mu};
-			to_stop = move(impl_->http3_listener);
+			to_stop = std::move(impl_->http3_listener);
 		}
 		if (to_stop) {
 			to_stop->stop();
@@ -252,7 +252,7 @@ void HttpServer::shutdown() {
 		try {
 			unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 
-			std::vector<thread> threads;
+			std::vector<std::thread> threads;
 			threads.reserve(impl_->rings);
 
 			for (unsigned i = 0; i < impl_->rings; ++i) {
@@ -288,8 +288,8 @@ void HttpServer::shutdown() {
 							r.port_signal = &impl_->bound_port_;
 						int parent = -1;
 						if (impl_->cfg.attach_wq && i > 0) {
-							impl_->wq_ring_fd_.wait(-2, memory_order_acquire);
-							parent = impl_->wq_ring_fd_.load(memory_order_acquire);
+							impl_->wq_ring_fd_.wait(-2, std::memory_order_acquire);
+							parent = impl_->wq_ring_fd_.load(std::memory_order_acquire);
 						}
 						std::uint32_t const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
 						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
@@ -315,7 +315,7 @@ void HttpServer::shutdown() {
 							r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
 						}
 						if (impl_->cfg.attach_wq && i == 0) {
-							impl_->wq_ring_fd_.store(r.ring.ring_fd, memory_order_release);
+							impl_->wq_ring_fd_.store(r.ring.ring_fd, std::memory_order_release);
 							impl_->wq_ring_fd_.notify_all();
 						}
 #if CONFLUX_HAS_HTTP3
@@ -325,13 +325,13 @@ void HttpServer::shutdown() {
 
 						if (i == 0 && impl_->cfg.startup_banner) {
 							auto const feat_s = caps_to_log_string(r.caps);
-							eprintln(format("uring_features={}", feat_s.empty() ? "none" : feat_s));
-							eprintln(format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
-							eprintln(format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
-							eprintln(format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
+							eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
+							eprintln(std::format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
+							eprintln(std::format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
+							eprintln(std::format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
 						}
 						if (i == 0 && impl_->cfg.startup_banner)
-							eprintln(format(
+							eprintln(std::format(
 								"listening on {}://0.0.0.0:{}  "
 								"(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, "
 								"buf_ring=true)",
@@ -353,29 +353,29 @@ void HttpServer::shutdown() {
 							impl_->run_status_.compare_exchange_strong(
 								expected,
 								static_cast<std::uint8_t>(status),
-								memory_order_release,
-								memory_order_relaxed);
+								std::memory_order_release,
+								std::memory_order_relaxed);
 							shutdown();
 						}
 					} catch (...) {
 						{
 							std::scoped_lock const lk{impl_->startup_error_mu};
 							if (!impl_->startup_error)
-								impl_->startup_error = current_exception();
+								impl_->startup_error = std::current_exception();
 						}
-						impl_->startup_failed.store(true, memory_order_release);
+						impl_->startup_failed.store(true, std::memory_order_release);
 						{
 							std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
 							impl_->run_status_.compare_exchange_strong(
 								expected,
 								static_cast<std::uint8_t>(RunStatus::fatal_internal_exception),
-								memory_order_release,
-								memory_order_relaxed);
+								std::memory_order_release,
+								std::memory_order_relaxed);
 						}
-						impl_->bound_port_.store(std::numeric_limits<std::uint16_t>::max(), memory_order_release);
+						impl_->bound_port_.store(std::numeric_limits<std::uint16_t>::max(), std::memory_order_release);
 						impl_->bound_port_.notify_all();
 						if (impl_->cfg.attach_wq && i == 0) {
-							impl_->wq_ring_fd_.store(-1, memory_order_release);
+							impl_->wq_ring_fd_.store(-1, std::memory_order_release);
 							impl_->wq_ring_fd_.notify_all();
 						}
 						shutdown();
@@ -386,7 +386,7 @@ void HttpServer::shutdown() {
 #if CONFLUX_HAS_HTTP3
 			if (impl_->cfg.http3.enabled && impl_->tls_ctx && !impl_->use_vhost) {
 				std::uint16_t const h3_port = port();
-				auto listener = make_unique<Http3Listener>(
+				auto listener = std::make_unique<Http3Listener>(
 					impl_->use_vhost ? nullptr : &impl_->router,
 					impl_->cfg.http3,
 					h3_port,
@@ -394,7 +394,7 @@ void HttpServer::shutdown() {
 				listener->start();
 				{
 					std::scoped_lock const lk{impl_->http3_mu};
-					impl_->http3_listener = move(listener);
+					impl_->http3_listener = std::move(listener);
 				}
 			}
 #endif
@@ -406,13 +406,13 @@ void HttpServer::shutdown() {
 			std::unique_ptr<Http3Listener> to_reset;
 			{
 				std::scoped_lock const lk{impl_->http3_mu};
-				to_reset = move(impl_->http3_listener);
+				to_reset = std::move(impl_->http3_listener);
 			}
 			if (to_reset) {
 				to_reset->stop();
 			}
 #endif
-			return static_cast<RunStatus>(impl_->run_status_.load(memory_order_acquire));
+			return static_cast<RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
 		} catch (...) { return RunStatus::fatal_internal_exception; }
 	}
 
@@ -431,20 +431,20 @@ void HttpServer::shutdown() {
 
 [[nodiscard]] std::uint16_t HttpServer::port() const {
 		std::uint16_t p = 0;
-		while ((p = impl_->bound_port_.load(memory_order_acquire)) == 0) {
-			if (impl_->startup_failed.load(memory_order_acquire)) {
+		while ((p = impl_->bound_port_.load(std::memory_order_acquire)) == 0) {
+			if (impl_->startup_failed.load(std::memory_order_acquire)) {
 				std::scoped_lock const lk{impl_->startup_error_mu};
 				if (impl_->startup_error) {
-					rethrow_exception(impl_->startup_error);
+					std::rethrow_exception(impl_->startup_error);
 				}
 				throw std::runtime_error{"HttpServer startup failed"};
 			}
-			impl_->bound_port_.wait(0, memory_order_acquire);
+			impl_->bound_port_.wait(0, std::memory_order_acquire);
 		}
-		if (impl_->startup_failed.load(memory_order_acquire)) {
+		if (impl_->startup_failed.load(std::memory_order_acquire)) {
 			std::scoped_lock const lk{impl_->startup_error_mu};
 			if (impl_->startup_error) {
-				rethrow_exception(impl_->startup_error);
+				std::rethrow_exception(impl_->startup_error);
 			}
 			throw std::runtime_error{"HttpServer startup failed"};
 		}

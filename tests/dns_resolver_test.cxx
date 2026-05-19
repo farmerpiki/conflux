@@ -30,7 +30,7 @@ public:
 		std::string_view contents)
 		: path_{
 			  std::filesystem::temp_directory_path()
-			  / format(
+			  / std::format(
 				  "conflux-dns-{}-{}-{}",
 				  stem,
 				  ::getpid(),
@@ -106,10 +106,10 @@ public:
 		tv.tv_usec = 50000; // 50 ms receive timeout for clean shutdown
 		::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-		thread_ = thread{[this] { run(); }};
+		thread_ = std::thread{[this] { run(); }};
 	}
 	~DnsMockServer() {
-		running_.store(false, memory_order_relaxed);
+		running_.store(false, std::memory_order_relaxed);
 		thread_.join();
 		::close(fd_);
 	}
@@ -131,7 +131,7 @@ public:
 		std::uint16_t qtype,
 		Response resp) {
 		std::scoped_lock const lk{mtx_};
-		responses_[name + ':' + to_string(qtype)] = move(resp);
+		responses_[name + ':' + std::to_string(qtype)] = std::move(resp);
 	}
 	[[nodiscard]] std::vector<ReceivedQuery> queries() const {
 		std::scoped_lock const lk{mtx_};
@@ -160,14 +160,14 @@ private:
 		::sockaddr_storage src{};
 		socklen_t src_len{};
 
-		while (running_.load(memory_order_relaxed)) {
+		while (running_.load(std::memory_order_relaxed)) {
 			src_len = sizeof(src);
 			ssize_t const n =
 				::recvfrom(fd_, buf.data(), buf.size(), 0, reinterpret_cast<::sockaddr *>(&src), &src_len);
 			if (n <= 12) {
 				continue; // timeout or malformed
 			}
-			auto const wire = span<std::uint8_t const>{buf.data(), static_cast<std::size_t>(n)};
+			auto const wire = std::span<std::uint8_t const>{buf.data(), static_cast<std::size_t>(n)};
 			auto const name = get_qname(wire);
 			auto const qtype = get_qtype(wire);
 
@@ -179,7 +179,7 @@ private:
 			Response resp;
 			{
 				std::scoped_lock const lk{mtx_};
-				auto const key = name + ':' + to_string(qtype);
+				auto const key = name + ':' + std::to_string(qtype);
 				if (auto it = responses_.find(key); it != responses_.end()) {
 					resp = it->second;
 				}
@@ -193,7 +193,7 @@ private:
 		}
 	}
 	static std::string get_qname(
-		span<std::uint8_t const> wire) {
+		std::span<std::uint8_t const> wire) {
 		std::string name;
 		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
@@ -212,7 +212,7 @@ private:
 		return name;
 	}
 	static std::uint16_t get_qtype(
-		span<std::uint8_t const> wire) {
+		std::span<std::uint8_t const> wire) {
 		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
 			i += 1U + wire[i];
@@ -224,7 +224,7 @@ private:
 		return static_cast<std::uint16_t>((static_cast<std::uint16_t>(wire[i]) << 8U) | wire[i + 1]);
 	}
 	static std::size_t find_question_end(
-		span<std::uint8_t const> wire) {
+		std::span<std::uint8_t const> wire) {
 		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
 			i += 1U + wire[i];
@@ -243,7 +243,7 @@ private:
 		}
 	}
 	static std::vector<std::uint8_t> build_response(
-		span<std::uint8_t const> query,
+		std::span<std::uint8_t const> query,
 		Response const &resp) {
 		std::vector<std::uint8_t> out;
 		out.reserve(64);
@@ -303,9 +303,9 @@ private:
 	}
 	int fd_{-1};
 	std::uint16_t port_{};
-	thread thread_;
+	std::thread thread_;
 	std::atomic<bool> running_{true};
-	mutable mutex mtx_;
+	mutable std::mutex mtx_;
 	std::unordered_map<std::string, Response> responses_;
 	std::vector<ReceivedQuery> received_;
 };
@@ -332,7 +332,7 @@ struct RingGuard {
 	RingGuard &operator =(RingGuard &&) = delete;
 	static std::unique_ptr<RingGuard> make(
 		unsigned entries = 32) {
-		auto g = make_unique<RingGuard>();
+		auto g = std::make_unique<RingGuard>();
 		g->ok = (::io_uring_queue_init(entries, &g->ring, 0) == 0);
 		return g;
 	}
@@ -356,7 +356,7 @@ struct StrRingGuard {
 	StrRingGuard &operator =(StrRingGuard const &) = delete;
 	static std::unique_ptr<StrRingGuard> make(
 		unsigned entries = 64) {
-		auto g = make_unique<StrRingGuard>();
+		auto g = std::make_unique<StrRingGuard>();
 		if (::io_uring_queue_init(entries, &g->ring, 0) < 0) {
 			return {};
 		}
@@ -371,29 +371,29 @@ T block_on_str(
 	std::chrono::milliseconds budget = std::chrono::milliseconds{5000}) {
 	using namespace conflux::work::root;
 	struct Slot {
-		atomic_flag done{};
+		std::atomic_flag done{};
 		std::exception_ptr err{};
 		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
-	auto slot = make_shared<Slot>();
-	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+	auto slot = std::make_shared<Slot>();
+	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
-			auto outcome = blocking_join(move(*jh));
+			auto outcome = blocking_join(std::move(*jh));
 			if (outcome.is_failure()) {
-				slot->err = move(outcome).failure().error;
+				slot->err = std::move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
 				slot->err = make_exception_ptr(std::runtime_error{"task cancelled"});
 			} else if constexpr (!std::is_void_v<T>) {
-				slot->value.emplace(move(outcome).success().value);
+				slot->value.emplace(std::move(outcome).success().value);
 			}
-		} catch (...) { slot->err = current_exception(); }
-		slot->done.test_and_set(memory_order_release);
+		} catch (...) { slot->err = std::current_exception(); }
+		slot->done.test_and_set(std::memory_order_release);
 	});
 	auto *raw = &g.ring;
 	auto *ct = &g.ct;
 	auto const deadline = std::chrono::steady_clock::now() + budget;
-	while (!slot->done.test(memory_order_acquire)) {
+	while (!slot->done.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 		int const rc = ::io_uring_submit_and_wait_timeout(raw, &cqe, 1, &ts, nullptr);
@@ -425,7 +425,7 @@ T block_on_str(
 					c->flags);
 			}
 			::io_uring_cq_advance(raw, n);
-			if (slot->done.test(memory_order_acquire)) {
+			if (slot->done.test(std::memory_order_acquire)) {
 				break;
 			}
 		}
@@ -434,7 +434,7 @@ T block_on_str(
 		rethrow_exception(slot->err);
 	}
 	if constexpr (!std::is_void_v<T>) {
-		return move(*slot->value);
+		return std::move(*slot->value);
 	}
 }
 
@@ -478,7 +478,7 @@ TEST_CASE(
 		"2001:db8::9 HostAlias\n"};
 	ResolverOptions resolver_opts;
 	resolver_opts.hosts_file = hosts.path();
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	DnsMockServer const mock;
 	auto opts = mock_opts(mock);
@@ -513,10 +513,10 @@ TEST_CASE(
 			.records = {{.rdata = {10, 7, 0, 1}, .ttl = 60}},
 		});
 
-	TempTextFile const resolv{"resolv", format("nameserver 127.0.0.1:{}\n", mock.port())};
+	TempTextFile const resolv{"resolv", std::format("nameserver 127.0.0.1:{}\n", mock.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
@@ -543,14 +543,14 @@ TEST_CASE(
 
 	TempTextFile const resolv{
 		"resolv-search",
-		format(
+		std::format(
 			"nameserver 127.0.0.1:{}\n"
 			"search example.test\n"
 			"options ndots:2\n",
 			mock.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
@@ -579,13 +579,13 @@ TEST_CASE(
 
 	TempTextFile const resolv{
 		"resolv-attempts",
-		format(
+		std::format(
 			"nameserver 127.0.0.1:{}\n"
 			"options attempts:2\n",
 			mock.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
@@ -619,11 +619,11 @@ TEST_CASE(
 			.records = {{.rdata = {10, 7, 0, 4}, .ttl = 60}},
 		});
 
-	TempTextFile const resolv{"resolv-reload", format("nameserver 127.0.0.1:{}\n", first.port())};
+	TempTextFile const resolv{"resolv-reload", std::format("nameserver 127.0.0.1:{}\n", first.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
 	resolver_opts.cache_capacity = 0;
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
@@ -631,7 +631,7 @@ TEST_CASE(
 	REQUIRE(before.has_value());
 	CHECK(first.query_count("before-reload.test", 1) == 1);
 
-	resolv.write(format("nameserver 127.0.0.1:{}\n", second.port()));
+	resolv.write(std::format("nameserver 127.0.0.1:{}\n", second.port()));
 	r.reload();
 
 	auto after = r.resolve_blocking("after-reload.test", 80, opts);
@@ -1026,7 +1026,7 @@ TEST_CASE(
 	auto second = r.resolve("coalesce.test", 80, opts);
 	auto [res1, res2] = block_on<std::tuple<RR, RR>>(
 		*r.file_reader(),
-		join_all(move(first), move(second)),
+		join_all(std::move(first), std::move(second)),
 		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 
@@ -1058,14 +1058,14 @@ TEST_CASE(
 
 	TempTextFile const resolv{
 		"resolv-async-search",
-		format(
+		std::format(
 			"nameserver 127.0.0.1:{}\n"
 			"search example.test\n"
 			"options ndots:2\n",
 			mock.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
-	Resolver r{&g->ring, &g->ct, pack_ud, move(resolver_opts)};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
@@ -1227,7 +1227,7 @@ TEST_CASE(
 	// Now pump the resolver-owned ring so first completes cleanly.
 	auto first_result = block_on<ResolveResult>(
 		*r.file_reader(),
-		move(first),
+		std::move(first),
 		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 	REQUIRE_FALSE(first_result.endpoints.empty());
@@ -1265,7 +1265,7 @@ TEST_CASE(
 	auto first = r.resolve(gb->str, "coalesce-b.test", 80, opts);
 	auto second = r.resolve(gb->str, "coalesce-b.test", 80, opts);
 	auto [res1, res2] =
-		block_on_str<std::tuple<RR, RR>>(*gb, join_all(move(first), move(second)), std::chrono::milliseconds{5000});
+		block_on_str<std::tuple<RR, RR>>(*gb, join_all(std::move(first), std::move(second)), std::chrono::milliseconds{5000});
 
 	CHECK_FALSE(res1.endpoints.empty());
 	CHECK_FALSE(res2.endpoints.empty());
@@ -1285,7 +1285,7 @@ TEST_CASE(
 	ResolverOptions ropts;
 	ropts.enable_etc_hosts = true;
 	ropts.hosts_file = hosts.path();
-	Resolver r{pool, move(ropts)};
+	Resolver r{pool, std::move(ropts)};
 
 	auto gb = StrRingGuard::make();
 	REQUIRE(gb);

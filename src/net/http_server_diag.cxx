@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -127,12 +127,12 @@ void Ring::try_grow_cq_after_overflow() noexcept {
 			saw_overflow_since_last_resize_ = false;
 			return;
 		}
-		std::uint32_t const target = min<std::uint32_t>(cur * 2u, 1u << 20);
+		std::uint32_t const target = std::min<std::uint32_t>(cur * 2u, 1u << 20);
 		auto resized = rr.grow_cq_to(target);
 		if (resized) {
 			saw_overflow_since_last_resize_ = false;
 			if (startup_banner) {
-				eprintln(format("ring_cq_resized={}->{} after overflow", cur, target));
+				eprintln(std::format("ring_cq_resized={}->{} after overflow", cur, target));
 			}
 			return;
 		}
@@ -148,7 +148,7 @@ void Ring::try_grow_cq_after_overflow() noexcept {
 			cq_resize_unsupported_ = true;
 		}
 		if (startup_banner) {
-			eprintln(format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
+			eprintln(std::format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
 		}
 	}
 
@@ -175,7 +175,7 @@ void Ring::close_tracked_fds_sync() noexcept {
 
 void Ring::recycle_recv_buffer_direct(
 	io_uring_cqe const *cqe) noexcept {
-		HTTP_TRACE(format(
+		HTTP_TRACE(std::format(
 			"direct_recv_cqe fd={} res={} flags=0x{:x} has_buf={} mode={}",
 			std::get<2>(unpack(cqe->user_data)),
 			cqe->res,
@@ -241,38 +241,38 @@ void Ring::dispatch_cqe_fatal(
 					break;
 				}
 			}
-		} catch (exception const &e) {
-			auto _ = std::fprintf(stderr, "dispatch_cqe_fatal: suppressed exception: %s\n", e.what());
-		} catch (...) { auto _ = std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr); }
+		} catch (std::exception const &e) {
+			auto _ = std::fprintf(stderr, "dispatch_cqe_fatal: suppressed std::exception: %s\n", e.what());
+		} catch (...) { auto _ = std::fputs("dispatch_cqe_fatal: suppressed unknown std::exception\n", stderr); }
 	}
 
 
 void Ring::emit_ring_diagnostics() noexcept {
 		try {
 			auto const features_str = caps_to_log_string(caps);
-			eprintln(format("ring_features={}", features_str.empty() ? "none" : features_str));
+			eprintln(std::format("ring_features={}", features_str.empty() ? "none" : features_str));
 			std::uint32_t const overflow_now = raw_.ring().cq_overflow_count();
-			eprintln(format("ring_cq_overflow={}", overflow_now));
+			eprintln(std::format("ring_cq_overflow={}", overflow_now));
 			if (fatal_cq_overflow_count_ > 0) {
-				eprintln(format(
+				eprintln(std::format(
 					"ring_cq_overflow_delta={}",
 					overflow_now > fatal_cq_overflow_count_ ? overflow_now - fatal_cq_overflow_count_ : 0u));
 			}
-			eprintln(format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
+			eprintln(std::format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
 			{
 				std::uint32_t const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
-				eprintln(format("ring_sq_dropped={}", v));
+				eprintln(std::format("ring_sq_dropped={}", v));
 			}
 			// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
 			int const rfd = ring.ring_fd;
 			if (rfd >= 0) {
-				auto const path = format("/proc/self/fdinfo/{}", rfd);
+				auto const path = std::format("/proc/self/fdinfo/{}", rfd);
 				if (auto fdinfo = blocking_read_text_file_nothrow(path, std::size_t{64} * 1024)) {
 					for (auto const line: LineRange{*fdinfo}) {
 						if (line.text.starts_with("CqOverflowList:")) {
 							auto pos = line.text.find(':');
 							if (pos != std::string_view::npos) {
-								eprintln(format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
+								eprintln(std::format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
 							}
 						}
 					}
@@ -287,14 +287,14 @@ void Ring::emit_ring_diagnostics() noexcept {
 				case ServerFatalReason::internal_exception   : reason_str = "internal_exception"; break;
 				default                                      : reason_str = "unknown"; break;
 				}
-				eprintln(format("ring_fatal_reason={}", reason_str));
+				eprintln(std::format("ring_fatal_reason={}", reason_str));
 			}
 			if (overflow_flush_limit_hit_) {
 				eprintln("ring_overflow_flush_limit_hit=1");
 			}
-		} catch (exception const &e) {
-			auto _ = std::fprintf(stderr, "emit_ring_diagnostics: suppressed exception: %s\n", e.what());
-		} catch (...) { auto _ = std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr); }
+		} catch (std::exception const &e) {
+			auto _ = std::fprintf(stderr, "emit_ring_diagnostics: suppressed std::exception: %s\n", e.what());
+		} catch (...) { auto _ = std::fputs("emit_ring_diagnostics: suppressed unknown std::exception\n", stderr); }
 	}
 
 

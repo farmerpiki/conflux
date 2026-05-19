@@ -70,7 +70,7 @@ TEST_CASE(
 	"[recv_bundle][e2e]") {
 	Router router;
 	router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
-	ScopedTestServer srv{small_ring_cfg(), move(router)};
+	ScopedTestServer srv{small_ring_cfg(), std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	// Flood: 80 connections each send a partial request and close abruptly.
@@ -94,7 +94,7 @@ TEST_CASE(
 	"[recv_bundle][e2e]") {
 	Router router;
 	router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
-	ScopedTestServer srv{small_ring_cfg_non_direct_accept(), move(router)};
+	ScopedTestServer srv{small_ring_cfg_non_direct_accept(), std::move(router)};
 	std::uint16_t const port = srv.port();
 
 	for (int i = 0; i < 80; ++i) {

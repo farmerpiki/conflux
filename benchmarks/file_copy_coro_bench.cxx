@@ -40,7 +40,7 @@ std::size_t parse_sz(
 
 } // namespace
 Config parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	Config cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
@@ -109,7 +109,7 @@ std::uint64_t run_callback(
 		if (got == 0) {
 			break;
 		}
-		block_on(files, files.write_into(dst, off, span<byte const>{buf.data(), got}));
+		block_on(files, files.write_into(dst, off, std::span<byte const>{buf.data(), got}));
 		off += got;
 	}
 	block_on(files, files.async_fsync(dst));
@@ -132,7 +132,7 @@ Task<void> coro_copy(
 		if (got == 0) {
 			break;
 		}
-		co_await files.write_into(dst, off, span<byte const>{buf.data(), got});
+		co_await files.write_into(dst, off, std::span<byte const>{buf.data(), got});
 		off += got;
 	}
 	co_await files.async_fsync(dst);
@@ -165,7 +165,7 @@ std::uint64_t run_splice_chain(
 	auto dst =
 		block_on(files, files.async_open(AT_FDCWD, cfg.dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
 
-	std::size_t const delivered = block_on(files, files.splice_to_fd(src, 0, bytes, dst.raw_fd(), move(*pipe)));
+	std::size_t const delivered = block_on(files, files.splice_to_fd(src, 0, bytes, dst.raw_fd(), std::move(*pipe)));
 	if (delivered != bytes) {
 		throw std::runtime_error{format("splice short copy: {} of {} bytes", delivered, bytes)};
 	}

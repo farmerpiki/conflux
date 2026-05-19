@@ -13,7 +13,7 @@ export import conflux.file_io.reader;
 // ---------------------------------------------------------------------------
 // Thread-local FileReader registration.
 //
-// Each ring runs on a dedicated thread; the ring's FileReader is installed at
+// Each ring runs on a dedicated std::thread; the ring's FileReader is installed at
 // run_loop entry and cleared at exit. Handlers that live inside the router
 // (no ring context of their own) look up the current reader to decide between
 // async uring paths and synchronous fallbacks.
@@ -43,10 +43,10 @@ public:
 	CurrentFileReaderScope &operator =(CurrentFileReaderScope &&) = delete;
 };
 // ---------------------------------------------------------------------------
-// Single-thread io_uring driver: pump_until + block_on.
+// Single-std::thread io_uring driver: pump_until + block_on.
 //
 // Tests and examples all rolled their own submit/wait_cqe/dispatch loop.
-// These primitives factor out that loop and the Flow→atomic_flag plumbing.
+// These primitives factor out that loop and the Flow→std::atomic_flag plumbing.
 // HTTP server keeps its own driver because it shares the ring with non-
 // file_io ops (Op-tagged user_data); this helper assumes the ring is owned
 // solely by FileReader and uses the default 32:32 ud layout unless a
@@ -66,13 +66,13 @@ export struct PumpTimeout final : std::runtime_error {
 export template<typename Decode = DefaultUdDecoder>
 void pump_until(
 	FileReader &reader,
-	atomic_flag const &done,
+	std::atomic_flag const &done,
 	std::optional<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
 	auto const deadline = budget ? std::make_optional(std::chrono::steady_clock::now() + *budget) : std::nullopt;
-	while (!done.test(memory_order_acquire)) {
+	while (!done.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		int rc = 0;
 		if (deadline) {
@@ -100,7 +100,7 @@ void pump_until(
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{format("conflux.file_io: submit_and_wait rc={}", rc)};
+			throw std::runtime_error{std::format("conflux.file_io: submit_and_wait rc={}", rc)};
 		}
 		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
@@ -114,7 +114,7 @@ void pump_until(
 				completions->dispatch(slot, gen, c->res, c->flags);
 			}
 			::io_uring_cq_advance(ring, n);
-			if (done.test(memory_order_acquire)) {
+			if (done.test(std::memory_order_acquire)) {
 				break;
 			}
 		}
@@ -128,30 +128,30 @@ T block_on(
 	Decode decode = {}) {
 	using namespace conflux::work::root;
 	struct Slot {
-		atomic_flag done{};
+		std::atomic_flag done{};
 		std::exception_ptr err{};
 		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
-	auto slot = make_shared<Slot>();
-	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+	auto slot = std::make_shared<Slot>();
+	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
-			auto outcome = blocking_join(move(*jh));
+			auto outcome = blocking_join(std::move(*jh));
 			if (outcome.is_failure()) {
-				slot->err = move(outcome).failure().error;
+				slot->err = std::move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
-				slot->err = make_exception_ptr(::Cancelled{});
+				slot->err = std::make_exception_ptr(::Cancelled{});
 			} else if constexpr (!std::is_void_v<T>) {
-				slot->value.emplace(move(outcome).success().value);
+				slot->value.emplace(std::move(outcome).success().value);
 			}
-		} catch (...) { slot->err = current_exception(); }
-		slot->done.test_and_set(memory_order_release);
+		} catch (...) { slot->err = std::current_exception(); }
+		slot->done.test_and_set(std::memory_order_release);
 	});
-	pump_until(reader, slot->done, budget, move(decode));
+	pump_until(reader, slot->done, budget, std::move(decode));
 	if (slot->err) {
-		rethrow_exception(slot->err);
+		std::rethrow_exception(slot->err);
 	}
 	if constexpr (!std::is_void_v<T>) {
-		return move(*slot->value);
+		return std::move(*slot->value);
 	}
 }

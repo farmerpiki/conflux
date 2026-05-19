@@ -59,7 +59,7 @@ std::uint64_t parse_u64(
 
 } // namespace
 Config parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	Config cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
@@ -89,7 +89,7 @@ void serve_one(
 	::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 	std::array<char, 64> buf{};
 	std::size_t held = 0;
-	while (!stop.test(memory_order_acquire)) {
+	while (!stop.test(std::memory_order_acquire)) {
 		ssize_t const got = ::read(cfd, buf.data() + held, buf.size() - held);
 		if (got <= 0) {
 			break;
@@ -143,7 +143,7 @@ void run_server(
 	atomic_flag &stop) {
 	timeval tv{.tv_sec = 0, .tv_usec = 100000};
 	::setsockopt(listen_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	while (!stop.test(memory_order_acquire)) {
+	while (!stop.test(std::memory_order_acquire)) {
 		int const cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
 		if (cfd < 0) {
 			if (errno == EAGAIN || errno == EINTR) {
@@ -211,7 +211,7 @@ sockaddr_storage loopback_addr(
 	return ss;
 }
 std::size_t encode_line(
-	span<char> out,
+	std::span<char> out,
 	std::uint64_t n) {
 	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
 	if (r.ec != errc{}) {
@@ -324,7 +324,7 @@ struct StrLineReader {
 			}
 			std::size_t const got = sync_wait_socket_task(
 				ring,
-				stream.async_recv_borrowed(span<std::uint8_t>{buf.data() + held, buf.size() - held}));
+				stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				throw std::runtime_error{"eof"};
 			}
@@ -350,7 +350,7 @@ std::uint64_t run_str_callback(
 		sync_wait_socket_task(
 			ring,
 			stream.async_write_all_borrowed(
-				span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len}));
+				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len}));
 		auto line = reader.read_line();
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
@@ -373,7 +373,7 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
 		co_await stream.async_write_all_borrowed(
-			span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len});
+			std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len});
 		for (;;) {
 			auto view = span{rbuf}.first(held);
 			auto it = std::ranges::find(view, std::uint8_t('\n'));
@@ -389,7 +389,7 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 				break;
 			}
 			std::size_t const r =
-				co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
+				co_await stream.async_recv_borrowed(std::span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
 			if (r == 0) {
 				throw std::runtime_error{"eof"};
 			}
@@ -415,14 +415,14 @@ conflux::work::root::Task<void> serve_one_async(
 	std::size_t held = 0;
 	for (;;) {
 		std::size_t const got =
-			co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
+			co_await stream.async_recv_borrowed(std::span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
 		if (got == 0) {
 			co_return;
 		}
 		held += got;
 		std::size_t scan = 0;
 		while (scan < held) {
-			auto view = span<std::uint8_t>{rbuf.data() + scan, held - scan};
+			auto view = std::span<std::uint8_t>{rbuf.data() + scan, held - scan};
 			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it == view.end()) {
 				break;
@@ -446,7 +446,7 @@ conflux::work::root::Task<void> serve_one_async(
 			*conv.ptr = '\n';
 			std::size_t const out_len = static_cast<std::size_t>(conv.ptr - out.data()) + 1;
 			co_await stream.async_write_all_borrowed(
-				span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), out_len});
+				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), out_len});
 			scan = msg_end + 1;
 		}
 		if (scan > 0) {
@@ -464,7 +464,7 @@ void run_async_server(
 	TcpListener listener{
 		TcpListenerOptions{.port = 0, .bind = TcpBindAddress::loopback_v4, .reuse_addr = true}
     };
-	port_out.store(listener.port(), memory_order_release);
+	port_out.store(listener.port(), std::memory_order_release);
 	port_ready.test_and_set(memory_order_release);
 	::io_uring raw{};
 	if (::io_uring_queue_init(64, &raw, 0) < 0) {
@@ -475,7 +475,7 @@ void run_async_server(
 							return pack_ud(s, g);
 						}};
 	async_tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
-		return serve_one_async(move(s));
+		return serve_one_async(std::move(s));
 	}).detach();
 	auto drain = [&]() noexcept {
 		std::array<::io_uring_cqe *, 32> batch{};
@@ -495,7 +495,7 @@ void run_async_server(
 			::io_uring_cq_advance(&raw, n);
 		}
 	};
-	while (!stop.test(memory_order_acquire)) {
+	while (!stop.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe{};
 		__kernel_timespec ts{.tv_sec = 0, .tv_nsec = 50000000};
 		int const rc = ::io_uring_submit_and_wait_timeout(&raw, &cqe, 1, &ts, nullptr);
@@ -507,7 +507,7 @@ void run_async_server(
 		}
 		drain();
 	}
-	{ auto _ = move(listener); }
+	{ auto _ = std::move(listener); }
 	for (int i = 0; i < 5; ++i) {
 		::io_uring_cqe *cqe{};
 		__kernel_timespec ts{.tv_sec = 0, .tv_nsec = 10000000};
@@ -581,10 +581,10 @@ int main(
 		if (async_srv) {
 			server = thread{
 				[&async_port, &port_ready, &server_stop] { run_async_server(async_port, port_ready, server_stop); }};
-			while (!port_ready.test(memory_order_acquire)) {
+			while (!port_ready.test(std::memory_order_acquire)) {
 				std::this_thread::yield();
 			}
-			port = async_port.load(memory_order_acquire);
+			port = async_port.load(std::memory_order_acquire);
 		} else {
 			server = thread{[lfd, &server_stop] { run_server(lfd, server_stop); }};
 		}

@@ -21,10 +21,10 @@ root::Task<std::string> read_file(
 	std::string path) {
 	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	if (!handle.valid()) {
-		throw std::runtime_error{format("open {} failed", path)};
+		throw std::runtime_error{std::format("open {} failed", path)};
 	}
 	std::array<std::byte, 256> buf{};
-	auto got = co_await files.read_into(handle, 0, span<byte>{buf.data(), buf.size()});
+	auto got = co_await files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()});
 	co_return std::string{reinterpret_cast<char const *>(buf.data()), got};
 }
 root::Task<void> demo(
@@ -63,7 +63,7 @@ int main() {
 
 	try {
 		block_on(files, demo(files, path));
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		::unlink(path.c_str());

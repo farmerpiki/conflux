@@ -26,11 +26,11 @@ inline ClientRequest::Builder &&set_body(
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<DefaultJsonProvider, T>
 {
-	return move(set_body(b, value, opts));
+	return std::move(set_body(b, value, opts));
 }
 
 template<class T>
-[[nodiscard]] expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body(
+[[nodiscard]] std::expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body(
 	ClientRequest const &req,
 	conflux::json::boundary::DecodeOptions const &opts = {})
 	requires conflux::json::boundary::JsonDecodeProvider<DefaultJsonProvider, std::remove_cvref_t<T>>
@@ -39,7 +39,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
@@ -51,7 +51,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
 	std::string_view status_text,

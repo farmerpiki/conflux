@@ -15,7 +15,7 @@ export [[nodiscard]] inline std::uint64_t bench_now_ns() noexcept {
 export [[nodiscard]] inline std::size_t bench_parse_sz(
 	char const *s) noexcept {
 	std::size_t v{};
-	from_chars(s, s + std::strlen(s), v);
+	std::from_chars(s, s + std::strlen(s), v);
 	return v;
 }
 export struct BenchArgs {
@@ -28,7 +28,7 @@ export struct BenchArgs {
 // Unknown flags are silently ignored so each bench can do a second pass for
 // its own extra arguments over the same argv.
 export [[nodiscard]] BenchArgs bench_parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	BenchArgs a;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view arg = args[i];

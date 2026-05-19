@@ -30,8 +30,8 @@ import conflux.work.root;
 import conflux.work.carrier;
 
 // ---------------------------------------------------------------------------
-// Per-thread monotonic bump arena for EagerChain coroutine frames.
-// Layout: [kAlign-byte header (marker in byte 0) | frame (sz bytes)]
+// Per-std::thread monotonic bump arena for EagerChain coroutine frames.
+// Layout: [kAlign-std::byte header (marker in std::byte 0) | frame (sz bytes)]
 // Alignment: all returned pointers are __STDCPP_DEFAULT_NEW_ALIGNMENT__-aligned.
 // Reclaim is LIFO: nested EagerChains (never suspend) produce strict stack order.
 // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ struct FrameArena {
 		auto total = pool_alloc_count_ + fallback_count_;
 		if (total > 0 && fallback_count_ * 100u > total) {
 			try {
-				auto message = format(
+				auto message = std::format(
 					"conflux work: coro frame pool fallback rate {:.1f}% "
 					"({}/{} allocs, largest frame {} B)\n",
 					100.0 * static_cast<double>(fallback_count_) / static_cast<double>(total),
@@ -152,15 +152,15 @@ struct EagerChainPromise {
 	EagerChain<T> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }
 	std::suspend_always final_suspend() noexcept { return {}; }
-	void unhandled_exception() { slot_ = root::Outcome<T>{root::Failure{current_exception()}}; }
+	void unhandled_exception() { slot_ = root::Outcome<T>{root::Failure{std::current_exception()}}; }
 	void return_value(
 		T v) {
-		slot_ = root::Outcome<T>{root::Success<T>{move(v)}};
+		slot_ = root::Outcome<T>{root::Success<T>{std::move(v)}};
 	}
 	template<root::work_value U>
 	ChainAwaiter<U> await_transform(
 		Chain<U> &&c) noexcept {
-		return move(c).operator co_await();
+		return std::move(c).operator co_await();
 	}
 	template<root::work_value U>
 	ChainAwaiter<U> await_transform(EagerChain<U> &&e) noexcept;
@@ -187,12 +187,12 @@ struct EagerChainPromise<void> {
 	EagerChain<void> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }
 	std::suspend_always final_suspend() noexcept { return {}; }
-	void unhandled_exception() { slot_ = root::Outcome<void>{root::Failure{current_exception()}}; }
+	void unhandled_exception() { slot_ = root::Outcome<void>{root::Failure{std::current_exception()}}; }
 	void return_void() { slot_ = root::Outcome<void>{root::Success<void>{}}; }
 	template<root::work_value U>
 	ChainAwaiter<U> await_transform(
 		Chain<U> &&c) noexcept {
-		return move(c).operator co_await();
+		return std::move(c).operator co_await();
 	}
 	template<root::work_value U>
 	ChainAwaiter<U> await_transform(EagerChain<U> &&e) noexcept;
@@ -233,33 +233,33 @@ public:
 	}
 	EagerChain(
 		EagerChain &&o) noexcept
-		: handle_{exchange(o.handle_, {})} {}
+		: handle_{std::exchange(o.handle_, {})} {}
 	EagerChain &operator =(
 		EagerChain &&o) noexcept {
 		if (this != &o) {
 			if (handle_) {
 				handle_.destroy();
 			}
-			handle_ = exchange(o.handle_, {});
+			handle_ = std::exchange(o.handle_, {});
 		}
 		return *this;
 	}
 	EagerChain(EagerChain const &) = delete;
 	EagerChain &operator =(EagerChain const &) = delete;
-	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept { return move(*this).chain().operator co_await(); }
+	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept { return std::move(*this).chain().operator co_await(); }
 	[[nodiscard]] Chain<T> chain() && {
 		auto &p = handle_.promise();
 		if (!p.slot_) {
 			auto ex =
-				make_exception_ptr(root::WorkError{"EagerChain suspended: body awaited an asynchronous awaitable"});
+				std::make_exception_ptr(root::WorkError{"EagerChain suspended: body awaited an asynchronous awaitable"});
 			handle_.destroy();
 			handle_ = {};
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
-		auto out = move(*p.slot_);
+		auto out = std::move(*p.slot_);
 		handle_.destroy();
 		handle_ = {};
-		return Chain<T>{move(out), CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 };
 
@@ -277,12 +277,12 @@ template<root::work_value T>
 template<root::work_value U>
 ChainAwaiter<U> EagerChainPromise<T>::await_transform(
 	EagerChain<U> &&e) noexcept {
-	return move(e).chain().operator co_await();
+	return std::move(e).chain().operator co_await();
 }
 template<root::work_value U>
 ChainAwaiter<U> EagerChainPromise<void>::await_transform(
 	EagerChain<U> &&e) noexcept {
-	return move(e).chain().operator co_await();
+	return std::move(e).chain().operator co_await();
 }
 
 } // namespace conflux::work::carrier
@@ -304,7 +304,7 @@ class TaskHandleAwaiter {
 public:
 	explicit TaskHandleAwaiter(
 		root::TaskJoinHandle<T> &&h) noexcept
-		: handle_{move(h)}
+		: handle_{std::move(h)}
 		, control_{handle_.control()} {}
 	~TaskHandleAwaiter() noexcept {
 		if (handle_consumed_ || !bool(handle_)) {
@@ -322,7 +322,7 @@ public:
 #endif
 			}
 		}
-		auto _ = root::try_abandon_to(move(handle_), root::drop_on_abandon{});
+		auto _ = root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 #ifdef CONFLUX_WORK_CHECKED_BUILD
 		root::emit_carrier_diagnostic("TaskHandleAwaiter destroyed unconsumed — defensive abandon");
 #endif
@@ -341,7 +341,7 @@ public:
 	}
 	T await_resume() {
 		if (error_ == AwaiterError::already_installed) {
-			auto _ = root::try_abandon_to(move(handle_), root::drop_on_abandon{});
+			auto _ = root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
 			throw root::JoinError{root::JoinError::reason::ready_callback_already_installed};
 		}
@@ -349,17 +349,17 @@ public:
 			handle_consumed_ = true;
 			throw root::JoinError{root::JoinError::reason::consumed_handle};
 		}
-		auto out = root::join_ready(move(handle_));
+		auto out = root::join_ready(std::move(handle_));
 		handle_consumed_ = true;
 		if (out.is_success()) {
-			if constexpr (same_as<T, void>) {
+			if constexpr (std::same_as<T, void>) {
 				return;
 			} else {
-				return move(out).success().value;
+				return std::move(out).success().value;
 			}
 		}
 		if (out.is_failure()) {
-			rethrow_exception(move(out).failure().error);
+			std::rethrow_exception(std::move(out).failure().error);
 		}
 		throw root::CancelledError{out.cancelled().reason};
 	}
@@ -380,7 +380,7 @@ class TaskHandleChainAwaiter {
 public:
 	explicit TaskHandleChainAwaiter(
 		root::TaskJoinHandle<T> &&h) noexcept
-		: handle_{move(h)}
+		: handle_{std::move(h)}
 		, control_{handle_.control()} {}
 	~TaskHandleChainAwaiter() noexcept {
 		if (handle_consumed_ || !bool(handle_)) {
@@ -397,7 +397,7 @@ public:
 #endif
 			}
 		}
-		auto _ = root::try_abandon_to(move(handle_), root::drop_on_abandon{});
+		auto _ = root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 #ifdef CONFLUX_WORK_CHECKED_BUILD
 		root::emit_carrier_diagnostic("TaskHandleChainAwaiter destroyed unconsumed — defensive abandon");
 #endif
@@ -416,30 +416,30 @@ public:
 	}
 	Chain<T> await_resume() {
 		if (error_ == AwaiterError::already_installed) {
-			auto _ = root::try_abandon_to(move(handle_), root::drop_on_abandon{});
+			auto _ = root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
-			auto ex = make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});
+			auto ex = std::make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		if (error_ == AwaiterError::empty) {
 			handle_consumed_ = true;
-			auto ex = make_exception_ptr(root::JoinError{root::JoinError::reason::consumed_handle});
+			auto ex = std::make_exception_ptr(root::JoinError{root::JoinError::reason::consumed_handle});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
-		auto out = root::join_ready(move(handle_));
+		auto out = root::join_ready(std::move(handle_));
 		handle_consumed_ = true;
-		return Chain<T>{move(out), CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 };
 template<root::work_value T>
 [[nodiscard]] TaskHandleAwaiter<T> operator co_await(
 	root::TaskJoinHandle<T> &&jh) noexcept {
-	return TaskHandleAwaiter<T>{move(jh)};
+	return TaskHandleAwaiter<T>{std::move(jh)};
 }
 template<root::work_value T>
 [[nodiscard]] TaskHandleChainAwaiter<T> await_chain(
 	root::TaskJoinHandle<T> &&jh) noexcept {
-	return TaskHandleChainAwaiter<T>{move(jh)};
+	return TaskHandleChainAwaiter<T>{std::move(jh)};
 }
 template<root::work_value T>
 [[deprecated(

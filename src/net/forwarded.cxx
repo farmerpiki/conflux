@@ -41,8 +41,8 @@ export Router::Middleware forwarded_middleware(
 		eprintln("forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
 	}
 
-	return [opts = move(opts),
-			cidrs = move(cidrs)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts),
+			cidrs = std::move(cidrs)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {
 			auto const peer_ip = parse_ip(req.remote_addr).value_or(IpAddr{});
@@ -81,7 +81,7 @@ export Router::Middleware forwarded_middleware(
 		}
 
 		auto enriched = req.to_owned();
-		enriched.remote_addr = move(real_ip);
+		enriched.remote_addr = std::move(real_ip);
 		return next(enriched);
 	};
 }

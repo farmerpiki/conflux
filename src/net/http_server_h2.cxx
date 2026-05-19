@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -105,7 +105,7 @@ ssize_t Ring::h2_send_cb(
 		return NGHTTP2_ERR_WOULDBLOCK;
 	}
 	auto const available = kH2PendingSendCap - conn.h2_pending_send.size();
-	auto const to_copy = min(length, available);
+	auto const to_copy = std::min(length, available);
 	conn.h2_pending_send.append(reinterpret_cast<char const *>(data), to_copy);
 	return static_cast<ssize_t>(to_copy);
 }
@@ -212,8 +212,8 @@ int Ring::h2_on_header_cb(
 			}
 			std::size_t content_length{};
 			auto const *cl_end = std::ranges::next(v.data(), ssize(v));
-			auto [ptr, ec] = from_chars(v.data(), cl_end, content_length);
-			if (ec == errc{} && ptr == cl_end && content_length <= ctx->ring->max_body_size) {
+			auto [ptr, ec] = std::from_chars(v.data(), cl_end, content_length);
+			if (ec == std::errc{} && ptr == cl_end && content_length <= ctx->ring->max_body_size) {
 				stream.expected_body_size = content_length;
 			} else {
 				h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_CANCEL);
@@ -283,8 +283,8 @@ ssize_t Ring::h2_read_cb(
 			}
 			return NGHTTP2_ERR_DEFERRED;
 		}
-		auto to_copy = min(stream.h2_sse_buf.size(), length);
-		// NOLINTNEXTLINE(bugprone-not-null-terminated-result): raw byte copy, not C-S
+		auto to_copy = std::min(stream.h2_sse_buf.size(), length);
+		// NOLINTNEXTLINE(bugprone-not-null-terminated-result): raw std::byte copy, not C-S
 		memcpy(buf, stream.h2_sse_buf.data(), to_copy);
 		stream.h2_sse_buf.erase(0, to_copy);
 		// Don't set EOF — channel may produce more events.
@@ -293,8 +293,8 @@ ssize_t Ring::h2_read_cb(
 
 	// Static response body path.
 	auto remaining = stream.response_body.size() - stream.response_off;
-	auto to_copy = min(remaining, length);
-	memcpy(buf, span{stream.response_body}.subspan(stream.response_off).data(), to_copy);
+	auto to_copy = std::min(remaining, length);
+	memcpy(buf, std::span{stream.response_body}.subspan(stream.response_off).data(), to_copy);
 	stream.response_off += to_copy;
 	if (stream.response_off >= stream.response_body.size()) {
 		// If the response carries trailers, suppress the END_STREAM flag on the
@@ -342,8 +342,8 @@ void Ring::h2_submit_response(
 	}
 
 	bool const is_sse_resp = resp.is_sse();
-	std::string const status_str = to_string(resp.status);
-	std::string const clen_str = to_string(resp.content_length());
+	std::string const status_str = std::to_string(resp.status);
+	std::string const clen_str = std::to_string(resp.content_length());
 	std::vector<std::pair<std::string, std::string>> nv_storage;
 	nv_storage.reserve(3 + resp.headers.size() + resp.set_cookies.size());
 	nv_storage.emplace_back(":status", status_str);
@@ -374,7 +374,7 @@ void Ring::h2_submit_response(
 
 	stream.response_body = resp.take_text_body();
 	stream.response_off = 0;
-	stream.response_trailers = move(resp.trailers);
+	stream.response_trailers = std::move(resp.trailers);
 
 	nghttp2_data_provider prd{};
 	prd.read_callback = h2_read_cb;
@@ -471,7 +471,7 @@ int Ring::h2_on_frame_recv_cb(
 	HttpResponse resp;
 	try {
 		resp = ctx->ring->dispatch(req);
-	} catch (exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
+	} catch (std::exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
 		resp = HttpResponse::internal_error();
 	}
 
@@ -481,7 +481,7 @@ int Ring::h2_on_frame_recv_cb(
 			->queue_deferred_wait(ctx->fd, stream.deferred_efd, resp.take_deferred_response(), frame->hd.stream_id);
 		return 0;
 	}
-	h2_submit_response(conn, frame->hd.stream_id, move(resp));
+	h2_submit_response(conn, frame->hd.stream_id, std::move(resp));
 	return 0;
 }
 
@@ -573,7 +573,7 @@ void Ring::h2_setup_conn(
 	nghttp2_session_callbacks_set_on_frame_recv_callback(cbs, h2_on_frame_recv_cb);
 	nghttp2_session_callbacks_set_on_stream_close_callback(cbs, h2_on_stream_close_cb);
 
-	conn.h2_ctx = make_unique<H2ConnCtx>(H2ConnCtx{.ring = this, .fd = conn.fd});
+	conn.h2_ctx = std::make_unique<H2ConnCtx>(H2ConnCtx{.ring = this, .fd = conn.fd});
 	if (nghttp2_session_server_new(&conn.h2_session, cbs, conn.h2_ctx.get()) != 0) {
 		conn.h2_session = nullptr;
 	}
@@ -586,7 +586,7 @@ void Ring::h2_setup_conn(
 	constexpr std::uint32_t kH2MaxConcurrentStreams = 100;
 	constexpr std::uint32_t kH2InitialWindowSize = 1U << 24;
 	constexpr std::uint32_t kH2MaxFrameSize = 1U << 17;
-	std::uint32_t const h2_max_header_list_size = static_cast<std::uint32_t>(min<std::size_t>(
+	std::uint32_t const h2_max_header_list_size = static_cast<std::uint32_t>(std::min<std::size_t>(
 		parser_limits.max_header_block_size,
 		static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())));
 	std::array<nghttp2_settings_entry, 4> const iv{

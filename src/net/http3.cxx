@@ -30,7 +30,7 @@ export inline std::string_view const kH3Alpn = "h3";
 export std::string http3_alt_svc_value(
 	std::uint16_t port,
 	std::uint32_t max_age_sec) {
-	return format(R"(h3=":{}"; ma={})", port, max_age_sec);
+	return std::format(R"(h3=":{}"; ma={})", port, max_age_sec);
 }
 export bool http3_negotiated(
 	SSL const *ssl) {
@@ -170,7 +170,7 @@ int get_new_connection_id_cb(
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
 	std::array<std::uint8_t, kCidLen> k{};
-	memcpy(k.data(), cid->data, min(cidlen, k.size()));
+	memcpy(k.data(), cid->data, std::min(cidlen, k.size()));
 	c->cid_keys.push_back(k);
 	register_cid_on_listener(c, k);
 	return 0;
@@ -181,7 +181,7 @@ int remove_connection_id_cb(
 	void *user_data) {
 	auto *c = static_cast<Http3Conn *>(user_data);
 	std::array<std::uint8_t, kCidLen> k{};
-	memcpy(k.data(), cid->data, min<std::size_t>(cid->datalen, k.size()));
+	memcpy(k.data(), cid->data, std::min<std::size_t>(cid->datalen, k.size()));
 	unregister_cid_on_listener(c, k);
 	return 0;
 }
@@ -295,9 +295,9 @@ int h3_begin_headers_cb(
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
 	if (c->streams.count(stream_id) == 0) {
-		auto s = make_unique<Http3Stream>();
+		auto s = std::make_unique<Http3Stream>();
 		s->stream_id = stream_id;
-		c->streams.emplace(stream_id, move(s));
+		c->streams.emplace(stream_id, std::move(s));
 	}
 	return 0;
 }
@@ -500,13 +500,13 @@ std::string addr_to_string(
 		auto const *in = reinterpret_cast<sockaddr_in const *>(sa);
 		char ip[INET_ADDRSTRLEN]{};
 		inet_ntop(AF_INET, &in->sin_addr, ip, sizeof(ip));
-		return format("{}:{}", ip, ntohs(in->sin_port));
+		return std::format("{}:{}", ip, ntohs(in->sin_port));
 	}
 	if (sa->sa_family == AF_INET6) {
 		auto const *in6 = reinterpret_cast<sockaddr_in6 const *>(sa);
 		char ip[INET6_ADDRSTRLEN]{};
 		inet_ntop(AF_INET6, &in6->sin6_addr, ip, sizeof(ip));
-		return format("[{}]:{}", ip, ntohs(in6->sin6_port));
+		return std::format("[{}]:{}", ip, ntohs(in6->sin6_port));
 	}
 	return {};
 }
@@ -522,13 +522,13 @@ void dispatch_stream(
 		hdrs_view.emplace_back(k, v);
 	}
 	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
-	HttpRequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, move(hdrs_view), {}, {}, {}, {}, s.body};
+	HttpRequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
 		s.response = HttpResponse::internal_error("no router");
 	} else {
 		try {
 			s.response = c->router->dispatch(req);
-		} catch (exception const &ex) { s.response = HttpResponse::internal_error(ex.what()); } catch (...) {
+		} catch (std::exception const &ex) { s.response = HttpResponse::internal_error(ex.what()); } catch (...) {
 			s.response = HttpResponse::internal_error();
 		}
 	}
@@ -546,7 +546,7 @@ void dispatch_stream(
 		s.response_body_buf = "HTTP/3 does not support this response kind yet\n";
 	}
 	std::vector<nghttp3_nv> nva;
-	s.status_str = to_string(s.response.status);
+	s.status_str = std::to_string(s.response.status);
 	nva.push_back(
 		{reinterpret_cast<std::uint8_t const *>(":status"),
 		 reinterpret_cast<std::uint8_t const *>(s.status_str.c_str()),
@@ -560,7 +560,7 @@ void dispatch_stream(
 		 kCT.size(),
 		 s.response.content_type.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
-	s.content_length_str = to_string(s.response_body_buf.size());
+	s.content_length_str = std::to_string(s.response_body_buf.size());
 	static constexpr std::string_view kCL = "content-length";
 	nva.push_back(
 		{reinterpret_cast<std::uint8_t const *>(kCL.data()),
@@ -600,7 +600,7 @@ std::array<std::uint8_t, kCidLen> cid_to_key(
 	std::uint8_t const *data,
 	std::size_t datalen) {
 	std::array<std::uint8_t, kCidLen> k{};
-	std::size_t const copy = min(datalen, k.size());
+	std::size_t const copy = std::min(datalen, k.size());
 	memcpy(k.data(), data, copy);
 	return k;
 }
@@ -664,10 +664,10 @@ public:
 			::close(timer_fd_);
 			::close(shutdown_efd_);
 			udp_fd_ = timer_fd_ = shutdown_efd_ = -1;
-			throw std::runtime_error{format("bind(h3 UDP :{}) failed: {}", port_, strerror(e))};
+			throw std::runtime_error{std::format("bind(h3 UDP :{}) failed: {}", port_, strerror(e))};
 		}
-		stopping_.clear(memory_order_release);
-		thread_ = thread{[this] { run_loop(); }};
+		stopping_.clear(std::memory_order_release);
+		thread_ = std::thread{[this] { run_loop(); }};
 	}
 	void stop() {
 		std::scoped_lock const lk{stop_mu_};
@@ -695,7 +695,7 @@ public:
 private:
 	void run_loop() {
 		pollfd pfds[3]{};
-		while (!stopping_.test(memory_order_acquire)) {
+		while (!stopping_.test(std::memory_order_acquire)) {
 			pfds[0] = {udp_fd_, POLLIN, 0};
 			pfds[1] = {shutdown_efd_, POLLIN, 0};
 			pfds[2] = {timer_fd_, POLLIN, 0};
@@ -753,7 +753,7 @@ private:
 		}
 		std::uint64_t const delta = earliest - now;
 		std::uint64_t const ms = delta / 1000000ULL;
-		return static_cast<int>(min<std::uint64_t>(ms, 1000ULL));
+		return static_cast<int>(std::min<std::uint64_t>(ms, 1000ULL));
 	}
 	void arm_earliest_timer() {
 		std::uint64_t earliest = UINT64_MAX;
@@ -952,7 +952,7 @@ private:
 		if (ngtcp2_accept(&hd, pkt, pktlen) != 0) {
 			return nullptr;
 		}
-		auto c = make_unique<Http3Conn>();
+		auto c = std::make_unique<Http3Conn>();
 		c->router = router_;
 		c->listener = this;
 		c->ip_key = ipkey;
@@ -1033,7 +1033,7 @@ private:
 		auto const client_dcid_key = cid_to_key(hd.dcid.data, hd.dcid.datalen);
 		c->cid_keys.push_back(client_dcid_key);
 		++ip_conn_count_[ipkey];
-		auto [it, inserted] = conns_.emplace(key, move(c));
+		auto [it, inserted] = conns_.emplace(key, std::move(c));
 		auto *raw = it->second.get();
 		cid_index_.emplace(key, raw);
 		cid_index_.emplace(client_dcid_key, raw);
@@ -1186,9 +1186,9 @@ private:
 	int udp_fd_{-1};
 	int shutdown_efd_{-1};
 	int timer_fd_{-1};
-	atomic_flag stopping_{};
-	thread thread_;
-	mutex stop_mu_;
+	std::atomic_flag stopping_{};
+	std::thread thread_;
+	std::mutex stop_mu_;
 	std::array<std::uint8_t, 32> retry_secret_{};
 	std::unordered_map<std::array<std::uint8_t, 16>, int, CidHash> ip_conn_count_;
 	std::unordered_map<std::array<std::uint8_t, kCidLen>, std::unique_ptr<Http3Conn>, CidHash> conns_;

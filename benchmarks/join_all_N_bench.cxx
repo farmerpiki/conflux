@@ -25,15 +25,15 @@ void run_once(
 	sources.reserve(n);
 	for (std::size_t i = 0; i < n; ++i) {
 		auto [task, source] = root::make_task_source<int>();
-		tasks.push_back(move(task));
-		sources.push_back(move(source));
+		tasks.push_back(std::move(task));
+		sources.push_back(std::move(source));
 	}
 	for (std::size_t i = 0; i < n; ++i) {
 		(void)sources[i].try_set_value(root::Success<int>{static_cast<int>(i)});
 	}
 	sources.clear();
 	for (auto &task: tasks) {
-		auto _ = root::blocking_join(move(task));
+		auto _ = root::blocking_join(std::move(task));
 	}
 }
 
@@ -53,7 +53,7 @@ int main(
 		if (a == "--n" && i + 1 < static_cast<std::size_t>(argc)) {
 			n = bench_parse_sz(argv[++i]);
 			if (cfg.config_name.empty()) {
-				cfg.config_name = format("n_{}", n);
+				cfg.config_name = std::format("n_{}", n);
 			}
 		}
 	}

@@ -179,7 +179,7 @@ TEST_CASE(
     };
 	opts.close_other_fds = false;
 	opts.stdout_ = Stdio::piped();
-	auto proc = spawn("/bin/sh", {"-c", format("cat /proc/self/fd/{}", child_fd)}, opts);
+	auto proc = spawn("/bin/sh", {"-c", std::format("cat /proc/self/fd/{}", child_fd)}, opts);
 	::close(child_fd);
 	REQUIRE(proc.has_value());
 
@@ -233,7 +233,7 @@ TEST_CASE(
 	auto proc = sync_wait(async_spawn_in(pool, "/bin/sleep", {"0"}));
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);
-	CHECK(sync_wait(async_wait_in(pool, move(*proc))) == 0);
+	CHECK(sync_wait(async_wait_in(pool, std::move(*proc))) == 0);
 }
 TEST_CASE(
 	"process: pid returns positive for live process",
@@ -317,7 +317,7 @@ TEST_CASE(
 	SpawnOptions opts;
 	opts.stdout_ = Stdio::piped();
 	// close_other_fds defaults to true — child must not inherit high fd.
-	auto proc = spawn("/bin/sh", {"-c", format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc = spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);
@@ -336,7 +336,7 @@ TEST_CASE(
 	SpawnOptions opts;
 	opts.stdout_ = Stdio::piped();
 	opts.close_other_fds = false;
-	auto proc = spawn("/bin/sh", {"-c", format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc = spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);

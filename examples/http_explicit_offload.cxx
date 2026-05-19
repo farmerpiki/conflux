@@ -133,8 +133,8 @@ int main() {
 			return json_error("rounds must be between 1 and 1000", 422, "Unprocessable Entity");
 		}
 
-		HashRequest body = move(*decoded);
-		return http::defer(pool, [body = move(body)] {
+		HashRequest body = std::move(*decoded);
+		return http::defer(pool, [body = std::move(body)] {
 			return http::json::response_or_internal_error(HashReply{
 				.algorithm = "fnv1a64",
 				.rounds = body.rounds,
@@ -143,7 +143,7 @@ int main() {
 		});
 	});
 
-	auto const status = move(app).run({.port = 9111});
+	auto const status = std::move(app).run({.port = 9111});
 	pool.drain_and_stop();
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

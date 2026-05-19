@@ -33,19 +33,19 @@ public:
 		std::string host,
 		Router router) {
 		router.set_work_pool(work_pool_);
-		vhosts_.emplace(ascii_lower(host), move(router));
+		vhosts_.emplace(ascii_lower(host), std::move(router));
 		return *this;
 	}
 	// Default Router for hosts with no explicit match.
 	VHostRouter &set_default(
 		Router router) {
 		router.set_work_pool(work_pool_);
-		default_ = make_unique<Router>(move(router));
+		default_ = std::make_unique<Router>(std::move(router));
 		return *this;
 	}
 	VHostRouter &set_work_pool(
 		std::shared_ptr<WorkPool> pool) {
-		work_pool_ = move(pool);
+		work_pool_ = std::move(pool);
 		for (auto &[host, router]: vhosts_) {
 			router.set_work_pool(work_pool_);
 		}
@@ -99,11 +99,11 @@ public:
 		if (default_) {
 			return default_->dispatch_context(req, ctx);
 		}
-		return nullopt;
+		return std::nullopt;
 	}
 
 private:
 	std::unordered_map<std::string, Router> vhosts_;
 	std::unique_ptr<Router> default_;
-	std::shared_ptr<WorkPool> work_pool_{make_shared<WorkPool>()};
+	std::shared_ptr<WorkPool> work_pool_{std::make_shared<WorkPool>()};
 };

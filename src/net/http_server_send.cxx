@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -71,7 +71,7 @@ void Ring::queue_send_mapped(
 
 		// iov[0]: remaining header bytes
 		if (skip < conn.own_response.size()) {
-			span<char> const hdr_span{conn.own_response};
+			std::span<char> const hdr_span{conn.own_response};
 			if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
 				auto handle =
 					accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
@@ -153,7 +153,7 @@ void Ring::queue_send_streamed(
 			}
 			return;
 		}
-		auto const hdr_view = span{conn.own_response}.subspan(conn.written);
+		auto const hdr_view = std::span{conn.own_response}.subspan(conn.written);
 		auto handle =
 			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		if (!submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd))) {
@@ -163,7 +163,7 @@ void Ring::queue_send_streamed(
 
 
 // Acquire a pipe P and submit the splice chain via FileReader. Completion
-// calls back into handle_streamed_splice_done on the ring thread.
+// calls back into handle_streamed_splice_done on the ring std::thread.
 void Ring::start_streamed_body(
 	int fd) {
 		auto &conn = conn_for(fd);
@@ -190,7 +190,7 @@ void Ring::start_streamed_body(
 				off,
 				static_cast<std::size_t>(remaining),
 				fd,
-				move(*pipe),
+				std::move(*pipe),
 				accepted_sockets_direct))
 			.detach();
 	}
@@ -215,12 +215,12 @@ void Ring::start_streamed_tls_chunk(
 		}
 		auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 		auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
-		auto const want = static_cast<std::size_t>(min<std::uint64_t>(remaining, buf->size()));
-		FixedBuffer b = move(*buf);
+		auto const want = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf->size()));
+		FixedBuffer b = std::move(*buf);
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
 		auto &fh = *conn.streamed_file->handle;
-		do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, move(b), want)).detach();
+		do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, std::move(b), want)).detach();
 	}
 
 
@@ -242,7 +242,7 @@ void Ring::on_streamed_tls_chunk_done(
 			return;
 		}
 		if (bytes == 0) {
-			// EOF earlier than expected — treat as done; trailing bytes won't
+			// EOF earlier than std::expected — treat as done; trailing bytes won't
 			// be invented.
 			conn.streamed_file.reset();
 			queue_close(fd);
@@ -276,7 +276,7 @@ void Ring::write_mapped_tls_chunk(
 			return;
 		}
 		static constexpr std::uint64_t kMappedTlsChunk{64UL * 1024U};
-		auto const want = static_cast<std::size_t>(min<std::uint64_t>(remaining, kMappedTlsChunk));
+		auto const want = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, kMappedTlsChunk));
 		auto const *data = reinterpret_cast<char const *>(win.data()) + conn.mapped_delivered;
 		auto const w = SSL_write(conn.ssl.get(), data, static_cast<int>(want));
 		if (w <= 0) {
@@ -466,7 +466,7 @@ void Ring::queue_send(
 			}
 			return;
 		}
-		auto const resp_view = span{resp}.subspan(conn.written);
+		auto const resp_view = std::span{resp}.subspan(conn.written);
 		if (send_zc_enabled_ && resp_view.size() >= send_zc_threshold_) {
 			++zc_counters_.attempts;
 			++zc_counters_.plain_attempts;
@@ -501,7 +501,7 @@ void Ring::queue_send(
 						view.data(),
 						view.size(),
 						pack(Op::Send, gen, fd))) {
-					conn.send_buf = move(*buf);
+					conn.send_buf = std::move(*buf);
 					conn.send_buf_base_written = conn.written;
 					conn.send_buf_len = len;
 					return;
@@ -835,9 +835,9 @@ conflux::work::root::Task<void> do_streamed_splice(
 	std::uint32_t conn_gen,
 	conflux::work::root::Task<std::size_t> splice_task) {
 	try {
-		auto const delivered = co_await move(splice_task);
+		auto const delivered = co_await std::move(splice_task);
 		ring->on_streamed_splice_done(fd, conn_gen, delivered, {});
-	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, std::size_t{0}, current_exception()); }
+	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, std::size_t{0}, std::current_exception()); }
 }
 
 #if CONFLUX_HAS_TLS
@@ -848,8 +848,8 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	std::size_t want,
 	conflux::work::root::Task<FileReader::ReadFixedResult> read_task) {
 	try {
-		auto result = co_await move(read_task);
-		ring->on_streamed_tls_chunk_done(fd, conn_gen, move(result.buffer), min(result.bytes, want), {});
-	} catch (...) { ring->on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, current_exception()); }
+		auto result = co_await std::move(read_task);
+		ring->on_streamed_tls_chunk_done(fd, conn_gen, std::move(result.buffer), std::min(result.bytes, want), {});
+	} catch (...) { ring->on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, std::current_exception()); }
 }
 #endif // CONFLUX_HAS_TLS

@@ -39,7 +39,7 @@ static std::string http_get_on_timeout(
 	::setsockopt(client.fd(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	::setsockopt(client.fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-	auto request = format(
+	auto request = std::format(
 		"GET {} HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Connection: close\r\n"
@@ -58,12 +58,12 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 
 	auto cfg = tiny_ring_config();
-	auto server = make_shared<HttpServer>(cfg, move(router));
+	auto server = std::make_shared<HttpServer>(cfg, std::move(router));
 	RunStatus result = RunStatus::stopped_normally;
 	std::atomic<bool> srv_exited{false};
-	jthread srv_thread([&] {
+	std::jthread srv_thread([&] {
 		result = server->run();
-		srv_exited.store(true, memory_order_release);
+		srv_exited.store(true, std::memory_order_release);
 	});
 
 	std::uint16_t const port = server->port();
@@ -73,11 +73,11 @@ TEST_CASE(
 	std::atomic<bool> stop_flag{false};
 	static constexpr int kWorkers = 2;
 	static constexpr int kIterations = 20;
-	std::vector<jthread> workers;
+	std::vector<std::jthread> workers;
 	workers.reserve(kWorkers);
 	for (int w = 0; w < kWorkers; ++w) {
 		workers.emplace_back([port, &stop_flag] {
-			for (int i = 0; i < kIterations && !stop_flag.load(memory_order_relaxed); ++i) {
+			for (int i = 0; i < kIterations && !stop_flag.load(std::memory_order_relaxed); ++i) {
 				try {
 					(void)http_get_on_timeout(port, "/ping");
 				} catch (...) { break; }
@@ -90,14 +90,14 @@ TEST_CASE(
 	static constexpr int kTimeoutMs = 500;
 	bool server_stopped = false;
 	for (int elapsed = 0; elapsed < kTimeoutMs; elapsed += kPollMs) {
-		if (srv_exited.load(memory_order_acquire)) {
+		if (srv_exited.load(std::memory_order_acquire)) {
 			server_stopped = true;
 			break;
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(kPollMs));
 	}
 
-	stop_flag.store(true, memory_order_relaxed);
+	stop_flag.store(true, std::memory_order_relaxed);
 
 	if (!server_stopped) {
 		server->request_shutdown();

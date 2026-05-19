@@ -82,8 +82,8 @@ void append_static_hex(
 	using U = std::make_unsigned_t<T>;
 	std::array<char, sizeof(U) * 2> buf{};
 	auto const v = static_cast<U>(value);
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), v, 16);
-	if (ec == errc{}) {
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v, 16);
+	if (ec == std::errc{}) {
 		out.append(buf.data(), ptr);
 	}
 }
@@ -92,8 +92,8 @@ void append_static_decimal(
 	std::string &out,
 	std::size_t value) {
 	std::array<char, 32> buf{};
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == errc{}) {
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == std::errc{}) {
 		out.append(buf.data(), ptr);
 	}
 }
@@ -254,9 +254,9 @@ HttpResponse handle_static_get_request(
 
 		if (sopts.offload_pool) {
 			auto owned_sreq = StaticRequestStorage::from(sreq);
-			auto dr = make_shared<DeferredResponse>();
+			auto dr = std::make_shared<DeferredResponse>();
 			auto ok =
-				sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = move(owned_sreq), &static_cache, dr]() mutable {
+				sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
 					} catch (...) { dr->complete(HttpResponse::internal_error()); }
@@ -264,7 +264,7 @@ HttpResponse handle_static_get_request(
 			if (!ok) {
 				return HttpResponse::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		return handle_static_get(rd, root_fd, sopts, sreq, static_cache);
@@ -296,19 +296,19 @@ HttpResponse handle_static_put(
 		}
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
-			auto body_owned = make_shared<std::string>(req.body);
-			auto dr = make_shared<DeferredResponse>();
-			auto fp = make_shared<std::string>(full_path);
+			auto body_owned = std::make_shared<std::string>(req.body);
+			auto dr = std::make_shared<DeferredResponse>();
+			auto fp = std::make_shared<std::string>(full_path);
 			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, std::string{rel}).detach();
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
-			auto dr = make_shared<DeferredResponse>();
-			auto body_owned = make_shared<std::string>(req.body);
+			auto dr = std::make_shared<DeferredResponse>();
+			auto body_owned = std::make_shared<std::string>(req.body);
 			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue(
-				[full_path = move(full_path), rel = move(rel), rfd, body_owned, existed, &static_cache, dr]() mutable {
+				[full_path = std::move(full_path), rel = std::move(rel), rfd, body_owned, existed, &static_cache, dr]() mutable {
 					auto r =
 						blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
 					if (!r) {
@@ -319,12 +319,12 @@ HttpResponse handle_static_put(
 					HttpResponse resp;
 					resp.status = existed ? kHttpNoContent : kHttpCreated;
 					resp.status_text = existed ? "No Content" : "Created";
-					dr->complete(move(resp));
+					dr->complete(std::move(resp));
 				});
 			if (!ok) {
 				return HttpResponse::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
@@ -363,17 +363,17 @@ HttpResponse handle_static_delete(
 		::close(probe);
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
-			auto dr = make_shared<DeferredResponse>();
-			auto fp = make_shared<std::string>(full_path);
+			auto dr = std::make_shared<DeferredResponse>();
+			auto fp = std::make_shared<std::string>(full_path);
 			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
-			auto dr = make_shared<DeferredResponse>();
+			auto dr = std::make_shared<DeferredResponse>();
 			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue(
-				[full_path = move(full_path), rel = move(rel), rfd, &static_cache, dr]() mutable {
+				[full_path = std::move(full_path), rel = std::move(rel), rfd, &static_cache, dr]() mutable {
 					try {
 						if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
 							dr->complete(
@@ -387,7 +387,7 @@ HttpResponse handle_static_delete(
 			if (!ok) {
 				return HttpResponse::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		if (::unlinkat(root_fd, rel.c_str(), 0) != 0) {
@@ -482,7 +482,7 @@ HttpResponse handle_static_get(
 					html += "</a></li>";
 				}
 				html += "</ul></body></html>";
-				return HttpResponse::html(move(html));
+				return HttpResponse::html(std::move(html));
 			} else {
 				return HttpResponse::html(
 					"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -530,7 +530,7 @@ HttpResponse handle_static_get(
 
 		// Format Last-Modified. Thread-local cache keyed on mtime — a hot
 		// directory typically serves many files sharing a handful of mtimes,
-		// so strftime runs once per mtime value per thread.
+		// so strftime runs once per mtime value per std::thread.
 		thread_local time_t last_mtime_cached = 0;
 		thread_local std::string last_modified_cached;
 		std::string last_modified;
@@ -675,8 +675,8 @@ HttpResponse handle_static_get(
 						}
 						auto const *first = s.data();
 						auto const *last = std::ranges::next(s.data(), ssize(s));
-						auto [p, ec] = from_chars(first, last, out);
-						return ec == errc{} && p == last;
+						auto [p, ec] = std::from_chars(first, last, out);
+						return ec == std::errc{} && p == last;
 					};
 
 					if (start_sv.empty()) {
@@ -693,7 +693,7 @@ HttpResponse handle_static_get(
 							ok = parse_size(end_sv, re);
 						}
 						if (ok) {
-							re = min(re, file_size - 1);
+							re = std::min(re, file_size - 1);
 							satisfiable = rs < file_size && rs <= re;
 						}
 					}
@@ -768,7 +768,7 @@ HttpResponse handle_static_get(
 						}
 						return make_cached_response(entry);
 					})) {
-				return move(*cached);
+				return std::move(*cached);
 			}
 			int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
 			if (fd < 0) {
@@ -795,7 +795,7 @@ HttpResponse handle_static_get(
 				body.resize(off);
 			}
 			StaticCacheEntry entry{
-				.body = move(body),
+				.body = std::move(body),
 				.mime = std::string{mime},
 				.etag = etag,
 				.last_modified = last_modified,
@@ -808,19 +808,19 @@ HttpResponse handle_static_get(
 			static_cache.put(
 				std::string{full_path},
 				std::string{content_encoding},
-				move(entry),
+				std::move(entry),
 				static_options.file_cache.max_total_bytes);
 			return resp;
 		}
 
 		// Async uring path: when a FileReader is installed for this
-		// thread (i.e. we are running on a ring thread, not offloaded to
-		// a WorkPool) and no compressed variant was picked, open the
+		// std::thread (i.e. we are running on a ring std::thread, not offloaded to
+		// a WorkPool) and no compressed std::variant was picked, open the
 		// file via IORING_OP_OPENAT and return a deferred response that
 		// carries a StreamedFile once the open CQE fires. Otherwise
 		// fall back to the synchronous mmap path below.
 		if (auto *fr = current_file_reader(); fr != nullptr && !r.tls && content_encoding.empty()) {
-			auto dr = make_shared<DeferredResponse>();
+			auto dr = std::make_shared<DeferredResponse>();
 			auto base =
 				is_range_request ? base_response(kHttpPartialContent, "Partial Content") : base_response(kHttpOk, "OK");
 			if (is_range_request) {
@@ -830,7 +830,7 @@ HttpResponse handle_static_get(
 			auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
 			do_serve_static_file(
 				dr,
-				move(base),
+				std::move(base),
 				send_off,
 				send_sz,
 				file_size,
@@ -842,7 +842,7 @@ HttpResponse handle_static_get(
 						.mode = 0,
 						.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
 				.detach();
-			return HttpResponse::deferred(move(dr));
+			return HttpResponse::deferred(std::move(dr));
 		}
 
 		auto lease = blocking_map_file_readonly(root_fd, std::string_view{rel_str});
@@ -855,13 +855,13 @@ HttpResponse handle_static_get(
 			auto resp = base_response(kHttpPartialContent, "Partial Content");
 			resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 			resp.set_mapped_file(
-				make_shared<MappedBody>(MappedBody{.lease = move(*lease), .offset = range_start, .size = send_sz}));
+				std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
 			return resp;
 		}
 
 		auto resp = base_response(kHttpOk, "OK");
 		resp.set_mapped_file(
-			make_shared<MappedBody>(MappedBody{.lease = move(*lease), .offset = 0, .size = file_size}));
+			std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
 		return resp;
 	} catch (...) { return HttpResponse::internal_error(); }
 }
@@ -874,14 +874,14 @@ conflux::work::root::Task<void> do_serve_static_file(
 	std::size_t total_size,
 	conflux::work::root::Task<FileHandle> open_task) {
 	try {
-		auto fh = co_await move(open_task);
+		auto fh = co_await std::move(open_task);
 		base.set_streamed_file(
-			make_shared<StreamedFile>(StreamedFile{
-				.handle = make_shared<FileHandle>(move(fh)),
+			std::make_shared<StreamedFile>(StreamedFile{
+				.handle = std::make_shared<FileHandle>(std::move(fh)),
 				.send_offset = send_off,
 				.send_size = send_sz,
 				.total_size = total_size}));
-		dr->complete(move(base));
+		dr->complete(std::move(base));
 	} catch (...) { dr->complete(HttpResponse::not_found("async open failed")); }
 }
 conflux::work::root::Task<void> do_save_static_file(
@@ -894,12 +894,12 @@ conflux::work::root::Task<void> do_save_static_file(
 	int dir_fd,
 	std::string rel_path) {
 	try {
-		co_await fr->async_atomic_write(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
+		co_await fr->async_atomic_write(dir_fd, std::move(rel_path), std::as_bytes(std::span{*body_owned}));
 		static_cache.evict_all_encodings(*fp);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
-		dr->complete(move(resp));
+		dr->complete(std::move(resp));
 	} catch (...) { dr->complete(HttpResponse::internal_error()); }
 }
 conflux::work::root::Task<void> do_delete_static_file(
@@ -908,7 +908,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task) {
 	try {
-		co_await move(unlink_task);
+		co_await std::move(unlink_task);
 		static_cache.evict_all_encodings(*fp);
 		dr->complete(HttpResponse::no_content());
 	} catch (FileIoError const &e) {

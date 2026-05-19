@@ -50,7 +50,7 @@ void print_usage() {
 	std::println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 Config parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	Config cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view arg = args[i];
@@ -117,12 +117,12 @@ Stats measure_case(
 	Case const &bench,
 	std::size_t iterations) {
 	for (std::size_t i = 0; i < warmup_iterations(iterations); ++i) {
-		sink.fetch_add(bench.run(), memory_order_relaxed);
+		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
 
 	auto const start = std::chrono::steady_clock::now();
 	for (std::size_t i = 0; i < iterations; ++i) {
-		sink.fetch_add(bench.run(), memory_order_relaxed);
+		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
 	auto const elapsed = std::chrono::steady_clock::now() - start;
 	auto const total_ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
@@ -139,14 +139,14 @@ void print_list(
 	}
 }
 void print_header(
-	Config::Format format) {
+	Config::Format std::format( {
 	if (format == Config::Format::table) {
 		std::println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
 	}
 }
 void print_stats(
 	Stats const &stats,
-	Config::Format format) {
+	Config::Format std::format( {
 	if (format == Config::Format::table) {
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
 		std::println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
@@ -160,7 +160,7 @@ void print_stats(
 	}
 }
 Case make_httpfields_lookup_case() {
-	auto headers = make_shared<HttpFields>(true);
+	auto headers = std::make_shared<HttpFields>(true);
 	headers->emplace_back("Content-Type", "application/json");
 	headers->emplace_back("Accept-Encoding", "br, zstd, gzip");
 	headers->emplace_back("X-Request-Id", "abc-123");
@@ -176,7 +176,7 @@ Case make_httpfields_lookup_case() {
 		}};
 }
 Case make_typed_field_extract_case() {
-	auto req = make_shared<HttpRequest>();
+	auto req = std::make_shared<HttpRequest>();
 	req->headers.set("X-Limit", "128");
 	req->query.emplace_back("page", "42");
 	req->query.emplace_back("enabled", "true");
@@ -199,7 +199,7 @@ Case make_router_exact_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("ok"); });
 	state->req.method = "GET";
 	state->req.path = "/health";
@@ -216,9 +216,9 @@ Case make_router_params_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.get("/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::text(format("{}:{}", req.params["user"], req.params["post"]));
+		return HttpResponse::text(std::format("{}:{}", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/users/alice/posts/42";
@@ -234,9 +234,9 @@ Case make_compress_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		std::shared_ptr<std::string> payload{make_shared<std::string>()};
+		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -260,9 +260,9 @@ Case make_compress_negotiation_miss_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		std::shared_ptr<std::string> payload{make_shared<std::string>()};
+		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -286,9 +286,9 @@ Case make_compress_below_threshold_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		std::shared_ptr<std::string> payload{make_shared<std::string>()};
+		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->payload->assign(128, 'x');
 	state->router.use(compress_middleware({.min_body_size = 256}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -316,11 +316,11 @@ Case make_codec_payload_case_owned(
 		std::string description;
 		Router router;
 		HttpRequest req;
-		std::shared_ptr<std::string> payload{make_shared<std::string>()};
+		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
-	auto state = make_shared<State>();
-	state->name = format("codec/{}/{}B", codec_name, payload_size);
-	state->description = format("Compression path pinned to {} for {} byte text payloads", codec_name, payload_size);
+	auto state = std::make_shared<State>();
+	state->name = std::format("codec/{}/{}B", codec_name, payload_size);
+	state->description = std::format("Compression path pinned to {} for {} byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -348,14 +348,14 @@ Case make_gzip_backend_payload_case(
 		std::string description;
 		Router router;
 		HttpRequest req;
-		std::shared_ptr<std::string> payload{make_shared<std::string>()};
+		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 		GzipBackend backend;
 		bool configured = false;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->backend = backend;
-	state->name = format("backend/{}/{}B", gzip_backend_name(backend), payload_size);
-	state->description = format("Gzip backend {} on {} byte text payloads", gzip_backend_name(backend), payload_size);
+	state->name = std::format("backend/{}/{}B", gzip_backend_name(backend), payload_size);
+	state->description = std::format("Gzip backend {} on {} byte text payloads", gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -385,7 +385,7 @@ Case make_route_json_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
 			format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
@@ -405,7 +405,7 @@ Case make_route_json_with_header_middleware_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.use([](HttpRequestView const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
@@ -433,7 +433,7 @@ Case make_route_json_with_compress_negotiation_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
@@ -458,7 +458,7 @@ Case make_flow_route_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.use([](HttpRequestView const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
@@ -488,7 +488,7 @@ Case make_flow_not_found_case() {
 		Router router;
 		HttpRequest req;
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	state->router.use([](HttpRequestView const &req, Router::Handler const &next) { return next(req); });
 	state->router.get("/api/health", [](HttpRequestView const &) { return HttpResponse::text("ok"); });
 	state->req.method = "GET";
@@ -599,7 +599,7 @@ int main(
 			auto const stats = benchmark_detail::measure_case(*bench, iterations);
 			benchmark_detail::print_stats(stats, cfg.format);
 		}
-		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(memory_order_relaxed));
+		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(std::memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
 		std::println(std::cerr, "conflux_benchmarks: {}", ex.what());

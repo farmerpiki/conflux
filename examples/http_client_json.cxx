@@ -63,7 +63,7 @@ int main() {
 	CreateItem payload{.name = "buffer slab", .quantity = 8};
 	http::json::set_body(*builder, payload);
 
-	auto req = move(*builder)
+	auto req = std::move(*builder)
 		.query("trace", "local-json-demo")
 		.accept_json()
 		.user_agent("conflux-json-client-example/1")

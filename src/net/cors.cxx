@@ -38,8 +38,8 @@ std::string join(
 [[nodiscard]] std::string decimal_string(
 	unsigned value) {
 	std::array<char, 16> buf{};
-	auto [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec != errc{}) {
+	auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec != std::errc{}) {
 		return {};
 	}
 	return std::string{buf.data(), static_cast<std::size_t>(ptr - buf.data())};
@@ -54,7 +54,7 @@ struct PreparedCorsOptions {
 
 	explicit PreparedCorsOptions(
 		CorsOptions options)
-		: opts(move(options))
+		: opts(std::move(options))
 		, allowed_methods(join(opts.allowed_methods))
 		, allowed_headers(join(opts.allowed_headers))
 		, expose_headers(join(opts.expose_headers))
@@ -96,8 +96,8 @@ void inject_cors_headers(
 // before route matching attempts (first-registered = outermost wrapper).
 export Router::Middleware cors_middleware(
 	CorsOptions opts = {}) {
-	auto policy = cors_detail::PreparedCorsOptions{move(opts)};
-	return [policy = move(policy)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	auto policy = cors_detail::PreparedCorsOptions{std::move(opts)};
+	return [policy = std::move(policy)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto request_origin = req.headers["origin"];
 
 		// Preflight: OPTIONS + Origin + Access-Control-Request-Method

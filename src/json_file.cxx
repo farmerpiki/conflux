@@ -69,12 +69,12 @@ export namespace conflux::json {
 	JsonParseOptions const &opts = {}) {
 	auto bytes = blocking_read_file_at(root_fd, contained_relative_path, json_file_read_limit(opts));
 	if (!bytes) {
-		return unexpected{make_file_error(bytes.error())};
+		return std::unexpected{make_file_error(bytes.error())};
 	}
 
 	auto doc = parse_copy(std::move(*bytes), opts);
 	if (!doc) {
-		return unexpected{make_parse_error(std::move(doc.error()))};
+		return std::unexpected{make_parse_error(std::move(doc.error()))};
 	}
 	return std::move(*doc);
 }

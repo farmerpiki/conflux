@@ -31,11 +31,11 @@ struct Bucket {
 // LRU-bounded token bucket store. Not exported — module scope to satisfy GCC.
 struct RateLimitStore {
 	explicit RateLimitStore(
-		std::size_t max)
-		: max_(max) {}
+		std::size_t max_clients)
+		: max_(max_clients) {}
 	// Returns a reference to the bucket for `key`, creating it if absent.
 	// Evicts the least-recently-seen entry when the store is full.
-	// Transparent hash/equal lets the hot find() path work from SV
+	// Transparent std::hash/equal lets the hot find() path work from SV
 	// without allocating.
 	Bucket &touch(
 		std::string_view key,
@@ -54,7 +54,7 @@ struct RateLimitStore {
 		auto owned = std::string{key};
 		order_.push_back(owned);
 		auto [it, _] = map_.emplace(
-			move(owned),
+			std::move(owned),
 			Entry{
 				.bucket = Bucket{.tokens = capacity, .window_start = now},
 				.order_it = std::prev(order_.end())
@@ -67,11 +67,11 @@ private:
 		using is_transparent = void;
 		std::size_t operator ()(
 			std::string_view s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 		std::size_t operator ()(
 			std::string const &s) const noexcept {
-			return hash<std::string_view>{}(s);
+			return std::hash<std::string_view>{}(s);
 		}
 	};
 	struct Entry {
@@ -87,13 +87,13 @@ private:
 export Router::Middleware rate_limit_middleware(
 	RateLimitOptions opts = {}) {
 	struct State {
-		mutex mtx;
+		std::mutex mtx;
 		RateLimitStore store;
 		explicit State(
-			std::size_t max)
-			: store(max) {}
+			std::size_t max_clients)
+			: store(max_clients) {}
 	};
-	auto state = make_shared<State>(max<std::size_t>(opts.max_clients, 1));
+	auto state = std::make_shared<State>(std::max<std::size_t>(opts.max_clients, 1));
 	unsigned const capacity = opts.requests + opts.burst;
 
 	return [opts, capacity, state](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
@@ -132,7 +132,7 @@ export Router::Middleware rate_limit_middleware(
 			r.status_text = "Too Many Requests";
 			r.content_type = "text/plain; charset=utf-8";
 			r.set_text_body("Too Many Requests");
-			r.headers["Retry-After"] = format("{}", retry_after);
+			r.headers["Retry-After"] = std::format("{}", retry_after);
 			return r;
 		}
 		return next(req);

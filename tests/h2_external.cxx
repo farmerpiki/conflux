@@ -125,13 +125,13 @@ struct H2Client {
 	H2Response get_with_headers(
 		std::string_view path,
 		std::vector<std::pair<std::string, std::string>> extra_headers) {
-		std::int32_t const sid = submit_request("GET", path, nullptr, move(extra_headers));
+		std::int32_t const sid = submit_request("GET", path, nullptr, std::move(extra_headers));
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 	H2Response raw_request(
 		std::vector<std::pair<std::string, std::string>> headers) {
-		std::int32_t const sid = submit_raw_headers(move(headers));
+		std::int32_t const sid = submit_raw_headers(std::move(headers));
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
@@ -150,21 +150,21 @@ struct H2Client {
 			path,
 			body_data,
 			{
-				{"content-length", to_string(content_length)}
+				{"content-length", std::to_string(content_length)}
         });
 	}
 	H2Response post_with_headers(
 		std::string_view path,
 		std::string_view body_data,
 		std::vector<std::pair<std::string, std::string>> extra_headers) {
-		auto rb = make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0});
+		auto rb = std::make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0});
 		ReqBody *rb_ptr = rb.get();
 		nghttp2_data_provider prd{};
 		prd.read_callback = read_cb;
 		prd.source.ptr = rb_ptr;
 
-		std::int32_t const sid = submit_request("POST", path, &prd, move(extra_headers));
-		req_bodies_.emplace(sid, move(rb)); // pointer still valid after move
+		std::int32_t const sid = submit_request("POST", path, &prd, std::move(extra_headers));
+		req_bodies_.emplace(sid, std::move(rb)); // pointer still valid after move
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
@@ -175,7 +175,7 @@ struct H2Client {
 	}
 	// Pump until all listed streams are closed (or timeout).
 	void pump_all(
-		span<std::int32_t const> sids) {
+		std::span<std::int32_t const> sids) {
 		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
 		auto all_done = [&] { return std::ranges::all_of(sids, [&](std::int32_t s) { return responses_[s].closed; }); };
 		while (!all_done() && std::chrono::steady_clock::now() < deadline) {
@@ -205,7 +205,7 @@ private:
 		nv_store.emplace_back(":scheme", "https");
 		nv_store.emplace_back(":authority", "localhost");
 		for (auto &h: extra_headers) {
-			nv_store.push_back(move(h));
+			nv_store.push_back(std::move(h));
 		}
 
 		std::vector<nghttp2_nv> nva;
@@ -317,7 +317,7 @@ private:
 			c->responses_[frame->hd.stream_id].trailers.emplace_back(std::string{n}, std::string{v});
 		} else if (n == ":status") {
 			int st = 0;
-			from_chars(v.data(), v.data() + v.size(), st);
+			std::from_chars(v.data(), v.data() + v.size(), st);
 			c->responses_[frame->hd.stream_id].status = st;
 		}
 		return 0;
@@ -364,7 +364,7 @@ private:
 		void * /*unused*/) {
 		auto &rb = *static_cast<ReqBody *>(source->ptr);
 		auto remaining = rb.data.size() - rb.off;
-		auto to_copy = min(remaining, length);
+		auto to_copy = (remaining < length ? remaining : length);
 		std::memcpy(
 			buf,
 			rb.data.data() + rb.off, // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -448,9 +448,9 @@ TEST_CASE(
 	REQUIRE(ok.status == 200);
 	std::vector<std::pair<std::string, std::string>> headers;
 	for (int i = 0; i < 20; ++i) {
-		headers.emplace_back(format("x-extra-{}", i), "1");
+		headers.emplace_back(std::format("x-extra-{}", i), "1");
 	}
-	auto resp = client.get_with_headers("/ping", move(headers));
+	auto resp = client.get_with_headers("/ping", std::move(headers));
 	REQUIRE(resp.closed);
 	CHECK(resp.status == 0);
 	CHECK(resp.error_code == NGHTTP2_ENHANCE_YOUR_CALM);
@@ -578,21 +578,21 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: deferred response completes over HTTP/2") {
-	auto pool = make_shared<WorkPool>();
+	auto pool = std::make_shared<WorkPool>();
 	Router router;
 	router.get("/deferred", [pool](HttpRequest const &) {
-		auto deferred = make_shared<DeferredResponse>();
+		auto deferred = std::make_shared<DeferredResponse>();
 		auto queued = pool->enqueue([deferred] {
 			auto resp = HttpResponse::text("deferred h2 ok");
 			resp.headers["x-deferred"] = "yes";
-			deferred->complete(move(resp));
+			deferred->complete(std::move(resp));
 		});
 		if (!queued) {
 			return HttpResponse::internal_error("pool enqueue failed");
 		}
-		return HttpResponse::deferred(move(deferred));
+		return HttpResponse::deferred(std::move(deferred));
 	});
-	conflux::tests::HttpsServerFixture const fx{move(router)};
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/deferred");
 	REQUIRE(resp.status == 200);
@@ -608,7 +608,7 @@ TEST_CASE(
 		auto _ = ch->send("data: gamma\n\n");
 		ch->close();
 	});
-	conflux::tests::HttpsServerFixture const fx{move(r)};
+	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/events");
 	REQUIRE(resp.status == 200);
@@ -625,7 +625,7 @@ TEST_CASE(
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});
-	conflux::tests::HttpsServerFixture const fx{move(r)};
+	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/typed");
 	REQUIRE(resp.status == 200);
@@ -649,7 +649,7 @@ TEST_CASE(
         };
 		return resp;
 	});
-	conflux::tests::HttpsServerFixture const fx{move(router)};
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/with-trailers");
 	REQUIRE(resp.status == 200);
@@ -669,7 +669,7 @@ TEST_CASE(
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
 	r.get("/big", [&large_body](HttpRequest const &) { return HttpResponse::text(large_body); });
-	conflux::tests::HttpsServerFixture const fx{move(r)};
+	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/big");
 	REQUIRE(resp.status == 200);

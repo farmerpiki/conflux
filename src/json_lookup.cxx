@@ -22,11 +22,11 @@ namespace detail {
 				return p;
 			}(),
 		.member_name = std::string{name},
-		.message = format("missing member: {}", name)};
+		.message = std::format("missing member: {}", name)};
 }
 [[nodiscard]] inline JsonError type_err(
 	std::string_view name,
-	JsonKind expected,
+	JsonKind expected_kind,
 	JsonKind actual) {
 	return JsonError{
 		.stage = JsonStage::lookup,
@@ -37,91 +37,91 @@ namespace detail {
 				p.push_member(name);
 				return p;
 			}(),
-		.expected_kind = expected,
+		.expected_kind = expected_kind,
 		.actual_kind = actual,
 		.member_name = std::string{name},
-		.message = format("member '{}' has wrong type", name)};
+		.message = std::format("member '{}' has wrong type", name)};
 }
 
 } // namespace detail
-[[nodiscard]] expected<std::string, JsonError> require_string(
+[[nodiscard]] std::expected<std::string, JsonError> require_string(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
-		return unexpected(detail::missing_err(name));
+		return std::unexpected(detail::missing_err(name));
 	}
 	auto sv = node->as_string();
 	if (!sv) {
-		return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
+		return std::unexpected(detail::type_err(name, JsonKind::string, node->kind()));
 	}
 	return std::string{*sv};
 }
-[[nodiscard]] expected<std::int64_t, JsonError> require_int(
+[[nodiscard]] std::expected<std::int64_t, JsonError> require_int(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
-		return unexpected(detail::missing_err(name));
+		return std::unexpected(detail::missing_err(name));
 	}
 	auto v = node->as_i64();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<std::uint64_t, JsonError> require_uint(
+[[nodiscard]] std::expected<std::uint64_t, JsonError> require_uint(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
-		return unexpected(detail::missing_err(name));
+		return std::unexpected(detail::missing_err(name));
 	}
 	auto v = node->as_u64();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<double, JsonError> require_double(
+[[nodiscard]] std::expected<double, JsonError> require_double(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
-		return unexpected(detail::missing_err(name));
+		return std::unexpected(detail::missing_err(name));
 	}
 	auto v = node->as_double();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<bool, JsonError> require_bool(
+[[nodiscard]] std::expected<bool, JsonError> require_bool(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
-		return unexpected(detail::missing_err(name));
+		return std::unexpected(detail::missing_err(name));
 	}
 	auto v = node->as_bool();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<std::optional<std::string>, JsonError> optional_string(
+[[nodiscard]] std::expected<std::optional<std::string>, JsonError> optional_string(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
@@ -130,11 +130,11 @@ namespace detail {
 	}
 	auto sv = node->as_string();
 	if (!sv) {
-		return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
+		return std::unexpected(detail::type_err(name, JsonKind::string, node->kind()));
 	}
 	return std::optional<std::string>{std::string{*sv}};
 }
-[[nodiscard]] expected<std::optional<std::int64_t>, JsonError> optional_int(
+[[nodiscard]] std::expected<std::optional<std::int64_t>, JsonError> optional_int(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
@@ -143,14 +143,14 @@ namespace detail {
 	}
 	auto v = node->as_i64();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return std::optional<std::int64_t>{*v};
 }
-[[nodiscard]] expected<std::optional<std::uint64_t>, JsonError> optional_uint(
+[[nodiscard]] std::expected<std::optional<std::uint64_t>, JsonError> optional_uint(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
@@ -159,14 +159,14 @@ namespace detail {
 	}
 	auto v = node->as_u64();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return std::optional<std::uint64_t>{*v};
 }
-[[nodiscard]] expected<std::optional<double>, JsonError> optional_double(
+[[nodiscard]] std::expected<std::optional<double>, JsonError> optional_double(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
@@ -175,14 +175,14 @@ namespace detail {
 	}
 	auto v = node->as_double();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return std::optional<double>{*v};
 }
-[[nodiscard]] expected<std::optional<bool>, JsonError> optional_bool(
+[[nodiscard]] std::expected<std::optional<bool>, JsonError> optional_bool(
 	ObjectView const &obj,
 	std::string_view name) {
 	auto node = obj.find_member(name);
@@ -191,10 +191,10 @@ namespace detail {
 	}
 	auto v = node->as_bool();
 	if (!v) {
-		auto e = move(v).error();
+		auto e = std::move(v).error();
 		e.path.push_member(name);
 		e.member_name = std::string{name};
-		return unexpected(move(e));
+		return std::unexpected(std::move(e));
 	}
 	return std::optional<bool>{*v};
 }
@@ -203,7 +203,7 @@ namespace detail {
 // Schema validation
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] expected<void, JsonError> validate(
+[[nodiscard]] std::expected<void, JsonError> validate(
 	NodeRef root,
 	NodeRef schema) {
 	auto schema_obj = schema.as_object();
@@ -253,12 +253,12 @@ namespace detail {
 	}
 
 	if (!root.is_null() && !kind_matches()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::decode,
 				.code = JsonIssueCode::wrong_kind,
-				.message = format(
-					"expected type '{}', got '{}'",
+				.message = std::format(
+					"std::expected type '{}', got '{}'",
 					expected_type,
 					root.kind() == JsonKind::object  ? "object" :
 					root.kind() == JsonKind::array   ? "array" :
@@ -277,12 +277,12 @@ namespace detail {
 				for (NodeRef const el: req_arr->elements()) {
 					if (auto name = el.as_string()) {
 						if (!obj.find_member(*name)) {
-							return unexpected(
+							return std::unexpected(
 								JsonError{
 									.stage = JsonStage::decode,
 									.code = JsonIssueCode::missing_member,
 									.member_name = std::string{*name},
-									.message = format("missing required member: {}", *name)});
+									.message = std::format("missing required member: {}", *name)});
 						}
 					}
 				}
@@ -296,11 +296,11 @@ namespace detail {
 					if (field_schema) {
 						auto r = validate(val, *field_schema);
 						if (!r) {
-							auto e = move(r).error();
+							auto e = std::move(r).error();
 							if (!e.member_name.has_value()) {
 								e.member_name = std::string{name};
 							}
-							return unexpected(move(e));
+							return std::unexpected(std::move(e));
 						}
 					}
 				}

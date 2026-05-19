@@ -22,7 +22,7 @@ import conflux.types;
 // Caller must ::unlink() when done.
 static std::string write_tmp_pem(
 	std::string_view tag) {
-	std::string tmpl = format("/tmp/conflux_dual_{}_XXXXXX.pem", tag);
+	std::string tmpl = std::format("/tmp/conflux_dual_{}_XXXXXX.pem", tag);
 	// mkstemps needs a mutable char buffer.
 	std::vector<char> buf(tmpl.begin(), tmpl.end());
 	buf.push_back('\0');
@@ -38,7 +38,7 @@ int main() {
 	std::string cert_path = write_tmp_pem("cert");
 	std::string key_path = write_tmp_pem("key");
 
-	std::string const gen_cmd = format(
+	std::string const gen_cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_path,
@@ -80,7 +80,7 @@ int main() {
 	});
 
 	router.get("/hello/{name}", [](HttpRequestView const &req) {
-		return HttpResponse::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
 	std::println(std::cerr, "dual-mode server starting on port {}", cfg.port);
@@ -89,7 +89,7 @@ int main() {
 		std::println(std::cerr, "  https://localhost:{}/api/ping  (self-signed, use -k)", cfg.port);
 	}
 
-	HttpServer srv{cfg, move(router)};
+	HttpServer srv{cfg, std::move(router)};
 
 	// Cert+key are now loaded into SSL_CTX; temp files can be removed.
 	if (!cert_path.empty()) {

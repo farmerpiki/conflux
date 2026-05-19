@@ -25,8 +25,8 @@ export struct JwtClaims {
 };
 export struct JwtOptions {
 	ResolvedSecretRotation secrets{}; // active HMAC-SHA256 secret plus previous rotation secrets
-	std::string issuer{}; // expected iss claim; "" = skip check
-	std::string audience{}; // expected aud claim; "" = skip check
+	std::string issuer{}; // std::expected iss claim; "" = skip check
+	std::string audience{}; // std::expected aud claim; "" = skip check
 	bool verify_exp{true}; // reject expired tokens when an exp claim is present
 	bool verify_nbf{true}; // reject not-yet-valid tokens when an nbf claim is present
 	bool require_exp{false}; // reject tokens without an exp claim
@@ -109,14 +109,14 @@ std::optional<std::int64_t> json_int_at(
 	std::string_view json,
 	std::size_t pos) {
 	if (pos >= json.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	std::int64_t val{};
 	auto const *jend = std::ranges::next(json.data(), ssize(json));
 	auto const *jpos = json.data() + pos;
-	auto [ptr, ec] = from_chars(jpos, jend, val);
-	if (ec != errc{} || ptr == jpos) {
-		return nullopt;
+	auto [ptr, ec] = std::from_chars(jpos, jend, val);
+	if (ec != std::errc{} || ptr == jpos) {
+		return std::nullopt;
 	}
 	return val;
 }
@@ -171,10 +171,10 @@ bool json_array_contains_string(
 	}
 	return false;
 }
-// Constant-time byte comparison (avoids timing side-channel on signature).
+// Constant-time std::byte comparison (avoids timing side-channel on signature).
 bool ct_equal(
-	span<unsigned char const> a,
-	span<unsigned char const> b) {
+	std::span<unsigned char const> a,
+	std::span<unsigned char const> b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
@@ -210,15 +210,15 @@ std::optional<std::string_view> bearer_token(
 	std::string_view auth) noexcept {
 	static constexpr std::string_view kScheme = "Bearer";
 	if (auth.size() <= kScheme.size() || auth[kScheme.size()] != ' ') {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (!conflux::http::ascii_iequals(auth.substr(0, kScheme.size()), kScheme)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth.substr(kScheme.size() + 1);
 }
 
-[[nodiscard]] expected<void, std::string> validate_jwt_secrets(
+[[nodiscard]] std::expected<void, std::string> validate_jwt_secrets(
 	ResolvedSecretRotation const &secrets) {
 	return validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
 }
@@ -233,13 +233,13 @@ std::optional<std::string_view> bearer_token(
 	std::string_view signing_input,
 	std::string const &sig_claimed,
 	ResolvedSecretRotation const &secrets) {
-	auto expected = jwt_signature(secrets.active, signing_input);
-	if (ct_equal(to_unsigned_span(sig_claimed), span{expected.data(), expected.size()})) {
+	auto expected_signature = jwt_signature(secrets.active, signing_input);
+	if (ct_equal(to_unsigned_span(sig_claimed), std::span{expected_signature.data(), expected_signature.size()})) {
 		return true;
 	}
 	for (auto const &previous: secrets.previous) {
-		expected = jwt_signature(previous, signing_input);
-		if (ct_equal(to_unsigned_span(sig_claimed), span{expected.data(), expected.size()})) {
+		expected_signature = jwt_signature(previous, signing_input);
+		if (ct_equal(to_unsigned_span(sig_claimed), std::span{expected_signature.data(), expected_signature.size()})) {
 			return true;
 		}
 	}
@@ -254,40 +254,40 @@ std::optional<std::string_view> bearer_token(
 export std::string jwt_sign(std::string_view payload_json, std::string_view secret);
 export std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
 
-export [[nodiscard]] expected<JwtOptions, std::string> jwt_options_from_config(
+export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	AuthSecretsConfig const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
 	auto secrets = resolve_secret_rotation(cfg.jwt, "jwt", required);
 	if (!secrets) {
-		return unexpected{secrets.error()};
+		return std::unexpected{secrets.error()};
 	}
-	base.secrets = move(*secrets);
+	base.secrets = std::move(*secrets);
 	return base;
 }
 
-export [[nodiscard]] expected<JwtOptions, std::string> jwt_options_from_config(
+export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	Config const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
-	return jwt_options_from_config(cfg.auth_secrets, move(base), required);
+	return jwt_options_from_config(cfg.auth_secrets, std::move(base), required);
 }
 
 // Decode and verify a JWT.  Returns JwtClaims on success, error string on failure.
-export expected<JwtClaims, std::string> jwt_decode(
+export std::expected<JwtClaims, std::string> jwt_decode(
 	std::string_view token,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
-		return unexpected{valid.error()};
+		return std::unexpected{valid.error()};
 	}
 	// Split header.payload.signature
 	auto dot1 = token.find('.');
 	if (dot1 == std::string_view::npos) {
-		return unexpected{"malformed token: missing first dot"};
+		return std::unexpected{"malformed token: missing first dot"};
 	}
 	auto dot2 = token.find('.', dot1 + 1);
 	if (dot2 == std::string_view::npos) {
-		return unexpected{"malformed token: missing second dot"};
+		return std::unexpected{"malformed token: missing second dot"};
 	}
 
 	auto header_b64 = token.substr(0, dot1);
@@ -297,28 +297,28 @@ export expected<JwtClaims, std::string> jwt_decode(
 	// Decode header and check algorithm.
 	auto header = base64url_decode(header_b64);
 	if (header.empty()) {
-		return unexpected{"invalid header encoding"};
+		return std::unexpected{"invalid header encoding"};
 	}
 	if (json_string(header, "alg") != "HS256") {
-		return unexpected{"unsupported algorithm (only HS256 supported)"};
+		return std::unexpected{"unsupported algorithm (only HS256 supported)"};
 	}
 
 	// Decode payload.
 	auto payload = base64url_decode(payload_b64);
 	if (payload.empty()) {
-		return unexpected{"invalid payload encoding"};
+		return std::unexpected{"invalid payload encoding"};
 	}
 
 	// Decode claimed signature.
 	auto sig_claimed = base64url_decode(signature_b64);
 	if (sig_claimed.empty()) {
-		return unexpected{"invalid signature encoding"};
+		return std::unexpected{"invalid signature encoding"};
 	}
 
-	// Recompute expected signature over "header_b64.payload_b64".
+	// Recompute std::expected signature over "header_b64.payload_b64".
 	std::string_view const signing_input = token.substr(0, static_cast<std::size_t>(dot2));
 	if (!jwt_detail::signature_matches(signing_input, sig_claimed, opts.secrets)) {
-		return unexpected{"signature verification failed"};
+		return std::unexpected{"signature verification failed"};
 	}
 
 	// Extract standard claims.
@@ -334,13 +334,13 @@ export expected<JwtClaims, std::string> jwt_decode(
 	auto nbf = json_int_at(payload, nbf_pos);
 	auto iat = json_int_at(payload, iat_pos);
 	if (exp_pos != std::string_view::npos && (!exp || *exp < 0)) {
-		return unexpected{"invalid exp claim"};
+		return std::unexpected{"invalid exp claim"};
 	}
 	if (nbf_pos != std::string_view::npos && (!nbf || *nbf < 0)) {
-		return unexpected{"invalid nbf claim"};
+		return std::unexpected{"invalid nbf claim"};
 	}
 	if (iat_pos != std::string_view::npos && (!iat || *iat < 0)) {
-		return unexpected{"invalid iat claim"};
+		return std::unexpected{"invalid iat claim"};
 	}
 	claims.exp = exp.value_or(0);
 	claims.nbf = nbf.value_or(0);
@@ -349,43 +349,43 @@ export expected<JwtClaims, std::string> jwt_decode(
 	// Validate claims.
 	auto const now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	auto const skew = max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
+	auto const skew = std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
 	auto const max_lifetime = std::chrono::duration_cast<std::chrono::seconds>(opts.max_token_lifetime).count();
 
 	if (opts.require_exp && claims.exp == 0) {
-		return unexpected{"missing exp claim"};
+		return std::unexpected{"missing exp claim"};
 	}
 	if (opts.require_iat && claims.iat == 0) {
-		return unexpected{"missing iat claim"};
+		return std::unexpected{"missing iat claim"};
 	}
 	if (opts.require_jti && claims.jti.empty()) {
-		return unexpected{"missing jti claim"};
+		return std::unexpected{"missing jti claim"};
 	}
 	if (opts.verify_exp && claims.exp != 0 && token_expired(claims.exp, now, skew)) {
-		return unexpected{"token expired"};
+		return std::unexpected{"token expired"};
 	}
 	if (opts.verify_nbf && claims.nbf != 0 && token_not_yet_valid(claims.nbf, now, skew)) {
-		return unexpected{"token not yet valid"};
+		return std::unexpected{"token not yet valid"};
 	}
 	if (max_lifetime > 0) {
 		if (claims.exp == 0) {
-			return unexpected{"missing exp claim"};
+			return std::unexpected{"missing exp claim"};
 		}
 		if (claims.iat == 0) {
-			return unexpected{"missing iat claim"};
+			return std::unexpected{"missing iat claim"};
 		}
 		if (claims.exp < claims.iat) {
-			return unexpected{"invalid token lifetime"};
+			return std::unexpected{"invalid token lifetime"};
 		}
 		if (claims.exp - claims.iat > max_lifetime) {
-			return unexpected{"token lifetime too long"};
+			return std::unexpected{"token lifetime too long"};
 		}
 	}
 	if (opts.revoked_jti && !claims.jti.empty() && opts.revoked_jti(claims.jti)) {
-		return unexpected{"token revoked"};
+		return std::unexpected{"token revoked"};
 	}
 	if (!opts.issuer.empty() && claims.iss != opts.issuer) {
-		return unexpected{format("issuer mismatch: got '{}', want '{}'", claims.iss, opts.issuer)};
+		return std::unexpected{std::format("issuer mismatch: got '{}', want '{}'", claims.iss, opts.issuer)};
 	}
 	if (!opts.audience.empty()) {
 		auto aud_str = json_string(payload, "aud");
@@ -394,7 +394,7 @@ export expected<JwtClaims, std::string> jwt_decode(
 			aud_match = json_array_contains_string(payload, "aud", opts.audience);
 		}
 		if (!aud_match) {
-			return unexpected{"audience mismatch"};
+			return std::unexpected{"audience mismatch"};
 		}
 	}
 
@@ -402,11 +402,11 @@ export expected<JwtClaims, std::string> jwt_decode(
 }
 // Sign a payload JSON std::string and return a complete JWT.
 // payload_json must be a valid JSON object std::string, e.g. R"({"sub":"user1","exp":9999999999})".
-export expected<std::string, std::string> jwt_sign(
+export std::expected<std::string, std::string> jwt_sign(
 	std::string_view payload_json,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
-		return unexpected{valid.error()};
+		return std::unexpected{valid.error()};
 	}
 	return jwt_sign(payload_json, opts.secrets.active);
 }
@@ -420,16 +420,16 @@ export std::string jwt_sign(
 
 	std::string const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
-	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
+	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;
 }
-export expected<std::string, std::string> jwt_sign(
+export std::expected<std::string, std::string> jwt_sign(
 	std::string_view header_json,
 	std::string_view payload_json,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
-		return unexpected{valid.error()};
+		return std::unexpected{valid.error()};
 	}
 	return jwt_sign(header_json, payload_json, opts.secrets.active);
 }
@@ -442,7 +442,7 @@ export std::string jwt_sign(
 
 	std::string const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
-	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
+	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;
 }
@@ -451,7 +451,7 @@ export std::string jwt_sign(
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
 export Router::Middleware jwt_middleware(
 	JwtOptions opts) {
-	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto unauthorized = [](std::string_view www_auth) {
 			HttpResponse r;
 			r.status = kHttpUnauthorized;
@@ -469,7 +469,7 @@ export Router::Middleware jwt_middleware(
 		}
 		auto result = jwt_decode(trim(*token), opts);
 		if (!result) {
-			return unauthorized(format(R"(Bearer error="invalid_token", error_description="{}")", result.error()));
+			return unauthorized(std::format(R"(Bearer error="invalid_token", error_description="{}")", result.error()));
 		}
 		auto const &claims = *result;
 		// Copy request, inject claims as params so handlers can read them.

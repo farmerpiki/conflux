@@ -30,7 +30,7 @@ struct TempCert {
 		REQUIRE(key_fd >= 0);
 		::close(cert_fd);
 		::close(key_fd);
-		auto const cmd = format(
+		auto const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
@@ -80,13 +80,13 @@ TEST_CASE(
 
 	Router router;
 	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
-	conflux::tests::ScopedTestServer const srv{cfg, move(router)};
+	conflux::tests::ScopedTestServer const srv{cfg, std::move(router)};
 
 	conflux::http::HttpClientOptions opts1{};
 	opts1.verify_peer = false;
-	conflux::http::HttpClient client1{move(opts1)};
+	conflux::http::HttpClient client1{std::move(opts1)};
 	auto response = client1.blocking_send(
-		conflux::http::ClientRequest::get(format("https://127.0.0.1:{}/ping", srv.port()))
+		conflux::http::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", srv.port()))
 			.server_name("localhost")
 			.build());
 	REQUIRE(response);
@@ -100,14 +100,14 @@ TEST_CASE(
 	Router def;
 	def.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
 	VHostRouter vhosts;
-	vhosts.set_default(move(def));
+	vhosts.set_default(std::move(def));
 
-	auto const port = conflux::tests::test_servers().start(cfg, move(vhosts));
+	auto const port = conflux::tests::test_servers().start(cfg, std::move(vhosts));
 	conflux::http::HttpClientOptions opts2{};
 	opts2.verify_peer = false;
-	conflux::http::HttpClient client2{move(opts2)};
+	conflux::http::HttpClient client2{std::move(opts2)};
 	auto response2 = client2.blocking_send(
-		conflux::http::ClientRequest::get(format("https://127.0.0.1:{}/ping", port)).server_name("localhost").build());
+		conflux::http::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", port)).server_name("localhost").build());
 	REQUIRE(response2);
 	CHECK(response2->head.status == 200);
 	CHECK_FALSE(response2->head.headers.contains("alt-svc"));

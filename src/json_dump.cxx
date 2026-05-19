@@ -13,7 +13,7 @@ import conflux.types;
 // (kRawJsonSlice set on parse-side unescaped strings/numbers): no scan,
 // just bracket the slice with quotes. Caller must guarantee `flags &
 // kRawJsonSlice` and !ascii_only (the latter would still need a
-// byte-by-byte non-ASCII rewrite).
+// std::byte-by-std::byte non-ASCII rewrite).
 inline void dump_str_raw(
 	std::string_view sv,
 	std::string &out) {
@@ -32,7 +32,7 @@ inline void append_u_escape(
 	out += kHex[(cp >> 4U) & 0x0FU];
 	out += kHex[cp & 0x0FU];
 }
-// R3 — find the next byte in [p, n) that needs escaping in a JSON string body.
+// R3 — find the next std::byte in [p, n) that needs escaping in a JSON string body.
 // ascii_only=false: stops at '"', '\\', or ctrl chars [0x00,0x1F].
 // ascii_only=true:  also stops at high-bit bytes [0x80,0xFF].
 [[nodiscard]] inline std::size_t scan_dump_safe_run(
@@ -120,9 +120,9 @@ void dump_str(
 	std::size_t i = 0;
 	while (i < sv.size()) {
 		auto const c = static_cast<unsigned char>(sv[i]);
-		// Scalar pre-check: when the very next byte already needs escaping,
+		// Scalar pre-check: when the very next std::byte already needs escaping,
 		// skip the SIMD chunk setup entirely. Avoids paying SIMD cost on
-		// escape-dense payloads where every other byte is an escape.
+		// escape-dense payloads where every other std::byte is an escape.
 		bool const needs_escape = (c == '"' || c == '\\' || c < 0x20U || (ascii_only && c >= 0x80U));
 		if (!needs_escape) {
 			// R3 — fast-forward over the safe-ASCII run.
@@ -311,7 +311,7 @@ void dump_node(
 }
 
 
-expected<std::string, JsonError> Document::dump(
+std::expected<std::string, JsonError> Document::dump(
 	JsonDumpOptions const &opts) const {
 	std::string out;
 	// R3 — skip the small-buffer doubling cycle. Empirically dump output
@@ -321,7 +321,7 @@ expected<std::string, JsonError> Document::dump(
 	dump_node(*storage_, storage_->root_node, opts, 0, out);
 	return out;
 }
-expected<std::string, JsonError> ArenaDocument::dump(
+std::expected<std::string, JsonError> ArenaDocument::dump(
 	JsonDumpOptions const &opts) const {
 	check_live();
 	std::string out;

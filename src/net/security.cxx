@@ -4,7 +4,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
 export struct SecurityOptions {
-	// Strict-Transport-Security max-age in seconds; 0 disables the header.
+	// Strict-Transport-Security std::max-age in seconds; 0 disables the header.
 	unsigned hsts_max_age{31536000}; // 1 year
 	bool hsts_include_subdomains{true};
 
@@ -34,15 +34,15 @@ export struct SecurityOptions {
 // Middleware factory: inject security headers into every response.
 export Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
-	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto resp = next(req);
 
 		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {
-			auto hsts = format("max-age={}", opts.hsts_max_age);
+			auto hsts = std::format("std::max-age={}", opts.hsts_max_age);
 			if (opts.hsts_include_subdomains) {
 				hsts += "; includeSubDomains";
 			}
-			resp.headers["Strict-Transport-Security"] = move(hsts);
+			resp.headers["Strict-Transport-Security"] = std::move(hsts);
 		}
 		if (!opts.frame_options.empty()) {
 			resp.headers["X-Frame-Options"] = opts.frame_options;

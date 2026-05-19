@@ -31,11 +31,11 @@ export using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const 
 export using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const &, NextHandler const &)>;
 
 export template<class R>
-concept HandlerResult = same_as<R, HttpResponse> || same_as<R, conflux::work::root::Task<HttpResponse>>;
+concept HandlerResult = std::same_as<R, HttpResponse> || std::same_as<R, conflux::work::root::Task<HttpResponse>>;
 
 export template<class F>
 concept ViewHandler = requires(std::decay_t<F> &fn, HttpRequestView const &req) {
-	{ std::invoke(fn, req) } -> same_as<HttpResponse>;
+	{ std::invoke(fn, req) } -> std::same_as<HttpResponse>;
 };
 
 export template<class F>
@@ -48,17 +48,17 @@ concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
 export template<class F>
 concept ContextHandlerFunction = requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx) {
-	{ std::invoke(fn, req, ctx) } -> same_as<conflux::work::root::Task<HttpResponse>>;
+	{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
 };
 
 export template<class F>
 concept ViewMiddleware = requires(std::decay_t<F> &fn, HttpRequestView const &req, NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> same_as<HttpResponse>;
+	{ std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
 };
 
 export template<class F>
 concept RequestMiddleware = requires(std::decay_t<F> &fn, HttpRequest const &req, NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> same_as<HttpResponse>;
+	{ std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
 };
 
 export template<class F>
@@ -70,42 +70,42 @@ struct RouteVerbAccessors {
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("GET", path, forward<F>(handler));
+		return self.add("GET", path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &post(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("POST", path, forward<F>(handler));
+		return self.add("POST", path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &put(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("PUT", path, forward<F>(handler));
+		return self.add("PUT", path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &patch(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("PATCH", path, forward<F>(handler));
+		return self.add("PATCH", path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &del(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("DELETE", path, forward<F>(handler));
+		return self.add("DELETE", path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &options(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("OPTIONS", path, forward<F>(handler));
+		return self.add("OPTIONS", path, std::forward<F>(handler));
 	}
 };
 
@@ -120,7 +120,7 @@ public:
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = MiddlewareFunction;
 	using WsHandler = CloneableFunction<void(HttpRequestView const &, WsConn &)>;
-	using ErrorHandler = CloneableFunction<HttpResponse(HttpRequestView const &, exception const &)>;
+	using ErrorHandler = CloneableFunction<HttpResponse(HttpRequestView const &, std::exception const &)>;
 	Router();
 	explicit Router(Config const &cfg);
 	~Router();
@@ -134,7 +134,7 @@ public:
 		std::string_view method,
 		std::string_view path,
 		F &&handler) {
-		add_prepared(method, path, make_handler(forward<F>(handler)));
+		add_prepared(method, path, make_handler(std::forward<F>(handler)));
 		return *this;
 	}
 	template<typename F>
@@ -143,7 +143,7 @@ public:
 		std::string_view method,
 		std::string_view path,
 		F &&handler) {
-		add_context_prepared(method, path, ContextHandler{forward<F>(handler)});
+		add_context_prepared(method, path, ContextHandler{std::forward<F>(handler)});
 		return *this;
 	}
 	template<typename F>
@@ -151,61 +151,61 @@ public:
 	Router &get_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("GET", path, forward<F>(handler));
+		return add_context("GET", path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &post_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("POST", path, forward<F>(handler));
+		return add_context("POST", path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &put_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("PUT", path, forward<F>(handler));
+		return add_context("PUT", path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &patch_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("PATCH", path, forward<F>(handler));
+		return add_context("PATCH", path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &del_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("DELETE", path, forward<F>(handler));
+		return add_context("DELETE", path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &options_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("OPTIONS", path, forward<F>(handler));
+		return add_context("OPTIONS", path, std::forward<F>(handler));
 	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 	[[nodiscard]] bool has_context_routes() const noexcept;
 	template<typename F>
 	Router &use(
 		F &&mw) {
-		use_prepared(make_middleware(forward<F>(mw)));
+		use_prepared(make_middleware(std::forward<F>(mw)));
 		return *this;
 	}
 	template<typename F>
 	Router &on_not_found(
 		F &&handler) {
-		set_not_found_handler(make_handler(forward<F>(handler)));
+		set_not_found_handler(make_handler(std::forward<F>(handler)));
 		return *this;
 	}
 	template<typename F>
 	Router &on_error(
 		F &&handler) {
-		set_error_handler(make_error_handler(forward<F>(handler)));
+		set_error_handler(make_error_handler(std::forward<F>(handler)));
 		return *this;
 	}
 	// Return metadata for all registered routes (regular routes only).
@@ -214,7 +214,7 @@ public:
 	Router &sse(
 		std::string_view path,
 		F &&handler) {
-		sse_prepared(path, make_sse_handler(forward<F>(handler)));
+		sse_prepared(path, make_sse_handler(std::forward<F>(handler)));
 		return *this;
 	}
 	Router &set_work_pool(std::shared_ptr<WorkPool> pool);
@@ -226,7 +226,7 @@ public:
 	Router &ws(
 		std::string_view path,
 		F &&handler) {
-		return ws_prepared(path, make_ws_handler(forward<F>(handler)));
+		return ws_prepared(path, make_ws_handler(std::forward<F>(handler)));
 	}
 	// Route group: scopes a set of routes under a path prefix with Opt group-local middleware.
 	// Group middleware wraps only the routes registered inside the group callback;
@@ -236,7 +236,7 @@ public:
 		template<typename F>
 		Group &use(
 			F &&mw) {
-			middlewares_.push_back(Router::make_middleware(forward<F>(mw)));
+			middlewares_.push_back(Router::make_middleware(std::forward<F>(mw)));
 			return *this;
 		}
 		template<typename F>
@@ -248,7 +248,7 @@ public:
 			full_path.reserve(prefix_.size() + path.size());
 			full_path += prefix_;
 			full_path.append(path.data(), path.size());
-			router_.add(method, full_path, wrap(Router::make_handler(forward<F>(handler))));
+			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
 			return *this;
 		}
 
@@ -258,7 +258,7 @@ public:
 			Router &router,
 			std::string prefix)
 			: router_(router)
-			, prefix_(move(prefix))
+			, prefix_(std::move(prefix))
 			, middlewares_{} {}
 		// Apply group middlewares around h (innermost first, so first-registered is outermost).
 		// Capture mw by value: the Group object is destroyed after router.group() returns,
@@ -267,7 +267,7 @@ public:
 			Handler h) const {
 			for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
 				auto mw = middlewares_[static_cast<std::size_t>(i)]; // copy: Group is destroyed after group() returns
-				h = [mw = move(mw), n = move(h)](HttpRequestView const &r) { return mw(r, n); };
+				h = [mw = std::move(mw), n = std::move(h)](HttpRequestView const &r) { return mw(r, n); };
 			}
 			return h;
 		}
@@ -280,7 +280,7 @@ public:
 		std::string_view prefix,
 		F &&fn) {
 		Group g{*this, std::string{prefix}};
-		forward<F>(fn)(g);
+		std::forward<F>(fn)(g);
 		return *this;
 	}
 	// Serve static files from root_dir for GET/HEAD requests under url_prefix.
@@ -319,9 +319,9 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, HttpRequestView const &>) {
 			using Ret = std::invoke_result_t<Fn &, HttpRequestView const &>;
-			if constexpr (same_as<Ret, HttpResponse>) {
-				return Handler{forward<F>(fn)};
-			} else if constexpr (same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
+			if constexpr (std::same_as<Ret, HttpResponse>) {
+				return Handler{std::forward<F>(fn)};
+			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
 				static_assert(
 					kDependentFalse<Fn>,
 					"Async handlers must take HttpRequest const&, not HttpRequestView const& — "
@@ -333,15 +333,15 @@ private:
 			}
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &>) {
 			using Ret = std::invoke_result_t<Fn &, HttpRequest const &>;
-			if constexpr (same_as<Ret, HttpResponse>) {
-				return Handler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
+			if constexpr (std::same_as<Ret, HttpResponse>) {
+				return Handler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
 					auto owned = req.to_owned();
-					return invoke(wrapped, owned);
+					return std::invoke(wrapped, owned);
 				}};
-			} else if constexpr (same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
-				return Handler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
+			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
+				return Handler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
 					auto owned = req.to_owned();
-					return defer_http_task(invoke(wrapped, owned));
+					return defer_http_task(std::invoke(wrapped, owned));
 				}};
 			} else {
 				static_assert(
@@ -357,13 +357,13 @@ private:
 		F &&fn) {
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, HttpRequestView const &, Handler const &>) {
-			return Middleware{forward<F>(fn)};
+			return Middleware{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, Handler const &>) {
 			return Middleware{
 				[wrapped =
-					 Fn(forward<F>(fn))](HttpRequestView const &req, Handler const &next) mutable -> HttpResponse {
+					 Fn(std::forward<F>(fn))](HttpRequestView const &req, Handler const &next) mutable -> HttpResponse {
 					auto owned = req.to_owned();
-					return invoke(wrapped, owned, next);
+					return std::invoke(wrapped, owned, next);
 				}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "Middleware must accept HttpRequestView const& or HttpRequest const&");
@@ -374,12 +374,12 @@ private:
 		F &&fn) {
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::shared_ptr<SseChannel>>) {
-			return SseHandler{forward<F>(fn)};
+			return SseHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{
-				[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
+				[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
 					auto owned = req.to_owned();
-					invoke(wrapped, owned, move(ch));
+					std::invoke(wrapped, owned, std::move(ch));
 				}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "SSE handler must accept HttpRequestView const& or HttpRequest const&");
@@ -390,11 +390,11 @@ private:
 		F &&fn) {
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, HttpRequestView const &, WsConn &>) {
-			return WsHandler{forward<F>(fn)};
+			return WsHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, WsConn &>) {
-			return WsHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, WsConn &ws) mutable {
+			return WsHandler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, WsConn &ws) mutable {
 				auto owned = req.to_owned();
-				invoke(wrapped, owned, ws);
+				std::invoke(wrapped, owned, ws);
 			}};
 		} else {
 			static_assert(
@@ -406,14 +406,14 @@ private:
 	static ErrorHandler make_error_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, exception const &>) {
-			return ErrorHandler{forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, exception const &>) {
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::exception const &>) {
+			return ErrorHandler{std::forward<F>(fn)};
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::exception const &>) {
 			return ErrorHandler{
 				[wrapped =
-					 Fn(forward<F>(fn))](HttpRequestView const &req, exception const &ex) mutable -> HttpResponse {
+					 Fn(std::forward<F>(fn))](HttpRequestView const &req, std::exception const &ex) mutable -> HttpResponse {
 					auto owned = req.to_owned();
-					return invoke(wrapped, owned, ex);
+					return std::invoke(wrapped, owned, ex);
 				}};
 		} else {
 			static_assert(
@@ -428,7 +428,7 @@ private:
 // the caller's responsibility.
 export Router::Middleware make_access_log_middleware(
 	std::function<void(std::string const &)> sink) {
-	return [sink = move(sink)](HttpRequestView const &req, Router::Handler const &next) {
+	return [sink = std::move(sink)](HttpRequestView const &req, Router::Handler const &next) {
 		auto const t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto const elapsed =
@@ -442,7 +442,7 @@ export Router::Middleware make_access_log_middleware(
 			ts = ts_buf.data();
 		}
 
-		sink(format("[{}] {} {} {} {} {}ms", ts, req.method, req.path, resp.status, resp.text_body().size(), elapsed));
+		sink(std::format("[{}] {} {} {} {} {}ms", ts, req.method, req.path, resp.status, resp.text_body().size(), elapsed));
 		return resp;
 	};
 }

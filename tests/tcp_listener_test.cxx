@@ -12,10 +12,11 @@ import conflux.uring;
 import conflux.socket_io;
 namespace {
 
+
 conflux::uring::Ring make_ring() {
 	auto r = conflux::uring::Ring::init(32, {});
 	REQUIRE(r);
-	return move(*r);
+	return std::move(*r);
 }
 // Blocking IPv4 connect to loopback:port. Returns connected fd. Caller owns it.
 int connect_v4(

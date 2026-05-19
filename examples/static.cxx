@@ -43,6 +43,6 @@ int main() {
 
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	auto const status = move(app).run({.port = 9095});
+	auto const status = std::move(app).run({.port = 9095});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

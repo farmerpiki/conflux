@@ -34,12 +34,12 @@ struct StoredResponseOptions {
 
 template<class Provider, class F>
 concept JsonViewHandler = requires(std::decay_t<F> &fn, HttpRequestView const &req, ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn, req), opts) } -> same_as<HttpResponse>;
+	{ response_or_internal_error_with<Provider>(std::invoke(fn, req), opts) } -> std::same_as<HttpResponse>;
 };
 
 template<class Provider, class F>
 concept JsonNullaryHandler = requires(std::decay_t<F> &fn, ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn), opts) } -> same_as<HttpResponse>;
+	{ response_or_internal_error_with<Provider>(std::invoke(fn), opts) } -> std::same_as<HttpResponse>;
 };
 
 template<class Provider, class F>
@@ -51,7 +51,7 @@ concept JsonBodyViewHandler = requires(
 	HttpRequestView const &req,
 	std::remove_cvref_t<Body> const &body,
 	ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn, req, body), opts) } -> same_as<HttpResponse>;
+	{ response_or_internal_error_with<Provider>(std::invoke(fn, req, body), opts) } -> std::same_as<HttpResponse>;
 };
 
 template<class Provider, class Body, class F>
@@ -59,7 +59,7 @@ concept JsonBodyHandler = requires(
 	std::decay_t<F> &fn,
 	std::remove_cvref_t<Body> const &body,
 	ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn, body), opts) } -> same_as<HttpResponse>;
+	{ response_or_internal_error_with<Provider>(std::invoke(fn, body), opts) } -> std::same_as<HttpResponse>;
 };
 
 template<class Provider, class Body, class F>
@@ -75,7 +75,7 @@ template<class Provider, class F>
 {
 	using Fn = std::decay_t<F>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{[fn = Fn(forward<F>(fn)), opts = move(stored_opts)](HttpRequestView const &req) mutable -> HttpResponse {
+	return Router::Handler{[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](HttpRequestView const &req) mutable -> HttpResponse {
 		if constexpr (JsonViewHandler<Provider, Fn>) {
 			return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
 		} else {
@@ -94,7 +94,7 @@ template<class Provider, class Body, class F>
 	using Fn = std::decay_t<F>;
 	using BodyValue = std::remove_cvref_t<Body>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{[fn = Fn(forward<F>(fn)), opts = move(stored_opts), decode_opts](HttpRequestView const &req) mutable -> HttpResponse {
+	return Router::Handler{[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts), decode_opts](HttpRequestView const &req) mutable -> HttpResponse {
 		auto decoded = conflux::json::boundary::decode_with<Provider, BodyValue>(req.body, decode_opts);
 		if (!decoded) {
 			return decode_error_response();
@@ -122,7 +122,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		return router_->add(method, path, make_handler_with<Provider>(forward<F>(fn), opts));
+		return router_->add(method, path, make_handler_with<Provider>(std::forward<F>(fn), opts));
 	}
 
 	template<class Body, class F>
@@ -134,7 +134,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return router_->add(method, path, make_decode_handler_with<Provider, Body>(forward<F>(fn), opts, decode_opts));
+		return router_->add(method, path, make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
 	}
 
 	template<class F>
@@ -144,7 +144,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		return add("GET", path, forward<F>(fn), opts);
+		return add("GET", path, std::forward<F>(fn), opts);
 	}
 
 	template<class F>
@@ -154,7 +154,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		return add("POST", path, forward<F>(fn), opts);
+		return add("POST", path, std::forward<F>(fn), opts);
 	}
 
 	template<class Body, class F>
@@ -165,7 +165,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("POST", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("POST", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 	template<class Body, class F>
@@ -176,7 +176,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("PUT", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("PUT", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 	template<class Body, class F>
@@ -187,7 +187,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("PATCH", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("PATCH", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 private:
@@ -209,7 +209,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		app_->router().add(method, path, make_handler_with<Provider>(forward<F>(fn), opts));
+		app_->router().add(method, path, make_handler_with<Provider>(std::forward<F>(fn), opts));
 		return *app_;
 	}
 
@@ -222,7 +222,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		app_->router().add(method, path, make_decode_handler_with<Provider, Body>(forward<F>(fn), opts, decode_opts));
+		app_->router().add(method, path, make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
 		return *app_;
 	}
 
@@ -233,7 +233,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		return add("GET", path, forward<F>(fn), opts);
+		return add("GET", path, std::forward<F>(fn), opts);
 	}
 
 	template<class F>
@@ -243,7 +243,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		return add("POST", path, forward<F>(fn), opts);
+		return add("POST", path, std::forward<F>(fn), opts);
 	}
 
 	template<class Body, class F>
@@ -254,7 +254,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("POST", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("POST", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 	template<class Body, class F>
@@ -265,7 +265,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("PUT", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("PUT", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 	template<class Body, class F>
@@ -276,7 +276,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return add_body<Body>("PATCH", path, forward<F>(fn), opts, decode_opts);
+		return add_body<Body>("PATCH", path, std::forward<F>(fn), opts, decode_opts);
 	}
 
 private:

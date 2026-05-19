@@ -34,7 +34,7 @@ export struct Http3Config {
 	std::size_t max_streams_bidi = 100;
 	std::size_t max_stream_data = std::size_t{1} * 1024 * 1024;
 	std::size_t max_conn_data = std::size_t{10} * 1024 * 1024;
-	// Alt-Svc max-age advertised on h1/h2 responses when h3 is enabled.
+	// Alt-Svc std::max-age advertised on h1/h2 responses when h3 is enabled.
 	std::uint32_t alt_svc_max_age_sec = 86400;
 	// Per-request body cap; matches H1 max_body_size semantics.
 	// Streams whose DATA exceeds this are reset with H3_REQUEST_REJECTED.
@@ -102,10 +102,10 @@ export struct Config {
 	std::uint16_t port = kConfigDefaultPort;
 	unsigned rings = 0; // 0 = hardware_concurrency
 	unsigned ring_entries = kConfigDefaultRingEntries; // SQ/CQ depth per ring
-	std::size_t max_body_size = kConfigDefaultMaxBodySize; // max Content-Length before 413
+	std::size_t max_body_size = kConfigDefaultMaxBodySize; // std::max Content-Length before 413
 	std::uint32_t request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
 	std::uint32_t tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
-	// Emit a warning when a synchronous handler blocks on the ring thread past
+	// Emit a warning when a synchronous handler blocks on the ring std::thread past
 	// slow_handler_warn_ms. Disabled by default to keep baseline overhead minimal.
 	bool slow_handler_diagnostics = false;
 	std::uint32_t slow_handler_warn_ms = 25;
@@ -127,9 +127,9 @@ export struct Config {
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.
 	// Matched by case-insensitive SNI hostname; the primary cert_file/key_file is the default.
 	std::vector<VirtualHost> virtual_hosts{};
-	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list format); empty = built-in default.
+	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list std::format); empty = built-in default.
 	std::string tls_cipher_list{};
-	// TLS 1.3 ciphersuites (OpenSSL SSL_CTX_set_ciphersuites format); empty = built-in default.
+	// TLS 1.3 ciphersuites (OpenSSL SSL_CTX_set_ciphersuites std::format); empty = built-in default.
 	std::string tls_ciphersuites{};
 
 	// HTTP/3: disabled by default. Only meaningful when TLS is configured.
@@ -162,16 +162,16 @@ export struct Config {
 	bool taskrun_flag = true; // IORING_SETUP_TASKRUN_FLAG
 	bool submit_all = false; // IORING_SETUP_SUBMIT_ALL
 	// When true and rings > 1, ring[1..N] attach to ring[0]'s kernel io-wq via
-	// IORING_SETUP_ATTACH_WQ. Reduces kernel thread overhead on high-ring-count setups.
+	// IORING_SETUP_ATTACH_WQ. Reduces kernel std::thread overhead on high-ring-count setups.
 	bool attach_wq = false; // IORING_SETUP_ATTACH_WQ
 	// Remove the SQ index indirection A (kernel 6.4+). Slightly reduces
 	// per-ring memory. Incompatible with SQPOLL.
 	bool no_sqarray = true; // IORING_SETUP_NO_SQARRAY
-	// Allow kernel to mix 16-byte and 32-byte CQEs on the same ring (kernel 6.5+).
+	// Allow kernel to mix 16-std::byte and 32-std::byte CQEs on the same ring (kernel 6.5+).
 	// CQEs that carry extra payload set IORING_CQE_F_32 in flags.
 	bool cqe_mixed = false; // IORING_SETUP_CQE_MIXED
 	// Application allocates ring memory; avoids kernel mmap overhead (kernel 6.5+).
-	// Ring thread allocates a page-aligned buffer sized by io_uring_mlock_size;
+	// Ring std::thread allocates a page-aligned buffer sized by io_uring_mlock_size;
 	// uses io_uring_queue_init_mem instead of io_uring_queue_init_params.
 	bool no_mmap = false; // IORING_SETUP_NO_MMAP
 	// Multishot recv grabs multiple provided buffers per CQE (kernel 6.0+).
@@ -219,23 +219,23 @@ export [[nodiscard]] bool secret_source_configured(
 
 namespace {
 
-expected<std::string, int>
+std::expected<std::string, int>
 read_text_file_local(std::string_view path, std::size_t max_bytes = std::size_t{16} * 1024 * 1024);
 
 } // namespace
 
-export [[nodiscard]] expected<std::string, std::string> resolve_secret_source(
+export [[nodiscard]] std::expected<std::string, std::string> resolve_secret_source(
 	SecretSource const &src,
 	std::string_view name,
 	bool required = true) {
 	if (src.kind == SecretSourceKind::unset) {
 		if (required) {
-			return unexpected{format("auth secret '{}': missing required source", name)};
+			return std::unexpected{std::format("auth secret '{}': missing required source", name)};
 		}
 		return std::string{};
 	}
 	if (src.value.empty()) {
-		return unexpected{format("auth secret '{}': empty source value", name)};
+		return std::unexpected{std::format("auth secret '{}': empty source value", name)};
 	}
 	if (src.kind == SecretSourceKind::literal) {
 		return src.value;
@@ -243,65 +243,65 @@ export [[nodiscard]] expected<std::string, std::string> resolve_secret_source(
 	if (src.kind == SecretSourceKind::environment) {
 		auto const *value = std::getenv(src.value.c_str());
 		if (value == nullptr || value[0] == '\0') {
-			return unexpected{format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
+			return std::unexpected{std::format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
 		}
 		return std::string{value};
 	}
 	if (src.kind == SecretSourceKind::file) {
 		auto bytes = read_text_file_local(src.value, std::size_t{1024} * 1024);
 		if (!bytes) {
-			return unexpected{format("auth secret '{}': cannot open secret file '{}'", name, src.value)};
+			return std::unexpected{std::format("auth secret '{}': cannot open secret file '{}'", name, src.value)};
 		}
-		std::string value{move(*bytes)};
+		std::string value{std::move(*bytes)};
 		while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) {
 			value.pop_back();
 		}
 		if (value.empty()) {
-			return unexpected{format("auth secret '{}': secret file '{}' is empty", name, src.value)};
+			return std::unexpected{std::format("auth secret '{}': secret file '{}' is empty", name, src.value)};
 		}
 		return value;
 	}
-	return unexpected{format("auth secret '{}': unsupported source kind", name)};
+	return std::unexpected{std::format("auth secret '{}': unsupported source kind", name)};
 }
 
-export [[nodiscard]] expected<void, std::string> validate_secret_bytes(
+export [[nodiscard]] std::expected<void, std::string> validate_secret_bytes(
 	std::string_view secret,
 	std::string_view name,
 	std::size_t min_bytes) {
 	if (secret.empty()) {
-		return unexpected{format("auth secret '{}': resolved secret is empty", name)};
+		return std::unexpected{std::format("auth secret '{}': resolved secret is empty", name)};
 	}
 	if (secret.size() < min_bytes) {
-		return unexpected{format("auth secret '{}': resolved secret must be at least {} bytes", name, min_bytes)};
+		return std::unexpected{std::format("auth secret '{}': resolved secret must be at least {} bytes", name, min_bytes)};
 	}
 	return {};
 }
 
-export [[nodiscard]] expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
+export [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
 	SecretRotationConfig const &cfg,
 	std::string_view name,
 	bool required = true) {
 	ResolvedSecretRotation out{.min_secret_bytes = cfg.min_secret_bytes};
 	auto active = resolve_secret_source(cfg.active, name, required);
 	if (!active) {
-		return unexpected{active.error()};
+		return std::unexpected{active.error()};
 	}
-	out.active = move(*active);
+	out.active = std::move(*active);
 	if (!out.active.empty()) {
 		if (auto valid = validate_secret_bytes(out.active, name, cfg.min_secret_bytes); !valid) {
-			return unexpected{valid.error()};
+			return std::unexpected{valid.error()};
 		}
 	}
 	for (std::size_t i = 0; i < cfg.previous.size(); ++i) {
-		auto previous = resolve_secret_source(cfg.previous[i], format("{}.previous[{}]", name, i), true);
+		auto previous = resolve_secret_source(cfg.previous[i], std::format("{}.previous[{}]", name, i), true);
 		if (!previous) {
-			return unexpected{previous.error()};
+			return std::unexpected{previous.error()};
 		}
-		if (auto valid = validate_secret_bytes(*previous, format("{}.previous[{}]", name, i), cfg.min_secret_bytes);
+		if (auto valid = validate_secret_bytes(*previous, std::format("{}.previous[{}]", name, i), cfg.min_secret_bytes);
 			!valid) {
-			return unexpected{valid.error()};
+			return std::unexpected{valid.error()};
 		}
-		out.previous.push_back(move(*previous));
+		out.previous.push_back(std::move(*previous));
 	}
 	return out;
 }
@@ -318,7 +318,7 @@ struct LocalFd {
 	LocalFd &operator =(LocalFd const &) = delete;
 	LocalFd(
 		LocalFd &&o) noexcept
-		: fd{exchange(o.fd, -1)} {}
+		: fd{std::exchange(o.fd, -1)} {}
 	LocalFd &operator =(LocalFd &&) = delete;
 	~LocalFd() {
 		if (fd >= 0) {
@@ -326,13 +326,13 @@ struct LocalFd {
 		}
 	}
 };
-expected<std::string, int> read_text_file_local(
+std::expected<std::string, int> read_text_file_local(
 	std::string_view path,
 	std::size_t max_bytes) {
 	std::string native{path};
 	LocalFd file{::open(native.c_str(), O_RDONLY | O_CLOEXEC)};
 	if (file.fd < 0) {
-		return unexpected{errno};
+		return std::unexpected{errno};
 	}
 	std::string out;
 	std::array<char, 16 * 1024> buf{};
@@ -345,11 +345,11 @@ expected<std::string, int> read_text_file_local(
 			if (errno == EINTR) {
 				continue;
 			}
-			return unexpected{errno};
+			return std::unexpected{errno};
 		}
 		auto const count = static_cast<std::size_t>(n);
 		if (count > max_bytes - out.size()) {
-			return unexpected{EFBIG};
+			return std::unexpected{EFBIG};
 		}
 		out.append(buf.data(), count);
 	}
@@ -373,7 +373,7 @@ bool parse_bool(
 	if (v == "false" || v == "0" || v == "no") {
 		return false;
 	}
-	throw std::runtime_error{format("invalid boolean for '{}': '{}'", key, v)};
+	throw std::runtime_error{std::format("invalid boolean for '{}': '{}'", key, v)};
 }
 template<typename T>
 T parse_uint(
@@ -381,9 +381,9 @@ T parse_uint(
 	std::string_view key) {
 	T result{};
 	auto const *end = std::ranges::next(v.data(), ssize(v));
-	auto [ptr, ec] = from_chars(v.data(), end, result);
-	if (ec != errc{} || ptr != end) {
-		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};
+	auto [ptr, ec] = std::from_chars(v.data(), end, result);
+	if (ec != std::errc{} || ptr != end) {
+		throw std::runtime_error{std::format("invalid integer for '{}': '{}'", key, v)};
 	}
 	return result;
 }
@@ -392,9 +392,9 @@ int parse_int(
 	std::string_view key) {
 	int result{};
 	auto const *end = std::ranges::next(v.data(), ssize(v));
-	auto [ptr, ec] = from_chars(v.data(), end, result);
-	if (ec != errc{} || ptr != end) {
-		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};
+	auto [ptr, ec] = std::from_chars(v.data(), end, result);
+	if (ec != std::errc{} || ptr != end) {
+		throw std::runtime_error{std::format("invalid integer for '{}': '{}'", key, v)};
 	}
 	return result;
 }
@@ -668,8 +668,8 @@ Config parse_ini_contents(
 			} else if (section == "auth") {
 				apply_auth_key(cfg, key, val);
 			}
-		} catch (exception const &ex) {
-			throw std::runtime_error{format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
+		} catch (std::exception const &ex) {
+			throw std::runtime_error{std::format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
 		}
 		// unknown sections/keys silently ignored — forward-compatible
 	}
@@ -679,20 +679,20 @@ Config parse_ini_contents(
 
 } // namespace
 
-export [[nodiscard]] expected<Config, std::string> config_from_ini_checked(
+export [[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
 	char const *path) {
 	auto contents = read_text_file_local(std::string_view{path});
 	if (!contents) {
-		return unexpected{format("cannot open config: {}", path)};
+		return std::unexpected{std::format("cannot open config: {}", path)};
 	}
 	try {
 		return parse_ini_contents(*contents);
-	} catch (exception const &ex) { return unexpected{std::string{ex.what()}}; } catch (...) {
-		return unexpected{std::string{"unknown config parse error"}};
+	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
+		return std::unexpected{std::string{"unknown config parse error"}};
 	}
 }
 
-export [[nodiscard]] expected<Config, std::string> try_config_from_ini(
+export [[nodiscard]] std::expected<Config, std::string> try_config_from_ini(
 	char const *path) {
 	return config_from_ini_checked(path);
 }
@@ -704,5 +704,5 @@ export Config config_from_ini(
 	if (!cfg) {
 		throw std::runtime_error{cfg.error()};
 	}
-	return move(*cfg);
+	return std::move(*cfg);
 }

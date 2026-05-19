@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -74,7 +74,7 @@ import :state;
 
 [[nodiscard]] Ring::WsHandoffState Ring::begin_ws_handoff(
 	Conn &conn) {
-		auto state = Ring::WsHandoffState{move(conn.ws_upgrade), move(conn.ws_work_pool), move(conn.saved_req)};
+		auto state = Ring::WsHandoffState{std::move(conn.ws_upgrade), std::move(conn.ws_work_pool), std::move(conn.saved_req)};
 		++conn.gen;
 		conn.fd = -1;
 		conn.is_ws = false;
@@ -89,8 +89,8 @@ void Ring::launch_plain_ws_handler(
 	Ring::WsHandoffState state,
 	int fd,
 	std::string initial_buf) {
-		if (!pool.enqueue([state = move(state), fd, ibuf = move(initial_buf)]() mutable {
-				WsConn ws{fd, move(ibuf)};
+		if (!pool.enqueue([state = std::move(state), fd, ibuf = std::move(initial_buf)]() mutable {
+				WsConn ws{fd, std::move(ibuf)};
 				state.upgrade->handler(state.request, ws);
 				::close(fd);
 			})) {
@@ -103,7 +103,7 @@ void Ring::finish_plain_ws_handoff(
 	int fd,
 	Ring::WsInstallEntry entry) {
 		if (accepted_sockets_direct) {
-			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf));
+			queue_ws_fixed_install(fd, std::move(entry.state), std::move(entry.initial_buf));
 			return;
 		}
 		if (!make_blocking_fd(fd)) {
@@ -111,7 +111,7 @@ void Ring::finish_plain_ws_handoff(
 			return;
 		}
 		auto &pool = *entry.state.pool;
-		launch_plain_ws_handler(pool, move(entry.state), fd, move(entry.initial_buf));
+		launch_plain_ws_handler(pool, std::move(entry.state), fd, std::move(entry.initial_buf));
 	}
 
 
@@ -127,7 +127,7 @@ void Ring::handoff_plain_ws(
 		if (!state.pool) {
 			if (accepted_sockets_direct) {
 				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-					eprintln(format("handoff_plain_ws: mark_closing failed slot={}", fd));
+					eprintln(std::format("handoff_plain_ws: mark_closing failed slot={}", fd));
 				}
 				auto const ud = pack(Op::DirectSlotClose, 0, fd);
 				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
@@ -140,18 +140,18 @@ void Ring::handoff_plain_ws(
 			return;
 		}
 		auto entry = Ring::WsInstallEntry{
-			move(state),
-			move(initial_buf)
+			std::move(state),
+			std::move(initial_buf)
 #if CONFLUX_HAS_TLS
 				,
 			nullptr
 #endif
 		};
 		if (cancel_recv) {
-			queue_ws_cancel(fd, move(entry));
+			queue_ws_cancel(fd, std::move(entry));
 			return;
 		}
-		finish_plain_ws_handoff(fd, move(entry));
+		finish_plain_ws_handoff(fd, std::move(entry));
 	}
 
 
@@ -163,8 +163,8 @@ void Ring::launch_tls_ws_handler(
 	SSL *ssl,
 	std::string initial_buf) {
 		UniqueSsl owned{ssl};
-		if (!pool.enqueue([state = move(state), fd, ssl_owned = move(owned), ibuf = move(initial_buf)]() mutable {
-				WsConn ws{fd, ssl_owned.release(), move(ibuf)};
+		if (!pool.enqueue([state = std::move(state), fd, ssl_owned = std::move(owned), ibuf = std::move(initial_buf)]() mutable {
+				WsConn ws{fd, ssl_owned.release(), std::move(ibuf)};
 				state.upgrade->handler(state.request, ws);
 				::close(fd);
 			})) {
@@ -182,7 +182,7 @@ void Ring::handoff_tls_ws(
 		conn.request_bytes = 0;
 
 		std::string initial_buf = conn.partial.take();
-		auto orig_ssl = move(conn.ssl); // transfer ownership to the thread
+		auto orig_ssl = std::move(conn.ssl); // transfer ownership to the std::thread
 		bool const cancel_recv = conn.recv_armed;
 		retire_incremental_partial(fd, conn.gen, conn);
 		auto state = begin_ws_handoff(conn);
@@ -190,7 +190,7 @@ void Ring::handoff_tls_ws(
 			orig_ssl.reset();
 			if (accepted_sockets_direct) {
 				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-					eprintln(format("handoff_tls_ws: mark_closing failed slot={}", fd));
+					eprintln(std::format("handoff_tls_ws: mark_closing failed slot={}", fd));
 				}
 				auto const ud = pack(Op::DirectSlotClose, 0, fd);
 				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
@@ -202,12 +202,12 @@ void Ring::handoff_tls_ws(
 			}
 			return;
 		}
-		auto entry = Ring::WsInstallEntry{move(state), move(initial_buf), move(orig_ssl)};
+		auto entry = Ring::WsInstallEntry{std::move(state), std::move(initial_buf), std::move(orig_ssl)};
 		if (cancel_recv) {
-			queue_ws_cancel(fd, move(entry));
+			queue_ws_cancel(fd, std::move(entry));
 			return;
 		}
-		finish_tls_ws_handoff(fd, move(entry));
+		finish_tls_ws_handoff(fd, std::move(entry));
 	}
 
 
@@ -217,10 +217,10 @@ void Ring::queue_ws_cancel(
 	Ring::WsInstallEntry entry) {
 		auto *sqe = get_sqe();
 		if (sqe == nullptr) {
-			defer_op([this, fd, e = move(entry)]() mutable { queue_ws_cancel(fd, move(e)); });
+			defer_op([this, fd, e = std::move(entry)]() mutable { queue_ws_cancel(fd, std::move(e)); });
 			return;
 		}
-		ws_cancel_handoffs.emplace(fd, move(entry));
+		ws_cancel_handoffs.emplace(fd, std::move(entry));
 		auto handle =
 			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		io_uring_prep_cancel_fd(sqe, handle.as_fd(), handle.fixed ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
@@ -233,12 +233,12 @@ void Ring::finish_tls_ws_handoff(
 	int fd,
 	Ring::WsInstallEntry entry) {
 		if (accepted_sockets_direct) {
-			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf), entry.ssl.release());
+			queue_ws_fixed_install(fd, std::move(entry.state), std::move(entry.initial_buf), entry.ssl.release());
 			return;
 		}
 		// Replace memory BIOs with a socket BIO and make fd blocking.
 		// TRICKS.md #2 says "DO NOT call SSL_set_fd" for the io_uring path.
-		// Here we're exiting that path — blocking I/O is correct for the WS thread.
+		// Here we're exiting that path — blocking I/O is correct for the WS std::thread.
 		SSL_set_fd(entry.ssl.get(), fd); // replaces memory BIOs with socket BIOs
 		if (!make_blocking_fd(fd)) {
 			entry.ssl.reset();
@@ -246,7 +246,7 @@ void Ring::finish_tls_ws_handoff(
 			return;
 		}
 		auto &pool = *entry.state.pool;
-		launch_tls_ws_handler(pool, move(entry.state), fd, entry.ssl.release(), move(entry.initial_buf));
+		launch_tls_ws_handler(pool, std::move(entry.state), fd, entry.ssl.release(), std::move(entry.initial_buf));
 	}
 
 
@@ -273,20 +273,20 @@ void Ring::queue_ws_fixed_install(
 		ws_installs.emplace(
 			slot_fd,
 			Ring::WsInstallEntry{
-				move(state),
-				move(initial_buf)
+				std::move(state),
+				std::move(initial_buf)
 #if CONFLUX_HAS_TLS
 					,
 				UniqueSsl{ssl}
 #endif
 			});
 		if (!submit_fixed_fd_install(raw_, static_cast<std::uint32_t>(slot_fd), pack(Op::FixedFdInstall, 0, slot_fd))) {
-			auto entry = move(ws_installs.at(slot_fd));
+			auto entry = std::move(ws_installs.at(slot_fd));
 			ws_installs.erase(slot_fd);
 			defer_op([this,
 					  slot_fd,
-					  s = move(entry.state),
-					  ib = move(entry.initial_buf)
+					  s = std::move(entry.state),
+					  ib = std::move(entry.initial_buf)
 #if CONFLUX_HAS_TLS
 						  ,
 					  ssl_raw = entry.ssl.release()
@@ -294,8 +294,8 @@ void Ring::queue_ws_fixed_install(
 			]() mutable {
 				queue_ws_fixed_install(
 					slot_fd,
-					move(s),
-					move(ib)
+					std::move(s),
+					std::move(ib)
 #if CONFLUX_HAS_TLS
 						,
 					ssl_raw
@@ -316,12 +316,12 @@ void Ring::handle_fixed_fd_install(
 			}
 			return;
 		}
-		auto entry = move(it->second);
+		auto entry = std::move(it->second);
 		ws_installs.erase(it);
 
 		auto free_slot = [this, slot_fd] {
 			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(slot_fd))) {
-				eprintln(format("free_slot: mark_closing failed slot={}", slot_fd));
+				eprintln(std::format("free_slot: mark_closing failed slot={}", slot_fd));
 			}
 			if (!submit_close(
 					raw_,
@@ -353,7 +353,7 @@ void Ring::handle_fixed_fd_install(
 				return;
 			}
 			auto &pool = *entry.state.pool;
-			launch_tls_ws_handler(pool, move(entry.state), real_fd, entry.ssl.release(), move(entry.initial_buf));
+			launch_tls_ws_handler(pool, std::move(entry.state), real_fd, entry.ssl.release(), std::move(entry.initial_buf));
 			return;
 		}
 #endif
@@ -363,5 +363,5 @@ void Ring::handle_fixed_fd_install(
 			return;
 		}
 		auto &pool = *entry.state.pool;
-		launch_plain_ws_handler(pool, move(entry.state), real_fd, move(entry.initial_buf));
+		launch_plain_ws_handler(pool, std::move(entry.state), real_fd, std::move(entry.initial_buf));
 	}

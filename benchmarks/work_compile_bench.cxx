@@ -17,16 +17,16 @@ import conflux.work.carrier.model_b;
 namespace carrier = conflux::work::carrier;
 auto chain_a_10stage(
 	carrier::Chain<int> c) -> carrier::Chain<double> {
-	auto s1 = carrier::map(move(c), [](int v) { return v + 1; });
-	auto s2 = carrier::map(move(s1), [](int v) { return v * 2; });
-	auto s3 = carrier::map(move(s2), [](int v) { return static_cast<double>(v); });
-	auto s4 = carrier::map(move(s3), [](double v) { return static_cast<int>(v); });
-	auto s5 = carrier::map(move(s4), [](int v) { return v - 1; });
-	auto s6 = carrier::map(move(s5), [](int v) { return v + 3; });
-	auto s7 = carrier::map(move(s6), [](int v) { return static_cast<double>(v) * 1.5; });
-	auto s8 = carrier::map(move(s7), [](double v) { return static_cast<int>(v); });
-	auto s9 = carrier::map(move(s8), [](int v) { return v * v; });
-	return carrier::map(move(s9), [](int v) { return static_cast<double>(v); });
+	auto s1 = carrier::map(std::move(c), [](int v) { return v + 1; });
+	auto s2 = carrier::map(std::move(s1), [](int v) { return v * 2; });
+	auto s3 = carrier::map(std::move(s2), [](int v) { return static_cast<double>(v); });
+	auto s4 = carrier::map(std::move(s3), [](double v) { return static_cast<int>(v); });
+	auto s5 = carrier::map(std::move(s4), [](int v) { return v - 1; });
+	auto s6 = carrier::map(std::move(s5), [](int v) { return v + 3; });
+	auto s7 = carrier::map(std::move(s6), [](int v) { return static_cast<double>(v) * 1.5; });
+	auto s8 = carrier::map(std::move(s7), [](double v) { return static_cast<int>(v); });
+	auto s9 = carrier::map(std::move(s8), [](int v) { return v * v; });
+	return carrier::map(std::move(s9), [](int v) { return static_cast<double>(v); });
 }
 #endif
 
@@ -34,16 +34,16 @@ auto chain_a_10stage(
 namespace model_b = conflux::work::carrier::model_b;
 auto chain_b_10stage(
 	model_b::TaskChain<int> c) -> model_b::TaskChain<double> {
-	auto s1 = model_b::map(move(c), [](int v) { return v + 1; });
-	auto s2 = model_b::map(move(s1), [](int v) { return v * 2; });
-	auto s3 = model_b::map(move(s2), [](int v) { return static_cast<double>(v); });
-	auto s4 = model_b::map(move(s3), [](double v) { return static_cast<int>(v); });
-	auto s5 = model_b::map(move(s4), [](int v) { return v - 1; });
-	auto s6 = model_b::map(move(s5), [](int v) { return v + 3; });
-	auto s7 = model_b::map(move(s6), [](int v) { return static_cast<double>(v) * 1.5; });
-	auto s8 = model_b::map(move(s7), [](double v) { return static_cast<int>(v); });
-	auto s9 = model_b::map(move(s8), [](int v) { return v * v; });
-	return model_b::map(move(s9), [](int v) { return static_cast<double>(v); });
+	auto s1 = model_b::map(std::move(c), [](int v) { return v + 1; });
+	auto s2 = model_b::map(std::move(s1), [](int v) { return v * 2; });
+	auto s3 = model_b::map(std::move(s2), [](int v) { return static_cast<double>(v); });
+	auto s4 = model_b::map(std::move(s3), [](double v) { return static_cast<int>(v); });
+	auto s5 = model_b::map(std::move(s4), [](int v) { return v - 1; });
+	auto s6 = model_b::map(std::move(s5), [](int v) { return v + 3; });
+	auto s7 = model_b::map(std::move(s6), [](int v) { return static_cast<double>(v) * 1.5; });
+	auto s8 = model_b::map(std::move(s7), [](double v) { return static_cast<int>(v); });
+	auto s9 = model_b::map(std::move(s8), [](int v) { return v * v; });
+	return model_b::map(std::move(s9), [](int v) { return static_cast<double>(v); });
 }
 #endif
 int main(

@@ -5,6 +5,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
 
+
 namespace client_wire_detail {
 using namespace conflux::http;
 
@@ -24,8 +25,8 @@ void append_decimal(
 	std::string &out,
 	std::size_t value) {
 	std::array<char, 32> buf{};
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == errc{}) {
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == std::errc{}) {
 		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
 	}
 }

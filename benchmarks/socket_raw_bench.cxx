@@ -387,7 +387,7 @@ void run_multishot_recv_1conn(
 
 	std::atomic<bool> stop{false};
 	thread sender{[&] {
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
 			}
@@ -428,7 +428,7 @@ void run_multishot_recv_1conn(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(cli, SHUT_RDWR);
 	sender.join();
 }
@@ -466,7 +466,7 @@ void run_multishot_recv_Nconn(
 	senders.reserve(kConns);
 	for (std::size_t i = 0; i < kConns; ++i) {
 		senders.emplace_back([&, fd = clients[i].fd] {
-			while (!stop.load(memory_order_relaxed)) {
+			while (!stop.load(std::memory_order_relaxed)) {
 				if (::send(fd, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 					break;
 				}
@@ -513,7 +513,7 @@ void run_multishot_recv_Nconn(
 	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	for (auto &c: clients) {
 		::shutdown(c.fd, SHUT_RDWR);
 	}
@@ -551,7 +551,7 @@ void run_recv_fixed_fd(
 
 	std::atomic<bool> stop{false};
 	thread sender{[&] {
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
 			}
@@ -592,7 +592,7 @@ void run_recv_fixed_fd(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(cli, SHUT_RDWR);
 	sender.join();
 }
@@ -617,7 +617,7 @@ void run_send_variant(
 	std::atomic<bool> stop{false};
 	thread reader{[&] {
 		std::array<char, 65536> buf{};
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
 			}
@@ -638,7 +638,7 @@ void run_send_variant(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
@@ -668,7 +668,7 @@ void run_send_fixed_fd(
 	std::atomic<bool> stop{false};
 	thread reader{[&] {
 		std::array<char, 65536> buf{};
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
 			}
@@ -689,7 +689,7 @@ void run_send_fixed_fd(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
@@ -699,7 +699,7 @@ void run_writev_variant(
 	bool json,
 	std::string_view config_name,
 	std::string_view variant_name,
-	span<iovec const> iov) {
+	std::span<iovec const> iov) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -713,7 +713,7 @@ void run_writev_variant(
 	std::atomic<bool> stop{false};
 	thread reader{[&] {
 		std::array<char, 65536> buf{};
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
 			}
@@ -739,7 +739,7 @@ void run_writev_variant(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
@@ -1212,11 +1212,11 @@ void run_flow_deferred_close_abandon(
 				if (!r) {
 					throw std::runtime_error{"Ring::init failed for flow deferred-close bench"};
 				}
-				return move(*r);
+				return std::move(*r);
 			}()}
 			, rt{ring, ur::detect_caps(ring.ref()), [](uf::FlowResult) noexcept {}} {}
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 
 	auto v = Variant{
 		.name = "flow_deferred_close_abandon",
@@ -1265,7 +1265,7 @@ void run_recv_arm_policy_resolve(
 		poll_first,
 		adaptive,
 	};
-	auto run_case = [&](std::string_view variant_name, span<std::uint32_t const> flags, PolicyMode mode) {
+	auto run_case = [&](std::string_view variant_name, std::span<std::uint32_t const> flags, PolicyMode mode) {
 		volatile std::uint64_t sink = 0;
 		auto v = Variant{
 			.name = variant_name,
@@ -1316,7 +1316,7 @@ void run_batch_send_32(
 	std::atomic<bool> stop{false};
 	thread reader{[&] {
 		std::array<char, 65536> buf{};
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
 			}
@@ -1347,7 +1347,7 @@ void run_batch_send_32(
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
@@ -1371,7 +1371,7 @@ void run_batch_recv_send_16(
 
 	std::atomic<bool> stop{false};
 	thread sender{[&] {
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
 			}
@@ -1379,7 +1379,7 @@ void run_batch_recv_send_16(
 	}};
 	thread reader{[&] {
 		std::array<char, 65536> buf{};
-		while (!stop.load(memory_order_relaxed)) {
+		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
 			}
@@ -1415,7 +1415,7 @@ void run_batch_recv_send_16(
 	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
-	stop.store(true, memory_order_relaxed);
+	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
 	::shutdown(cli, SHUT_RDWR);
 	sender.join();

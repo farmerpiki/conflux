@@ -22,7 +22,7 @@ carrier::Chain<int> apply_steps(
 	carrier::Chain<int> chain,
 	std::size_t n) {
 	for (std::size_t i = 0; i < n; ++i) {
-		chain = carrier::map(move(chain), [](int v) { return v + 1; });
+		chain = carrier::map(std::move(chain), [](int v) { return v + 1; });
 	}
 	return chain;
 }
@@ -30,10 +30,10 @@ void run_once(
 	std::size_t steps) {
 	auto [task, source] = root::make_task_source<int>();
 	(void)source.try_set_value(root::Success<int>{0});
-	auto chain = carrier::from_task(move(task));
-	chain = apply_steps(move(chain), steps);
-	auto result_task = carrier::into_ready_task(move(chain));
-	[[maybe_unused]] auto outcome = root::blocking_join(move(result_task));
+	auto chain = carrier::from_task(std::move(task));
+	chain = apply_steps(std::move(chain), steps);
+	auto result_task = carrier::into_ready_task(std::move(chain));
+	[[maybe_unused]] auto outcome = root::blocking_join(std::move(result_task));
 }
 
 } // namespace
@@ -52,7 +52,7 @@ int main(
 		if (a == "--steps" && i + 1 < static_cast<std::size_t>(argc)) {
 			chain_steps = bench_parse_sz(argv[++i]);
 			if (cfg.config_name.empty()) {
-				cfg.config_name = format("steps_{}", chain_steps);
+				cfg.config_name = std::format("steps_{}", chain_steps);
 			}
 		}
 	}

@@ -32,8 +32,8 @@ export std::string openapi_spec(
 	// Build JSON std::string manually (no deps).
 	auto json_str = [](std::string_view s) -> std::string {
 		std::string out = "\"";
-		for (auto const byte: s) {
-			auto const c = static_cast<unsigned char>(byte);
+		for (auto const ch: s) {
+			auto const c = static_cast<unsigned char>(ch);
 			if (c == '"') {
 				out += "\\\"";
 			} else if (c == '\\') {
@@ -49,7 +49,7 @@ export std::string openapi_spec(
 			} else if (c == '\f') {
 				out += "\\f";
 			} else if (c < 0x20) {
-				out += format("\\u{:04x}", c);
+				out += std::format("\\u{:04x}", c);
 			} else {
 				out += static_cast<char>(c);
 			}
@@ -117,7 +117,7 @@ export Router::Handler openapi_handler(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
-	return [spec = move(spec)](HttpRequestView const &) -> HttpResponse {
+	return [spec = std::move(spec)](HttpRequestView const &) -> HttpResponse {
 		HttpResponse r;
 		r.status = 200;
 		r.status_text = "OK";
@@ -135,9 +135,9 @@ export Router::Handler openapi_handler_protected(
 	std::vector<Router::Middleware> chain) {
 	Router::Handler current = openapi_handler(router, title, version);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-		Router::Middleware mw = move(*it);
-		Router::Handler next = move(current);
-		current = [mw = move(mw), next = move(next)](HttpRequestView const &req) -> HttpResponse {
+		Router::Middleware mw = std::move(*it);
+		Router::Handler next = std::move(current);
+		current = [mw = std::move(mw), next = std::move(next)](HttpRequestView const &req) -> HttpResponse {
 			return mw(req, next);
 		};
 	}

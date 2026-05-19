@@ -55,7 +55,7 @@ TEST_CASE(
 	"[socket_io][direct_accept][sqe]") {
 	auto built = Ring::init(8, conflux::uring::SetupFlags{});
 	REQUIRE(built.has_value());
-	auto ring = move(*built);
+	auto ring = std::move(*built);
 	auto raw = SocketRawRing{ring.ref()};
 	int const direct_slot = 7;
 	int busy_poll_us = 75;
@@ -125,7 +125,7 @@ TEST_CASE(
 	"[socket_io][direct_accept][sqe]") {
 	auto built = Ring::init(4, conflux::uring::SetupFlags{});
 	REQUIRE(built.has_value());
-	auto ring = move(*built);
+	auto ring = std::move(*built);
 	auto raw = SocketRawRing{ring.ref()};
 	DirectTcpAcceptSetup opts{};
 	opts.tcp_nodelay_once = true;
@@ -148,7 +148,7 @@ TEST_CASE(
 	"[socket_io][direct_accept][sqe]") {
 	auto built = Ring::init(4, conflux::uring::SetupFlags{});
 	REQUIRE(built.has_value());
-	auto ring = move(*built);
+	auto ring = std::move(*built);
 	auto raw = SocketRawRing{ring.ref()};
 	int busy_poll_us = 0;
 	DirectTcpAcceptSetup opts{};

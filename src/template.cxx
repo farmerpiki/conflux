@@ -9,6 +9,7 @@ import conflux.utils;
 import conflux.file_io_sync;
 export namespace conflux::templates {
 
+
 struct CompiledExpr;
 using CompiledExprPtr = std::shared_ptr<CompiledExpr>;
 
@@ -223,8 +224,8 @@ public:
 	void load_all();
 	void blocking_load_all();
 	void blocking_reload_all();
-	[[nodiscard]] expected<void, TemplateBuildReport> blocking_load_all_checked();
-	[[nodiscard]] expected<void, TemplateBuildReport> blocking_reload_all_checked();
+	[[nodiscard]] std::expected<void, TemplateBuildReport> blocking_load_all_checked();
+	[[nodiscard]] std::expected<void, TemplateBuildReport> blocking_reload_all_checked();
 	[[nodiscard]] std::string render(std::string const &name, std::string const &json_ctx) const;
 	[[nodiscard]] std::string render(std::string const &name, TmplValue const &ctx) const;
 	[[nodiscard]] std::string render(std::string const &name, NodeRef ctx) const;
@@ -269,7 +270,7 @@ bool TemplateBuildReport::ok() const noexcept {
 }
 std::string TemplateBuildReport::format_text() const {
 	if (diagnostics.empty()) {
-		return format("template build ok: {} templates compiled", templates_compiled);
+		return std::format("template build ok: {} templates compiled", templates_compiled);
 	}
 	std::string out;
 	for (auto const &d: diagnostics) {
@@ -282,9 +283,9 @@ std::string TemplateBuildReport::format_text() const {
 			out += "<templates>";
 		}
 		if (loc.line != 0 || loc.column != 0) {
-			out += format(":{}:{}", loc.line, loc.column);
+			out += std::format(":{}:{}", loc.line, loc.column);
 		}
-		out += format(
+		out += std::format(
 			": {} {}.{}: {}",
 			diagnostic_severity_name(d.severity),
 			diagnostic_phase_name(d.phase),
@@ -305,7 +306,7 @@ std::string TemplateBuildReport::format_text() const {
 TemplateBuildError::TemplateBuildError(
 	TemplateBuildReport report_)
 	: std::runtime_error{report_.format_text()}
-	, report{move(report_)} {}
+	, report{std::move(report_)} {}
 
 // ---------------------------------------------------------------------------
 // Internal mutable value type for template context
@@ -315,7 +316,7 @@ export struct TmplValue {
 	using Array = std::vector<TmplValue>;
 	using Object = std::vector<std::pair<std::string, TmplValue>>;
 
-	variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, Array, Object> data;
+	std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, Array, Object> data;
 
 	TmplValue() = default;
 	explicit TmplValue(
@@ -332,16 +333,16 @@ export struct TmplValue {
 		: data(v) {}
 	explicit TmplValue(
 		std::string s)
-		: data(move(s)) {}
+		: data(std::move(s)) {}
 	explicit TmplValue(
 		std::string_view sv)
 		: data(std::string{sv}) {}
 	explicit TmplValue(
 		Array a)
-		: data(move(a)) {}
+		: data(std::move(a)) {}
 	explicit TmplValue(
 		Object o)
-		: data(move(o)) {}
+		: data(std::move(o)) {}
 	[[nodiscard]] bool is_null() const noexcept { return std::holds_alternative<std::monostate>(data); }
 	[[nodiscard]] bool is_bool() const noexcept { return std::holds_alternative<bool>(data); }
 	[[nodiscard]] bool is_int() const noexcept { return std::holds_alternative<std::int64_t>(data); }
@@ -352,7 +353,7 @@ export struct TmplValue {
 	[[nodiscard]] bool is_object() const noexcept { return std::holds_alternative<Object>(data); }
 	template<class T>
 	[[nodiscard]] decltype(auto) as() const {
-		if constexpr (same_as<T, std::string_view>) {
+		if constexpr (std::same_as<T, std::string_view>) {
 			return std::string_view{std::get<std::string>(data)};
 		} else {
 			return std::get<T>(data);
@@ -368,11 +369,11 @@ export struct TmplValue {
 		auto &obj = std::get<Object>(data);
 		for (auto &[k, v]: obj) {
 			if (k == key) {
-				v = move(val);
+				v = std::move(val);
 				return;
 			}
 		}
-		obj.emplace_back(std::string{key}, move(val));
+		obj.emplace_back(std::string{key}, std::move(val));
 	}
 	void erase(
 		std::string_view key) {
@@ -381,7 +382,7 @@ export struct TmplValue {
 	}
 	void push_back(
 		TmplValue val) {
-		std::get<Array>(data).push_back(move(val));
+		std::get<Array>(data).push_back(std::move(val));
 	}
 	[[nodiscard]] bool operator ==(TmplValue const &) const = default;
 
@@ -396,13 +397,13 @@ std::string TmplValue::dump() const {
 		return std::get<bool>(data) ? "true" : "false";
 	}
 	if (is_int()) {
-		return to_string(std::get<std::int64_t>(data));
+		return std::to_string(std::get<std::int64_t>(data));
 	}
 	if (is_uint()) {
-		return to_string(std::get<std::uint64_t>(data));
+		return std::to_string(std::get<std::uint64_t>(data));
 	}
 	if (is_float()) {
-		auto s = to_string(std::get<double>(data));
+		auto s = std::to_string(std::get<double>(data));
 		auto dot = s.find('.');
 		if (dot != std::string::npos) {
 			auto last = s.find_last_not_of('0');
@@ -498,7 +499,7 @@ static TmplValue node_to_tmpl(
 			for (auto elem: arr.elements()) {
 				vec.push_back(node_to_tmpl(elem));
 			}
-			return TmplValue{move(vec)};
+			return TmplValue{std::move(vec)};
 		}
 	case JsonKind::object:
 		{
@@ -508,7 +509,7 @@ static TmplValue node_to_tmpl(
 			for (auto [name, val]: obj.members()) {
 				pairs.emplace_back(std::string{name}, node_to_tmpl(val));
 			}
-			return TmplValue{move(pairs)};
+			return TmplValue{std::move(pairs)};
 		}
 	default: return {};
 	}
@@ -725,7 +726,7 @@ static std::size_t find_top_level_char(
 static CompiledExpr compile_expr(std::string const &expr);
 static CompiledExprPtr compile_expr_ptr(
 	std::string const &expr) {
-	return make_shared<CompiledExpr>(compile_expr(expr));
+	return std::make_shared<CompiledExpr>(compile_expr(expr));
 }
 static std::vector<CompiledExprPtr> compile_expr_ptr_list(
 	std::vector<std::string> const &exprs) {
@@ -740,7 +741,7 @@ static std::optional<CompiledLiteral> compile_literal(
 	std::string const &expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (is_quoted_string(b)) {
 		return CompiledLiteral{.kind = CompiledLiteralKind::string, .string = b.substr(1, b.size() - 2)};
@@ -770,19 +771,19 @@ static std::optional<CompiledLiteral> compile_literal(
 						.integer = static_cast<std::int64_t>(value)};
 				}
 			}
-		} catch (exception const &) { return nullopt; }
+		} catch (std::exception const &) { return std::nullopt; }
 	}
-	return nullopt;
+	return std::nullopt;
 }
 static std::optional<CompiledPathSegment> compile_path_method(
 	std::string const &name,
 	std::string_view remaining) {
 	if (remaining.empty() || remaining.front() != '(') {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto close = find_matching_pair(remaining, 0, '(', ')');
 	if (close == std::string_view::npos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto raw_args = split_args(std::string{remaining.substr(1, close - 1)});
 	return CompiledPathSegment{
@@ -795,7 +796,7 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 	std::string const &expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	CompiledBaseExpr out;
 	out.kind = CompiledBaseKind::path;
@@ -805,11 +806,11 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 		auto bracket = remaining.find('[');
 		auto dot = remaining.find('.');
 		auto paren = remaining.find('(');
-		auto next_sep = min({bracket, dot, paren, remaining.size()});
+		auto next_sep = std::min({bracket, dot, paren, remaining.size()});
 		if (next_sep == 0 && bracket == 0) {
 			auto close = find_matching_pair(remaining, 0, '[', ']');
 			if (close == std::string_view::npos) {
-				return nullopt;
+				return std::nullopt;
 			}
 			auto idx = trim(remaining.substr(1, close - 1));
 			if (auto colon = find_top_level_char(idx, ':'); colon != std::string_view::npos) {
@@ -822,7 +823,7 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 				if (!end.empty()) {
 					seg.end = compile_expr_ptr(end);
 				}
-				out.path.push_back(move(seg));
+				out.path.push_back(std::move(seg));
 			} else {
 				out.path.push_back(
 					CompiledPathSegment{
@@ -841,15 +842,15 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 		remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : std::string_view{};
 		bool const is_method_call = !remaining.empty() && remaining.front() == '(';
 		if (!key.empty() && !is_method_call) {
-			out.path.push_back(CompiledPathSegment{.kind = CompiledPathSegmentKind::field, .name = move(key)});
+			out.path.push_back(CompiledPathSegment{.kind = CompiledPathSegmentKind::field, .name = std::move(key)});
 		}
 		if (is_method_call) {
 			auto method = compile_path_method(key, remaining);
 			if (!method) {
-				return nullopt;
+				return std::nullopt;
 			}
 			auto close = find_matching_pair(remaining, 0, '(', ')');
-			out.path.push_back(move(*method));
+			out.path.push_back(std::move(*method));
 			remaining.remove_prefix(close + 1);
 			if (!remaining.empty() && remaining.front() == '.') {
 				remaining.remove_prefix(1);
@@ -866,13 +867,13 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	std::string const &expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (auto literal = compile_literal(b); literal) {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::literal;
 		out.source = b;
-		out.literal = move(*literal);
+		out.literal = std::move(*literal);
 		return out;
 	}
 	if (outer_pair_wraps(b, '[', ']')) {
@@ -921,7 +922,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 				if (is_quoted_string(key)) {
 					key = key.substr(1, key.size() - 2);
 				}
-				out.object_items.push_back(CompiledObjectItem{move(key), compile_expr_ptr(val)});
+				out.object_items.push_back(CompiledObjectItem{std::move(key), compile_expr_ptr(val)});
 			}
 		}
 		return out;
@@ -984,14 +985,14 @@ static std::optional<CompiledMacroCall> compile_macro_call(
 	auto e = trim(expr);
 	auto paren = e.find('(');
 	if (paren == std::string::npos || e.empty() || e.back() != ')') {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto name = trim(e.substr(0, paren));
 	if (!is_template_identifier(name)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	CompiledMacroCall call;
-	call.name = move(name);
+	call.name = std::move(name);
 	auto raw_args = split_args(e.substr(paren + 1, e.size() - paren - 2));
 	call.args.reserve(raw_args.size());
 	for (auto &arg: raw_args) {
@@ -1057,9 +1058,9 @@ static CompiledExpr compile_expr(
 		}
 		pipe_parts.push_back(trim(current));
 	}
-	compiled.base = pipe_parts.empty() ? std::string{} : move(pipe_parts[0]);
+	compiled.base = pipe_parts.empty() ? std::string{} : std::move(pipe_parts[0]);
 	if (auto base = compile_base_expr(compiled.base); base) {
-		compiled.compiled_base = make_shared<CompiledBaseExpr>(move(*base));
+		compiled.compiled_base = std::make_shared<CompiledBaseExpr>(std::move(*base));
 	}
 	compiled.filters.reserve(pipe_parts.size() > 0 ? pipe_parts.size() - 1 : 0);
 	for (std::size_t i = 1; i < pipe_parts.size(); ++i) {
@@ -1074,9 +1075,9 @@ static CompiledExpr compile_expr(
 				compiled_filter.compiled_args = compile_expr_ptr_list(compiled_filter.args);
 			}
 		} else {
-			compiled_filter.name = move(filter);
+			compiled_filter.name = std::move(filter);
 		}
-		compiled.filters.push_back(move(compiled_filter));
+		compiled.filters.push_back(std::move(compiled_filter));
 	}
 	if (compiled.filters.empty()) {
 		compiled.macro_call = compile_macro_call(compiled.base);
@@ -1117,7 +1118,7 @@ static std::vector<Token> tokenize(
 		auto next_tag = source.find("{%", pos);
 		auto next_comment = source.find("{#", pos);
 
-		auto next = min({next_expr, next_tag, next_comment});
+		auto next = std::min({next_expr, next_tag, next_comment});
 		if (next == std::string::npos) {
 			tokens.push_back({TokenType::Text, source.substr(pos)});
 			break;
@@ -1216,12 +1217,12 @@ static TmplValue const *obj_find(
 }
 static std::vector<std::pair<std::string, std::optional<TmplValue>>> save_scope(
 	TmplValue const &ctx,
-	span<std::string const> names) {
+	std::span<std::string const> names) {
 	std::vector<std::pair<std::string, std::optional<TmplValue>>> saved;
 	saved.reserve(names.size());
 	for (auto const &n: names) {
 		auto const *prev = obj_find(ctx, n);
-		saved.emplace_back(n, (prev != nullptr) ? std::optional<TmplValue>{*prev} : nullopt);
+		saved.emplace_back(n, (prev != nullptr) ? std::optional<TmplValue>{*prev} : std::nullopt);
 	}
 	return saved;
 }
@@ -1276,8 +1277,8 @@ struct Environment::Impl {
 		TmplValue context,
 		std::unordered_map<std::string, NodeList> const *child_blocks = nullptr,
 		int depth = 0) const;
-	expected<std::unordered_map<std::string, Template>, TemplateBuildReport> build_cache_from_directory() const;
-	expected<void, TemplateBuildReport> reload_all_checked();
+	std::expected<std::unordered_map<std::string, Template>, TemplateBuildReport> build_cache_from_directory() const;
+	std::expected<void, TemplateBuildReport> reload_all_checked();
 	void validate_links(std::unordered_map<std::string, Template> const &candidate, TemplateBuildReport &report) const;
 	void reload_path(std::string const &path);
 	void remove_path(std::string const &path);
@@ -1311,14 +1312,14 @@ Template Environment::Impl::parse(
 		auto const fail_missing_end = [&] {
 			if (!end_tags.empty()) {
 				throw std::runtime_error{
-					format("template parse error: missing end tag (expected one of '{}')", end_tags.front())};
+					std::format("template parse error: missing end tag (std::expected one of '{}')", end_tags.front())};
 			}
 		};
 		while (!state.done()) {
 			auto &tok = state.cur();
 
 			if (tok.type == TokenType::Text) {
-				nodes.push_back(make_shared<Node>(Node{TextNode{tok.content}}));
+				nodes.push_back(std::make_shared<Node>(Node{TextNode{tok.content}}));
 				state.advance();
 				continue;
 			}
@@ -1328,7 +1329,7 @@ Template Environment::Impl::parse(
 			}
 			if (tok.type == TokenType::Expr) {
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						ExprNode{tok.content, compile_expr(tok.content)}
 					}));
 				state.advance();
@@ -1345,7 +1346,7 @@ Template Environment::Impl::parse(
 
 			if (starts_with(tag, "extends ")) {
 				tmpl.extends_name = extract_string_arg(tag);
-				nodes.push_back(make_shared<Node>(Node{ExtendsNode{tmpl.extends_name}}));
+				nodes.push_back(std::make_shared<Node>(Node{ExtendsNode{tmpl.extends_name}}));
 				state.advance();
 			} else if (starts_with(tag, "block ")) {
 				auto block_name = trim(tag.substr(6));
@@ -1354,7 +1355,7 @@ Template Environment::Impl::parse(
 				state.advance();
 				tmpl.blocks[block_name] = body;
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						BlockNode{block_name, body}
                 }));
 			} else if (starts_with(tag, "for ")) {
@@ -1382,7 +1383,7 @@ Template Environment::Impl::parse(
 				auto body = parse_nodes({"endfor"}, depth + 1);
 				state.advance();
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						ForNode{vars, iter_expr, compile_expr(iter_expr), body}
                 }));
 			} else if (starts_with(tag, "if ")) {
@@ -1413,22 +1414,22 @@ Template Environment::Impl::parse(
 						break;
 					}
 				}
-				nodes.push_back(make_shared<Node>(Node{if_node}));
+				nodes.push_back(std::make_shared<Node>(Node{if_node}));
 			} else if (starts_with(tag, "set ")) {
 				auto eq = tag.find('=');
 				if (eq == std::string::npos) {
-					throw std::runtime_error{format("template parse error: set tag missing '=': {}", tag)};
+					throw std::runtime_error{std::format("template parse error: set tag missing '=': {}", tag)};
 				}
 				auto var = trim(tag.substr(4, eq - 4));
 				auto expr = trim(tag.substr(eq + 1));
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						SetNode{var, expr, compile_expr(expr)}
                 }));
 				state.advance();
 			} else if (starts_with(tag, "include ")) {
 				auto inc_name = extract_string_arg(tag);
-				nodes.push_back(make_shared<Node>(Node{IncludeNode{inc_name}}));
+				nodes.push_back(std::make_shared<Node>(Node{IncludeNode{inc_name}}));
 				state.advance();
 			} else if (starts_with(tag, "macro ")) {
 				auto paren = tag.find('(');
@@ -1458,7 +1459,7 @@ Template Environment::Impl::parse(
 				auto body = parse_nodes({"endmacro"}, depth + 1);
 				state.advance();
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						MacroNode{mname, params, defaults, compile_expr_list(defaults), body}
                 }));
 			} else if (starts_with(tag, "from ")) {
@@ -1485,12 +1486,12 @@ Template Environment::Impl::parse(
 					alias = nm;
 				}
 				nodes.push_back(
-					make_shared<Node>(Node{
+					std::make_shared<Node>(Node{
 						FromImportNode{file, nm, alias}
                 }));
 				state.advance();
 			} else {
-				throw std::runtime_error{format("template parse error: unknown tag '{}'", tag)};
+				throw std::runtime_error{std::format("template parse error: unknown tag '{}'", tag)};
 			}
 		}
 		fail_missing_end();
@@ -1551,21 +1552,21 @@ TmplValue Environment::Impl::apply_method(
 				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 			}
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "upper") {
 		auto s = value_to_string(val);
 		for (auto &c: s) {
 			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "lower") {
 		auto s = value_to_string(val);
 		for (auto &c: s) {
 			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "capitalize") {
 		return TmplValue{str_capitalize(value_to_string(val))};
@@ -1617,7 +1618,7 @@ TmplValue Environment::Impl::apply_method(
 			TmplValue pair{TmplValue::Array{}};
 			pair.push_back(TmplValue{kv.first});
 			pair.push_back(kv.second);
-			items.push_back(move(pair));
+			items.push_back(std::move(pair));
 		}
 		return items;
 	}
@@ -1630,7 +1631,7 @@ TmplValue Environment::Impl::eval_path(
 	bool use_owned = false;
 	TmplValue const *cur = &context;
 	auto set_owned = [&](TmplValue v) {
-		owned = move(v);
+		owned = std::move(v);
 		cur = &owned;
 		use_owned = true;
 	};
@@ -1682,7 +1683,7 @@ TmplValue Environment::Impl::eval_path(
 					if (sv.is_int()) {
 						start = sv.as<std::int64_t>();
 						if (start < 0) {
-							start = max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + start);
+							start = std::max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + start);
 						}
 					}
 				}
@@ -1691,7 +1692,7 @@ TmplValue Environment::Impl::eval_path(
 					if (ev.is_int()) {
 						end = ev.as<std::int64_t>();
 						if (end < 0) {
-							end = max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + end);
+							end = std::max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + end);
 						}
 					}
 				}
@@ -1700,7 +1701,7 @@ TmplValue Environment::Impl::eval_path(
 				set_owned(
 					TmplValue{str.substr(
 						static_cast<std::size_t>(start),
-						static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
+						static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
 			} else {
 				return {};
 			}
@@ -1849,8 +1850,8 @@ TmplValue Environment::Impl::eval_expr(
 					return TmplValue{std::stod(b)};
 				}
 				return TmplValue{static_cast<std::int64_t>(std::stoll(b))};
-			} catch (exception const &ex) {
-				eprintln(format("template eval_literal: failed to parse number '{}': {}", b, ex.what()));
+			} catch (std::exception const &ex) {
+				eprintln(std::format("template eval_literal: failed to parse number '{}': {}", b, ex.what()));
 			}
 		}
 
@@ -2123,7 +2124,7 @@ TmplValue Environment::Impl::eval_expr(
 			bool use_owned = false;
 			TmplValue const *cur = &context;
 			auto set_owned = [&](TmplValue v) {
-				owned = move(v);
+				owned = std::move(v);
 				cur = &owned;
 				use_owned = true;
 			};
@@ -2134,7 +2135,7 @@ TmplValue Environment::Impl::eval_expr(
 				auto dot = remaining.find('.');
 				auto paren = remaining.find('(');
 
-				auto next_sep = min({bracket, dot, paren, remaining.size()});
+				auto next_sep = std::min({bracket, dot, paren, remaining.size()});
 
 				if (next_sep == 0 && bracket == 0) {
 					auto close = remaining.find(']', 1);
@@ -2154,7 +2155,7 @@ TmplValue Environment::Impl::eval_expr(
 								if (sv.is_int()) {
 									start = sv.as<std::int64_t>();
 									if (start < 0) {
-										start = max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + start);
+										start = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + start);
 									}
 								}
 							}
@@ -2163,7 +2164,7 @@ TmplValue Environment::Impl::eval_expr(
 								if (ev.is_int()) {
 									end = ev.as<std::int64_t>();
 									if (end < 0) {
-										end = max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + end);
+										end = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + end);
 									}
 								}
 							}
@@ -2172,7 +2173,7 @@ TmplValue Environment::Impl::eval_expr(
 							set_owned(
 								TmplValue{s.substr(
 									static_cast<std::size_t>(start),
-									static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
+									static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
 						} else {
 							return {};
 						}
@@ -2305,19 +2306,19 @@ TmplValue Environment::Impl::eval_expr(
 								c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 							}
 						}
-						set_owned(TmplValue{move(s)});
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "upper") {
 						auto s = value_to_string(*cur);
 						for (auto &c: s) {
 							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 						}
-						set_owned(TmplValue{move(s)});
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "lower") {
 						auto s = value_to_string(*cur);
 						for (auto &c: s) {
 							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 						}
-						set_owned(TmplValue{move(s)});
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "capitalize") {
 						set_owned(TmplValue{str_capitalize(value_to_string(*cur))});
 					} else if (key == "strftime") {
@@ -2342,28 +2343,28 @@ TmplValue Environment::Impl::eval_expr(
 							arr.push_back(TmplValue{s.substr(p, f - p)});
 							p = f + sep.size();
 						}
-						set_owned(move(arr));
+						set_owned(std::move(arr));
 					} else if (key == "keys" && cur->is_object()) {
 						TmplValue keys{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
 							keys.push_back(TmplValue{kv.first});
 						}
-						set_owned(move(keys));
+						set_owned(std::move(keys));
 					} else if (key == "values" && cur->is_object()) {
 						TmplValue vals{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
 							vals.push_back(kv.second);
 						}
-						set_owned(move(vals));
+						set_owned(std::move(vals));
 					} else if (key == "items" && cur->is_object()) {
 						TmplValue items{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
 							TmplValue P{TmplValue::Array{}};
 							P.push_back(TmplValue{kv.first});
 							P.push_back(kv.second);
-							items.push_back(move(P));
+							items.push_back(std::move(P));
 						}
-						set_owned(move(items));
+						set_owned(std::move(items));
 					}
 					continue;
 				}
@@ -2430,8 +2431,8 @@ TmplValue Environment::Impl::apply_filter(
 			auto s = std::string(val.as<std::string_view>());
 			try {
 				return TmplValue{static_cast<std::int64_t>(std::stoll(s))};
-			} catch (exception const &e) {
-				eprintln(format("template filter int: failed to parse '{}': {}", s, e.what()));
+			} catch (std::exception const &e) {
+				eprintln(std::format("template filter int: failed to parse '{}': {}", s, e.what()));
 				return TmplValue{std::int64_t{0}};
 			}
 		}
@@ -2442,14 +2443,14 @@ TmplValue Environment::Impl::apply_filter(
 		for (auto &c: s) {
 			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "lower") {
 		auto s = value_to_string(val);
 		for (auto &c: s) {
 			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "capitalize") {
 		return TmplValue{str_capitalize(value_to_string(val))};
@@ -2467,7 +2468,7 @@ TmplValue Environment::Impl::apply_filter(
 				next_upper = false;
 			}
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "replace") {
 		auto s = value_to_string(val);
@@ -2476,7 +2477,7 @@ TmplValue Environment::Impl::apply_filter(
 			auto new_s = value_to_string(eval_arg(1));
 			return TmplValue{str_replace_all(s, old_s, new_s)};
 		}
-		return TmplValue{move(s)};
+		return TmplValue{std::move(s)};
 	}
 	if (name == "default" || name == "d") {
 		if (!is_truthy(val) && !args.empty()) {
@@ -2498,7 +2499,7 @@ TmplValue Environment::Impl::apply_filter(
 				first = false;
 				result += value_to_string(item);
 			}
-			return TmplValue{move(result)};
+			return TmplValue{std::move(result)};
 		}
 		return val;
 	}
@@ -2526,7 +2527,7 @@ TmplValue Environment::Impl::apply_filter(
 		}
 		return {};
 	}
-	if (name == "min") {
+	if (name == "std::min") {
 		if (val.is_array()) {
 			auto const &arr = val.as_array();
 			if (arr.empty()) {
@@ -2603,7 +2604,7 @@ TmplValue Environment::Impl::apply_filter(
 			default  : result += c;
 			}
 		}
-		return TmplValue{move(result)};
+		return TmplValue{std::move(result)};
 	}
 	return val;
 }
@@ -2620,13 +2621,13 @@ std::string Environment::Impl::value_to_string(
 		return std::string(v.as<std::string_view>());
 	}
 	if (v.is_int()) {
-		return to_string(v.as<std::int64_t>());
+		return std::to_string(v.as<std::int64_t>());
 	}
 	if (v.is_uint()) {
-		return to_string(v.as<std::uint64_t>());
+		return std::to_string(v.as<std::uint64_t>());
 	}
 	if (v.is_float()) {
-		auto s = to_string(v.as<double>());
+		auto s = std::to_string(v.as<double>());
 		auto dot = s.find('.');
 		if (dot != std::string::npos) {
 			auto last = s.find_last_not_of('0');
@@ -2750,13 +2751,13 @@ std::string Environment::Impl::render_nodes(
 				} else if constexpr (std::is_same_v<T, IncludeNode>) {
 					auto it = cache.find(n.name);
 					if (it == cache.end()) {
-						throw std::runtime_error{format("template error: included template '{}' not found", n.name)};
+						throw std::runtime_error{std::format("template error: included template '{}' not found", n.name)};
 					}
 					out += render_template(it->second, context, blocks, depth + 1);
 				} else if constexpr (std::is_same_v<T, SetNode>) {
 					auto val = eval_expr(n.compiled, context);
 					if (context.is_object()) {
-						context.set(n.var, move(val));
+						context.set(n.var, std::move(val));
 					}
 				} else if constexpr (std::is_same_v<T, ForNode>) {
 					auto iter_val = eval_expr(n.compiled_iter, context);
@@ -2764,7 +2765,7 @@ std::string Environment::Impl::render_nodes(
 						auto saved = save_scope(context, n.vars);
 						auto const *prev_loop = obj_find(context, "loop");
 						std::optional<TmplValue> saved_loop =
-							prev_loop ? std::optional<TmplValue>{*prev_loop} : nullopt;
+							prev_loop ? std::optional<TmplValue>{*prev_loop} : std::nullopt;
 						auto const &arr = iter_val.as_array();
 						for (std::size_t i = 0; i < arr.size(); ++i) {
 							if (n.vars.size() == 1) {
@@ -2785,7 +2786,7 @@ std::string Environment::Impl::render_nodes(
 							loop_obj.set("first", TmplValue{i == 0});
 							loop_obj.set("last", TmplValue{i == arr.size() - 1});
 							loop_obj.set("length", TmplValue{static_cast<std::int64_t>(arr.size())});
-							context.set("loop", move(loop_obj));
+							context.set("loop", std::move(loop_obj));
 							out += render_nodes(n.body, context, blocks, macros, depth + 1);
 						}
 						restore_scope(context, saved);
@@ -2811,7 +2812,7 @@ std::string Environment::Impl::render_nodes(
 				} else if constexpr (std::is_same_v<T, FromImportNode>) {
 					auto it_tmpl = cache.find(n.file);
 					if (it_tmpl == cache.end()) {
-						throw std::runtime_error{format("template error: imported file '{}' not found", n.file)};
+						throw std::runtime_error{std::format("template error: imported file '{}' not found", n.file)};
 					}
 					bool found = false;
 					for (auto &sub: it_tmpl->second.nodes) {
@@ -2829,7 +2830,7 @@ std::string Environment::Impl::render_nodes(
 					}
 					if (!found) {
 						throw std::runtime_error{
-							format("template error: macro '{}' not found in '{}'", n.name, n.file)};
+							std::format("template error: macro '{}' not found in '{}'", n.name, n.file)};
 					}
 				}
 			},
@@ -2859,7 +2860,7 @@ std::string Environment::Impl::render_template(
 					if constexpr (std::is_same_v<T, SetNode>) {
 						auto val = eval_expr(n.compiled, context);
 						if (context.is_object()) {
-							context.set(n.var, move(val));
+							context.set(n.var, std::move(val));
 						}
 					}
 				},
@@ -2876,10 +2877,10 @@ std::string Environment::Impl::render_template(
 			}
 		}
 
-		return render_template(it->second, move(context), &merged, depth + 1);
+		return render_template(it->second, std::move(context), &merged, depth + 1);
 	}
 
-	return render_nodes(tmpl.nodes, move(context), child_blocks, nullptr, depth);
+	return render_nodes(tmpl.nodes, std::move(context), child_blocks, nullptr, depth);
 }
 // ---------------------------------------------------------------------------
 // Environment public interface
@@ -2901,10 +2902,10 @@ static void add_template_diag(
 		TemplateDiagnostic{
 			.severity = TemplateDiagnosticSeverity::error,
 			.phase = phase,
-			.location = move(location),
-			.stack = move(stack),
-			.code = move(code),
-			.message = move(message),
+			.location = std::move(location),
+			.stack = std::move(stack),
+			.code = std::move(code),
+			.message = std::move(message),
 		});
 }
 static bool node_list_has_top_level_macro(
@@ -2987,7 +2988,7 @@ void Environment::Impl::validate_links(
 								TemplateDiagnosticPhase::link,
 								template_location(owner),
 								"include_not_found",
-								format("include '{}' was not loaded", n.name),
+								std::format("include '{}' was not loaded", n.name),
 								{template_location(owner), template_location(n.name)});
 						}
 					} else if constexpr (std::is_same_v<T, FromImportNode>) {
@@ -2998,7 +2999,7 @@ void Environment::Impl::validate_links(
 								TemplateDiagnosticPhase::link,
 								template_location(owner),
 								"import_file_not_found",
-								format("import file '{}' was not loaded", n.file),
+								std::format("import file '{}' was not loaded", n.file),
 								{template_location(owner), template_location(n.file)});
 						} else if (!node_list_has_top_level_macro(it->second.nodes, n.name)) {
 							add_template_diag(
@@ -3006,7 +3007,7 @@ void Environment::Impl::validate_links(
 								TemplateDiagnosticPhase::link,
 								template_location(owner),
 								"import_macro_not_found",
-								format("macro '{}' was not found in '{}'", n.name, n.file),
+								std::format("macro '{}' was not found in '{}'", n.name, n.file),
 								{template_location(owner), template_location(n.file)});
 						}
 					} else if constexpr (std::is_same_v<T, BlockNode>) {
@@ -3031,7 +3032,7 @@ void Environment::Impl::validate_links(
 				TemplateDiagnosticPhase::link,
 				template_location(name),
 				"extends_not_found",
-				format("parent template '{}' was not loaded", tmpl.extends_name),
+				std::format("parent template '{}' was not loaded", tmpl.extends_name),
 				{template_location(name), template_location(tmpl.extends_name)});
 		}
 		validate_nodes(name, tmpl.nodes);
@@ -3059,8 +3060,8 @@ void Environment::Impl::validate_links(
 					TemplateDiagnosticPhase::link,
 					template_location(name),
 					"dependency_cycle",
-					format("template dependency cycle reaches '{}'", name),
-					move(diag_stack));
+					std::format("template dependency cycle reaches '{}'", name),
+					std::move(diag_stack));
 			}
 			return;
 		}
@@ -3081,7 +3082,7 @@ void Environment::Impl::validate_links(
 		dfs(name);
 	}
 }
-expected<std::unordered_map<std::string, Template>, TemplateBuildReport>
+std::expected<std::unordered_map<std::string, Template>, TemplateBuildReport>
 Environment::Impl::build_cache_from_directory() const {
 	TemplateBuildReport report;
 	std::unordered_map<std::string, Template> parsed;
@@ -3093,8 +3094,8 @@ Environment::Impl::build_cache_from_directory() const {
 			TemplateDiagnosticPhase::io,
 			template_location(std::string{}, dir.string()),
 			"directory_not_found",
-			format("template directory '{}' does not exist", dir.string()));
-		return unexpected{move(report)};
+			std::format("template directory '{}' does not exist", dir.string()));
+		return std::unexpected{std::move(report)};
 	}
 	if (!std::filesystem::is_directory(dir, ec)) {
 		add_template_diag(
@@ -3102,8 +3103,8 @@ Environment::Impl::build_cache_from_directory() const {
 			TemplateDiagnosticPhase::io,
 			template_location(std::string{}, dir.string()),
 			"not_directory",
-			format("template path '{}' is not a directory", dir.string()));
-		return unexpected{move(report)};
+			std::format("template path '{}' is not a directory", dir.string()));
+		return std::unexpected{std::move(report)};
 	}
 	std::vector<std::filesystem::path> files;
 	try {
@@ -3116,14 +3117,14 @@ Environment::Impl::build_cache_from_directory() const {
 			}
 			files.push_back(entry.path());
 		}
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		add_template_diag(
 			report,
 			TemplateDiagnosticPhase::io,
 			template_location(std::string{}, dir.string()),
 			"directory_scan_failed",
-			format("failed to scan template directory '{}': {}", dir.string(), e.what()));
-		return unexpected{move(report)};
+			std::format("failed to scan template directory '{}': {}", dir.string(), e.what()));
+		return std::unexpected{std::move(report)};
 	}
 	std::sort(files.begin(), files.end(), [](std::filesystem::path const &a, std::filesystem::path const &b) {
 		return a.string() < b.string();
@@ -3138,38 +3139,38 @@ Environment::Impl::build_cache_from_directory() const {
 				TemplateDiagnosticPhase::io,
 				template_location(name, path.string()),
 				"read_failed",
-				format("failed to read template '{}': {}", path.string(), contents.error().what()));
+				std::format("failed to read template '{}': {}", path.string(), contents.error().what()));
 			continue;
 		}
 		try {
 			parsed[name] = parse(name, *contents);
 			++report.templates_compiled;
-		} catch (exception const &e) {
+		} catch (std::exception const &e) {
 			add_template_diag(
 				report,
 				TemplateDiagnosticPhase::parse,
 				template_location(name, path.string()),
 				"parse_failed",
-				format("failed to parse template '{}': {}", name, e.what()));
+				std::format("failed to parse template '{}': {}", name, e.what()));
 		}
 	}
 	if (!report.ok()) {
-		return unexpected{move(report)};
+		return std::unexpected{std::move(report)};
 	}
 	validate_links(parsed, report);
 	if (!report.ok()) {
-		return unexpected{move(report)};
+		return std::unexpected{std::move(report)};
 	}
 	return parsed;
 }
-expected<void, TemplateBuildReport> Environment::Impl::reload_all_checked() {
+std::expected<void, TemplateBuildReport> Environment::Impl::reload_all_checked() {
 	auto candidate = build_cache_from_directory();
 	if (!candidate) {
-		return unexpected{move(candidate.error())};
+		return std::unexpected{std::move(candidate.error())};
 	}
 	{
 		std::unique_lock const lk{cache_mtx};
-		cache = move(*candidate);
+		cache = std::move(*candidate);
 	}
 	return {};
 }
@@ -3191,15 +3192,15 @@ void Environment::Impl::remove_path(
 }
 Environment::Environment(
 	std::string const &template_dir)
-	: impl_(make_unique<Impl>()) {
+	: impl_(std::make_unique<Impl>()) {
 	impl_->template_dir = template_dir;
 }
 Environment::Environment(
 	std::string const &template_dir,
 	EnvironmentOptions options)
-	: impl_(make_unique<Impl>()) {
+	: impl_(std::make_unique<Impl>()) {
 	impl_->template_dir = template_dir;
-	impl_->options = move(options);
+	impl_->options = std::move(options);
 }
 Environment::~Environment() = default;
 Environment::Environment(Environment &&) noexcept = default;
@@ -3210,19 +3211,19 @@ void Environment::load_all() {
 void Environment::blocking_load_all() {
 	auto res = blocking_load_all_checked();
 	if (!res) {
-		throw TemplateBuildError{move(res.error())};
+		throw TemplateBuildError{std::move(res.error())};
 	}
 }
 void Environment::blocking_reload_all() {
 	auto res = blocking_reload_all_checked();
 	if (!res) {
-		throw TemplateBuildError{move(res.error())};
+		throw TemplateBuildError{std::move(res.error())};
 	}
 }
-expected<void, TemplateBuildReport> Environment::blocking_load_all_checked() {
+std::expected<void, TemplateBuildReport> Environment::blocking_load_all_checked() {
 	return impl_->reload_all_checked();
 }
-expected<void, TemplateBuildReport> Environment::blocking_reload_all_checked() {
+std::expected<void, TemplateBuildReport> Environment::blocking_reload_all_checked() {
 	return impl_->reload_all_checked();
 }
 std::string Environment::render(

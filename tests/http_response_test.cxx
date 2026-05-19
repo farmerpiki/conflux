@@ -188,7 +188,7 @@ TEST_CASE(
 		CHECK(resp.status_text == "No Content");
 	}
 	{
-		auto ch = make_shared<SseChannel>();
+		auto ch = std::make_shared<SseChannel>();
 		auto resp = HttpResponse::sse(ch);
 		CHECK(resp.status == kHttpOk);
 		CHECK(resp.content_type == "text/event-stream");
@@ -196,7 +196,7 @@ TEST_CASE(
 		CHECK(resp.sse_channel_ptr() == ch);
 	}
 	{
-		auto deferred = make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
+		auto deferred = std::make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
 		auto resp = HttpResponse::deferred(deferred);
 		CHECK(resp.is_deferred());
 		CHECK(resp.deferred_response_ptr() == deferred);
@@ -210,7 +210,7 @@ TEST_CASE(
 	CHECK(resp.is_text());
 	CHECK(resp.text_body().empty());
 
-	auto sse = make_shared<SseChannel>();
+	auto sse = std::make_shared<SseChannel>();
 	resp.set_sse_channel(sse);
 	CHECK(resp.is_sse());
 	CHECK_FALSE(resp.is_text());
@@ -219,7 +219,7 @@ TEST_CASE(
 	CHECK(resp.take_sse_channel() == sse);
 	CHECK_FALSE(resp.sse_channel_ptr());
 
-	auto ws = make_shared<WsUpgrade>();
+	auto ws = std::make_shared<WsUpgrade>();
 	ws->accept_key = "accept";
 	resp.set_ws_upgrade(ws);
 	CHECK(resp.is_ws_upgrade());
@@ -227,7 +227,7 @@ TEST_CASE(
 	CHECK(resp.take_ws_upgrade() == ws);
 	CHECK_FALSE(resp.ws_upgrade_ptr());
 
-	auto mapped = make_shared<MappedBody>();
+	auto mapped = std::make_shared<MappedBody>();
 	mapped->offset = 3;
 	mapped->size = 42;
 	resp.set_mapped_file(mapped);
@@ -237,7 +237,7 @@ TEST_CASE(
 	CHECK(resp.take_mapped_file() == mapped);
 	CHECK_FALSE(resp.mapped_file_ptr());
 
-	auto streamed = make_shared<StreamedFile>();
+	auto streamed = std::make_shared<StreamedFile>();
 	streamed->send_offset = 5;
 	streamed->send_size = 77;
 	streamed->total_size = 100;
@@ -248,7 +248,7 @@ TEST_CASE(
 	CHECK(resp.take_streamed_file() == streamed);
 	CHECK_FALSE(resp.streamed_file_ptr());
 
-	auto deferred = make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
+	auto deferred = std::make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
 	resp.set_deferred_response(deferred);
 	CHECK(resp.is_deferred());
 	CHECK(resp.deferred_response_ptr() == deferred);

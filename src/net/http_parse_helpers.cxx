@@ -243,7 +243,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 				if (st.pos >= raw.size()) {
 					return 0;
 				}
-				auto const available = min(st.remaining, raw.size() - st.pos);
+				auto const available = std::min(st.remaining, raw.size() - st.pos);
 				if (available > 0) {
 					st.body.append(raw.data() + st.pos, available);
 					st.pos += available;

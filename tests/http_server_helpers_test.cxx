@@ -51,7 +51,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: format_response emits WebSocket upgrade handshake",
 	"[http_server_helpers]") {
-	auto up = make_shared<WsUpgrade>();
+	auto up = std::make_shared<WsUpgrade>();
 	up->accept_key = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
 
 	HttpResponse resp;

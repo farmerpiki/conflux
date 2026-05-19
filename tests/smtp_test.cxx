@@ -87,7 +87,7 @@ TEST_CASE(
 	std::string received_from;
 	std::string received_rcpt;
 
-	auto srv = thread([&] {
+	auto srv = std::thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
 		REQUIRE(c >= 0);
 		send_all(c, "220 dummy ESMTP\r\n");
@@ -160,7 +160,7 @@ TEST_CASE(
 	std::string got_user;
 	std::string got_pass;
 
-	auto srv = thread([&] {
+	auto srv = std::thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
 		REQUIRE(c >= 0);
 		send_all(c, "220 dummy\r\n");
@@ -201,7 +201,7 @@ TEST_CASE(
 	std::uint16_t port = 0;
 	int const listen_fd = make_listener(port);
 
-	auto srv = thread([&] {
+	auto srv = std::thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
 		REQUIRE(c >= 0);
 		send_all(c, "220 dummy\r\n");
@@ -236,7 +236,7 @@ TEST_CASE(
 
 	bool starttls_received = false;
 
-	auto srv = thread([&] {
+	auto srv = std::thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
 		if (c < 0) {
 			return;
@@ -261,7 +261,7 @@ TEST_CASE(
 	REQUIRE(eh.has_value());
 	REQUIRE(eh->code == 250);
 
-	SmtpClient moved = move(cli);
+	SmtpClient moved = std::move(cli);
 	// Return value is false because TLS handshake to a plain socket fails;
 	// what matters is whether the STARTTLS command was sent (i.e. ehlo_caps_ survived the move).
 	(void)moved.starttls("localhost", false);

@@ -54,7 +54,7 @@ import conflux.net.tls;
 import :state;
 
 #if CONFLUX_HTTP_TRACE
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -79,11 +79,11 @@ bool Ring::tls_feed_rbio(
 		if (rbio == nullptr) {
 			return false;
 		}
-		std::string in = move(conn.tls_rx_cipher);
+		std::string in = std::move(conn.tls_rx_cipher);
 		conn.tls_rx_cipher.clear();
 		std::size_t off{};
 		while (off < in.size()) {
-			auto const want = static_cast<int>(min<std::size_t>(in.size() - off, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+			auto const want = static_cast<int>(std::min<std::size_t>(in.size() - off, static_cast<std::size_t>(std::numeric_limits<int>::max())));
 			int const written = BIO_write(rbio, in.data() + off, want);
 			if (written <= 0) {
 				conn.tls_rx_cipher.append(in.data() + off, in.size() - off);
@@ -102,7 +102,7 @@ void Ring::tls_queue_send(
 		}
 
 		if (conn.tls_send_inflight.empty()) {
-			conn.tls_send_inflight = move(conn.tls_send_pending);
+			conn.tls_send_inflight = std::move(conn.tls_send_pending);
 			conn.tls_send_pending.clear();
 			conn.tls_send_off = 0;
 		}
@@ -111,7 +111,7 @@ void Ring::tls_queue_send(
 			return;
 		}
 
-		auto const view = span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
+		auto const view = std::span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
 		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(conn.fd)) :
 												SocketHandle::from_os(conn.fd);
 		auto const fd = conn.fd;

@@ -244,9 +244,9 @@ public:
 			if (built.error() == EINVAL && mode_ == BufferRingMode::incremental) {
 				throw std::runtime_error{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IOU_PBUF_RING_INC)"};
 			}
-			throw std::runtime_error{format("io_uring_setup_buf_ring failed: {}", built.error())};
+			throw std::runtime_error{std::format("io_uring_setup_buf_ring failed: {}", built.error())};
 		}
-		ring_ = move(*built);
+		ring_ = std::move(*built);
 		for (std::uint32_t i = 0; i < count_; ++i) {
 			ring_.add(
 				raw + i * buf_size_,
@@ -292,12 +292,12 @@ public:
 		if (id >= count_) {
 			return {};
 		}
-		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, min(len, buf_size_)};
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, std::min(len, buf_size_)};
 	}
 	[[nodiscard]] std::span<std::byte const> buffer_view_unchecked(
 		std::uint16_t id,
 		std::size_t len) const noexcept {
-		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, min(len, buf_size_)};
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, std::min(len, buf_size_)};
 	}
 	[[nodiscard]] std::span<std::byte const> buffer_view(
 		std::uint16_t id,
@@ -661,20 +661,20 @@ public:
 	RecvBuffer &operator =(RecvBuffer const &) = delete;
 	RecvBuffer(
 		RecvBuffer &&o) noexcept
-		: ring_{exchange(o.ring_, nullptr)}
+		: ring_{std::exchange(o.ring_, nullptr)}
 		, id_{o.id_}
 		, len_{o.len_}
-		, armed_{exchange(o.armed_, false)} {}
+		, armed_{std::exchange(o.armed_, false)} {}
 	RecvBuffer &operator =(
 		RecvBuffer &&o) noexcept {
 		if (this != &o) {
 			if ((ring_ != nullptr) && armed_) {
 				ring_->recycle(id_);
 			}
-			ring_ = exchange(o.ring_, nullptr);
+			ring_ = std::exchange(o.ring_, nullptr);
 			id_ = o.id_;
 			len_ = o.len_;
-			armed_ = exchange(o.armed_, false);
+			armed_ = std::exchange(o.armed_, false);
 		}
 		return *this;
 	}
@@ -731,7 +731,7 @@ public:
 	RecvSlices &operator =(RecvSlices const &) = delete;
 	RecvSlices(
 		RecvSlices &&o) noexcept
-		: ring_{exchange(o.ring_, nullptr)}
+		: ring_{std::exchange(o.ring_, nullptr)}
 		, start_pos_{o.start_pos_}
 		, count_{o.count_}
 		, total_{o.total_}
@@ -739,7 +739,7 @@ public:
 	RecvSlices &operator =(
 		RecvSlices &&o) noexcept {
 		if (this != &o) {
-			ring_ = exchange(o.ring_, nullptr);
+			ring_ = std::exchange(o.ring_, nullptr);
 			start_pos_ = o.start_pos_;
 			count_ = o.count_;
 			total_ = o.total_;
@@ -811,7 +811,7 @@ public:
 	IncrementalRecvSlice &operator =(IncrementalRecvSlice const &) = delete;
 	IncrementalRecvSlice(
 		IncrementalRecvSlice &&o) noexcept
-		: ring_{exchange(o.ring_, nullptr)}
+		: ring_{std::exchange(o.ring_, nullptr)}
 		, id_{o.id_}
 		, offset_{o.offset_}
 		, len_{o.len_}
@@ -822,7 +822,7 @@ public:
 		IncrementalRecvSlice &&o) noexcept {
 		if (this != &o) {
 			recycle_if_final();
-			ring_ = exchange(o.ring_, nullptr);
+			ring_ = std::exchange(o.ring_, nullptr);
 			id_ = o.id_;
 			offset_ = o.offset_;
 			len_ = o.len_;
@@ -878,7 +878,7 @@ public:
 		RecvPayload payload;
 		payload.variant_ = Variant::slices;
 		payload.descriptor_ = descriptor;
-		payload.slices_ = move(slices);
+		payload.slices_ = std::move(slices);
 		return payload;
 	}
 	static RecvPayload from_incremental(
@@ -887,25 +887,25 @@ public:
 		RecvPayload payload;
 		payload.variant_ = Variant::incremental;
 		payload.descriptor_ = descriptor;
-		payload.incremental_ = move(slice);
+		payload.incremental_ = std::move(slice);
 		return payload;
 	}
 	RecvPayload(RecvPayload const &) = delete;
 	RecvPayload &operator =(RecvPayload const &) = delete;
 	RecvPayload(
 		RecvPayload &&o) noexcept
-		: variant_{exchange(o.variant_, Variant::none)}
+		: variant_{std::exchange(o.variant_, Variant::none)}
 		, descriptor_{o.descriptor_}
-		, slices_{move(o.slices_)}
-		, incremental_{move(o.incremental_)} {}
+		, slices_{std::move(o.slices_)}
+		, incremental_{std::move(o.incremental_)} {}
 	RecvPayload &operator =(
 		RecvPayload &&o) noexcept {
 		if (this != &o) {
 			recycle_all();
-			variant_ = exchange(o.variant_, Variant::none);
+			variant_ = std::exchange(o.variant_, Variant::none);
 			descriptor_ = o.descriptor_;
-			slices_ = move(o.slices_);
-			incremental_ = move(o.incremental_);
+			slices_ = std::move(o.slices_);
+			incremental_ = std::move(o.incremental_);
 		}
 		return *this;
 	}
@@ -1080,7 +1080,7 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 		assert(false && "CQE buffer id/range is not present in the userspace buffer-ring window");
 		return {};
 	}
-	return move(*slices);
+	return std::move(*slices);
 }
 export [[nodiscard]] std::expected<RecvPayload, RecvDecodeError> try_recv_payload_from_cqe(
 	BufferRing &ring,
@@ -1093,13 +1093,13 @@ export [[nodiscard]] std::expected<RecvPayload, RecvDecodeError> try_recv_payloa
 		if (!slice) [[unlikely]] {
 			return std::unexpected(slice.error());
 		}
-		return RecvPayload::from_incremental(descriptor, move(*slice));
+		return RecvPayload::from_incremental(descriptor, std::move(*slice));
 	}
 	auto slices = try_buffer_slices_from_cqe(ring, res, flags, bundle);
 	if (!slices) [[unlikely]] {
 		return std::unexpected(slices.error());
 	}
-	return RecvPayload::from_slices(descriptor, move(*slices));
+	return RecvPayload::from_slices(descriptor, std::move(*slices));
 }
 export [[nodiscard]] RecvPayload recv_payload_from_cqe(
 	BufferRing &ring,
@@ -1111,7 +1111,7 @@ export [[nodiscard]] RecvPayload recv_payload_from_cqe(
 		assert(false && "CQE recv payload is not present in the userspace ownership window");
 		return {};
 	}
-	return move(*payload);
+	return std::move(*payload);
 }
 // ─── DirectFdTable ───────────────────────────────────────────────────────────
 // Registers a sparse fixed-file table with io_uring.
@@ -1988,13 +1988,13 @@ public:
 		int const domain = is_v6 ? AF_INET6 : AF_INET;
 		int const raw = ::socket(domain, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
 		if (raw < 0) {
-			throw std::system_error(errno, system_category(), "socket");
+			throw std::system_error(errno, std::system_category(), "socket");
 		}
 		FdGuard guard{raw};
 		int const on = 1;
 		if (opts.reuse_addr) {
 			if (::setsockopt(raw, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
-				throw std::system_error(errno, system_category(), "SO_REUSEADDR");
+				throw std::system_error(errno, std::system_category(), "SO_REUSEADDR");
 			}
 		}
 		if (opts.reuse_port) {
@@ -2026,17 +2026,17 @@ public:
 			}
 		}
 		if (::listen(raw, opts.backlog) < 0) {
-			throw std::system_error(errno, system_category(), "listen");
+			throw std::system_error(errno, std::system_category(), "listen");
 		}
 		sockaddr_storage ss{};
 		socklen_t sslen = sizeof(ss);
 		if (::getsockname(raw, reinterpret_cast<sockaddr *>(&ss), &sslen) < 0) {
-			throw std::system_error(errno, system_category(), "getsockname");
+			throw std::system_error(errno, std::system_category(), "getsockname");
 		}
 		port_ = (ss.ss_family == AF_INET6) ? ntohs(reinterpret_cast<sockaddr_in6 const *>(&ss)->sin6_port) :
 											 ntohs(reinterpret_cast<sockaddr_in const *>(&ss)->sin_port);
 		accept_flags_ = opts.accept_flags;
-		fd_ = exchange(guard.fd, -1);
+		fd_ = std::exchange(guard.fd, -1);
 	}
 	~TcpListener() noexcept {
 		if (fd_ >= 0) {
@@ -2047,8 +2047,8 @@ public:
 	TcpListener &operator =(TcpListener const &) = delete;
 	TcpListener(
 		TcpListener &&o) noexcept
-		: fd_{exchange(o.fd_, -1)}
-		, port_{exchange(o.port_, std::uint16_t{})}
+		: fd_{std::exchange(o.fd_, -1)}
+		, port_{std::exchange(o.port_, std::uint16_t{})}
 		, accept_flags_{o.accept_flags_} {}
 	TcpListener &operator =(
 		TcpListener &&o) noexcept {
@@ -2056,8 +2056,8 @@ public:
 			if (fd_ >= 0) {
 				::close(fd_);
 			}
-			fd_ = exchange(o.fd_, -1);
-			port_ = exchange(o.port_, std::uint16_t{});
+			fd_ = std::exchange(o.fd_, -1);
+			port_ = std::exchange(o.port_, std::uint16_t{});
 			accept_flags_ = o.accept_flags_;
 		}
 		return *this;
@@ -2149,10 +2149,10 @@ export using RingOpFn = std::function<void(SocketTaskRing &)>;
 export struct SocketTaskRingOptions {
 	SocketFdMode fd_mode{SocketFdMode::os_fd}; // P1 safe default; direct_* is explicit opt-in until P1-04
 	conflux::uring::IoUringCaps const *caps{};
-	// Must enqueue fn on ring-owner thread and return true, or return false.
-	// Must NOT invoke fn inline from an arbitrary cancelling thread.
+	// Must enqueue fn on ring-owner std::thread and return true, or return false.
+	// Must NOT std::invoke fn inline from an arbitrary cancelling std::thread.
 	// If null: ring is treated as single-threaded; submit_on_owner asserts caller==owner
-	// and calls fn inline. Cross-thread cancel callers MUST provide submit_on_ring_owner.
+	// and calls fn inline. Cross-std::thread cancel callers MUST provide submit_on_ring_owner.
 	std::function<bool(RingOpFn)> submit_on_ring_owner{};
 };
 export class SocketTaskRing {
@@ -2160,7 +2160,7 @@ export class SocketTaskRing {
 	CompletionTable *completions_{};
 	UserDataFn encode_ud_{};
 	SocketTaskRingOptions opts_{};
-	thread::id owner_thread_{std::this_thread::get_id()};
+	std::thread::id owner_thread_{std::this_thread::get_id()};
 
 public:
 	SocketTaskRing(
@@ -2187,7 +2187,7 @@ public:
 	[[nodiscard]] bool submit_on_owner(
 		RingOpFn fn) {
 		if (opts_.submit_on_ring_owner) {
-			return opts_.submit_on_ring_owner(move(fn));
+			return opts_.submit_on_ring_owner(std::move(fn));
 		}
 		assert(std::this_thread::get_id() == owner_thread_);
 		fn(*this);

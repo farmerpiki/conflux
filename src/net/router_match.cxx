@@ -81,7 +81,7 @@ export bool match_segments(
 		}
 		// Capture the remainder (may be empty for trailing slash).
 		add_path_param(tmp, pattern.back().value, path.substr(pos));
-		out_params = move(tmp);
+		out_params = std::move(tmp);
 		return true;
 	}
 
@@ -109,7 +109,7 @@ export bool match_segments(
 	if (i != pattern.size()) {
 		return false;
 	}
-	out_params = move(tmp);
+	out_params = std::move(tmp);
 	return true;
 }
 

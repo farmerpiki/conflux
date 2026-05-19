@@ -11,13 +11,13 @@ import conflux.types;
 // JsonPath::from_pointer (after JsonError definition)
 // ---------------------------------------------------------------------------
 
-expected<JsonPath, JsonError> JsonPath::from_pointer(
+std::expected<JsonPath, JsonError> JsonPath::from_pointer(
 	std::string_view sv) {
 	if (sv.empty()) {
 		return JsonPath{};
 	}
 	if (sv[0] != '/') {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::invalid_pointer,
@@ -35,7 +35,7 @@ expected<JsonPath, JsonError> JsonPath::from_pointer(
 		for (std::size_t i = pos; i < slash; ++i) {
 			if (sv[i] == '~') {
 				if (i + 1 >= slash) {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::parse,
 							.code = JsonIssueCode::invalid_pointer,
@@ -47,7 +47,7 @@ expected<JsonPath, JsonError> JsonPath::from_pointer(
 				} else if (sv[i] == '1') {
 					name += '/';
 				} else {
-					return unexpected(
+					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::parse,
 							.code = JsonIssueCode::invalid_pointer,
@@ -66,27 +66,27 @@ expected<JsonPath, JsonError> JsonPath::from_pointer(
 // Implement NodeRef methods that need ObjectView/ArrayView
 // ---------------------------------------------------------------------------
 
-expected<ObjectView, JsonError> NodeRef::as_object() const {
+std::expected<ObjectView, JsonError> NodeRef::as_object() const {
 	if (rec().kind != NodeKind::object) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::wrong_kind,
 				.expected_kind = JsonKind::object,
 				.actual_kind = kind(),
-				.message = "expected object"});
+				.message = "std::expected object"});
 	}
 	return ObjectView{storage_, rec().off, rec().len, idx_};
 }
-expected<ArrayView, JsonError> NodeRef::as_array() const {
+std::expected<ArrayView, JsonError> NodeRef::as_array() const {
 	if (rec().kind != NodeKind::array_) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::wrong_kind,
 				.expected_kind = JsonKind::array,
 				.actual_kind = kind(),
-				.message = "expected array"});
+				.message = "std::expected array"});
 	}
 	return ArrayView{storage_, rec().off, rec().len};
 }
@@ -99,15 +99,15 @@ void push_seg(
 		p.push_index(get<JsonPathIndex>(s).index);
 	}
 }
-expected<NodeRef, JsonError> NodeRef::at_pointer(
+std::expected<NodeRef, JsonError> NodeRef::at_pointer(
 	std::string_view pointer) const {
 	auto path = JsonPath::from_pointer(pointer);
 	if (!path) {
-		return unexpected(move(path).error());
+		return std::unexpected(std::move(path).error());
 	}
 	return at(*path);
 }
-expected<NodeRef, JsonError> NodeRef::at(
+std::expected<NodeRef, JsonError> NodeRef::at(
 	JsonPath const &path) const {
 	NodeRef cur = *this;
 	for (std::size_t i = 0; i < path.size(); ++i) {
@@ -117,7 +117,7 @@ expected<NodeRef, JsonError> NodeRef::at(
 			for (std::size_t j = 0; j <= i; ++j) {
 				push_seg(err.path, path.segment(j));
 			}
-			return unexpected(move(err));
+			return std::unexpected(std::move(err));
 		};
 		if (holds_alternative<JsonPathMember>(seg)) {
 			auto const &name = get<JsonPathMember>(seg).name;
@@ -141,32 +141,32 @@ expected<NodeRef, JsonError> NodeRef::at(
 				}
 				auto arr = cur.as_array();
 				if (!arr) {
-					return set_path(move(arr).error());
+					return set_path(std::move(arr).error());
 				}
 				auto child = arr->element(idx);
 				if (!child) {
-					return set_path(move(child).error());
+					return set_path(std::move(child).error());
 				}
 				cur = *child;
 			} else {
 				auto obj = cur.as_object();
 				if (!obj) {
-					return set_path(move(obj).error());
+					return set_path(std::move(obj).error());
 				}
 				auto child = obj->member(name);
 				if (!child) {
-					return set_path(move(child).error());
+					return set_path(std::move(child).error());
 				}
 				cur = *child;
 			}
 		} else {
 			auto arr = cur.as_array();
 			if (!arr) {
-				return set_path(move(arr).error());
+				return set_path(std::move(arr).error());
 			}
 			auto child = arr->element(get<JsonPathIndex>(seg).index);
 			if (!child) {
-				return set_path(move(child).error());
+				return set_path(std::move(child).error());
 			}
 			cur = *child;
 		}
@@ -184,12 +184,12 @@ ArrayElementRange ArrayView::elements() const noexcept {
 // Document / arena cold lookup helpers
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] expected<void, JsonError> warm_member_index_impl(
+[[nodiscard]] std::expected<void, JsonError> warm_member_index_impl(
 	DocumentStorage *storage,
 	NodeRef node) {
 	auto obj_or = node.as_object();
 	if (!obj_or) {
-		return unexpected(move(obj_or).error());
+		return std::unexpected(std::move(obj_or).error());
 	}
 	auto const &ov = *obj_or;
 	if (ov.mem_count_ < kHashThreshold) {
@@ -198,17 +198,17 @@ ArrayElementRange ArrayView::elements() const noexcept {
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 	auto &slot = storage->nodes[ov.node_idx_].hash_idx_raw;
 	auto ref = std::atomic_ref<ObjHashTable *>{slot};
-	auto *prior = ref.load(memory_order_acquire);
+	auto *prior = ref.load(std::memory_order_acquire);
 	if (prior != nullptr && prior != kHashBuildFailedSentinel) {
 		return {}; // already built
 	}
 	if (prior == kHashBuildFailedSentinel) {
 		// Cached prior failure — surface the same error.
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::resource_exhausted,
-				.message = "object hash index unavailable (cached failure)"});
+				.message = "object std::hash index unavailable (cached failure)"});
 	}
 	ObjHashTable *owned = nullptr;
 	auto stash_failure_sentinel = [&] {
@@ -216,66 +216,66 @@ ArrayElementRange ArrayView::elements() const noexcept {
 		auto _ = ref.compare_exchange_strong(
 			expected_null,
 			kHashBuildFailedSentinel,
-			memory_order_release,
-			memory_order_acquire);
+			std::memory_order_release,
+			std::memory_order_acquire);
 	};
 	try {
 		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(ov.mem_count_));
 		if (cap == 0) {
 			stash_failure_sentinel();
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::resource_exhausted,
-					.message = "object exceeds hash-index byte budget"});
+					.message = "object exceeds std::hash-index std::byte budget"});
 		}
 		owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(ov.mem_count_), storage->hash_mr_);
 		if (owned == nullptr) {
 			stash_failure_sentinel();
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::resource_exhausted,
-					.message = "OOM building object hash index"});
+					.message = "OOM building object std::hash index"});
 		}
 		if (!detail::build_table(*owned, storage, ov.mem_start_, ov.mem_count_)) {
 			ObjHashTable::destroy(owned);
 			stash_failure_sentinel();
-			return unexpected(
+			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::resource_exhausted,
-					.message = "object hash build exceeded probe-chain cap"});
+					.message = "object std::hash build exceeded probe-chain cap"});
 		}
 		ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-		if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
-			ObjHashTable::destroy(owned); // lost race — other thread published first
+		if (!ref.compare_exchange_strong(expected_null, owned, std::memory_order_release, std::memory_order_acquire)) {
+			ObjHashTable::destroy(owned); // lost race — other std::thread published first
 		}
 		return {};
 	} catch (std::bad_alloc const &) {
 		ObjHashTable::destroy(owned);
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::resource_exhausted,
-				.message = "OOM building object hash index"});
+				.message = "OOM building object std::hash index"});
 	} catch (...) {
 		ObjHashTable::destroy(owned);
-		assert(false && "warm_member_index: unexpected exception from no-user-code build path");
-		return unexpected(
+		assert(false && "warm_member_index: std::unexpected std::exception from no-user-code build path");
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "unexpected exception building object hash index"});
+				.message = "std::unexpected std::exception building object std::hash index"});
 	}
 }
 
-expected<void, JsonError> Document::warm_member_index(
+std::expected<void, JsonError> Document::warm_member_index(
 	NodeRef node) const {
 	return warm_member_index_impl(storage_.get(), node);
 }
 
-expected<void, JsonError> Document::warm_member_indices(
+std::expected<void, JsonError> Document::warm_member_indices(
 	WarmIndexOptions const &opts) const {
 	std::size_t objects_warmed = 0;
 	std::size_t bytes_allocated = 0;
@@ -288,7 +288,7 @@ expected<void, JsonError> Document::warm_member_indices(
 		if (mem_count < kHashThreshold) {
 			continue;
 		}
-		if (std::atomic_ref<ObjHashTable *>{n.hash_idx_raw}.load(memory_order_acquire) != nullptr) {
+		if (std::atomic_ref<ObjHashTable *>{n.hash_idx_raw}.load(std::memory_order_acquire) != nullptr) {
 			continue; // already indexed or failed
 		}
 		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count));
@@ -313,13 +313,13 @@ expected<void, JsonError> Document::warm_member_indices(
 
 Document make_document(
 	std::unique_ptr<DocumentStorage> s) noexcept {
-	return Document{move(s)};
+	return Document{std::move(s)};
 }
 
-expected<void, JsonError> ArenaDocument::warm_member_index(
+std::expected<void, JsonError> ArenaDocument::warm_member_index(
 	NodeRef node) const {
 	check_live();
-	// Arena documents own their storage; this forwards to the same hash-index
+	// Arena documents own their storage; this forwards to the same std::hash-index
 	// builder used by Document without transferring ownership.
 	return warm_member_index_impl(const_cast<DocumentStorage *>(storage_), node);
 }

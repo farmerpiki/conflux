@@ -20,7 +20,7 @@ struct TestRig {
 		: ring{[] {
 			auto r = Ring::init(16, {});
 			REQUIRE(r);
-			return move(*r);
+			return std::move(*r);
 		}()}
 		, rt{ring,
 			 [&] {
@@ -197,7 +197,7 @@ TEST_CASE(
 	Ring ring{[] {
 		auto r = Ring::init(8, {});
 		REQUIRE(r);
-		return move(*r);
+		return std::move(*r);
 	}()};
 	REQUIRE(ring.register_files_sparse(4) == 0);
 	auto caps = detect_caps(ring.ref());

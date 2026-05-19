@@ -35,7 +35,7 @@ struct TestRig {
 		: ring{[sq_size] {
 			auto r = Ring::init(sq_size, {});
 			REQUIRE(r);
-			return move(*r);
+			return std::move(*r);
 		}()}
 		, rt{ring, detect_caps(ring.ref()), [&](uf::FlowResult fr) noexcept {
 				 results.push_back(fr);
@@ -217,8 +217,8 @@ TEST_CASE(
 	auto const &r = rig.results[0];
 	CHECK_FALSE(r.open_ok());
 	CHECK_FALSE(r.close_needed);
-	CHECK(r.cleanup_result() == nullopt);
-	CHECK(r.raw_close_result() == nullopt);
+	CHECK(r.cleanup_result() == std::nullopt);
+	CHECK(r.raw_close_result() == std::nullopt);
 }
 // ── Mode A: close CQE arrives after chain complete ───────────────────────────
 
@@ -257,7 +257,7 @@ TEST_CASE(
 // ── Mode B ────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-	"flow.mode_b: open fails → all -ECANCELED, cleanup_result nullopt",
+	"flow.mode_b: open fails → all -ECANCELED, cleanup_result std::nullopt",
 	"[flow][mode_b]") {
 	TestRig rig;
 	char buf[4] = {};
@@ -290,7 +290,7 @@ TEST_CASE(
 	CHECK_FALSE(r.close_needed);
 	CHECK(r.close_in_chain);
 	CHECK(r.close_cqe_seen);
-	CHECK(r.cleanup_result() == nullopt); // normalized: open failed
+	CHECK(r.cleanup_result() == std::nullopt); // normalized: open failed
 	CHECK(r.raw_close_result() == -ECANCELED); // debug visibility
 	CHECK(r.ops[1].res == -ECANCELED);
 	CHECK(r.ops[2].res == -ECANCELED);
@@ -778,7 +778,7 @@ TEST_CASE(
 // ── Explicit no-close ownership ───────────────────────────────────────────────
 
 TEST_CASE(
-	"flow.no_close: open succeeds, no close_if_opened → cleanup nullopt",
+	"flow.no_close: open succeeds, no close_if_opened → cleanup std::nullopt",
 	"[flow][no_close]") {
 	TestRig rig;
 	char buf[4] = {};
@@ -799,11 +799,11 @@ TEST_CASE(
 	auto const &r = rig.results[0];
 	CHECK(r.open_ok());
 	CHECK_FALSE(r.close_needed);
-	CHECK(r.cleanup_result() == nullopt);
-	CHECK(r.raw_close_result() == nullopt);
+	CHECK(r.cleanup_result() == std::nullopt);
+	CHECK(r.raw_close_result() == std::nullopt);
 }
 TEST_CASE(
-	"flow.no_close: open fails, no close_if_opened → cleanup nullopt",
+	"flow.no_close: open fails, no close_if_opened → cleanup std::nullopt",
 	"[flow][no_close]") {
 	TestRig rig;
 	char buf[4] = {};
@@ -822,7 +822,7 @@ TEST_CASE(
 	}
 	REQUIRE(rig.results.size() == 1);
 	CHECK_FALSE(rig.results[0].open_ok());
-	CHECK(rig.results[0].cleanup_result() == nullopt);
+	CHECK(rig.results[0].cleanup_result() == std::nullopt);
 }
 // ── Additional CQE tag validation ─────────────────────────────────────────────
 
@@ -1328,10 +1328,10 @@ TEST_CASE(
 // ── Mode A vs B observable equivalence on open failure ────────────────────────
 
 TEST_CASE(
-	"flow.equiv: mode A and mode B both return cleanup_result==nullopt on open fail",
+	"flow.equiv: mode A and mode B both return cleanup_result==std::nullopt on open fail",
 	"[flow][equiv]") {
-	// Both shapes must satisfy cleanup_result()==nullopt when open fails.
-	// raw_close_result() differs: mode A → nullopt (no CQE), mode B → -ECANCELED (in-chain).
+	// Both shapes must satisfy cleanup_result()==std::nullopt when open fails.
+	// raw_close_result() differs: mode A → std::nullopt (no CQE), mode B → -ECANCELED (in-chain).
 
 	// Mode A shape: open + then_read + then_write → cascade reaches close → mode A
 	{
@@ -1357,9 +1357,9 @@ TEST_CASE(
 		REQUIRE(rig.results.size() == 1);
 		auto const &r = rig.results[0];
 		CHECK_FALSE(r.open_ok());
-		CHECK(r.cleanup_result() == nullopt); // normalized: open failed
+		CHECK(r.cleanup_result() == std::nullopt); // normalized: open failed
 		// mode A: no close CQE was ever submitted (open_ok==false)
-		CHECK(r.raw_close_result() == nullopt);
+		CHECK(r.raw_close_result() == std::nullopt);
 		CHECK_FALSE(r.close_cqe_seen);
 	}
 
@@ -1391,7 +1391,7 @@ TEST_CASE(
 		REQUIRE(rig.results.size() == 1);
 		auto const &r = rig.results[0];
 		CHECK_FALSE(r.open_ok());
-		CHECK(r.cleanup_result() == nullopt); // same normalization as mode A
+		CHECK(r.cleanup_result() == std::nullopt); // same normalization as mode A
 		// mode B: close CQE arrived (cascade); raw result is -ECANCELED
 		CHECK(r.close_cqe_seen);
 		CHECK(r.raw_close_result() == -ECANCELED);

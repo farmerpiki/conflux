@@ -7,22 +7,22 @@ import conflux.types;
 import std;
 
 template<std::size_t N>
-static span<unsigned char const> bytes(
+static std::span<unsigned char const> bytes(
 	std::array<unsigned char, N> const &value) noexcept {
 	return {value.data(), value.size()};
 }
 
-static span<unsigned char const> bytes(
+static std::span<unsigned char const> bytes(
 	std::vector<unsigned char> const &value) noexcept {
 	return {value.data(), value.size()};
 }
 
 static std::string hex(
-	span<unsigned char const> in) {
+	std::span<unsigned char const> in) {
 	std::string out;
 	out.reserve(in.size() * 2);
 	for (auto b: in) {
-		out += format("{:02x}", static_cast<unsigned>(b));
+		out += std::format("{:02x}", static_cast<unsigned>(b));
 	}
 	return out;
 }

@@ -17,7 +17,7 @@ void router_launch_sse_handler(
 	Handler handler,
 	HttpRequest matched,
 	std::shared_ptr<SseChannel> const &channel) {
-	if (!pool->enqueue([h = move(handler), matched = move(matched), channel]() mutable {
+	if (!pool->enqueue([h = std::move(handler), matched = std::move(matched), channel]() mutable {
 			HttpRequestView const matched_view{matched};
 			h(matched_view, channel);
 			channel->close();
@@ -28,29 +28,29 @@ void router_launch_sse_handler(
 
 export HttpResponse router_defer_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
-	auto deferred = make_shared<DeferredResponse>();
-	auto jh = make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
-		conflux::work::root::into_join_handle(move(task)));
+	auto deferred = std::make_shared<DeferredResponse>();
+	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
+		conflux::work::root::into_join_handle(std::move(task)));
 	deferred->attach_cancel(jh->control());
 	jh->control().set_on_ready_or_run([deferred, jh]() noexcept {
 		try {
-			auto outcome = conflux::work::root::blocking_join(move(*jh));
+			auto outcome = conflux::work::root::blocking_join(std::move(*jh));
 			if (outcome.is_success()) {
-				deferred->complete(move(outcome).success().value);
+				deferred->complete(std::move(outcome).success().value);
 			} else {
 				deferred->complete(HttpResponse::internal_error());
 			}
-		} catch (exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
+		} catch (std::exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
 			deferred->complete(HttpResponse::internal_error());
 		}
 	});
-	return HttpResponse::deferred(move(deferred));
+	return HttpResponse::deferred(std::move(deferred));
 }
 
 
 export HttpResponse router_run_async_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
-	return router_defer_http_task(move(task));
+	return router_defer_http_task(std::move(task));
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
@@ -88,7 +88,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					req.version,
 					req.remote_addr,
 					req.is_tls,
-					move(all_params),
+					std::move(all_params),
 					req.headers,
 					req.query,
 					req.form,
@@ -101,11 +101,11 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 						resp.head_only = true;
 					}
 					return resp;
-				} catch (exception const &ex) {
+				} catch (std::exception const &ex) {
 					return error_handler ? error_handler(matched_view, ex) :
 										  HttpResponse::internal_error(ex.what());
 				} catch (...) {
-					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown exception"}) :
+					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown std::exception"}) :
 										  HttpResponse::internal_error();
 				}
 			}
@@ -119,13 +119,13 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					? (route.exact_path == path_sv)
 					: match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
-					auto channel = make_shared<SseChannel>();
+					auto channel = std::make_shared<SseChannel>();
 					HttpRequest matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
 						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
-					router_launch_sse_handler(work_pool, route.handler, move(matched), channel);
-					return HttpResponse::sse(move(channel));
+					router_launch_sse_handler(work_pool, route.handler, std::move(matched), channel);
+					return HttpResponse::sse(std::move(channel));
 				}
 			}
 		}
@@ -166,7 +166,7 @@ export template<typename ContextRouteRange, typename Ctx>
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
 	if (context_routes.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	HttpFieldsView matched_params;
 	for (auto const &route: context_routes) {
@@ -184,5 +184,5 @@ export template<typename ContextRouteRange, typename Ctx>
 			return router_defer_http_task(route.handler(call_req, ctx));
 		}
 	}
-	return nullopt;
+	return std::nullopt;
 }

@@ -126,16 +126,16 @@ static void append_sv(std::string &out, std::string_view value) {
 
 static void append_dec(std::string &out, auto value) {
 	std::array<char, 32> buf{};
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == errc{}) {
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == std::errc{}) {
 		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
 	}
 }
 
 static void append_hex(std::string &out, std::size_t value) {
 	std::array<char, 2 * sizeof(std::size_t)> buf{};
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value, 16);
-	if (ec == errc{}) {
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value, 16);
+	if (ec == std::errc{}) {
 		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
 	}
 }
@@ -397,7 +397,7 @@ struct MultipartBoundaryMatch {
 	while (search < body.size()) {
 		auto const pos = body.find(delim, search);
 		if (pos == std::string_view::npos) {
-			return nullopt;
+			return std::nullopt;
 		}
 		bool const at_start = pos == 0;
 		bool const after_crlf = pos >= 2 && body.substr(pos - 2, 2) == "\r\n";
@@ -416,11 +416,11 @@ struct MultipartBoundaryMatch {
 		}
 		search = pos + 1;
 	}
-	return nullopt;
+	return std::nullopt;
 }
 
 export void parse_multipart(std::string_view body, std::string_view boundary, HttpFieldsView &form, std::vector<UploadedFile> &files) {
-	std::string const delim = format("--{}", boundary);
+	std::string const delim = std::format("--{}", boundary);
 	auto first = find_multipart_boundary_line(body, delim, 0);
 	if (!first) {
 		return;

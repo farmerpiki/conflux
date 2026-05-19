@@ -39,9 +39,9 @@ export enum class SseOverflowPolicy : std::uint8_t {
 export class SseChannel {
 private:
 	int efd_{};
-	mutex mtx_{};
+	std::mutex mtx_{};
 	std::queue<std::string> pending_{};
-	atomic_flag closed_{};
+	std::atomic_flag closed_{};
 	std::size_t queued_bytes_{0};
 	std::size_t max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
@@ -61,7 +61,7 @@ public:
 		, max_queue_bytes_(max_queue_bytes)
 		, overflow_(overflow) {
 		if (efd_ < 0) {
-			throw std::system_error{errno, system_category(), "eventfd"};
+			throw std::system_error{errno, std::system_category(), "eventfd"};
 		}
 	}
 	~SseChannel() noexcept {
@@ -86,24 +86,24 @@ public:
 			std::size_t const would_be = queued_bytes_ + frame_bytes;
 			if (would_be > max_queue_bytes_ && max_queue_bytes_ != 0) {
 				switch (overflow_) {
-				case SseOverflowPolicy::DropNewest: dropped_.fetch_add(1, memory_order_relaxed); return false;
+				case SseOverflowPolicy::DropNewest: dropped_.fetch_add(1, std::memory_order_relaxed); return false;
 				case SseOverflowPolicy::DropOldest:
 					while (!pending_.empty() && queued_bytes_ + frame_bytes > max_queue_bytes_) {
 						queued_bytes_ -= pending_.front().size();
 						pending_.pop();
-						dropped_.fetch_add(1, memory_order_relaxed);
+						dropped_.fetch_add(1, std::memory_order_relaxed);
 					}
 					break;
 				case SseOverflowPolicy::Disconnect:
 					closed_.test_and_set();
-					dropped_.fetch_add(1, memory_order_relaxed);
+					dropped_.fetch_add(1, std::memory_order_relaxed);
 					wake = true;
 					break;
 				}
 			}
 			if (!closed_.test()) {
 				queued_bytes_ += frame_bytes;
-				pending_.push(move(frame));
+				pending_.push(std::move(frame));
 				enqueued = true;
 				wake = true;
 			}
@@ -111,7 +111,7 @@ public:
 		if (wake) {
 			std::uint64_t v = 1;
 			if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
-				eprintln(format("SseChannel::send: eventfd write: {}", strerror(errno)));
+				eprintln(std::format("SseChannel::send: eventfd write: {}", strerror(errno)));
 			}
 		}
 		return enqueued;
@@ -133,7 +133,7 @@ public:
 		if (has_nl(type) || has_nl(data)) {
 			throw std::invalid_argument{"SseChannel::send_event: type and data must not contain newlines"};
 		}
-		return send(format("event: {}\ndata: {}\n\n", type, data));
+		return send(std::format("event: {}\ndata: {}\n\n", type, data));
 	}
 	void close() {
 		if (closed_.test_and_set()) {
@@ -141,7 +141,7 @@ public:
 		} // already closed
 		std::uint64_t v = 1;
 		if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
-			eprintln(format("SseChannel::close: eventfd write: {}", strerror(errno)));
+			eprintln(std::format("SseChannel::close: eventfd write: {}", strerror(errno)));
 		} // wake the io_uring poll
 	}
 	[[nodiscard]] std::string drain() {
@@ -156,7 +156,7 @@ public:
 	}
 	[[nodiscard]] bool is_closed() const noexcept { return closed_.test(); }
 	[[nodiscard]] int eventfd_fd() const noexcept { return efd_; }
-	[[nodiscard]] std::size_t dropped_count() const noexcept { return dropped_.load(memory_order_relaxed); }
+	[[nodiscard]] std::size_t dropped_count() const noexcept { return dropped_.load(std::memory_order_relaxed); }
 	[[nodiscard]] std::size_t max_queue_bytes() const noexcept { return max_queue_bytes_; }
 };
 
@@ -176,7 +176,7 @@ public:
 	SseBroadcaster &operator =(SseBroadcaster &&) = delete;
 	// Register a new subscriber.  Returns the SP to pass to HttpResponse::sse().
 	std::shared_ptr<SseChannel> subscribe() {
-		auto ch = make_shared<SseChannel>();
+		auto ch = std::make_shared<SseChannel>();
 		std::scoped_lock const lk{mtx_};
 		channels_.emplace_back(ch);
 		return ch;
@@ -185,13 +185,13 @@ public:
 	void broadcast(
 		std::string_view event,
 		std::string_view data) {
-		auto frame = format("event: {}\ndata: {}\n\n", event, data);
+		auto frame = std::format("event: {}\ndata: {}\n\n", event, data);
 		broadcast_raw(frame);
 	}
 	// Broadcast a data-only SSE message to all active subscribers.
 	void broadcast_data(
 		std::string_view data) {
-		auto frame = format("data: {}\n\n", data);
+		auto frame = std::format("data: {}\n\n", data);
 		broadcast_raw(frame);
 	}
 	// Number of currently-active subscribers (approximate; may include ones
@@ -206,7 +206,7 @@ private:
 		std::string const &frame) {
 		std::scoped_lock const lk{mtx_};
 		// Erase stale weak_ptrs while delivering to live ones.
-		std::erase_if(channels_, [&](weak_ptr<SseChannel> const &wch) {
+		std::erase_if(channels_, [&](std::weak_ptr<SseChannel> const &wch) {
 			auto ch = wch.lock();
 			if (!ch || ch->is_closed()) {
 				return true;
@@ -215,8 +215,8 @@ private:
 			return false;
 		});
 	}
-	mutable mutex mtx_;
-	std::vector<weak_ptr<SseChannel>> channels_;
+	mutable std::mutex mtx_;
+	std::vector<std::weak_ptr<SseChannel>> channels_;
 };
 
 // WebSocket support
@@ -231,7 +231,7 @@ export std::string ws_accept_key(
 	std::string input{client_key};
 	input += kMagic;
 	auto digest = sha1(to_unsigned_span(input));
-	return base64_encode(span{digest.data(), digest.size()});
+	return base64_encode(std::span{digest.data(), digest.size()});
 }
 bool is_valid_client_key(
 	std::string_view key) {
@@ -252,7 +252,7 @@ export bool is_valid_handshake(
 // the transport call below emits header+payload as a single TCP segment / TLS record.
 std::string ws_build_frame(
 	std::uint8_t opcode,
-	span<byte const> payload) {
+	std::span<std::byte const> payload) {
 	std::array<std::uint8_t, 10> hdr{};
 	std::size_t hdr_len = 0;
 	hdr[hdr_len++] = 0x80U | opcode; // FIN + opcode
@@ -278,7 +278,7 @@ std::string ws_build_frame(
 bool ws_send_frame(
 	int fd,
 	std::uint8_t opcode,
-	span<byte const> payload) {
+	std::span<std::byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
@@ -297,11 +297,11 @@ bool ws_send_frame(
 bool ws_tls_send_frame(
 	SSL *ssl,
 	std::uint8_t opcode,
-	span<byte const> payload) {
+	std::span<std::byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
-		auto const chunk = min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+		auto const chunk = std::min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
 		int const n = SSL_write(ssl, frame.data() + sent, static_cast<int>(chunk));
 		if (n > 0) {
 			sent += static_cast<std::size_t>(n);
@@ -401,7 +401,7 @@ CONFLUX_FUZZ_EXPORT enum class FrameParseStatus : std::uint8_t {
 	ControlTooLarge,
 };
 CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
-	span<byte const> buf,
+	std::span<std::byte const> buf,
 	FrameHeader &out) {
 	if (buf.size() < 2) {
 		return FrameParseStatus::Incomplete;
@@ -488,9 +488,9 @@ public:
 		int fd,
 		std::string initial_buf = {})
 		: fd_(fd)
-		, buf_(move(initial_buf)) {}
+		, buf_(std::move(initial_buf)) {}
 #if CONFLUX_HAS_TLS
-	// TLS variant: ssl must already have the handshake complete and be wired to
+	// TLS std::variant: ssl must already have the handshake complete and be wired to
 	// a socket BIO (SSL_set_fd called by the server before handing off).
 	// initial_buf carries any plaintext bytes already decrypted before handoff.
 	explicit WsConn(
@@ -499,7 +499,7 @@ public:
 		std::string initial_buf)
 		: fd_(fd)
 		, ssl_(ssl)
-		, buf_(move(initial_buf)) {}
+		, buf_(std::move(initial_buf)) {}
 #endif
 	~WsConn() noexcept {
 		stop_keepalive();
@@ -510,13 +510,13 @@ public:
 	std::optional<Frame> recv() {
 		while (true) {
 			if (!fill(2)) {
-				return nullopt;
+				return std::nullopt;
 			}
 			ws_detail::FrameHeader hdr{};
 			// First parse pass on 2 bytes surfaces protocol errors (rsv, opcode,
 			// unmasked, control-size) without waiting for mask bytes — the wire
 			// may legitimately have no mask for a rejected frame.
-			auto const pre = ws_detail::parse_frame_header(as_bytes(span{buf_.data(), 2}), hdr);
+			auto const pre = ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
 			auto emit_protocol_close = [&]() {
 				auto const b0 = static_cast<std::uint8_t>(buf_[0]);
 				if ((b0 & 0x70U) != 0) {
@@ -529,27 +529,27 @@ public:
 			};
 			if (pre == ws_detail::FrameParseStatus::ProtocolError) {
 				emit_protocol_close();
-				return nullopt;
+				return std::nullopt;
 			}
 			if (pre == ws_detail::FrameParseStatus::ControlTooLarge) {
 				close(1002, "invalid control frame");
-				return nullopt;
+				return std::nullopt;
 			}
 			// pre is Ok (no extended length) or Incomplete (need extended length + mask).
 			auto const b1 = static_cast<std::uint8_t>(buf_[1]);
 			std::uint64_t const len7 = b1 & 0x7FU;
 			std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
 			if (!fill(header_needed)) {
-				return nullopt;
+				return std::nullopt;
 			}
-			auto const status = ws_detail::parse_frame_header(as_bytes(span{buf_.data(), header_needed}), hdr);
+			auto const status = ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
 			if (status != ws_detail::FrameParseStatus::Ok) {
 				if (status == ws_detail::FrameParseStatus::ProtocolError) {
 					close(1002, "invalid frame header");
 				} else if (status == ws_detail::FrameParseStatus::ControlTooLarge) {
 					close(1002, "invalid control frame");
 				}
-				return nullopt;
+				return std::nullopt;
 			}
 			consume(hdr.header_size);
 
@@ -561,14 +561,14 @@ public:
 
 			if (plen > kMaxMessageSize) {
 				close(1009, "message too big");
-				return nullopt;
+				return std::nullopt;
 			}
 			if (!is_control && (frag_payload_.size() + plen) > kMaxMessageSize) {
 				close(1009, "message too big");
-				return nullopt;
+				return std::nullopt;
 			}
 			if (!fill(static_cast<std::size_t>(plen))) {
-				return nullopt;
+				return std::nullopt;
 			}
 			std::string payload(buf_.data(), static_cast<std::size_t>(plen));
 			consume(static_cast<std::size_t>(plen));
@@ -586,7 +586,7 @@ public:
 #endif
 
 			if (opcode_raw == 0x9U) {
-				do_send_frame(10, as_bytes(span{payload}));
+				do_send_frame(10, std::as_bytes(std::span{payload}));
 				continue;
 			}
 			if (opcode_raw == 0xAU) {
@@ -595,7 +595,7 @@ public:
 			if (opcode_raw == 0x8U) {
 				if (plen == 1) {
 					close(1002, "invalid close payload");
-					return nullopt;
+					return std::nullopt;
 				}
 				std::uint16_t echo_code = 1000;
 				if (plen >= 2) {
@@ -604,75 +604,75 @@ public:
 						| static_cast<unsigned>(static_cast<std::uint8_t>(payload[1])));
 					if (!ws_detail::is_valid_close_code(echo_code)) {
 						close(1002, "invalid close code");
-						return nullopt;
+						return std::nullopt;
 					}
 					if (payload.size() > 2 && !ws_detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
 						close(1007, "invalid utf-8");
-						return nullopt;
+						return std::nullopt;
 					}
 				}
 				close(echo_code, {});
-				return nullopt;
+				return std::nullopt;
 			}
 
 			if (opcode_raw == 0x0U) {
 				if (!frag_opcode_) {
-					close(1002, "unexpected continuation");
-					return nullopt;
+					close(1002, "std::unexpected continuation");
+					return std::nullopt;
 				}
 				frag_payload_.append(payload);
 				if (!fin) {
 					continue;
 				}
 				auto const final_op = *frag_opcode_;
-				std::string final_payload = move(frag_payload_);
+				std::string final_payload = std::move(frag_payload_);
 				frag_opcode_.reset();
 				frag_payload_.clear();
 				if (final_op == Opcode::Text && !ws_detail::utf8_is_valid(final_payload)) {
 					close(1007, "invalid utf-8");
-					return nullopt;
+					return std::nullopt;
 				}
-				return Frame{.opcode = final_op, .payload = move(final_payload)};
+				return Frame{.opcode = final_op, .payload = std::move(final_payload)};
 			}
 
 			if (opcode_raw != 0x1U && opcode_raw != 0x2U) {
 				close(1002, "reserved opcode");
-				return nullopt;
+				return std::nullopt;
 			}
 			if (frag_opcode_) {
 				close(1002, "nested data frame");
-				return nullopt;
+				return std::nullopt;
 			}
 			auto const opcode = static_cast<Opcode>(opcode_raw);
 			if (!fin) {
 				frag_opcode_ = opcode;
-				frag_payload_ = move(payload);
+				frag_payload_ = std::move(payload);
 				continue;
 			}
 			if (opcode == Opcode::Text && !ws_detail::utf8_is_valid(payload)) {
 				close(1007, "invalid utf-8");
-				return nullopt;
+				return std::nullopt;
 			}
-			return Frame{.opcode = opcode, .payload = move(payload)};
+			return Frame{.opcode = opcode, .payload = std::move(payload)};
 		}
 	}
 	[[nodiscard]] bool send_text(
 		std::string_view data) {
 		std::scoped_lock const lk{send_mtx_};
-		return do_send_frame(1, as_bytes(span{data}));
+		return do_send_frame(1, std::as_bytes(std::span{data}));
 	}
 	[[nodiscard]] bool send_binary(
-		span<byte const> data) {
+		std::span<std::byte const> data) {
 		std::scoped_lock const lk{send_mtx_};
 		return do_send_frame(2, data);
 	}
 	[[nodiscard]] bool send_ping(
 		std::string_view data = {}) {
 		if (data.size() > 125) {
-			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
+			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-std::byte control frame limit"};
 		}
 		std::scoped_lock const lk{send_mtx_};
-		return do_send_frame(9, as_bytes(span{data}));
+		return do_send_frame(9, std::as_bytes(std::span{data}));
 	}
 	void close(
 		std::uint16_t code = 1000,
@@ -681,7 +681,7 @@ public:
 			throw std::invalid_argument{"WsConn::close: invalid close code"};
 		}
 		if (reason.size() > 123) {
-			throw std::invalid_argument{"WsConn::close: reason exceeds 123-byte limit (control frame payload max 125)"};
+			throw std::invalid_argument{"WsConn::close: reason exceeds 123-std::byte limit (control frame payload std::max 125)"};
 		}
 		if (!ws_detail::utf8_is_valid(reason)) {
 			throw std::invalid_argument{"WsConn::close: reason must be valid UTF-8"};
@@ -695,7 +695,7 @@ public:
 		payload += reason;
 		{
 			std::scoped_lock const lk{send_mtx_};
-			do_send_frame(8, as_bytes(span{payload}));
+			do_send_frame(8, std::as_bytes(std::span{payload}));
 		}
 #if CONFLUX_HAS_TLS
 		if (ssl_) {
@@ -710,15 +710,15 @@ public:
 	}
 	[[nodiscard]] bool is_open() const noexcept { return !closed_.test(); }
 	[[nodiscard]] int fd() const noexcept { return fd_; }
-	// Start a background keepalive thread that sends a Ping frame every
-	// interval_ms milliseconds.  The thread exits when the connection closes.
+	// Start a background keepalive std::thread that sends a Ping frame every
+	// interval_ms milliseconds.  The std::thread exits when the connection closes.
 	// Multiple calls are ignored after the first.
 	void start_keepalive(
 		unsigned interval_ms) {
 		if (keepalive_thread_.joinable()) {
 			return; // already started
 		}
-		keepalive_thread_ = jthread([this, interval_ms](std::stop_token const &st) {
+		keepalive_thread_ = std::jthread([this, interval_ms](std::stop_token const &st) {
 			std::unique_lock lk{keepalive_mtx_};
 			while (is_open()) {
 				if (keepalive_cv_.wait_for(lk, st, std::chrono::milliseconds{interval_ms}, [this] { return !is_open(); })) {
@@ -745,11 +745,11 @@ private:
 #if CONFLUX_HAS_TLS
 	UniqueSsl ssl_;
 #endif
-	atomic_flag closed_{};
-	mutex send_mtx_;
-	mutex keepalive_mtx_;
+	std::atomic_flag closed_{};
+	std::mutex send_mtx_;
+	std::mutex keepalive_mtx_;
 	std::condition_variable_any keepalive_cv_;
-	jthread keepalive_thread_{};
+	std::jthread keepalive_thread_{};
 	std::string buf_;
 	std::optional<Opcode> frag_opcode_{};
 	std::string frag_payload_{};
@@ -782,7 +782,7 @@ private:
 	// Send a WebSocket frame over either TLS or plain socket.
 	bool do_send_frame(
 		std::uint8_t opcode,
-		span<byte const> payload) {
+		std::span<std::byte const> payload) {
 #if CONFLUX_HAS_TLS
 		if (ssl_) {
 			return ws_detail::ws_tls_send_frame(ssl_.get(), opcode, payload);

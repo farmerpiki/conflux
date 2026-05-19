@@ -41,7 +41,7 @@ public:
 	MappedFileLease() noexcept = default;
 	explicit MappedFileLease(
 		std::shared_ptr<MappedRegionEntry> r) noexcept
-		: region_{move(r)} {}
+		: region_{std::move(r)} {}
 	[[nodiscard]] std::span<std::byte const> bytes() const noexcept {
 		if (!region_ || region_->ptr == nullptr) {
 			return {};
@@ -61,7 +61,7 @@ export struct MappedBody {
 			return {};
 		}
 		auto const avail = full.size() - static_cast<std::size_t>(offset);
-		auto const len = min(static_cast<std::size_t>(size), avail);
+		auto const len = std::min(static_cast<std::size_t>(size), avail);
 		return full.subspan(static_cast<std::size_t>(offset), len);
 	}
 };
@@ -74,11 +74,11 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
 	}
 	auto *ptr = ::mmap(nullptr, static_cast<std::size_t>(st.size), PROT_READ, MAP_SHARED, fd, 0);
 	if (ptr == MAP_FAILED) {
-		return unexpected{
+		return std::unexpected{
 			FileMapError{errno, "file_map: mmap"}
         };
 	}
-	return MappedFileLease{make_shared<MappedRegionEntry>(ptr, st.size, st.size)};
+	return MappedFileLease{std::make_shared<MappedRegionEntry>(ptr, st.size, st.size)};
 }
 export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	int dir_fd,
@@ -90,7 +90,7 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	std::string rel{relative};
 	int const fd = static_cast<int>(::syscall(SYS_openat2, dir_fd, rel.c_str(), &how, sizeof(how)));
 	if (fd < 0) {
-		return unexpected{
+		return std::unexpected{
 			FileMapError{errno, "file_map: openat2"}
         };
 	}
@@ -98,12 +98,12 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 
 	auto st = blocking_fstat(fd);
 	if (!st) {
-		return unexpected{
+		return std::unexpected{
 			FileMapError{st.error().code().value(), "file_map: fstat"}
         };
 	}
 	if (st->size > max_bytes) {
-		return unexpected{
+		return std::unexpected{
 			FileMapError{EFBIG, "file_map: file exceeds max_bytes"}
         };
 	}

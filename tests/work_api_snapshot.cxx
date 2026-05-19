@@ -44,7 +44,7 @@ static_assert(std::is_same_v<conflux::work::CancelReason, conflux::work::root::C
 void _check_facade_make_and_join() {
 	auto [task, source] = conflux::work::make_task_source<int>();
 	(void)source.try_set_value(conflux::work::root::Success<int>{42});
-	[[maybe_unused]] auto outcome = conflux::work::blocking_join(move(task));
+	[[maybe_unused]] auto outcome = conflux::work::blocking_join(std::move(task));
 }
 
 } // namespace snapshot_work_facade
@@ -58,22 +58,22 @@ using _WorkPoolQueueStats = ::WorkPoolQueueStats;
 using _RingLane = ::RingLane;
 using _RingLaneOptions = ::RingLaneOptions;
 
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), std::size_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().initial_job_slab_slots), std::size_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().max_job_slab_slots), std::size_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), std::size_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().initial_job_slab_slots), std::size_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().max_job_slab_slots), std::size_t>);
 static_assert(::WorkPoolQueueMode::stealing != ::WorkPoolQueueMode::no_stealing);
-static_assert(same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
-static_assert(same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().admission_lock_contentions), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slot_allocations), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slab_allocations), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().remote_free_pushes), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
+static_assert(std::same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().admission_lock_contentions), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slot_allocations), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slab_allocations), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().remote_free_pushes), std::uint64_t>);
 
 } // namespace snapshot_work_pool_api
 // ---------------------------------------------------------------------------
@@ -196,26 +196,26 @@ using _Operation_ = root::Operation<T>;
 // E1.x — JoinTask<T> + require_join + spawn + spawn_strict
 template<class T>
 using _JoinTask_ = root::JoinTask<T>;
-static_assert(same_as<root::JoinTask<int>::value_type, int>);
-static_assert(same_as<root::Task<int>::value_type, int>);
+static_assert(std::same_as<root::JoinTask<int>::value_type, int>);
+static_assert(std::same_as<root::Task<int>::value_type, int>);
 void _e1x_api_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	// state() returns join_state
-	static_assert(same_as<decltype(task.state()), root::join_state>);
+	static_assert(std::same_as<decltype(task.state()), root::join_state>);
 	// cancel() is callable
 	task.cancel();
 	// control() works on empty after cancel
 	[[maybe_unused]] auto ctl = task.control();
 	// detach() rvalue-ref overload
-	move(task).detach();
+	std::move(task).detach();
 	// require_join
 	auto [task2, src2] = root::make_task_source<int>();
-	auto jt = root::require_join(move(task2));
-	static_assert(same_as<decltype(jt), root::JoinTask<int>>);
+	auto jt = root::require_join(std::move(task2));
+	static_assert(std::same_as<decltype(jt), root::JoinTask<int>>);
 	// detach_to_task downgrades JoinTask → Task
-	auto t2 = move(jt).detach_to_task();
-	static_assert(same_as<decltype(t2), root::Task<int>>);
-	move(t2).detach();
+	auto t2 = std::move(jt).detach_to_task();
+	static_assert(std::same_as<decltype(t2), root::Task<int>>);
+	std::move(t2).detach();
 	(void)src;
 	(void)src2;
 }
@@ -229,7 +229,7 @@ void _e1x_sink_check_() {
 
 // JoinError — E2b.2: full reason enum + capability fields + source_location
 using _JoinError = root::JoinError;
-static_assert(same_as<root::JoinError::reason, root::JoinError::reason>);
+static_assert(std::same_as<root::JoinError::reason, root::JoinError::reason>);
 // Reason values
 static_assert(root::JoinError::reason::consumed_handle == root::JoinError::reason::consumed_handle);
 static_assert(root::JoinError::reason::capability_mismatch == root::JoinError::reason::capability_mismatch);
@@ -241,18 +241,18 @@ static_assert(
 	== root::JoinError::reason::ready_callback_already_installed);
 static_assert(root::JoinError::reason::lifetime_violation == root::JoinError::reason::lifetime_violation);
 // Accessors
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().reason_code()), root::JoinError::reason>);
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().origin()), std::source_location>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().reason_code()), root::JoinError::reason>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().origin()), std::source_location>);
 // consume() lvalue/rvalue overloads
 void _e1y_consume_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src;
 	// lvalue consume() returns rvalue-ref
-	static_assert(same_as<decltype(task.consume()), root::Task<int> &&>);
+	static_assert(std::same_as<decltype(task.consume()), root::Task<int> &&>);
 	// rvalue consume() also returns rvalue-ref
-	static_assert(same_as<decltype(move(task).consume()), root::Task<int> &&>);
+	static_assert(std::same_as<decltype(std::move(task).consume()), root::Task<int> &&>);
 }
 // operator co_await() & = delete — hard contract; deleted overload causes a hard
 // error, not a SFINAE failure, so we can't static_assert it here.
@@ -262,17 +262,17 @@ void _e1y_awaiter_type_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src;
 	// co_await rvalue returns something (type-erase to silence nodiscard)
-	[[maybe_unused]] auto aw = move(task).operator co_await();
+	[[maybe_unused]] auto aw = std::move(task).operator co_await();
 	static_assert(requires { aw.await_ready(); });
 	static_assert(requires { aw.await_resume(); });
 }
 void _e1y_outcome_awaiter_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src;
-	[[maybe_unused]] auto aw = move(task).outcome();
+	[[maybe_unused]] auto aw = std::move(task).outcome();
 	static_assert(requires { aw.await_ready(); });
 	using out_t = decltype(aw.await_resume());
-	static_assert(same_as<out_t, root::Outcome<int>>);
+	static_assert(std::same_as<out_t, root::Outcome<int>>);
 }
 
 // JoinHandle type aliases
@@ -300,13 +300,13 @@ using _scoped_abandon_ = root::scoped_abandon<R, root::drop_on_abandon>;
 // guard_abandon — name-check
 void _check_guard_abandon(
 	root::Task<int> &&t) {
-	auto g = root::guard_abandon(move(t));
+	auto g = root::guard_abandon(std::move(t));
 	(void)g;
 }
 // into_join_handle — name-check
 void _check_into_join_handle(
 	root::Task<int> &&t) {
-	[[maybe_unused]] auto jh = root::into_join_handle(move(t));
+	[[maybe_unused]] auto jh = root::into_join_handle(std::move(t));
 }
 // make_task_source
 void _check_make_task_source() {
@@ -357,9 +357,9 @@ using _AggErr = carrier::AggregateError;
 void _check_pipeline() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto mapped = carrier::map(move(chain), [](int x) { return x + 1; });
-	auto result = carrier::into_ready_task(move(mapped));
+	auto chain = carrier::from_task(std::move(task));
+	auto mapped = carrier::map(std::move(chain), [](int x) { return x + 1; });
+	auto result = carrier::into_ready_task(std::move(mapped));
 	(void)result;
 }
 // hop_to_task, unbind
@@ -381,76 +381,76 @@ namespace snapshot_model_a {
 void _e1z_then_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto chained = move(chain).then([](int x) { return x + 1; });
-	static_assert(same_as<decltype(chained), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto chained = std::move(chain).then([](int x) { return x + 1; });
+	static_assert(std::same_as<decltype(chained), carrier::Chain<int>>);
 	(void)chained;
 }
 void _e1z_catch_error_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto recovered = move(chain).catch_error([](std::exception_ptr) { return 0; });
-	static_assert(same_as<decltype(recovered), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto recovered = std::move(chain).catch_error([](std::exception_ptr) { return 0; });
+	static_assert(std::same_as<decltype(recovered), carrier::Chain<int>>);
 	(void)recovered;
 }
 void _e1z_on_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).on_cancel([] {});
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).on_cancel([] {});
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_recover_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).recover_cancel([] { return 0; });
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).recover_cancel([] { return 0; });
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_recover_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).recover([](root::Outcome<int>) { return 0; });
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).recover([](root::Outcome<int>) { return 0; });
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_transform_outcome_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{move(out)}; });
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_schedule_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).schedule_on(cap);
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).schedule_on(cap);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_then_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto result = move(chain).then_on(cap, [](int x) { return x + 1; });
-	static_assert(same_as<decltype(result), carrier::Chain<int>>);
+	auto chain = carrier::from_task(std::move(task));
+	auto result = std::move(chain).then_on(cap, [](int x) { return x + 1; });
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 void _e1z_into_task_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = carrier::from_task(move(task));
-	auto t = move(chain).into_task();
-	static_assert(same_as<decltype(t), root::Task<int>>);
-	move(t).detach();
+	auto chain = carrier::from_task(std::move(task));
+	auto t = std::move(chain).into_task();
+	static_assert(std::same_as<decltype(t), root::Task<int>>);
+	std::move(t).detach();
 }
 
 } // namespace snapshot_model_a
@@ -461,7 +461,7 @@ void _e1z_into_task_check_() {
 namespace snapshot_net_io_buffer {
 
 using _IoBuffer = ::IoBuffer;
-static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<byte const[]>, std::size_t>);
+static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
 using _BufferList = ::BufferList;
 using _IoPlan = ::IoPlan;
 

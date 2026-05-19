@@ -155,7 +155,7 @@ void dispatch_request(
 			return;
 		}
 		conn.own_response = format_response(
-			HttpResponse::redirect(format("https://{}{}", canonical_host, redirect_target), 308),
+			HttpResponse::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
 			ring.alt_svc_header,
 			true);
 		conn.has_response = true;
@@ -207,8 +207,8 @@ void dispatch_request(
 		auto cl = headers.get("content-length").value_or(std::string_view{});
 		std::size_t content_length{};
 		auto const *cl_end = std::ranges::next(cl.data(), ssize(cl));
-		auto [ptr, ec] = from_chars(cl.data(), cl_end, content_length);
-		if (ec != errc{} || ptr != cl_end) {
+		auto [ptr, ec] = std::from_chars(cl.data(), cl_end, content_length);
+		if (ec != std::errc{} || ptr != cl_end) {
 			conn.own_response = format_response(HttpResponse::bad_request(), ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;
@@ -292,11 +292,11 @@ void dispatch_request(
 	HttpResponse resp;
 	try {
 		if (auto async = ring.try_dispatch_context(req)) {
-			resp = move(*async);
+			resp = std::move(*async);
 		} else {
 			resp = ring.dispatch(req);
 		}
-	} catch (exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
+	} catch (std::exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
 		resp = HttpResponse::internal_error();
 	}
 	if (ring.slow_handler_diagnostics) {
@@ -304,8 +304,8 @@ void dispatch_request(
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
 				.count();
 		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
-			eprintln(format(
-				"warning: slow handler on ring thread (method={}, path={}, elapsed_ms={})",
+			eprintln(std::format(
+				"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
 				method,
 				path,
 				elapsed_ms));

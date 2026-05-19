@@ -35,7 +35,7 @@ int main() {
 			R"({"message":"JSON is also compressed when the client accepts gzip","items":[1,2,3]})");
 	});
 
-	HttpServer srv{cfg, move(router)};
+	HttpServer srv{cfg, std::move(router)};
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

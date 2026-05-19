@@ -8,7 +8,7 @@ import std;
 import conflux.types;
 import conflux.uring;
 export struct RingFd {
-	std::uint32_t id{std::numeric_limits<std::uint32_t>::max()}; // max = invalid sentinel; avoids aliasing fd 0
+	std::uint32_t id{std::numeric_limits<std::uint32_t>::max()}; // std::max = invalid sentinel; avoids aliasing fd 0
 	bool fixed{false};
 	[[nodiscard]] constexpr bool valid() const noexcept { return id != std::numeric_limits<std::uint32_t>::max(); }
 	[[nodiscard]] static constexpr RingFd from_os(
@@ -53,12 +53,12 @@ public:
 	IoHandle &operator =(IoHandle const &) = delete;
 	IoHandle(
 		IoHandle &&o) noexcept
-		: h_{exchange(o.h_, RingFd{})} {}
+		: h_{std::exchange(o.h_, RingFd{})} {}
 	IoHandle &operator =(
 		IoHandle &&o) noexcept {
 		if (this != &o) {
 			close_on_drop();
-			h_ = exchange(o.h_, RingFd{});
+			h_ = std::exchange(o.h_, RingFd{});
 		}
 		return *this;
 	}

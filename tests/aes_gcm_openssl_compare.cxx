@@ -16,10 +16,10 @@ import std;
 import conflux.types;
 import conflux.crypto;
 static bool openssl_encrypt(
-	span<unsigned char const> key,
-	span<unsigned char const> iv,
-	span<unsigned char const> pt,
-	span<unsigned char const> aad,
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> pt,
+	std::span<unsigned char const> aad,
 	std::vector<unsigned char> &out) {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	if (!ctx) {
@@ -44,10 +44,10 @@ static bool openssl_encrypt(
 	return true;
 }
 static bool openssl_decrypt(
-	span<unsigned char const> key,
-	span<unsigned char const> iv,
-	span<unsigned char const> ct_and_tag,
-	span<unsigned char const> aad,
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> ct_and_tag,
+	std::span<unsigned char const> aad,
 	std::vector<unsigned char> &out) {
 	if (ct_and_tag.size() < 16) {
 		return false;

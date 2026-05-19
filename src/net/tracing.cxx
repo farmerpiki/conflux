@@ -1,6 +1,6 @@
 // Request tracing middleware: W3C traceparent propagation + before/after hooks.
 // Parses incoming traceparent header (trace-id, parent-id), generates a new
-// span-id for this hop, and exposes the context to before/after callbacks.
+// std::span-id for this hop, and exposes the context to before/after callbacks.
 // The outgoing traceparent is set in the response header.
 export module conflux.net.tracing;
 import std;
@@ -23,26 +23,26 @@ class TraceCallback<R(Args...)> {
 		F fn;
 		explicit Model(
 			F f)
-			: fn(move(f)) {}
+			: fn(std::move(f)) {}
 		R invoke(
 			Args... args) override {
 			if constexpr (std::is_void_v<R>) {
-				fn(forward<Args>(args)...);
+				fn(std::forward<Args>(args)...);
 			} else {
-				return fn(forward<Args>(args)...);
+				return fn(std::forward<Args>(args)...);
 			}
 		}
-		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return make_unique<Model>(fn); }
+		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return std::make_unique<Model>(fn); }
 	};
 	std::unique_ptr<Concept> impl_{};
 
 public:
 	TraceCallback() = default;
 	template<typename F>
-		requires(!same_as<std::remove_cvref_t<F>, TraceCallback> && std::invocable<F &, Args...>)
+		requires(!std::same_as<std::remove_cvref_t<F>, TraceCallback> && std::invocable<F &, Args...>)
 	TraceCallback(
 		F &&fn)
-		: impl_(make_unique<Model<std::remove_cvref_t<F>>>(forward<F>(fn))) {}
+		: impl_(std::make_unique<Model<std::remove_cvref_t<F>>>(std::forward<F>(fn))) {}
 	TraceCallback(
 		TraceCallback const &other)
 		: impl_(other.impl_ ? other.impl_->clone() : nullptr) {}
@@ -59,14 +59,14 @@ public:
 	explicit operator bool() const noexcept { return static_cast<bool>(impl_); }
 	R operator ()(
 		Args... args) const {
-		return impl_->invoke(forward<Args>(args)...);
+		return impl_->invoke(std::forward<Args>(args)...);
 	}
 };
 export struct TraceContext {
 	std::string trace_id; // 32 hex chars
 	std::string span_id; // 16 hex chars (this hop)
-	std::string parent_id; // 16 hex chars (caller's span), may be empty
-	std::string traceparent; // full W3C header value: "00-trace-span-01"
+	std::string parent_id; // 16 hex chars (caller's std::span), may be empty
+	std::string traceparent; // full W3C header value: "00-trace-std::span-01"
 };
 export struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
@@ -115,20 +115,20 @@ std::pair<std::string, std::string> parse_traceparent(
 } // namespace tracing_detail
 export Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
-	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		TraceContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];
 		if (!incoming_tp.empty()) {
 			auto [tid, pid] = tracing_detail::parse_traceparent(incoming_tp);
-			ctx.trace_id = move(tid);
-			ctx.parent_id = move(pid);
+			ctx.trace_id = std::move(tid);
+			ctx.parent_id = std::move(pid);
 		}
 		if (ctx.trace_id.empty()) {
 			ctx.trace_id = tracing_detail::gen_hex(16);
 		}
 		ctx.span_id = tracing_detail::gen_hex(8);
-		ctx.traceparent = format("00-{}-{}-01", ctx.trace_id, ctx.span_id);
+		ctx.traceparent = std::format("00-{}-{}-01", ctx.trace_id, ctx.span_id);
 
 		auto modified = req.to_owned();
 		modified.headers["traceparent"] = ctx.traceparent;

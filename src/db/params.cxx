@@ -106,7 +106,7 @@ class Params {
 		}
 		return v;
 	}
-	// NOLINTNEXTLINE(bugprone-exception-escape) — std::vector ops; libpq accessors documented as noexcept-equivalent.
+	// NOLINTNEXTLINE(bugprone-std::exception-escape) — std::vector ops; libpq accessors documented as noexcept-equivalent.
 	void rebuild_() const noexcept {
 		if (!dirty_) {
 			return;
@@ -230,13 +230,13 @@ public:
 		return *this;
 	}
 	Params &add_binary(
-		span<std::byte const> bytes,
+		std::span<std::byte const> bytes,
 		Oid oid = conflux::db::oids::bytea) {
 		auto const off = push_bytes_(bytes.data(), bytes.size());
 		push_(off, static_cast<int>(bytes.size()), 1, oid);
 		return *this;
 	}
-	// ---- result format -------------------------------------------
+	// ---- result std::format -------------------------------------------
 
 	Params &result_format(
 		int fmt) noexcept {
@@ -246,7 +246,7 @@ public:
 	// ---- libpq accessors -----------------------------------------
 
 	[[nodiscard]] int count() const noexcept { return static_cast<int>(count_); }
-	// NOLINTNEXTLINE(bugprone-exception-escape)
+	// NOLINTNEXTLINE(bugprone-std::exception-escape)
 	[[nodiscard]] char const *const *values() const noexcept {
 		rebuild_();
 		if (count_ == 0) {

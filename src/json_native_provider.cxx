@@ -104,65 +104,65 @@ export namespace conflux::json::boundary {
 struct NativeJsonProvider {
 	using document_type = Document;
 
-	[[nodiscard]] static expected<Document, Error> parse_json_document(
+	[[nodiscard]] static std::expected<Document, Error> parse_json_document(
 		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		auto doc = parse_dom(input, detail::map_dom_policy(opts));
 		if (!doc) {
-			return unexpected(detail::map_error(doc.error()));
+			return std::unexpected(detail::map_error(doc.error()));
 		}
-		return move(*doc);
+		return std::move(*doc);
 	}
 
-	[[nodiscard]] static expected<std::string, Error> dump_json(
+	[[nodiscard]] static std::expected<std::string, Error> dump_json(
 		Document const &doc,
 		DumpOptions const &opts = {}) {
 		auto body = doc.dump(detail::map_dump_options(opts));
 		if (!body) {
-			return unexpected(detail::map_error(body.error()));
+			return std::unexpected(detail::map_error(body.error()));
 		}
-		return move(*body);
+		return std::move(*body);
 	}
 
 	template<class T>
 		requires has_json_codec<std::remove_cvref_t<T>>
-	[[nodiscard]] static expected<std::string, Error> dump_json(
+	[[nodiscard]] static std::expected<std::string, Error> dump_json(
 		T const &value,
 		DumpOptions const &opts = {}) {
 		ValueBuilder builder;
 		if (auto ok = builder.template set<std::remove_cvref_t<T>>(value); !ok) {
-			return unexpected(detail::map_error(ok.error()));
+			return std::unexpected(detail::map_error(ok.error()));
 		}
-		auto doc = move(builder).finish();
+		auto doc = std::move(builder).finish();
 		if (!doc) {
-			return unexpected(detail::map_error(doc.error()));
+			return std::unexpected(detail::map_error(doc.error()));
 		}
 		return dump_json(*doc, opts);
 	}
 
 	template<class T>
 		requires has_json_codec<std::remove_cvref_t<T>>
-	[[nodiscard]] static expected<std::remove_cvref_t<T>, Error> decode_json(
+	[[nodiscard]] static std::expected<std::remove_cvref_t<T>, Error> decode_json(
 		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		auto const decode_opts = detail::map_decode_options(opts);
 		if (opts.copy_input) {
 			auto doc = parse_dom(input, detail::map_dom_policy(opts));
 			if (!doc) {
-				return unexpected(detail::map_error(doc.error()));
+				return std::unexpected(detail::map_error(doc.error()));
 			}
 			auto decoded = decode<std::remove_cvref_t<T>>(*doc, decode_opts);
 			if (!decoded) {
-				return unexpected(detail::map_error(decoded.error()));
+				return std::unexpected(detail::map_error(decoded.error()));
 			}
-			return move(*decoded);
+			return std::move(*decoded);
 		}
 		JsonReader reader{input, detail::map_dom_policy(opts).parse};
 		auto decoded = decode_full<std::remove_cvref_t<T>>(reader, decode_opts);
 		if (!decoded) {
-			return unexpected(detail::map_error(decoded.error()));
+			return std::unexpected(detail::map_error(decoded.error()));
 		}
-		return move(*decoded);
+		return std::move(*decoded);
 	}
 };
 
@@ -176,7 +176,7 @@ template<class T>
 concept NativeJsonDecodable = JsonDecodeProvider<NativeJsonProvider, T>;
 
 template<class T>
-[[nodiscard]] expected<std::string, Error> dump_native(
+[[nodiscard]] std::expected<std::string, Error> dump_native(
 	T const &value,
 	DumpOptions const &opts = {})
 	requires NativeJsonSerializable<T>
@@ -185,7 +185,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] expected<std::remove_cvref_t<T>, Error> decode_native(
+[[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> decode_native(
 	std::string_view input,
 	DecodeOptions const &opts = {})
 	requires NativeJsonDecodable<std::remove_cvref_t<T>>

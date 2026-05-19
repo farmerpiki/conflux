@@ -29,7 +29,7 @@ inline constexpr std::uint64_t rotl(
 	int k) noexcept {
 	return (x << k) | (x >> (64 - k));
 }
-// xoshiro256** PRNG. Seeded once per thread from getrandom(2).
+// xoshiro256** PRNG. Seeded once per std::thread from getrandom(2).
 class Xoshiro256ss {
 	std::array<std::uint64_t, 4> s_{};
 
@@ -57,8 +57,8 @@ public:
 } // namespace utils_detail
 namespace {
 
-mutex &stderr_mutex_() noexcept {
-	static mutex mu;
+std::mutex &stderr_mutex_() noexcept {
+	static std::mutex mu;
 	return mu;
 }
 void write_stderr_unlocked_(
@@ -98,7 +98,7 @@ export void crypto_random_bytes(
 			continue;
 		}
 		if (n <= 0) {
-			throw std::system_error{errno, system_category(), "crypto_random_bytes: getrandom"};
+			throw std::system_error{errno, std::system_category(), "crypto_random_bytes: getrandom"};
 		}
 		total += static_cast<std::size_t>(n);
 	}
@@ -179,7 +179,7 @@ constexpr int hex_nibble_(
 export std::expected<std::vector<unsigned char>, std::string> hex_decode(
 	std::string_view in) {
 	if (in.size() % 2 != 0) {
-		return unexpected(std::string{"hex_decode: odd-length input"});
+		return std::unexpected(std::string{"hex_decode: odd-length input"});
 	}
 	std::vector<unsigned char> out;
 	out.reserve(in.size() / 2);
@@ -187,7 +187,7 @@ export std::expected<std::vector<unsigned char>, std::string> hex_decode(
 		int const hi = hex_nibble_(in[i]);
 		int const lo = hex_nibble_(in[i + 1]);
 		if (hi < 0 || lo < 0) {
-			return unexpected(std::string{"hex_decode: invalid hex digit"});
+			return std::unexpected(std::string{"hex_decode: invalid hex digit"});
 		}
 		out.push_back(static_cast<unsigned char>((hi << 4) | lo));
 	}
@@ -242,7 +242,7 @@ export constexpr int hex_char_to_int(
 // URL percent-decoding
 // ---------------------------------------------------------------------------
 
-// Decode a percent-encoded URL component ('+' → space, %XX → byte).
+// Decode a percent-encoded URL component ('+' → space, %XX → std::byte).
 namespace {
 
 std::size_t scan_url_plain_run_(
@@ -340,12 +340,12 @@ std::optional<T> try_pton(
 	std::string_view s) noexcept {
 	std::array<char, INET6_ADDRSTRLEN> buf{};
 	if (s.size() >= buf.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	memcpy(buf.data(), s.data(), s.size());
 	buf[s.size()] = '\0';
 	T a{};
-	return ::inet_pton(af, buf.data(), &a) == 1 ? std::optional{a} : nullopt;
+	return ::inet_pton(af, buf.data(), &a) == 1 ? std::optional{a} : std::nullopt;
 }
 template<typename T>
 std::string ntop(
@@ -357,7 +357,7 @@ std::string ntop(
 	}
 	return {};
 }
-// Build an IPv4-mapped in6_addr from a network-byte-order in_addr.
+// Build an IPv4-mapped in6_addr from a network-std::byte-order in_addr.
 in6_addr ipv4_mapped(
 	in_addr const &v4) noexcept {
 	in6_addr out{};
@@ -393,11 +393,11 @@ std::string_view strip_ip_decorators(
 }
 
 } // namespace
-// Parse a dotted-decimal IPv4 address into host byte order.
+// Parse a dotted-decimal IPv4 address into host std::byte order.
 export std::optional<std::uint32_t> parse_ipv4(
 	std::string_view s) noexcept {
 	auto v4 = try_pton<in_addr>(AF_INET, s);
-	return v4 ? std::optional{ntohl(v4->s_addr)} : nullopt;
+	return v4 ? std::optional{ntohl(v4->s_addr)} : std::nullopt;
 }
 // Parse an IPv4 or IPv6 address. IPv4 → IPv4-mapped in6_addr.
 // Strips zone IDs and surrounding brackets. Returns std::nullopt on failure.
@@ -419,21 +419,21 @@ export std::optional<IpCidr> parse_cidr(
 	auto v4 = try_pton<in_addr>(AF_INET, ip_stripped);
 	auto v6 = v4 ? std::optional<in6_addr>{} : try_pton<in6_addr>(AF_INET6, ip_stripped);
 	if (!v4 && !v6) {
-		return nullopt;
+		return std::nullopt;
 	}
 	unsigned const max_prefix = v4 ? 32U : 128U;
 	std::uint32_t prefix = max_prefix;
 	if (slash != std::string_view::npos) {
 		std::string_view const pfx_sv = s.substr(slash + 1);
 		if (pfx_sv.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
-		auto const res = from_chars(pfx_sv.data(), pfx_sv.data() + pfx_sv.size(), prefix);
-		if (res.ec != errc{} || res.ptr != pfx_sv.data() + pfx_sv.size()) {
-			return nullopt;
+		auto const res = std::from_chars(pfx_sv.data(), pfx_sv.data() + pfx_sv.size(), prefix);
+		if (res.ec != std::errc{} || res.ptr != pfx_sv.data() + pfx_sv.size()) {
+			return std::nullopt;
 		}
 		if (prefix > max_prefix) {
-			return nullopt;
+			return std::nullopt;
 		}
 	}
 	in6_addr net = v4 ? ipv4_mapped(*v4) : *v6;
@@ -505,7 +505,7 @@ export std::optional<std::pair<std::string_view, std::string_view>> split_once(
 	char delim) noexcept {
 	auto const pos = s.find(delim);
 	if (pos == std::string_view::npos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return std::pair<std::string_view, std::string_view>{s.substr(0, pos), s.substr(pos + 1)};
 }
@@ -587,7 +587,7 @@ export std::vector<IpCidr> parse_cidr_list(
 		if (auto c = parse_cidr(s)) {
 			result.push_back(*c);
 		} else {
-			eprintln(format("parse_cidr_list: invalid CIDR '{}' ignored", s));
+			eprintln(std::format("parse_cidr_list: invalid CIDR '{}' ignored", s));
 		}
 	}
 	return result;

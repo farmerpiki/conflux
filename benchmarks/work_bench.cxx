@@ -54,7 +54,7 @@ void print_usage() {
 	std::println("Usage: conflux_work_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 Config parse_args(
-	span<char *> args) {
+	std::span<char *> args) {
 	Config cfg;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view arg = args[i];
@@ -121,7 +121,7 @@ Stats measure_case(
 	Case const &bench,
 	std::size_t iterations) {
 	for (std::size_t i = 0; i < warmup_iterations(iterations); ++i) {
-		sink.fetch_add(bench.run(), memory_order_relaxed);
+		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
 
 	std::vector<double> times;
@@ -129,7 +129,7 @@ Stats measure_case(
 	for (std::size_t r = 0; r < bench.reps; ++r) {
 		auto const t0 = std::chrono::steady_clock::now();
 		for (std::size_t i = 0; i < iterations; ++i) {
-			sink.fetch_add(bench.run(), memory_order_relaxed);
+			sink.fetch_add(bench.run(), std::memory_order_relaxed);
 		}
 		auto const dt =
 			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
@@ -164,7 +164,7 @@ Stats measure_case(
 	};
 }
 void print_header(
-	Config::Format format) {
+	Config::Format std::format( {
 	if (format == Config::Format::table) {
 		std::println(
 			"{:48} {:>12} {:>10} {:>10} {:>10} {:>10}",
@@ -178,7 +178,7 @@ void print_header(
 }
 void print_stats(
 	Stats const &stats,
-	Config::Format format) {
+	Config::Format std::format( {
 	if (format == Config::Format::table) {
 		std::println(
 			"{:48} {:>12} {:>10.1f} {:>10.1f} {:>10.1f} {:>10.1f}",
@@ -213,7 +213,7 @@ Case make_root_task_value_case() {
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
 			(void)src.try_set_value(root::Success<int>{42});
-			return static_cast<std::size_t>(root::value(move(task)));
+			return static_cast<std::size_t>(root::value(std::move(task)));
 		}};
 }
 Case make_root_posted_value_case() {
@@ -225,7 +225,7 @@ Case make_root_posted_value_case() {
 			OwnerCap owner{};
 			auto [posted, src] = root::make_posted_source<int>(owner);
 			(void)src.try_set_value(root::Success<int>{42});
-			return static_cast<std::size_t>(root::value(owner, move(posted)));
+			return static_cast<std::size_t>(root::value(owner, std::move(posted)));
 		}};
 }
 Case make_root_operation_value_case() {
@@ -237,7 +237,7 @@ Case make_root_operation_value_case() {
 			DriverCap driver{};
 			auto [op, src] = root::make_operation_source<int>(driver);
 			(void)src.try_set_value(root::Success<int>{42});
-			return static_cast<std::size_t>(root::value(driver, move(op)));
+			return static_cast<std::size_t>(root::value(driver, std::move(op)));
 		}};
 }
 Case make_root_task_cancelled_case() {
@@ -248,7 +248,7 @@ Case make_root_task_cancelled_case() {
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
 			(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
-			auto out = root::blocking_join(move(task));
+			auto out = root::blocking_join(std::move(task));
 			return static_cast<std::size_t>(out.is_cancelled() ? 1 : 0);
 		}};
 }
@@ -264,7 +264,7 @@ Case make_root_task_admit_case(
 	return Case{.name = name, .description = desc, .default_iterations = 200000, .run = [enable_cancellation] {
 					auto [task, src] =
 						root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
-					root::abandon_to(move(task), root::drop_on_abandon{});
+					root::abandon_to(std::move(task), root::drop_on_abandon{});
 					(void)src;
 					return std::size_t{1};
 				}};
@@ -276,7 +276,7 @@ Case make_root_abandon_drop_case() {
 		.default_iterations = 200000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			root::abandon_to(move(task), root::drop_on_abandon{});
+			root::abandon_to(std::move(task), root::drop_on_abandon{});
 			(void)src.try_set_value(root::Success<int>{1});
 			return std::size_t{1};
 		}};
@@ -298,7 +298,7 @@ Case make_root_abandon_sink_case() {
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
 			std::size_t seen = 0;
-			root::abandon_to(move(task), Sink{.seen = &seen});
+			root::abandon_to(std::move(task), Sink{.seen = &seen});
 			(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 			return seen;
 		}};
@@ -324,7 +324,7 @@ Case make_root_cancel_hook_case(
 					auto control = task.control();
 					std::size_t score = control.request_cancel() ? 1U : 0U;
 					score += seen;
-					root::abandon_to(move(task), root::drop_on_abandon{});
+					root::abandon_to(std::move(task), root::drop_on_abandon{});
 					return score;
 				}};
 }
@@ -345,7 +345,7 @@ Case make_small_fn_inline_case() {
 					++seen;
 				}
 			}};
-			Fn moved{move(fn)};
+			Fn moved{std::move(fn)};
 			moved(root::CancelReason::requested);
 			return seen;
 		}};
@@ -368,7 +368,7 @@ Case make_small_fn_heap_case() {
 					seen += (cap.words[0] & 1U) + 1U;
 				}
 			}};
-			Fn moved{move(fn)};
+			Fn moved{std::move(fn)};
 			moved(root::CancelReason::requested);
 			return seen;
 		}};
@@ -386,7 +386,7 @@ WorkPoolOptions bench_pool_opts() {
 	return opts;
 }
 Case make_pool_single_case() {
-	auto pool = make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_single",
 		.description = "async_run_on(pool, fn) + root::value(task) — single dispatch roundtrip",
@@ -394,7 +394,7 @@ Case make_pool_single_case() {
 		.run = [pool] { return static_cast<std::size_t>(root::value(async_run_on(*pool, [] { return 42; }))); }};
 }
 Case make_pool_join_all_3_case() {
-	auto pool = make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_join_all_3",
 		.description = "join_all(3 × run_on_task) + root::value — 3-way fan-out",
@@ -408,7 +408,7 @@ Case make_pool_join_all_3_case() {
 		}};
 }
 Case make_pool_bursty_case() {
-	auto pool = make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_bursty_8",
 		.description = "burst of 8 tasks after idle gap — exercises park/wake path",
@@ -426,7 +426,7 @@ Case make_pool_bursty_case() {
 			auto t6 = async_run_on(*pool, [] { return 7; });
 			auto t7 = async_run_on(*pool, [] { return 8; });
 			auto [a, b, c, d, e, f, g, h] =
-				root::value(join_all(move(t0), move(t1), move(t2), move(t3), move(t4), move(t5), move(t6), move(t7)));
+				root::value(join_all(std::move(t0), std::move(t1), std::move(t2), std::move(t3), std::move(t4), std::move(t5), std::move(t6), std::move(t7)));
 			return static_cast<std::size_t>(a + b + c + d + e + f + g + h);
 		}};
 }
@@ -453,8 +453,8 @@ Case make_eager_chain_flat_int_case() {
 		.default_iterations = 2000000,
 		.run = [] {
 			auto c = []() -> ec::EagerChain<int> { co_return 42; }();
-			auto out = move(c).chain().release_outcome();
-			return static_cast<std::size_t>(move(out).success().value);
+			auto out = std::move(c).chain().release_outcome();
+			return static_cast<std::size_t>(std::move(out).success().value);
 		}};
 }
 Case make_eager_chain_flat_void_case() {
@@ -464,7 +464,7 @@ Case make_eager_chain_flat_void_case() {
 		.default_iterations = 2000000,
 		.run = [] {
 			auto c = []() -> ec::EagerChain<void> { co_return; }();
-			(void)move(c).chain().release_outcome();
+			(void)std::move(c).chain().release_outcome();
 			return std::size_t{1};
 		}};
 }
@@ -475,7 +475,7 @@ Case make_eager_chain_nested_4_case() {
 		.default_iterations = 500000,
 		.run = [] {
 			auto out = ec_l4().chain().release_outcome();
-			return static_cast<std::size_t>(move(out).success().value);
+			return static_cast<std::size_t>(std::move(out).success().value);
 		}};
 }
 // ---------------------------------------------------------------------------
@@ -501,7 +501,7 @@ Case make_ring_lane_case() {
 		}
 		~State() { ::io_uring_queue_exit(&ring); }
 	};
-	auto state = make_shared<State>();
+	auto state = std::make_shared<State>();
 	return Case{
 		.name = "work/ring_lane_roundtrip",
 		.description = "RingLane enqueue from jthread + msg-ring wake + owner drain",
@@ -510,7 +510,7 @@ Case make_ring_lane_case() {
 		.run = [state] {
 			std::atomic<std::size_t> out{};
 			jthread producer([&] {
-				if (!state->lane->enqueue([&out] { out.store(77, memory_order_release); })) {
+				if (!state->lane->enqueue([&out] { out.store(77, std::memory_order_release); })) {
 					throw std::runtime_error{"ring lane enqueue failed"};
 				}
 			});
@@ -521,7 +521,7 @@ Case make_ring_lane_case() {
 			}
 			::io_uring_cqe_seen(&state->ring, cqe);
 			(void)state->lane->drain();
-			return out.load(memory_order_acquire);
+			return out.load(std::memory_order_acquire);
 		}};
 }
 std::vector<Case> make_cases() {
@@ -584,7 +584,7 @@ int main(
 			auto const iterations = cfg.iterations_override.value_or(bench.default_iterations);
 			print_stats(measure_case(bench, iterations), cfg.format);
 		}
-		std::println(std::cerr, "sink={}", sink.load(memory_order_relaxed));
+		std::println(std::cerr, "sink={}", sink.load(std::memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
 		std::println(std::cerr, "conflux_work_benchmarks: {}", ex.what());

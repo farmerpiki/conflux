@@ -74,7 +74,7 @@ struct BenchClient {
 		}
 	}
 	std::size_t recv_response(
-		span<char> buf) const {
+		std::span<char> buf) const {
 		std::size_t total = 0;
 		std::size_t hdr_end_pos = std::string_view::npos;
 		std::size_t body_len = 0;
@@ -115,7 +115,7 @@ struct BenchClient {
 		return total;
 	}
 	std::size_t recv_response_no_body(
-		span<char> buf) const {
+		std::span<char> buf) const {
 		std::size_t total = 0;
 		for (;;) {
 			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
@@ -131,7 +131,7 @@ struct BenchClient {
 		return total;
 	}
 	std::size_t recv_n_responses(
-		span<char> buf,
+		std::span<char> buf,
 		int count) const {
 		std::size_t total = 0;
 		int got = 0;
@@ -173,7 +173,7 @@ struct BenchClient {
 		return total;
 	}
 	std::size_t recv_until_close(
-		span<char> buf) const {
+		std::span<char> buf) const {
 		std::size_t total = 0;
 		for (;;) {
 			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
@@ -194,7 +194,7 @@ struct BenchClient {
 		(void)n;
 	}
 	std::size_t recv_slow(
-		span<char> buf,
+		std::span<char> buf,
 		std::size_t chunk_size,
 		std::chrono::microseconds delay) const {
 		std::size_t total = 0;
@@ -290,7 +290,7 @@ ServerHandle start_server(
 	Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = make_shared<HttpServer>(cfg, move(router));
+	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -298,7 +298,7 @@ ServerHandle start_server(
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
-	return {.server = srv, .thr = move(t), .port = p};
+	return {.server = srv, .thr = std::move(t), .port = p};
 }
 Config bench_config(
 	unsigned rings = 1,
@@ -343,7 +343,7 @@ std::string make_post_request(
 	std::string_view path,
 	std::size_t body_size) {
 	std::string body(body_size, 'X');
-	return format(
+	return std::format(
 		"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
 		path,
 		body_size,
@@ -353,7 +353,7 @@ std::string make_chunked_single(
 	std::string_view path,
 	std::size_t body_size) {
 	std::string body(body_size, 'X');
-	return format(
+	return std::format(
 		"POST {} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
 		path,
 		body_size,
@@ -363,11 +363,11 @@ std::string make_chunked_many(
 	std::string_view path,
 	std::size_t total_size,
 	std::size_t chunk_size) {
-	std::string req = format("POST {} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n", path);
+	std::string req = std::format("POST {} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n", path);
 	std::string chunk(chunk_size, 'X');
 	for (std::size_t sent = 0; sent < total_size; sent += chunk_size) {
 		auto cs = min(chunk_size, total_size - sent);
-		req += format("{:x}\r\n", cs);
+		req += std::format("{:x}\r\n", cs);
 		req.append(chunk.data(), cs);
 		req += "\r\n";
 	}
@@ -395,7 +395,7 @@ std::string make_header_too_large() {
 	return hdr;
 }
 std::string make_body_too_large_headers() {
-	return format(
+	return std::format(
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n",
 		100 * 1024 * 1024);
 }
@@ -419,7 +419,7 @@ BenchStats run_variant(
 	std::string_view config_name) {
 	if (v.iters_override) {
 		iterations = min(iterations, v.iters_override);
-		warmup = min(warmup, max(std::size_t{2}, v.iters_override / 10));
+		warmup = min(warmup, std::max(std::size_t{2}, v.iters_override / 10));
 	}
 	if (v.setup) {
 		v.setup();
@@ -531,7 +531,7 @@ int main(
 	});
 	plain_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	plain_router.get("/hello/{name}", [](HttpRequest const &req) {
-		return HttpResponse::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 	plain_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	plain_router.group("/api/v2", [](Router::Group &g) {
@@ -563,13 +563,13 @@ int main(
 		}
 	});
 
-	auto plain = start_server(bench_config(), move(plain_router));
+	auto plain = start_server(bench_config(), std::move(plain_router));
 
 	// compress
 	Router compress_router;
 	compress_router.use(compress_middleware());
 	compress_router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
-	auto compress = start_server(bench_config(), move(compress_router));
+	auto compress = start_server(bench_config(), std::move(compress_router));
 
 	// security
 	Router security_router;
@@ -577,25 +577,25 @@ int main(
 	sopts.hsts_only_on_tls = false;
 	security_router.use(security_headers_middleware(sopts));
 	security_router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	auto security = start_server(bench_config(), move(security_router));
+	auto security = start_server(bench_config(), std::move(security_router));
 
 	// cors
 	Router cors_router;
 	cors_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 	cors_router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	auto cors = start_server(bench_config(), move(cors_router));
+	auto cors = start_server(bench_config(), std::move(cors_router));
 
 	// auth
 	Router auth_router;
 	auth_router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-bench-token"; }));
 	auth_router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-	auto auth = start_server(bench_config(), move(auth_router));
+	auto auth = start_server(bench_config(), std::move(auth_router));
 
 	// etag
 	Router etag_router;
 	etag_router.use(etag_middleware());
 	etag_router.get("/content", [](HttpRequest const &) { return HttpResponse::text("hello world"); });
-	auto etag = start_server(bench_config(), move(etag_router));
+	auto etag = start_server(bench_config(), std::move(etag_router));
 
 	// cache
 	Router cache_router;
@@ -603,9 +603,9 @@ int main(
 	cache_router.get("/counted", [](HttpRequest const &) {
 		static std::atomic<int> count{0};
 		int n = ++count;
-		return HttpResponse::text(format("visit {}", n));
+		return HttpResponse::text(std::format("visit {}", n));
 	});
-	auto cache = start_server(bench_config(), move(cache_router));
+	auto cache = start_server(bench_config(), std::move(cache_router));
 
 	// full_stack
 	Router fs_router;
@@ -614,15 +614,15 @@ int main(
 	fs_router.use(compress_middleware());
 	fs_router.use(etag_middleware());
 	fs_router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
-	auto full_stack = start_server(bench_config(), move(fs_router));
+	auto full_stack = start_server(bench_config(), std::move(fs_router));
 
 	// deferred
-	auto defer_pool = make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
+	auto defer_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 	Router defer_router;
 	defer_router.get("/api/defer-ok", [&defer_pool](HttpRequest const &) {
 		return conflux::http::defer(defer_pool, [] { return HttpResponse::json(R"({"deferred":"ok"})"); });
 	});
-	auto deferred = start_server(bench_config(), move(defer_router));
+	auto deferred = start_server(bench_config(), std::move(defer_router));
 
 	// plain_rN (multi-ring)
 	Router rn_router;
@@ -632,7 +632,7 @@ int main(
 	rn_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	rn_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	rn_router.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
-	auto plain_rn = start_server(bench_config(thread::hardware_concurrency()), move(rn_router));
+	auto plain_rn = start_server(bench_config(thread::hardware_concurrency()), std::move(rn_router));
 
 	// static file serving
 	auto const static_dir = std::filesystem::temp_directory_path() / "conflux_bench_static";
@@ -652,7 +652,7 @@ int main(
 	auto static_cfg = bench_config();
 	static_cfg.splice_pipe_pairs = 2;
 	static_router.serve_static("/", std::string{static_dir.string()});
-	auto static_srv = start_server(static_cfg, move(static_router));
+	auto static_srv = start_server(static_cfg, std::move(static_router));
 
 	// stress configs
 	Router sr32_router;
@@ -660,24 +660,24 @@ int main(
 	sr32_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	sr32_router.get("/body/1m", [&body_1m](HttpRequest const &) { return HttpResponse::text(body_1m); });
 	sr32_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-	auto small_ring_32 = start_server(bench_config(1, 32), move(sr32_router));
+	auto small_ring_32 = start_server(bench_config(1, 32), std::move(sr32_router));
 
 	Router sr64_router;
 	sr64_router.get("/", [](HttpRequest const &) { return HttpResponse::html("<html><body>ok</body></html>"); });
 	sr64_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	sr64_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-	auto small_ring_64 = start_server(bench_config(1, 64), move(sr64_router));
+	auto small_ring_64 = start_server(bench_config(1, 64), std::move(sr64_router));
 
 	Router br64_router;
 	br64_router.get("/", [](HttpRequest const &) { return HttpResponse::html("<html><body>ok</body></html>"); });
 	br64_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	br64_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	br64_router.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
-	auto small_buf_ring_64 = start_server(bench_config(1, 16), move(br64_router));
+	auto small_buf_ring_64 = start_server(bench_config(1, 16), std::move(br64_router));
 
 	Router br128_router;
 	br128_router.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
-	auto small_buf_ring_128 = start_server(bench_config(1, 32), move(br128_router));
+	auto small_buf_ring_128 = start_server(bench_config(1, 32), std::move(br128_router));
 
 #if CONFLUX_BENCH_HAS_TLS
 	// tls — self-signed cert
@@ -693,7 +693,7 @@ int main(
 			int f = ::mkstemps(key_tmp, 4);
 			::close(f);
 		}
-		auto cmd = format(
+		auto cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
 			cert_tmp);
@@ -713,15 +713,15 @@ int main(
 	auto tls_cfg = bench_config();
 	tls_cfg.cert_file = tls_cert_path;
 	tls_cfg.key_file = tls_key_path;
-	auto tls_srv = start_server(tls_cfg, move(tls_router));
+	auto tls_srv = start_server(tls_cfg, std::move(tls_router));
 #endif
 
 	// ── Shared state for variants ───────────────────────────────────────
 
 	std::array<char, 8192> small_buf{};
-	auto sb = span<char>{small_buf};
+	auto sb = std::span<char>{small_buf};
 	std::vector<char> large_buf(1200000);
-	auto lb = span<char>{large_buf};
+	auto lb = std::span<char>{large_buf};
 
 	// Pre-warm cache
 	{
@@ -1014,9 +1014,9 @@ int main(
 		 .setup = [&] { client = make_unique<BenchClient>(cache.port); },
 		 .run =
 			 [&] {
-				 auto req = format(
+				 auto req = std::format(
 					 "GET /counted?v={} HTTP/1.1\r\nHost: localhost\r\n\r\n",
-					 cache_miss_seq.fetch_add(1, memory_order_relaxed));
+					 cache_miss_seq.fetch_add(1, std::memory_order_relaxed));
 				 client->send_all(req);
 				 (void)client->recv_response(sb);
 			 },
@@ -1341,7 +1341,7 @@ int main(
 			}
 		}
 		std::string resp{buf.data(), total};
-		return {move(c), move(resp)};
+		return {std::move(c), std::move(resp)};
 	};
 
 	auto ws_build_masked_text = [](std::string_view payload) -> std::string {
@@ -1579,7 +1579,7 @@ int main(
 		return c;
 	}()};
 
-	auto tls_send_recv = [](SSL *ssl, std::string_view req, span<char> buf) -> std::size_t {
+	auto tls_send_recv = [](SSL *ssl, std::string_view req, std::span<char> buf) -> std::size_t {
 		SSL_write(ssl, req.data(), static_cast<int>(req.size()));
 		std::size_t total = 0;
 		std::size_t hdr_end_pos = std::string_view::npos;
@@ -1625,7 +1625,7 @@ int main(
 			SSL_free(ssl);
 			throw std::runtime_error{"SSL_connect failed"};
 		}
-		return {move(*c), ssl};
+		return {std::move(*c), ssl};
 	};
 	struct SslDeleter {
 		void operator ()(
@@ -1639,7 +1639,7 @@ int main(
 
 	auto tls_setup = [&] {
 		auto [c, ssl] = tls_connect(tls_srv.port);
-		tls_client = make_unique<BenchClient>(move(c));
+		tls_client = make_unique<BenchClient>(std::move(c));
 		tls_ssl.reset(ssl);
 	};
 	auto tls_teardown = [&] {

@@ -32,8 +32,8 @@ export Router::Middleware ip_filter_middleware(
 	IpFilterOptions opts = {}) {
 	auto parsed = parse_cidr_list(opts.cidrs);
 
-	return [opts = move(opts),
-			parsed = move(parsed)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts),
+			parsed = std::move(parsed)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
 		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
 

@@ -44,7 +44,7 @@ struct ClientResponse {
 
 	// Phase 2: json() / json_borrowed() accessors.
 };
-using ClientResult = expected<ClientResponse, HttpError>;
+using ClientResult = std::expected<ClientResponse, HttpError>;
 struct HttpClientOptions {
 	HttpTimeouts default_timeouts{};
 	bool verify_peer{true};
@@ -77,7 +77,7 @@ struct Connection {
 		return -1; // indefinite
 	}
 	long long const s = (ms.count() + 999) / 1000;
-	return static_cast<int>(min<long long>(s, INT_MAX));
+	return static_cast<int>(std::min<long long>(s, INT_MAX));
 }
 void close_conn(
 	Connection &conn) noexcept {
@@ -136,7 +136,7 @@ enum class ConnectFailure {
 	connect,
 };
 [[nodiscard]] int try_connect_endpoints(
-	span<client_dns_bridge::Endpoint const> endpoints,
+	std::span<client_dns_bridge::Endpoint const> endpoints,
 	std::uint16_t port,
 	int timeout_sec,
 	HttpTelemetry &tel) {
@@ -159,7 +159,7 @@ enum class ConnectFailure {
 			continue;
 		}
 		sockaddr_storage addr{};
-		std::memcpy(&addr, ep.addr, min(sizeof(addr), sizeof(ep.addr)));
+		std::memcpy(&addr, ep.addr, std::min(sizeof(addr), sizeof(ep.addr)));
 		if (connect_with_timeout(
 				fd,
 				reinterpret_cast<sockaddr const *>(&addr),
@@ -169,11 +169,11 @@ enum class ConnectFailure {
 			if (fam == AF_INET) {
 				auto const *sa4 = reinterpret_cast<sockaddr_in const *>(&addr);
 				inet_ntop(AF_INET, &sa4->sin_addr, buf, sizeof(buf));
-				tel.peer_addr = format("{}:{}", buf, port);
+				tel.peer_addr = std::format("{}:{}", buf, port);
 			} else {
 				auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(&addr);
 				inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
-				tel.peer_addr = format("[{}]:{}", buf, port);
+				tel.peer_addr = std::format("[{}]:{}", buf, port);
 			}
 			break;
 		}
@@ -222,19 +222,19 @@ bool collect_endpoint(
 		if (!resolved) {
 			failure = ConnectFailure::dns;
 			failure_errno = 0;
-			failure_message = format("DNS resolution failed for '{}': {}", host, error_buf.data());
+			failure_message = std::format("DNS resolution failed for '{}': {}", host, error_buf.data());
 			return -1;
 		}
 		int const fd = try_connect_endpoints(collector.endpoints, port, timeout_sec, tel);
 		if (fd < 0) {
 			failure = ConnectFailure::connect;
 			failure_errno = errno;
-			failure_message = format("failed to connect to '{}:{}'", host, port);
+			failure_message = std::format("failed to connect to '{}:{}'", host, port);
 		}
 		return fd;
 	}
 	std::string const host_str{host};
-	std::string const port_str = to_string(port);
+	std::string const port_str = std::to_string(port);
 	addrinfo hints{};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -247,7 +247,7 @@ bool collect_endpoint(
 	if (gai_err != 0) {
 		failure = ConnectFailure::dns;
 		failure_errno = 0;
-		failure_message = format("DNS resolution failed for '{}': {}", host, ::gai_strerror(gai_err));
+		failure_message = std::format("DNS resolution failed for '{}': {}", host, ::gai_strerror(gai_err));
 		return -1;
 	}
 	struct AddrInfoDeleter {
@@ -278,11 +278,11 @@ bool collect_endpoint(
 			if (ai->ai_family == AF_INET) {
 				auto const *sa4 = reinterpret_cast<sockaddr_in const *>(ai->ai_addr);
 				inet_ntop(AF_INET, &sa4->sin_addr, buf, sizeof(buf));
-				tel.peer_addr = format("{}:{}", buf, port);
+				tel.peer_addr = std::format("{}:{}", buf, port);
 			} else {
 				auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(ai->ai_addr);
 				inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
-				tel.peer_addr = format("[{}]:{}", buf, port);
+				tel.peer_addr = std::format("[{}]:{}", buf, port);
 			}
 			break;
 		}
@@ -293,7 +293,7 @@ bool collect_endpoint(
 	if (fd < 0) {
 		failure = ConnectFailure::connect;
 		failure_errno = errno;
-		failure_message = format("failed to connect to '{}:{}'", host, port);
+		failure_message = std::format("failed to connect to '{}:{}'", host, port);
 	}
 	return fd;
 }
@@ -339,16 +339,16 @@ bool recv_some(
 	out.append(tmp.data(), static_cast<std::size_t>(n));
 	return true;
 }
-// Receive until delimiter or max bytes. Returns accumulated bytes (may contain
+// Receive until delimiter or std::max bytes. Returns accumulated bytes (may contain
 // data past the delimiter if overread from the socket).
 std::string recv_until(
 	Connection &conn,
 	std::string_view delim,
 	int timeout_sec,
-	std::size_t max) {
+	std::size_t max_size) {
 	std::string buf;
-	buf.reserve(min<std::size_t>(4096, max));
-	while (buf.size() < max) {
+	buf.reserve(std::min<std::size_t>(4096, max_size));
+	while (buf.size() < max_size) {
 		if (!recv_some(conn, buf, timeout_sec)) {
 			break;
 		}
@@ -411,8 +411,8 @@ ChunkedDecodeStatus decode_chunked_prefix(
 			return ChunkedDecodeStatus::invalid;
 		}
 		std::size_t chunk_size = 0;
-		auto const parsed = from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
-		if (parsed.ec != errc{} || parsed.ptr != size_str.data() + size_str.size()) {
+		auto const parsed = std::from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
+		if (parsed.ec != std::errc{} || parsed.ptr != size_str.data() + size_str.size()) {
 			return ChunkedDecodeStatus::invalid;
 		}
 		consumed = line_end + 2;
@@ -450,7 +450,7 @@ bool recv_chunked(
 	bool &too_large) {
 	too_large = false;
 	decoded.clear();
-	decoded.reserve(min(encoded.size(), cap));
+	decoded.reserve(std::min(encoded.size(), cap));
 	std::size_t consumed = 0;
 	for (;;) {
 		switch (decode_chunked_prefix(encoded, decoded, consumed)) {
@@ -481,7 +481,7 @@ bool recv_chunked(
 	Url const &base,
 	std::string_view location) {
 	if (location.empty() || location.find_first_of("\r\n") != std::string_view::npos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	std::string loc{location};
 	auto const frag = loc.find('#');
@@ -489,7 +489,7 @@ bool recv_chunked(
 		loc.erase(frag);
 	}
 	if (loc.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (loc.starts_with("//")) {
 		std::string abs_url;
@@ -498,10 +498,10 @@ bool recv_chunked(
 		abs_url += ':';
 		abs_url += loc;
 		auto abs = Url::parse(abs_url);
-		return abs ? std::optional<Url>{move(*abs)} : nullopt;
+		return abs ? std::optional<Url>{std::move(*abs)} : std::nullopt;
 	}
 	if (auto abs = Url::parse(loc); abs) {
-		return move(*abs);
+		return std::move(*abs);
 	}
 	Url next = base;
 	auto const q = loc.find('?');
@@ -515,7 +515,7 @@ bool recv_chunked(
 		next.query.clear();
 	}
 	if (loc.starts_with('/')) {
-		next.path = move(loc);
+		next.path = std::move(loc);
 		return next;
 	}
 	std::string_view const base_path = next.path.empty() ? std::string_view{"/"} : std::string_view{next.path};
@@ -530,29 +530,29 @@ bool recv_chunked(
 		new_path.reserve(slash + 1 + loc.size());
 		new_path.append(base_path.data(), slash + 1);
 		new_path += loc;
-		next.path = move(new_path);
+		next.path = std::move(new_path);
 	}
 	return next;
 }
-[[nodiscard]] expected<std::optional<ClientRequest>, HttpError> follow_redirect(
+[[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
 	if (!is_redirect_status(resp.head.status)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto const location = resp.head.headers["location"];
 	if (location.empty()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (req.max_redirects() <= 0) {
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::redirect_limit,
 				.message = "redirect limit exceeded"});
 	}
 	auto next_url = resolve_redirect_target(req.url(), location);
 	if (!next_url) {
-		return nullopt;
+		return std::nullopt;
 	}
 	bool const cross_origin = !same_origin(req.url(), *next_url);
 	HttpFields next_headers{req.headers().case_insensitive()};
@@ -580,7 +580,7 @@ bool recv_chunked(
 		builder.server_name(req.server_name());
 	}
 	builder.follow_redirects(req.max_redirects() - 1);
-	return move(builder).build();
+	return std::move(builder).build();
 }
 void accumulate_telemetry(
 	HttpTelemetry &total,
@@ -649,13 +649,13 @@ ClientResult do_blocking_request(
 		opts.resolver);
 	if (fd < 0) {
 		bool const is_dns = conn_fail == ConnectFailure::dns;
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
 				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
 				.os_errno = conn_fail_errno,
 				.message = conn_fail_message.empty() ?
-							   format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
+							   std::format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
 							   conn_fail_message,
 			});
 	}
@@ -675,7 +675,7 @@ ClientResult do_blocking_request(
 			tls_ctx.emplace();
 		} catch (TlsError const &e) {
 			::close(fd);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::tls,
 					.phase = HttpPhase::tls,
@@ -687,7 +687,7 @@ ClientResult do_blocking_request(
 			if (!opts.ca_bundle_path.empty()) {
 				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr) != 1) {
 					::close(fd);
-					return unexpected(HttpError{
+					return std::unexpected(HttpError{
 						.kind = HttpErrorKind::tls,
 						.phase = HttpPhase::tls,
 						.message = "TLS CA bundle load failed",
@@ -695,7 +695,7 @@ ClientResult do_blocking_request(
 				}
 			} else if (!tls_ctx->set_default_verify_paths()) {
 				::close(fd);
-				return unexpected(HttpError{
+				return std::unexpected(HttpError{
 					.kind = HttpErrorKind::tls,
 					.phase = HttpPhase::tls,
 					.message = "TLS default verify paths load failed",
@@ -707,7 +707,7 @@ ClientResult do_blocking_request(
 			tls_stream.emplace(*tls_ctx, fd);
 		} catch (TlsError const &e) {
 			::close(fd);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::tls,
 					.phase = HttpPhase::tls,
@@ -717,13 +717,13 @@ ClientResult do_blocking_request(
 		if (!tls_stream->set_server_name(sni_sv)) {
 			tls_stream->shutdown_safe();
 			::close(fd);
-			return unexpected(
+			return std::unexpected(
 				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
 		}
 		if (verify && !tls_stream->set_verify_hostname(sni_sv)) {
 			tls_stream->shutdown_safe();
 			::close(fd);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::tls,
 					.phase = HttpPhase::tls,
@@ -743,12 +743,12 @@ ClientResult do_blocking_request(
 			}
 			tls_stream->shutdown_safe();
 			::close(fd);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::tls,
 					.phase = HttpPhase::tls,
 					.tls_alert = alert,
-					.verify_reason = move(verify_reason),
+					.verify_reason = std::move(verify_reason),
 					.message = "TLS handshake failed",
 				});
 		}
@@ -765,7 +765,7 @@ ClientResult do_blocking_request(
 		}
 #else
 		::close(fd);
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::tls,
 				.phase = HttpPhase::tls,
@@ -778,8 +778,8 @@ ClientResult do_blocking_request(
 	conn.fd = fd;
 #if CONFLUX_HAS_TLS
 	conn.use_tls = use_tls;
-	conn.tls_ctx = move(tls_ctx);
-	conn.tls_stream = move(tls_stream);
+	conn.tls_ctx = std::move(tls_ctx);
+	conn.tls_stream = std::move(tls_stream);
 #endif
 
 	// Build request line + headers.
@@ -789,7 +789,7 @@ ClientResult do_blocking_request(
 	int const write_sec = to_sec(timeouts.write);
 	if (!send_all(conn, wire, write_sec)) {
 		close_conn(conn);
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::write,
 				.phase = HttpPhase::write,
@@ -802,7 +802,7 @@ ClientResult do_blocking_request(
 	if (!req.body().empty()) {
 		if (!send_all(conn, req.body(), write_sec)) {
 			close_conn(conn);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::write,
 					.phase = HttpPhase::write,
@@ -826,19 +826,19 @@ ClientResult do_blocking_request(
 	if (header_end == std::string::npos) {
 		close_conn(conn);
 		if (raw.size() >= max_hdr) {
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::header_too_large,
-					.message = format("response headers exceed {} bytes", max_hdr)});
+					.message = std::format("response headers exceed {} bytes", max_hdr)});
 		}
-		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
 	}
 	if (header_end > max_hdr) {
 		close_conn(conn);
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::header_too_large,
-				.message = format("response headers exceed {} bytes", max_hdr)});
+				.message = std::format("response headers exceed {} bytes", max_hdr)});
 	}
 	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
 
@@ -850,17 +850,17 @@ ClientResult do_blocking_request(
 	auto const sp1 = status_line.find(' ');
 	if (sp1 == std::string_view::npos) {
 		close_conn(conn);
-		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
+		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
 	}
 	auto const rest = status_line.substr(sp1 + 1);
 	auto const sp2 = rest.find(' ');
 	auto const code_sv = (sp2 != std::string_view::npos) ? rest.substr(0, sp2) : rest;
 	int status = 0;
-	auto const [ptr, ec] = from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
-	if (ec != errc{} || status < 100 || status > 999) {
+	auto const [ptr, ec] = std::from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
+	if (ec != std::errc{} || status < 100 || status > 999) {
 		close_conn(conn);
-		return unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = format("invalid status code '{}'", code_sv)});
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = std::format("invalid status code '{}'", code_sv)});
 	}
 	response.head.status = status;
 	if (sp2 != std::string_view::npos) {
@@ -882,7 +882,7 @@ ClientResult do_blocking_request(
 				v.remove_prefix(1);
 			}
 			if (ascii_iequals(k, "content-length")) {
-				from_chars(v.data(), v.data() + v.size(), content_length);
+				std::from_chars(v.data(), v.data() + v.size(), content_length);
 				has_content_length = true;
 			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				chunked = true;
@@ -898,10 +898,10 @@ ClientResult do_blocking_request(
 	// Validate content-length against cap.
 	if (has_content_length && content_length > max_body) {
 		close_conn(conn);
-		return unexpected(
+		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::body_too_large,
-				.message = format("Content-Length {} exceeds limit {}", content_length, max_body)});
+				.message = std::format("Content-Length {} exceeds limit {}", content_length, max_body)});
 	}
 
 	// Receive body.
@@ -909,7 +909,7 @@ ClientResult do_blocking_request(
 	std::size_t const initial_body_bytes = raw.size() - body_offset;
 	tel.bytes_received += raw.size();
 	raw.erase(0, body_offset);
-	response.body = move(raw);
+	response.body = std::move(raw);
 
 	auto t_body = std::chrono::steady_clock::now();
 	if (req.method() == "HEAD") {
@@ -920,12 +920,12 @@ ClientResult do_blocking_request(
 		if (!recv_chunked(conn, response.body, decoded, between_sec, max_body, max_buf, too_large)) {
 			close_conn(conn);
 			if (too_large) {
-				return unexpected(
+				return std::unexpected(
 					HttpError{
 						.kind = HttpErrorKind::body_too_large,
-						.message = format("chunked body exceeds limit {}", max_body)});
+						.message = std::format("chunked body exceeds limit {}", max_body)});
 			}
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::read,
 					.phase = HttpPhase::between_bytes,
@@ -933,17 +933,17 @@ ClientResult do_blocking_request(
 					.message = "failed to receive chunked body"});
 		}
 		tel.bytes_received += decoded.size();
-		response.body = move(decoded);
+		response.body = std::move(decoded);
 	} else if (has_content_length && content_length > response.body.size()) {
 		if (!recv_exact(conn, response.body, between_sec, content_length, max_body)) {
 			close_conn(conn);
 			if (response.body.size() >= max_body) {
-				return unexpected(
+				return std::unexpected(
 					HttpError{
 						.kind = HttpErrorKind::body_too_large,
-						.message = format("body exceeds limit {}", max_body)});
+						.message = std::format("body exceeds limit {}", max_body)});
 			}
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::read,
 					.phase = HttpPhase::between_bytes,
@@ -956,10 +956,10 @@ ClientResult do_blocking_request(
 		recv_to_eof(conn, response.body, between_sec, max_body, too_large);
 		if (too_large) {
 			close_conn(conn);
-			return unexpected(
+			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::body_too_large,
-					.message = format("EOF-delimited body exceeds limit {}", max_body)});
+					.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
 		}
 		tel.bytes_received += response.body.size();
 	}
@@ -981,7 +981,7 @@ class HttpClient {
 public:
 	explicit HttpClient(
 		HttpClientOptions opts = {})
-		: opts_{move(opts)} {}
+		: opts_{std::move(opts)} {}
 	[[nodiscard]] HttpClientOptions const &options() const noexcept { return opts_; }
 	[[nodiscard]] ClientResult blocking_send(
 		ClientRequest const &req) const {
@@ -996,13 +996,13 @@ public:
 			client_detail::accumulate_telemetry(total_tel, result->telemetry);
 			auto next = client_detail::follow_redirect(current, *result);
 			if (!next) {
-				return unexpected(next.error());
+				return std::unexpected(next.error());
 			}
 			if (!next->has_value()) {
-				result->telemetry = move(total_tel);
+				result->telemetry = std::move(total_tel);
 				return result;
 			}
-			current = move(**next);
+			current = std::move(**next);
 		}
 	}
 };

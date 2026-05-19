@@ -89,7 +89,7 @@ inline static __m128i aesni_encrypt_block(
 	block = _mm_aesenc_si128(block, ek.rk[13]);
 	return _mm_aesenclast_si128(block, ek.rk[14]);
 }
-// GCM ↔ PCLMULQDQ domain: reverse bits within each byte (no byte-swap)
+// GCM ↔ PCLMULQDQ domain: reverse bits within each std::byte (no std::byte-swap)
 inline static __m128i byte_bitrev(
 	__m128i v) {
 	__m128i const mask_lo = _mm_set1_epi8(0x0F);
@@ -101,7 +101,7 @@ inline static __m128i byte_bitrev(
 	return _mm_or_si128(_mm_slli_epi16(lo, 4), hi);
 }
 // Reduce 256-bit GF(2^128) product [t1:t0] mod P(x)=x^128+x^7+x^2+x+1.
-// t0 = low 128 bits, t1 = high 128 bits (byte-bitrev domain).
+// t0 = low 128 bits, t1 = high 128 bits (std::byte-bitrev domain).
 inline static __m128i reduce256(
 	__m128i t0,
 	__m128i t1) noexcept {
@@ -141,8 +141,8 @@ inline static __m128i gf128_mul(
 	__m128i const b_m = _mm_xor_si128(b, _mm_srli_si128(b, 8));
 	return gf128_mul_m(a, b, a_m, b_m);
 }
-// Per-thread cache of the last-used key schedule and H powers.
-// Covers the common pattern: one key per thread, many operations.
+// Per-std::thread cache of the last-used key schedule and H powers.
+// Covers the common pattern: one key per std::thread, many operations.
 struct KeyCtx {
 	AesniKey256 ek;
 	__m128i h_br, h2_br, h3_br, h4_br;

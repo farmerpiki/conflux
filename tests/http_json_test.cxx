@@ -18,7 +18,7 @@ struct StreamingPayload {
 };
 
 struct StreamingOnlyProvider {
-	static expected<void, jb::Error> write_json(
+	static std::expected<void, jb::Error> write_json(
 		StreamingPayload const &payload,
 		jb::DumpOptions const &,
 		auto &&sink) {
@@ -36,8 +36,8 @@ struct InputPayload {
 
 struct BoundaryRouteProvider {
 	template<class T>
-		requires same_as<T, InputPayload>
-	static expected<T, jb::Error> decode_json(
+		requires std::same_as<T, InputPayload>
+	static std::expected<T, jb::Error> decode_json(
 		std::string_view input,
 		jb::DecodeOptions const &) {
 		int value{};
@@ -45,7 +45,7 @@ struct BoundaryRouteProvider {
 		auto const *last = input.data() + input.size();
 		auto [ptr, ec] = std::from_chars(first, last, value);
 		if (ec != std::errc{} || ptr != last) {
-			return unexpected(jb::Error{
+			return std::unexpected(jb::Error{
 				.stage = jb::ErrorStage::decode,
 				.code = jb::ErrorCode::invalid_value,
 				.message = "expected integer payload",
@@ -54,22 +54,22 @@ struct BoundaryRouteProvider {
 		return T{.value = value};
 	}
 
-	static expected<void, jb::Error> write_json(
+	static std::expected<void, jb::Error> write_json(
 		StreamingPayload const &payload,
 		jb::DumpOptions const &,
 		auto &&sink) {
-		return StreamingOnlyProvider::write_json(payload, {}, forward<decltype(sink)>(sink));
+		return StreamingOnlyProvider::write_json(payload, {}, std::forward<decltype(sink)>(sink));
 	}
 };
 
 struct FailingPayload {};
 
 struct FailingProvider {
-	static expected<void, jb::Error> write_json(
+	static std::expected<void, jb::Error> write_json(
 		FailingPayload const &,
 		jb::DumpOptions const &,
 		auto &&) {
-		return unexpected(jb::Error{
+		return std::unexpected(jb::Error{
 			.stage = jb::ErrorStage::dump,
 			.code = jb::ErrorCode::provider_failure,
 			.message = "forced failure",
@@ -120,7 +120,7 @@ TEST_CASE(
 	"[http.json]") {
 	auto req = conflux::http::ClientRequest::post("https://example.test/api");
 	hj::set_body(req, static_cast<std::int64_t>(99));
-	auto built = move(req).build();
+	auto built = std::move(req).build();
 	CHECK(built.headers().value_or("Content-Type") == jb::kContentType);
 	CHECK(built.body() == "99");
 

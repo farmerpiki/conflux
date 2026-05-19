@@ -1,7 +1,7 @@
 // Response caching middleware: in-memory LRU cache with TTL.
 // Only caches GET requests with 200 responses and no Set-Cookie headers.
 // Cache key is the full request path (including query string).
-// TTL is taken from the response Cache-Control max-age if present; otherwise
+// TTL is taken from the response Cache-Control std::max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
 module;
 #include <memory>
@@ -17,7 +17,7 @@ export struct ResponseCacheOptions {
 	std::size_t max_entries{256};
 	// Maximum total bytes of cached response bodies (0 = unlimited).
 	std::size_t max_bytes{64ULL * 1024 * 1024};
-	// Default TTL when the response has no Cache-Control max-age.
+	// Default TTL when the response has no Cache-Control std::max-age.
 	std::chrono::seconds default_ttl{60};
 	// When true, Vary: * responses are not cached.
 	bool respect_vary{true};
@@ -32,7 +32,7 @@ struct TransparentStringHash {
 	using is_transparent = void;
 	[[nodiscard]] std::size_t operator ()(
 		std::string_view value) const noexcept {
-		return hash<std::string_view>{}(value);
+		return std::hash<std::string_view>{}(value);
 	}
 	[[nodiscard]] std::size_t operator ()(
 		std::string const &value) const noexcept {
@@ -67,9 +67,9 @@ struct TransparentStringEqual {
 class RespLruCache {
 public:
 	explicit RespLruCache(
-		std::size_t max,
+		std::size_t max_entries,
 		std::size_t max_bytes)
-		: max_(max)
+		: max_(max_entries)
 		, max_bytes_(max_bytes) {}
 	// Returns pointer to cached entry (nullptr if absent or expired).
 	RespCacheEntry const *get(
@@ -119,7 +119,7 @@ public:
 		total_bytes_ += entry_bytes;
 		order_.push_front(key);
 		iters_.emplace(key, order_.begin());
-		map_.emplace(key, move(entry));
+		map_.emplace(key, std::move(entry));
 	}
 	[[nodiscard]] std::vector<std::string> const *vary_for(
 		std::string_view path) const {
@@ -129,7 +129,7 @@ public:
 	void set_vary(
 		std::string_view path,
 		std::vector<std::string> headers) {
-		path_vary_[std::string{path}] = move(headers);
+		path_vary_[std::string{path}] = std::move(headers);
 	}
 
 private:
@@ -161,7 +161,7 @@ bool cache_control_directive_contains(
 	}
 	return false;
 }
-// Parse max-age from a Cache-Control header value. Returns 0 if not found.
+// Parse std::max-age from a Cache-Control header value. Returns 0 if not found.
 std::chrono::seconds parse_max_age(
 	std::string_view cc) {
 	while (!cc.empty()) {
@@ -173,8 +173,8 @@ std::chrono::seconds parse_max_age(
 			if (conflux::http::ascii_iequals(name, "max-age")) {
 				auto val = trim(part.substr(eq + 1));
 				long v = 0;
-				auto [ptr, ec] = from_chars(val.data(), val.data() + val.size(), v);
-				if (ec != errc{} || ptr != val.data() + val.size()) {
+				auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
+				if (ec != std::errc{} || ptr != val.data() + val.size()) {
 					return std::chrono::seconds{0};
 				}
 				return std::chrono::seconds{v};
@@ -219,7 +219,7 @@ void append_len_field(
 	std::string &out,
 	std::size_t value) {
 	std::array<char, 20> buf{};
-	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
 	(void)ec;
 	out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
 	out.push_back(':');
@@ -265,8 +265,8 @@ std::string build_cache_key(
 } // namespace response_cache_detail
 export Router::Middleware response_cache_middleware(
 	ResponseCacheOptions opts = {}) {
-	auto cache = make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
-	auto mtx = make_shared<mutex>();
+	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
+	auto mtx = std::make_shared<std::mutex>();
 
 	return [opts, cache, mtx](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		bool const is_head = req.method == "HEAD";
@@ -323,8 +323,8 @@ export Router::Middleware response_cache_middleware(
 		auto vary_list = response_cache_detail::parse_vary(vary_hdr);
 
 		auto ttl = response_cache_detail::parse_max_age(cc);
-		if (ttl.count() == 0 && response_cache_detail::cache_control_directive_contains(cc, "max-age")) {
-			return resp; // max-age=0: do not cache
+		if (ttl.count() == 0 && response_cache_detail::cache_control_directive_contains(cc, "std::max-age")) {
+			return resp; // std::max-age=0: do not cache
 		}
 		if (ttl.count() == 0) {
 			ttl = opts.default_ttl;

@@ -101,7 +101,7 @@ struct BenchClient {
 		}
 	}
 	std::size_t recv_response(
-		span<char> buf) const {
+		std::span<char> buf) const {
 		std::size_t total = 0;
 		std::size_t hdr_end_pos = std::string_view::npos;
 		std::size_t body_len = 0;
@@ -181,7 +181,7 @@ ServerHandle start_server(
 	Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = make_shared<HttpServer>(cfg, move(router));
+	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -189,7 +189,7 @@ ServerHandle start_server(
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
-	return {.server = srv, .thr = move(t), .port = p};
+	return {.server = srv, .thr = std::move(t), .port = p};
 }
 HttpServerMetrics stop_server(
 	ServerHandle &h) {
@@ -222,7 +222,7 @@ Config bench_config_zc(
 	return cfg;
 }
 std::size_t parse_send_zc_threshold(
-	span<char *> args) {
+	std::span<char *> args) {
 	std::size_t threshold = 16384;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const arg = args[i];
@@ -233,7 +233,7 @@ std::size_t parse_send_zc_threshold(
 	return threshold;
 }
 bool has_flag(
-	span<char *> args,
+	std::span<char *> args,
 	std::string_view flag) {
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		if (std::string_view{args[i]} == flag) {
@@ -243,7 +243,7 @@ bool has_flag(
 	return false;
 }
 std::size_t parse_sz_arg(
-	span<char *> args,
+	std::span<char *> args,
 	std::string_view name,
 	std::size_t fallback) {
 	for (std::size_t i = 1; i < args.size(); ++i) {
@@ -254,7 +254,7 @@ std::size_t parse_sz_arg(
 	return fallback;
 }
 std::string parse_string_arg(
-	span<char *> args,
+	std::span<char *> args,
 	std::string_view name,
 	std::string fallback) {
 	for (std::size_t i = 1; i < args.size(); ++i) {
@@ -293,7 +293,7 @@ SendZcBenchStats run_variant(
 	std::string_view config_name) {
 	if (v.iters_override) {
 		iterations = v.iters_override;
-		warmup = max(std::size_t{2}, v.iters_override / 10);
+		warmup = std::max(std::size_t{2}, v.iters_override / 10);
 	}
 	if (v.setup && warmup > 0) {
 		v.setup();
@@ -340,7 +340,7 @@ void print_variant(
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
 		std::string extra;
 		if (s.connections != 0) {
-			extra = format(
+			extra = std::format(
 				",\"connections\":{},\"duration_s\":{},\"requests_per_sec\":{:.1f},\"errors\":{}",
 				s.connections,
 				s.duration_s,
@@ -437,15 +437,15 @@ ConcurrentWorkerResult run_concurrent_worker(
 	for (int i = 0; i < connection_count; ++i) {
 		clients.emplace_back(host, port);
 	}
-	ready.fetch_add(1, memory_order_release);
-	while (!start.load(memory_order_acquire)) {
+	ready.fetch_add(1, std::memory_order_release);
+	while (!start.load(std::memory_order_acquire)) {
 		std::this_thread::yield();
 	}
 	std::vector<char> recv_buf(max<std::size_t>(response_bytes + 4096, 8192));
-	auto rb = span<char>{recv_buf};
-	while (!stop.load(memory_order_relaxed)) {
+	auto rb = std::span<char>{recv_buf};
+	while (!stop.load(std::memory_order_relaxed)) {
 		for (auto &client: clients) {
-			if (stop.load(memory_order_relaxed)) {
+			if (stop.load(std::memory_order_relaxed)) {
 				break;
 			}
 			try {
@@ -477,7 +477,7 @@ SendZcBenchStats run_concurrent_variant(
 		HttpServerMetrics metrics{};
 	};
 	State st{.server = start_server(bench_config_zc(mode, send_zc_threshold), router_factory())};
-	auto const hw = max(1u, thread::hardware_concurrency());
+	auto const hw = std::max(1u, thread::hardware_concurrency());
 	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
 	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
 	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
@@ -500,13 +500,13 @@ SendZcBenchStats run_concurrent_variant(
 				ready);
 		});
 	}
-	while (ready.load(memory_order_acquire) != thread_count) {
+	while (ready.load(std::memory_order_acquire) != thread_count) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
 	auto const t0 = bench_now_ns();
-	start.store(true, memory_order_release);
+	start.store(true, std::memory_order_release);
 	std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(duration_s)});
-	stop.store(true, memory_order_release);
+	stop.store(true, std::memory_order_release);
 	for (auto &worker: workers) {
 		worker.join();
 	}
@@ -523,7 +523,7 @@ SendZcBenchStats run_concurrent_variant(
 	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
 	return SendZcBenchStats{
 		.config = std::string{config_name},
-		.variant = move(name),
+		.variant = std::move(name),
 		.iterations = static_cast<std::size_t>(requests),
 		.total_ns = total_ns,
 		.ns_per_iter = ns_per_iter,
@@ -544,7 +544,7 @@ SendZcBenchStats run_remote_concurrent_variant(
 	std::size_t response_bytes,
 	std::size_t connections,
 	std::size_t duration_s) {
-	auto const hw = max(1u, thread::hardware_concurrency());
+	auto const hw = std::max(1u, thread::hardware_concurrency());
 	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
 	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
 	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
@@ -567,13 +567,13 @@ SendZcBenchStats run_remote_concurrent_variant(
 				ready);
 		});
 	}
-	while (ready.load(memory_order_acquire) != thread_count) {
+	while (ready.load(std::memory_order_acquire) != thread_count) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
 	auto const t0 = bench_now_ns();
-	start.store(true, memory_order_release);
+	start.store(true, std::memory_order_release);
 	std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(duration_s)});
-	stop.store(true, memory_order_release);
+	stop.store(true, std::memory_order_release);
 	for (auto &worker: workers) {
 		worker.join();
 	}
@@ -589,7 +589,7 @@ SendZcBenchStats run_remote_concurrent_variant(
 	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
 	return SendZcBenchStats{
 		.config = std::string{config_name},
-		.variant = move(name),
+		.variant = std::move(name),
 		.iterations = static_cast<std::size_t>(requests),
 		.total_ns = total_ns,
 		.ns_per_iter = ns_per_iter,
@@ -635,7 +635,7 @@ std::pair<std::string, std::string> make_self_signed_cert() {
 		}
 		::close(f);
 	}
-	auto cmd = format(
+	auto cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
 		cert_tmp);
@@ -660,7 +660,7 @@ void ssl_write_all(
 }
 std::size_t ssl_recv_response(
 	SSL *ssl,
-	span<char> buf) {
+	std::span<char> buf) {
 	std::size_t total = 0;
 	std::size_t hdr_end_pos = std::string_view::npos;
 	std::size_t body_len = 0;
@@ -721,8 +721,8 @@ int main(
 	std::string const remote_mode = parse_string_arg(raw_args, "--send-zc-mode"sv, "auto");
 	std::size_t const remote_response_bytes = parse_sz_arg(raw_args, "--response-bytes"sv, 1048576);
 	std::string const remote_variant =
-		parse_string_arg(raw_args, "--variant"sv, format("remote/plain/1M/{}", remote_mode));
-	std::string const inferred_config_name = format("threshold_{}", send_zc_threshold);
+		parse_string_arg(raw_args, "--variant"sv, std::format("remote/plain/1M/{}", remote_mode));
+	std::string const inferred_config_name = std::format("threshold_{}", send_zc_threshold);
 	std::string_view const config_name =
 		args.config_name.empty() ? std::string_view{inferred_config_name} : std::string_view{args.config_name};
 	struct BodySpec {
@@ -742,16 +742,16 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
+			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
 		}
 		return r;
 	};
 
 	auto const static_dir =
-		std::filesystem::temp_directory_path() / format("conflux_send_zc_bench_static_{}", ::getpid());
+		std::filesystem::temp_directory_path() / std::format("conflux_send_zc_bench_static_{}", ::getpid());
 	std::filesystem::create_directories(static_dir);
 	for (auto const &[label, size]: kBodies) {
-		auto path = static_dir / format("{}.bin", label);
+		auto path = static_dir / std::format("{}.bin", label);
 		std::ofstream out{path, std::ios::binary};
 		std::string data(size, 'Y');
 		out.write(data.data(), static_cast<std::streamsize>(data.size()));
@@ -765,7 +765,7 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
+			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
 		}
 		r.serve_static("/", std::string{static_dir.string()});
 		return r;
@@ -799,13 +799,13 @@ int main(
 		return 0;
 	}
 	if (client_only) {
-		auto request = format("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", remote_path, remote_host);
+		auto request = std::format("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", remote_path, remote_host);
 		auto s = run_remote_concurrent_variant(
 			config_name,
 			remote_variant,
 			remote_host,
 			remote_port,
-			move(request),
+			std::move(request),
 			remote_response_bytes,
 			concurrent_connections,
 			concurrent_duration_s);
@@ -815,7 +815,7 @@ int main(
 	}
 
 	std::vector<char> recv_buf(1200000);
-	auto rb = span<char>{recv_buf};
+	auto rb = std::span<char>{recv_buf};
 	std::vector<Variant> variants;
 
 	auto make_http_variant = [&](std::string name,
@@ -828,18 +828,18 @@ int main(
 			std::unique_ptr<BenchClient> client;
 			HttpServerMetrics metrics{};
 		};
-		auto st = make_shared<State>();
+		auto st = std::make_shared<State>();
 		return Variant{
-			.name = move(name),
+			.name = std::move(name),
 			.setup =
-				[st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
+				[st, mode = std::string{mode}, router_factory = std::move(router_factory), send_zc_threshold] {
 					st->metrics = {};
 					st->server = make_unique<ServerHandle>(
 						start_server(bench_config_zc(std::string_view{mode}, send_zc_threshold), router_factory()));
 					st->client = make_unique<BenchClient>(st->server->port);
 				},
 			.run =
-				[st, request = move(request), rb] {
+				[st, request = std::move(request), rb] {
 					st->client->send_all(request);
 					(void)st->client->recv_response(rb);
 				},
@@ -924,15 +924,15 @@ int main(
 	for (auto const &[label, size]: kBodies) {
 		auto const req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		auto label_s = std::string{label};
-		variants.push_back(make_http_variant(format("plain/{}/off", label_s), "off", make_body_router, req));
-		variants.push_back(make_http_variant(format("plain/{}/zc_auto", label_s), "auto", make_body_router, req));
+		variants.push_back(make_http_variant(std::format("plain/{}/off", label_s), "off", make_body_router, req));
+		variants.push_back(make_http_variant(std::format("plain/{}/zc_auto", label_s), "auto", make_body_router, req));
 	}
 
 	for (auto const &[label, size]: kBodies) {
 		auto const req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		auto label_s = std::string{label};
-		variants.push_back(make_http_variant(format("mapped/{}/off", label_s), "off", make_static_router, req));
-		variants.push_back(make_http_variant(format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
+		variants.push_back(make_http_variant(std::format("mapped/{}/off", label_s), "off", make_static_router, req));
+		variants.push_back(make_http_variant(std::format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
 	}
 
 #if CONFLUX_BENCH_HAS_TLS
@@ -958,11 +958,11 @@ int main(
 			std::unique_ptr<SSL, SslDeleter> ssl;
 			HttpServerMetrics metrics{};
 		};
-		auto st = make_shared<State>();
+		auto st = std::make_shared<State>();
 		return Variant{
-			.name = move(name),
+			.name = std::move(name),
 			.setup =
-				[&, st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
+				[&, st, mode = std::string{mode}, router_factory = std::move(router_factory), send_zc_threshold] {
 					st->metrics = {};
 					auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
 					cfg.cert_file = tls_cert_path;
@@ -981,7 +981,7 @@ int main(
 					st->ssl.reset(ssl);
 				},
 			.run =
-				[st, request = move(request), rb] {
+				[st, request = std::move(request), rb] {
 					ssl_write_all(st->ssl.get(), request);
 					(void)ssl_recv_response(st->ssl.get(), rb);
 				},
@@ -1009,11 +1009,11 @@ int main(
 		auto const mapped_req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		std::size_t const tls_iters = size >= 1048576 ? 50 : 200;
 		variants.push_back(
-			make_tls_variant(format("tls/plain/{}/off", label_s), "off", make_body_router, body_req, tls_iters));
+			make_tls_variant(std::format("tls/plain/{}/off", label_s), "off", make_body_router, body_req, tls_iters));
 		variants.push_back(
-			make_tls_variant(format("tls/plain/{}/zc_auto", label_s), "auto", make_body_router, body_req, tls_iters));
+			make_tls_variant(std::format("tls/plain/{}/zc_auto", label_s), "auto", make_body_router, body_req, tls_iters));
 		variants.push_back(
-			make_tls_variant(format("tls/mapped/{}/off", label_s), "off", make_static_router, mapped_req, tls_iters));
+			make_tls_variant(std::format("tls/mapped/{}/off", label_s), "off", make_static_router, mapped_req, tls_iters));
 		variants.push_back(make_tls_variant(
 			format("tls/mapped/{}/zc_auto", label_s),
 			"auto",

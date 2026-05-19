@@ -27,13 +27,13 @@ struct OwnedInlinePath {
 	static constexpr std::size_t cap = 255;
 	std::array<char, cap + 1> buf{};
 	std::size_t len{};
-	[[nodiscard]] static expected<OwnedInlinePath, int> from_sv(
+	[[nodiscard]] static std::expected<OwnedInlinePath, int> from_sv(
 		std::string_view sv) noexcept {
 		if (sv.size() > cap) {
-			return unexpected{-ENAMETOOLONG};
+			return std::unexpected{-ENAMETOOLONG};
 		}
 		if (sv.find('\0') != std::string_view::npos) {
-			return unexpected{-EINVAL};
+			return std::unexpected{-EINVAL};
 		}
 		OwnedInlinePath p{};
 		std::memcpy(p.buf.data(), sv.data(), sv.size());
@@ -57,7 +57,7 @@ struct FlowRejection {
 	int err;
 };
 struct FlowResult {
-	span<OpResult const> ops;
+	std::span<OpResult const> ops;
 	bool close_needed;
 	bool close_in_chain;
 	bool close_cqe_seen;
@@ -65,12 +65,12 @@ struct FlowResult {
 	[[nodiscard]] bool open_ok() const noexcept { return !ops.empty() && ops[0].res >= 0; }
 	[[nodiscard]] std::optional<std::int32_t> cleanup_result() const noexcept {
 		if (!close_needed || !close_cqe_seen) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return close_raw_res;
 	}
 	[[nodiscard]] std::optional<std::int32_t> raw_close_result() const noexcept {
-		return close_cqe_seen ? std::optional<std::int32_t>{close_raw_res} : nullopt;
+		return close_cqe_seen ? std::optional<std::int32_t>{close_raw_res} : std::nullopt;
 	}
 };
 // encode_tag / encode_tag_raw — exported so tests can craft CQEs without
@@ -234,7 +234,7 @@ public:
 	void release(
 		DirectFileFlowState &st) noexcept {
 		// generation left intact; next try_allocate will bump it.
-		// Safety: finish_flow is called only after all expected CQEs are observed,
+		// Safety: finish_flow is called only after all std::expected CQEs are observed,
 		// so no live CQE for the released owner can arrive after this point.
 		free_[free_top_++] = st.flow_index;
 	}
@@ -292,7 +292,7 @@ public:
 		using T = std::decay_t<F>;
 		static_assert(sizeof(T) <= kBufSize, "FlowCb: callable too large for SBO buffer");
 		static_assert(noexcept(std::declval<T &>()(std::declval<FlowResult>())), "FlowCb: callable must be noexcept");
-		new (buf_) T(forward<F>(f));
+		new (buf_) T(std::forward<F>(f));
 		call_ = [](char *p, FlowResult r) noexcept { (*reinterpret_cast<T *>(p))(r); };
 		dtor_ = [](char *p) noexcept { reinterpret_cast<T *>(p)->~T(); };
 	}
@@ -515,7 +515,7 @@ public:
 		mode_t mode,
 		Fn &&build_ops) noexcept {
 		auto f = open_direct(slot, dfd, path, open_flags, mode);
-		forward<Fn>(build_ops)(f);
+		std::forward<Fn>(build_ops)(f);
 		f.close_if_opened();
 	}
 	template<class Fn>
@@ -527,12 +527,12 @@ public:
 		mode_t mode,
 		Fn &&build_ops) noexcept {
 		auto f = open_direct_owned(slot, dfd, path, open_flags, mode);
-		forward<Fn>(build_ops)(f);
+		std::forward<Fn>(build_ops)(f);
 		f.close_if_opened();
 	}
 	[[nodiscard]] std::uint32_t submit() noexcept;
 
-	[[nodiscard]] span<FlowRejection const> rejected_flows() const noexcept;
+	[[nodiscard]] std::span<FlowRejection const> rejected_flows() const noexcept;
 };
 
 } // namespace conflux::uring::flow
@@ -569,7 +569,7 @@ public:
 		Cb &&cb) noexcept
 		: ring_{ring}
 		, path_lifetime_stable_{caps.path_lifetime_stable} {
-		cb_.set(forward<Cb>(cb));
+		cb_.set(std::forward<Cb>(cb));
 	}
 	~FlowRuntime() noexcept {
 		assert(
@@ -740,7 +740,7 @@ private:
 	void finish_flow(
 		DirectFileFlowState &st) noexcept {
 		FlowResult const r{
-			.ops = span<OpResult const>{st.results.data(), st.initial_op_count},
+			.ops = std::span<OpResult const>{st.results.data(), st.initial_op_count},
 			.close_needed = close_needed_pred(st),
 			.close_in_chain = st.close_in_chain,
 			.close_cqe_seen = st.close_seen,
@@ -856,7 +856,7 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 	}
 	return open_direct_owned(slot, dfd, *p, open_flags, mode);
 }
-span<FlowRejection const> FlowBuilder::rejected_flows() const noexcept {
+std::span<FlowRejection const> FlowBuilder::rejected_flows() const noexcept {
 	return {rt_.rejections_.data(), rt_.rejection_count_};
 }
 std::uint32_t FlowBuilder::submit() noexcept {

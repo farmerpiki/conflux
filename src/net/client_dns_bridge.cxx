@@ -18,7 +18,7 @@ void set_error(
 	if (dst_size == 0) {
 		return;
 	}
-	std::size_t const n = min(dst_size - 1, message.size());
+	std::size_t const n = std::min(dst_size - 1, message.size());
 	::memcpy(dst, message.data(), n);
 	dst[n] = '\0';
 }
@@ -57,7 +57,7 @@ bool resolve(
 		}
 		for (auto const &ep: result->endpoints) {
 			Endpoint out{};
-			::memcpy(out.addr, &ep.addr, min(sizeof(out.addr), sizeof(ep.addr)));
+			::memcpy(out.addr, &ep.addr, std::min(sizeof(out.addr), sizeof(ep.addr)));
 			out.addr_len = static_cast<unsigned int>(ep.addr_len);
 			out.family = (ep.family == dns::AddressFamily::v4) ? 4 : 6;
 			if (!sink(sink_ctx, out)) {
@@ -66,7 +66,7 @@ bool resolve(
 			}
 		}
 		return true;
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		set_error(error_data, error_size, e.what());
 		return false;
 	} catch (...) {

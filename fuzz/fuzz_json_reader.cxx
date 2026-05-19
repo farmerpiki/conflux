@@ -103,7 +103,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	std::size_t const stride = 1 + static_cast<std::size_t>(data[0] & 7U);
 	for (std::size_t off = 0; off < size;) {
 		std::size_t const n = min(stride, size - off);
-		auto fed = stream.feed(span<byte const>{reinterpret_cast<byte const *>(data + off), n});
+		auto fed = stream.feed(std::span<byte const>{reinterpret_cast<byte const *>(data + off), n});
 		if (!fed) {
 			if (fed.error().message.empty()) {
 				__builtin_trap();

@@ -11,7 +11,7 @@ void JsonStreamReader::refresh_reader_input() noexcept {
 void JsonStreamReader::set_error(
 	JsonError e) noexcept {
 	has_error_ = true;
-	last_error_ = move(e);
+	last_error_ = std::move(e);
 }
 
 std::size_t JsonStreamReader::configured_cap() const noexcept {
@@ -20,7 +20,7 @@ std::size_t JsonStreamReader::configured_cap() const noexcept {
 	if (opts_.max_input_size.is_unlimited()) {
 		return hard_cap;
 	}
-	return min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
+	return std::min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
 }
 
 JsonError JsonStreamReader::make_stream_error(
@@ -30,7 +30,7 @@ JsonError JsonStreamReader::make_stream_error(
 		.stage = JsonStage::parse,
 		.code = code,
 		.source = JsonSourceLocation{.offset = reader_.pos_, .line = reader_.line_, .column = reader_.col_},
-		.message = move(message),
+		.message = std::move(message),
 	};
 }
 
@@ -92,22 +92,22 @@ JsonStreamReader::JsonStreamReader(
 	: opts_{opts}
 	, reader_{std::string_view{buf_.data(), buf_.size()}, opts} {}
 
-expected<void, JsonError> JsonStreamReader::feed(
+std::expected<void, JsonError> JsonStreamReader::feed(
 	std::string_view chunk) {
-	return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
+	return feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(chunk.data()), chunk.size()});
 }
 
-expected<void, JsonError> JsonStreamReader::feed(
-	span<byte const> chunk) {
+std::expected<void, JsonError> JsonStreamReader::feed(
+	std::span<std::byte const> chunk) {
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	if (closed_) {
-		return unexpected(make_stream_error(JsonIssueCode::invalid_value, "cannot feed after close"));
+		return std::unexpected(make_stream_error(JsonIssueCode::invalid_value, "cannot feed after close"));
 	}
 	std::size_t const cap = configured_cap();
 	if (buf_.size() > cap || chunk.size() > cap - buf_.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
@@ -118,33 +118,33 @@ expected<void, JsonError> JsonStreamReader::feed(
 	return {};
 }
 
-expected<void, JsonError> JsonStreamReader::close() {
+std::expected<void, JsonError> JsonStreamReader::close() {
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	closed_ = true;
 	refresh_reader_input();
 	return {};
 }
 
-expected<std::optional<JsonStreamReader::Event>, JsonError> JsonStreamReader::next() {
+std::expected<std::optional<JsonStreamReader::Event>, JsonError> JsonStreamReader::next() {
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	refresh_reader_input();
 	auto checkpoint = reader_.checkpoint();
 	auto ev = reader_.next();
 	if (!ev) {
-		auto error = move(ev).error();
+		auto error = std::move(ev).error();
 		if (recoverable_need_more(checkpoint.pos, error)) {
-			reader_.restore(move(checkpoint));
+			reader_.restore(std::move(checkpoint));
 			return std::optional<Event>{};
 		}
-		set_error(move(error));
-		return unexpected(last_error_);
+		set_error(std::move(error));
+		return std::unexpected(last_error_);
 	}
 	if (*ev && event_needs_more_before_emit(**ev)) {
-		reader_.restore(move(checkpoint));
+		reader_.restore(std::move(checkpoint));
 		return std::optional<Event>{};
 	}
 	return ev;
@@ -276,20 +276,20 @@ JsonAccumulator::JsonAccumulator(
 	JsonParseOptions const &opts) noexcept
 	: opts_{opts} {}
 
-expected<void, JsonError> JsonAccumulator::feed(
+std::expected<void, JsonError> JsonAccumulator::feed(
 	std::string_view chunk) {
-	return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
+	return feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(chunk.data()), chunk.size()});
 }
 
-expected<void, JsonError> JsonAccumulator::feed(
-	span<byte const> chunk) {
+std::expected<void, JsonError> JsonAccumulator::feed(
+	std::span<std::byte const> chunk) {
 	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
 	std::size_t const hard_cap = kU32Ceiling - 1;
 	std::size_t const configured_cap = opts_.max_input_size.is_unlimited() ?
 								  hard_cap :
-								  min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
+								  std::min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
 	if (buf_.size() > configured_cap || chunk.size() > configured_cap - buf_.size()) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
@@ -299,8 +299,8 @@ expected<void, JsonError> JsonAccumulator::feed(
 	return {};
 }
 
-expected<Document, JsonError> JsonAccumulator::finish() {
-	return conflux::json::parse_copy(move(buf_), opts_);
+std::expected<Document, JsonError> JsonAccumulator::finish() {
+	return conflux::json::parse_copy(std::move(buf_), opts_);
 }
 
 void JsonAccumulator::reset() noexcept {

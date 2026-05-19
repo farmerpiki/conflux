@@ -11,7 +11,7 @@ import conflux.types;
 // PipePair / PipePool: cache of pipe2(O_DIRECT | O_CLOEXEC) pairs for
 // zero-copy splice chains (file → pipe → socket).
 //
-// Per-ring: io_uring expects SQEs to reference fds visible to the thread that
+// Per-ring: io_uring expects SQEs to reference fds visible to the std::thread that
 // owns the ring. Sharing a PipePool across rings is an error — each ring must
 // hold its own pool. TRICKS.md §pipe-per-ring.
 // ---------------------------------------------------------------------------
@@ -43,10 +43,10 @@ public:
 	PipePair &operator =(PipePair const &) = delete;
 	PipePair(
 		PipePair &&o) noexcept
-		: pool_{exchange(o.pool_, nullptr)}
+		: pool_{std::exchange(o.pool_, nullptr)}
 		, slot_{o.slot_}
-		, read_fd_{exchange(o.read_fd_, -1)}
-		, write_fd_{exchange(o.write_fd_, -1)}
+		, read_fd_{std::exchange(o.read_fd_, -1)}
+		, write_fd_{std::exchange(o.write_fd_, -1)}
 		, capacity_{o.capacity_} {}
 	PipePair &operator =(PipePair &&o) noexcept;
 	~PipePair();
@@ -66,7 +66,7 @@ export class PipePool {
 
 	friend class PipePair;
 	void release(
-		// NOLINT(bugprone-exception-escape) — free_ is pre-sized; push_back never reallocates
+		// NOLINT(bugprone-std::exception-escape) — free_ is pre-sized; push_back never reallocates
 		std::uint32_t slot) noexcept {
 		free_.push_back(slot);
 	}
@@ -113,7 +113,7 @@ public:
 	[[nodiscard]] std::size_t available() const noexcept { return free_.size(); }
 	[[nodiscard]] std::optional<PipePair> try_acquire() {
 		if (free_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		std::uint32_t const idx = free_.back();
 		free_.pop_back();
@@ -127,10 +127,10 @@ inline PipePair &PipePair::operator =(
 		if (pool_ != nullptr) {
 			pool_->release(slot_);
 		}
-		pool_ = exchange(o.pool_, nullptr);
+		pool_ = std::exchange(o.pool_, nullptr);
 		slot_ = o.slot_;
-		read_fd_ = exchange(o.read_fd_, -1);
-		write_fd_ = exchange(o.write_fd_, -1);
+		read_fd_ = std::exchange(o.read_fd_, -1);
+		write_fd_ = std::exchange(o.write_fd_, -1);
 		capacity_ = o.capacity_;
 	}
 	return *this;

@@ -176,10 +176,10 @@ public:
 		: fd_{other.fd_}
 		, timeout_sec_{other.timeout_sec_}
 		, tls_active_{other.tls_active_}
-		, tls_ctx_{move(other.tls_ctx_)}
-		, tls_stream_{move(other.tls_stream_)}
-		, rx_buf_{move(other.rx_buf_)}
-		, ehlo_caps_{move(other.ehlo_caps_)}
+		, tls_ctx_{std::move(other.tls_ctx_)}
+		, tls_stream_{std::move(other.tls_stream_)}
+		, rx_buf_{std::move(other.rx_buf_)}
+		, ehlo_caps_{std::move(other.ehlo_caps_)}
 		, resolver_{other.resolver_} {
 		other.fd_ = -1;
 		other.tls_active_ = false;
@@ -192,10 +192,10 @@ public:
 			fd_ = other.fd_;
 			timeout_sec_ = other.timeout_sec_;
 			tls_active_ = other.tls_active_;
-			tls_ctx_ = move(other.tls_ctx_);
-			tls_stream_ = move(other.tls_stream_);
-			rx_buf_ = move(other.rx_buf_);
-			ehlo_caps_ = move(other.ehlo_caps_);
+			tls_ctx_ = std::move(other.tls_ctx_);
+			tls_stream_ = std::move(other.tls_stream_);
+			rx_buf_ = std::move(other.rx_buf_);
+			ehlo_caps_ = std::move(other.ehlo_caps_);
 			resolver_ = other.resolver_;
 			other.fd_ = -1;
 			other.tls_active_ = false;
@@ -243,8 +243,8 @@ public:
 	// EHLO / HELO. Returns parsed multi-line reply.
 	std::optional<SmtpReply> ehlo(
 		std::string_view domain) {
-		if (!write_line(format("EHLO {}\r\n", domain))) {
-			return nullopt;
+		if (!write_line(std::format("EHLO {}\r\n", domain))) {
+			return std::nullopt;
 		}
 		auto reply = read_reply();
 		if (reply) {
@@ -254,8 +254,8 @@ public:
 	}
 	std::optional<SmtpReply> helo(
 		std::string_view domain) {
-		if (!write_line(format("HELO {}\r\n", domain))) {
-			return nullopt;
+		if (!write_line(std::format("HELO {}\r\n", domain))) {
+			return std::nullopt;
 		}
 		return read_reply();
 	}
@@ -290,7 +290,7 @@ public:
 		raw.push_back('\0');
 		raw.append(pass);
 		auto encoded = base64_encode(to_unsigned_span(raw));
-		if (!write_line(format("AUTH PLAIN {}\r\n", encoded))) {
+		if (!write_line(std::format("AUTH PLAIN {}\r\n", encoded))) {
 			return false;
 		}
 		auto reply = read_reply();
@@ -324,7 +324,7 @@ public:
 	}
 	bool mail_from(
 		std::string_view addr) {
-		if (!write_line(format("MAIL FROM:<{}>\r\n", addr))) {
+		if (!write_line(std::format("MAIL FROM:<{}>\r\n", addr))) {
 			return false;
 		}
 		auto reply = read_reply();
@@ -332,7 +332,7 @@ public:
 	}
 	bool rcpt_to(
 		std::string_view addr) {
-		if (!write_line(format("RCPT TO:<{}>\r\n", addr))) {
+		if (!write_line(std::format("RCPT TO:<{}>\r\n", addr))) {
 			return false;
 		}
 		auto reply = read_reply();
@@ -428,23 +428,23 @@ private:
 			std::size_t const nl = rx_buf_.find("\r\n");
 			if (nl == std::string::npos) {
 				if (!read_some(rx_buf_)) {
-					return nullopt;
+					return std::nullopt;
 				}
 				continue;
 			}
 			if (nl < 4) {
-				return nullopt;
+				return std::nullopt;
 			}
 			std::string_view const line{rx_buf_.data(), nl};
 			int code = 0;
-			auto const res = from_chars(line.data(), line.data() + 3, code);
-			if (res.ec != errc{}) {
-				return nullopt;
+			auto const res = std::from_chars(line.data(), line.data() + 3, code);
+			if (res.ec != std::errc{}) {
+				return std::nullopt;
 			}
 			if (reply.code == 0) {
 				reply.code = code;
 			} else if (reply.code != code) {
-				return nullopt;
+				return std::nullopt;
 			}
 			char const sep = line[3];
 			if (!reply.text.empty()) {
@@ -456,7 +456,7 @@ private:
 				return reply;
 			}
 			if (sep != '-') {
-				return nullopt;
+				return std::nullopt;
 			}
 		}
 	}

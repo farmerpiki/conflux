@@ -38,7 +38,7 @@ bool is_cont(
 void JsonReader::set_error(
 	JsonError e) noexcept {
 	has_error_ = true;
-	last_error_ = move(e);
+	last_error_ = std::move(e);
 }
 
 JsonError JsonReader::mk_err(
@@ -48,7 +48,7 @@ JsonError JsonReader::mk_err(
 		.stage = JsonStage::parse,
 		.code = code,
 		.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-		.message = move(msg)
+		.message = std::move(msg)
         };
 }
 
@@ -116,10 +116,10 @@ next_reader_ws:;
 	}
 }
 
-expected<void, JsonError> JsonReader::skip_ws_checked() {
+std::expected<void, JsonError> JsonReader::skip_ws_checked() {
 	skip_ws();
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	return {};
 }
@@ -130,7 +130,7 @@ void JsonReader::adv(
 	col_ += n;
 }
 
-expected<void, JsonError> JsonReader::parse_str_into_token(
+std::expected<void, JsonError> JsonReader::parse_str_into_token(
 	LimitOption max_sz,
 	JsonStringToken &tok_out) {
 	std::size_t const raw_start = pos_ - 1;
@@ -149,51 +149,51 @@ expected<void, JsonError> JsonReader::parse_str_into_token(
 			std::string_view raw_lex = input_.substr(raw_start, pos_ - raw_start);
 			std::size_t const body_len = raw_lex.size() - 2;
 			if (max_sz.exceeds(body_len, kDefaultMaxString)) {
-				return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
+				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 			}
 			tok_out = JsonStringToken{raw_lex, has_esc, max_sz};
 			return {};
 		}
 		if (c < 0x20U) {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 		}
 		if (c == '\\') {
 			has_esc = true;
 			adv();
 			if (pos_ >= input_.size()) {
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 			}
 			char const esc = input_[pos_];
 			if (esc == 'u') {
 				adv();
 				if (pos_ + 4 > input_.size()) {
-					return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 				}
 				// NOLINTBEGIN(readability-magic-numbers)
 				auto cp_opt = detail::hex4_from_sv(input_, pos_);
 				if (!cp_opt) {
-					return unexpected(
+					return std::unexpected(
 						mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
 				}
 				std::uint32_t cp = *cp_opt;
 				adv(4);
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
 					if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
-						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 					}
 					adv(2);
 					auto lo_opt = detail::hex4_from_sv(input_, pos_);
 					if (!lo_opt) {
-						return unexpected(
+						return std::unexpected(
 							mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
 					}
 					std::uint32_t const lo = *lo_opt;
 					adv(4);
 					if (lo < 0xDC00U || lo > 0xDFFFU) {
-						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 					}
 				} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
-					return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 				}
 				// NOLINTEND(readability-magic-numbers)
 			} else {
@@ -205,7 +205,7 @@ expected<void, JsonError> JsonReader::parse_str_into_token(
 					&& esc != 'n'
 					&& esc != 'r'
 					&& esc != 't') {
-					return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+					return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
 				}
 				adv();
 			}
@@ -213,23 +213,23 @@ expected<void, JsonError> JsonReader::parse_str_into_token(
 		}
 		std::size_t const seq = utf8_seq_len(c);
 		if (seq == 0) {
-			return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 		}
 		if (pos_ + seq > input_.size()) {
-			return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 		}
 		for (std::size_t k = 1; k < seq; ++k) {
 			if (!is_cont(static_cast<unsigned char>(input_[pos_ + k]))) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 			}
 		}
 		pos_ += seq;
 		col_ += 1;
 	}
-	return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 }
 
-expected<void, JsonError> JsonReader::parse_str_sq_into_token(
+std::expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 	LimitOption max_sz,
 	JsonStringToken &tok_out) {
 	std::size_t const raw_start = pos_ - 1;
@@ -241,29 +241,29 @@ expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 			std::string_view raw_lex = input_.substr(raw_start, pos_ - raw_start);
 			std::size_t const body_len = raw_lex.size() - 2;
 			if (max_sz.exceeds(body_len, kDefaultMaxString)) {
-				return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
+				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 			}
 			tok_out = JsonStringToken{raw_lex, has_esc, max_sz};
 			return {};
 		}
 		if (c < 0x20U) {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 		}
 		if (c == '\\') {
 			has_esc = true;
 			adv();
 			if (pos_ >= input_.size()) {
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 			}
 			char const esc = input_[pos_];
 			if (esc == 'u') {
 				adv();
 				if (pos_ + 4 > input_.size()) {
-					return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 				}
 				auto cp_opt = detail::hex4_from_sv(input_, pos_);
 				if (!cp_opt) {
-					return unexpected(
+					return std::unexpected(
 						mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
 				}
 				std::uint32_t cp = *cp_opt;
@@ -271,21 +271,21 @@ expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 				// NOLINTBEGIN(readability-magic-numbers)
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
 					if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
-						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 					}
 					adv(2);
 					auto lo_opt = detail::hex4_from_sv(input_, pos_);
 					if (!lo_opt) {
-						return unexpected(
+						return std::unexpected(
 							mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
 					}
 					std::uint32_t const lo = *lo_opt;
 					adv(4);
 					if (lo < 0xDC00U || lo > 0xDFFFU) {
-						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 					}
 				} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
-					return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+					return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 				}
 				// NOLINTEND(readability-magic-numbers)
 			} else {
@@ -298,7 +298,7 @@ expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 					&& esc != 'n'
 					&& esc != 'r'
 					&& esc != 't') {
-					return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+					return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
 				}
 				adv();
 			}
@@ -306,35 +306,35 @@ expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 		}
 		std::size_t const seq = utf8_seq_len(c);
 		if (seq == 0) {
-			return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 		}
 		if (pos_ + seq > input_.size()) {
-			return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 		}
 		for (std::size_t k = 1; k < seq; ++k) {
 			if (!is_cont(static_cast<unsigned char>(input_[pos_ + k]))) {
-				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 			}
 		}
 		pos_ += seq;
 		col_ += 1;
 	}
-	return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 }
 
-expected<void, JsonError> JsonReader::parse_number_into_val() {
+std::expected<void, JsonError> JsonReader::parse_number_into_val() {
 	std::size_t const start = pos_;
 	bool const neg = input_[pos_] == '-';
 	if (neg) {
 		adv();
 	}
 	if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
-		return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
 	}
 	bool const starts_zero = input_[pos_] == '0';
 	adv();
 	if (starts_zero && pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
-		return unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
 	}
 	while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
 		adv();
@@ -342,7 +342,7 @@ expected<void, JsonError> JsonReader::parse_number_into_val() {
 	if (pos_ < input_.size() && input_[pos_] == '.') {
 		adv();
 		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
 		}
 		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
 			adv();
@@ -354,39 +354,39 @@ expected<void, JsonError> JsonReader::parse_number_into_val() {
 			adv();
 		}
 		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
 		}
 		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
 			adv();
 		}
 	}
 	if (pos_ - start > kMaxNumberLexemeLen) {
-		return unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+		return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
 	}
 	std::string_view const lex = input_.substr(start, pos_ - start);
 	auto node = detail::build_number_node_from_lexeme(0, static_cast<std::uint32_t>(lex.size()), 0, lex);
 	if (!node) {
-		auto err = move(node).error();
+		auto err = std::move(node).error();
 		err.stage = JsonStage::parse;
-		return unexpected(move(err));
+		return std::unexpected(std::move(err));
 	}
 	num_val_ = JsonNumberView{lex, node->flags, node->_raw};
 	return {};
 }
 
-expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
+std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 	if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) {
-		return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+		return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 	}
 	if (pos_ >= input_.size()) {
-		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
+		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 	}
 	char const c = input_[pos_];
 	if (c == '"') {
 		adv();
 		auto res = parse_str_into_token(opts_.max_string_size, str_token_);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return Event::string_value;
 	}
@@ -394,7 +394,7 @@ expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 		adv();
 		auto res = parse_str_sq_into_token(opts_.max_string_size, str_token_);
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return Event::string_value;
 	}
@@ -410,7 +410,7 @@ expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 	}
 	if (c == 't') {
 		if (input_.substr(pos_, 4) != "true") {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(4);
 		bool_val_ = true;
@@ -418,7 +418,7 @@ expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 	}
 	if (c == 'f') {
 		if (input_.substr(pos_, 5) != "false") {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(5);
 		bool_val_ = false;
@@ -426,7 +426,7 @@ expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 	}
 	if (c == 'n') {
 		if (input_.substr(pos_, 4) != "null") {
-			return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(4);
 		return Event::null_value;
@@ -434,11 +434,11 @@ expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 	if (c == '-' || (c >= '0' && c <= '9')) {
 		auto res = parse_number_into_val();
 		if (!res) {
-			return unexpected(move(res).error());
+			return std::unexpected(std::move(res).error());
 		}
 		return Event::number_value;
 	}
-	return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
+	return std::unexpected(mk_err(JsonIssueCode::syntax_error, std::format("std::unexpected character '{}'", c)));
 }
 
 JsonReader::Checkpoint JsonReader::checkpoint() const {
@@ -462,13 +462,13 @@ void JsonReader::restore(
 	pos_ = checkpoint.pos;
 	line_ = checkpoint.line;
 	col_ = checkpoint.col;
-	stack_ = move(checkpoint.stack);
+	stack_ = std::move(checkpoint.stack);
 	key_token_ = checkpoint.key_token;
 	str_token_ = checkpoint.str_token;
 	num_val_ = checkpoint.num_val;
 	bool_val_ = checkpoint.bool_val;
 	has_error_ = checkpoint.has_error;
-	last_error_ = move(checkpoint.last_error);
+	last_error_ = std::move(checkpoint.last_error);
 	value_start_ = checkpoint.value_start;
 }
 
@@ -484,18 +484,18 @@ JsonReader::JsonReader(
 	, opts_{opts} {}
 
 JsonReader::JsonReader(
-	span<byte const> input,
+	std::span<std::byte const> input,
 	JsonParseOptions const &opts)
 	: input_{reinterpret_cast<char const *>(input.data()), input.size()}
 	, opts_{opts} {}
 
 
-expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
+std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	if (auto ok = skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
 	if (stack_.empty()) {
@@ -506,7 +506,7 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		auto ev = parse_value_event();
 		if (!ev) {
 			set_error(ev.error());
-			return unexpected(last_error_);
+			return std::unexpected(last_error_);
 		}
 		return std::optional<Event>{*ev};
 	}
@@ -515,7 +515,7 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 
 	if (top.kind == StateFrame::Kind::array) {
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (pos_ < input_.size() && input_[pos_] == ']') {
 			adv();
@@ -524,13 +524,13 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		}
 		if (!top.first) {
 			if (pos_ >= input_.size() || input_[pos_] != ',') {
-				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+				auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'");
 				set_error(e);
-				return unexpected(last_error_);
+				return std::unexpected(last_error_);
 			}
 			adv();
 			if (auto ok = skip_ws_checked(); !ok) {
-				return unexpected(move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 			if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
 				adv();
@@ -543,7 +543,7 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		auto ev = parse_value_event();
 		if (!ev) {
 			set_error(ev.error());
-			return unexpected(last_error_);
+			return std::unexpected(last_error_);
 		}
 		return std::optional<Event>{*ev};
 	}
@@ -552,19 +552,19 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	if (top.awaiting_value) {
 		top.awaiting_value = false;
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		value_start_ = pos_;
 		auto ev = parse_value_event();
 		if (!ev) {
 			set_error(ev.error());
-			return unexpected(last_error_);
+			return std::unexpected(last_error_);
 		}
 		return std::optional<Event>{*ev};
 	}
 
 	if (auto ok = skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (pos_ < input_.size() && input_[pos_] == '}') {
 		adv();
@@ -573,13 +573,13 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	}
 	if (!top.first) {
 		if (pos_ >= input_.size() || input_[pos_] != ',') {
-			auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'");
+			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'");
 			set_error(e);
-			return unexpected(last_error_);
+			return std::unexpected(last_error_);
 		}
 		adv();
 		if (auto ok = skip_ws_checked(); !ok) {
-			return unexpected(move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == '}') {
 			adv();
@@ -591,9 +591,9 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	if (pos_ >= input_.size()) {
 		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
 		set_error(e);
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
-	expected<void, JsonError> str_res = unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+	std::expected<void, JsonError> str_res = std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 	if (input_[pos_] == '"') {
 		adv();
 		str_res = parse_str_into_token(opts_.max_string_size, key_token_);
@@ -625,15 +625,15 @@ expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	}
 	if (!str_res) {
 		set_error(str_res.error());
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	if (auto ok = skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (pos_ >= input_.size() || input_[pos_] != ':') {
-		auto e = mk_err(JsonIssueCode::syntax_error, "expected ':'");
+		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
 		set_error(e);
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	adv();
 	top.awaiting_value = true;
@@ -685,26 +685,26 @@ void JsonReader::reset() noexcept {
 	last_error_ = {};
 }
 
-expected<JsonByteRange, JsonError> JsonReader::skip_next_value() {
+std::expected<JsonByteRange, JsonError> JsonReader::skip_next_value() {
 	if (has_error_) {
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	if (auto ok = skip_ws_checked(); !ok) {
-		return unexpected(move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	std::size_t const start = pos_;
 	auto ev = next();
 	if (!ev) {
-		return unexpected(move(ev).error());
+		return std::unexpected(std::move(ev).error());
 	}
 	if (!*ev) {
 		auto e = JsonError{
 			.stage = JsonStage::parse,
 			.code = JsonIssueCode::unexpected_eof,
 			.source = JsonSourceLocation{.offset = start},
-			.message = "unexpected end of input"};
+			.message = "std::unexpected end of input"};
 		set_error(e);
-		return unexpected(last_error_);
+		return std::unexpected(last_error_);
 	}
 	int depth = 1;
 	if (**ev == Event::string_value
@@ -716,12 +716,12 @@ expected<JsonByteRange, JsonError> JsonReader::skip_next_value() {
 	while (depth > 0) {
 		auto ne = next();
 		if (!ne) {
-			return unexpected(move(ne).error());
+			return std::unexpected(std::move(ne).error());
 		}
 		if (!*ne) {
 			auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF while skipping");
 			set_error(e);
-			return unexpected(last_error_);
+			return std::unexpected(last_error_);
 		}
 		if (**ne == Event::begin_object || **ne == Event::begin_array) {
 			++depth;

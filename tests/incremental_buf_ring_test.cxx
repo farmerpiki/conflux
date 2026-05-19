@@ -33,7 +33,7 @@ struct Rig {
 		: uring{[] {
 			auto r = conflux::uring::Ring::init(32, {});
 			REQUIRE(r);
-			return move(*r);
+			return std::move(*r);
 		}()}
 		, caps{conflux::uring::detect_caps(uring.ref())}
 		, ring{[&]() -> BufferRing {

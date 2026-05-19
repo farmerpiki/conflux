@@ -9,6 +9,7 @@ import conflux.net.http.server_types;
 
 namespace chttp = conflux::http;
 
+
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"
 #endif
@@ -97,7 +98,7 @@ TEST_CASE(
 
 	auto builder = chttp::try_post("https://example.com/submit");
 	REQUIRE(builder.has_value());
-	auto req = move(*builder).body_view("payload").build();
+	auto req = std::move(*builder).body_view("payload").build();
 	CHECK(req.method() == "POST");
 	CHECK(req.url().host == "example.com");
 	CHECK(req.body() == "payload");
@@ -110,7 +111,7 @@ TEST_CASE(
 	auto mutable_builder = chttp::ClientRequest::get("https://example.com/");
 	auto changed = mutable_builder.try_url("http://example.org/next");
 	REQUIRE(changed.has_value());
-	CHECK(move(mutable_builder).build().url().host == "example.org");
+	CHECK(std::move(mutable_builder).build().url().host == "example.org");
 }
 
 TEST_CASE(
@@ -151,7 +152,7 @@ TEST_CASE(
 		query,
 		form,
 		cookies,
-		span<UploadedFile const>{},
+		std::span<UploadedFile const>{},
 		{}};
 
 	auto id = req.param_as<std::uint32_t>("id");

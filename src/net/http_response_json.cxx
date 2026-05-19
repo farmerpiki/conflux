@@ -29,7 +29,7 @@ struct ResponseBodySink {
 } // namespace detail
 
 template<class Provider, class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
@@ -41,13 +41,13 @@ template<class Provider, class T>
 	auto sink = detail::ResponseBodySink{.body = &body};
 	auto written = conflux::json::boundary::write_with<Provider>(value, sink, opts.dump);
 	if (!written) {
-		return unexpected(written.error());
+		return std::unexpected(written.error());
 	}
-	return HttpResponse::json(move(body), opts.status, std::string{opts.status_text});
+	return HttpResponse::json(std::move(body), opts.status, std::string{opts.status_text});
 }
 
 template<class Provider, class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
 	T const &value,
 	int status,
 	std::string_view status_text,
@@ -77,7 +77,7 @@ template<class Provider, class T>
 {
 	auto resp = try_response_with<Provider>(value, opts);
 	if (resp) {
-		return move(*resp);
+		return std::move(*resp);
 	}
 	return serialization_error_response();
 }
@@ -101,7 +101,7 @@ template<class Provider, class T>
 // Pre-release compatibility aliases. New boundary-first code should call the
 // *_with form so provider selection is explicit at the HTTP layer.
 template<class Provider, class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
@@ -113,7 +113,7 @@ template<class Provider, class T>
 }
 
 template<class Provider, class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
 	std::string_view status_text,

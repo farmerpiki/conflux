@@ -57,7 +57,7 @@ int main(
 		if (a == "--n-params" && i + 1 < static_cast<std::size_t>(argc)) {
 			n_params = bench_parse_sz(argv[++i]);
 			if (cfg.config_name.empty()) {
-				cfg.config_name = format("params_{}", n_params);
+				cfg.config_name = std::format("params_{}", n_params);
 			}
 		}
 	}

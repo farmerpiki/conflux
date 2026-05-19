@@ -153,17 +153,17 @@ DynamicEncodingQs header_encoding_q_values(
 				auto key = trim(token.substr(semi + 1, eq - semi - 1));
 				if (conflux::http::ascii_iequals(key, "q")) {
 					auto val = trim(token.substr(eq + 1));
-					from_chars(val.data(), val.data() + val.size(), q);
+					std::from_chars(val.data(), val.data() + val.size(), q);
 				}
 			}
 		}
 
 		if (name == "*") {
-			q_star = max(q_star, q);
+			q_star = std::max(q_star, q);
 		} else if (conflux::http::ascii_iequals(name, "gzip")) {
-			qs.gzip = max(qs.gzip, q);
+			qs.gzip = std::max(qs.gzip, q);
 		} else if (conflux::http::ascii_iequals(name, "zstd")) {
-			qs.zstd = max(qs.zstd, q);
+			qs.zstd = std::max(qs.zstd, q);
 		}
 
 		if (comma == std::string_view::npos) {
@@ -525,7 +525,7 @@ export Router::Middleware compress_middleware(
 			return resp;
 		} // fall back to uncompressed
 
-		resp.set_text_body(move(compressed));
+		resp.set_text_body(std::move(compressed));
 		resp.headers["Content-Encoding"] = enc;
 		resp.append_vary("Accept-Encoding");
 		return resp;

@@ -100,20 +100,20 @@ TEST_CASE(
 	CHECK(missing_claims.error() == "missing exp claim");
 
 	auto valid = jwt_decode(
-		jwt_sign(format(R"({{"sub":"u","jti":"active","iat":{},"exp":{}}})", now, now + 120), secret),
+		jwt_sign(std::format(R"({{"sub":"u","jti":"active","iat":{},"exp":{}}})", now, now + 120), secret),
 		opts);
 	REQUIRE(valid.has_value());
 	CHECK(valid->jti == "active");
 
 	auto too_long = jwt_decode(
-		jwt_sign(format(R"({{"sub":"u","jti":"long","iat":{},"exp":{}}})", now, now + 600), secret),
+		jwt_sign(std::format(R"({{"sub":"u","jti":"long","iat":{},"exp":{}}})", now, now + 600), secret),
 		opts);
 	REQUIRE_FALSE(too_long.has_value());
 	CHECK(too_long.error() == "token lifetime too long");
 
 	opts.revoked_jti = [](std::string_view jti) { return jti == "revoked"; };
 	auto revoked = jwt_decode(
-		jwt_sign(format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
+		jwt_sign(std::format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
 		opts);
 	REQUIRE_FALSE(revoked.has_value());
 	CHECK(revoked.error() == "token revoked");
@@ -124,7 +124,7 @@ TEST_CASE(
 	"[jwt][auth]") {
 	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
-	auto token = jwt_sign(format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
+	auto token = jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
 
 	JwtOptions strict;
 	strict.secrets = single_secret_rotation(secret);

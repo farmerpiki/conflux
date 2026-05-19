@@ -39,7 +39,7 @@ int main() {
 		"{% endfor %}"
 		"</ul>{% endblock %}");
 
-	auto env = make_shared<conflux::templates::Environment>(dir.string());
+	auto env = std::make_shared<conflux::templates::Environment>(dir.string());
 	env->blocking_load_all();
 
 	namespace http = conflux::http;
@@ -60,6 +60,6 @@ int main() {
 	});
 
 	std::println("template pages listening on http://localhost:9102/");
-	auto const status = move(app).run({.port = 9102});
+	auto const status = std::move(app).run({.port = 9102});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

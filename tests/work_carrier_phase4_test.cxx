@@ -33,10 +33,10 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
 
-	auto chain = carrier::from_task(move(task));
+	auto chain = carrier::from_task(std::move(task));
 	CHECK(chain.bound_capability().address == nullptr);
 
-	auto hopped = carrier::hop_to_posted(owner, move(chain));
+	auto hopped = carrier::hop_to_posted(owner, std::move(chain));
 	CHECK(hopped.kind() == carrier::CarrierKind::posted);
 	CHECK(hopped.bound_capability() == root::capability_id(owner));
 }
@@ -51,8 +51,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{2}));
 
-	auto chain = carrier::from_task(move(task));
-	auto hopped = carrier::hop_to_operation(driver, move(chain));
+	auto chain = carrier::from_task(std::move(task));
+	auto hopped = carrier::hop_to_operation(driver, std::move(chain));
 	CHECK(hopped.kind() == carrier::CarrierKind::operation);
 	CHECK(hopped.bound_capability() == root::capability_id(driver));
 }
@@ -67,7 +67,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{3}));
 
-	auto chain = carrier::from_task(move(task));
+	auto chain = carrier::from_task(std::move(task));
 	CHECK_NOTHROW(carrier::verify_hop(owner, chain));
 }
 TEST_CASE(
@@ -77,7 +77,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{4}));
 
-	auto chain = carrier::hop_to_posted(owner, carrier::from_task(move(task)));
+	auto chain = carrier::hop_to_posted(owner, carrier::from_task(std::move(task)));
 	CHECK_NOTHROW(carrier::verify_hop(owner, chain));
 }
 TEST_CASE(
@@ -88,7 +88,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
-	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(move(task)));
+	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(std::move(task)));
 	CHECK_THROWS_AS(carrier::verify_hop(owner_b, chain), carrier::HopCapabilityError);
 }
 TEST_CASE(
@@ -99,7 +99,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{6}));
 
-	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(move(task)));
+	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(std::move(task)));
 	CHECK_THROWS_AS(carrier::verify_hop(owner_b, chain), root::JoinError);
 }
 // ---------------------------------------------------------------------------
@@ -114,11 +114,11 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
-	auto c0 = carrier::from_task(move(task));
-	auto c1 = carrier::hop_to_posted(owner_a, move(c0));
+	auto c0 = carrier::from_task(std::move(task));
+	auto c1 = carrier::hop_to_posted(owner_a, std::move(c0));
 	CHECK(c1.bound_capability() == root::capability_id(owner_a));
 
-	auto c2 = carrier::hop_to_posted(owner_b, move(c1));
+	auto c2 = carrier::hop_to_posted(owner_b, std::move(c1));
 	CHECK(c2.bound_capability() == root::capability_id(owner_b));
 	CHECK(c2.bound_capability() != root::capability_id(owner_a));
 }
@@ -133,10 +133,10 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{8}));
 
-	auto hopped = carrier::hop_to_posted(owner, carrier::from_task(move(task)));
+	auto hopped = carrier::hop_to_posted(owner, carrier::from_task(std::move(task)));
 	CHECK(hopped.bound_capability().address != nullptr);
 
-	auto mapped = carrier::map(move(hopped), [](int x) { return x * 2; });
+	auto mapped = carrier::map(std::move(hopped), [](int x) { return x * 2; });
 	CHECK(mapped.kind() == carrier::CarrierKind::posted);
 	CHECK(mapped.bound_capability().address == nullptr);
 }
@@ -153,9 +153,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_value(root::Success<int>{1}));
 	REQUIRE(sb.try_set_value(root::Success<int>{2}));
 
-	auto ca = carrier::hop_to_posted(owner, carrier::from_task(move(ta)));
-	auto cb = carrier::hop_to_posted(owner, carrier::from_task(move(tb)));
-	auto combined = carrier::when_all(move(ca), move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::hop_to_posted(owner, carrier::from_task(std::move(tb)));
+	auto combined = carrier::when_all(std::move(ca), std::move(cb));
 
 	CHECK(combined.bound_capability().address == nullptr);
 }
@@ -172,9 +172,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_value(root::Success<int>{10}));
 	REQUIRE(sb.try_set_exception(make_exception_ptr(std::runtime_error{"lose"})));
 
-	auto ca = carrier::hop_to_posted(owner, carrier::from_task(move(ta)));
-	auto cb = carrier::from_task(move(tb));
-	auto winner = carrier::race(move(ca), move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::from_task(std::move(tb));
+	auto winner = carrier::race(std::move(ca), std::move(cb));
 
 	CHECK(winner.bound_capability() == root::capability_id(owner));
 }
@@ -187,9 +187,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_exception(make_exception_ptr(std::runtime_error{"lose"})));
 	REQUIRE(sb.try_set_value(root::Success<int>{20}));
 
-	auto ca = carrier::hop_to_posted(owner, carrier::from_task(move(ta)));
-	auto cb = carrier::from_task(move(tb));
-	auto winner = carrier::race(move(ca), move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::from_task(std::move(tb));
+	auto winner = carrier::race(std::move(ca), std::move(cb));
 
 	CHECK(winner.bound_capability().address == nullptr);
 }

@@ -17,8 +17,8 @@ public:
 	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
-	[[nodiscard]] static expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, Router &&router);
-	[[nodiscard]] static expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, VHostRouter &&vhost_router);
+	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, Router &&router);
+	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, VHostRouter &&vhost_router);
 
 	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
 	void request_shutdown() noexcept;
@@ -30,7 +30,7 @@ public:
 	// no synchronization is provided for concurrent calls while rings are active.
 	[[nodiscard]] HttpServerMetrics metrics() const noexcept;
 	// Blocks until ring 0 has bound and called listen(); returns the actual port.
-	// Safe to call from any thread after run() has been dispatched.
+	// Safe to call from any std::thread after run() has been dispatched.
 	[[nodiscard]] std::uint16_t port() const;
 
 	HttpServer(HttpServer const &) = delete;

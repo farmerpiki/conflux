@@ -9,13 +9,13 @@ import conflux.work.carrier.scope;
 export namespace conflux::work::carrier {
 
 class DeadlineScope : public Scope {
-	jthread timer_;
+	std::jthread timer_;
 
 public:
 	explicit DeadlineScope(
 		std::chrono::steady_clock::time_point deadline) {
-		timer_ = jthread{[this, deadline](std::stop_token const &st) {
-			mutex mu;
+		timer_ = std::jthread{[this, deadline](std::stop_token const &st) {
+			std::mutex mu;
 			std::condition_variable_any cv;
 			std::stop_callback const cb{st, [&cv] { cv.notify_one(); }};
 			std::unique_lock lk{mu};

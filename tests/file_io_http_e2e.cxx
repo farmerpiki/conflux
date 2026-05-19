@@ -47,7 +47,7 @@ std::pair<std::string, std::string> send_get_split_body(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	auto const req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+	auto const req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 	::send(fd, req.data(), req.size(), 0);
 
 	std::string buf;
@@ -56,7 +56,7 @@ std::pair<std::string, std::string> send_get_split_body(
 		ssize_t const n = ::recv(fd, tmp.data(), tmp.size(), 0);
 		if (n <= 0) {
 			::close(fd);
-			return {move(buf), {}};
+			return {std::move(buf), {}};
 		}
 		buf.append(tmp.data(), static_cast<std::size_t>(n));
 	}
@@ -67,7 +67,7 @@ std::pair<std::string, std::string> send_get_split_body(
 		body += read_exactly(fd, expected_body - body.size());
 	}
 	::close(fd);
-	return {move(headers), move(body)};
+	return {std::move(headers), std::move(body)};
 }
 struct StaticDir {
 	std::string path;
@@ -118,12 +118,12 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/static", dir.path);
 
-	ScopedTestServer const srv{cfg, move(router)};
+	ScopedTestServer const srv{cfg, std::move(router)};
 
 	SECTION("2 MiB file GET over plain HTTP") {
 		auto [headers, body] = send_get_split_body(srv.port(), "/static/big.bin", content.size());
 		REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
-		REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != std::string::npos);
+		REQUIRE(headers.find(std::format("Content-Length: {}\r\n", content.size())) != std::string::npos);
 		REQUIRE(body.size() == content.size());
 		CHECK(body == content);
 	}
@@ -140,7 +140,7 @@ TEST_CASE(
 	}
 
 	SECTION("range request returns 206") {
-		auto const hdr_req = format(
+		auto const hdr_req = std::format(
 			"GET /static/big.bin HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nRange: bytes=100-199\r\n\r\n");
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
@@ -184,9 +184,9 @@ TEST_CASE(
 	Router router;
 	router.serve_static("/static", dir.path);
 
-	ScopedTestServer const srv{cfg, move(router)};
+	ScopedTestServer const srv{cfg, std::move(router)};
 	auto [headers, body] = send_get_split_body(srv.port(), "/static/fallback.bin", content.size());
 	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != std::string::npos);
+	REQUIRE(headers.find(std::format("Content-Length: {}\r\n", content.size())) != std::string::npos);
 	CHECK(body == content);
 }

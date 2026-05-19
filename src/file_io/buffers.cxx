@@ -80,7 +80,7 @@ public:
 	FixedBuffer &operator =(FixedBuffer const &) = delete;
 	FixedBuffer(
 		FixedBuffer &&o) noexcept
-		: pool_{exchange(o.pool_, nullptr)}
+		: pool_{std::exchange(o.pool_, nullptr)}
 		, local_slot_{o.local_slot_}
 		, view_{o.view_} {}
 	FixedBuffer &operator =(FixedBuffer &&o) noexcept;
@@ -102,7 +102,7 @@ export class FixedBufferPool {
 
 	friend class FixedBuffer;
 	void release(
-		// NOLINT(bugprone-exception-escape) — free_ is pre-sized; push_back never reallocates
+		// NOLINT(bugprone-std::exception-escape) — free_ is pre-sized; push_back never reallocates
 		unsigned local_slot) noexcept {
 		free_.push_back(local_slot);
 	}
@@ -153,14 +153,14 @@ public:
 	[[nodiscard]] std::size_t slab_bytes() const noexcept { return slab_bytes_; }
 	[[nodiscard]] std::optional<FixedBuffer> try_acquire() {
 		if (free_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		unsigned const local = free_.back();
 		free_.pop_back();
 		return FixedBuffer{
 			this,
 			local,
-			span{slabs_[local].get(), slab_bytes_}
+			std::span{slabs_[local].get(), slab_bytes_}
         };
 	}
 };
@@ -173,7 +173,7 @@ inline FixedBuffer &FixedBuffer::operator =(
 		if (pool_ != nullptr) {
 			pool_->release(local_slot_);
 		}
-		pool_ = exchange(o.pool_, nullptr);
+		pool_ = std::exchange(o.pool_, nullptr);
 		local_slot_ = o.local_slot_;
 		view_ = o.view_;
 	}

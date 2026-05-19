@@ -28,7 +28,7 @@ namespace proxy_detail {
 		up_path = "/";
 	}
 	std::string_view const scheme = opts.upstream_tls ? "https" : "http";
-	return format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
+	return std::format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
 }
 
 [[nodiscard]] static HttpClientOptions make_client_opts(
@@ -59,7 +59,7 @@ namespace proxy_detail {
 	if (xff.empty()) {
 		builder.header("X-Forwarded-For", req.remote_addr);
 	} else {
-		builder.header("X-Forwarded-For", format("{}, {}", xff, req.remote_addr));
+		builder.header("X-Forwarded-For", std::format("{}, {}", xff, req.remote_addr));
 	}
 	if (opts.preserve_host) {
 		builder.header("Host", req.headers["host"]);
@@ -74,13 +74,13 @@ namespace proxy_detail {
 	http::ClientResponse &&r) {
 	HttpResponse out;
 	out.status = r.head.status;
-	out.status_text = move(r.head.status_text);
-	out.headers = move(r.head.headers);
-	out.set_cookies = move(r.head.set_cookies);
+	out.status_text = std::move(r.head.status_text);
+	out.headers = std::move(r.head.headers);
+	out.set_cookies = std::move(r.head.set_cookies);
 	if (auto const ct = out.headers["content-type"]; !ct.empty()) {
 		out.content_type = std::string{ct};
 	}
-	out.set_text_body(move(r.body));
+	out.set_text_body(std::move(r.body));
 	return out;
 }
 
@@ -89,15 +89,15 @@ namespace proxy_detail {
 	ProxyOptions const &opts) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
-	HttpClient client{move(co)};
+	HttpClient client{std::move(co)};
 	auto builder = apply_headers(http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
 	builder.timeouts(client.options().default_timeouts);
-	auto result = client.blocking_send(move(builder).build());
+	auto result = client.blocking_send(std::move(builder).build());
 	if (!result) {
 		return HttpResponse::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
-	return build_response(move(*result));
+	return build_response(std::move(*result));
 }
 
 [[nodiscard]] wroot::Task<HttpResponse> perform_proxy_request_async(
@@ -106,18 +106,18 @@ namespace proxy_detail {
 	SocketTaskRing &ring) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
-	HttpClient client{move(co)};
+	HttpClient client{std::move(co)};
 	auto builder = apply_headers(
 		http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)),
 		HttpRequestView{req},
 		opts);
 	builder.timeouts(client.options().default_timeouts);
-	auto result = co_await http::async_send(client, ring, move(builder).build());
+	auto result = co_await http::async_send(client, ring, std::move(builder).build());
 	if (!result) {
 		co_return HttpResponse::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
-	co_return build_response(move(*result));
+	co_return build_response(std::move(*result));
 }
 
 } // namespace proxy_detail

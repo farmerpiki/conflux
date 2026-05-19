@@ -104,7 +104,7 @@ int main() {
 		Todo{.id = 1, .title = "ship v1 preview", .done = false},
 		Todo{.id = 2, .title = "write typed JSON examples", .done = true},
 	};
-	mutex todos_mu;
+	std::mutex todos_mu;
 	std::int64_t next_id = 3;
 
 	api.get("/api/status", [] {
@@ -112,7 +112,7 @@ int main() {
 	});
 
 	api.get("/api/todos", [&todos, &todos_mu] {
-		lock_guard lock{todos_mu};
+	std::lock_guard lock{todos_mu};
 		return TodoList{.items = todos};
 	});
 
@@ -121,12 +121,12 @@ int main() {
 			return CreateTodoResult{.ok = false, .error = std::string{"title is required"}};
 		}
 
-		lock_guard lock{todos_mu};
+	std::lock_guard lock{todos_mu};
 		auto todo = Todo{.id = next_id++, .title = body.title, .done = false};
 		todos.push_back(todo);
-		return CreateTodoResult{.ok = true, .todo = move(todo)};
+		return CreateTodoResult{.ok = true, .todo = std::move(todo)};
 	});
 
-	auto const status = move(app).run({.port = 9110});
+	auto const status = std::move(app).run({.port = 9110});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

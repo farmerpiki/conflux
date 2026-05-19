@@ -16,17 +16,17 @@ carrier::Chain<int> make_success(
 	int v) {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{v});
-	return carrier::from_task(move(task));
+	return carrier::from_task(std::move(task));
 }
 carrier::Chain<int> make_failure() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_exception(make_exception_ptr(std::runtime_error{"fail"}));
-	return carrier::from_task(move(task));
+	return carrier::from_task(std::move(task));
 }
 carrier::Chain<int> make_cancelled() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
-	return carrier::from_task(move(task));
+	return carrier::from_task(std::move(task));
 }
 
 } // namespace
@@ -38,7 +38,7 @@ TEST_CASE(
 	"carrier.model_a: when_all_fast_fail both success returns Tup",
 	"[carrier.model_a][phase2]") {
 	auto r = carrier::when_all_fast_fail(make_success(10), make_success(20));
-	auto out = move(r).release_outcome();
+	auto out = std::move(r).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(std::get<0>(out.success().value) == 10);
 	CHECK(std::get<1>(out.success().value) == 20);
@@ -46,31 +46,31 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail a-failure returns failure",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::when_all_fast_fail(make_failure(), make_success(1))).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_failure(), make_success(1))).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail b-failure returns failure",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::when_all_fast_fail(make_success(1), make_failure())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_success(1), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail a-cancel returns cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::when_all_fast_fail(make_cancelled(), make_success(1))).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_cancelled(), make_success(1))).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail b-cancel returns cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::when_all_fast_fail(make_success(1), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_success(1), make_cancelled())).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail failure beats cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::when_all_fast_fail(make_failure(), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_failure(), make_cancelled())).release_outcome();
 	CHECK(out.is_failure());
 }
 // ---------------------------------------------------------------------------
@@ -80,39 +80,39 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: race a-wins when a is success",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_success(7), make_success(99))).release_outcome();
+	auto out = std::move(carrier::race(make_success(7), make_success(99))).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 7);
 }
 TEST_CASE(
 	"carrier.model_a: race b-wins when only b is success",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_failure(), make_success(5))).release_outcome();
+	auto out = std::move(carrier::race(make_failure(), make_success(5))).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 5);
 }
 TEST_CASE(
 	"carrier.model_a: race success beats cancel (b wins)",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_cancelled(), make_success(3))).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_success(3))).release_outcome();
 	CHECK(out.is_success());
 }
 TEST_CASE(
 	"carrier.model_a: race failure beats cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_cancelled(), make_failure())).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
 	"carrier.model_a: race both fail returns a failure",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_failure(), make_failure())).release_outcome();
+	auto out = std::move(carrier::race(make_failure(), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
 	"carrier.model_a: race both cancel returns a cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = move(carrier::race(make_cancelled(), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_cancelled())).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -120,7 +120,7 @@ TEST_CASE(
 	"[carrier.model_a][phase2]") {
 	auto r = carrier::race(make_success(1), make_success(2));
 	CHECK(r.kind() == carrier::CarrierKind::task);
-	auto out = move(r).release_outcome();
+	auto out = std::move(r).release_outcome();
 	CHECK(out.success().value == 1);
 }
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ TEST_CASE(
 	CHECK(!token.stop_requested());
 
 	carrier::Scope scope{};
-	scope.track(move(ctrl));
+	scope.track(std::move(ctrl));
 	CHECK(!token.stop_requested());
 
 	scope.cancel(root::CancelReason::requested);
@@ -173,7 +173,7 @@ TEST_CASE(
 	scope.cancel(root::CancelReason::requested);
 	CHECK(!token.stop_requested());
 
-	scope.track(move(ctrl));
+	scope.track(std::move(ctrl));
 	CHECK(token.stop_requested());
 }
 // ---------------------------------------------------------------------------
@@ -185,11 +185,11 @@ TEST_CASE(
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{42});
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::Scope scope{};
-	auto chain = scope.admit(move(jh));
-	auto out = move(chain).release_outcome();
+	auto chain = scope.admit(std::move(jh));
+	auto out = std::move(chain).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 42);
 }
@@ -198,25 +198,25 @@ TEST_CASE(
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::Scope scope{};
-	auto chain = scope.admit(move(jh));
-	auto out = move(chain).release_outcome();
+	auto chain = scope.admit(std::move(jh));
+	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
 	"carrier.scope: admit after scope-cancel signals task then joins",
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto jh = root::into_join_handle(move(task));
-	mutex mu;
+	auto jh = root::into_join_handle(std::move(task));
+	std::mutex mu;
 	std::condition_variable cv;
 	bool cancel_seen = false;
 
 	(void)src.install_cancel_hook([&](root::CancelReason) {
 		{
-			lock_guard const lock{mu};
+			std::lock_guard const lock{mu};
 			cancel_seen = true;
 		}
 		cv.notify_one();
@@ -225,8 +225,8 @@ TEST_CASE(
 	carrier::Scope scope{};
 	scope.cancel(root::CancelReason::requested);
 
-	auto worker_src = move(src);
-	thread worker{[&mu, &cv, &cancel_seen, ws = move(worker_src)]() mutable {
+	auto worker_src = std::move(src);
+	std::thread worker{[&mu, &cv, &cancel_seen, ws = std::move(worker_src)]() mutable {
 		std::unique_lock lock{mu};
 		bool const observed = cv.wait_for(lock, std::chrono::seconds{1}, [&] { return cancel_seen; });
 		lock.unlock();
@@ -237,10 +237,10 @@ TEST_CASE(
 		}
 	}};
 
-	auto chain = scope.admit(move(jh));
+	auto chain = scope.admit(std::move(jh));
 	worker.join();
 
-	auto out = move(chain).release_outcome();
+	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -248,14 +248,14 @@ TEST_CASE(
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto stop_token = src.stop_token();
-	auto jh = root::into_join_handle(move(task));
+	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::Scope scope{};
 
-	auto canceller_src = move(src);
+	auto canceller_src = std::move(src);
 	auto canceller_token = stop_token;
 	// Cancels scope after a brief delay, then commits cancelled
-	thread canceller{[&scope, cs = move(canceller_src), ct = move(canceller_token)]() mutable {
+	std::thread canceller{[&scope, cs = std::move(canceller_src), ct = std::move(canceller_token)]() mutable {
 		std::this_thread::sleep_for(std::chrono::milliseconds{5});
 		scope.cancel(root::CancelReason::requested);
 		while (!ct.stop_requested()) {
@@ -264,9 +264,9 @@ TEST_CASE(
 		(void)cs.try_set_cancelled(root::work_errc::cancelled_requested);
 	}};
 
-	auto chain = scope.admit(move(jh));
+	auto chain = scope.admit(std::move(jh));
 	canceller.join();
 
-	auto out = move(chain).release_outcome();
+	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 }

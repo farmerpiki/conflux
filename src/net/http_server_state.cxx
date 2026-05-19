@@ -137,7 +137,7 @@ struct PartialBuf {
 			buf.erase(0, pos);
 		}
 		pos = 0;
-		return move(buf);
+		return std::move(buf);
 	}
 };
 
@@ -208,7 +208,7 @@ struct alignas(
 	bool send_queued = false;
 	bool is_sse = false;
 	bool sse_headers_sent = false;
-	bool is_ws = false; // true → WebSocket upgrade; hand off fd to WS thread after send
+	bool is_ws = false; // true → WebSocket upgrade; hand off fd to WS std::thread after send
 	bool is_deferred = false;
 	bool deferred_head_only = false; // HEAD on deferred route → strip body when ready
 	bool closing = false; // close SQE already submitted for this generation
@@ -220,8 +220,8 @@ struct alignas(
 	std::shared_ptr<DeferredResponse> deferred_response{};
 	std::shared_ptr<WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
 	std::shared_ptr<WorkPool> ws_work_pool{};
-	HttpRequest saved_req{}; // copy of request saved for WS handler thread
-	bool is_tls = false; // set after first-byte sniff; used by dispatch_request
+	HttpRequest saved_req{}; // copy of request saved for WS handler std::thread
+	bool is_tls = false; // set after first-std::byte sniff; used by dispatch_request
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
 	UniqueSsl ssl;
@@ -285,7 +285,7 @@ struct alignas(
 	}
 	return "unknown";
 }
-#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
 #define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -334,7 +334,7 @@ struct Ring {
 	mutable CompletionTable client_ct_{64};
 	mutable std::optional<SocketTaskRing> client_task_ring_{};
 	// Backing memory for the ring when no_mmap = true. Freed on destroy.
-	std::unique_ptr<byte[], void (*)(void *)> ring_mem{nullptr, ::free};
+	std::unique_ptr<std::byte[], void (*)(void *)> ring_mem{nullptr, ::free};
 	int listen_fd = -1;
 	sockaddr_in6 client_addr{};
 	socklen_t client_addr_len = sizeof(client_addr);
@@ -374,7 +374,7 @@ struct Ring {
 	bool auto_recv_arm_policy = false; // adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY
 	int busy_poll_us_ = 0; // SO_BUSY_POLL optval; 0=disabled
 	bool prefer_busy_poll_ = false; // SO_PREFER_BUSY_POLL
-	int ring_core_ = -1; // sched_setaffinity core for this ring thread; -1=disabled
+	int ring_core_ = -1; // sched_setaffinity core for this ring std::thread; -1=disabled
 	int worker_core_ = -1; // IORING_REGISTER_IOWQ_AFF core for io-wq; -1=disabled
 	bool send_zc_enabled_ = false;
 	std::size_t send_zc_threshold_ = 16384;
@@ -422,7 +422,7 @@ struct Ring {
 	// a flush. Drained at the top of each run_loop iteration (after CQE reap
 	// frees SQ slots). Each thunk re-invokes the original queue_* path so
 	// conn state (gen, buffers) is re-read at replay time.
-	deque<conflux::work::root::detail::small_move_only_function<void()>> pending_ops{};
+	std::deque<conflux::work::root::detail::small_move_only_function<void()>> pending_ops{};
 
 	Router const *router = nullptr; // set before init(); not owned
 	VHostRouter const *vhost_router = nullptr; // set before init(); not owned
@@ -560,7 +560,7 @@ struct Ring {
 	void h2_setup_conn(
 		Conn &conn);
 #endif // CONFLUX_HAS_HTTP2
-	// Must be called from the thread that will run run_loop() (SINGLE_ISSUER).
+	// Must be called from the std::thread that will run run_loop() (SINGLE_ISSUER).
 	// `wq_fd`: when non-zero, sets IORING_SETUP_ATTACH_WQ so this ring shares
 	// the parent ring's kernel io-wq. Pass ring[0].ring.ring_fd for rings 1..N.
 	void init(
@@ -613,7 +613,7 @@ struct Ring {
 	void queue_send_streamed(
 		int fd);
 	// Acquire a pipe P and submit the splice chain via FileReader. Completion
-	// calls back into handle_streamed_splice_done on the ring thread.
+	// calls back into handle_streamed_splice_done on the ring std::thread.
 	void start_streamed_body(
 		int fd);
 #if CONFLUX_HAS_TLS

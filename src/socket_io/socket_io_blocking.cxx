@@ -85,7 +85,7 @@ T sync_wait_socket_task(
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
+			throw std::runtime_error{std::format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
 		}
 		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {

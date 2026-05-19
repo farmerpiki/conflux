@@ -58,18 +58,18 @@ static void print_json_error(
 	std::println("{}: {} at {}", context, e.message, path);
 }
 
-static expected<std::map<std::string, RouteStats>, JsonError> aggregate_routes(
+static std::expected<std::map<std::string, RouteStats>, JsonError> aggregate_routes(
 	std::string_view ndjson) {
 	std::map<std::string, RouteStats> routes;
 	JsonDecodeOptions decode_opts{.unknown_members = UnknownMemberPolicy::ignore};
 
 	for (auto const &row: NdjsonRange{ndjson}) {
 		if (!row) {
-			return unexpected(row.error());
+			return std::unexpected(row.error());
 		}
 		auto sample = decode<RouteSample>(*row, decode_opts);
 		if (!sample) {
-			return unexpected(std::move(sample).error());
+			return std::unexpected(std::move(sample).error());
 		}
 
 		auto &stats = routes[sample->route];
@@ -82,12 +82,12 @@ static expected<std::map<std::string, RouteStats>, JsonError> aggregate_routes(
 	return routes;
 }
 
-static expected<Document, JsonError> build_summary(
+static std::expected<Document, JsonError> build_summary(
 	std::map<std::string, RouteStats> const &routes) {
 	ValueBuilder builder;
 	auto root = builder.begin_object();
 	if (!root) {
-		return unexpected(std::move(root).error());
+		return std::unexpected(std::move(root).error());
 	}
 
 	std::int64_t total_samples{};
@@ -98,32 +98,32 @@ static expected<Document, JsonError> build_summary(
 	}
 
 	if (auto ok = root->insert_i64("samples", total_samples); !ok) {
-		return unexpected(std::move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 	if (auto ok = root->insert_i64("failures", total_failures); !ok) {
-		return unexpected(std::move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
 	auto by_route = root->insert_object("routes");
 	if (!by_route) {
-		return unexpected(std::move(by_route).error());
+		return std::unexpected(std::move(by_route).error());
 	}
 	for (auto const &[route, stats]: routes) {
 		auto route_obj = by_route->insert_object(route);
 		if (!route_obj) {
-			return unexpected(std::move(route_obj).error());
+			return std::unexpected(std::move(route_obj).error());
 		}
 		if (auto ok = route_obj->insert_i64("count", stats.count); !ok) {
-			return unexpected(std::move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("failures", stats.failures); !ok) {
-			return unexpected(std::move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("avg_latency_us", stats.total_latency_us / stats.count); !ok) {
-			return unexpected(std::move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("max_latency_us", stats.max_latency_us); !ok) {
-			return unexpected(std::move(ok).error());
+			return std::unexpected(std::move(ok).error());
 		}
 		std::move(*route_obj).commit();
 	}
@@ -131,12 +131,12 @@ static expected<Document, JsonError> build_summary(
 
 	auto slow_routes = root->insert_array("slow_routes");
 	if (!slow_routes) {
-		return unexpected(std::move(slow_routes).error());
+		return std::unexpected(std::move(slow_routes).error());
 	}
 	for (auto const &[route, stats]: routes) {
 		if (stats.max_latency_us >= 10'000) {
 			if (auto ok = slow_routes->append_string(route); !ok) {
-				return unexpected(std::move(ok).error());
+				return std::unexpected(std::move(ok).error());
 			}
 		}
 	}

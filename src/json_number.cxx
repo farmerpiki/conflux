@@ -4,9 +4,9 @@ import std;
 import std.compat;
 import conflux.types;
 
-expected<std::int64_t, JsonError> JsonNumberView::to_i64() const {
+std::expected<std::int64_t, JsonError> JsonNumberView::to_i64() const {
 	if ((flags_ & kLexIntForm) == 0) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::invalid_number,
@@ -17,27 +17,27 @@ expected<std::int64_t, JsonError> JsonNumberView::to_i64() const {
 	}
 	// kValKindUint, kValKindF64, or no kValKind* (overflow): integer-form
 	// lexeme outside std::int64_t range → number_out_of_range (Correction K).
-	return unexpected(
+	return std::unexpected(
 		JsonError{
 			.stage = JsonStage::lookup,
 			.code = JsonIssueCode::number_out_of_range,
-			.message = format("value out of std::int64_t range: {}", lexeme_)});
+			.message = std::format("value out of std::int64_t range: {}", lexeme_)});
 }
 
-expected<std::uint64_t, JsonError> JsonNumberView::to_u64() const {
+std::expected<std::uint64_t, JsonError> JsonNumberView::to_u64() const {
 	if ((flags_ & kLexIntForm) == 0) {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::invalid_number,
 				.message = "to_u64 requires integer-form number"});
 	}
 	if (!lexeme_.empty() && lexeme_[0] == '-') {
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::sign_mismatch,
-				.message = format("negative integer passed to to_u64: {}", lexeme_)});
+				.message = std::format("negative integer passed to to_u64: {}", lexeme_)});
 	}
 	if ((flags_ & kValKindUint) != 0) {
 		return raw_payload_;
@@ -48,14 +48,14 @@ expected<std::uint64_t, JsonError> JsonNumberView::to_u64() const {
 			return static_cast<std::uint64_t>(v);
 		}
 	}
-	return unexpected(
+	return std::unexpected(
 		JsonError{
 			.stage = JsonStage::lookup,
 			.code = JsonIssueCode::number_out_of_range,
-			.message = format("value out of std::uint64_t range: {}", lexeme_)});
+			.message = std::format("value out of std::uint64_t range: {}", lexeme_)});
 }
 
-expected<double, JsonError> JsonNumberView::to_f64() const {
+std::expected<double, JsonError> JsonNumberView::to_f64() const {
 	if ((flags_ & kValKindF64) != 0) {
 		return std::bit_cast<double>(raw_payload_);
 	}
@@ -68,25 +68,25 @@ expected<double, JsonError> JsonNumberView::to_f64() const {
 	if ((flags_ & kValKindDeferred) != 0) {
 		auto res = detail::classify_range_error_slow(lexeme_.data(), lexeme_.data() + lexeme_.size());
 		if (!res) {
-			auto err = move(res).error();
+			auto err = std::move(res).error();
 			err.stage = JsonStage::lookup;
-			return unexpected(move(err));
+			return std::unexpected(std::move(err));
 		}
 		if (res->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
 			return res->value;
 		}
-		return unexpected(
+		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
 				.code = JsonIssueCode::number_out_of_range,
-				.message = format("f64 conversion overflows: {}", lexeme_)});
+				.message = std::format("f64 conversion overflows: {}", lexeme_)});
 	}
 	// No kValKind* set → f64-overflow (Correction K).
-	return unexpected(
+	return std::unexpected(
 		JsonError{
 			.stage = JsonStage::lookup,
 			.code = JsonIssueCode::number_out_of_range,
-			.message = format("f64 conversion overflows: {}", lexeme_)});
+			.message = std::format("f64 conversion overflows: {}", lexeme_)});
 }
 
 bool validate_number_lexeme(

@@ -31,12 +31,13 @@ import conflux.socket_io;
 import conflux.work;
 
 namespace wroot = conflux::work::root;
+
 template<class T>
 [[nodiscard]] std::pair<wroot::Task<T>, std::shared_ptr<wroot::TaskSource<T>>> make_shared_task_source(
 	wroot::SubmitOptions opts) {
 	auto pair = wroot::make_task_source<T>(opts);
-	auto src = make_shared<wroot::TaskSource<T>>(move(pair.second));
-	return {move(pair.first), move(src)};
+	auto src = std::make_shared<wroot::TaskSource<T>>(std::move(pair.second));
+	return {std::move(pair.first), std::move(src)};
 }
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ struct IoTimeoutState {
 	void mark_stop(
 		StopCause cause) noexcept {
 		StopCause expected = StopCause::none;
-		stop_cause.compare_exchange_strong(expected, cause, memory_order_acq_rel, memory_order_acquire);
+		stop_cause.compare_exchange_strong(expected, cause, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 };
 using RecvTimeoutState = IoTimeoutState;
@@ -80,7 +81,7 @@ struct TcpStreamState {
 		SocketTaskRing *r,
 		OwnedSocketHandle h) noexcept
 		: ring{r}
-		, handle{move(h)} {}
+		, handle{std::move(h)} {}
 };
 // ─── TcpStream ───────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ struct TcpStreamState {
 
 TcpStream::TcpStream() noexcept = default;
 TcpStream::TcpStream(std::shared_ptr<void> state) noexcept
-	: state_{move(state)} {}
+	: state_{std::move(state)} {}
 TcpStream::~TcpStream() = default;
 TcpStream::TcpStream(TcpStream &&) noexcept = default;
 TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
@@ -101,17 +102,17 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	std::size_t len,
 	std::shared_ptr<void> keeper) {
 	auto &st = tcp_state(state_);
-	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
+	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-		auto ss = make_shared<wroot::TaskSource<std::size_t>>(move(s));
+		auto ss = std::make_shared<wroot::TaskSource<std::size_t>>(std::move(s));
 		auto _ = ss->try_set_exception(make_exception_ptr(IoError{EBADF, "tcp: stream closed"}));
-		return move(t);
+		return std::move(t);
 	}
 	auto task_src_1 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_1.first);
-	auto shared_src = move(task_src_1.second);
+	auto task = std::move(task_src_1.first);
+	auto shared_src = std::move(task_src_1.second);
 	SocketHandle const h = st.handle.get();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src, keeper = move(keeper)](IoResult r) mutable {
+	auto [slot, gen] = st.ring->completions().reserve([shared_src, keeper = std::move(keeper)](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
 				auto _ = shared_src->try_set_cancelled();
@@ -122,7 +123,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_send_borrowed(st.ring->raw(), h, data, len, ud)) {
@@ -130,9 +131,9 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src = move(weak_src)](wroot::CancelReason) noexcept {
+		shared_src->install_cancel_hook([ring_ptr, ud, weak_src = std::move(weak_src)](wroot::CancelReason) noexcept {
 			if (!ring_ptr->submit_on_owner([ud, weak_src](SocketTaskRing &ring) {
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
@@ -154,7 +155,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 }
 
 [[nodiscard]] bool TcpStream::valid() const noexcept {
-	return state_ && tcp_state(state_).handle.valid() && !tcp_state(state_).closing.load(memory_order_relaxed);
+	return state_ && tcp_state(state_).handle.valid() && !tcp_state(state_).closing.load(std::memory_order_relaxed);
 }
 
 [[nodiscard]] int TcpStream::raw_fd() const noexcept {
@@ -163,15 +164,15 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(std::span<std::uint8_t> dst) {
 	auto &st = tcp_state(state_);
-	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
+	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-		auto ss = make_shared<wroot::TaskSource<std::size_t>>(move(s));
+		auto ss = std::make_shared<wroot::TaskSource<std::size_t>>(std::move(s));
 		auto _ = ss->try_set_exception(make_exception_ptr(IoError{EBADF, "tcp: stream closed"}));
-		return move(t);
+		return std::move(t);
 	}
 	auto task_src_2 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_2.first);
-	auto shared_src = move(task_src_2.second);
+	auto task = std::move(task_src_2.first);
+	auto shared_src = std::move(task_src_2.second);
 	SocketHandle const h = st.handle.get();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src](IoResult r) mutable {
 		try {
@@ -180,7 +181,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_async_recv_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ud)) {
@@ -188,9 +189,9 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src2 = weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto weak_src2 = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src2 = move(weak_src2)](wroot::CancelReason) noexcept {
+		shared_src->install_cancel_hook([ring_ptr, ud, weak_src2 = std::move(weak_src2)](wroot::CancelReason) noexcept {
 			if (!ring_ptr->submit_on_owner([ud, weak_src2](SocketTaskRing &ring) {
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
@@ -220,7 +221,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 }
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(std::span<std::uint8_t const> src) {
-	auto holder = make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
+	auto holder = std::make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
 	std::uint8_t *data = holder->data();
 	std::size_t const len = holder->size();
 	return do_send(data, len, holder);
@@ -232,8 +233,8 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		co_await []() -> wroot::Task<void> { throw IoError{EBADF, "tcp: stream closed"}; }();
 	}
 	auto task_src_3 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto task = move(task_src_3.first);
-	auto shared_src = move(task_src_3.second);
+	auto task = std::move(task_src_3.first);
+	auto shared_src = std::move(task_src_3.second);
 	SocketHandle const h = st.handle.get();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src](IoResult r) mutable {
 		try {
@@ -242,32 +243,32 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<void>{});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_shutdown(st.ring->raw(), h, how, ud)) {
 		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
-	co_await move(task);
+	co_await std::move(task);
 }
 
 [[nodiscard]] wroot::Task<void> TcpStream::async_close() {
 	auto &st = tcp_state(state_);
 	bool expected = false;
-	if (!st.closing.compare_exchange_strong(expected, true, memory_order_acq_rel)) {
+	if (!st.closing.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
 		co_return;
 	}
 	SocketHandle const h = st.handle.get();
-	auto cs = make_shared<CloseState>();
+	auto cs = std::make_shared<CloseState>();
 	auto task_src_4 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_4.first);
-	auto shared_src = move(task_src_4.second);
+	auto task = std::move(task_src_4.first);
+	auto shared_src = std::move(task_src_4.second);
 	[[maybe_unused]] auto _cancel = shared_src->install_cancel_hook([cs](wroot::CancelReason) noexcept {
-		cs->cancel_requested.store(true, memory_order_relaxed);
+		cs->cancel_requested.store(true, std::memory_order_relaxed);
 		// No cancel SQE for close — fd released after submit; cancelling close = fd leak.
 	});
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, cs](IoResult r) mutable {
-		if (cs->cancel_requested.load(memory_order_relaxed)) {
+		if (cs->cancel_requested.load(std::memory_order_relaxed)) {
 			auto _ = shared_src->try_set_cancelled();
 		} else if (r.res < 0) {
 			auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: close"}));
@@ -284,19 +285,19 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		} else {
 			st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
 		}
-		co_await move(task);
+		co_await std::move(task);
 		co_return;
 	}
 	auto _ = st.handle.release();
-	co_await move(task);
+	co_await std::move(task);
 }
 template<class T>
 [[nodiscard]] wroot::Task<T> make_error_task(
 	IoError e) {
 	auto [t, s] = wroot::make_task_source<T>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto ss = make_shared<wroot::TaskSource<T>>(move(s));
-	auto _ = ss->try_set_exception(make_exception_ptr(move(e)));
-	return move(t);
+	auto ss = std::make_shared<wroot::TaskSource<T>>(std::move(s));
+	auto _ = ss->try_set_exception(make_exception_ptr(std::move(e)));
+	return std::move(t);
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src) {
@@ -316,22 +317,22 @@ template<class T>
 		return async_write_borrowed(src);
 	}
 	auto &st = tcp_state(state_);
-	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
+	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
 	auto task_src_5 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_5.first);
-	auto shared_src = move(task_src_5.second);
+	auto task = std::move(task_src_5.first);
+	auto shared_src = std::move(task_src_5.second);
 	SocketHandle const h = st.handle.get();
-	auto ts = make_shared<__kernel_timespec>();
+	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
-	auto state = make_shared<IoTimeoutState>();
+	auto state = std::make_shared<IoTimeoutState>();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
-				auto cause = state->stop_cause.load(memory_order_acquire);
+				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
 					auto _ = shared_src->try_set_cancelled();
 				} else {
@@ -345,7 +346,7 @@ template<class T>
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const send_ud = st.ring->encode(slot, gen);
 	auto [tslot, tgen] = st.ring->completions().reserve([ts, state](IoResult r) mutable {
@@ -361,7 +362,7 @@ template<class T>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, send_ud, weak_src, state](wroot::CancelReason) noexcept {
 		state->mark_stop(StopCause::user_cancel);
 		if (!ring_ptr->submit_on_owner([send_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
@@ -397,7 +398,7 @@ template<class T>
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_copy(
 	std::span<std::uint8_t const> src) {
-	auto holder = make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
+	auto holder = std::make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
 	std::size_t sent = 0;
 	while (sent < holder->size()) {
 		std::size_t const n = co_await do_send(holder->data() + sent, holder->size() - sent, holder);
@@ -419,21 +420,21 @@ template<class T>
 }
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(
 	std::vector<std::uint8_t> data) {
-	auto holder = make_shared<std::vector<std::uint8_t>>(move(data));
+	auto holder = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
 	std::uint8_t const *ptr = holder->data();
 	std::size_t const len = holder->size();
 	return do_send(ptr, len, holder);
 }
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(
 	std::string data) {
-	auto holder = make_shared<std::string>(move(data));
+	auto holder = std::make_shared<std::string>(std::move(data));
 	auto const *ptr = reinterpret_cast<std::uint8_t const *>(holder->data());
 	std::size_t const len = holder->size();
 	return do_send(ptr, len, holder);
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(
 	std::vector<std::uint8_t> data) {
-	auto holder = make_shared<std::vector<std::uint8_t>>(move(data));
+	auto holder = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
 	std::size_t sent = 0;
 	while (sent < holder->size()) {
 		std::size_t const n = co_await do_send(holder->data() + sent, holder->size() - sent, holder);
@@ -445,7 +446,7 @@ template<class T>
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(
 	std::string data) {
-	auto holder = make_shared<std::string>(move(data));
+	auto holder = std::make_shared<std::string>(std::move(data));
 	std::size_t sent = 0;
 	while (sent < holder->size()) {
 		auto const *ptr = reinterpret_cast<std::uint8_t const *>(holder->data() + sent);
@@ -463,22 +464,22 @@ template<class T>
 		return async_recv_borrowed(dst);
 	}
 	auto &st = tcp_state(state_);
-	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
+	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
 	auto task_src_6 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_6.first);
-	auto shared_src = move(task_src_6.second);
+	auto task = std::move(task_src_6.first);
+	auto shared_src = std::move(task_src_6.second);
 	SocketHandle const h = st.handle.get();
-	auto ts = make_shared<__kernel_timespec>();
+	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
-	auto state = make_shared<RecvTimeoutState>();
+	auto state = std::make_shared<RecvTimeoutState>();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
-				auto cause = state->stop_cause.load(memory_order_acquire);
+				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
 					auto _ = shared_src->try_set_cancelled();
 				} else {
@@ -492,7 +493,7 @@ template<class T>
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const recv_ud = st.ring->encode(slot, gen);
 	auto [tslot, tgen] = st.ring->completions().reserve([ts, state](IoResult r) mutable {
@@ -508,7 +509,7 @@ template<class T>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason) noexcept {
 		state->mark_stop(StopCause::user_cancel);
 		if (!ring_ptr->submit_on_owner([recv_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
@@ -554,13 +555,13 @@ struct ConnectOp {
 	std::atomic_bool cancel_requested{false};
 	std::atomic<StopCause> stop_cause{StopCause::none};
 	std::atomic_bool finalized{false};
-	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
+	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_exception(make_exception_ptr(move(e)));
+		auto _ = src->try_set_exception(make_exception_ptr(std::move(e)));
 	}
 	void complete_cancelled() noexcept {
 		if (!try_finalize()) {
@@ -573,7 +574,7 @@ struct ConnectOp {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_value(wroot::Success<TcpStream>{move(v)});
+		auto _ = src->try_set_value(wroot::Success<TcpStream>{std::move(v)});
 	}
 	void submit_cancel_ud_on_owner(
 		SocketTaskRing &r,
@@ -602,20 +603,20 @@ struct ConnectOp {
 	void cancel_on_owner(
 		SocketTaskRing &r,
 		std::shared_ptr<ConnectOp> self) noexcept {
-		if (finalized.load(memory_order_acquire)) {
+		if (finalized.load(std::memory_order_acquire)) {
 			return;
 		}
 		switch (stage) {
-		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud, move(self)); break;
-		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get(), move(self)); break;
+		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud, std::move(self)); break;
+		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get(), std::move(self)); break;
 		case Stage::done           : break;
 		}
 	}
 	void request_cancel(
 		wroot::CancelReason,
 		std::shared_ptr<ConnectOp> self) noexcept {
-		stop_cause.store(StopCause::user_cancel, memory_order_release);
-		cancel_requested.store(true, memory_order_release);
+		stop_cause.store(StopCause::user_cancel, std::memory_order_release);
+		cancel_requested.store(true, std::memory_order_release);
 		if (!ring->submit_on_owner([self](SocketTaskRing &r) { self->cancel_on_owner(r, self); })) {
 			complete_cancelled(); // may run on cancelling thread; relies on TaskSource setter MT-safety
 		}
@@ -626,19 +627,19 @@ struct ConnectOp {
 			return;
 		}
 		StopCause expected = StopCause::none;
-		stop_cause.compare_exchange_strong(expected, StopCause::timeout, memory_order_acq_rel, memory_order_acquire);
+		stop_cause.compare_exchange_strong(expected, StopCause::timeout, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 	void on_connect_cqe(
 		IoResult r) noexcept {
 		stage = Stage::done;
 		if (r.res >= 0) {
-			complete_value(TcpStream{move(stream_state)});
+			complete_value(TcpStream{std::move(stream_state)});
 			return;
 		}
 		stream_state.reset();
 		if (r.res == -ECANCELED) {
-			if (cancel_requested.load(memory_order_acquire)
-				|| stop_cause.load(memory_order_acquire) == StopCause::user_cancel) {
+			if (cancel_requested.load(std::memory_order_acquire)
+				|| stop_cause.load(std::memory_order_acquire) == StopCause::user_cancel) {
 				complete_cancelled();
 			} else {
 				complete_exception(IoError{ETIMEDOUT, "tcp_connect: timeout"});
@@ -651,7 +652,7 @@ struct ConnectOp {
 		IoResult r,
 		std::shared_ptr<ConnectOp> self) noexcept {
 		if (r.res < 0) {
-			if (cancel_requested.load(memory_order_acquire)) {
+			if (cancel_requested.load(std::memory_order_acquire)) {
 				complete_cancelled();
 			} else {
 				complete_exception(IoError{-r.res, "tcp_connect: socket"});
@@ -659,7 +660,7 @@ struct ConnectOp {
 			return;
 		}
 		auto owned = OwnedSocketHandle::from_fd(r.res);
-		if (cancel_requested.load(memory_order_acquire)) {
+		if (cancel_requested.load(std::memory_order_acquire)) {
 			complete_cancelled();
 			return;
 		}
@@ -684,7 +685,7 @@ struct ConnectOp {
 			complete_exception(IoError{ENOSPC, "tcp_connect: SQ full"});
 			return;
 		}
-		stream_state = make_shared<TcpStreamState>(ring, move(owned));
+		stream_state = std::make_shared<TcpStreamState>(ring, std::move(owned));
 		auto [cslot, cgen] = ring->completions().reserve([self](IoResult cr) noexcept { self->on_connect_cqe(cr); });
 		connect_ud = ring->encode(cslot, cgen);
 		std::uint32_t tslot{}, tgen{};
@@ -728,10 +729,10 @@ struct ConnectOp {
 	}
 
 	auto task_src_connect = make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_connect.first);
-	auto src = move(task_src_connect.second);
+	auto task = std::move(task_src_connect.first);
+	auto src = std::move(task_src_connect.second);
 
-	auto op = make_shared<ConnectOp>();
+	auto op = std::make_shared<ConnectOp>();
 	op->ring = &ring;
 	op->src = src;
 	op->addr = addr;
@@ -763,13 +764,13 @@ struct AcceptOp {
 	std::uint64_t accept_ud{};
 	std::atomic_bool cancel_requested{false};
 	std::atomic_bool finalized{false};
-	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
+	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_exception(make_exception_ptr(move(e)));
+		auto _ = src->try_set_exception(make_exception_ptr(std::move(e)));
 	}
 	void complete_cancelled() noexcept {
 		if (!try_finalize()) {
@@ -782,12 +783,12 @@ struct AcceptOp {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_value(wroot::Success<TcpStream>{move(v)});
+		auto _ = src->try_set_value(wroot::Success<TcpStream>{std::move(v)});
 	}
 	void cancel_on_owner(
 		SocketTaskRing &r,
 		std::shared_ptr<AcceptOp> self) noexcept {
-		if (finalized.load(memory_order_acquire)) {
+		if (finalized.load(std::memory_order_acquire)) {
 			return;
 		}
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
@@ -807,14 +808,14 @@ struct AcceptOp {
 	void request_cancel(
 		wroot::CancelReason,
 		std::shared_ptr<AcceptOp> self) noexcept {
-		cancel_requested.store(true, memory_order_release);
+		cancel_requested.store(true, std::memory_order_release);
 		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
 	}
 	void on_accept_cqe(
 		IoResult r) noexcept {
 		if (r.res < 0) {
-			if (cancel_requested.load(memory_order_acquire)) {
+			if (cancel_requested.load(std::memory_order_acquire)) {
 				complete_cancelled();
 			} else {
 				complete_exception(IoError{-r.res, "tcp_accept: accept"});
@@ -822,7 +823,7 @@ struct AcceptOp {
 			return;
 		}
 		auto owned = OwnedSocketHandle::from_fd(r.res);
-		if (cancel_requested.load(memory_order_acquire)) {
+		if (cancel_requested.load(std::memory_order_acquire)) {
 			complete_cancelled();
 			return;
 		}
@@ -841,7 +842,7 @@ struct AcceptOp {
 				return;
 			}
 		}
-		complete_value(TcpStream{make_shared<TcpStreamState>(ring, move(owned))});
+		complete_value(TcpStream{std::make_shared<TcpStreamState>(ring, std::move(owned))});
 	}
 };
 // ─── tcp_accept ───────────────────────────────────────────────────────────────
@@ -857,10 +858,10 @@ struct AcceptOp {
 	}
 
 	auto task_src_accept = make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_accept.first);
-	auto src = move(task_src_accept.second);
+	auto task = std::move(task_src_accept.first);
+	auto src = std::move(task_src_accept.second);
 
-	auto op = make_shared<AcceptOp>();
+	auto op = std::make_shared<AcceptOp>();
 	op->ring = &ring;
 	op->src = src;
 	op->opts = opts;
@@ -893,13 +894,13 @@ struct MultishotAcceptOp {
 	std::function<wroot::Task<void>(TcpStream)> handler{};
 	std::atomic_bool cancel_requested{false};
 	std::atomic_bool finalized{false};
-	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
+	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_exception(make_exception_ptr(move(e)));
+		auto _ = src->try_set_exception(make_exception_ptr(std::move(e)));
 	}
 	void complete_cancelled() noexcept {
 		if (!try_finalize()) {
@@ -910,7 +911,7 @@ struct MultishotAcceptOp {
 	void cancel_on_owner(
 		SocketTaskRing &r,
 		std::shared_ptr<MultishotAcceptOp> self) noexcept {
-		if (finalized.load(memory_order_acquire)) {
+		if (finalized.load(std::memory_order_acquire)) {
 			return;
 		}
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
@@ -930,7 +931,7 @@ struct MultishotAcceptOp {
 	void request_cancel(
 		wroot::CancelReason,
 		std::shared_ptr<MultishotAcceptOp> self) noexcept {
-		cancel_requested.store(true, memory_order_release);
+		cancel_requested.store(true, std::memory_order_release);
 		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
 	}
@@ -939,7 +940,7 @@ struct MultishotAcceptOp {
 		std::shared_ptr<MultishotAcceptOp> self) noexcept {
 		bool const more = (r.flags & IORING_CQE_F_MORE) != 0;
 		if (r.res < 0) {
-			if (cancel_requested.load(memory_order_acquire) || r.res == -ECANCELED) {
+			if (cancel_requested.load(std::memory_order_acquire) || r.res == -ECANCELED) {
 				complete_cancelled();
 			} else {
 				complete_exception(IoError{-r.res, "tcp_accept_multishot: accept"});
@@ -947,7 +948,7 @@ struct MultishotAcceptOp {
 			return;
 		}
 		auto owned = OwnedSocketHandle::from_fd(r.res);
-		if (cancel_requested.load(memory_order_acquire)) {
+		if (cancel_requested.load(std::memory_order_acquire)) {
 			if (!more) {
 				complete_cancelled();
 			}
@@ -962,10 +963,10 @@ struct MultishotAcceptOp {
 			::setsockopt(owned.get().as_fd(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
 		}
 		try {
-			handler(TcpStream{make_shared<TcpStreamState>(ring, move(owned))}).detach();
+			handler(TcpStream{std::make_shared<TcpStreamState>(ring, std::move(owned))}).detach();
 		} catch (std::bad_alloc const &) {
 			complete_exception(IoError{ENOMEM, "tcp_accept_multishot: handler allocation"});
-			cancel_requested.store(true, memory_order_release);
+			cancel_requested.store(true, std::memory_order_release);
 			if (more) {
 				try {
 					auto [cs, cg] = ring->completions().reserve([](IoResult) noexcept {});
@@ -979,7 +980,7 @@ struct MultishotAcceptOp {
 			return;
 		} catch (...) {
 			complete_exception(IoError{EIO, "tcp_accept_multishot: handler threw"});
-			cancel_requested.store(true, memory_order_release);
+			cancel_requested.store(true, std::memory_order_release);
 			if (more) {
 				try {
 					auto [cs, cg] = ring->completions().reserve([](IoResult) noexcept {});
@@ -993,7 +994,7 @@ struct MultishotAcceptOp {
 			return;
 		}
 		if (!more) {
-			if (cancel_requested.load(memory_order_acquire)) {
+			if (cancel_requested.load(std::memory_order_acquire)) {
 				complete_cancelled();
 				return;
 			}
@@ -1034,16 +1035,16 @@ struct MultishotAcceptOp {
 	}
 
 	auto task_src_multishot = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_multishot.first);
-	auto src = move(task_src_multishot.second);
+	auto task = std::move(task_src_multishot.first);
+	auto src = std::move(task_src_multishot.second);
 
-	auto op = make_shared<MultishotAcceptOp>();
+	auto op = std::make_shared<MultishotAcceptOp>();
 	op->ring = &ring;
 	op->src = src;
 	op->opts = opts;
 	op->accept_flags = listener.accept_flags();
 	op->listen_fd = listener.handle();
-	op->handler = move(handler);
+	op->handler = std::move(handler);
 
 	auto [slot, gen] = ring.completions().reserve_multishot([op](IoResult r) noexcept { op->on_accept_cqe(r, op); });
 	op->accept_ud = ring.encode(slot, gen);
@@ -1081,7 +1082,7 @@ struct MsgHolder {
 UdpSocket::UdpSocket() noexcept = default;
 UdpSocket::UdpSocket(SocketTaskRing &ring, OwnedSocketHandle fh) noexcept
 	: ring_{&ring}
-	, handle_{move(fh)} {}
+	, handle_{std::move(fh)} {}
 UdpSocket::~UdpSocket() = default;
 UdpSocket::UdpSocket(UdpSocket &&) noexcept = default;
 UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
@@ -1152,15 +1153,15 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	sockaddr_storage addr,
 	socklen_t addr_len) {
 	auto task_src_7 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto task = move(task_src_7.first);
-	auto shared_src = move(task_src_7.second);
+	auto task = std::move(task_src_7.first);
+	auto shared_src = std::move(task_src_7.second);
 	SocketHandle const h = handle_.get();
 	struct SendHolder {
 		msghdr msg{};
 		iovec iov{};
 		sockaddr_storage to{};
 	};
-	auto holder = make_shared<SendHolder>();
+	auto holder = std::make_shared<SendHolder>();
 	holder->to = addr;
 	holder->iov.iov_base = const_cast<void *>(static_cast<void const *>(data.data()));
 	holder->iov.iov_len = data.size();
@@ -1175,21 +1176,21 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_sendmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
-	co_return co_await move(task);
+	co_return co_await std::move(task);
 }
 [[nodiscard]] wroot::Task<std::size_t> UdpSocket::send_to_copy(
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
 	auto task_src_8 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto task = move(task_src_8.first);
-	auto shared_src = move(task_src_8.second);
+	auto task = std::move(task_src_8.first);
+	auto shared_src = std::move(task_src_8.second);
 	SocketHandle const h = handle_.get();
 	struct SendCopyHolder {
 		std::vector<std::uint8_t> payload;
@@ -1197,7 +1198,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		iovec iov{};
 		sockaddr_storage to{};
 	};
-	auto holder = make_shared<SendCopyHolder>();
+	auto holder = std::make_shared<SendCopyHolder>();
 	holder->payload.assign(data.begin(), data.end());
 	holder->to = addr;
 	holder->iov.iov_base = holder->payload.empty() ? nullptr : holder->payload.data();
@@ -1213,21 +1214,21 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 				return;
 			}
 			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_sendmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
-	co_return co_await move(task);
+	co_return co_await std::move(task);
 }
 [[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::recv_from(
 	std::span<std::uint8_t> buf) {
 	auto task_src_9 = make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto task = move(task_src_9.first);
-	auto shared_src = move(task_src_9.second);
+	auto task = std::move(task_src_9.first);
+	auto shared_src = std::move(task_src_9.second);
 	SocketHandle const h = handle_.get();
-	auto holder = make_shared<MsgHolder>();
+	auto holder = std::make_shared<MsgHolder>();
 	holder->iov.iov_base = buf.data();
 	holder->iov.iov_len = buf.size();
 	holder->msg.msg_name = &holder->from;
@@ -1244,14 +1245,14 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 			result.bytes = static_cast<std::size_t>(r.res);
 			result.from = holder->from;
 			result.from_len = holder->msg.msg_namelen;
-			auto _ = shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+			auto _ = shared_src->try_set_value(wroot::Success<UdpRecvResult>{std::move(result)});
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_recvmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
-	co_return co_await move(task);
+	co_return co_await std::move(task);
 }
 [[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::recv_from(
 	std::span<std::uint8_t> buf,
@@ -1260,25 +1261,25 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return make_error_task<UdpRecvResult>(IoError{EINVAL, "udp: negative timeout"});
 	}
 	auto task_src_10 = make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_10.first);
-	auto shared_src = move(task_src_10.second);
+	auto task = std::move(task_src_10.first);
+	auto shared_src = std::move(task_src_10.second);
 	SocketHandle const h = handle_.get();
-	auto holder = make_shared<MsgHolder>();
+	auto holder = std::make_shared<MsgHolder>();
 	holder->iov.iov_base = buf.data();
 	holder->iov.iov_len = buf.size();
 	holder->msg.msg_name = &holder->from;
 	holder->msg.msg_namelen = sizeof(holder->from);
 	holder->msg.msg_iov = &holder->iov;
 	holder->msg.msg_iovlen = 1;
-	auto ts = make_shared<__kernel_timespec>();
+	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
-	auto state = make_shared<RecvTimeoutState>();
+	auto state = std::make_shared<RecvTimeoutState>();
 	auto [slot, gen] = ring_->completions().reserve([shared_src, holder, state](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
-				auto cause = state->stop_cause.load(memory_order_acquire);
+				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
 					auto _ = shared_src->try_set_cancelled();
 				} else {
@@ -1295,8 +1296,8 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 			result.bytes = static_cast<std::size_t>(r.res);
 			result.from = holder->from;
 			result.from_len = holder->msg.msg_namelen;
-			auto _ = shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
-		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
+			auto _ = shared_src->try_set_value(wroot::Success<UdpRecvResult>{std::move(result)});
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	std::uint64_t const recv_ud = ring_->encode(slot, gen);
 	auto [tslot, tgen] = ring_->completions().reserve([ts, state](IoResult r) mutable {
@@ -1312,7 +1313,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = ring_;
-	auto weak_src = weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
+	auto weak_src = std::weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason) noexcept {
 		state->mark_stop(StopCause::user_cancel);
 		if (!ring_ptr->submit_on_owner([recv_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
@@ -1341,9 +1342,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		co_return;
 	}
 	auto task_src_11 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = move(task_src_11.first);
-	auto shared_src = move(task_src_11.second);
-	auto ts = make_shared<__kernel_timespec>();
+	auto task = std::move(task_src_11.first);
+	auto shared_src = std::move(task_src_11.second);
+	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(dur);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (dur - sec).count() * 1000000LL;
@@ -1358,11 +1359,11 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::uint64_t const ud = ring.encode(slot, gen);
 	if (!submit_timeout_borrowed(ring.raw(), ts.get(), ud)) {
 		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
-		co_await move(task);
+		co_await std::move(task);
 		co_return;
 	}
 	auto ring_ptr = &ring;
-	auto weak_src = weak_ptr<wroot::TaskSource<void>>{shared_src};
+	auto weak_src = std::weak_ptr<wroot::TaskSource<void>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, weak_src](wroot::CancelReason) noexcept {
 		if (!ring_ptr->submit_on_owner([ud, weak_src](SocketTaskRing &r) noexcept {
 				auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
@@ -1381,5 +1382,5 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 			}
 		}
 	});
-	co_await move(task);
+	co_await std::move(task);
 }

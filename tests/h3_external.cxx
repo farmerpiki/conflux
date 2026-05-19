@@ -31,7 +31,7 @@ TEST_CASE(
 TEST_CASE(
 	"h3: curl --http3-only POST echoes body") {
 	conflux::tests::Http3ServerFixture const fx{make_router()};
-	auto [code, out] = conflux::tests::run_cmd(format(
+	auto [code, out] = conflux::tests::run_cmd(std::format(
 		"curl -sk --http3-only --max-time 5 --resolve localhost:{}:127.0.0.1 "
 		"-d 'hello h3' https://localhost:{}/echo",
 		fx.port(),
@@ -52,7 +52,7 @@ TEST_CASE(
 	std::string big(kSize, 'Q');
 	Router r;
 	r.get("/big", [&](HttpRequest const &) { return HttpResponse::text(big); });
-	conflux::tests::Http3ServerFixture const fx{move(r)};
+	conflux::tests::Http3ServerFixture const fx{std::move(r)};
 	auto [code, out] = fx.curl_h3("/big");
 	REQUIRE(code == 0);
 	REQUIRE(out.size() == kSize);
