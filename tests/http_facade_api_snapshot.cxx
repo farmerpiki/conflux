@@ -81,4 +81,14 @@ void offload_spelling_compiles(
 	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 
+void response_helpers_compile() {
+	(void)http::html("<p>ok</p>");
+	(void)http::json_response(R"({"ok":true})");
+	(void)http::no_content();
+	(void)http::redirect("/next");
+	(void)http::stream([](http::StreamSink &sink) { sink.write("chunk"); });
+	(void)http::ok(Payload{.value = "ok"});
+	(void)http::created(Payload{.value = "ok"});
+}
+
 } // namespace http_snapshot
