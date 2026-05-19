@@ -1,6 +1,7 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
+import conflux.work;
 
 namespace http_snapshot {
 
@@ -75,6 +76,11 @@ void route_forms_compile() {
 		});
 
 	(void)app.routes();
+}
+
+void offload_spelling_compiles(
+	std::shared_ptr<WorkPool> pool) {
+	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 
 } // namespace http_snapshot
