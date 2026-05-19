@@ -6,8 +6,6 @@ import conflux.process;
 import conflux.types;
 import std;
 
-using std::println;
-
 static void print_result(
 	std::string_view label,
 	expected<RunResult, std::error_code> const &result) {

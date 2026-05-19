@@ -6,8 +6,6 @@ import conflux.crypto;
 import conflux.types;
 import std;
 
-using std::println;
-
 template<std::size_t N>
 static span<unsigned char const> bytes(
 	std::array<unsigned char, N> const &value) noexcept {

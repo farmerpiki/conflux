@@ -3,8 +3,6 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
-using std::println;
-
 struct ApiEvent {
 	std::int64_t id{};
 	std::string type;

@@ -3,7 +3,6 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
-using std::println;
 
 static std::string display_path(
 	JsonError const &e) {

@@ -3,8 +3,6 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
-using namespace std::literals;
-using std::println, std::pair;
 struct ApiResponse {
 	std::string model;
 	std::int64_t tokens{};
@@ -29,10 +27,10 @@ static void example_parse_decode() {
 static void example_make_object() {
 	std::println("\n--- make_object / make_array ---");
 	auto doc = *make_object(
-		pair{"model", "gpt-4o"sv},
-		pair{"temperature", 0.7},
-		pair{"max_tokens", 4096},
-		pair{"stream", true});
+		std::pair{"model", std::string_view{"gpt-4o"}},
+		std::pair{"temperature", 0.7},
+		std::pair{"max_tokens", 4096},
+		std::pair{"stream", true});
 	std::println("{}", *doc.dump(JsonDumpOptions{.pretty = true}));
 }
 static void example_json5() {

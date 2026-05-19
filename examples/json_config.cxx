@@ -3,8 +3,6 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
-using std::println;
-
 struct RateLimitConfig {
 	std::int64_t requests_per_minute{};
 	std::optional<std::int64_t> burst{};

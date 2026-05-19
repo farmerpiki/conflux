@@ -6,23 +6,22 @@ import conflux.json;
 import conflux.json.reflect;
 
 using namespace conflux::json;
-using std::println, std::optional, std::string;
 struct Vec3 {
 	double x{};
 	double y{};
 	double z{};
 };
 struct Material {
-	string name;
+	std::string name;
 	double roughness{0.5};
-	optional<string> texture;
+	std::optional<std::string> texture;
 };
 struct SceneObject {
-	string id;
+	std::string id;
 	Vec3 position{};
 	Material material{};
 	[[= conflux::json::skip{}]] int internal_gen{0};
-	[[= conflux::json::name("display_name")]] string label;
+	[[= conflux::json::name("display_name")]] std::string label;
 };
 static void example_encode() {
 	std::println("--- reflect encode ---");
@@ -40,7 +39,7 @@ static void example_encode() {
 		std::println("encode error: {}", enc.error().message);
 		return;
 	}
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	std::println("{}", *doc.dump(JsonDumpOptions{.pretty = true, .indent = 2}));
 }
 static void example_decode() {
@@ -78,7 +77,7 @@ static void example_roundtrip() {
 		std::println("encode error: {}", enc.error().message);
 		return;
 	}
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto json_str = *doc.dump();
 	std::println("encoded: {}", json_str);
 

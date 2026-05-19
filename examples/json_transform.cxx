@@ -3,7 +3,6 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
-using std::println;
 
 struct RouteSample {
 	std::string route;
@@ -70,7 +69,7 @@ static expected<std::map<std::string, RouteStats>, JsonError> aggregate_routes(
 		}
 		auto sample = decode<RouteSample>(*row, decode_opts);
 		if (!sample) {
-			return unexpected(move(sample).error());
+			return unexpected(std::move(sample).error());
 		}
 
 		auto &stats = routes[sample->route];
@@ -88,7 +87,7 @@ static expected<Document, JsonError> build_summary(
 	ValueBuilder builder;
 	auto root = builder.begin_object();
 	if (!root) {
-		return unexpected(move(root).error());
+		return unexpected(std::move(root).error());
 	}
 
 	std::int64_t total_samples{};
@@ -99,52 +98,52 @@ static expected<Document, JsonError> build_summary(
 	}
 
 	if (auto ok = root->insert_i64("samples", total_samples); !ok) {
-		return unexpected(move(ok).error());
+		return unexpected(std::move(ok).error());
 	}
 	if (auto ok = root->insert_i64("failures", total_failures); !ok) {
-		return unexpected(move(ok).error());
+		return unexpected(std::move(ok).error());
 	}
 
 	auto by_route = root->insert_object("routes");
 	if (!by_route) {
-		return unexpected(move(by_route).error());
+		return unexpected(std::move(by_route).error());
 	}
 	for (auto const &[route, stats]: routes) {
 		auto route_obj = by_route->insert_object(route);
 		if (!route_obj) {
-			return unexpected(move(route_obj).error());
+			return unexpected(std::move(route_obj).error());
 		}
 		if (auto ok = route_obj->insert_i64("count", stats.count); !ok) {
-			return unexpected(move(ok).error());
+			return unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("failures", stats.failures); !ok) {
-			return unexpected(move(ok).error());
+			return unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("avg_latency_us", stats.total_latency_us / stats.count); !ok) {
-			return unexpected(move(ok).error());
+			return unexpected(std::move(ok).error());
 		}
 		if (auto ok = route_obj->insert_i64("max_latency_us", stats.max_latency_us); !ok) {
-			return unexpected(move(ok).error());
+			return unexpected(std::move(ok).error());
 		}
-		move(*route_obj).commit();
+		std::move(*route_obj).commit();
 	}
-	move(*by_route).commit();
+	std::move(*by_route).commit();
 
 	auto slow_routes = root->insert_array("slow_routes");
 	if (!slow_routes) {
-		return unexpected(move(slow_routes).error());
+		return unexpected(std::move(slow_routes).error());
 	}
 	for (auto const &[route, stats]: routes) {
 		if (stats.max_latency_us >= 10'000) {
 			if (auto ok = slow_routes->append_string(route); !ok) {
-				return unexpected(move(ok).error());
+				return unexpected(std::move(ok).error());
 			}
 		}
 	}
-	move(*slow_routes).commit();
+	std::move(*slow_routes).commit();
 
-	move(*root).commit();
-	return move(builder).finish();
+	std::move(*root).commit();
+	return std::move(builder).finish();
 }
 
 static void example_transform() {
