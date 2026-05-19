@@ -90,6 +90,41 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports invalid route patterns",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/files/{*path}/tail", [] { return http::text("bad"); });
+	app.get("/users/{id", [] { return http::text("bad"); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 2);
+	CHECK(report.issues[0].message == "invalid route pattern: wildcard parameter must be the final segment");
+	CHECK(report.issues[0].path == "/files/{*path}/tail");
+	CHECK(report.issues[0].source_file.ends_with("http_facade_test.cxx"));
+	CHECK(report.issues[0].source_line > 0);
+	CHECK(report.issues[1].message == "invalid route pattern: unmatched path parameter braces");
+	CHECK(report.issues[1].path == "/users/{id");
+}
+
+TEST_CASE(
+	"http facade: validate reports ambiguous same-shape routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/users/{id}", [] { return http::text("one"); });
+	app.get("/users/{slug}", [] { return http::text("two"); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].message == "ambiguous route; also matches /users/{id}");
+	CHECK(report.issues[0].method == "GET");
+	CHECK(report.issues[0].path == "/users/{slug}");
+	CHECK(report.issues[0].related_source_file.ends_with("http_facade_test.cxx"));
+	CHECK(report.issues[0].related_source_line > 0);
+}
+
+TEST_CASE(
 	"http facade: validate reports body extractors on GET routes",
 	"[http.facade]") {
 	auto app = http::app();
@@ -291,6 +326,27 @@ TEST_CASE(
 	auto response = app.router().dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "search:req-1:cookie-1");
+}
+
+TEST_CASE(
+	"http facade: app handlers can receive request id extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/request-id", [](http::RequestId request_id) { return http::text(request_id.get()); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/request-id";
+	req.headers["x-request-id"] = "req-123";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "req-123");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "RequestId");
 }
 
 TEST_CASE(

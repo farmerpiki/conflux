@@ -145,6 +145,13 @@ struct BodyBytes {
 	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return value; }
 };
 
+struct RequestId {
+	std::string_view value{};
+
+	[[nodiscard]] constexpr std::string_view get() const noexcept { return value; }
+	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return value; }
+};
+
 template<class T>
 struct State {
 	T *value{};
@@ -404,6 +411,9 @@ concept BodyTextArg = std::same_as<std::remove_cvref_t<Arg>, BodyText>;
 template<class Arg>
 concept BodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, BodyBytes>;
 
+template<class Arg>
+concept RequestIdArg = std::same_as<std::remove_cvref_t<Arg>, RequestId>;
+
 template<class Arg, class Body>
 concept RawJsonBodyArg = std::same_as<std::remove_cvref_t<Arg>, std::remove_cvref_t<Body>>;
 
@@ -420,7 +430,8 @@ consteval bool has_state_arg_impl(
 			|| CookieArg<std::tuple_element_t<Is, Args>>
 			|| FormArg<std::tuple_element_t<Is, Args>>
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
-			|| BodyBytesArg<std::tuple_element_t<Is, Args>>));
+			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
+			|| RequestIdArg<std::tuple_element_t<Is, Args>>));
 }
 
 template<class Args>
@@ -971,7 +982,17 @@ public:
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;
+		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen_shapes;
 		for (auto const &route: route_metadata_) {
+			if (auto pattern_issue = validate_path_pattern(route.path)) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = *pattern_issue,
+						.method = route.method,
+						.path = route.path,
+						.source_file = route.source_file,
+						.source_line = route.source_line});
+			}
 			auto key = std::pair{route.method, route.path};
 			auto [it, inserted] = seen.emplace(key, std::addressof(route));
 			if (!inserted) {
@@ -984,6 +1005,19 @@ public:
 						.source_line = route.source_line,
 						.related_source_file = it->second->source_file,
 						.related_source_line = it->second->source_line});
+			}
+			auto shape_key = std::pair{route.method, route_shape(route.path)};
+			auto [shape_it, shape_inserted] = seen_shapes.emplace(shape_key, std::addressof(route));
+			if (!shape_inserted && shape_it->second->path != route.path) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = std::format("ambiguous route; also matches {}", shape_it->second->path),
+						.method = route.method,
+						.path = route.path,
+						.source_file = route.source_file,
+						.source_line = route.source_line,
+						.related_source_file = shape_it->second->source_file,
+						.related_source_line = shape_it->second->source_line});
 			}
 		}
 		for (auto const &route: route_metadata_) {
@@ -1022,6 +1056,67 @@ public:
 		return report;
 	}
 
+	[[nodiscard]] static std::optional<std::string> validate_path_pattern(
+		std::string_view path) {
+		if (path.empty() || path.front() != '/') {
+			return "invalid route pattern: path must start with /";
+		}
+		for (std::size_t pos = 0, segment_index = 0;; ++segment_index) {
+			auto next = path.find('/', pos + 1);
+			auto segment =
+				path.substr(pos + 1, next == std::string_view::npos ? path.size() - pos - 1 : next - pos - 1);
+			auto const open = segment.find('{');
+			auto const close = segment.find('}');
+			if ((open == std::string_view::npos) != (close == std::string_view::npos) || open > close) {
+				return "invalid route pattern: unmatched path parameter braces";
+			}
+			if (open != std::string_view::npos) {
+				if (open != 0 || close + 1 != segment.size()) {
+					return "invalid route pattern: path parameter must occupy the full segment";
+				}
+				auto name = segment.substr(1, segment.size() - 2);
+				bool const wildcard = name.starts_with('*');
+				if (wildcard) {
+					name.remove_prefix(1);
+					if (next != std::string_view::npos) {
+						return "invalid route pattern: wildcard parameter must be the final segment";
+					}
+				}
+				if (name.empty()) {
+					return "invalid route pattern: path parameter name is empty";
+				}
+			}
+			(void)segment_index;
+			if (next == std::string_view::npos) {
+				break;
+			}
+			pos = next;
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] static std::string route_shape(
+		std::string_view path) {
+		std::string out;
+		out.reserve(path.size());
+		for (std::size_t pos = 0;;) {
+			auto next = path.find('/', pos + 1);
+			auto segment =
+				path.substr(pos + 1, next == std::string_view::npos ? path.size() - pos - 1 : next - pos - 1);
+			out += '/';
+			if (segment.size() >= 2 && segment.front() == '{' && segment.back() == '}') {
+				out += segment.starts_with("{*") ? "{*}" : "{}";
+			} else {
+				out += segment;
+			}
+			if (next == std::string_view::npos) {
+				break;
+			}
+			pos = next;
+		}
+		return out.empty() ? "/" : out;
+	}
+
 	template<class Args, std::size_t... Is>
 	static void append_required_states(
 		std::vector<std::type_index> &out,
@@ -1056,6 +1151,8 @@ public:
 			return "BodyText";
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
 			return "BodyBytes";
+		} else if constexpr (detail::RequestIdArg<Clean>) {
+			return "RequestId";
 		} else if constexpr (detail::JsonArg<Clean>) {
 			return "Json";
 		} else if constexpr (detail::RequestViewArg<Clean>) {
@@ -1255,12 +1352,14 @@ public:
 			return BodyText{.value = req.body};
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
 			return BodyBytes{.value = req.body};
+		} else if constexpr (detail::RequestIdArg<Clean>) {
+			return RequestId{.value = req.header("x-request-id")};
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, http::BodyText, "
-				"http::BodyBytes, or http::State<T>");
+				"http::BodyBytes, http::RequestId, or http::State<T>");
 		}
 	}
 

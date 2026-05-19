@@ -8,7 +8,7 @@ int main() {
 	app.use(request_id_middleware());
 
 	app.get("/", [] { return http::text("quickstart middleware\n"); });
-	app.get("/request-id", [](http::Header<"x-request-id"> request_id) {
+	app.get("/request-id", [](http::RequestId request_id) {
 		return http::text(std::format("request_id={}\n", request_id.get()));
 	});
 
