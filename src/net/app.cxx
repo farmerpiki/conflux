@@ -516,7 +516,7 @@ class App {
 		std::vector<std::string> path_extractors;
 		std::vector<std::string> path_params;
 		std::vector<std::type_index> required_states;
-		std::size_t max_body_size{};
+		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::string openapi_summary;
 		bool uses_body{};
 	};
@@ -538,7 +538,7 @@ public:
 
 		RouteRef &max_body_size(
 			std::size_t value) {
-			metadata().max_body_size = value;
+			*metadata().max_body_size = value;
 			return *this;
 		}
 
@@ -640,7 +640,7 @@ public:
 	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
-	App &post_body(
+	RouteRef post_body(
 		std::string_view path,
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
@@ -648,7 +648,7 @@ public:
 		return add_json_body<Body>("POST", path, std::forward<F>(handler), decode_opts, loc);
 	}
 	template<FixedString Path, class Body, typename F>
-	App &post_body(
+	RouteRef post_body(
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
 		std::source_location loc = std::source_location::current()) {
@@ -670,7 +670,7 @@ public:
 	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
-	App &put_body(
+	RouteRef put_body(
 		std::string_view path,
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
@@ -678,7 +678,7 @@ public:
 		return add_json_body<Body>("PUT", path, std::forward<F>(handler), decode_opts, loc);
 	}
 	template<FixedString Path, class Body, typename F>
-	App &put_body(
+	RouteRef put_body(
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
 		std::source_location loc = std::source_location::current()) {
@@ -700,7 +700,7 @@ public:
 	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
-	App &patch_body(
+	RouteRef patch_body(
 		std::string_view path,
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
@@ -708,7 +708,7 @@ public:
 		return add_json_body<Body>("PATCH", path, std::forward<F>(handler), decode_opts, loc);
 	}
 	template<FixedString Path, class Body, typename F>
-	App &patch_body(
+	RouteRef patch_body(
 		F &&handler,
 		conflux::json::boundary::DecodeOptions decode_opts = {},
 		std::source_location loc = std::source_location::current()) {
@@ -878,7 +878,7 @@ public:
 					.extractors = route.extractors,
 					.path_params = route.path_params,
 					.required_state_count = route.required_states.size(),
-					.max_body_size = route.max_body_size,
+					.max_body_size = *route.max_body_size,
 					.openapi_summary = route.openapi_summary});
 		}
 		return out;
@@ -1446,7 +1446,7 @@ public:
 	}
 
 	template<class Body, typename F>
-	App &add_json_body(
+	RouteRef add_json_body(
 		std::string_view method,
 		std::string_view path,
 		F &&handler,
@@ -1456,10 +1456,11 @@ public:
 		using Fn = std::decay_t<F>;
 		using Args = typename detail::CallableArgs<Fn>::type;
 		record_route_metadata<Args>(method, path, "json_body", loc);
+		auto max_body_size = route_metadata_.back().max_body_size;
 		router_.add(
 			method,
 			path,
-			[states = states_, fn = Fn(std::forward<F>(handler)), decode_opts](
+			[states = states_, fn = Fn(std::forward<F>(handler)), decode_opts, max_body_size](
 				RequestView const &req) mutable -> HttpResponse {
 				auto content_type = req.header("content-type");
 				if (!content_type.starts_with("application/json")
@@ -1468,6 +1469,9 @@ public:
 						R"({"error":"unsupported content type","expected":"application/json"})",
 						kHttpBadRequest,
 						"Bad Request");
+				}
+				if (*max_body_size != 0 && req.body.size() > *max_body_size) {
+					return HttpResponse::content_too_large();
 				}
 				auto decoded =
 					conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(req.body, decode_opts);
@@ -1482,7 +1486,7 @@ public:
 					body,
 					std::make_index_sequence<std::tuple_size_v<Args>>{});
 			});
-		return *this;
+		return RouteRef{*this, route_metadata_.size() - 1};
 	}
 #endif
 	[[nodiscard]] std::expected<std::unique_ptr<HttpServer>, std::string> try_server(

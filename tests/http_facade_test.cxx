@@ -464,6 +464,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JSON body routes enforce route-local body limits",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; })
+		.max_body_size(8);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].max_body_size == 8);
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/json";
+	req.headers["content-type"] = "application/json";
+	req.body = R"({"value":"too large"})";
+
+	auto too_large = app.router().dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
+	CHECK(too_large.status_text == "Content Too Large");
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive body extractors",
 	"[http.facade]") {
 	auto app = http::app();
