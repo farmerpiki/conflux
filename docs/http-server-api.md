@@ -1,6 +1,6 @@
 # conflux HTTP Server API Reference
 
-**Module:** `conflux.net.http.server` (first-contact server surface; `conflux.net.http` remains the full umbrella)
+**Module:** `conflux.http` (first-contact facade; `conflux.net.http.server` remains the lower-level server surface)
 **Namespace:** `conflux::http`
 
 ---
@@ -9,18 +9,17 @@
 
 ```cpp
 import std;
-import conflux.net.http.server;
+import conflux.http;
 
 namespace http = conflux::http;
 
 int main() {
-    auto app = http::App::default_server();
+    auto app = http::app();
     app.get("/hello", [](http::Request const&) {
-        return http::Response::text("hello world");
+        return http::text("hello world");
     });
 
-    auto const status = std::move(app).run({.port = 8080});
-    return status == http::RunStatus::stopped_normally ? 0 : 1;
+    return http::run(std::move(app), {.port = 8080});
 }
 ```
 
