@@ -152,6 +152,15 @@ struct RequestId {
 	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return value; }
 };
 
+struct ConnectionInfo {
+	std::string_view remote_addr{};
+	bool is_tls{};
+};
+
+struct TraceContext {
+	std::string_view traceparent{};
+};
+
 template<class T>
 struct State {
 	T *value{};
@@ -414,6 +423,12 @@ concept BodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, BodyBytes>;
 template<class Arg>
 concept RequestIdArg = std::same_as<std::remove_cvref_t<Arg>, RequestId>;
 
+template<class Arg>
+concept ConnectionInfoArg = std::same_as<std::remove_cvref_t<Arg>, ConnectionInfo>;
+
+template<class Arg>
+concept TraceContextArg = std::same_as<std::remove_cvref_t<Arg>, TraceContext>;
+
 template<class Arg, class Body>
 concept RawJsonBodyArg = std::same_as<std::remove_cvref_t<Arg>, std::remove_cvref_t<Body>>;
 
@@ -431,7 +446,9 @@ consteval bool has_state_arg_impl(
 			|| FormArg<std::tuple_element_t<Is, Args>>
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
-			|| RequestIdArg<std::tuple_element_t<Is, Args>>));
+			|| RequestIdArg<std::tuple_element_t<Is, Args>>
+			|| ConnectionInfoArg<std::tuple_element_t<Is, Args>>
+			|| TraceContextArg<std::tuple_element_t<Is, Args>>));
 }
 
 template<class Args>
@@ -1153,6 +1170,10 @@ public:
 			return "BodyBytes";
 		} else if constexpr (detail::RequestIdArg<Clean>) {
 			return "RequestId";
+		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
+			return "ConnectionInfo";
+		} else if constexpr (detail::TraceContextArg<Clean>) {
+			return "TraceContext";
 		} else if constexpr (detail::JsonArg<Clean>) {
 			return "Json";
 		} else if constexpr (detail::RequestViewArg<Clean>) {
@@ -1354,12 +1375,16 @@ public:
 			return BodyBytes{.value = req.body};
 		} else if constexpr (detail::RequestIdArg<Clean>) {
 			return RequestId{.value = req.header("x-request-id")};
+		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
+			return ConnectionInfo{.remote_addr = req.remote_addr, .is_tls = req.is_tls};
+		} else if constexpr (detail::TraceContextArg<Clean>) {
+			return TraceContext{.traceparent = req.header("traceparent")};
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, http::BodyText, "
-				"http::BodyBytes, http::RequestId, or http::State<T>");
+				"http::BodyBytes, http::RequestId, http::ConnectionInfo, http::TraceContext, or http::State<T>");
 		}
 	}
 

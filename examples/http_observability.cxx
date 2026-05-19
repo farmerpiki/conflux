@@ -35,13 +35,13 @@ int main() {
 			"</body></html>");
 	});
 
-	app.get("/health", [](http::Request const &req) {
-		return http::text(std::format("ok\nrequest_id={}\nremote={}\n", req.header("x-request-id"), req.remote_addr));
+	app.get("/health", [](http::RequestId request_id, http::ConnectionInfo conn) {
+		return http::text(std::format("ok\nrequest_id={}\nremote={}\n", request_id.get(), conn.remote_addr));
 	});
 
-	app.get("/slow", [](http::Request const &req) {
+	app.get("/slow", [](http::RequestId request_id) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{50});
-		return http::text(std::format("slow path completed\nrequest_id={}\n", req.header("x-request-id")));
+		return http::text(std::format("slow path completed\nrequest_id={}\n", request_id.get()));
 	});
 
 	std::vector<http::Router::Middleware> metrics_auth;

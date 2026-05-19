@@ -28,14 +28,12 @@ int main() {
 			"</body></html>");
 	});
 
-	app.group("/public", [](http::Router::Group &g) {
-		g.get("/ping", [](http::Request const &req) {
-			return http::json_response(
-				std::format(
-					R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
-					req.header("x-request-id"),
-					req.header("traceparent")));
-		});
+	app.get("/public/ping", [](http::RequestId request_id, http::TraceContext trace) {
+		return http::json_response(
+			std::format(
+				R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
+				request_id.get(),
+				trace.traceparent));
 	});
 
 	app.group("/private", [](http::Router::Group &g) {

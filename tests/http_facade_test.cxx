@@ -350,6 +350,51 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app handlers can receive connection info extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/conn", [](http::ConnectionInfo conn) {
+		return http::text(std::format("{}:{}", conn.remote_addr, conn.is_tls ? "tls" : "plain"));
+	});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/conn";
+	req.remote_addr = "203.0.113.10";
+	req.is_tls = true;
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "203.0.113.10:tls");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "ConnectionInfo");
+}
+
+TEST_CASE(
+	"http facade: app handlers can receive trace context extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/trace", [](http::TraceContext trace) { return http::text(trace.traceparent); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/trace";
+	req.headers["traceparent"] = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "TraceContext");
+}
+
+TEST_CASE(
 	"http facade: typed field extractors parse scalars and reject malformed values",
 	"[http.facade]") {
 	auto app = http::app();
