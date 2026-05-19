@@ -3,7 +3,7 @@ set -euo pipefail
 
 root=${1:-examples/quickstart}
 
-if grep -R -n -E 'conflux\.types|HttpRequest|HttpResponse|WorkPool|TaskSource|std::this_thread::sleep_for|json_response\(R"\(\{|http::Json\{|http::ok\(|Config::(low_latency|benchmark|unsafe_max_speed)' "$root"; then
+if grep -R -n -E 'conflux\.types|HttpRequest|HttpResponse|WorkPool|TaskSource|std::this_thread::sleep_for|json_response\(R"\(\{|http::Json\{|http::ok\(|http::codec::json|Config::(low_latency|benchmark|unsafe_max_speed)' "$root"; then
 	printf 'quickstart examples use non-quickstart API surface\n' >&2
 	exit 1
 fi
