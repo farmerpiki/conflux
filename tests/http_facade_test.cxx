@@ -171,8 +171,8 @@ TEST_CASE(
 	auto report = app.validate();
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
-	CHECK(report.issues[0].message == "missing path parameter for Path<slug>");
-	CHECK(report.summary() == "GET /users/{id}: missing path parameter for Path<slug>");
+	CHECK(report.issues[0].message == "missing path parameter for Path<slug>. Available path parameters: id.");
+	CHECK(report.summary() == "GET /users/{id}: missing path parameter for Path<slug>. Available path parameters: id.");
 }
 
 TEST_CASE(

@@ -742,7 +742,10 @@ public:
 				if (!std::ranges::contains(route.path_params, path_extractor)) {
 					report.issues.push_back(
 						ValidationIssue{
-							.message = std::format("missing path parameter for Path<{}>", path_extractor),
+							.message = std::format(
+								"missing path parameter for Path<{}>.{}",
+								path_extractor,
+								detail::available_path_params_message(route.path_params, route.path_param_types)),
 							.method = route.method,
 							.path = route.path,
 							.source_file = route.source_file,
@@ -772,7 +775,10 @@ public:
 				if (index >= route.path_params.size()) {
 					report.issues.push_back(
 						ValidationIssue{
-							.message = std::format("missing path parameter for Path<{}>", index),
+							.message = std::format(
+								"missing path parameter for Path<{}>.{}",
+								index,
+								detail::available_path_params_message(route.path_params, route.path_param_types)),
 							.method = route.method,
 							.path = route.path,
 							.source_file = route.source_file,

@@ -120,6 +120,26 @@ export namespace conflux::http::detail {
 	return out;
 }
 
+[[nodiscard]] std::string available_path_params_message(
+	std::vector<std::string> const &path_params,
+	std::map<std::string, std::string> const &path_param_types) {
+	if (path_params.empty()) {
+		return " Available path parameters: none.";
+	}
+	std::string out = " Available path parameters:";
+	for (auto const &name: path_params) {
+		out += ' ';
+		out += name;
+		auto const type_it = path_param_types.find(name);
+		if (type_it != path_param_types.end() && !type_it->second.empty()) {
+			out += ':';
+			out += type_it->second;
+		}
+	}
+	out += '.';
+	return out;
+}
+
 [[nodiscard]] std::string_view trim_ascii(
 	std::string_view value) noexcept {
 	while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
