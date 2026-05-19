@@ -13,12 +13,7 @@ extern "C" {
 void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *out);
 }
 #endif
-#if defined(CONFLUX_STDSIMD)
-extern "C" {
-void conflux_ascii_lower_inplace_stdsimd(char *p, __SIZE_TYPE__ n);
-__SIZE_TYPE__ conflux_url_scan_plain_run_stdsimd(char const *p, __SIZE_TYPE__ n, int plus_is_special);
-}
-#endif
+#include "simd_backend.hxx"
 export module conflux.utils;
 import std;
 import conflux.types;
@@ -251,15 +246,17 @@ std::size_t scan_url_plain_run_(
 	std::size_t n,
 	bool plus_is_special) noexcept {
 #if defined(CONFLUX_STDSIMD)
-	return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
-#else
+	constexpr std::size_t kStdsimdThreshold = 24;
+	if (n >= kStdsimdThreshold) {
+		return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
+	}
+#endif
 	for (std::size_t i = 0; i < n; ++i) {
 		if (p[i] == '%' || (plus_is_special && p[i] == '+')) {
 			return i;
 		}
 	}
 	return n;
-#endif
 }
 
 } // namespace
@@ -466,13 +463,16 @@ export bool cidr_match(
 export void ascii_lower_inplace(
 	std::span<char> s) noexcept {
 #if defined(CONFLUX_STDSIMD)
-	conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
-#else
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (s.size() >= kStdsimdThreshold) {
+		conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
+		return;
+	}
+#endif
 	for (auto &c: s) {
 		unsigned char const u = static_cast<unsigned char>(c);
 		c = static_cast<char>(u >= 'A' && u <= 'Z' ? u | 0x20 : u);
 	}
-#endif
 }
 // Allocate a lowercase copy of `s`.
 export std::string ascii_lower(

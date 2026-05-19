@@ -17,7 +17,7 @@ void conflux_ascii_lower_inplace_stdsimd(
 	std::size_t i = 0;
 	for (; i + W <= n; i += W) {
 		vec_t v(u + i, stdx::element_aligned);
-		auto upper = (v >= va) && (v <= vz);
+		auto upper = (v >= va) & (v <= vz);
 		stdx::where(upper, v) = v | bit;
 		v.copy_to(u + i, stdx::element_aligned);
 	}
@@ -57,7 +57,7 @@ std::size_t conflux_url_scan_plain_run_stdsimd(
 		vec_t v(u + i, stdx::element_aligned);
 		auto m = (v == pct);
 		if (plus_is_special) {
-			m = m || (v == plus);
+			m = m | (v == plus);
 		}
 		if (stdx::any_of(m)) {
 			return i + static_cast<std::size_t>(stdx::find_first_set(m));
@@ -74,7 +74,7 @@ void conflux_ws_unmask_stdsimd(
 	unsigned char *data,
 	std::size_t n,
 	unsigned char const *mask4) noexcept {
-	alignas(64) unsigned char repeated[W];
+	alignas(vec_t) unsigned char repeated[W];
 	for (std::size_t i = 0; i < W; ++i) {
 		repeated[i] = mask4[i & 3];
 	}

@@ -1,7 +1,7 @@
 // Response caching middleware: in-memory LRU cache with TTL.
 // Only caches GET requests with 200 responses and no Set-Cookie headers.
 // Cache key is the full request path (including query string).
-// TTL is taken from the response Cache-Control std::max-age if present; otherwise
+// TTL is taken from the response Cache-Control max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
 module;
 #include <memory>
@@ -17,7 +17,7 @@ export struct ResponseCacheOptions {
 	std::size_t max_entries{256};
 	// Maximum total bytes of cached response bodies (0 = unlimited).
 	std::size_t max_bytes{64ULL * 1024 * 1024};
-	// Default TTL when the response has no Cache-Control std::max-age.
+	// Default TTL when the response has no Cache-Control max-age.
 	std::chrono::seconds default_ttl{60};
 	// When true, Vary: * responses are not cached.
 	bool respect_vary{true};
@@ -161,7 +161,7 @@ bool cache_control_directive_contains(
 	}
 	return false;
 }
-// Parse std::max-age from a Cache-Control header value. Returns 0 if not found.
+// Parse max-age from a Cache-Control header value. Returns 0 if not found.
 std::chrono::seconds parse_max_age(
 	std::string_view cc) {
 	while (!cc.empty()) {
@@ -323,8 +323,8 @@ export Router::Middleware response_cache_middleware(
 		auto vary_list = response_cache_detail::parse_vary(vary_hdr);
 
 		auto ttl = response_cache_detail::parse_max_age(cc);
-		if (ttl.count() == 0 && response_cache_detail::cache_control_directive_contains(cc, "std::max-age")) {
-			return resp; // std::max-age=0: do not cache
+		if (ttl.count() == 0 && response_cache_detail::cache_control_directive_contains(cc, "max-age")) {
+			return resp; // max-age=0: do not cache
 		}
 		if (ttl.count() == 0) {
 			ttl = opts.default_ttl;

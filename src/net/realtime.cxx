@@ -7,11 +7,7 @@ module;
 #if CONFLUX_HAS_TLS
 	#include <openssl/ssl.h>
 #endif
-#if defined(CONFLUX_STDSIMD)
-extern "C" {
-void conflux_ws_unmask_stdsimd(unsigned char *data, __SIZE_TYPE__ n, unsigned char const *mask4);
-}
-#endif
+#include "simd_backend.hxx"
 
 export module conflux.net.http.realtime;
 
@@ -578,17 +574,21 @@ public:
 			std::string payload(buf_.data(), static_cast<std::size_t>(plen));
 			consume(static_cast<std::size_t>(plen));
 #if defined(CONFLUX_STDSIMD)
-			conflux_ws_unmask_stdsimd(
-				reinterpret_cast<unsigned char *>(payload.data()),
-				payload.size(),
-				mask_key.data());
-#else
-			for (std::size_t i = 0; i < payload.size(); ++i) {
-				payload[i] = static_cast<char>(
-					static_cast<unsigned char>(payload[i])
-					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-			}
+			constexpr std::size_t kStdsimdThreshold = 32;
+			if (payload.size() >= kStdsimdThreshold) {
+				conflux_ws_unmask_stdsimd(
+					reinterpret_cast<unsigned char *>(payload.data()),
+					payload.size(),
+					mask_key.data());
+			} else
 #endif
+			{
+				for (std::size_t i = 0; i < payload.size(); ++i) {
+					payload[i] = static_cast<char>(
+						static_cast<unsigned char>(payload[i])
+						^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				}
+			}
 
 			if (opcode_raw == 0x9U) {
 				do_send_frame(10, std::as_bytes(std::span{payload}));

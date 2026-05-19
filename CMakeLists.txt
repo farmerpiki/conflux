@@ -94,7 +94,7 @@ set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO S
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable pooled coroutine frame allocation for work Task/EagerChain frames" OFF)
 option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_WORK_QUEUE_STATS "Enable relaxed WorkPool queue/wake contention counters for profiling" OFF)
-option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 15+" ON)
+option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption globally with -fno-module-lazy on GCC 15+" OFF)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         AND CONFLUX_GCC_EAGER_MODULE_IMPORTS
@@ -1206,16 +1206,27 @@ endif()
 if(_conflux_simd_backend STREQUAL "STDX")
     add_library(conflux_simd_stdx OBJECT src/simd_stdx.cxx)
     target_compile_features(conflux_simd_stdx PRIVATE cxx_std_23)
-    target_link_libraries(conflux_simd_stdx PRIVATE conflux_options conflux_types)
+    target_link_libraries(conflux_simd_stdx PRIVATE conflux_options)
     set_source_files_properties(src/simd_stdx.cxx PROPERTIES
         COMPILE_OPTIONS "-mavx2"
     )
     add_library(conflux_json_simd_stdx OBJECT src/json_simd_stdx.cxx)
     target_compile_features(conflux_json_simd_stdx PRIVATE cxx_std_23)
-    target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options conflux_types)
+    target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options)
     set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
         COMPILE_OPTIONS "-mavx2"
     )
+endif()
+
+if(NOT _conflux_simd_backend STREQUAL "OFF")
+    string(TOLOWER "${_conflux_simd_backend}" _conflux_simd_target_suffix)
+    add_library(conflux_simd_runtime STATIC $<TARGET_OBJECTS:conflux_simd_${_conflux_simd_target_suffix}>)
+    target_link_libraries(conflux_simd_runtime PRIVATE conflux_options)
+endif()
+
+if(NOT _conflux_simd_backend STREQUAL "OFF" AND TARGET conflux_crypto)
+    target_compile_definitions(conflux_crypto PRIVATE CONFLUX_STDSIMD=1)
+    target_link_libraries(conflux_crypto PRIVATE conflux_simd_runtime)
 endif()
 
 if(NOT _conflux_simd_backend STREQUAL "OFF" AND TARGET conflux_json)
@@ -1237,8 +1248,7 @@ target_link_libraries(conflux_utils
 )
 if(NOT _conflux_simd_backend STREQUAL "OFF")
     target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
-    string(TOLOWER "${_conflux_simd_backend}" _conflux_simd_target_suffix)
-    target_sources(conflux_utils PRIVATE $<TARGET_OBJECTS:conflux_simd_${_conflux_simd_target_suffix}>)
+    target_link_libraries(conflux_utils PRIVATE conflux_simd_runtime)
 endif()
 
 add_library(conflux_net_config STATIC)
@@ -1357,6 +1367,7 @@ else()
 endif()
 if(NOT _conflux_simd_backend STREQUAL "OFF")
     target_compile_definitions(conflux_http_realtime PRIVATE CONFLUX_STDSIMD=1)
+    target_link_libraries(conflux_http_realtime PRIVATE conflux_simd_runtime)
 endif()
 if(CONFLUX_BUILD_FUZZ)
     target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_BUILD_FUZZ=1)
@@ -2453,6 +2464,7 @@ conflux_public_component(conflux umbrella)
 # Internal-but-exported support targets needed by static-library link interfaces.
 conflux_public_component(conflux_options _options)
 conflux_public_component(conflux_direct_slot_pool _direct_slot_pool)
+conflux_public_component(conflux_simd_runtime _simd_runtime)
 
 if(TARGET conflux AND NOT TARGET conflux::conflux)
     add_library(conflux::conflux ALIAS conflux)
@@ -2463,7 +2475,8 @@ endif()
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
 foreach(_target IN ITEMS
         conflux_options
-        conflux_core)
+        conflux_core
+        conflux_simd_runtime)
     if(TARGET ${_target})
         list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
     endif()
@@ -2637,6 +2650,11 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
+install(FILES
+    src/json_simd_backend.hxx
+    src/simd_backend.hxx
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules/src
+)
 install(EXPORT confluxTargets
     NAMESPACE conflux::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
@@ -2772,6 +2790,11 @@ if(CONFLUX_BUILD_EXAMPLES)
             list(APPEND CONFLUX_AVAILABLE_EXAMPLE_TARGETS ${_conflux_example_target})
         endif()
     endforeach()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CONFLUX_GCC_EAGER_MODULE_IMPORTS)
+        foreach(_conflux_example_target IN LISTS CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
+            target_compile_options(${_conflux_example_target} PRIVATE -fno-module-lazy)
+        endforeach()
+    endif()
 
     add_custom_target(conflux_examples)
     if(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)

@@ -19,11 +19,7 @@ int conflux_aes_gcm_decrypt_aesni(
 	unsigned char *out);
 }
 #endif
-#if defined(CONFLUX_STDSIMD)
-extern "C" {
-int conflux_constant_time_eq_stdsimd(unsigned char const *a, unsigned char const *b, __SIZE_TYPE__ n);
-}
-#endif
+#include "simd_backend.hxx"
 
 export module conflux.crypto;
 import std;
@@ -355,6 +351,15 @@ export bool constant_time_eq(
 		return false;
 	}
 #if defined(CONFLUX_STDSIMD)
+	constexpr std::size_t kStdsimdThreshold = 64;
+	if (a.size() < kStdsimdThreshold) {
+		unsigned char acc = 0;
+		for (std::size_t i = 0; i < a.size(); ++i) {
+			acc =
+				static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
+		}
+		return acc == 0;
+	}
 	return conflux_constant_time_eq_stdsimd(
 			   reinterpret_cast<unsigned char const *>(a.data()),
 			   reinterpret_cast<unsigned char const *>(b.data()),

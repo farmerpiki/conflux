@@ -142,3 +142,4 @@ link interfaces may need them. They are not intended as public starting points:
 | `_options` | `conflux::_options` | propagated compile options/definitions |
 | `_direct_slot_pool` | `conflux::_direct_slot_pool` | HTTP/runtime direct-slot helper |
 | `_dns_bridge` | `conflux::_dns_bridge` | internal HTTP-client DNS bridge module `conflux.dns_bridge` |
+| `_simd_runtime` | `conflux::_simd_runtime` | private selected SIMD backend symbols for static-library link interfaces |

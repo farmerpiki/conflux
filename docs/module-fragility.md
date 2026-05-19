@@ -4,8 +4,12 @@ GCC 16 module builds have hit CMI deserialization failures when large exported
 module interfaces directly carry coroutine-heavy implementation detail. The
 current project mitigation is intentionally boring: keep fragile exported module
 interfaces thin, put coroutine bodies and synchronization state into normal
-implementation units, and keep `-fno-module-lazy` enabled for GCC 16+ until the
-compiler path is proven stable.
+implementation units, and keep a targeted `-fno-module-lazy` fallback where GCC
+16 still needs it.
+
+The default GCC build uses lazy module imports. Standalone example executables
+still opt back into eager module imports because GCC 16 can otherwise fail while
+instantiating inline standard-library bodies from the lazy-loaded `std` module.
 
 ## Current protected patterns
 

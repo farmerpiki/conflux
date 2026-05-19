@@ -10,22 +10,7 @@ long getrandom(void *, unsigned long, unsigned int);
 #include <xxhash.h>
 // <immintrin.h> → mm_malloc.h → stdlib.h → pthreadtypes.h conflicts with the
 // std module BMI under GCC -freflection; scalar fallback used in that build.
-#if defined(CONFLUX_JSON_USE_STDSIMD)
-	#include <cstddef>
-	#define CONFLUX_JSON_HAS_STDSIMD 1
-extern "C" {
-std::size_t conflux_json_scan_str_until_special_stdsimd(char const *, std::size_t) noexcept;
-std::size_t conflux_json_scan_dump_safe_run_stdsimd(char const *, std::size_t, int) noexcept;
-}
-#elif (defined(__x86_64__) || defined(_M_X64)) && !defined(__cpp_impl_reflection)
-	#include <immintrin.h>
-	#ifndef CONFLUX_JSON_DISABLE_SIMD
-		#define CONFLUX_JSON_HAS_SSE2 1
-		#if defined(__AVX2__)
-			#define CONFLUX_JSON_HAS_AVX2 1
-		#endif
-	#endif
-#endif
+#include "json_simd_backend.hxx"
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 export module conflux.json;
@@ -2112,7 +2097,10 @@ namespace detail::simd {
 	std::size_t n) noexcept {
 	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD)
-	return conflux_json_scan_str_until_special_stdsimd(p, n);
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (n >= kStdsimdThreshold) {
+		return conflux_json_scan_str_until_special_stdsimd(p, n);
+	}
 #elif defined(CONFLUX_JSON_HAS_AVX2)
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back = _mm256_set1_epi8('\\');

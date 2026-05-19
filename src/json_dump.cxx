@@ -1,3 +1,6 @@
+module;
+#include "json_simd_backend.hxx"
+
 module conflux.json;
 
 import std;
@@ -41,7 +44,10 @@ inline void append_u_escape(
 	bool ascii_only) noexcept {
 	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD)
-	return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (n >= kStdsimdThreshold) {
+		return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
+	}
 #elif defined(CONFLUX_JSON_HAS_AVX2)
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back = _mm256_set1_epi8('\\');
