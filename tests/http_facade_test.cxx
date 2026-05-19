@@ -553,6 +553,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app groups support typed route patterns",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api", [](auto &group) {
+		(void)group.template get<"/items/{id:u64}">(
+			[](http::Path<"id", std::uint64_t> id) { return http::text(std::format("item={}", id.get())); });
+	});
+
+	auto report = app.validate();
+	CHECK(report);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/api/items/{id:u64}");
+	CHECK(
+		routes[0].path_param_types
+		== std::map<std::string, std::string>{
+			{"id", "u64"}
+    });
+}
+
+TEST_CASE(
 	"http facade: app openapi spec uses route metadata",
 	"[http.facade]") {
 	auto app = http::app();
