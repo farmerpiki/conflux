@@ -278,6 +278,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: routes record middleware count at registration",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/before", [] { return http::no_content(); });
+	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
+	app.get("/after-one", [] { return http::no_content(); });
+	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
+	app.get("/after-two", [] { return http::no_content(); });
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 3);
+	CHECK(routes[0].path == "/before");
+	CHECK(routes[0].middleware_count == 0);
+	CHECK(routes[1].path == "/after-one");
+	CHECK(routes[1].middleware_count == 1);
+	CHECK(routes[2].path == "/after-two");
+	CHECK(routes[2].middleware_count == 2);
+}
+
+TEST_CASE(
 	"http facade: verb helpers return route metadata handles",
 	"[http.facade]") {
 	auto app = http::app();

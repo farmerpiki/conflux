@@ -265,6 +265,7 @@ struct AppRouteInfo {
 	std::vector<std::string> produces;
 	std::size_t max_body_size{};
 	std::chrono::milliseconds timeout{};
+	std::size_t middleware_count{};
 	std::string rate_limit;
 	std::string auth_policy;
 	std::string openapi_summary;
@@ -614,6 +615,7 @@ class App {
 		std::vector<std::string> produces;
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::chrono::milliseconds timeout{};
+		std::size_t middleware_count{};
 		std::string rate_limit;
 		std::string auth_policy;
 		std::string openapi_summary;
@@ -939,6 +941,7 @@ public:
 	App &use(
 		F &&middleware) {
 		router_.use(std::forward<F>(middleware));
+		++middleware_count_;
 		return *this;
 	}
 	template<typename F>
@@ -1047,6 +1050,7 @@ public:
 					.produces = route.produces,
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
+					.middleware_count = route.middleware_count,
 					.rate_limit = route.rate_limit,
 					.auth_policy = route.auth_policy,
 					.openapi_summary = route.openapi_summary});
@@ -1706,7 +1710,8 @@ public:
 			.path = std::string{path},
 			.handler_kind = std::string{handler_kind},
 			.source_file = loc.file_name(),
-			.source_line = loc.line()};
+			.source_line = loc.line(),
+			.middleware_count = middleware_count_};
 		append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		append_path_extractor_types<Args>(
@@ -2049,6 +2054,7 @@ private:
 	std::vector<std::string> state_issues_;
 	std::vector<AppRouteMetadata> route_metadata_;
 	std::vector<StaticMountMetadata> static_mounts_;
+	std::size_t middleware_count_{};
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
 #endif
