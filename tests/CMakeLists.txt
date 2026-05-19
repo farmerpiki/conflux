@@ -222,6 +222,10 @@ if(TARGET conflux_net_http)
     add_executable(conflux_http_facade_tests http_facade_test.cxx)
     target_link_libraries(conflux_http_facade_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
+
+    add_executable(conflux_http_facade_import_smoke http_facade_import_smoke.cxx)
+    target_link_libraries(conflux_http_facade_import_smoke
+        PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
 endif()
 
 if(TARGET conflux_http_response)
@@ -592,6 +596,10 @@ if(TARGET conflux_http_core_tests)
 endif()
 if(TARGET conflux_http_facade_tests)
     conflux_discover_tests(conflux_http_facade_tests)
+endif()
+
+if(TARGET conflux_http_facade_import_smoke)
+    conflux_discover_tests(conflux_http_facade_import_smoke)
 endif()
 if(TARGET conflux_http_response_tests)
     conflux_discover_tests(conflux_http_response_tests)
