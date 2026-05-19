@@ -378,7 +378,7 @@ router.post("/echo", [](http::OwnedRequest const& req) -> root::Task<http::Respo
 // Explicit worker placement for blocking/heavy work.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 router.get("/slow", [pool](http::Request const&) -> http::Response {
-    return http::defer(pool, [] {
+    return http::offload(pool, [] {
         return http::Response::text("done");
     });
 });

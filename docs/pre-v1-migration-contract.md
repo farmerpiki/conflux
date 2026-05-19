@@ -103,7 +103,7 @@ int main() {
 
 	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 	app.get("/defer", [pool](HttpRequestView const &) {
-		return http::defer(pool, [] { return HttpResponse::text("defer-ok"); });
+		return http::offload(pool, [] { return HttpResponse::text("defer-ok"); });
 	});
 
 	std::move(app).run({.port = 9090});

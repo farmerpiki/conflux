@@ -35,7 +35,7 @@ Supported handler shapes:
 | `HttpResponse` from `HttpRequestView` or `HttpRequest` | ring thread | short, bounded, non-blocking work |
 | `root::Task<HttpResponse>` from owning `HttpRequest` | executor-owned task progress | workflows with explicit suspension points |
 | deferred/streaming response | ring-owned response handle plus explicit async writer task | chunked output, SSE-style response bodies, delayed completion |
-| explicit `http::defer(pool, ...)` or equivalent caller-owned executor handoff | chosen worker/executor | blocking or CPU-heavy work made visible at the call site |
+| explicit `http::offload(pool, ...)` or equivalent caller-owned executor handoff | chosen worker/executor | blocking or CPU-heavy work made visible at the call site |
 
 `HttpRequestView` is borrowed from the active request buffer. Handlers that may
 suspend must use an owning `HttpRequest` so views cannot dangle across coroutine
