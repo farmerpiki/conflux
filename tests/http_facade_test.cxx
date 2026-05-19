@@ -452,7 +452,7 @@ TEST_CASE(
 	"http facade: async middleware uses owned requests",
 	"[http.facade]") {
 	auto app = http::app();
-	app.use_async(
+	app.use(
 		[](http::Request const &req,
 		   RequestContext const &ctx,
 		   http::AsyncNext const &next) -> http::Task<http::Response> {

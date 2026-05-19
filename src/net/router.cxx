@@ -29,6 +29,8 @@ export struct RequestContext {
 
 export using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
 export using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const &, NextHandler const &)>;
+export using ContextNextHandler =
+	CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &)>;
 
 export template<class R>
 concept HandlerResult = std::same_as<R, HttpResponse> || std::same_as<R, conflux::work::root::Task<HttpResponse>>;
@@ -50,6 +52,12 @@ export template<class F>
 concept ContextHandlerFunction = requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx) {
 	{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
 };
+
+export template<class F>
+concept ContextMiddlewareFunction =
+	requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx, ContextNextHandler const &next) {
+		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+	};
 
 export template<class F>
 concept ViewMiddleware = requires(std::decay_t<F> &fn, HttpRequestView const &req, NextHandler const &next) {
@@ -112,8 +120,7 @@ struct RouteVerbAccessors {
 export class Router : public RouteVerbAccessors {
 public:
 	using Handler = NextHandler;
-	using ContextHandler =
-		CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &)>;
+	using ContextHandler = ContextNextHandler;
 	using ContextMiddleware = CloneableFunction<
 		conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
@@ -194,7 +201,11 @@ public:
 	template<typename F>
 	Router &use(
 		F &&mw) {
-		use_prepared(make_middleware(std::forward<F>(mw)));
+		if constexpr (ContextMiddlewareFunction<F>) {
+			use_context_prepared(make_context_middleware(std::forward<F>(mw)));
+		} else {
+			use_prepared(make_middleware(std::forward<F>(mw)));
+		}
 		return *this;
 	}
 	template<typename F>
