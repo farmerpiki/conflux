@@ -6,6 +6,8 @@ export import conflux.net.config;
 export import conflux.net.http.types;
 export import conflux.net.http.server_types;
 export import conflux.net.http.response;
+export import conflux.net.http.request;
+export import conflux.net.http.client;
 export import conflux.net.http.app_json;
 export import conflux.net.http.native_json;
 export import conflux.json;

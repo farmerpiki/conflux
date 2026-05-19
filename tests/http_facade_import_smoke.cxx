@@ -5,6 +5,11 @@ import std;
 
 namespace http = conflux::http;
 
+static_assert(requires { typename http::ClientRequest; });
+static_assert(requires { typename http::ClientResponse; });
+static_assert(requires { typename http::ClientResult; });
+static_assert(requires { typename http::HttpClient; });
+
 TEST_CASE(
 	"http facade: public import smoke",
 	"[http.facade]") {
