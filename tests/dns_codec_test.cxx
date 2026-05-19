@@ -10,7 +10,12 @@ import conflux.types;
 import conflux.work;
 import conflux.net.dns;
 
-using namespace std;
+using std::nullopt;
+using std::string;
+using std::string_view;
+using std::uint16_t;
+using std::uint8_t;
+using std::vector;
 using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;
 // ---------------------------------------------------------------------------

@@ -6,7 +6,18 @@ export module conflux.db.params;
 import std;
 import conflux.types;
 
-using namespace std;
+using std::array;
+using std::bit_cast;
+using std::copy_n;
+using std::int32_t;
+using std::int64_t;
+using std::ptrdiff_t;
+using std::size_t;
+using std::string_view;
+using std::to_chars;
+using std::uint32_t;
+using std::uint64_t;
+using std::vector;
 export namespace conflux::db::oids {
 
 inline constexpr Oid bool_ = 16;

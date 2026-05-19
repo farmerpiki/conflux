@@ -15,7 +15,22 @@ import conflux.work;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 
-using namespace std;
+using std::array;
+using std::atomic;
+using std::atomic_flag;
+using std::conditional_t;
+using std::exception_ptr;
+using std::is_void_v;
+using std::make_shared;
+using std::monostate;
+using std::optional;
+using std::runtime_error;
+using std::size_t;
+using std::span;
+using std::unique_ptr;
+using std::uint32_t;
+using std::uint64_t;
+using std::uint8_t;
 namespace {
 
 constexpr uint64_t pack_ud(

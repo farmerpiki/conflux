@@ -5,7 +5,10 @@ export module conflux.db.types;
 
 import std;
 
-using namespace std;
+using std::move;
+using std::runtime_error;
+using std::string;
+using std::unique_ptr;
 namespace conflux::db {
 
 export struct PGConnDeleter {
