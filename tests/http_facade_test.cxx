@@ -414,16 +414,19 @@ TEST_CASE(
 	app.get("/expected", []() -> std::expected<http::Json<FacadeAnswer>, http::Problem> {
 		return http::Json{FacadeAnswer{.value = "ok"}};
 	});
+	app.post("/created", [] { return http::created(FacadeAnswer{.value = "made"}); });
 
 	auto routes = app.routes();
-	REQUIRE(routes.size() == 2);
+	REQUIRE(routes.size() == 3);
 	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
 	CHECK(routes[1].produces == std::vector<std::string>{"application/json"});
+	CHECK(routes[2].success_status == kHttpCreated);
 	CHECK_FALSE(routes[0].problem_response);
 	CHECK(routes[1].problem_response);
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("application/json")") != std::string::npos);
 	CHECK(spec.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
+	CHECK(spec.find(R"("201":{"description":"Created")") != std::string::npos);
 	CHECK(spec.find(R"("400":{"description":"Problem")") != std::string::npos);
 	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
 }

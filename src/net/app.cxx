@@ -302,6 +302,7 @@ struct AppRouteInfo {
 	std::vector<std::string> produces;
 	std::string request_body_schema;
 	std::string response_schema;
+	int success_status{kHttpOk};
 	bool problem_response{};
 	std::size_t max_body_size{};
 	std::chrono::milliseconds timeout{};
@@ -719,6 +720,7 @@ class App {
 		std::vector<std::string> produces;
 		std::string request_body_schema;
 		std::string response_schema;
+		int success_status{kHttpOk};
 		bool problem_response{};
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::chrono::milliseconds timeout{};
@@ -1165,6 +1167,7 @@ public:
 					.produces = route.produces,
 					.request_body_schema = route.request_body_schema,
 					.response_schema = route.response_schema,
+					.success_status = route.success_status,
 					.problem_response = route.problem_response,
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
@@ -1358,7 +1361,10 @@ public:
 					}
 					out += "}}";
 				}
-				out += R"(,"responses":{"200":{"description":"OK")";
+				out += R"(,"responses":{)";
+				out += json_str(std::to_string(route.success_status));
+				out += R"(:{"description":)";
+				out += json_str(route.success_status == kHttpCreated ? "Created" : "OK");
 				if (!route.produces.empty()) {
 					out += R"(","content":{)";
 					for (std::size_t i = 0; i < route.produces.size(); ++i) {
@@ -1984,6 +1990,9 @@ public:
 	static void apply_return_metadata(
 		AppRouteMetadata &meta) {
 		using Clean = typename detail::ResponseMetadataType<Return>::type;
+		if constexpr (std::same_as<Clean, Created>) {
+			meta.success_status = kHttpCreated;
+		}
 		if constexpr (detail::JsonArg<Clean>) {
 			meta.produces = {"application/json"};
 #if CONFLUX_HAS_JSON
