@@ -1,10 +1,12 @@
 #include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <liburing.h>
 #include <netinet/in.h>
+#include <new>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -19,7 +21,56 @@ import conflux.json;
 import bench_common;
 
 using namespace conflux::json;
+
 namespace {
+
+std::atomic<bool> g_count_allocations{false};
+std::atomic<std::uint64_t> g_alloc_count{0};
+std::atomic<std::uint64_t> g_alloc_bytes{0};
+
+} // namespace
+
+void *operator new(
+	std::size_t size) {
+	if (void *p = std::malloc(size)) {
+		if (g_count_allocations.load(std::memory_order_relaxed)) {
+			g_alloc_count.fetch_add(1, std::memory_order_relaxed);
+			g_alloc_bytes.fetch_add(size, std::memory_order_relaxed);
+		}
+		return p;
+	}
+	throw std::bad_alloc{};
+}
+void *operator new[](
+	std::size_t size) {
+	return ::operator new(size);
+}
+void operator delete(
+	void *p) noexcept {
+	std::free(p);
+}
+void operator delete[](
+	void *p) noexcept {
+	::operator delete(p);
+}
+void operator delete(
+	void *p,
+	std::size_t) noexcept {
+	::operator delete(p);
+}
+void operator delete[](
+	void *p,
+	std::size_t) noexcept {
+	::operator delete(p);
+}
+
+namespace {
+
+struct AllocBenchStats {
+	BenchStats timing;
+	double allocations_per_iter{};
+	double allocated_bytes_per_iter{};
+};
 
 template<typename F>
 BenchStats measure(
@@ -53,6 +104,52 @@ BenchStats measure(
 		.throughput = mbs,
 	};
 }
+template<typename F>
+AllocBenchStats measure_alloc(
+	F &&fn,
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1,
+	std::size_t bytes = 0) {
+	for (std::size_t i = 0; i < warmup * batch; ++i) {
+		fn();
+	}
+	std::vector<std::uint64_t> samples;
+	samples.reserve(iters);
+	std::uint64_t total = 0;
+	std::uint64_t total_allocs = 0;
+	std::uint64_t total_bytes = 0;
+	for (std::size_t i = 0; i < iters; ++i) {
+		g_alloc_count.store(0, std::memory_order_relaxed);
+		g_alloc_bytes.store(0, std::memory_order_relaxed);
+		g_count_allocations.store(true, std::memory_order_relaxed);
+		std::uint64_t const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < batch; ++j) {
+			fn();
+		}
+		std::uint64_t const elapsed = bench_now_ns() - t0;
+		g_count_allocations.store(false, std::memory_order_relaxed);
+		total += elapsed;
+		total_allocs += g_alloc_count.load(std::memory_order_relaxed);
+		total_bytes += g_alloc_bytes.load(std::memory_order_relaxed);
+		samples.push_back(elapsed);
+	}
+	sort(samples.begin(), samples.end());
+	double const med = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
+	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
+	double const denom = static_cast<double>(iters * batch);
+	return {
+		.timing =
+			{
+					 .iterations = iters * batch,
+					 .total_ns = total,
+					 .ns_per_iter = med,
+					 .throughput = mbs,
+					 },
+		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
+		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
+	};
+}
 bool g_csv = false;
 bool g_first_row = true;
 void print_row(
@@ -66,6 +163,39 @@ void print_row(
 		print("[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s\n", name, s.ns_per_iter, s.throughput);
 	} else {
 		print("[json-bench] {:<40} {:>10.1f} ns\n", name, s.ns_per_iter);
+	}
+}
+void print_alloc_row(
+	std::string_view name,
+	AllocBenchStats s) {
+	s.timing.variant = name;
+	if (g_csv) {
+		std::println(
+			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
+			s.timing.config,
+			s.timing.variant,
+			s.timing.iterations,
+			s.timing.total_ns,
+			s.timing.ns_per_iter,
+			s.allocations_per_iter,
+			s.allocated_bytes_per_iter);
+		g_first_row = false;
+	} else if (s.timing.throughput > 0.0) {
+		print(
+			"[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B\n",
+			name,
+			s.timing.ns_per_iter,
+			s.timing.throughput,
+			s.allocations_per_iter,
+			s.allocated_bytes_per_iter);
+	} else {
+		print(
+			"[json-bench] {:<40} {:>10.1f} ns  {:>6.2f} allocs  {:>8.1f} B\n",
+			name,
+			s.timing.ns_per_iter,
+			s.allocations_per_iter,
+			s.allocated_bytes_per_iter);
 	}
 }
 // ---------------------------------------------------------------------------
@@ -250,6 +380,213 @@ std::string make_mixed_numbers_corpus() {
 // ---------------------------------------------------------------------------
 // Benchmark drivers
 // ---------------------------------------------------------------------------
+
+} // namespace
+
+struct BenchSmall {
+	std::int64_t id{};
+	bool active{};
+};
+struct BenchMedium {
+	std::int64_t id{};
+	std::int64_t count{};
+	double score{};
+	bool active{};
+	std::string name{};
+	std::string tag{};
+	std::optional<std::int64_t> limit{};
+	std::vector<std::int64_t> values{};
+};
+struct BenchInner {
+	std::int64_t x{};
+	std::int64_t y{};
+};
+struct BenchNested {
+	std::string id{};
+	BenchInner origin{};
+	std::vector<BenchSmall> items{};
+};
+template<>
+struct JsonMembers<BenchSmall> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("id", &BenchSmall::id),
+			json_member("active", &BenchSmall::active),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchSmall"; }
+};
+template<>
+struct JsonMembers<BenchMedium> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("id", &BenchMedium::id),
+			json_member("count", &BenchMedium::count),
+			json_member("score", &BenchMedium::score),
+			json_member("active", &BenchMedium::active),
+			json_member("name", &BenchMedium::name),
+			json_member("tag", &BenchMedium::tag),
+			json_member("limit", &BenchMedium::limit),
+			json_member("values", &BenchMedium::values),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchMedium"; }
+};
+template<>
+struct JsonMembers<BenchInner> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("x", &BenchInner::x),
+			json_member("y", &BenchInner::y),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchInner"; }
+};
+template<>
+struct JsonMembers<BenchNested> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("id", &BenchNested::id),
+			json_member("origin", &BenchNested::origin),
+			json_member("items", &BenchNested::items),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchNested"; }
+};
+
+namespace {
+
+[[nodiscard]] std::string make_medium_json(
+	bool out_of_order = false,
+	bool escaped = false) {
+	if (out_of_order) {
+		return R"({"values":[1,2,3,4,5,6,7,8],"limit":64,"tag":"direct","name":"bench","active":true,"score":12.5,"count":42,"id":7})";
+	}
+	if (escaped) {
+		return R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench\nname","tag":"direct\u002ftag","limit":64,"values":[1,2,3,4,5,6,7,8]})";
+	}
+	return R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4,5,6,7,8]})";
+}
+[[nodiscard]] std::string make_nested_json() {
+	return R"({"id":"root","origin":{"x":3,"y":4},"items":[{"id":1,"active":true},{"id":2,"active":false},{"id":3,"active":true}]})";
+}
+[[nodiscard]] std::string make_array_objects_json() {
+	std::string out;
+	out.reserve(4096);
+	out += '[';
+	for (int i = 0; i < 64; ++i) {
+		if (i != 0) {
+			out += ',';
+		}
+		out += std::format(R"({{"id":{},"active":{}}})", i, (i % 2 == 0) ? "true" : "false");
+	}
+	out += ']';
+	return out;
+}
+template<class T>
+void require_decode(
+	std::expected<T, JsonError> value) {
+	if (!value) {
+		throw std::runtime_error{value.error().message};
+	}
+}
+void require_dump(
+	std::expected<std::string, JsonError> value) {
+	if (!value) {
+		throw std::runtime_error{value.error().message};
+	}
+}
+template<class T>
+void require_dom_write(
+	T const &value) {
+	auto b = value_builder();
+	if (auto ok = b.set<T>(value); !ok) {
+		throw std::runtime_error{ok.error().message};
+	}
+	auto doc = std::move(b).finish();
+	if (!doc) {
+		throw std::runtime_error{doc.error().message};
+	}
+	auto dumped = doc->dump();
+	if (!dumped) {
+		throw std::runtime_error{dumped.error().message};
+	}
+}
+void bench_direct_struct_matrix() {
+	std::string const small = R"({"id":7,"active":true})";
+	std::string const medium = make_medium_json();
+	std::string const nested = make_nested_json();
+	std::string const array_objects = make_array_objects_json();
+	std::string const out_of_order = make_medium_json(true);
+	std::string const escaped = make_medium_json(false, true);
+	BenchMedium const medium_value{
+		.id = 7,
+		.count = 42,
+		.score = 12.5,
+		.active = true,
+		.name = "bench",
+		.tag = "direct",
+		.limit = 64,
+		.values = {1, 2, 3, 4, 5, 6, 7, 8},
+	};
+	BenchNested const nested_value{
+		.id = "root",
+		.origin = {.x = 3, .y = 4},
+		.items = {{.id = 1, .active = true}, {.id = 2, .active = false}, {.id = 3, .active = true}},
+	};
+
+	print_alloc_row(
+		"decode/manual/dom/small",
+		measure_alloc(
+			[&] {
+				auto doc = parse(small);
+				if (!doc) {
+					throw std::runtime_error{doc.error().message};
+				}
+				require_decode(decode<BenchSmall>(doc->root()));
+			},
+			100,
+			500,
+			1,
+			small.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/small",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchSmall>(small)); }, 100, 500, 1, small.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/medium",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchMedium>(medium)); }, 100, 500, 1, medium.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/nested",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchNested>(nested)); }, 100, 500, 1, nested.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/array_objects",
+		measure_alloc(
+			[&] { require_decode(decode_borrowed<std::vector<BenchSmall>>(array_objects)); },
+			100,
+			500,
+			1,
+			array_objects.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/out_of_order",
+		measure_alloc(
+			[&] { require_decode(decode_borrowed<BenchMedium>(out_of_order)); },
+			100,
+			500,
+			1,
+			out_of_order.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/escaped_strings",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchMedium>(escaped)); }, 100, 500, 1, escaped.size()));
+	print_alloc_row(
+		"write/manual/dom",
+		measure_alloc([&] { require_dom_write(medium_value); }, 100, 500, 1, medium.size()));
+	print_alloc_row(
+		"write/manual/direct",
+		measure_alloc([&] { require_dump(dump_direct(medium_value)); }, 100, 500, 1, medium.size()));
+	print_alloc_row(
+		"write/manual/direct/nested",
+		measure_alloc([&] { require_dump(dump_direct(nested_value)); }, 100, 500, 1, nested.size()));
+}
 
 void bench_parse_small(
 	std::string const &corpus) {
@@ -1150,6 +1487,12 @@ int main(
 	bench_dump_plain(config_corpus);
 	bench_dump_sorted(config_corpus);
 	bench_accumulate_chunked("accumulate/byte_span chunked (4KB config)", config_corpus, 4096);
+
+	if (!g_csv) {
+		std::println("[json-bench]");
+		std::println("[json-bench] -- direct struct serde matrix --");
+	}
+	bench_direct_struct_matrix();
 
 	if (!g_csv) {
 		std::println("[json-bench]");

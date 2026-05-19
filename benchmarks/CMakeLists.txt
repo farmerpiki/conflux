@@ -63,6 +63,13 @@ if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
 endif()
 
+if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect_provider)
+    add_executable(conflux_json_reflect_bench json_reflect_bench.cxx)
+    target_link_libraries(conflux_json_reflect_bench
+        PRIVATE bench_common conflux_json_reflect_provider conflux_json_reflect conflux_json conflux_options)
+    target_compile_options(conflux_json_reflect_bench PRIVATE -freflection)
+endif()
+
 add_executable(conflux_crypto_bench crypto_bench.cxx)
 target_link_libraries(conflux_crypto_bench PRIVATE bench_common conflux conflux_options)
 
@@ -135,6 +142,9 @@ set(_record_targets
 )
 if(TARGET conflux_send_zc_bench)
     list(APPEND _record_targets conflux_send_zc_bench)
+endif()
+if(TARGET conflux_json_reflect_bench)
+    list(APPEND _record_targets conflux_json_reflect_bench)
 endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
     list(APPEND _record_targets conflux_tls_tcp_increment_coro_bench)

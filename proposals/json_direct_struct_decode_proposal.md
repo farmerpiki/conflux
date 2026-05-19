@@ -293,6 +293,8 @@ Expected behavior:
 
 ### Phase A — final measurement
 
+Status: implemented for in-tree manual and P2996 reflection benchmark rows.
+
 Files likely touched:
 
 - `benchmarks/json_bench.cxx`
@@ -312,6 +314,20 @@ Gate:
 - Final report must show throughput and allocation counts for DOM, reader,
   reflection, direct decode, and direct write paths after implementation is
   complete.
+
+Implementation notes:
+
+- `conflux_json_bench` now reports allocation count and allocated bytes per
+  iteration for the manual DOM/direct struct decode and writer matrix.
+- Added `conflux_json_reflect_bench`, enabled only when `CONFLUX_JSON_REFLECT`
+  is on, for P2996 reflected DOM/direct decode and writer rows.
+- Added a `release-p2996-gcc` preset so reflected serde benchmarks run in a
+  release build with the `std` BMI compiled under `-freflection`.
+- `scripts/run-build-artifact.sh` accepts the new release P2996 preset, keeping
+  benchmark execution on the same helper path as the rest of the tree.
+- Reflected direct decode benchmark coverage currently uses the implemented
+  reflected reader surface: primitive, string, optional, and aggregate members.
+  Reflected vector-member reader decode remains outside this proposal slice.
 
 ### Phase B — direct `JsonMembers<T>` reader decode
 

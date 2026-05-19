@@ -169,6 +169,22 @@
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
     },
+    {
+      "name": "release-p2996-gcc",
+      "displayName": "Release · g++-16 · P2996 reflection",
+      "inherits": "gcc16-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_STANDARD": "26",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG -freflection",
+        "CONFLUX_ENABLE_LTO": "ON",
+        "CONFLUX_LTO_MODE": "AUTO",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON",
+        "CONFLUX_JSON_REFLECT": "ON",
+        "CONFLUX_ENABLE_DB": "OFF"
+      }
+    },
 
     {
       "name": "perf-clang-libcxx",
@@ -368,6 +384,10 @@
     {
       "name": "release-gcc16-stdcxx",
       "configurePreset": "release-gcc16-stdcxx"
+    },
+    {
+      "name": "release-p2996-gcc",
+      "configurePreset": "release-p2996-gcc"
     },
     {
       "name": "perf-clang-libcxx",
