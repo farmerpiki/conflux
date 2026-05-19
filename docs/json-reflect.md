@@ -21,10 +21,10 @@ find_package(conflux REQUIRED COMPONENTS json_reflect_provider)
 target_link_libraries(mytarget PRIVATE conflux::json_reflect_provider)
 ```
 
-The `debug-p2996-gcc` preset selects C++26 and enables `CONFLUX_JSON_REFLECT`.
-The reflection targets add `-freflection`; the rest of the graph is kept on the
-normal module path because GCC 16's reflected `std` BMI is still fragile for
-non-reflection consumers.
+The `debug-p2996-gcc` preset selects C++26, enables `CONFLUX_JSON_REFLECT`, and
+adds `-freflection` early enough for CMake's generated `std` BMI to export the
+`std::meta` surface. Reflection modules should use `import std;`; they should
+not include `<meta>` separately.
 
 ---
 

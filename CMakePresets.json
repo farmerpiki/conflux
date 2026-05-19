@@ -101,7 +101,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_STANDARD": "26",
-        "CMAKE_CXX_FLAGS_DEBUG": "-g",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -freflection",
         "CONFLUX_ENABLE_ASAN": "OFF",
         "CONFLUX_ENABLE_UBSAN": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",

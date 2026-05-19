@@ -14,7 +14,7 @@ struct name_t {
 };
 consteval name_t name(
 	std::string_view sv) {
-	return {sv.data(), sv.size()};
+	return {std::define_static_string(sv), sv.size()};
 }
 struct skip {};
 
@@ -56,7 +56,7 @@ consteval conflux::json::name_t reflect_field_name() {
 		return reflect_get_name_ann<Mem>();
 	} else {
 		auto sv = std::meta::identifier_of(Mem);
-		return {sv.data(), sv.size()};
+		return {std::define_static_string(sv), sv.size()};
 	}
 }
 template<class T>
@@ -115,7 +115,7 @@ template<class M>
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
 	using Raw = std::remove_cvref_t<M>;
-	if constexpr (ReflectJsonAggregate<Raw>) {
+	if constexpr (conflux::json::ReflectJsonAggregate<Raw>) {
 		return JsonCodec<Raw>::decode(reader, event, opts, scratch);
 	} else if constexpr (std::same_as<Raw, bool>) {
 		if (event != Ev::bool_value) {
@@ -265,7 +265,7 @@ template<class M>
 // ---------------------------------------------------------------------------
 
 template<class T>
-	requires ReflectJsonAggregate<T>
+	requires conflux::json::ReflectJsonAggregate<T>
 struct JsonCodec<T> {
 	static std::expected<T, JsonError> decode(
 		NodeRef root) {
@@ -287,7 +287,7 @@ struct JsonCodec<T> {
 
 		constexpr auto N = detail::reflect_member_count<T>();
 
-		[&]<SZ... Is>(std::index_sequence<Is...>) {
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
 			(
 				[&]<std::size_t I>() {
 					if (!ok) {
@@ -337,7 +337,7 @@ struct JsonCodec<T> {
 					break;
 				}
 				bool found = false;
-				[&]<SZ... Is>(std::index_sequence<Is...>) {
+				[&]<std::size_t... Is>(std::index_sequence<Is...>) {
 					(
 						[&]<std::size_t I>() {
 							if (found) {
@@ -544,7 +544,7 @@ struct JsonCodec<T> {
 		JsonError first_err;
 
 		constexpr auto N = detail::reflect_member_count<T>();
-		[&]<SZ... Is>(std::index_sequence<Is...>) {
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
 			(
 				[&]<std::size_t I>() {
 					if (!ok) {

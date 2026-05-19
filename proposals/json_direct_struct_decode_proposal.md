@@ -375,12 +375,7 @@ Implementation notes:
 
 ### Phase D — direct reflected reader decode
 
-Status: implemented in source, blocked in validation by the current GCC 16
-reflection/import-std split. With `std` built normally, the reflection module's
-`import std` does not expose the `<meta>` API; including `<meta>` in the
-reflection module then conflicts with the already-imported `std` BMI through C
-header declarations. Building `std` with `-freflection` makes `<meta>` visible
-but produces a BMI that non-reflection project modules cannot reliably import.
+Status: implemented and validated under `debug-p2996-gcc`.
 
 Files likely touched:
 
@@ -410,18 +405,20 @@ Implementation notes:
   reflected aggregates, and primitive/string member decode.
 - Added reflection tests for escaped annotation keys, ignored nested unknown
   values, and rejected unknown members.
-- Fixed the `debug-p2996-gcc` preset/build wiring so reflection selects C++26 and
-  `-freflection` is scoped to reflection targets instead of the whole graph.
-- Validation currently fails before reflected direct decode can be exercised:
-  `std::meta::info`, `annotations_of_with_type`, and
-  `nonstatic_data_members_of` are not exported by the non-reflection `std` BMI.
-  A global reflected `std` BMI was tested and rejected because downstream
-  modules then fail on duplicated C header declarations when importing `std`.
+- Fixed the `debug-p2996-gcc` preset/build wiring so reflection selects C++26
+  and builds the `std` BMI with `-freflection`; this makes `std::meta` available
+  through `import std` without a separate `<meta>` include in the reflection
+  module.
+- Removed an unnecessary global-fragment standard header from `conflux.types`
+  so the reflected `std` BMI can be imported cleanly by the JSON reflection
+  test graph.
+- `conflux_json_reflect_tests` passes through
+  `./scripts/run-build-artifact.sh /tmp/gcc-16/debug-p2996-gcc/tests/conflux_json_reflect_tests`.
 
 ### Phase E — direct writer
 
 Status: implemented for manual `JsonMembers<T>` compact/default provider output;
-reflected direct writer remains pending reflection-lane validation.
+reflected direct writer remains pending.
 
 Files likely touched:
 
