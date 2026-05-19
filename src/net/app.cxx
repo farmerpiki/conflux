@@ -45,6 +45,7 @@ inline constexpr bool IsTaskResultV = IsTaskResult<std::remove_cvref_t<T>>::valu
 class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 	using ScopedMiddlewareList = std::vector<Router::Middleware>;
+	using ScopedContextMiddlewareList = std::vector<Router::ContextMiddleware>;
 
 	struct AppRouteMetadata {
 		std::string method;
@@ -90,6 +91,13 @@ class App {
 		return std::make_shared<ScopedMiddlewareList>(*group_middlewares_);
 	}
 
+	[[nodiscard]] std::shared_ptr<ScopedContextMiddlewareList const> current_group_context_middlewares() const {
+		if (group_context_middlewares_ == nullptr || group_context_middlewares_->empty()) {
+			return {};
+		}
+		return std::make_shared<ScopedContextMiddlewareList>(*group_context_middlewares_);
+	}
+
 	[[nodiscard]] static HttpResponse run_scoped_middlewares(
 		std::shared_ptr<ScopedMiddlewareList const> const &middlewares,
 		RequestView const &req,
@@ -103,6 +111,41 @@ class App {
 			inner = [mw = std::move(mw), next = std::move(next)](RequestView const &r) mutable { return mw(r, next); };
 		}
 		return inner(req);
+	}
+
+	[[nodiscard]] static conflux::work::root::Task<HttpResponse> run_scoped_context_middlewares(
+		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
+		Request const &req,
+		RequestContext const &ctx,
+		Router::ContextHandler inner) {
+		if (!middlewares || middlewares->empty()) {
+			co_return co_await inner(req, ctx);
+		}
+		struct Step {
+			std::shared_ptr<ScopedContextMiddlewareList const> middlewares;
+			Router::ContextHandler inner;
+			std::size_t index{};
+			Router::ContextHandler next;
+
+			void bind(
+				std::shared_ptr<Step> self) {
+				next = [self = std::move(self)](Request const &r, RequestContext const &c)
+					-> conflux::work::root::Task<HttpResponse> { return self->call(r, c); };
+			}
+
+			conflux::work::root::Task<HttpResponse> call(
+				Request const &r,
+				RequestContext const &c) {
+				if (index == middlewares->size()) {
+					return inner(r, c);
+				}
+				auto const &middleware = (*middlewares)[index++];
+				return middleware(r, c, next);
+			}
+		};
+		auto step = std::make_shared<Step>(std::move(middlewares), std::move(inner));
+		step->bind(step);
+		co_return co_await step->call(req, ctx);
 	}
 
 public:
@@ -342,20 +385,31 @@ public:
 			record_return_metadata<conflux::work::root::Task<HttpResponse>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
+			auto scoped_context_middlewares = current_group_context_middlewares();
 			router_.add_context(
 				method,
 				path,
-				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](
+				[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
 					Request const &req,
 					RequestContext const &ctx) mutable -> conflux::work::root::Task<HttpResponse> {
-					RequestView const view{req};
-					if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
-						co_return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
-						co_return *std::move(limited);
-					}
-					co_return co_await fn(req, ctx);
+					Router::ContextHandler inner =
+						[auth_policy, rate_limit, &fn](
+							Request const &inner_req,
+							RequestContext const &inner_ctx) -> conflux::work::root::Task<HttpResponse> {
+						RequestView const view{inner_req};
+						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
+							co_return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
+							co_return *std::move(limited);
+						}
+						co_return co_await fn(inner_req, inner_ctx);
+					};
+					co_return co_await run_scoped_context_middlewares(
+						scoped_context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
 				});
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
@@ -673,18 +727,30 @@ public:
 			return *this;
 		}
 		template<typename F>
+		Group &use_async(
+			F &&middleware) {
+			context_middlewares_.emplace_back(std::forward<F>(middleware));
+			return *this;
+		}
+		template<typename F>
 		[[nodiscard]] RouteRef add(
 			std::string_view method,
 			std::string_view path,
 			F &&handler,
 			std::source_location loc = std::source_location::current()) {
 			auto *previous = app_.group_middlewares_;
+			auto *previous_context = app_.group_context_middlewares_;
 			app_.group_middlewares_ = &middlewares_;
+			app_.group_context_middlewares_ = &context_middlewares_;
 			struct Restore {
 				App &app;
 				ScopedMiddlewareList *previous;
-				~Restore() { app.group_middlewares_ = previous; }
-			} restore{app_, previous};
+				ScopedContextMiddlewareList *previous_context;
+				~Restore() {
+					app.group_middlewares_ = previous;
+					app.group_context_middlewares_ = previous_context;
+				}
+			} restore{app_, previous, previous_context};
 			return app_.add_route_ref(method, full_path(path), std::forward<F>(handler), loc);
 		}
 		template<typename F>
@@ -786,6 +852,7 @@ public:
 		App &app_;
 		std::string prefix_;
 		ScopedMiddlewareList middlewares_;
+		ScopedContextMiddlewareList context_middlewares_;
 	};
 
 	template<typename F>
@@ -1267,7 +1334,10 @@ public:
 			.source_line = loc.line(),
 			.middleware_count =
 				middleware_count_
-				+ (group_middlewares_ == nullptr ? 0U : static_cast<std::size_t>(group_middlewares_->size()))};
+				+ (group_middlewares_ == nullptr ? 0U : static_cast<std::size_t>(group_middlewares_->size()))
+				+ (group_context_middlewares_ == nullptr ?
+					   0U :
+					   static_cast<std::size_t>(group_context_middlewares_->size()))};
 		detail::append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractor_types<Args>(
@@ -1586,6 +1656,7 @@ public:
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		auto scoped_middlewares = current_group_middlewares();
+		auto scoped_context_middlewares = current_group_context_middlewares();
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
@@ -1599,31 +1670,50 @@ public:
 				[states = states_,
 				 auth_policy,
 				 rate_limit,
+				 scoped_context_middlewares,
 				 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
 					 ,
 				 max_body_size,
 				 json_options
 #endif
-			](Request const &req, RequestContext const &) mutable -> conflux::work::root::Task<HttpResponse> {
-					RequestView const view{req};
-					if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
-						co_return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
-						co_return *std::move(limited);
-					}
-					co_return co_await invoke_extracted_async<Args>(
-						*states,
-						fn,
-						view,
-						std::make_index_sequence<std::tuple_size_v<Args>>{}
+			](Request const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<HttpResponse> {
+					Router::ContextHandler inner =
+						[states,
+						 auth_policy,
+						 rate_limit,
+						 &fn
 #if CONFLUX_HAS_JSON
-						,
-						*json_options,
-						*max_body_size
+						 ,
+						 max_body_size,
+						 json_options
 #endif
-					);
+					](Request const &inner_req,
+						RequestContext const &) mutable -> conflux::work::root::Task<HttpResponse> {
+						RequestView const view{inner_req};
+						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
+							co_return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
+							co_return *std::move(limited);
+						}
+						co_return co_await invoke_extracted_async<Args>(
+							*states,
+							fn,
+							view,
+							std::make_index_sequence<std::tuple_size_v<Args>>{}
+#if CONFLUX_HAS_JSON
+							,
+							*json_options,
+							*max_body_size
+#endif
+						);
+					};
+					co_return co_await run_scoped_context_middlewares(
+						scoped_context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
 				});
 		} else {
 			router_.add(
@@ -1820,6 +1910,7 @@ private:
 	std::vector<StaticMountMetadata> static_mounts_;
 	std::size_t middleware_count_{};
 	ScopedMiddlewareList *group_middlewares_{};
+	ScopedContextMiddlewareList *group_context_middlewares_{};
 	bool openapi_strict_{};
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;

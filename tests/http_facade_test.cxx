@@ -515,6 +515,34 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app groups apply scoped async middleware to extracted task routes",
+	"[http.facade]") {
+	auto app = http::app();
+	std::string value = "async-state";
+	app.state(value);
+
+	app.group("/api", [](auto &group) {
+		group.use_async(
+			[](http::Request const &req,
+			   RequestContext const &ctx,
+			   http::AsyncNext const &next) -> http::Task<http::Response> {
+				auto response = co_await next(req, ctx);
+				response.headers.set("x-async-group", "api");
+				co_return response;
+			});
+		(void)group.get("/async-state", [](http::State<std::string> state) -> http::Task<http::Response> {
+			co_return http::text(state.get());
+		});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].middleware_count == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"State"});
+	CHECK(app.router().has_context_routes());
+}
+
+TEST_CASE(
 	"http facade: verb helpers return route metadata handles",
 	"[http.facade]") {
 	auto app = http::app();
