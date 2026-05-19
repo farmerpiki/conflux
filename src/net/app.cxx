@@ -5,6 +5,7 @@ module;
 export module conflux.net.app;
 
 import :json_helpers;
+import :metadata_helpers;
 import :openapi;
 export import :policies;
 export import :response;
@@ -1038,161 +1039,6 @@ public:
 	}
 #endif
 
-	template<class Args, std::size_t... Is>
-	static void append_required_states(
-		std::vector<std::type_index> &out,
-		std::index_sequence<Is...>) {
-		(
-			[&] {
-				using Arg = std::tuple_element_t<Is, Args>;
-				if constexpr (detail::StateArg<Arg>) {
-					using StateValue = typename detail::StateType<std::remove_cvref_t<Arg>>::type;
-					out.push_back(std::type_index{typeid(StateValue)});
-				}
-			}(),
-			...);
-	}
-
-	template<class Arg>
-	[[nodiscard]] static std::string extractor_name() {
-		using Clean = std::remove_cvref_t<Arg>;
-		if constexpr (detail::StateArg<Clean>) {
-			return "State";
-		} else if constexpr (detail::PathArg<Clean>) {
-			return std::format("Path<{}>", detail::PathType<Clean>::name.view());
-		} else if constexpr (detail::PathAtArg<Clean>) {
-			return std::format("PathAt<{}>", detail::PathAtType<Clean>::index);
-		} else if constexpr (detail::QueryArg<Clean>) {
-			return std::format("Query<{}>", detail::QueryType<Clean>::name.view());
-		} else if constexpr (detail::HeaderArg<Clean>) {
-			return std::format("Header<{}>", detail::HeaderType<Clean>::name.view());
-		} else if constexpr (detail::CookieArg<Clean>) {
-			return std::format("Cookie<{}>", detail::CookieType<Clean>::name.view());
-		} else if constexpr (detail::FormArg<Clean>) {
-			return std::format("Form<{}>", detail::FormType<Clean>::name.view());
-#if CONFLUX_HAS_JSON
-		} else if constexpr (detail::QueryParamsArg<Clean>) {
-			return "QueryParams";
-		} else if constexpr (detail::FormParamsArg<Clean>) {
-			return "FormParams";
-#endif
-		} else if constexpr (detail::BodyTextArg<Clean>) {
-			return "BodyText";
-		} else if constexpr (detail::BodyBytesArg<Clean>) {
-			return "BodyBytes";
-		} else if constexpr (detail::OwnedBodyBytesArg<Clean>) {
-			return "OwnedBodyBytes";
-#if CONFLUX_HAS_JSON
-		} else if constexpr (detail::JsonDocumentArg<Clean>) {
-			return "JsonDocument";
-#endif
-		} else if constexpr (detail::MultipartArg<Clean>) {
-			return "Multipart";
-		} else if constexpr (detail::RequestIdArg<Clean>) {
-			return "RequestId";
-		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
-			return "ConnectionInfo";
-		} else if constexpr (detail::TraceContextArg<Clean>) {
-			return "TraceContext";
-		} else if constexpr (detail::BearerArg<Clean>) {
-			return "Bearer";
-		} else if constexpr (detail::BasicAuthArg<Clean>) {
-			return "BasicAuth";
-		} else if constexpr (detail::JsonArg<Clean>) {
-			return "Json";
-		} else if constexpr (detail::RequestViewArg<Clean>) {
-			return "RequestView";
-		} else if constexpr (detail::RequestArg<Clean>) {
-			return "Request";
-		} else {
-			return "unknown";
-		}
-	}
-
-	template<class Args, std::size_t... Is>
-	static void append_extractors(
-		std::vector<std::string> &out,
-		std::index_sequence<Is...>) {
-		(out.push_back(extractor_name<std::tuple_element_t<Is, Args>>()), ...);
-	}
-
-	template<class Args, std::size_t... Is>
-	static void append_path_extractors(
-		std::vector<std::string> &out,
-		std::index_sequence<Is...>) {
-		(
-			[&] {
-				using Arg = std::tuple_element_t<Is, Args>;
-				using Clean = std::remove_cvref_t<Arg>;
-				if constexpr (detail::PathArg<Clean>) {
-					out.push_back(std::string{detail::PathType<Clean>::name.view()});
-				}
-			}(),
-			...);
-	}
-
-	template<class T>
-	[[nodiscard]] static consteval std::string_view route_type_tag() {
-		using Clean = std::remove_cvref_t<T>;
-		if constexpr (std::same_as<Clean, std::uint64_t>) {
-			return "u64";
-		} else if constexpr (std::same_as<Clean, std::int64_t>) {
-			return "i64";
-		} else if constexpr (std::same_as<Clean, std::uint32_t>) {
-			return "u32";
-		} else if constexpr (std::same_as<Clean, std::int32_t>) {
-			return "i32";
-		} else if constexpr (std::same_as<Clean, std::string> || std::same_as<Clean, std::string_view>) {
-			return "string";
-		} else {
-			return "";
-		}
-	}
-
-	template<class Args, std::size_t... Is>
-	static void append_path_extractor_types(
-		std::vector<std::pair<std::string, std::string>> &out,
-		std::vector<std::pair<std::size_t, std::string>> &index_out,
-		std::index_sequence<Is...>) {
-		(
-			[&] {
-				using Arg = std::tuple_element_t<Is, Args>;
-				using Clean = std::remove_cvref_t<Arg>;
-				if constexpr (detail::PathArg<Clean>) {
-					using PathValue = typename detail::PathType<Clean>::type;
-					out.emplace_back(
-						std::string{detail::PathType<Clean>::name.view()},
-						std::string{route_type_tag<PathValue>()});
-				} else if constexpr (detail::PathAtArg<Clean>) {
-					using PathValue = typename detail::PathAtType<Clean>::type;
-					index_out.emplace_back(detail::PathAtType<Clean>::index, std::string{route_type_tag<PathValue>()});
-				}
-			}(),
-			...);
-	}
-
-	template<class Args, std::size_t... Is>
-	[[nodiscard]] static consteval bool has_body_extractor_impl(
-		std::index_sequence<Is...>) {
-		return (
-			false
-			|| ...
-			|| (detail::BodyTextArg<std::tuple_element_t<Is, Args>>
-				|| detail::BodyBytesArg<std::tuple_element_t<Is, Args>>
-				|| detail::OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
-#if CONFLUX_HAS_JSON
-				|| detail::FormParamsArg<std::tuple_element_t<Is, Args>>
-				|| detail::JsonDocumentArg<std::tuple_element_t<Is, Args>>
-#endif
-				|| detail::MultipartArg<std::tuple_element_t<Is, Args>>
-				|| detail::JsonArg<std::tuple_element_t<Is, Args>>));
-	}
-
-	template<class Args>
-	[[nodiscard]] static consteval bool has_body_extractor() {
-		return has_body_extractor_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
-	}
-
 #if CONFLUX_HAS_JSON
 	template<class Args, std::size_t... Is>
 	static void apply_json_body_metadata(
@@ -1225,17 +1071,17 @@ public:
 			.source_file = loc.file_name(),
 			.source_line = loc.line(),
 			.middleware_count = middleware_count_};
-		append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
-		append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
-		append_path_extractor_types<Args>(
+		detail::append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		detail::append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		detail::append_path_extractor_types<Args>(
 			meta.path_extractor_types,
 			meta.path_index_extractor_types,
 			std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.path_params = detail::collect_path_params(path);
 		meta.path_param_types = detail::collect_path_param_types(path);
-		append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
-		meta.uses_body = has_body_extractor<Args>() || handler_kind == "json_body";
-		if constexpr (has_body_extractor<Args>()) {
+		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
+		if constexpr (detail::has_body_extractor<Args>()) {
 			if (std::ranges::contains(meta.extractors, "JsonDocument")) {
 				meta.consumes = {"application/json", "application/problem+json"};
 			}
