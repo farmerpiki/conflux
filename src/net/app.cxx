@@ -1516,6 +1516,10 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
+			static_assert(
+				!detail::has_request_view_arg<Args>(),
+				"Async handlers must take http::Request const&, not http::RequestView const&; "
+				"the view can dangle after coroutine suspension");
 			router_.add_context(
 				method,
 				path,

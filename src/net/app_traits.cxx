@@ -260,4 +260,15 @@ consteval bool has_state_arg() {
 	return has_state_arg_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 }
 
+template<class Args, std::size_t... Is>
+consteval bool has_request_view_arg_impl(
+	std::index_sequence<Is...>) {
+	return (false || ... || RequestViewArg<std::tuple_element_t<Is, Args>>);
+}
+
+template<class Args>
+consteval bool has_request_view_arg() {
+	return has_request_view_arg_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
+}
+
 }} // namespace conflux::http::detail
