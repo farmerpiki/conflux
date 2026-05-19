@@ -529,6 +529,30 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app groups preserve extractor routing",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api", [](auto &group) {
+		(void)group.get("/items/{id}", [](http::Path<"id", std::uint64_t> id) {
+			return http::text(std::format("item={}", id.get()));
+		});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/api/items/{id}");
+	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/api/items/42";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "item=42");
+}
+
+TEST_CASE(
 	"http facade: app openapi spec uses route metadata",
 	"[http.facade]") {
 	auto app = http::app();

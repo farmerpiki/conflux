@@ -607,11 +607,91 @@ public:
 		}
 		return State<T>{.value = static_cast<T *>(it->second.get())};
 	}
+
+	class Group {
+	public:
+		template<typename F>
+		[[nodiscard]] RouteRef add(
+			std::string_view method,
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return app_.add_route_ref(method, full_path(path), std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef get(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("GET", path, std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef post(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("POST", path, std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef put(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("PUT", path, std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef patch(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("PATCH", path, std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef del(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("DELETE", path, std::forward<F>(handler), loc);
+		}
+		template<typename F>
+		[[nodiscard]] RouteRef options(
+			std::string_view path,
+			F &&handler,
+			std::source_location loc = std::source_location::current()) {
+			return add("OPTIONS", path, std::forward<F>(handler), loc);
+		}
+
+	private:
+		friend class App;
+		Group(
+			App &app,
+			std::string_view prefix)
+			: app_(app)
+			, prefix_(prefix) {}
+
+		[[nodiscard]] std::string full_path(
+			std::string_view path) const {
+			std::string out;
+			out.reserve(prefix_.size() + path.size());
+			out += prefix_;
+			out.append(path.data(), path.size());
+			return out;
+		}
+
+		App &app_;
+		std::string prefix_;
+	};
+
 	template<typename F>
 	App &group(
 		std::string_view prefix,
 		F &&fn) {
-		router_.group(prefix, std::forward<F>(fn));
+		if constexpr (std::invocable<F &, Group &>) {
+			Group group{*this, prefix};
+			std::invoke(std::forward<F>(fn), group);
+		} else {
+			router_.group(prefix, std::forward<F>(fn));
+		}
 		return *this;
 	}
 	[[nodiscard]] Config &config() { return cfg_; }
