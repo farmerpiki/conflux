@@ -49,10 +49,17 @@ Current HTTP direction:
 
 Default easy HTTP examples:
 
-- `examples/hello.cxx`
-- `examples/middleware.cxx`
-- `examples/sse.cxx`
-- `examples/static.cxx`
+- `examples/quickstart/hello.cxx`
+- `examples/quickstart/json_crud.cxx`
+- `examples/quickstart/middleware.cxx`
+- `examples/quickstart/static_files.cxx`
+- `examples/quickstart/sse.cxx`
+- `examples/quickstart/websocket.cxx`
+- `examples/quickstart/openapi.cxx`
+- `examples/quickstart/postgres_json.cxx`
+
+Top-level HTTP examples remain public-facing, but `examples/quickstart/` is the
+first-contact path for new users.
 
 Advanced runtime/feature examples:
 
@@ -63,6 +70,7 @@ Advanced runtime/feature examples:
 - `examples/advanced/h3_probe.cxx`
 - `examples/advanced/db_basic.cxx`
 - `examples/advanced/db_pool.cxx`
+- `examples/advanced/postgres.cxx`
 
 ## Default vs Advanced Handler Shapes
 
