@@ -29,7 +29,7 @@ For code-review rules around handler placement and `blocking_`/`sync_`/`async_` 
   raw syscall-style helpers whose `blocking_*` names make thread-blocking cost
   explicit.
 - `http::App` is the preferred first-contact surface and includes core routing
-  ergonomics (`get/post/put/patch/del/options`, context route helpers, `use`,
+  ergonomics (`get/post/put/patch/del/options`, context-aware handlers, `use`,
   `sse`, `ws`, `serve_static`, `group`, `on_not_found`, `on_error`), while
   still exposing `config()` and `router()` for advanced tuning.
 
@@ -97,6 +97,10 @@ int main() {
 
 	app.get("/task", [](http::Request const &) -> http::Task<http::Response> {
 		co_return http::text("task-ok");
+	});
+
+	app.get("/context", [](http::Request const &, http::RequestContext const &) -> http::Task<http::Response> {
+		co_return http::text("context-ok");
 	});
 
 	return http::run(std::move(app), {.port = 9090});

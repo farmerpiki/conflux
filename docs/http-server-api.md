@@ -57,7 +57,7 @@ return static_cast<int>(*status);
 
 ### App facade passthroughs
 
-`http::App` mirrors the router APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods without dropping to `app.router()`, ordinary `app.use(...)` for sync or owned async middleware, and `app.route_infos()` for OpenAPI route metadata. Context-specific registration remains available on the lower-level router for advanced integrations that need `RequestContext`.
+`http::App` mirrors the router APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods without dropping to `app.router()`, ordinary verbs for handlers that need `RequestContext`, ordinary `app.use(...)` for sync or owned async middleware, and `app.route_infos()` for OpenAPI route metadata. Context-specific registration remains available on the lower-level router for advanced integrations that need direct router ownership.
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::Request const& req) {
