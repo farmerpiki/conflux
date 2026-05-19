@@ -106,23 +106,23 @@ default `stealing` semantics but gates victim scans behind a global count of
 worker-local queued jobs. External-only workloads avoid the steal-lock path;
 local-fanout workloads still expose their backlog to victim workers.
 
-A post-gate rerun on `perf-clang-libcxx`, 8 workers, 5 reps, 5000 measured
-iterations showed `no_stealing` ahead on every current microprofile:
+A post-redistribution rerun on `release-clang-libcxx`, 8 workers, 5 reps, 5000
+measured iterations showed the expected split: `no_stealing` wins external or
+independent offload profiles, while default `stealing` is required for skewed
+worker-local backlog redistribution.
 
-| profile | stealing median ns/op | no_stealing median ns/op | no_stealing speedup |
-| --- | ---: | ---: | ---: |
-| `single_thread` | 9618.71 | 5435.55 | 1.77x |
-| `contended` | 788.76 | 403.85 | 1.95x |
-| `external_burst` | 670.42 | 347.92 | 1.93x |
-| `local_fanout` | 1419.90 | 693.22 | 2.05x |
+| profile | stealing median ns/op | no_stealing median ns/op | no_stealing speedup | fairness signal |
+| --- | ---: | ---: | ---: | --- |
+| `single_thread` | 15531.14 | 5602.11 | 2.77x | independent external producer |
+| `contended` | 843.51 | 505.82 | 1.67x | external producers, no steal hits |
+| `external_burst` | 700.98 | 332.28 | 2.11x | external burst, no steal hits |
+| `local_fanout` | 1715.92 | 765.35 | 2.24x | local enqueue overhead dominates this microprofile |
+| `local_backlog_redistribution` | 1553.55 | 5018.07 | 0.31x | stealing used 8 runner threads; no-stealing used 1 |
 
-No default queue-mode change is made from this evidence alone. The current
-post-gate run predates `local_backlog_redistribution`; rerun the wrapper before
-using the post-gate table to justify a default flip. Treat `no_stealing` as the
-throughput-preferred mode for bounded independent offload work, and keep default
-`stealing` for general executor semantics until the redistribution profile shows
-that losing victim stealing does not hurt work conservation under skewed local
-backlog.
+No default queue-mode change is justified. Treat `no_stealing` as an opt-in
+throughput mode for bounded independent offload queues. Keep default `stealing`
+for general executor semantics because it preserves work conservation when one
+worker owns a skewed local backlog.
 
 `admission_mtx_` remains the correctness gate for default stealing mode: it
 prevents `drain_and_stop()` from observing `pending_ == 0` while a racing enqueue

@@ -101,10 +101,22 @@ WHERE p.variant = 'pipeline'
 ORDER BY p.run_id DESC;
 ```
 
-## Evidence status in this environment
+## Host evidence note: 2026-05-18 upload
 
-Not captured here: the available container has libpq headers/libraries but no
-PostgreSQL server or `psql`/`pg_isready` client tools. I verified the script
-syntax, raw-row validation, and JSON summarizer locally; live numbers must be
-produced on a host with PostgreSQL reachable through `PG_TEST_CONNINFO` and
-`PG_CONNINFO`.
+Uploaded artifacts under `db-pipeline/` close the live PostgreSQL validation gap
+for this lane on branch `main` at commit
+`3eeabd3ffc695552cd757a2b3c5bcea764883c50` with preset
+`release-gcc-stdcxx`. Configure and build completed, `conflux_db_integration`
+ran 18 DB-labeled tests, and CTest reported 100% pass.
+
+The repeated pipeline benchmark produced five paired plain/pipeline samples:
+
+| variant | median ns/iter | best ns/iter | samples |
+| --- | ---: | ---: | ---: |
+| `plain` | 211318.38 | 207191.60 | 5 |
+| `pipeline` | 89900.53 | 89167.06 | 5 |
+
+Per-rep paired speedups ranged from 2.30x to 2.40x with median 2.33x. Treat DB
+pipeline support as host-validated for promotion/docs claims on this hardware.
+This evidence does not require a DB runtime change; it upgrades the lane from
+"tooling complete, host run needed" to "host evidence captured."

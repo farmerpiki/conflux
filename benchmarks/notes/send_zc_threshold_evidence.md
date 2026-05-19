@@ -94,13 +94,32 @@ ONLY_BENCH=send_zc BENCH_PRESET=perf-clang-libcxx \
 
 The recorder preserves the same `zc_*` counters in `results.extra` for raw rows.
 
-## Host evidence note: 2026-05-17 upload
+## Host evidence note: 2026-05-18 upload
 
-Uploaded `send_zc_threshold.summary.json` contained 720 rows across
-`threshold_4k`, `threshold_16k`, `threshold_64k`, and their load variants. The
-summary reported zero `zc_attempts` for every `/zc_auto` pair. That includes 36
-non-TLS pairs where parsed body size was at or above the tested threshold, plus
-18 TLS above-threshold pairs. Treat this artifact as an environment/path
-diagnostic only: it does not justify lowering or raising `Config::send_zc_threshold`.
-Re-run after confirming the host exposes `IORING_OP_SEND_ZC` and the new
-`zc_capable_rings` / `zc_enabled_rings` fields are nonzero for candidate rows.
+Uploaded artifacts under `send-zc-threshold/` were captured on branch `main` at
+commit `f85b6739d1c929db61e535c75bf37422013f9ecb` with preset
+`release-clang-libcxx`, thresholds 4 KiB / 16 KiB / 64 KiB, five reps, and
+64-connection load rows. Configure/build completed with OpenSSL 3.5.5 and
+HTTP/3 enabled.
+
+This run still does not justify changing `Config::send_zc_threshold`: every
+threshold rollup reported zero `ok` pairs. Status totals across all 72 off-vs-ZC
+pairs were balanced across `below_threshold`, `mostly_copied`,
+`zc_inactive_candidate`, and `tls_bypass` (18 each).
+
+Important interpretation details:
+
+- Plain-body candidate rows did attempt SEND_ZC, but every candidate notification
+  was copied (`copied_notification_rate = 1.0`), so they are intentionally
+  classified as `mostly_copied`.
+- Static-file rows labelled `mapped` by the benchmark crossed the threshold with
+  `zc_capable_rings = 1` and `zc_enabled_rings = 1`, but recorded zero
+  `mapped_attempts`. On the current server shape, `serve_static` normally selects
+  the async streamed/splice path when a ring-local `FileReader` exists, so these
+  rows are path diagnostics rather than threshold evidence.
+- TLS rows correctly stay on the TLS send path and are classified as `tls_bypass`.
+
+Keep the 16 KiB default. The next useful SEND_ZC branch is not threshold tuning;
+it is either a benchmark naming/coverage cleanup that separates static streamed
+from mmap-backed responses, or a focused investigation into whether a true mmap
+response path still needs live SEND_ZC evidence.

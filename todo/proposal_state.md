@@ -11,11 +11,11 @@ checked against this index before implementation starts.
 
 | Priority | Branch | Source doc | Current decision | Why now / why not |
 |---|---|---|---|---|
-| P1 | `db/pipeline-live-evidence` | `todo/db_remaining.md`, `benchmarks/notes/db_pipeline_live_evidence.md` | Wrapper/summary shape done; run host evidence next. | DB pipeline path still needs real PostgreSQL artifacts before promotion claims. |
-| P1 | `http/send-threshold-bench` | `proposals/t1_a_send_zc_proposal.md`, `todo/parallel_priority_plan.md` | Tooling plus first host summary reviewed; no threshold change. | Uploaded host summary recorded zero SEND_ZC attempts for above-threshold non-TLS rows, so it is an environment/path diagnostic. Re-run after confirming `IORING_OP_SEND_ZC` capability and nonzero `zc_capable_rings` / `zc_enabled_rings`. |
+| DONE | `db/pipeline-live-evidence` | `todo/db_remaining.md`, `benchmarks/notes/db_pipeline_live_evidence.md` | Host PostgreSQL evidence captured: 18 DB integration tests passed and pipeline median speedup was 2.33x over plain. | No DB runtime change needed from this evidence; promotion claims can reference the artifact. |
+| P1 | `http/send-threshold-bench` | `proposals/t1_a_send_zc_proposal.md`, `todo/parallel_priority_plan.md` | Capable-host summary reviewed; no threshold change. | Plain SEND_ZC candidates were all copied, TLS correctly bypassed, and static-file rows labelled `mapped` did not hit mapped SEND_ZC attempts. Next work is benchmark/path coverage cleanup, not default tuning. |
 | P2 | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Parser/arena extraction landed; continue builder/dump/stream cold-body extraction. | Primary `src/json.cxx` now keeps parser declarations while parser state machines live in `src/json_parse.cxx`; remaining work is source-shape cleanup plus compile-time evidence on a capable modules toolchain. |
 | P2 | `template/compiled-cache-reload` | `proposals/template_compiled_cache_proposal.md` | Implement compiled reusable templates, structured compile/link diagnostics, eager full-cache publication, optional render-check preflight, explicit reload, parsed-context render overloads, and opt-in watcher adapter semantics. | Current file templates cache parsed nodes, but warm render still reparses expression/filter/macro strings and watcher reload mutates individual entries; compiled values plus diagnostic checked reload and atomic full-cache publication better match the project perf/ergonomics direction. |
-| P2 | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Tooling done; run evidence before changing locks. | Queue/lock probes and a one-command evidence wrapper exist; Chase-Lev/admission rewrites remain unproven until host artifacts show contention. |
+| DONE | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Host evidence captured; no queue default or lock rewrite. | `no_stealing` is useful for bounded independent offload, but default `stealing` preserves work conservation on local-backlog redistribution. |
 
 ## Historical / implemented proposals
 
@@ -48,8 +48,8 @@ checked against this index before implementation starts.
    immediate branch fan-out.
 3. **Remaining module-split work is worthwhile but not blocker-class.**
    `json/impl-unit-split` improves ergonomics/build locality, but it should not
-   preempt SEND_ZC threshold evidence, DB host pipeline evidence, benchmark-budget
-   threshold tuning from real artifacts, or recv/server correctness verification.
+   preempt SEND_ZC path-coverage cleanup, benchmark-budget threshold tuning from
+   real artifacts, or recv/server correctness verification.
    The `file_io` and `http_server_impl` source-shape splits are already landed.
 4. **Perf changes still need evidence.** SEND_ZC thresholds, IOPOLL static-path
    adoption, worker queue lock replacement, and ring layout padding must remain
