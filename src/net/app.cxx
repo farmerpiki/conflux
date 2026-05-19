@@ -523,6 +523,12 @@ template<typename Fn>
 struct AppRunOptions {
 	std::uint16_t port = kConfigDefaultPort;
 };
+#if CONFLUX_HAS_JSON
+struct AppJsonOptions {
+	conflux::json::boundary::DecodeOptions decode{};
+	std::size_t max_body_size{};
+};
+#endif
 class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 
@@ -583,7 +589,12 @@ public:
 		Config cfg = Config::public_server())
 		: cfg_(std::move(cfg))
 		, router_(cfg_)
-		, states_(std::make_shared<StateMap>()) {}
+		, states_(std::make_shared<StateMap>())
+#if CONFLUX_HAS_JSON
+		, json_options_(std::make_shared<AppJsonOptions>())
+#endif
+	{
+	}
 	template<typename F>
 	App &add(
 		std::string_view method,
@@ -662,20 +673,26 @@ public:
 		return post(Path.view(), std::forward<F>(handler), loc);
 	}
 #if CONFLUX_HAS_JSON
+	App &json_options(
+		AppJsonOptions opts) {
+		*json_options_ = opts;
+		return *this;
+	}
+
 	template<class Body, typename F>
 	RouteRef post_body(
 		std::string_view path,
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return add_json_body<Body>("POST", path, std::forward<F>(handler), decode_opts, loc);
+		return add_json_body<Body>("POST", path, std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 	template<FixedString Path, class Body, typename F>
 	RouteRef post_body(
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return post_body<Body>(Path.view(), std::forward<F>(handler), decode_opts, loc);
+		return post_body<Body>(Path.view(), std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 #endif
 	template<typename F>
@@ -696,16 +713,16 @@ public:
 	RouteRef put_body(
 		std::string_view path,
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return add_json_body<Body>("PUT", path, std::forward<F>(handler), decode_opts, loc);
+		return add_json_body<Body>("PUT", path, std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 	template<FixedString Path, class Body, typename F>
 	RouteRef put_body(
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return put_body<Body>(Path.view(), std::forward<F>(handler), decode_opts, loc);
+		return put_body<Body>(Path.view(), std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 #endif
 	template<typename F>
@@ -726,16 +743,16 @@ public:
 	RouteRef patch_body(
 		std::string_view path,
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return add_json_body<Body>("PATCH", path, std::forward<F>(handler), decode_opts, loc);
+		return add_json_body<Body>("PATCH", path, std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 	template<FixedString Path, class Body, typename F>
 	RouteRef patch_body(
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts = {},
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts = std::nullopt,
 		std::source_location loc = std::source_location::current()) {
-		return patch_body<Body>(Path.view(), std::forward<F>(handler), decode_opts, loc);
+		return patch_body<Body>(Path.view(), std::forward<F>(handler), std::move(decode_opts), loc);
 	}
 #endif
 	template<typename F>
@@ -1603,18 +1620,22 @@ public:
 		std::string_view method,
 		std::string_view path,
 		F &&handler,
-		conflux::json::boundary::DecodeOptions decode_opts,
+		std::optional<conflux::json::boundary::DecodeOptions> decode_opts,
 		std::source_location loc) {
 		using BodyValue = std::remove_cvref_t<Body>;
 		using Fn = std::decay_t<F>;
 		using Args = typename detail::CallableArgs<Fn>::type;
 		record_route_metadata<Args>(method, path, "json_body", loc);
 		auto max_body_size = route_metadata_.back().max_body_size;
+		auto json_options = json_options_;
 		router_.add(
 			method,
 			path,
-			[states = states_, fn = Fn(std::forward<F>(handler)), decode_opts, max_body_size](
-				RequestView const &req) mutable -> HttpResponse {
+			[states = states_,
+			 fn = Fn(std::forward<F>(handler)),
+			 decode_opts = std::move(decode_opts),
+			 max_body_size,
+			 json_options](RequestView const &req) mutable -> HttpResponse {
 				auto content_type = req.header("content-type");
 				if (!content_type.starts_with("application/json")
 					&& !content_type.starts_with("application/problem+json")) {
@@ -1623,11 +1644,14 @@ public:
 						kHttpBadRequest,
 						"Bad Request");
 				}
-				if (*max_body_size != 0 && req.body.size() > *max_body_size) {
+				auto const limit = *max_body_size != 0 ? *max_body_size : json_options->max_body_size;
+				if (limit != 0 && req.body.size() > limit) {
 					return HttpResponse::content_too_large();
 				}
-				auto decoded =
-					conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(req.body, decode_opts);
+				auto const &effective_decode_opts = decode_opts ? *decode_opts : json_options->decode;
+				auto decoded = conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(
+					req.body,
+					effective_decode_opts);
 				if (!decoded) {
 					return HttpResponse::json(R"({"error":"json decode failed"})", kHttpBadRequest, "Bad Request");
 				}
@@ -1676,6 +1700,9 @@ private:
 	Router router_;
 	std::shared_ptr<StateMap> states_;
 	std::vector<AppRouteMetadata> route_metadata_;
+#if CONFLUX_HAS_JSON
+	std::shared_ptr<AppJsonOptions> json_options_;
+#endif
 };
 
 [[nodiscard]] App app(

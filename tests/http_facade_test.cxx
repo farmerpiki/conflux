@@ -561,6 +561,31 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JSON app options provide default decode options and body limit",
+	"[http.facade]") {
+	auto app = http::app();
+	app.json_options(
+		http::AppJsonOptions{
+			.decode = {.unknown_members = conflux::json::boundary::UnknownMemberPolicy::ignore},
+			.max_body_size = 64});
+	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/json";
+	req.headers["content-type"] = "application/json";
+	req.body = R"({"value":"ok","ignored":true})";
+
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == R"({"value":"ok"})");
+
+	req.body = R"({"value":"this body is deliberately longer than the configured route default limit"})";
+	auto too_large = app.router().dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive body extractors",
 	"[http.facade]") {
 	auto app = http::app();
