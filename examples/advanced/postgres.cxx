@@ -1,9 +1,12 @@
-// PostgreSQL quickstart.
+// Advanced PostgreSQL runtime example.
+//
+// This intentionally uses lower-level DB/file APIs so the DB runtime setup is
+// visible. Quickstart HTTP examples stay on the curated conflux.http facade.
 //
 // Build and run:
-//   cmake --build build/release-clang-libcxx --target conflux_quickstart_postgres
+//   cmake --build build/release-clang-libcxx --target conflux_advanced_postgres
 //   PG_CONNINFO='postgresql:///postgres?user=postgres' \
-//     build/release-clang-libcxx/conflux_quickstart_postgres
+//     build/release-clang-libcxx/conflux_advanced_postgres
 #include <liburing.h>
 
 import std;

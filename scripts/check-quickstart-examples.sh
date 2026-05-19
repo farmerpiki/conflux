@@ -8,6 +8,11 @@ if grep -R -n -E 'conflux\.types|HttpRequest|HttpResponse|WorkPool|TaskSource|st
 	exit 1
 fi
 
+if grep -R -n -E '^import conflux\.' "$root" | grep -v -E ':import conflux\.http;$'; then
+	printf 'quickstart examples must import only conflux.http from conflux modules\n' >&2
+	exit 1
+fi
+
 count_non_comment_lines() {
 	awk 'NF && $1 !~ /^\/\// { count++ } END { print count + 0 }' "$1"
 }

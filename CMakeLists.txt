@@ -2300,12 +2300,6 @@ if(CONFLUX_BUILD_EXAMPLES)
         target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
     endif()
 
-    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-        add_executable(conflux_quickstart_postgres examples/quickstart/postgres.cxx)
-        target_link_libraries(conflux_quickstart_postgres
-            PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
-    endif()
-
     # Easy HTTP examples (first-contact / v1-facing)
     add_executable(conflux_hello examples/hello.cxx)
     target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
@@ -2392,6 +2386,10 @@ if(CONFLUX_BUILD_EXAMPLES)
 
         add_executable(conflux_db_pool examples/advanced/db_pool.cxx)
         target_link_libraries(conflux_db_pool
+            PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
+
+        add_executable(conflux_advanced_postgres examples/advanced/postgres.cxx)
+        target_link_libraries(conflux_advanced_postgres
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
@@ -2821,7 +2819,6 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_quickstart_json_crud
         conflux_quickstart_middleware
         conflux_quickstart_openapi
-        conflux_quickstart_postgres
         conflux_quickstart_sse
         conflux_quickstart_static_files
         conflux_quickstart_websocket
@@ -2848,6 +2845,7 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_h3_server
         conflux_db_basic
         conflux_db_pool
+        conflux_advanced_postgres
         conflux_json_example
         conflux_json_config_example
         conflux_json_stream_ingest_example
