@@ -566,6 +566,11 @@ Precompressed serving: if `Accept-Encoding: gzip` is present and `file.gz` exist
 
 `allow_put` / `allow_delete` enable write operations on the served directory. Off by default.
 
+`StreamedFile::on_complete(callback)` lets middleware observe streamed static
+body completion where the response carries a `StreamedFile`. The callback runs
+once with `StreamedFileResult::completed` after the file body is delivered, or
+`StreamedFileResult::failed` if the stream is abandoned or the send path fails.
+
 ---
 
 ## Middleware

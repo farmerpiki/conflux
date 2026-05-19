@@ -880,12 +880,12 @@ conflux::work::root::Task<void> do_serve_static_file(
 	conflux::work::root::Task<FileHandle> open_task) {
 	try {
 		auto fh = co_await std::move(open_task);
-		base.set_streamed_file(
-			std::make_shared<StreamedFile>(StreamedFile{
-				.handle = std::make_shared<FileHandle>(std::move(fh)),
-				.send_offset = send_off,
-				.send_size = send_sz,
-				.total_size = total_size}));
+		auto streamed = std::make_shared<StreamedFile>();
+		streamed->handle = std::make_shared<FileHandle>(std::move(fh));
+		streamed->send_offset = send_off;
+		streamed->send_size = send_sz;
+		streamed->total_size = total_size;
+		base.set_streamed_file(std::move(streamed));
 		dr->complete(std::move(base));
 	} catch (...) { dr->complete(HttpResponse::not_found("async open failed")); }
 }

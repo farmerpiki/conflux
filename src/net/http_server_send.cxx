@@ -233,6 +233,9 @@ void Ring::on_streamed_tls_chunk_done(
 	auto &conn = fd_table[ufd];
 	conn.streamed_splice_in_flight = false;
 	if (err || conn.ssl == nullptr || !conn.streamed_file) {
+		if (conn.streamed_file) {
+			conn.streamed_file->notify_failed();
+		}
 		conn.streamed_file.reset();
 		queue_close(fd);
 		return;
@@ -240,6 +243,7 @@ void Ring::on_streamed_tls_chunk_done(
 	if (bytes == 0) {
 		// EOF earlier than std::expected — treat as done; trailing bytes won't
 		// be invented.
+		conn.streamed_file->notify_failed();
 		conn.streamed_file.reset();
 		queue_close(fd);
 		return;
@@ -247,6 +251,7 @@ void Ring::on_streamed_tls_chunk_done(
 	auto view = buf.view().subspan(0, bytes);
 	auto const w = SSL_write(conn.ssl.get(), view.data(), static_cast<int>(view.size()));
 	if (w <= 0) {
+		conn.streamed_file->notify_failed();
 		conn.streamed_file.reset();
 		queue_close(fd);
 		return;
@@ -298,6 +303,9 @@ void Ring::on_streamed_splice_done(
 	auto &conn = fd_table[ufd];
 	conn.streamed_splice_in_flight = false;
 	if (err || !conn.streamed_file) {
+		if (conn.streamed_file) {
+			conn.streamed_file->notify_failed();
+		}
 		conn.streamed_file.reset();
 		queue_close(fd);
 		return;
@@ -311,6 +319,7 @@ void Ring::on_streamed_splice_done(
 	// Fully streamed — release handle (ring will close via close_async
 	// on drop; FileHandle from_fd path closes synchronously, acceptable
 	// since data is already delivered).
+	conn.streamed_file->notify_complete();
 	conn.streamed_file.reset();
 	conn.written = 0;
 	conn.send_queued = false;
@@ -655,6 +664,7 @@ void Ring::fail_send(
 		conn.mapped_file.reset();
 	}
 	if (conn.streamed_file) {
+		conn.streamed_file->notify_failed();
 		conn.streamed_file.reset();
 	}
 	queue_close(fd);

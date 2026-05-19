@@ -235,6 +235,7 @@ void Ring::handle_send_tls_complete(
 				}
 				return;
 			}
+			conn.streamed_file->notify_complete();
 			conn.streamed_file.reset();
 			conn.streamed_headers_sent = false;
 			conn.streamed_delivered = 0;

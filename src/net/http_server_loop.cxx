@@ -369,6 +369,13 @@ void Ring::conn_erase(
 	conn.mapped_file.reset();
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
+	if (conn.streamed_file) {
+		conn.streamed_file->notify_failed();
+	}
+	conn.streamed_file.reset();
+	conn.streamed_headers_sent = false;
+	conn.streamed_delivered = 0;
+	conn.streamed_splice_in_flight = false;
 	conn.zc_state.waiting_notification = false;
 	conn.zc_state.after_notification = SendZcPendingAction::none;
 	conn.zc_state.close_after_notification = false;

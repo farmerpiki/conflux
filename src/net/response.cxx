@@ -32,6 +32,11 @@ import conflux.net.http.realtime;
 }
 
 export class DeferredResponse; // defined after HttpResponse
+export enum class StreamedFileResult : std::uint8_t {
+	completed,
+	failed,
+};
+
 // Carrier for a file about to be streamed through io_uring (splice on plain,
 // fixed-buffer read on TLS). Owns a FileHandle — send dispatch consumes it and
 // issues a close_async on the owning ring when the stream finishes.
@@ -41,6 +46,50 @@ export struct StreamedFile {
 	std::uint64_t send_size{};
 	// total file size — needed for Content-Range and range-validation paths.
 	std::uint64_t total_size{};
+
+	void on_complete(
+		std::function<void(StreamedFileResult)> callback) {
+		auto result = StreamedFileResult::failed;
+		{
+			std::scoped_lock const lk{mtx_};
+			if (!completed_) {
+				callbacks_.push_back(std::move(callback));
+				return;
+			}
+			result = result_;
+		}
+		try {
+			callback(result);
+		} catch (...) {}
+	}
+
+	void notify_complete() { notify(StreamedFileResult::completed); }
+
+	void notify_failed() { notify(StreamedFileResult::failed); }
+
+	void notify(
+		StreamedFileResult result) {
+		std::vector<std::function<void(StreamedFileResult)>> callbacks;
+		{
+			std::scoped_lock const lk{mtx_};
+			if (completed_) {
+				return;
+			}
+			completed_ = true;
+			result_ = result;
+			callbacks = std::move(callbacks_);
+		}
+		for (auto &callback: callbacks) {
+			try {
+				callback(result);
+			} catch (...) {}
+		}
+	}
+
+	std::mutex mtx_;
+	bool completed_{};
+	StreamedFileResult result_{StreamedFileResult::failed};
+	std::vector<std::function<void(StreamedFileResult)>> callbacks_;
 };
 
 export struct HttpResponse {

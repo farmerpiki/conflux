@@ -285,6 +285,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http response: streamed file completion callbacks run once",
+	"[http][response]") {
+	auto streamed = std::make_shared<StreamedFile>();
+	std::vector<StreamedFileResult> observed;
+	streamed->on_complete([&](StreamedFileResult result) { observed.push_back(result); });
+
+	streamed->notify_complete();
+	streamed->notify_failed();
+	streamed->on_complete([&](StreamedFileResult result) { observed.push_back(result); });
+
+	REQUIRE(observed.size() == 2);
+	CHECK(observed[0] == StreamedFileResult::completed);
+	CHECK(observed[1] == StreamedFileResult::completed);
+}
+
+TEST_CASE(
 	"http response: DeferredResponse complete wakes eventfd once and stores first response",
 	"[http.response]") {
 	DeferredResponse deferred{std::chrono::milliseconds{10000}};
