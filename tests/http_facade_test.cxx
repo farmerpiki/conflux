@@ -843,6 +843,11 @@ TEST_CASE(
 	CHECK(routes[0].path == "/compile-time/{id}");
 	REQUIRE(routes[0].extractors.size() == 1);
 	CHECK(routes[0].extractors[0] == "Path<id>");
+	CHECK(
+		routes[0].path_param_types
+		== std::map<std::string, std::string>{
+			{"id", ""}
+    });
 	CHECK(app.validate().ok());
 }
 
@@ -853,6 +858,14 @@ TEST_CASE(
 	app.get<"/typed/{id:u64}">(
 		[](http::Path<"id", std::uint64_t> id) { return http::text(std::format("{}", id.get())); });
 
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path_params == std::vector<std::string>{"id"});
+	CHECK(
+		routes[0].path_param_types
+		== std::map<std::string, std::string>{
+			{"id", "u64"}
+    });
 	CHECK(app.validate().ok());
 
 	HttpRequest req;

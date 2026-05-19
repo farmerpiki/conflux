@@ -599,6 +599,7 @@ public:
 					.source_line = route.source_line,
 					.extractors = route.extractors,
 					.path_params = route.path_params,
+					.path_param_types = route.path_param_types,
 					.required_state_count = route.required_states.size(),
 					.consumes = route.consumes,
 					.produces = route.produces,
