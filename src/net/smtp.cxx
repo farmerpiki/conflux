@@ -16,7 +16,9 @@ import conflux.utils;
 import conflux.net.dns;
 import conflux.work;
 export struct SmtpError : std::runtime_error {
-	using std::runtime_error::runtime_error;
+	explicit SmtpError(
+		std::string const &msg)
+		: std::runtime_error{msg} {}
 };
 export struct SmtpReply {
 	int code{0};

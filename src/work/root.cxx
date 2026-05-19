@@ -65,7 +65,7 @@ enum class join_state : std::uint8_t {
 };
 class WorkError : public std::runtime_error {
 public:
-	using std::runtime_error::runtime_error;
+	explicit WorkError(std::string const &msg) : std::runtime_error{msg} {}
 };
 struct TaskAllocationStats {
 	std::uint64_t control_block_allocations = 0;

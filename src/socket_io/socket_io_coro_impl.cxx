@@ -31,21 +31,6 @@ import conflux.socket_io;
 import conflux.work;
 
 namespace wroot = conflux::work::root;
-using std::atomic;
-using std::atomic_bool;
-using std::current_exception;
-using std::make_exception_ptr;
-using std::make_shared;
-using std::memory_order_acq_rel;
-using std::memory_order_acquire;
-using std::memory_order_release;
-using std::memory_order_relaxed;
-using std::move;
-using std::span;
-using std::weak_ptr;
-template<class T>
-using WP = weak_ptr<T>;
-
 template<class T>
 [[nodiscard]] std::pair<wroot::Task<T>, std::shared_ptr<wroot::TaskSource<T>>> make_shared_task_source(
 	wroot::SubmitOptions opts) {
@@ -83,14 +68,14 @@ struct IoTimeoutState {
 };
 using RecvTimeoutState = IoTimeoutState;
 struct CloseState {
-	atomic_bool cancel_requested{false};
+	std::atomic_bool cancel_requested{false};
 };
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState {
 	SocketTaskRing *ring{};
 	OwnedSocketHandle handle{};
-	atomic_bool closing{false};
+	std::atomic_bool closing{false};
 	TcpStreamState(
 		SocketTaskRing *r,
 		OwnedSocketHandle h) noexcept
@@ -566,9 +551,9 @@ struct ConnectOp {
 	std::uint64_t socket_ud{};
 	std::uint64_t connect_ud{};
 
-	atomic_bool cancel_requested{false};
-	atomic<StopCause> stop_cause{StopCause::none};
-	atomic_bool finalized{false};
+	std::atomic_bool cancel_requested{false};
+	std::atomic<StopCause> stop_cause{StopCause::none};
+	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
@@ -760,7 +745,7 @@ struct ConnectOp {
 		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
 
-	auto _ = src->install_cancel_hook([weak_op = WP<ConnectOp>{op}](wroot::CancelReason cr) noexcept {
+	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<ConnectOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
 			sop->request_cancel(cr, sop);
 		}
@@ -776,8 +761,8 @@ struct AcceptOp {
 	AcceptOptions opts{};
 	int accept_flags{SOCK_CLOEXEC | SOCK_NONBLOCK};
 	std::uint64_t accept_ud{};
-	atomic_bool cancel_requested{false};
-	atomic_bool finalized{false};
+	std::atomic_bool cancel_requested{false};
+	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
@@ -888,7 +873,7 @@ struct AcceptOp {
 		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
 
-	auto _ = src->install_cancel_hook([weak_op = WP<AcceptOp>{op}](wroot::CancelReason cr) noexcept {
+	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<AcceptOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
 			sop->request_cancel(cr, sop);
 		}
@@ -906,8 +891,8 @@ struct MultishotAcceptOp {
 	SocketHandle listen_fd{};
 	std::uint64_t accept_ud{};
 	std::function<wroot::Task<void>(TcpStream)> handler{};
-	atomic_bool cancel_requested{false};
-	atomic_bool finalized{false};
+	std::atomic_bool cancel_requested{false};
+	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, memory_order_acq_rel); }
 	void complete_exception(
 		IoError e) noexcept {
@@ -1074,7 +1059,7 @@ struct MultishotAcceptOp {
 		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
 
-	auto _ = src->install_cancel_hook([weak_op = WP<MultishotAcceptOp>{op}](wroot::CancelReason cr) noexcept {
+	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<MultishotAcceptOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
 			sop->request_cancel(cr, sop);
 		}

@@ -8,10 +8,6 @@ module;
 
 module conflux.net.cancel;
 
-using std::memory_order_acquire;
-using std::memory_order_release;
-using std::move;
-
 namespace {
 
 struct ActiveTaskCancelRelayState {
@@ -54,8 +50,8 @@ void ActiveTaskCancelRelay::set_active(wroot::TaskControl c) {
 	std::optional<wroot::TaskControl> to_cancel;
 	{
 		std::lock_guard lk{st->m};
-		st->active.emplace(move(c));
-		if (st->cancelled.load(memory_order_acquire)) {
+		st->active.emplace(std::move(c));
+		if (st->cancelled.load(std::memory_order_acquire)) {
 			to_cancel = st->active;
 		}
 	}
@@ -84,7 +80,7 @@ void ActiveTaskCancelRelay::cancel() noexcept {
 		}
 		{
 			std::lock_guard lk{st->m};
-			st->cancelled.store(true, memory_order_release);
+			st->cancelled.store(true, std::memory_order_release);
 			to_cancel = st->active;
 		}
 	} catch (...) {
@@ -97,7 +93,7 @@ void ActiveTaskCancelRelay::cancel() noexcept {
 
 [[nodiscard]] bool ActiveTaskCancelRelay::is_cancelled() const noexcept {
 	auto const *st = relay_state(state_);
-	return st == nullptr || st->cancelled.load(memory_order_acquire);
+	return st == nullptr || st->cancelled.load(std::memory_order_acquire);
 }
 
 void ActiveTaskCancelRelay::throw_if_cancelled() const {
@@ -109,7 +105,7 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 [[nodiscard]] wroot::Task<decltype(sizeof(0))> ActiveTaskCancelRelay::await_child(wroot::Task<decltype(sizeof(0))> child) {
 	set_active(child.control());
 	try {
-		auto out = co_await move(child);
+		auto out = co_await std::move(child);
 		clear_active();
 		throw_if_cancelled();
 		co_return out;
@@ -122,7 +118,7 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 [[nodiscard]] wroot::Task<void> ActiveTaskCancelRelay::await_child(wroot::Task<void> child) {
 	set_active(child.control());
 	try {
-		co_await move(child);
+		co_await std::move(child);
 		clear_active();
 		throw_if_cancelled();
 		co_return;

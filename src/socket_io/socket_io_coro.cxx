@@ -35,19 +35,6 @@ import conflux.socket_io;
 import conflux.work;
 
 namespace wroot = conflux::work::root;
-using std::atomic;
-using std::atomic_bool;
-using std::current_exception;
-using std::make_exception_ptr;
-using std::make_shared;
-using std::memory_order_acq_rel;
-using std::memory_order_acquire;
-using std::memory_order_release;
-using std::move;
-using std::span;
-using std::weak_ptr;
-template<class T>
-using WP = weak_ptr<T>;
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Buffer lifetime contract for Task methods:

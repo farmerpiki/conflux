@@ -8,7 +8,6 @@ import conflux.types;
 import std;
 
 using namespace conflux::json;
-using std::string, std::optional;
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
@@ -18,18 +17,18 @@ struct Point {
 	int y{0};
 };
 struct Config {
-	[[= conflux::json::name("host_name")]] string host;
+	[[= conflux::json::name("host_name")]] std::string host;
 	int port{0};
 	bool tls{false};
-	optional<string> label{};
+	std::optional<std::string> label{};
 };
 struct WithSkip {
-	string name;
+	std::string name;
 	[[= conflux::json::skip{}]] int internal_id{99};
 	int value{0};
 };
 struct Nested {
-	string id;
+	std::string id;
 	Point origin{};
 };
 // ---------------------------------------------------------------------------
@@ -132,8 +131,8 @@ void test_boundary_reflect_provider_dump() {
 	static_assert(conflux::json::boundary::JsonDumpProvider<Provider, Point>);
 	auto body = conflux::json::boundary::dump_with<Provider>(Point{9, 10});
 	REQUIRE(body.has_value());
-	CHECK(body->find(R"("x":9)") != string::npos);
-	CHECK(body->find(R"("y":10)") != string::npos);
+	CHECK(body->find(R"("x":9)") != std::string::npos);
+	CHECK(body->find(R"("y":10)") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Encode tests
@@ -144,7 +143,7 @@ void test_encode_plain_aggregate() {
 	ValueBuilder vb;
 	auto res = JsonCodec<Point>::encode(vb, p);
 	REQUIRE(res.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
 	auto x = *obj.find_member("x");
 	auto y = *obj.find_member("y");
@@ -156,7 +155,7 @@ void test_encode_with_name_annotation() {
 	ValueBuilder vb;
 	auto res = JsonCodec<Config>::encode(vb, cfg);
 	REQUIRE(res.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
 	REQUIRE(obj.find_member("host_name").has_value());
 	CHECK(*obj.find_member("host_name")->as_string() == "srv");
@@ -167,7 +166,7 @@ void test_encode_skip_field_absent() {
 	ValueBuilder vb;
 	auto res = JsonCodec<WithSkip>::encode(vb, w);
 	REQUIRE(res.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
 	CHECK(obj.find_member("name").has_value());
 	CHECK(obj.find_member("value").has_value());
@@ -181,11 +180,11 @@ void test_encode_nested_aggregate() {
 	ValueBuilder vb;
 	auto res = JsonCodec<Nested>::encode(vb, n);
 	REQUIRE(res.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto s = *doc.dump();
-	CHECK(s.find("\"origin\"") != string::npos);
-	CHECK(s.find("\"x\"") != string::npos);
-	CHECK(s.find("\"y\"") != string::npos);
+	CHECK(s.find("\"origin\"") != std::string::npos);
+	CHECK(s.find("\"x\"") != std::string::npos);
+	CHECK(s.find("\"y\"") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Round-trip tests
@@ -196,7 +195,7 @@ void test_roundtrip_point() {
 	ValueBuilder vb;
 	auto enc = JsonCodec<Point>::encode(vb, orig);
 	REQUIRE(enc.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto rt = decode<Point>(doc);
 	REQUIRE(rt.has_value());
 	CHECK(rt->x == orig.x);
@@ -207,7 +206,7 @@ void test_roundtrip_config() {
 	ValueBuilder vb;
 	auto enc = JsonCodec<Config>::encode(vb, orig);
 	REQUIRE(enc.has_value());
-	auto doc = *move(vb).finish();
+	auto doc = *std::move(vb).finish();
 	auto rt = decode<Config>(doc);
 	REQUIRE(rt.has_value());
 	CHECK(rt->host == orig.host);

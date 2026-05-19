@@ -15,7 +15,9 @@ import conflux.socket_io.coro;
 import conflux.net.cancel;
 namespace wroot = conflux::work::root;
 export struct TlsError : std::runtime_error {
-	using std::runtime_error::runtime_error;
+	explicit TlsError(
+		std::string const &msg)
+		: std::runtime_error{msg} {}
 };
 export struct SslCtxDeleter {
 	void operator ()(
