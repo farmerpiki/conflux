@@ -12,6 +12,7 @@ import conflux.net.router;
 import conflux.net.http_server;
 import conflux.crypto;
 #if CONFLUX_HAS_JSON
+import conflux.json;
 import conflux.net.http.native_json;
 #endif
 import conflux.work;
@@ -163,6 +164,18 @@ struct OwnedBodyBytes {
 	[[nodiscard]] std::string const &get() const noexcept { return value; }
 	[[nodiscard]] std::string const &operator *() const noexcept { return value; }
 };
+
+#if CONFLUX_HAS_JSON
+struct JsonDocument {
+	using value_type = Document;
+
+	value_type value;
+
+	[[nodiscard]] value_type const &get() const noexcept { return value; }
+	[[nodiscard]] value_type const &operator *() const noexcept { return value; }
+	[[nodiscard]] value_type const *operator ->() const noexcept { return std::addressof(value); }
+};
+#endif
 
 struct Multipart {
 	HttpFieldsView form;
@@ -492,6 +505,11 @@ concept BodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, BodyBytes>;
 template<class Arg>
 concept OwnedBodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, OwnedBodyBytes>;
 
+#if CONFLUX_HAS_JSON
+template<class Arg>
+concept JsonDocumentArg = std::same_as<std::remove_cvref_t<Arg>, JsonDocument>;
+#endif
+
 template<class Arg>
 concept MultipartArg = std::same_as<std::remove_cvref_t<Arg>, Multipart>;
 
@@ -548,6 +566,9 @@ consteval bool has_state_arg_impl(
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
+#if CONFLUX_HAS_JSON
+			|| JsonDocumentArg<std::tuple_element_t<Is, Args>>
+#endif
 			|| MultipartArg<std::tuple_element_t<Is, Args>>
 			|| RequestIdArg<std::tuple_element_t<Is, Args>>
 			|| ConnectionInfoArg<std::tuple_element_t<Is, Args>>
@@ -1676,6 +1697,10 @@ public:
 			return "BodyBytes";
 		} else if constexpr (detail::OwnedBodyBytesArg<Clean>) {
 			return "OwnedBodyBytes";
+#if CONFLUX_HAS_JSON
+		} else if constexpr (detail::JsonDocumentArg<Clean>) {
+			return "JsonDocument";
+#endif
 		} else if constexpr (detail::MultipartArg<Clean>) {
 			return "Multipart";
 		} else if constexpr (detail::RequestIdArg<Clean>) {
@@ -1770,6 +1795,9 @@ public:
 			|| (detail::BodyTextArg<std::tuple_element_t<Is, Args>>
 				|| detail::BodyBytesArg<std::tuple_element_t<Is, Args>>
 				|| detail::OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
+#if CONFLUX_HAS_JSON
+				|| detail::JsonDocumentArg<std::tuple_element_t<Is, Args>>
+#endif
 				|| detail::MultipartArg<std::tuple_element_t<Is, Args>>
 				|| detail::JsonArg<std::tuple_element_t<Is, Args>>));
 	}
@@ -1858,6 +1886,11 @@ public:
 		meta.path_param_types = collect_path_param_types(path);
 		append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.uses_body = has_body_extractor<Args>() || handler_kind == "json_body";
+		if constexpr (has_body_extractor<Args>()) {
+			if (std::ranges::contains(meta.extractors, "JsonDocument")) {
+				meta.consumes = {"application/json", "application/problem+json"};
+			}
+		}
 		route_metadata_.push_back(std::move(meta));
 	}
 
@@ -1978,6 +2011,13 @@ public:
 		}
 		body += "}";
 		return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	}
+
+	[[nodiscard]] static HttpResponse unsupported_json_content_type_problem() {
+		return HttpResponse::json(
+			R"({"error":"unsupported content type","expected":"application/json"})",
+			kHttpBadRequest,
+			"Bad Request");
 	}
 #endif
 
@@ -2103,6 +2143,19 @@ public:
 			return BodyBytes{.value = req.body};
 		} else if constexpr (detail::OwnedBodyBytesArg<Clean>) {
 			return OwnedBodyBytes{.value = std::string{req.body}};
+#if CONFLUX_HAS_JSON
+		} else if constexpr (detail::JsonDocumentArg<Clean>) {
+			auto content_type = req.header("content-type");
+			if (!content_type.starts_with("application/json")
+				&& !content_type.starts_with("application/problem+json")) {
+				throw ExtractorFailure{unsupported_json_content_type_problem()};
+			}
+			auto parsed = json::DefaultJsonProvider::parse_json_document(req.body, {.copy_input = false});
+			if (!parsed) {
+				throw ExtractorFailure{json_decode_problem(parsed.error())};
+			}
+			return JsonDocument{.value = std::move(*parsed)};
+#endif
 		} else if constexpr (detail::MultipartArg<Clean>) {
 			return Multipart{.form = req.form, .files = req.files};
 		} else if constexpr (detail::RequestIdArg<Clean>) {
@@ -2130,7 +2183,7 @@ public:
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
-				"http::BodyText, "
+				"http::BodyText, http::JsonDocument, "
 				"http::BodyBytes, http::OwnedBodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, "
 				"http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");

@@ -872,6 +872,41 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JSON document extractor parses request body",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/json-doc", [](http::JsonDocument doc) {
+		auto dumped = doc->dump();
+		REQUIRE(dumped.has_value());
+		return http::text(*dumped);
+	});
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/json-doc";
+	req.body = R"({"value":"ok"})";
+
+	auto missing = app.router().dispatch(req);
+	CHECK(missing.status == kHttpBadRequest);
+	CHECK(missing.text_body().find("unsupported content type") != std::string_view::npos);
+
+	req.headers["content-type"] = "application/json";
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == R"({"value":"ok"})");
+
+	req.body = R"({"value":)";
+	auto malformed = app.router().dispatch(req);
+	CHECK(malformed.status == kHttpBadRequest);
+	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"JsonDocument"});
+	CHECK(routes[0].consumes == std::vector<std::string>{"application/json", "application/problem+json"});
+}
+
+TEST_CASE(
 	"http facade: JSON body routes enforce route-local body limits",
 	"[http.facade]") {
 	auto app = http::app();
