@@ -2066,6 +2066,7 @@ target_sources(conflux_net_http
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
+            src/net/http_facade_problem.cxx
             src/net/http_facade.cxx
             src/net/http_server_umbrella.cxx
             src/net/http.cxx
