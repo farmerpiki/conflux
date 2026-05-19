@@ -1791,6 +1791,89 @@ public:
 		return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
 	}
 
+#if CONFLUX_HAS_JSON
+	[[nodiscard]] static std::string json_escape(
+		std::string_view value) {
+		std::string out;
+		out.reserve(value.size());
+		for (char ch: value) {
+			switch (ch) {
+			case '"' : out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default  : out += ch; break;
+			}
+		}
+		return out;
+	}
+
+	[[nodiscard]] static std::string_view json_error_stage_name(
+		conflux::json::boundary::ErrorStage stage) noexcept {
+		using enum conflux::json::boundary::ErrorStage;
+		switch (stage) {
+		case parse   : return "parse";
+		case lookup  : return "lookup";
+		case decode  : return "decode";
+		case build   : return "build";
+		case dump    : return "dump";
+		case provider: return "provider";
+		}
+		return "provider";
+	}
+
+	[[nodiscard]] static std::string_view json_error_code_name(
+		conflux::json::boundary::ErrorCode code) noexcept {
+		using enum conflux::json::boundary::ErrorCode;
+		switch (code) {
+		case provider_failure      : return "provider_failure";
+		case syntax_error          : return "syntax_error";
+		case unexpected_eof        : return "unexpected_eof";
+		case trailing_garbage      : return "trailing_garbage";
+		case input_too_large       : return "input_too_large";
+		case string_too_large      : return "string_too_large";
+		case nesting_too_deep      : return "nesting_too_deep";
+		case wrong_kind            : return "wrong_kind";
+		case missing_member        : return "missing_member";
+		case index_out_of_range    : return "index_out_of_range";
+		case invalid_number        : return "invalid_number";
+		case number_out_of_range   : return "number_out_of_range";
+		case sign_mismatch         : return "sign_mismatch";
+		case duplicate_member      : return "duplicate_member";
+		case invalid_unicode_escape: return "invalid_unicode_escape";
+		case invalid_utf8          : return "invalid_utf8";
+		case invalid_pointer       : return "invalid_pointer";
+		case constraint_violation  : return "constraint_violation";
+		case invalid_value         : return "invalid_value";
+		case output_too_large      : return "output_too_large";
+		case resource_exhausted    : return "resource_exhausted";
+		}
+		return "provider_failure";
+	}
+
+	[[nodiscard]] static HttpResponse json_decode_problem(
+		conflux::json::boundary::Error const &err) {
+		std::string body = std::format(
+			R"({{"code":"invalid_json","stage":"{}","kind":"{}","detail":"{}")",
+			json_error_stage_name(err.stage),
+			json_error_code_name(err.code),
+			json_escape(err.message));
+		if (err.member_name) {
+			body += std::format(R"(,"member":"{}")", json_escape(*err.member_name));
+		}
+		if (err.source) {
+			body += std::format(
+				R"(,"source":{{"offset":{},"line":{},"column":{}}})",
+				err.source->offset,
+				err.source->line,
+				err.source->column);
+		}
+		body += "}";
+		return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	}
+#endif
+
 	template<class T>
 	[[nodiscard]] static T extract_or_throw(
 		std::expected<T, HttpFieldError> value,
@@ -2044,7 +2127,7 @@ public:
 					req.body,
 					effective_decode_opts);
 				if (!decoded) {
-					return HttpResponse::json(R"({"error":"json decode failed"})", kHttpBadRequest, "Bad Request");
+					return json_decode_problem(decoded.error());
 				}
 				auto body = Json<BodyValue>{std::move(*decoded)};
 				return invoke_json_extracted<Args>(

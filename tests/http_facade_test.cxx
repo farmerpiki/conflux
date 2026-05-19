@@ -791,6 +791,15 @@ TEST_CASE(
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
 
+	req.body = R"({"value":)";
+	auto malformed = app.router().dispatch(req);
+	CHECK(malformed.status == kHttpBadRequest);
+	CHECK(malformed.content_type == "application/json");
+	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
+	CHECK(malformed.text_body().find(R"("stage":"parse")") != std::string_view::npos);
+	CHECK(malformed.text_body().find(R"("kind":"unexpected_eof")") != std::string_view::npos);
+	CHECK(malformed.text_body().find(R"("source":)") != std::string_view::npos);
+
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].consumes == std::vector<std::string>{"application/json", "application/problem+json"});
