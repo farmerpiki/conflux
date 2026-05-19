@@ -266,7 +266,7 @@ else()
     set(CONFLUX_HAS_HTTP2 "false")
     if(NOT NGHTTP2_FOUND)
         message(STATUS "conflux: HTTP/2 disabled (libnghttp2 not found)")
-    elseif(NOT OpenSSL_FOUND)
+    elseif(NOT CONFLUX_HAS_TLS STREQUAL "true")
         message(STATUS "conflux: HTTP/2 disabled (TLS required)")
     else()
         message(STATUS "conflux: HTTP/2 disabled (CONFLUX_ENABLE_HTTP2=OFF)")
@@ -274,8 +274,15 @@ else()
 endif()
 
 # ---- HTTP/3 (requires ngtcp2 + nghttp3 + OpenSSL 3.5+ + TLS) ---------------
+set(CONFLUX_HAS_HTTP3_OPENSSL "false")
+if(OpenSSL_FOUND AND OPENSSL_VERSION VERSION_GREATER_EQUAL "3.5.0")
+    set(CONFLUX_HAS_HTTP3_OPENSSL "true")
+endif()
+
 if(NGTCP2_FOUND AND NGTCP2_CRYPTO_OSSL_FOUND AND NGHTTP3_FOUND
-        AND CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_ENABLE_HTTP3)
+        AND CONFLUX_HAS_TLS STREQUAL "true"
+        AND CONFLUX_HAS_HTTP3_OPENSSL STREQUAL "true"
+        AND CONFLUX_ENABLE_HTTP3)
     set(CONFLUX_HAS_HTTP3 "true")
     message(STATUS "conflux: HTTP/3 enabled (ngtcp2 ${NGTCP2_VERSION}, nghttp3 ${NGHTTP3_VERSION})")
 else()
@@ -286,8 +293,10 @@ else()
         message(STATUS "conflux: HTTP/3 disabled (libngtcp2_crypto_ossl not found)")
     elseif(NOT NGHTTP3_FOUND)
         message(STATUS "conflux: HTTP/3 disabled (libnghttp3 not found)")
-    elseif(NOT OpenSSL_FOUND)
+    elseif(NOT CONFLUX_HAS_TLS STREQUAL "true")
         message(STATUS "conflux: HTTP/3 disabled (TLS required)")
+    elseif(NOT CONFLUX_HAS_HTTP3_OPENSSL STREQUAL "true")
+        message(STATUS "conflux: HTTP/3 disabled (OpenSSL ${OPENSSL_VERSION} < 3.5.0)")
     else()
         message(STATUS "conflux: HTTP/3 disabled (CONFLUX_ENABLE_HTTP3=OFF)")
     endif()
@@ -1019,8 +1028,8 @@ target_link_libraries(conflux_dns
 endif() # CONFLUX_WANT_DNS
 
 if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
-    add_library(conflux_db STATIC)
-    target_sources(conflux_db
+    add_library(conflux_pg STATIC)
+    target_sources(conflux_pg
         PUBLIC FILE_SET CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
             FILES
@@ -1029,19 +1038,28 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
             src/db/result.cxx
             src/db/connection.cxx
             src/db/pool.cxx
-            src/db/db.cxx
             src/db/pg.cxx
     )
-    target_link_libraries(conflux_db
+    target_link_libraries(conflux_pg
         PRIVATE conflux_options
         PUBLIC  conflux_work
         PUBLIC  conflux_file_io
         PUBLIC  PkgConfig::LIBPQ
     )
-    target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
+    target_compile_definitions(conflux_pg PUBLIC CONFLUX_HAS_DB=1)
 
-    add_library(conflux_pg INTERFACE)
-    target_link_libraries(conflux_pg INTERFACE conflux_db)
+    add_library(conflux_db STATIC)
+    target_sources(conflux_db
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES
+            src/db/db.cxx
+    )
+    target_link_libraries(conflux_db
+        PRIVATE conflux_options
+        PUBLIC  conflux_pg
+    )
+    target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -2323,8 +2341,7 @@ endif()
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
 foreach(_target IN ITEMS
         conflux_options
-        conflux_core
-        conflux_pg)
+        conflux_core)
     if(TARGET ${_target})
         list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
     endif()
@@ -2392,6 +2409,7 @@ foreach(_target IN ITEMS
         conflux_file_io
         conflux_socket_io
         conflux_dns
+        conflux_pg
         conflux_db
         conflux_direct_slot_pool)
     if(TARGET ${_target})
@@ -2415,6 +2433,7 @@ if(CONFLUX_INSTALL_MODULE_TARGETS)
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
+        FILE_SET generated_mods DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/generated/modules
     )
 endif()
 

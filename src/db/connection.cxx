@@ -7,7 +7,7 @@ module;
 #include <memory>
 #include <poll.h>
 
-export module conflux.db.connection;
+export module conflux.pg.connection;
 
 import std;
 import std.compat;
@@ -18,11 +18,11 @@ import conflux.uring.completion;
 import conflux.uring.handle;
 import conflux.file_io;
 import conflux.file_io_sync;
-import conflux.db.types;
-import conflux.db.params;
-import conflux.db.result;
+import conflux.pg.types;
+import conflux.pg.params;
+import conflux.pg.result;
 
-namespace conflux::db {
+namespace conflux::pg {
 namespace root = conflux::work::root;
 namespace detail {
 
@@ -386,23 +386,23 @@ struct ConnectState : std::enable_shared_from_this<ConnectState> {
 		bool initial) {
 		if (std::chrono::steady_clock::now() > deadline) {
 			auto _ =
-				dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connect deadline exceeded", "08001"}));
+				dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connect deadline exceeded", "08001"}));
 			return;
 		}
 		PostgresPollingStatusType const status = initial ? PGRES_POLLING_WRITING : ::PQconnectPoll(conn.get());
 		while (true) {
 			if (::PQstatus(conn.get()) == CONNECTION_BAD && !initial) {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.pg: connect")));
 				return;
 			}
 			if (status == PGRES_POLLING_FAILED) {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.pg: connect")));
 				return;
 			}
 			if (status == PGRES_POLLING_OK) {
 				if (::PQsetnonblocking(conn.get(), 1) != 0) {
 					auto _ = dst->try_set_exception(
-						std::make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsetnonblocking")));
+						std::make_exception_ptr(from_conn(conn.get(), "conflux.pg: PQsetnonblocking")));
 					return;
 				}
 				auto c = std::shared_ptr<Connection>(new Connection{std::move(conn), reader});
@@ -417,12 +417,12 @@ struct ConnectState : std::enable_shared_from_this<ConnectState> {
 						char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
 						if (enc == nullptr || std::string_view{enc} != std::string_view{"UTF8"}) {
 							auto _ = outer->try_set_exception(
-								std::make_exception_ptr(PgError{"conflux.db: client_encoding must be UTF8", "22021"}));
+								std::make_exception_ptr(PgError{"conflux.pg: client_encoding must be UTF8", "22021"}));
 							co_return;
 						}
 						auto _ = outer->try_set_value(root::Success<std::shared_ptr<Connection>>{std::move(conn_sp)});
 					} catch (Cancelled const &) {
-						auto _ = outer->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
+						auto _ = outer->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connect cancelled"}));
 					} catch (...) { auto _ = outer->try_set_exception(std::current_exception()); }
 				}(outer, conn_sp, conn_sp->query(std::string_view{"SET client_encoding = 'UTF8'"}))
 															 .detach();
@@ -434,25 +434,25 @@ struct ConnectState : std::enable_shared_from_this<ConnectState> {
 			} else if (status == PGRES_POLLING_WRITING) {
 				mask = POLLOUT;
 			} else {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: std::unexpected polling status"}));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: std::unexpected polling status"}));
 				return;
 			}
 			int const fd = ::PQsocket(conn.get());
 			if (fd < 0) {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsocket")));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(from_conn(conn.get(), "conflux.pg: PQsocket")));
 				return;
 			}
 			auto self = shared_from_this();
 			bool const armed = reader->poll_add_oneshot(fd, mask, [self](IoResult r) {
 				if (r.res < 0) {
 					auto _ = self->dst->try_set_exception(
-						std::make_exception_ptr(PgError{std::format("conflux.db: poll: {}", strerror(-r.res))}));
+						std::make_exception_ptr(PgError{std::format("conflux.pg: poll: {}", strerror(-r.res))}));
 					return;
 				}
 				self->drive(false);
 			});
 			if (!armed) {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: io_uring SQ full"}));
 			}
 			return;
 		}
@@ -481,18 +481,18 @@ root::Task<std::shared_ptr<Connection>> Connection::connect(
 	auto *reader = current_file_reader();
 	if (reader == nullptr) {
 		auto _ = shared_src->try_set_exception(
-			std::make_exception_ptr(PgError{"conflux.db: no current FileReader (not on a ring lane)"}));
+			std::make_exception_ptr(PgError{"conflux.pg: no current FileReader (not on a ring lane)"}));
 		return std::move(task);
 	}
 	if (::PQisthreadsafe() == 0) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: libpq built without std::thread safety"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: libpq built without std::thread safety"}));
 		return std::move(task);
 	}
 	PGConnPtr conn{::PQconnectStart(params.conninfo.c_str())};
 	if (!conn || ::PQstatus(conn.get()) == CONNECTION_BAD) {
 		auto _ = shared_src->try_set_exception(
-			std::make_exception_ptr(detail::from_conn(conn.get(), "conflux.db: PQconnectStart")));
+			std::make_exception_ptr(detail::from_conn(conn.get(), "conflux.pg: PQconnectStart")));
 		return std::move(task);
 	}
 	auto st = std::make_shared<detail::ConnectState>();
@@ -538,15 +538,15 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query while pipeline active"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query while pipeline active"}));
 		return std::move(task);
 	}
 	auto self = shared_from_this();
@@ -561,19 +561,19 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (!sql) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null SQL handle"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query while pipeline active"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query while pipeline active"}));
 		return std::move(task);
 	}
 	auto self = shared_from_this();
@@ -597,11 +597,11 @@ void Connection::run_query_(
 		params.formats(),
 		params.result_format());
 	if (send == 0) {
-		reject_(dst, "conflux.db: PQsendQueryParams");
+		reject_(dst, "conflux.pg: PQsendQueryParams");
 		op_done_();
 		return;
 	}
-	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.db: query");
+	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.pg: query");
 }
 root::Task<void> Connection::prepare(
 	std::string_view name,
@@ -610,16 +610,16 @@ root::Task<void> Connection::prepare(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: prepare off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: prepare off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: prepare while pipeline active"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: prepare while pipeline active"}));
 		return std::move(task);
 	}
 	auto self = shared_from_this();
@@ -637,20 +637,20 @@ root::Task<void> Connection::prepare(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (!sql) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null SQL handle"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: prepare off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: prepare off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: prepare while pipeline active"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: prepare while pipeline active"}));
 		return std::move(task);
 	}
 	auto self = shared_from_this();
@@ -673,11 +673,11 @@ void Connection::run_prepare_(
 		static_cast<int>(oids.size()),
 		oids.empty() ? nullptr : oids.data());
 	if (send == 0) {
-		reject_(dst, "conflux.db: PQsendPrepare");
+		reject_(dst, "conflux.pg: PQsendPrepare");
 		op_done_();
 		return;
 	}
-	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.db: prepare");
+	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.pg: prepare");
 }
 root::Task<Result> Connection::exec_prepared(
 	std::string_view name,
@@ -685,17 +685,17 @@ root::Task<Result> Connection::exec_prepared(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: exec_prepared off owner std::thread"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: exec_prepared off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
 		auto _ = shared_src->try_set_exception(
-			std::make_exception_ptr(PgError{"conflux.db: exec_prepared while pipeline active"}));
+			std::make_exception_ptr(PgError{"conflux.pg: exec_prepared while pipeline active"}));
 		return std::move(task);
 	}
 	auto self = shared_from_this();
@@ -718,11 +718,11 @@ void Connection::run_exec_prepared_(
 		params.formats(),
 		params.result_format());
 	if (send == 0) {
-		reject_(dst, "conflux.db: PQsendQueryPrepared");
+		reject_(dst, "conflux.pg: PQsendQueryPrepared");
 		op_done_();
 		return;
 	}
-	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.db: query");
+	after_send_drive_flush_(dst, std::make_shared<Result>(), "conflux.pg: query");
 }
 root::Task<Result> Connection::exec_cached(
 	std::shared_ptr<StatementCache::Entry const> const &stmt,
@@ -730,20 +730,20 @@ root::Task<Result> Connection::exec_cached(
 	if (!stmt || !stmt->sql) {
 		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: null cached statement"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null cached statement"}));
 		return std::move(task);
 	}
 	if (closed_ || !conn_) {
 		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
 		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: exec_cached while pipeline active"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: exec_cached while pipeline active"}));
 		return std::move(task);
 	}
 	if (prepared_names_.contains(stmt->name)) {
@@ -790,7 +790,7 @@ void Connection::after_send_drive_flush_(
 	std::string const &label) {
 	int const f = ::PQflush(conn_.get());
 	if (f < 0) {
-		reject_(dst, "conflux.db: PQflush");
+		reject_(dst, "conflux.pg: PQflush");
 		op_done_();
 		return;
 	}
@@ -809,14 +809,14 @@ void Connection::after_send_drive_flush_(
 		}
 		if (r.res < 0) {
 			auto _ = dst->try_set_exception(
-				std::make_exception_ptr(PgError{std::format("conflux.db: poll write: {}", strerror(-r.res))}));
+				std::make_exception_ptr(PgError{std::format("conflux.pg: poll write: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
 		}
 		self->after_send_drive_flush_(std::move(dst), std::move(partial), label);
 	});
 	if (!armed) {
-		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: io_uring SQ full"}));
 		op_done_();
 	}
 }
@@ -830,7 +830,7 @@ void Connection::drive_consume_loop_(
 	std::shared_ptr<Result> partial,
 	std::string const &label) {
 	if (::PQconsumeInput(conn_.get()) == 0) {
-		reject_(dst, "conflux.db: PQconsumeInput");
+		reject_(dst, "conflux.pg: PQconsumeInput");
 		op_done_();
 		return;
 	}
@@ -847,7 +847,7 @@ void Connection::drive_consume_loop_(
 				auto err = detail::from_result(partial->raw(), label);
 				auto _ = dst->try_set_exception(std::make_exception_ptr(std::move(err)));
 			} else {
-				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: empty result"}));
+				auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: empty result"}));
 			}
 			op_done_();
 			return;
@@ -875,14 +875,14 @@ void Connection::drive_consume_loop_(
 		}
 		if (r.res < 0) {
 			auto _ = dst->try_set_exception(
-				std::make_exception_ptr(PgError{std::format("conflux.db: poll read: {}", strerror(-r.res))}));
+				std::make_exception_ptr(PgError{std::format("conflux.pg: poll read: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
 		}
 		self->drive_consume_loop_(std::move(dst), std::move(partial), label);
 	});
 	if (!armed) {
-		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: io_uring SQ full"}));
 		op_done_();
 	}
 }
@@ -891,12 +891,12 @@ root::Task<void> Connection::cancel_inflight(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
 	if (!conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	detail::PGcancelPtr handle{::PQgetCancel(conn_.get())};
 	if (!handle) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: PQgetCancel returned null"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: PQgetCancel returned null"}));
 		return std::move(task);
 	}
 	auto cancel_handle = std::shared_ptr<PGcancel>{handle.release(), detail::PGcancelDeleter{}};
@@ -944,7 +944,7 @@ root::Task<Result> Connection::query(
 	[](std::shared_ptr<Connection> s, std::shared_ptr<root::TaskSource<Result>> src, root::Task<void> tt) -> root::Task<void> {
 		try {
 			co_await std::move(tt);
-			if (src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
+			if (src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query deadline exceeded", "57014"}))) {
 				[](std::shared_ptr<Connection> s2) -> root::Task<void> {
 					try {
 						co_await s2->cancel_inflight();
@@ -967,20 +967,20 @@ root::Task<Pipeline> Connection::pipeline() {
 	auto [task, raw_src] = root::make_task_source<Pipeline>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Pipeline>>(std::move(raw_src));
 	if (closed_ || !conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline off owner std::thread"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline already active"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline already active"}));
 		return std::move(task);
 	}
 	if (in_flight_ || !queue_.empty()) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline while connection busy"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline while connection busy"}));
 		return std::move(task);
 	}
 	pipeline_mode_ = true;
@@ -994,15 +994,15 @@ root::Task<Result> Pipeline::query(
 	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != st->conn->owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query off owner std::thread"}));
 		return std::move(task);
 	}
 	if (st->syncing) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: query while sync in progress"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: query while sync in progress"}));
 		return std::move(task);
 	}
 	st->pending.push_back(
@@ -1020,23 +1020,23 @@ root::Task<Result> Pipeline::exec_cached(
 	if (!stmt || !stmt->sql) {
 		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: null cached statement"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null cached statement"}));
 		return std::move(task);
 	}
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != st->conn->owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: exec_cached off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: exec_cached off owner std::thread"}));
 		return std::move(task);
 	}
 	if (st->syncing) {
 		auto _ = shared_src->try_set_exception(
-			std::make_exception_ptr(PgError{"conflux.db: exec_cached while sync in progress"}));
+			std::make_exception_ptr(PgError{"conflux.pg: exec_cached while sync in progress"}));
 		return std::move(task);
 	}
 	st->pending.push_back(
@@ -1054,15 +1054,15 @@ root::Task<void> Pipeline::sync() {
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != st->conn->owner_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: sync off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: sync off owner std::thread"}));
 		return std::move(task);
 	}
 	if (st->syncing) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: sync already in progress"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: sync already in progress"}));
 		return std::move(task);
 	}
 	if (st->pending.empty()) {
@@ -1112,7 +1112,7 @@ void Pipeline::sync_next_(
 			while (!st->batch.empty()) {
 				auto rem = std::move(st->batch.front());
 				st->batch.pop_front();
-				auto _ = rem.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline query"}));
+				auto _ = rem.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline query"}));
 			}
 			auto _ = st->done->try_set_value(root::Success<void>{});
 			Pipeline::finish_sync_(st->pipe, true);
@@ -1124,21 +1124,21 @@ void Pipeline::start_wire_sync_(
 	std::shared_ptr<SyncState> const &st) {
 	auto const pipe = st->pipe;
 	if (!pipe || pipe->closed || !pipe->conn || !pipe->conn->conn_) {
-		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		if (pipe && pipe->conn) {
 			pipe->conn->op_done_();
 		}
 		return;
 	}
 #if !defined(LIBPQ_HAS_PIPELINING)
-	fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: libpq pipeline mode unavailable"}));
+	fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: libpq pipeline mode unavailable"}));
 	pipe->conn->op_done_();
 #else
 	auto const conn = pipe->conn;
 	if (::PQenterPipelineMode(conn->conn_.get()) == 0) {
 		fail_wire_sync_(
 			st,
-			std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQenterPipelineMode")));
+			std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQenterPipelineMode")));
 		conn->op_done_();
 		return;
 	}
@@ -1150,7 +1150,7 @@ void Pipeline::start_wire_sync_(
 		int send = 0;
 		if (item.kind == PendingKind::exec_cached) {
 			if (!item.stmt || !item.stmt->sql) {
-				auto _ = item.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: null cached statement"}));
+				auto _ = item.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null cached statement"}));
 				continue;
 			}
 			if (!conn->prepared_names_.contains(item.stmt->name) && !planned_prepares.contains(item.stmt->name)) {
@@ -1163,7 +1163,7 @@ void Pipeline::start_wire_sync_(
 				if (send == 0) {
 					fail_wire_sync_(
 						st,
-						std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQsendPrepare")));
+						std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQsendPrepare")));
 					conn->op_done_();
 					return;
 				}
@@ -1172,7 +1172,7 @@ void Pipeline::start_wire_sync_(
 					WireResult{
 						.kind = WireResultKind::prepare,
 						.dst = item.dst,
-						.label = "conflux.db: pipeline prepare",
+						.label = "conflux.pg: pipeline prepare",
 						.prepared_name = item.stmt->name,
 					});
 			}
@@ -1188,7 +1188,7 @@ void Pipeline::start_wire_sync_(
 			if (send == 0) {
 				fail_wire_sync_(
 					st,
-					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQsendQueryPrepared")));
+					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQsendQueryPrepared")));
 				conn->op_done_();
 				return;
 			}
@@ -1206,7 +1206,7 @@ void Pipeline::start_wire_sync_(
 			if (send == 0) {
 				fail_wire_sync_(
 					st,
-					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQsendQueryParams")));
+					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQsendQueryParams")));
 				conn->op_done_();
 				return;
 			}
@@ -1215,11 +1215,11 @@ void Pipeline::start_wire_sync_(
 			WireResult{
 				.kind = WireResultKind::query,
 				.dst = item.dst,
-				.label = "conflux.db: pipeline query",
+				.label = "conflux.pg: pipeline query",
 			});
 	}
 	if (::PQpipelineSync(conn->conn_.get()) == 0) {
-		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQpipelineSync")));
+		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQpipelineSync")));
 		conn->op_done_();
 		return;
 	}
@@ -1232,7 +1232,7 @@ void Pipeline::after_wire_send_drive_flush_(
 	auto const pipe = st->pipe;
 	auto const conn = pipe ? pipe->conn : nullptr;
 	if (!conn || !conn->conn_) {
-		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		if (conn) {
 			conn->op_done_();
 		}
@@ -1240,7 +1240,7 @@ void Pipeline::after_wire_send_drive_flush_(
 	}
 	int const f = ::PQflush(conn->conn_.get());
 	if (f < 0) {
-		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQflush")));
+		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQflush")));
 		conn->op_done_();
 		return;
 	}
@@ -1252,19 +1252,19 @@ void Pipeline::after_wire_send_drive_flush_(
 	auto self = conn;
 	bool const armed = conn->reader_->poll_add_oneshot(fd, POLLOUT, [self, st](IoResult r) mutable {
 		if (self->closed_) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 			self->op_done_();
 			return;
 		}
 		if (r.res < 0) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{std::format("conflux.db: poll write: {}", strerror(-r.res))}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{std::format("conflux.pg: poll write: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
 		}
 		after_wire_send_drive_flush_(st);
 	});
 	if (!armed) {
-		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: io_uring SQ full"}));
 		conn->op_done_();
 	}
 #else
@@ -1277,14 +1277,14 @@ void Pipeline::drive_wire_consume_loop_(
 	auto const pipe = st->pipe;
 	auto const conn = pipe ? pipe->conn : nullptr;
 	if (!conn || !conn->conn_) {
-		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		if (conn) {
 			conn->op_done_();
 		}
 		return;
 	}
 	if (::PQconsumeInput(conn->conn_.get()) == 0) {
-		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQconsumeInput")));
+		fail_wire_sync_(st, std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQconsumeInput")));
 		conn->op_done_();
 		return;
 	}
@@ -1302,14 +1302,14 @@ void Pipeline::drive_wire_consume_loop_(
 		auto const status = ::PQresultStatus(next.get());
 		if (status == PGRES_PIPELINE_SYNC) {
 			if (st->next_wire_result != st->wire_results.size()) {
-				fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: pipeline sync before all results"}));
+				fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: pipeline sync before all results"}));
 				conn->op_done_();
 				return;
 			}
 			if (::PQexitPipelineMode(conn->conn_.get()) == 0) {
 				fail_wire_sync_(
 					st,
-					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.db: PQexitPipelineMode")));
+					std::make_exception_ptr(detail::from_conn(conn->conn_.get(), "conflux.pg: PQexitPipelineMode")));
 				conn->op_done_();
 				return;
 			}
@@ -1320,7 +1320,7 @@ void Pipeline::drive_wire_consume_loop_(
 			return;
 		}
 		if (st->next_wire_result >= st->wire_results.size()) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: std::unexpected extra pipeline result"}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: std::unexpected extra pipeline result"}));
 			conn->op_done_();
 			return;
 		}
@@ -1355,19 +1355,19 @@ void Pipeline::drive_wire_consume_loop_(
 	auto self = conn;
 	bool const armed = conn->reader_->poll_add_oneshot(fd, POLLIN, [self, st](IoResult r) mutable {
 		if (self->closed_) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: connection closed"}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 			self->op_done_();
 			return;
 		}
 		if (r.res < 0) {
-			fail_wire_sync_(st, std::make_exception_ptr(PgError{std::format("conflux.db: poll read: {}", strerror(-r.res))}));
+			fail_wire_sync_(st, std::make_exception_ptr(PgError{std::format("conflux.pg: poll read: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
 		}
 		drive_wire_consume_loop_(st);
 	});
 	if (!armed) {
-		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		fail_wire_sync_(st, std::make_exception_ptr(PgError{"conflux.pg: io_uring SQ full"}));
 		conn->op_done_();
 	}
 #else
@@ -1415,7 +1415,7 @@ void Pipeline::finish_sync_(
 		while (!pipe->pending.empty()) {
 			auto dst = std::move(pipe->pending.front().dst);
 			pipe->pending.pop_front();
-			auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline sync failed"}));
+			auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline sync failed"}));
 		}
 	}
 }
@@ -1428,19 +1428,19 @@ void Pipeline::close_() noexcept {
 	while (!st->pending.empty()) {
 		auto dst = std::move(st->pending.front().dst);
 		st->pending.pop_front();
-		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		auto _ = dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 	}
 	if (st->active_sync) {
 		while (!st->active_sync->batch.empty()) {
 			auto rem = std::move(st->active_sync->batch.front());
 			st->active_sync->batch.pop_front();
-			auto _ = rem.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+			auto _ = rem.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		}
 		for (std::size_t i = st->active_sync->next_wire_result; i < st->active_sync->wire_results.size(); ++i) {
 			auto _ = st->active_sync->wire_results[i].dst->try_set_exception(
-				std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+				std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 		}
-		auto _ = st->active_sync->done->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		auto _ = st->active_sync->done->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
 	}
 	if (!st->conn || !st->conn->conn_ || st->active_sync) {
 		return;
@@ -1505,4 +1505,4 @@ root::Task<std::shared_ptr<std::string const>> QueryCache::load_async(
 	return std::move(task);
 }
 
-} // namespace conflux::db
+} // namespace conflux::pg

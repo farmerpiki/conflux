@@ -84,7 +84,7 @@ public:
 ## Parameters (`Params`)
 
 ```cpp
-namespace conflux::db::oids {
+namespace conflux::pg::oids {
 inline constexpr Oid bool_ = 16;
 inline constexpr Oid bytea = 17;
 inline constexpr Oid int8  = 20;

@@ -90,7 +90,7 @@ scripts/run-package-config-smoke.sh \
 | `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
 | `process` | `conflux::process` | `conflux.process` | `examples/process_run.cxx`, `tests/process_test.cxx` |
 | `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
-| `db` | `conflux::db` | internal/compatibility implementation spelling for PostgreSQL API; not advertised for new public code | `docs/db-api.md` |
+| `db` | `conflux::db` | compatibility re-export of PostgreSQL API; not advertised for new public code | `docs/db-api.md` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | `README.md` |
 

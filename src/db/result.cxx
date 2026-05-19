@@ -1,13 +1,13 @@
 module;
 #include <libpq-fe.h>
 
-export module conflux.db.result;
+export module conflux.pg.result;
 
 import std;
 import conflux.types;
-import conflux.db.types;
+import conflux.pg.types;
 
-namespace conflux::db {
+namespace conflux::pg {
 namespace detail {
 
 // PQfnumber needs a NUL-terminated C std::string. Postgres NAMEDATALEN is 64,
@@ -247,4 +247,4 @@ Result::Result(Result &&) noexcept = default;
 Result &Result::operator =(Result &&) noexcept = default;
 Result::~Result() = default;
 
-} // namespace conflux::db
+} // namespace conflux::pg

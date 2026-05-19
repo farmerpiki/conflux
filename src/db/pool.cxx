@@ -1,18 +1,18 @@
 module;
 #include <memory>
 
-export module conflux.db.pool;
+export module conflux.pg.pool;
 
 import std;
 import conflux.types;
-import conflux.db.types;
-import conflux.db.result;
-import conflux.db.connection;
+import conflux.pg.types;
+import conflux.pg.result;
+import conflux.pg.connection;
 import conflux.work;
 import conflux.uring.timeout;
 import conflux.file_io;
 
-namespace conflux::db {
+namespace conflux::pg {
 namespace root = conflux::work::root;
 export struct TxOptions {
 	enum class Iso : std::uint8_t {
@@ -225,12 +225,12 @@ root::Task<Pool::Lease> Pool::acquire() {
 	auto [task, raw_src] = root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<root::TaskSource<Lease>>(std::move(raw_src));
 	if (closed_) {
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool closed"}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pool closed"}));
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
 		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool acquire off owner std::thread"}));
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pool acquire off owner std::thread"}));
 		return std::move(task);
 	}
 	if (!idle_.empty()) {
@@ -268,7 +268,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 			[](std::shared_ptr<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> root::Task<void> {
 				try {
 					co_await std::move(to_task);
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+					auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
 				} catch (...) {}
 			}(shared_src,
 			  conflux::uring::async_timeout(
@@ -377,4 +377,4 @@ void Pool::dispatch_lease_(
 	}
 }
 
-} // namespace conflux::db
+} // namespace conflux::pg

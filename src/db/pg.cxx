@@ -1,7 +1,7 @@
 export module conflux.pg;
 
-export import conflux.db;
-
-export namespace conflux {
-namespace pg = db;
-} // namespace conflux
+export import conflux.pg.types;
+export import conflux.pg.params;
+export import conflux.pg.result;
+export import conflux.pg.connection;
+export import conflux.pg.pool;

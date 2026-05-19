@@ -1,12 +1,12 @@
 module;
 #include <libpq-fe.h>
 
-export module conflux.db.params;
+export module conflux.pg.params;
 
 import std;
 import conflux.types;
 
-export namespace conflux::db::oids {
+export namespace conflux::pg::oids {
 
 inline constexpr Oid bool_ = 16;
 inline constexpr Oid bytea = 17;
@@ -15,9 +15,9 @@ inline constexpr Oid int4 = 23;
 inline constexpr Oid text = 25;
 inline constexpr Oid float8 = 701;
 
-} // namespace conflux::db::oids
+} // namespace conflux::pg::oids
 
-export namespace conflux::db {
+export namespace conflux::pg {
 
 class Params {
 	static constexpr std::size_t kInline = 8;
@@ -207,7 +207,7 @@ public:
 
 	Params &add_binary(
 		std::int64_t v,
-		Oid oid = conflux::db::oids::int8) {
+		Oid oid = conflux::pg::oids::int8) {
 		auto const nv = to_net_(static_cast<std::uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -215,7 +215,7 @@ public:
 	}
 	Params &add_binary(
 		std::int32_t v,
-		Oid oid = conflux::db::oids::int4) {
+		Oid oid = conflux::pg::oids::int4) {
 		auto const nv = to_net_(static_cast<std::uint32_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -223,7 +223,7 @@ public:
 	}
 	Params &add_binary(
 		double v,
-		Oid oid = conflux::db::oids::float8) {
+		Oid oid = conflux::pg::oids::float8) {
 		auto const nv = to_net_(std::bit_cast<std::uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -231,7 +231,7 @@ public:
 	}
 	Params &add_binary(
 		std::span<std::byte const> bytes,
-		Oid oid = conflux::db::oids::bytea) {
+		Oid oid = conflux::pg::oids::bytea) {
 		auto const off = push_bytes_(bytes.data(), bytes.size());
 		push_(off, static_cast<int>(bytes.size()), 1, oid);
 		return *this;
@@ -277,4 +277,4 @@ public:
 Params::Params(Params &&) noexcept = default;
 Params &Params::operator =(Params &&) noexcept = default;
 
-} // namespace conflux::db
+} // namespace conflux::pg

@@ -1,11 +1,11 @@
 module;
 #include <libpq-fe.h>
 
-export module conflux.db.types;
+export module conflux.pg.types;
 
 import std;
 
-namespace conflux::db {
+namespace conflux::pg {
 
 export struct PGConnDeleter {
 	void operator ()(
@@ -50,4 +50,4 @@ export struct Column {
 	[[nodiscard]] explicit operator bool() const noexcept { return idx >= 0; }
 };
 
-} // namespace conflux::db
+} // namespace conflux::pg
