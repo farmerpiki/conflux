@@ -45,6 +45,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: stream helper writes buffered response bodies",
+	"[http.facade]") {
+	auto response = http::stream(
+		[](http::StreamSink &out) {
+			out.write("alpha");
+			out.write(":");
+			out.write("beta");
+		},
+		"text/plain; charset=utf-8");
+
+	CHECK(response.status == kHttpOk);
+	CHECK(response.content_type == "text/plain; charset=utf-8");
+	CHECK(response.text_body() == "alpha:beta");
+}
+
+TEST_CASE(
 	"http facade: validate reports duplicate routes",
 	"[http.facade]") {
 	auto app = http::app();

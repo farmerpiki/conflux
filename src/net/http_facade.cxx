@@ -70,6 +70,24 @@ using Next = Router::Handler;
 	return Response::with_body(std::move(body).str(), std::move(content_type));
 }
 
+struct StreamSink {
+	std::string body;
+
+	void write(
+		std::string_view chunk) {
+		body.append(chunk);
+	}
+};
+
+template<class F>
+[[nodiscard]] Response stream(
+	F &&writer,
+	std::string content_type = "application/octet-stream") {
+	StreamSink sink;
+	std::invoke(std::forward<F>(writer), sink);
+	return Response::with_body(std::move(sink.body), std::move(content_type));
+}
+
 [[nodiscard]] Response created(
 	std::string_view body,
 	std::string_view content_type = "text/plain; charset=utf-8") {
