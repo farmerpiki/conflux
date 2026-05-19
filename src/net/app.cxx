@@ -10,6 +10,7 @@ import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http_server;
+import conflux.crypto;
 #if CONFLUX_HAS_JSON
 import conflux.net.http.native_json;
 #endif
@@ -159,6 +160,18 @@ struct ConnectionInfo {
 
 struct TraceContext {
 	std::string_view traceparent{};
+};
+
+struct Bearer {
+	std::string_view token{};
+
+	[[nodiscard]] constexpr std::string_view get() const noexcept { return token; }
+	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return token; }
+};
+
+struct BasicAuth {
+	std::string username;
+	std::string password;
 };
 
 template<class T>
@@ -429,6 +442,12 @@ concept ConnectionInfoArg = std::same_as<std::remove_cvref_t<Arg>, ConnectionInf
 template<class Arg>
 concept TraceContextArg = std::same_as<std::remove_cvref_t<Arg>, TraceContext>;
 
+template<class Arg>
+concept BearerArg = std::same_as<std::remove_cvref_t<Arg>, Bearer>;
+
+template<class Arg>
+concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;
+
 template<class Arg, class Body>
 concept RawJsonBodyArg = std::same_as<std::remove_cvref_t<Arg>, std::remove_cvref_t<Body>>;
 
@@ -448,7 +467,9 @@ consteval bool has_state_arg_impl(
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| RequestIdArg<std::tuple_element_t<Is, Args>>
 			|| ConnectionInfoArg<std::tuple_element_t<Is, Args>>
-			|| TraceContextArg<std::tuple_element_t<Is, Args>>));
+			|| TraceContextArg<std::tuple_element_t<Is, Args>>
+			|| BearerArg<std::tuple_element_t<Is, Args>>
+			|| BasicAuthArg<std::tuple_element_t<Is, Args>>));
 }
 
 template<class Args>
@@ -1112,6 +1133,29 @@ public:
 		return std::nullopt;
 	}
 
+	[[nodiscard]] static std::string_view trim_ascii(
+		std::string_view value) noexcept {
+		while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+			value.remove_prefix(1);
+		}
+		while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+			value.remove_suffix(1);
+		}
+		return value;
+	}
+
+	[[nodiscard]] static std::optional<std::string_view> credentials_for_scheme(
+		std::string_view auth,
+		std::string_view scheme) noexcept {
+		if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
+			return std::nullopt;
+		}
+		if (!ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
+			return std::nullopt;
+		}
+		return trim_ascii(auth.substr(scheme.size() + 1));
+	}
+
 	[[nodiscard]] static std::string route_shape(
 		std::string_view path) {
 		std::string out;
@@ -1174,6 +1218,10 @@ public:
 			return "ConnectionInfo";
 		} else if constexpr (detail::TraceContextArg<Clean>) {
 			return "TraceContext";
+		} else if constexpr (detail::BearerArg<Clean>) {
+			return "Bearer";
+		} else if constexpr (detail::BasicAuthArg<Clean>) {
+			return "BasicAuth";
 		} else if constexpr (detail::JsonArg<Clean>) {
 			return "Json";
 		} else if constexpr (detail::RequestViewArg<Clean>) {
@@ -1379,12 +1427,27 @@ public:
 			return ConnectionInfo{.remote_addr = req.remote_addr, .is_tls = req.is_tls};
 		} else if constexpr (detail::TraceContextArg<Clean>) {
 			return TraceContext{.traceparent = req.header("traceparent")};
+		} else if constexpr (detail::BearerArg<Clean>) {
+			auto token = credentials_for_scheme(req.header("authorization"), "Bearer");
+			return Bearer{.token = token.value_or(std::string_view{})};
+		} else if constexpr (detail::BasicAuthArg<Clean>) {
+			auto credentials = credentials_for_scheme(req.header("authorization"), "Basic");
+			if (!credentials) {
+				return BasicAuth{};
+			}
+			auto decoded = base64_decode(*credentials);
+			auto colon = decoded.find(':');
+			if (colon == std::string::npos) {
+				return BasicAuth{};
+			}
+			return BasicAuth{.username = decoded.substr(0, colon), .password = decoded.substr(colon + 1)};
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, http::BodyText, "
-				"http::BodyBytes, http::RequestId, http::ConnectionInfo, http::TraceContext, or http::State<T>");
+				"http::BodyBytes, http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, "
+				"http::BasicAuth, or http::State<T>");
 		}
 	}
 

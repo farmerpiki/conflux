@@ -395,6 +395,50 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app handlers can receive bearer auth extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/bearer", [](http::Bearer bearer) { return http::text(bearer.get()); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/bearer";
+	req.headers["authorization"] = "bearer  token-123 \t";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "token-123");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "Bearer");
+}
+
+TEST_CASE(
+	"http facade: app handlers can receive basic auth extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/basic", [](http::BasicAuth auth) {
+		return http::text(std::format("{}:{}", auth.username, auth.password));
+	});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/basic";
+	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "alice:s3cret");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "BasicAuth");
+}
+
+TEST_CASE(
 	"http facade: typed field extractors parse scalars and reject malformed values",
 	"[http.facade]") {
 	auto app = http::app();
