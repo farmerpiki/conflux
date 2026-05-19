@@ -84,7 +84,6 @@ void offload_spelling_compiles(
 
 void response_helpers_compile() {
 	(void)http::html("<p>ok</p>");
-	(void)http::json_response(R"({"ok":true})");
 	(void)http::no_content();
 	(void)http::redirect("/next");
 	(void)http::stream([](http::StreamSink &sink) { sink.write("chunk"); });

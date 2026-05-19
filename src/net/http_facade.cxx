@@ -69,11 +69,6 @@ template<typename F>
 	return Response::html(std::string{body});
 }
 
-[[nodiscard]] Response json_response(
-	std::string_view body) {
-	return Response::json(std::string{body});
-}
-
 [[nodiscard]] Response no_content() {
 	return Response::no_content();
 }
