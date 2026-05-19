@@ -15,6 +15,11 @@ struct FacadeAnswer {
 	std::string value;
 };
 
+struct FacadeSearch {
+	std::string q;
+	std::uint32_t page{};
+};
+
 template<>
 struct JsonMembers<FacadeAnswer> {
 	static constexpr auto members() {
@@ -23,6 +28,17 @@ struct JsonMembers<FacadeAnswer> {
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeAnswer"; }
+};
+
+template<>
+struct JsonMembers<FacadeSearch> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("q", &FacadeSearch::q),
+			json_member("page", &FacadeSearch::page),
+		};
+	}
+	static constexpr std::string_view type_name() { return "FacadeSearch"; }
 };
 
 TEST_CASE(
@@ -838,6 +854,58 @@ TEST_CASE(
 	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+}
+
+TEST_CASE(
+	"http facade: app handlers can receive aggregate query params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/search", [](http::QueryParams<FacadeSearch> search) {
+		return http::text(std::format("{}:{}", search->q, search->page));
+	});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/search";
+	req.query["q"] = "conflux";
+	req.query["page"] = "3";
+	CHECK(app.router().dispatch(req).text_body() == "conflux:3");
+
+	req.query["page"] = "bad";
+	auto bad = app.router().dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"QueryParams"});
+}
+
+TEST_CASE(
+	"http facade: app handlers can receive aggregate form params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/search", [](http::FormParams<FacadeSearch> search) {
+		return http::text(std::format("{}:{}", search->q, search->page));
+	});
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/search";
+	req.form["q"] = "conflux";
+	req.form["page"] = "4";
+	CHECK(app.router().dispatch(req).text_body() == "conflux:4");
+
+	req.form["page"] = "bad";
+	auto bad = app.router().dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"FormParams"});
 }
 
 TEST_CASE(

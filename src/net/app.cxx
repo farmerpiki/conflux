@@ -144,6 +144,30 @@ struct Form {
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
 };
 
+#if CONFLUX_HAS_JSON
+template<class T>
+struct QueryParams {
+	using value_type = std::remove_cvref_t<T>;
+
+	value_type value;
+
+	[[nodiscard]] constexpr value_type const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type const &operator *() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type const *operator ->() const noexcept { return std::addressof(value); }
+};
+
+template<class T>
+struct FormParams {
+	using value_type = std::remove_cvref_t<T>;
+
+	value_type value;
+
+	[[nodiscard]] constexpr value_type const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type const &operator *() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type const *operator ->() const noexcept { return std::addressof(value); }
+};
+#endif
+
 struct BodyText {
 	std::string_view value{};
 
@@ -491,6 +515,30 @@ struct FormType<Form<Name, T>> {
 template<class T>
 concept FormArg = requires { typename FormType<std::remove_cvref_t<T>>::type; };
 
+#if CONFLUX_HAS_JSON
+template<class T>
+struct QueryParamsType {};
+
+template<class T>
+struct QueryParamsType<QueryParams<T>> {
+	using type = T;
+};
+
+template<class T>
+concept QueryParamsArg = requires { typename QueryParamsType<std::remove_cvref_t<T>>::type; };
+
+template<class T>
+struct FormParamsType {};
+
+template<class T>
+struct FormParamsType<FormParams<T>> {
+	using type = T;
+};
+
+template<class T>
+concept FormParamsArg = requires { typename FormParamsType<std::remove_cvref_t<T>>::type; };
+#endif
+
 template<class Arg>
 concept RequestViewArg = std::same_as<std::remove_cvref_t<Arg>, RequestView>;
 
@@ -573,6 +621,10 @@ consteval bool has_state_arg_impl(
 			|| HeaderArg<std::tuple_element_t<Is, Args>>
 			|| CookieArg<std::tuple_element_t<Is, Args>>
 			|| FormArg<std::tuple_element_t<Is, Args>>
+#if CONFLUX_HAS_JSON
+			|| QueryParamsArg<std::tuple_element_t<Is, Args>>
+			|| FormParamsArg<std::tuple_element_t<Is, Args>>
+#endif
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
@@ -1708,6 +1760,12 @@ public:
 			return std::format("Cookie<{}>", detail::CookieType<Clean>::name.view());
 		} else if constexpr (detail::FormArg<Clean>) {
 			return std::format("Form<{}>", detail::FormType<Clean>::name.view());
+#if CONFLUX_HAS_JSON
+		} else if constexpr (detail::QueryParamsArg<Clean>) {
+			return "QueryParams";
+		} else if constexpr (detail::FormParamsArg<Clean>) {
+			return "FormParams";
+#endif
 		} else if constexpr (detail::BodyTextArg<Clean>) {
 			return "BodyText";
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
@@ -1813,6 +1871,7 @@ public:
 				|| detail::BodyBytesArg<std::tuple_element_t<Is, Args>>
 				|| detail::OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
 #if CONFLUX_HAS_JSON
+				|| detail::FormParamsArg<std::tuple_element_t<Is, Args>>
 				|| detail::JsonDocumentArg<std::tuple_element_t<Is, Args>>
 #endif
 				|| detail::MultipartArg<std::tuple_element_t<Is, Args>>
@@ -2081,6 +2140,61 @@ public:
 		return parse_http_field_value<T>(param->second, HttpFieldSource::params, param->first);
 	}
 
+#if CONFLUX_HAS_JSON
+	template<class T, class Members, std::size_t... Is>
+	[[nodiscard]] static T extract_query_params_impl(
+		RequestView const &req,
+		Members const &members,
+		std::index_sequence<Is...>) {
+		T out{};
+		(
+			[&] {
+				auto const &member = std::get<Is>(members);
+				using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
+				out.*(member.pointer) =
+					extract_or_throw(req.template query_as<MemberValue>(member.name), "QueryParams");
+			}(),
+			...);
+		return out;
+	}
+
+	template<class T>
+	[[nodiscard]] static T extract_query_params(
+		RequestView const &req) {
+		auto const members = JsonMembers<T>::members();
+		return extract_query_params_impl<T>(
+			req,
+			members,
+			std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<decltype(members)>>>{});
+	}
+
+	template<class T, class Members, std::size_t... Is>
+	[[nodiscard]] static T extract_form_params_impl(
+		RequestView const &req,
+		Members const &members,
+		std::index_sequence<Is...>) {
+		T out{};
+		(
+			[&] {
+				auto const &member = std::get<Is>(members);
+				using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
+				out.*(member.pointer) = extract_or_throw(req.template form_as<MemberValue>(member.name), "FormParams");
+			}(),
+			...);
+		return out;
+	}
+
+	template<class T>
+	[[nodiscard]] static T extract_form_params(
+		RequestView const &req) {
+		auto const members = JsonMembers<T>::members();
+		return extract_form_params_impl<T>(
+			req,
+			members,
+			std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<decltype(members)>>>{});
+	}
+#endif
+
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
@@ -2163,6 +2277,14 @@ public:
 						req.template form_as<FormValue>(detail::FormType<Clean>::name.view()),
 						"Form")};
 			}
+#if CONFLUX_HAS_JSON
+		} else if constexpr (detail::QueryParamsArg<Clean>) {
+			using QueryValue = typename detail::QueryParamsType<Clean>::type;
+			return Clean{.value = extract_query_params<QueryValue>(req)};
+		} else if constexpr (detail::FormParamsArg<Clean>) {
+			using FormValue = typename detail::FormParamsType<Clean>::type;
+			return Clean{.value = extract_form_params<FormValue>(req)};
+#endif
 		} else if constexpr (detail::BodyTextArg<Clean>) {
 			return BodyText{.value = req.body};
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
@@ -2213,7 +2335,7 @@ public:
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
-				"http::BodyText, http::JsonDocument, "
+				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::JsonDocument, "
 				"http::BodyBytes, http::OwnedBodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, "
 				"http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");
