@@ -32,15 +32,15 @@ Supported handler shapes:
 
 | Shape | Placement | Intended use |
 |---|---|---|
-| `HttpResponse` from `HttpRequestView` or `HttpRequest` | ring thread | short, bounded, non-blocking work |
-| `root::Task<HttpResponse>` from owning `HttpRequest` | executor-owned task progress | workflows with explicit suspension points |
+| `http::Response` from `http::RequestView` or `http::Request` | ring thread | short, bounded, non-blocking work |
+| `http::Task<http::Response>` from owning `http::Request` | executor-owned task progress | workflows with explicit suspension points |
 | deferred/streaming response | ring-owned response handle plus explicit async writer task | chunked output, SSE-style response bodies, delayed completion |
 | explicit `http::offload(pool, ...)` or equivalent caller-owned executor handoff | chosen worker/executor | blocking or CPU-heavy work made visible at the call site |
 
-`HttpRequestView` is borrowed from the active request buffer. Handlers that may
-suspend must use an owning `HttpRequest` so views cannot dangle across coroutine
-suspension. At the first-contact `conflux::http` API, use `HttpRequestView` for
-synchronous handlers and `HttpRequest` for coroutine handlers or escaped request
+`http::RequestView` is borrowed from the active request buffer. Handlers that may
+suspend must use an owning `http::Request` so views cannot dangle across coroutine
+suspension. At the first-contact `conflux::http` API, use `http::RequestView` for
+synchronous handlers and `http::Request` for coroutine handlers or escaped request
 data.
 
 Synchronous ring-thread handlers may parse headers, inspect already-buffered body
@@ -94,7 +94,7 @@ Reject or request redesign when a patch:
 - adds a task type or task progress path that is not executor-owned;
 - hides arbitrary synchronous HTTP handler work behind automatic worker-pool
   offload;
-- makes an `HttpRequestView` coroutine handler possible across suspension;
+- makes an `http::RequestView` coroutine handler possible across suspension;
 - calls blocking disk, DNS, HTTP client, DB, sleep, or heavy CPU work inline from
   a ring-thread synchronous handler;
 - names an executor-owned synchronous facade `blocking_*`;
@@ -107,7 +107,7 @@ Prefer patches that:
 
 - keep synchronous HTTP handlers short and ring-local;
 - make worker-pool or executor handoff explicit at the handler call site;
-- use owning `HttpRequest` for async/context handlers;
+- use owning `http::Request` for async/context handlers;
 - isolate temporary wait bridges behind one clearly named compatibility adapter;
 - update `docs/naming-audit.md` instead of renaming unrelated surfaces.
 

@@ -70,11 +70,11 @@ Use the simplest shape that matches the work, while preserving the placement
 contract from `docs/execution-model.md` and the review checklist in
 `docs/concurrency-naming-model.md`:
 
-- Fast synchronous work: accept `HttpRequestView` and return
-  `HttpResponse` directly. `HttpRequestView` is the first-contact sync request
+- Fast synchronous work: accept `http::RequestView` and return
+  `http::Response` directly. `http::RequestView` is the first-contact sync request
   type. This code executes on the HTTP ring thread.
-- Async workflow with coroutine-style composition: accept owning `HttpRequest`
-  and return `conflux::work::root::Task<HttpResponse>`. Task progress is
+- Async workflow with coroutine-style composition: accept owning `http::Request`
+  and return `http::Task<http::Response>`. Task progress is
   executor-owned; borrowed request views must not cross suspension.
 - Blocking or heavy CPU work must be made explicit: schedule executor-owned
   work through the chosen executor, or call a raw syscall-style helper whose
@@ -83,30 +83,23 @@ contract from `docs/execution-model.md` and the review checklist in
 Example:
 
 ```cpp
-import conflux.net.http.server;
-import conflux.work;
+import conflux.http;
+import std;
 
 namespace http = conflux::http;
 
 int main() {
-	auto app = http::App::default_server();
+	auto app = http::app();
 
-	app.get("/sync", [](HttpRequestView const &) {
-		return HttpResponse::text("ok");
+	app.get("/sync", [](http::RequestView const &) {
+		return http::text("ok");
 	});
 
-	app.get("/task", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
-		auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-		(void)source.try_set_value(conflux::work::root::Success<HttpResponse>{HttpResponse::text("task-ok")});
-		return std::move(task);
+	app.get("/task", [](http::Request const &) -> http::Task<http::Response> {
+		co_return http::text("task-ok");
 	});
 
-	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
-	app.get("/defer", [pool](HttpRequestView const &) {
-		return http::offload(pool, [] { return HttpResponse::text("defer-ok"); });
-	});
-
-	std::move(app).run({.port = 9090});
+	return http::run(std::move(app), {.port = 9090});
 }
 ```
 
@@ -120,7 +113,7 @@ that can stall must not be hidden inside ordinary sync handlers.
 
 Preferred explicit options:
 
-- Return `conflux::work::root::Task<HttpResponse>` when the handler naturally
+- Return `http::Task<http::Response>` when the handler naturally
   composes with coroutine/task suspension. The task still progresses through an
   executor; there is no non-executor task path.
 - Use a caller-owned executor/work pool for blocking callables where that is the
@@ -142,15 +135,15 @@ threshold emit a warning to `stderr` with method, path, and elapsed ms.
 Example:
 
 ```cpp
-import conflux.net.http.server;
+import conflux.http;
 
 namespace http = conflux::http;
 
 int main() {
-	auto app = http::App::default_server();
+	auto app = http::app();
 	app.config().slow_handler_diagnostics = true;
 	app.config().slow_handler_warn_ms = 10;
-	app.get("/ping", [](HttpRequest const &) { return HttpResponse::text("ok"); });
-	std::move(app).run({.port = 9090});
+	app.get("/ping", [](http::Request const &) { return http::text("ok"); });
+	return http::run(std::move(app), {.port = 9090});
 }
 ```
