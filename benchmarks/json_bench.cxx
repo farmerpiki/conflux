@@ -404,8 +404,8 @@ void bench_accumulate_chunked(
 			std::size_t remaining = corpus.size();
 			while (remaining > 0) {
 				std::size_t const n = std::min(chunk_size, remaining);
-				auto feed = acc.feed(std::span<byte const>{
-					reinterpret_cast<byte const *>(ptr),
+				auto feed = acc.feed(std::span<std::byte const>{
+					reinterpret_cast<std::byte const *>(ptr),
 					n});
 				if (!feed) {
 					throw std::runtime_error{"json accumulator feed failed"};
@@ -530,12 +530,12 @@ conflux::work::root::Task<void> decode_file_once(
 	std::array<std::uint8_t, 8192> buf{};
 	std::uint64_t off = 0;
 	for (;;) {
-		auto got = co_await files.read_into(handle, off, as_writable_bytes(span{buf}));
+		auto got = co_await files.read_into(handle, off, std::as_writable_bytes(std::span{buf}));
 		if (got == 0) {
 			break;
 		}
 		off += got;
-		auto feed = acc.feed(std::span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		auto feed = acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(buf.data()), got});
 		if (!feed) {
 			throw std::runtime_error{"json accumulator feed failed"};
 		}
@@ -558,7 +558,7 @@ conflux::work::root::Task<void> decode_socket_once(
 		if (got == 0) {
 			break;
 		}
-		auto feed = acc.feed(std::span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		auto feed = acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(buf.data()), got});
 		if (!feed) {
 			throw std::runtime_error{"json accumulator feed failed"};
 		}
@@ -1105,7 +1105,7 @@ int main(
 		argc,
 		argv,
 		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
-	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_csv = cfg.json_out;
 	if (!g_csv) {
 		std::println("[json-bench] building corpora…");
