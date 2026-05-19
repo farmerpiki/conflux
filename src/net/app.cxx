@@ -1534,6 +1534,15 @@ public:
 					out +=
 						R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
 				}
+				if (!route.auth_policy->empty()) {
+					out += R"(,"401":{"description":"Unauthorized"})";
+				}
+				if (!route.rate_limit->name.empty()) {
+					out += R"(,"429":{"description":"Too Many Requests"})";
+				}
+				if (route.timeout->count() != 0) {
+					out += R"(,"504":{"description":"Gateway Timeout"})";
+				}
 				out += "}";
 			}
 			out += "}";

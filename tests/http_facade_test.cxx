@@ -658,11 +658,15 @@ TEST_CASE(
 	auto app = http::app();
 	app.post("/upload", [](http::BodyText) { return http::no_content(); })
 		.timeout(std::chrono::seconds{5})
-		.rate_limit("uploads");
+		.rate_limit("uploads")
+		.auth_policy("user");
 
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("x-timeout-ms":5000)") != std::string::npos);
 	CHECK(spec.find(R"("x-rate-limit":"uploads")") != std::string::npos);
+	CHECK(spec.find(R"("401":{"description":"Unauthorized"})") != std::string::npos);
+	CHECK(spec.find(R"("429":{"description":"Too Many Requests"})") != std::string::npos);
+	CHECK(spec.find(R"("504":{"description":"Gateway Timeout"})") != std::string::npos);
 }
 
 TEST_CASE(
