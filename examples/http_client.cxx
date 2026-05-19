@@ -7,7 +7,6 @@
 //   build/debug-clang-libcxx/conflux_http_client
 import conflux.net.http.client;
 import std;
-import conflux.types;
 
 namespace http = conflux::http;
 int main() {
