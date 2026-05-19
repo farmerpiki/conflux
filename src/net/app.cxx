@@ -5,6 +5,7 @@ module;
 export module conflux.net.app;
 
 import :json_helpers;
+import :openapi;
 export import :policies;
 export import :response;
 import :route_helpers;
@@ -709,186 +710,28 @@ public:
 	[[nodiscard]] std::string openapi_spec(
 		std::string_view title = "API",
 		std::string_view version = "1.0.0") const {
-		auto json_str = [](std::string_view value) {
-			std::string out = "\"";
-			for (auto const ch: value) {
-				auto const c = static_cast<unsigned char>(ch);
-				if (c == '"') {
-					out += "\\\"";
-				} else if (c == '\\') {
-					out += "\\\\";
-				} else if (c == '\n') {
-					out += "\\n";
-				} else if (c == '\r') {
-					out += "\\r";
-				} else if (c == '\t') {
-					out += "\\t";
-				} else if (c < 0x20) {
-					out += std::format("\\u{:04x}", c);
-				} else {
-					out += static_cast<char>(c);
-				}
-			}
-			out += '"';
-			return out;
-		};
-		auto method_key = [](std::string_view method) {
-			std::string out;
-			out.reserve(method.size());
-			for (char const ch: method) {
-				out += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-			}
-			return out;
-		};
-		auto schema_for_path_type = [](std::string_view type) {
-			if (type == "u64") {
-				return std::string{R"({"type":"integer","format":"uint64","minimum":0})"};
-			}
-			if (type == "i64") {
-				return std::string{R"({"type":"integer","format":"int64"})"};
-			}
-			if (type == "u32") {
-				return std::string{R"({"type":"integer","format":"uint32","minimum":0})"};
-			}
-			if (type == "i32") {
-				return std::string{R"({"type":"integer","format":"int32"})"};
-			}
-			return std::string{R"({"type":"string"})"};
-		};
-
-		std::string out;
-		out += R"({"openapi":"3.0.0","info":{"title":)";
-		out += json_str(title);
-		out += R"(,"version":)";
-		out += json_str(version);
-		out += R"(})";
-		bool has_auth_policy = false;
+		std::vector<detail::AppOpenApiRoute> routes;
+		routes.reserve(route_metadata_.size());
 		for (auto const &route: route_metadata_) {
-			if (!route.auth_policy->empty()) {
-				has_auth_policy = true;
-				break;
-			}
+			routes.push_back(
+				detail::AppOpenApiRoute{
+					.method = route.method,
+					.path = route.path,
+					.name = route.name,
+					.openapi_summary = route.openapi_summary,
+					.auth_policy = *route.auth_policy,
+					.timeout = *route.timeout,
+					.rate_limit = route.rate_limit->name,
+					.path_params = route.path_params,
+					.path_param_types = route.path_param_types,
+					.consumes = route.consumes,
+					.request_body_schema = route.request_body_schema,
+					.success_status = route.success_status,
+					.produces = route.produces,
+					.response_schema = route.response_schema,
+					.problem_response = route.problem_response});
 		}
-		if (has_auth_policy) {
-			out += R"(,"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}})";
-		}
-		out += R"(,"paths":{)";
-		std::vector<std::string> path_order;
-		std::map<std::string, std::vector<AppRouteMetadata const *>> routes_by_path;
-		for (auto const &route: route_metadata_) {
-			auto [it, inserted] = routes_by_path.try_emplace(route.path);
-			if (inserted) {
-				path_order.push_back(route.path);
-			}
-			it->second.push_back(std::addressof(route));
-		}
-		for (std::size_t path_index = 0; path_index < path_order.size(); ++path_index) {
-			auto const &path = path_order[path_index];
-			auto const &routes = routes_by_path.at(path);
-			if (path_index != 0) {
-				out += ',';
-			}
-			out += json_str(path);
-			out += ":{";
-			for (std::size_t route_index = 0; route_index < routes.size(); ++route_index) {
-				auto const &route = *routes[route_index];
-				if (route_index != 0) {
-					out += ',';
-				}
-				out += json_str(method_key(route.method));
-				out += ":{";
-				if (!route.name.empty()) {
-					out += R"("operationId":)";
-					out += json_str(route.name);
-					out += ',';
-				}
-				if (!route.openapi_summary.empty()) {
-					out += R"("summary":)";
-					out += json_str(route.openapi_summary);
-					out += ',';
-				}
-				if (!route.auth_policy->empty()) {
-					out += R"("security":[{"bearerAuth":[]}],"x-auth-policy":)";
-					out += json_str(*route.auth_policy);
-					out += ',';
-				}
-				if (route.timeout->count() != 0) {
-					out += R"("x-timeout-ms":)";
-					out += std::to_string(route.timeout->count());
-					out += ',';
-				}
-				if (!route.rate_limit->name.empty()) {
-					out += R"("x-rate-limit":)";
-					out += json_str(route.rate_limit->name);
-					out += ',';
-				}
-				out += R"("parameters":[)";
-				for (std::size_t i = 0; i < route.path_params.size(); ++i) {
-					if (i != 0) {
-						out += ',';
-					}
-					out += R"({"name":)";
-					out += json_str(route.path_params[i]);
-					out += R"(,"in":"path","required":true,"schema":)";
-					if (auto type = route.path_param_types.find(route.path_params[i]);
-						type != route.path_param_types.end()) {
-						out += schema_for_path_type(type->second);
-					} else {
-						out += schema_for_path_type({});
-					}
-					out += "}";
-				}
-				out += ']';
-				if (!route.consumes.empty()) {
-					out += R"(,"requestBody":{"content":{)";
-					for (std::size_t i = 0; i < route.consumes.size(); ++i) {
-						if (i != 0) {
-							out += ',';
-						}
-						out += json_str(route.consumes[i]);
-						out += R"(:{"schema":)";
-						out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
-						out += "}";
-					}
-					out += "}}";
-				}
-				out += R"(,"responses":{)";
-				out += json_str(std::to_string(route.success_status));
-				out += R"(:{"description":)";
-				out += json_str(route.success_status == kHttpCreated ? "Created" : "OK");
-				if (!route.produces.empty()) {
-					out += R"(,"content":{)";
-					for (std::size_t i = 0; i < route.produces.size(); ++i) {
-						if (i != 0) {
-							out += ',';
-						}
-						out += json_str(route.produces[i]);
-						out += R"(:{"schema":)";
-						out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
-						out += "}";
-					}
-					out += "}";
-				}
-				out += "}";
-				if (route.problem_response) {
-					out +=
-						R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
-				}
-				if (!route.auth_policy->empty()) {
-					out += R"(,"401":{"description":"Unauthorized"})";
-				}
-				if (!route.rate_limit->name.empty()) {
-					out += R"(,"429":{"description":"Too Many Requests"})";
-				}
-				if (route.timeout->count() != 0) {
-					out += R"(,"504":{"description":"Gateway Timeout"})";
-				}
-				out += "}";
-			}
-			out += "}";
-		}
-		out += "}}";
-		return out;
+		return detail::render_openapi_spec(routes, title, version);
 	}
 	[[nodiscard]] Router::Handler openapi_handler(
 		std::string_view title = "API",
