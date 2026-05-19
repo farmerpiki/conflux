@@ -480,6 +480,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: ordinary verbs accept context handlers",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/context", [](http::Request const &, RequestContext const &) -> http::Task<http::Response> {
+		co_return http::text("context");
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].method == "GET");
+	CHECK(routes[0].path == "/context");
+	CHECK(routes[0].handler_kind == "context");
+	CHECK(routes[0].extractors == std::vector<std::string>{"Request"});
+	CHECK(app.router().has_context_routes());
+}
+
+TEST_CASE(
 	"http facade: verb helpers return route metadata handles",
 	"[http.facade]") {
 	auto app = http::app();

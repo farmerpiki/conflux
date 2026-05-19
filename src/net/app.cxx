@@ -268,6 +268,26 @@ public:
 #endif
 						*timeout);
 				});
+		} else if constexpr (ContextHandlerFunction<Fn>) {
+			record_route_metadata<std::tuple<Request>>(method, path, "context", loc);
+			record_return_metadata<conflux::work::root::Task<HttpResponse>>();
+			auto auth_policy = route_metadata_.back().auth_policy;
+			auto rate_limit = route_metadata_.back().rate_limit;
+			router_.add_context(
+				method,
+				path,
+				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](
+					Request const &req,
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<HttpResponse> {
+					RequestView const view{req};
+					if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
+						co_return *std::move(denied);
+					}
+					if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
+						co_return *std::move(limited);
+					}
+					co_return co_await fn(req, ctx);
+				});
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
 		}
