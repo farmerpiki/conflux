@@ -2025,6 +2025,7 @@ target_sources(conflux_http_app
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
             src/net/app_json_helpers.cxx
+            src/net/app_route_helpers.cxx
             src/net/app.cxx
 )
 target_link_libraries(conflux_http_app

@@ -5,6 +5,7 @@ module;
 export module conflux.net.app;
 
 import :json_helpers;
+import :route_helpers;
 import std;
 import conflux.types;
 import conflux.net.config;
@@ -1570,7 +1571,7 @@ public:
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen_shapes;
 		for (auto const &route: route_metadata_) {
-			if (auto pattern_issue = validate_path_pattern(route.path)) {
+			if (auto pattern_issue = detail::validate_path_pattern(route.path)) {
 				report.issues.push_back(
 					ValidationIssue{
 						.message = *pattern_issue,
@@ -1592,7 +1593,7 @@ public:
 						.related_source_file = it->second->source_file,
 						.related_source_line = it->second->source_line});
 			}
-			auto shape_key = std::pair{route.method, route_shape(route.path)};
+			auto shape_key = std::pair{route.method, detail::route_shape(route.path)};
 			auto [shape_it, shape_inserted] = seen_shapes.emplace(shape_key, std::addressof(route));
 			if (!shape_inserted && shape_it->second->path != route.path) {
 				report.issues.push_back(
@@ -1822,68 +1823,6 @@ public:
 		}
 	}
 
-	[[nodiscard]] static std::optional<std::string> validate_path_pattern(
-		std::string_view path) {
-		if (path.empty() || path.front() != '/') {
-			return "invalid route pattern: path must start with /";
-		}
-		for (std::size_t pos = 0, segment_index = 0;; ++segment_index) {
-			auto next = path.find('/', pos + 1);
-			auto segment =
-				path.substr(pos + 1, next == std::string_view::npos ? path.size() - pos - 1 : next - pos - 1);
-			auto const open = segment.find('{');
-			auto const close = segment.find('}');
-			if ((open == std::string_view::npos) != (close == std::string_view::npos) || open > close) {
-				return "invalid route pattern: unmatched path parameter braces";
-			}
-			if (open != std::string_view::npos) {
-				if (open != 0 || close + 1 != segment.size()) {
-					return "invalid route pattern: path parameter must occupy the full segment";
-				}
-				auto name = segment.substr(1, segment.size() - 2);
-				bool const wildcard = name.starts_with('*');
-				if (wildcard) {
-					name.remove_prefix(1);
-					if (next != std::string_view::npos) {
-						return "invalid route pattern: wildcard parameter must be the final segment";
-					}
-				}
-				if (name.empty()) {
-					return "invalid route pattern: path parameter name is empty";
-				}
-			}
-			(void)segment_index;
-			if (next == std::string_view::npos) {
-				break;
-			}
-			pos = next;
-		}
-		return std::nullopt;
-	}
-
-	[[nodiscard]] static std::string_view trim_ascii(
-		std::string_view value) noexcept {
-		while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
-			value.remove_prefix(1);
-		}
-		while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
-			value.remove_suffix(1);
-		}
-		return value;
-	}
-
-	[[nodiscard]] static std::optional<std::string_view> credentials_for_scheme(
-		std::string_view auth,
-		std::string_view scheme) noexcept {
-		if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
-			return std::nullopt;
-		}
-		if (!ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
-			return std::nullopt;
-		}
-		return trim_ascii(auth.substr(scheme.size() + 1));
-	}
-
 #if CONFLUX_HAS_JSON
 	template<class T>
 	[[nodiscard]] static HttpResponse into_app_response(
@@ -1925,7 +1864,7 @@ public:
 		if (policy.empty()) {
 			return std::nullopt;
 		}
-		auto token = credentials_for_scheme(req.header("authorization"), "Bearer");
+		auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
 		if (!token || token->empty()) {
 			return HttpResponse::unauthorized("Bearer");
 		}
@@ -1999,28 +1938,6 @@ public:
 			}
 		}
 		return response;
-	}
-
-	[[nodiscard]] static std::string route_shape(
-		std::string_view path) {
-		std::string out;
-		out.reserve(path.size());
-		for (std::size_t pos = 0;;) {
-			auto next = path.find('/', pos + 1);
-			auto segment =
-				path.substr(pos + 1, next == std::string_view::npos ? path.size() - pos - 1 : next - pos - 1);
-			out += '/';
-			if (segment.size() >= 2 && segment.front() == '{' && segment.back() == '}') {
-				out += segment.starts_with("{*") ? "{*}" : "{}";
-			} else {
-				out += segment;
-			}
-			if (next == std::string_view::npos) {
-				break;
-			}
-			pos = next;
-		}
-		return out.empty() ? "/" : out;
 	}
 
 	template<class Args, std::size_t... Is>
@@ -2197,62 +2114,6 @@ public:
 	}
 #endif
 
-	[[nodiscard]] static std::vector<std::string> collect_path_params(
-		std::string_view path) {
-		std::vector<std::string> out;
-		for (std::size_t pos = 0; pos < path.size();) {
-			auto open = path.find('{', pos);
-			if (open == std::string_view::npos) {
-				break;
-			}
-			auto close = path.find('}', open + 1);
-			if (close == std::string_view::npos) {
-				break;
-			}
-			auto name = path.substr(open + 1, close - open - 1);
-			if (name.starts_with('*')) {
-				name.remove_prefix(1);
-			}
-			if (auto colon = name.find(':'); colon != std::string_view::npos) {
-				name = name.substr(0, colon);
-			}
-			if (!name.empty()) {
-				out.emplace_back(name);
-			}
-			pos = close + 1;
-		}
-		return out;
-	}
-
-	[[nodiscard]] static std::map<std::string, std::string> collect_path_param_types(
-		std::string_view path) {
-		std::map<std::string, std::string> out;
-		for (std::size_t pos = 0; pos < path.size();) {
-			auto open = path.find('{', pos);
-			if (open == std::string_view::npos) {
-				break;
-			}
-			auto close = path.find('}', open + 1);
-			if (close == std::string_view::npos) {
-				break;
-			}
-			auto name = path.substr(open + 1, close - open - 1);
-			if (name.starts_with('*')) {
-				name.remove_prefix(1);
-			}
-			std::string_view type;
-			if (auto colon = name.find(':'); colon != std::string_view::npos) {
-				type = name.substr(colon + 1);
-				name = name.substr(0, colon);
-			}
-			if (!name.empty()) {
-				out.emplace(std::string{name}, std::string{type});
-			}
-			pos = close + 1;
-		}
-		return out;
-	}
-
 	template<class Args>
 	void record_route_metadata(
 		std::string_view method,
@@ -2272,8 +2133,8 @@ public:
 			meta.path_extractor_types,
 			meta.path_index_extractor_types,
 			std::make_index_sequence<std::tuple_size_v<Args>>{});
-		meta.path_params = collect_path_params(path);
-		meta.path_param_types = collect_path_param_types(path);
+		meta.path_params = detail::collect_path_params(path);
+		meta.path_param_types = detail::collect_path_param_types(path);
 		append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.uses_body = has_body_extractor<Args>() || handler_kind == "json_body";
 		if constexpr (has_body_extractor<Args>()) {
@@ -2569,10 +2430,10 @@ public:
 		} else if constexpr (detail::TraceContextArg<Clean>) {
 			return TraceContext{.traceparent = req.header("traceparent")};
 		} else if constexpr (detail::BearerArg<Clean>) {
-			auto token = credentials_for_scheme(req.header("authorization"), "Bearer");
+			auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
 			return Bearer{.token = token.value_or(std::string_view{})};
 		} else if constexpr (detail::BasicAuthArg<Clean>) {
-			auto credentials = credentials_for_scheme(req.header("authorization"), "Basic");
+			auto credentials = detail::credentials_for_scheme(req.header("authorization"), "Basic");
 			if (!credentials) {
 				return BasicAuth{};
 			}
