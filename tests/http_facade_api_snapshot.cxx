@@ -88,7 +88,6 @@ void response_helpers_compile() {
 	(void)http::redirect("/next");
 	(void)http::stream([](http::StreamSink &sink) { sink.write("chunk"); });
 	(void)http::json(Payload{.value = "ok"});
-	(void)http::json(Payload{.value = "ok"});
 	(void)http::created(Payload{.value = "ok"});
 }
 
