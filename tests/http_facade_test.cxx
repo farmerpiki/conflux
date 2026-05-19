@@ -309,6 +309,17 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: listen validates before creating server",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
+
+	auto server = std::move(app).listen();
+	REQUIRE_FALSE(server.has_value());
+	CHECK(server.error() == "GET /needs-state: missing app state");
+}
+
+TEST_CASE(
 	"http facade: app handlers can return Json wrappers",
 	"[http.facade]") {
 	auto app = http::app();
