@@ -553,6 +553,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app groups apply scoped middleware to extractor routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api", [](auto &group) {
+		group.use([](http::RequestView const &req, http::Next const &next) {
+			auto response = next(req);
+			response.headers.set("x-group", "api");
+			return response;
+		});
+		(void)group.get("/items/{id}", [](http::Path<"id", std::uint64_t> id) {
+			return http::text(std::format("item={}", id.get()));
+		});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].middleware_count == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/api/items/42";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.headers.get("x-group") == "api");
+	CHECK(response.text_body() == "item=42");
+}
+
+TEST_CASE(
 	"http facade: app groups support typed route patterns",
 	"[http.facade]") {
 	auto app = http::app();

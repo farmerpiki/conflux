@@ -44,6 +44,7 @@ inline constexpr bool IsTaskResultV = IsTaskResult<std::remove_cvref_t<T>>::valu
 
 class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
+	using ScopedMiddlewareList = std::vector<Router::Middleware>;
 
 	struct AppRouteMetadata {
 		std::string method;
@@ -81,6 +82,28 @@ class App {
 		std::string source_file;
 		std::uint_least32_t source_line{};
 	};
+
+	[[nodiscard]] std::shared_ptr<ScopedMiddlewareList const> current_group_middlewares() const {
+		if (group_middlewares_ == nullptr || group_middlewares_->empty()) {
+			return {};
+		}
+		return std::make_shared<ScopedMiddlewareList>(*group_middlewares_);
+	}
+
+	[[nodiscard]] static HttpResponse run_scoped_middlewares(
+		std::shared_ptr<ScopedMiddlewareList const> const &middlewares,
+		RequestView const &req,
+		Router::Handler inner) {
+		if (!middlewares || middlewares->empty()) {
+			return inner(req);
+		}
+		for (auto it = middlewares->rbegin(); it != middlewares->rend(); ++it) {
+			auto mw = *it;
+			auto next = std::move(inner);
+			inner = [mw = std::move(mw), next = std::move(next)](RequestView const &r) mutable { return mw(r, next); };
+		}
+		return inner(req);
+	}
 
 public:
 	class RouteRef {
@@ -183,6 +206,7 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+			auto scoped_middlewares = current_group_middlewares();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
@@ -192,23 +216,33 @@ public:
 				[auth_policy,
 				 rate_limit,
 				 timeout,
+				 scoped_middlewares,
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
 				 fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
-					if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
-						return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, req)) {
-						return *std::move(limited);
-					}
-					return detail::apply_route_timeout(
+					Router::Handler inner = [auth_policy,
+											 rate_limit,
+											 timeout,
 #if CONFLUX_HAS_JSON
-						into_app_response(fn(), *json_options),
-#else
-						into_app_response(fn()),
+											 json_options,
 #endif
-						*timeout);
+											 &fn](RequestView const &inner_req) mutable {
+						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+							return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+							return *std::move(limited);
+						}
+						return detail::apply_route_timeout(
+#if CONFLUX_HAS_JSON
+							into_app_response(fn(), *json_options),
+#else
+							into_app_response(fn()),
+#endif
+							*timeout);
+					};
+					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (requires(Fn &fn, RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -218,6 +252,7 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+			auto scoped_middlewares = current_group_middlewares();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
@@ -227,23 +262,33 @@ public:
 				[auth_policy,
 				 rate_limit,
 				 timeout,
+				 scoped_middlewares,
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
-						return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, req)) {
-						return *std::move(limited);
-					}
-					return detail::apply_route_timeout(
+					Router::Handler inner = [auth_policy,
+											 rate_limit,
+											 timeout,
 #if CONFLUX_HAS_JSON
-						into_app_response(fn(req), *json_options),
-#else
-						into_app_response(fn(req)),
+											 json_options,
 #endif
-						*timeout);
+											 &fn](RequestView const &inner_req) mutable {
+						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+							return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+							return *std::move(limited);
+						}
+						return detail::apply_route_timeout(
+#if CONFLUX_HAS_JSON
+							into_app_response(fn(inner_req), *json_options),
+#else
+							into_app_response(fn(inner_req)),
+#endif
+							*timeout);
+					};
+					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -253,6 +298,7 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+			auto scoped_middlewares = current_group_middlewares();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
@@ -262,24 +308,34 @@ public:
 				[auth_policy,
 				 rate_limit,
 				 timeout,
+				 scoped_middlewares,
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
-						return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, req)) {
-						return *std::move(limited);
-					}
-					auto owned = req.to_owned();
-					return detail::apply_route_timeout(
+					Router::Handler inner = [auth_policy,
+											 rate_limit,
+											 timeout,
 #if CONFLUX_HAS_JSON
-						into_app_response(fn(owned), *json_options),
-#else
-						into_app_response(fn(owned)),
+											 json_options,
 #endif
-						*timeout);
+											 &fn](RequestView const &inner_req) mutable {
+						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+							return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+							return *std::move(limited);
+						}
+						auto owned = inner_req.to_owned();
+						return detail::apply_route_timeout(
+#if CONFLUX_HAS_JSON
+							into_app_response(fn(owned), *json_options),
+#else
+							into_app_response(fn(owned)),
+#endif
+							*timeout);
+					};
+					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
 			record_route_metadata<std::tuple<Request>>(method, path, "context", loc);
@@ -611,11 +667,24 @@ public:
 	class Group {
 	public:
 		template<typename F>
+		Group &use(
+			F &&middleware) {
+			middlewares_.emplace_back(std::forward<F>(middleware));
+			return *this;
+		}
+		template<typename F>
 		[[nodiscard]] RouteRef add(
 			std::string_view method,
 			std::string_view path,
 			F &&handler,
 			std::source_location loc = std::source_location::current()) {
+			auto *previous = app_.group_middlewares_;
+			app_.group_middlewares_ = &middlewares_;
+			struct Restore {
+				App &app;
+				ScopedMiddlewareList *previous;
+				~Restore() { app.group_middlewares_ = previous; }
+			} restore{app_, previous};
 			return app_.add_route_ref(method, full_path(path), std::forward<F>(handler), loc);
 		}
 		template<typename F>
@@ -716,6 +785,7 @@ public:
 
 		App &app_;
 		std::string prefix_;
+		ScopedMiddlewareList middlewares_;
 	};
 
 	template<typename F>
@@ -1195,7 +1265,9 @@ public:
 			.handler_kind = std::string{handler_kind},
 			.source_file = loc.file_name(),
 			.source_line = loc.line(),
-			.middleware_count = middleware_count_};
+			.middleware_count =
+				middleware_count_
+				+ (group_middlewares_ == nullptr ? 0U : static_cast<std::size_t>(group_middlewares_->size()))};
 		detail::append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractor_types<Args>(
@@ -1513,6 +1585,7 @@ public:
 		auto auth_policy = route_metadata_.back().auth_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
+		auto scoped_middlewares = current_group_middlewares();
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
@@ -1560,6 +1633,7 @@ public:
 				 auth_policy,
 				 rate_limit,
 				 timeout,
+				 scoped_middlewares,
 				 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
 					 ,
@@ -1567,25 +1641,38 @@ public:
 				 json_options
 #endif
 			](RequestView const &req) mutable {
-					if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
-						return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, req)) {
-						return *std::move(limited);
-					}
-					return detail::apply_route_timeout(
-						invoke_extracted<Args>(
-							*states,
-							fn,
-							req,
-							std::make_index_sequence<std::tuple_size_v<Args>>{}
+					Router::Handler inner = [states,
+											 auth_policy,
+											 rate_limit,
+											 timeout,
+											 &fn
 #if CONFLUX_HAS_JSON
-							,
-							*json_options,
-							*max_body_size
+											 ,
+											 max_body_size,
+											 json_options
 #endif
-							),
-						*timeout);
+					](RequestView const &inner_req) mutable {
+						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+							return *std::move(denied);
+						}
+						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+							return *std::move(limited);
+						}
+						return detail::apply_route_timeout(
+							invoke_extracted<Args>(
+								*states,
+								fn,
+								inner_req,
+								std::make_index_sequence<std::tuple_size_v<Args>>{}
+#if CONFLUX_HAS_JSON
+								,
+								*json_options,
+								*max_body_size
+#endif
+								),
+							*timeout);
+					};
+					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		}
 		return *this;
@@ -1732,6 +1819,7 @@ private:
 	std::vector<AppRouteMetadata> route_metadata_;
 	std::vector<StaticMountMetadata> static_mounts_;
 	std::size_t middleware_count_{};
+	ScopedMiddlewareList *group_middlewares_{};
 	bool openapi_strict_{};
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
