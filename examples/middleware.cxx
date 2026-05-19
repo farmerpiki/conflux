@@ -9,6 +9,56 @@
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
 import conflux.http;
 import std;
+
+struct PingReply {
+	std::string status;
+	std::string request_id;
+	std::string traceparent;
+};
+
+template<>
+struct JsonMembers<PingReply> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("status", &PingReply::status),
+			json_member("request_id", &PingReply::request_id),
+			json_member("traceparent", &PingReply::traceparent),
+		};
+	}
+};
+
+struct ProfileReply {
+	std::string user;
+	std::string request_id;
+	std::string remote_addr;
+};
+
+template<>
+struct JsonMembers<ProfileReply> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("user", &ProfileReply::user),
+			json_member("request_id", &ProfileReply::request_id),
+			json_member("remote_addr", &ProfileReply::remote_addr),
+		};
+	}
+};
+
+struct TokenReply {
+	std::string token;
+	std::string request_id;
+};
+
+template<>
+struct JsonMembers<TokenReply> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("token", &TokenReply::token),
+			json_member("request_id", &TokenReply::request_id),
+		};
+	}
+};
+
 int main() {
 	namespace http = conflux::http;
 	auto app = http::app();
@@ -29,11 +79,12 @@ int main() {
 	});
 
 	app.get("/public/ping", [](http::RequestId request_id, http::TraceContext trace) {
-		return http::json_response(
-			std::format(
-				R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
-				request_id.get(),
-				trace.traceparent));
+		return http::Json{
+			PingReply{
+					  .status = "ok",
+					  .request_id = std::string{request_id.get()},
+					  .traceparent = std::string{trace.traceparent}}
+        };
 	});
 
 	app.group("/private", [](http::Router::Group &g) {
@@ -41,11 +92,13 @@ int main() {
 			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
 		g.get("/profile", [](http::Request const &req) {
-			return http::json_response(
-				std::format(
-					R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
-					req.header("x-request-id"),
-					req.remote_addr));
+			return http::into_response(
+				http::Json{
+					ProfileReply{
+								 .user = "demo",
+								 .request_id = std::string{req.header("x-request-id")},
+								 .remote_addr = req.remote_addr}
+            });
 		});
 	});
 
@@ -53,8 +106,10 @@ int main() {
 		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
 		g.get("/token", [](http::Request const &req) {
-			return http::json_response(
-				std::format(R"({{"token":"accepted","request_id":"{}"}})", req.header("x-request-id")));
+			return http::into_response(
+				http::Json{
+					TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}
+            });
 		});
 	});
 

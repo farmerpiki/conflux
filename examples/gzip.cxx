@@ -6,6 +6,26 @@
 //   curl -s                              http://localhost:9093/api/data  # uncompressed
 import conflux.http;
 import std;
+
+struct DataReply {
+	std::string message;
+	std::string first;
+	std::string second;
+	std::string third;
+};
+
+template<>
+struct JsonMembers<DataReply> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("message", &DataReply::message),
+			json_member("first", &DataReply::first),
+			json_member("second", &DataReply::second),
+			json_member("third", &DataReply::third),
+		};
+	}
+};
+
 int main() {
 	namespace http = conflux::http;
 
@@ -23,8 +43,13 @@ int main() {
 	});
 
 	app.get("/api/data", [](http::RequestView const &) {
-		return http::json_response(
-			R"({"message":"JSON is also compressed when the client accepts gzip","items":[1,2,3]})");
+		return http::Json{
+			DataReply{
+					  .message = "JSON is also compressed when the client accepts gzip",
+					  .first = "1",
+					  .second = "2",
+					  .third = "3"}
+        };
 	});
 
 	auto const status = http::run(std::move(app), {.port = 9093});

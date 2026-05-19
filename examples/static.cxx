@@ -11,6 +11,24 @@
 
 import conflux.http;
 import std;
+
+struct StaticInfo {
+	std::string status;
+	std::string assets;
+	std::string routes;
+};
+
+template<>
+struct JsonMembers<StaticInfo> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("status", &StaticInfo::status),
+			json_member("assets", &StaticInfo::assets),
+			json_member("routes", &StaticInfo::routes),
+		};
+	}
+};
+
 static void write_file(
 	std::filesystem::path const &path,
 	std::string_view contents) {
@@ -37,10 +55,9 @@ int main() {
 	app.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
 
 	app.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
-		return http::json_response(
-			std::format(
-				R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})",
-				asset_dir));
+		return http::Json{
+			StaticInfo{.status = "ok", .assets = asset_dir, .routes = "/,/api/info,/assets/{*file}"}
+        };
 	});
 
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
