@@ -595,6 +595,13 @@ class App {
 		bool uses_body{};
 	};
 
+	struct StaticMountMetadata {
+		std::string url_prefix;
+		std::string root_dir;
+		std::string source_file;
+		std::uint_least32_t source_line{};
+	};
+
 public:
 	class RouteRef {
 	public:
@@ -926,7 +933,14 @@ public:
 	App &serve_static(
 		std::string_view url_prefix,
 		std::string root_dir,
-		StaticOptions const &sopts = {}) {
+		StaticOptions const &sopts = {},
+		std::source_location loc = std::source_location::current()) {
+		static_mounts_.push_back(
+			StaticMountMetadata{
+				.url_prefix = std::string{url_prefix},
+				.root_dir = root_dir,
+				.source_file = loc.file_name(),
+				.source_line = loc.line()});
 		router_.serve_static(url_prefix, std::move(root_dir), sopts);
 		return *this;
 	}
@@ -1242,6 +1256,29 @@ public:
 						.path = route.path,
 						.source_file = route.source_file,
 						.source_line = route.source_line});
+			}
+		}
+		for (auto const &mount: static_mounts_) {
+			std::error_code ec;
+			auto const status = std::filesystem::status(mount.root_dir, ec);
+			if (ec || !std::filesystem::exists(status)) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = std::format("static root does not exist: {}", mount.root_dir),
+						.method = "STATIC",
+						.path = mount.url_prefix,
+						.source_file = mount.source_file,
+						.source_line = mount.source_line});
+				continue;
+			}
+			if (!std::filesystem::is_directory(status)) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = std::format("static root is not a directory: {}", mount.root_dir),
+						.method = "STATIC",
+						.path = mount.url_prefix,
+						.source_file = mount.source_file,
+						.source_line = mount.source_line});
 			}
 		}
 		return report;
@@ -1833,6 +1870,7 @@ private:
 	std::shared_ptr<StateMap> states_;
 	std::vector<std::string> state_issues_;
 	std::vector<AppRouteMetadata> route_metadata_;
+	std::vector<StaticMountMetadata> static_mounts_;
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
 #endif

@@ -140,6 +140,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports missing static roots",
+	"[http.facade]") {
+	auto app = http::app();
+	app.serve_static("/assets", "/tmp/conflux-missing-static-root-for-test");
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].method == "STATIC");
+	CHECK(report.issues[0].path == "/assets");
+	CHECK(report.issues[0].message.find("static root does not exist") != std::string::npos);
+	CHECK(report.issues[0].source_file.ends_with("http_facade_test.cxx"));
+	CHECK(report.issues[0].source_line > 0);
+}
+
+TEST_CASE(
 	"http facade: validate accepts registered app state",
 	"[http.facade]") {
 	auto app = http::app();
