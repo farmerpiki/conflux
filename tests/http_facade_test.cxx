@@ -907,6 +907,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JSON document extractor honors app body limit",
+	"[http.facade]") {
+	auto app = http::app();
+	app.json_options(http::AppJsonOptions{.max_body_size = 8});
+	app.post("/json-doc", [](http::JsonDocument) { return http::no_content(); });
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/json-doc";
+	req.headers["content-type"] = "application/json";
+	req.body = R"({"value":"too large"})";
+
+	auto too_large = app.router().dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
+}
+
+TEST_CASE(
 	"http facade: JSON body routes enforce route-local body limits",
 	"[http.facade]") {
 	auto app = http::app();

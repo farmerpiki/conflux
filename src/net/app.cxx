@@ -2064,7 +2064,13 @@ public:
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
-		RequestView const &req) {
+		RequestView const &req
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
 		using Clean = std::remove_cvref_t<Arg>;
 		if constexpr (detail::RequestViewArg<Clean>) {
 			return req;
@@ -2150,7 +2156,11 @@ public:
 				&& !content_type.starts_with("application/problem+json")) {
 				throw ExtractorFailure{unsupported_json_content_type_problem()};
 			}
-			auto parsed = json::DefaultJsonProvider::parse_json_document(req.body, {.copy_input = false});
+			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
+			if (limit != 0 && req.body.size() > limit) {
+				throw ExtractorFailure{HttpResponse::content_too_large()};
+			}
+			auto parsed = json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{json_decode_problem(parsed.error())};
 			}
@@ -2195,9 +2205,24 @@ public:
 		StateMap const &states,
 		Fn &fn,
 		RequestView const &req,
-		std::index_sequence<Is...>) {
+		std::index_sequence<Is...>
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
 		try {
-			return into_response(fn(make_handler_arg<std::tuple_element_t<Is, Args>>(states, req)...));
+			return into_response(
+				fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
+					states,
+					req
+#if CONFLUX_HAS_JSON
+					,
+					json_options,
+					max_body_size
+#endif
+					)...));
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
@@ -2217,11 +2242,32 @@ public:
 		using Args = typename detail::CallableArgs<Fn>::type;
 		record_route_metadata<Args>(method, path, "app", loc);
 		record_extracted_return_metadata<Fn, Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
+#if CONFLUX_HAS_JSON
+		auto max_body_size = route_metadata_.back().max_body_size;
+		auto json_options = json_options_;
+#endif
 		router_.add(
 			method,
 			path,
-			[states = states_, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-				return invoke_extracted<Args>(*states, fn, req, std::make_index_sequence<std::tuple_size_v<Args>>{});
+			[states = states_,
+			 fn = Fn(std::forward<F>(handler))
+#if CONFLUX_HAS_JSON
+				 ,
+			 max_body_size,
+			 json_options
+#endif
+		](RequestView const &req) mutable {
+				return invoke_extracted<Args>(
+					*states,
+					fn,
+					req,
+					std::make_index_sequence<std::tuple_size_v<Args>>{}
+#if CONFLUX_HAS_JSON
+					,
+					*json_options,
+					*max_body_size
+#endif
+				);
 			});
 		return *this;
 	}
@@ -2238,7 +2284,7 @@ public:
 		} else if constexpr (detail::RawJsonBodyArg<Clean, Body>) {
 			return body.value;
 		} else {
-			return make_handler_arg<Arg>(states, req);
+			return make_handler_arg<Arg>(states, req, AppJsonOptions{}, 0);
 		}
 	}
 
