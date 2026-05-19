@@ -20,6 +20,26 @@ struct FacadeSearch {
 	std::uint32_t page{};
 };
 
+struct FacadeTodo {
+	std::int64_t id{};
+	std::string title;
+	bool done{};
+};
+
+struct FacadeCreateTodo {
+	std::string title;
+};
+
+struct FacadeTodoList {
+	std::vector<FacadeTodo> items;
+};
+
+struct FacadeTodoStore {
+	std::mutex mu;
+	std::vector<FacadeTodo> todos;
+	std::int64_t next_id{1};
+};
+
 template<>
 struct JsonMembers<FacadeAnswer> {
 	static constexpr auto members() {
@@ -39,6 +59,38 @@ struct JsonMembers<FacadeSearch> {
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeSearch"; }
+};
+
+template<>
+struct JsonMembers<FacadeTodo> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("id", &FacadeTodo::id),
+			json_member("title", &FacadeTodo::title),
+			json_member("done", &FacadeTodo::done),
+		};
+	}
+	static constexpr std::string_view type_name() { return "FacadeTodo"; }
+};
+
+template<>
+struct JsonMembers<FacadeCreateTodo> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("title", &FacadeCreateTodo::title),
+		};
+	}
+	static constexpr std::string_view type_name() { return "FacadeCreateTodo"; }
+};
+
+template<>
+struct JsonMembers<FacadeTodoList> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("items", &FacadeTodoList::items),
+		};
+	}
+	static constexpr std::string_view type_name() { return "FacadeTodoList"; }
 };
 
 TEST_CASE(
@@ -292,6 +344,47 @@ TEST_CASE(
 	CHECK(routes[0].extractors[1] == "Query<q>");
 	CHECK(routes[0].extractors[2] == "State");
 	CHECK(app.route_table() == "GET /meta/{id} [app] Path<id>,Query<q>,State");
+}
+
+TEST_CASE(
+	"http facade: json CRUD route table snapshot",
+	"[http.facade]") {
+	auto app = http::app();
+	auto store = std::make_shared<FacadeTodoStore>();
+	app.state(store);
+
+	app.get("/todos", [](http::State<FacadeTodoStore> todos) {
+		std::lock_guard lock{todos->mu};
+		return http::Json{FacadeTodoList{.items = todos->todos}};
+	});
+	app.get<"/todos/{id:i64}">(
+		[](http::Path<"id", std::int64_t> id,
+		   http::State<FacadeTodoStore> todos) -> std::expected<http::Json<FacadeTodo>, http::Problem> {
+			std::lock_guard lock{todos->mu};
+			auto it = std::ranges::find(todos->todos, id.get(), &FacadeTodo::id);
+			if (it == todos->todos.end()) {
+				return std::unexpected{http::problem::not_found("todo_not_found", "todo not found")};
+			}
+			return http::Json{*it};
+		});
+	app.post_body<FacadeCreateTodo>(
+		"/todos",
+		[](http::Json<FacadeCreateTodo> const &body,
+		   http::State<FacadeTodoStore> todos) -> std::expected<http::Created, http::Problem> {
+			if (body->title.empty()) {
+				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
+			}
+			std::lock_guard lock{todos->mu};
+			auto todo = FacadeTodo{.id = todos->next_id++, .title = body->title};
+			todos->todos.push_back(todo);
+			return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
+		});
+
+	CHECK(
+		app.route_table()
+		== "GET /todos [app] State\n"
+		   "GET /todos/{id:i64} [app] Path<id>,State\n"
+		   "POST /todos [json_body] Json,State");
 }
 
 TEST_CASE(
