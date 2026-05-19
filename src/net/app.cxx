@@ -728,6 +728,25 @@ struct AppJsonOptions {
 	std::size_t max_body_size{};
 };
 #endif
+struct AppRateLimitOptions {
+	unsigned requests{100};
+	std::chrono::seconds window{60};
+	unsigned burst{0};
+	std::size_t max_clients{65536};
+};
+struct AppRouteRateLimit {
+	std::string name;
+	AppRateLimitOptions options{};
+	bool enabled{};
+
+	struct Bucket {
+		unsigned tokens{};
+		std::chrono::steady_clock::time_point window_start{std::chrono::steady_clock::now()};
+	};
+
+	std::mutex mutex;
+	std::unordered_map<std::string, Bucket> buckets;
+};
 class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 
@@ -752,9 +771,9 @@ class App {
 		int success_status{kHttpOk};
 		bool problem_response{};
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
+		std::shared_ptr<AppRouteRateLimit> rate_limit = std::make_shared<AppRouteRateLimit>();
 		std::chrono::milliseconds timeout{};
 		std::size_t middleware_count{};
-		std::string rate_limit;
 		std::shared_ptr<std::string> auth_policy = std::make_shared<std::string>();
 		std::string openapi_summary;
 		bool uses_body{};
@@ -802,7 +821,16 @@ public:
 
 		RouteRef &rate_limit(
 			std::string_view value) {
-			metadata().rate_limit = std::string{value};
+			return rate_limit(value, AppRateLimitOptions{});
+		}
+
+		RouteRef &rate_limit(
+			std::string_view value,
+			AppRateLimitOptions options) {
+			auto &policy = *metadata().rate_limit;
+			policy.name = std::string{value};
+			policy.options = options;
+			policy.enabled = !policy.name.empty();
 			return *this;
 		}
 
@@ -858,12 +886,17 @@ public:
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
+			auto rate_limit = route_metadata_.back().rate_limit;
 			router_.add(
 				method,
 				path,
-				[auth_policy, fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
+				[auth_policy, rate_limit, fn = std::decay_t<F>(std::forward<F>(handler))](
+					RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
+					}
+					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
+						return *std::move(limited);
 					}
 					return into_response(fn());
 				});
@@ -873,25 +906,39 @@ public:
 			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
-			router_.add(method, path, [auth_policy, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-				if (auto denied = route_auth_failure(*auth_policy, req)) {
-					return *std::move(denied);
-				}
-				return into_response(fn(req));
-			});
+			auto rate_limit = route_metadata_.back().rate_limit;
+			router_.add(
+				method,
+				path,
+				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+					if (auto denied = route_auth_failure(*auth_policy, req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
+						return *std::move(limited);
+					}
+					return into_response(fn(req));
+				});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
 							 }) {
 			record_route_metadata<std::tuple<Request>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
-			router_.add(method, path, [auth_policy, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-				if (auto denied = route_auth_failure(*auth_policy, req)) {
-					return *std::move(denied);
-				}
-				auto owned = req.to_owned();
-				return into_response(fn(owned));
-			});
+			auto rate_limit = route_metadata_.back().rate_limit;
+			router_.add(
+				method,
+				path,
+				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+					if (auto denied = route_auth_failure(*auth_policy, req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
+						return *std::move(limited);
+					}
+					auto owned = req.to_owned();
+					return into_response(fn(owned));
+				});
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
 		}
@@ -1227,7 +1274,7 @@ public:
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
 					.middleware_count = route.middleware_count,
-					.rate_limit = route.rate_limit,
+					.rate_limit = route.rate_limit->name,
 					.auth_policy = *route.auth_policy,
 					.openapi_summary = route.openapi_summary,
 					.allow_get_body = route.allow_get_body});
@@ -1382,9 +1429,9 @@ public:
 					out += std::to_string(route.timeout.count());
 					out += ',';
 				}
-				if (!route.rate_limit.empty()) {
+				if (!route.rate_limit->name.empty()) {
 					out += R"("x-rate-limit":)";
-					out += json_str(route.rate_limit);
+					out += json_str(route.rate_limit->name);
 					out += ',';
 				}
 				out += R"("parameters":[)";
@@ -1789,6 +1836,64 @@ public:
 			return HttpResponse::unauthorized("Bearer");
 		}
 		return std::nullopt;
+	}
+
+	[[nodiscard]] static std::optional<HttpResponse> route_rate_limit_failure(
+		AppRouteRateLimit &policy,
+		RequestView const &req) {
+		if (!policy.enabled) {
+			return std::nullopt;
+		}
+		auto const capacity = policy.options.requests + policy.options.burst;
+		if (capacity == 0) {
+			HttpResponse response;
+			response.status = 429;
+			response.status_text = "Too Many Requests";
+			response.content_type = "text/plain; charset=utf-8";
+			response.set_text_body("Too Many Requests");
+			response.headers["Retry-After"] = std::format("{}", policy.options.window.count());
+			return response;
+		}
+
+		auto const now = std::chrono::steady_clock::now();
+		auto const key = req.remote_addr.empty() ? std::string{"unknown"} : std::string{req.remote_addr};
+		auto retry_after = static_cast<unsigned>(policy.options.window.count());
+
+		{
+			std::scoped_lock const lock{policy.mutex};
+			auto const max_clients = std::max<std::size_t>(policy.options.max_clients, 1);
+			if (policy.buckets.size() >= max_clients && !policy.buckets.contains(key)) {
+				policy.buckets.erase(policy.buckets.begin());
+			}
+			auto [it, inserted] =
+				policy.buckets.try_emplace(key, AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now});
+			auto &bucket = it->second;
+			if (inserted) {
+				bucket.tokens = capacity;
+			}
+
+			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
+			if (elapsed >= policy.options.window) {
+				bucket.tokens = capacity;
+				bucket.window_start = now;
+				elapsed = std::chrono::seconds{0};
+			}
+
+			if (bucket.tokens > 0) {
+				--bucket.tokens;
+				return std::nullopt;
+			}
+			auto remaining = policy.options.window - elapsed;
+			retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+		}
+
+		HttpResponse response;
+		response.status = 429;
+		response.status_text = "Too Many Requests";
+		response.content_type = "text/plain; charset=utf-8";
+		response.set_text_body("Too Many Requests");
+		response.headers["Retry-After"] = std::format("{}", retry_after);
+		return response;
 	}
 
 	[[nodiscard]] static std::string route_shape(
@@ -2506,11 +2611,13 @@ public:
 		auto json_options = json_options_;
 #endif
 		auto auth_policy = route_metadata_.back().auth_policy;
+		auto rate_limit = route_metadata_.back().rate_limit;
 		router_.add(
 			method,
 			path,
 			[states = states_,
 			 auth_policy,
+			 rate_limit,
 			 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
 				 ,
@@ -2520,6 +2627,9 @@ public:
 		](RequestView const &req) mutable {
 				if (auto denied = route_auth_failure(*auth_policy, req)) {
 					return *std::move(denied);
+				}
+				if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
+					return *std::move(limited);
 				}
 				return invoke_extracted<Args>(
 					*states,
@@ -2581,17 +2691,22 @@ public:
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 		auto auth_policy = route_metadata_.back().auth_policy;
+		auto rate_limit = route_metadata_.back().rate_limit;
 		router_.add(
 			method,
 			path,
 			[states = states_,
 			 auth_policy,
+			 rate_limit,
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = std::move(decode_opts),
 			 max_body_size,
 			 json_options](RequestView const &req) mutable -> HttpResponse {
 				if (auto denied = route_auth_failure(*auth_policy, req)) {
 					return *std::move(denied);
+				}
+				if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
+					return *std::move(limited);
 				}
 				auto content_type = req.header("content-type");
 				if (!content_type.starts_with("application/json")

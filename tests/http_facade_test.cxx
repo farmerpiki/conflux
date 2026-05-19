@@ -590,6 +590,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route rate limit gates repeated requests",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/limited";
+	req.remote_addr = "203.0.113.10";
+
+	auto first = app.router().dispatch(req);
+	CHECK(first.status == kHttpOk);
+	CHECK(first.text_body() == "ok");
+
+	auto second = app.router().dispatch(req);
+	CHECK(second.status == 429);
+	CHECK(second.headers["Retry-After"] == "60");
+}
+
+TEST_CASE(
 	"http facade: app openapi spec includes route-local policy metadata",
 	"[http.facade]") {
 	auto app = http::app();
