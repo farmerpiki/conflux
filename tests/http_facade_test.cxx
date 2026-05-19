@@ -139,6 +139,63 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route builder decorates metadata",
+	"[http.facade]") {
+	auto app = http::app();
+	app.route("POST", "/upload", [](http::BodyText) { return http::no_content(); })
+		.name("upload.create")
+		.max_body_size(1024 * 1024)
+		.openapi_summary("Upload a small body");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].method == "POST");
+	CHECK(routes[0].path == "/upload");
+	CHECK(routes[0].name == "upload.create");
+	CHECK(routes[0].max_body_size == 1024 * 1024);
+	CHECK(routes[0].openapi_summary == "Upload a small body");
+	CHECK(app.route_table() == "POST /upload [app] name=upload.create BodyText");
+}
+
+TEST_CASE(
+	"http facade: app openapi spec uses route metadata",
+	"[http.facade]") {
+	auto app = http::app();
+	app.route(
+		   "GET",
+		   "/users/{id}",
+		   [](http::Path<"id", std::uint64_t> id) { return http::text(std::format("{}", id.get())); })
+		.name("users.show")
+		.openapi_summary("Show a user");
+
+	auto spec = app.openapi_spec("Facade API", "0.2.0");
+	CHECK(spec.find(R"("title":"Facade API")") != std::string::npos);
+	CHECK(spec.find(R"("version":"0.2.0")") != std::string::npos);
+	CHECK(spec.find(R"("/users/{id}")") != std::string::npos);
+	CHECK(spec.find(R"("get")") != std::string::npos);
+	CHECK(spec.find(R"("operationId":"users.show")") != std::string::npos);
+	CHECK(spec.find(R"("summary":"Show a user")") != std::string::npos);
+	CHECK(spec.find(R"("name":"id")") != std::string::npos);
+}
+
+TEST_CASE(
+	"http facade: app openapi spec groups methods by path",
+	"[http.facade]") {
+	auto app = http::app();
+	app.route("GET", "/items", [] { return http::no_content(); }).name("items.list");
+	app.route("POST", "/items", [](http::BodyText) { return http::no_content(); }).name("items.create");
+
+	auto spec = app.openapi_spec();
+	auto const path_pos = spec.find(R"("/items")");
+	REQUIRE(path_pos != std::string::npos);
+	CHECK(spec.find(R"("get")", path_pos) != std::string::npos);
+	CHECK(spec.find(R"("post")", path_pos) != std::string::npos);
+	CHECK(spec.find(R"("operationId":"items.list")", path_pos) != std::string::npos);
+	CHECK(spec.find(R"("operationId":"items.create")", path_pos) != std::string::npos);
+	CHECK(spec.find(R"("/items")", path_pos + 1) == std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: try_server rejects invalid app metadata",
 	"[http.facade]") {
 	auto app = http::app();

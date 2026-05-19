@@ -187,11 +187,15 @@ struct ValidationReport {
 struct AppRouteInfo {
 	std::string method;
 	std::string path;
+	std::string name;
 	std::string handler_kind;
 	std::string source_file;
 	std::uint_least32_t source_line{};
 	std::vector<std::string> extractors;
+	std::vector<std::string> path_params;
 	std::size_t required_state_count{};
+	std::size_t max_body_size{};
+	std::string openapi_summary;
 };
 
 template<class T>
@@ -476,6 +480,7 @@ class App {
 	struct AppRouteMetadata {
 		std::string method;
 		std::string path;
+		std::string name;
 		std::string handler_kind;
 		std::string source_file;
 		std::uint_least32_t source_line{};
@@ -483,10 +488,45 @@ class App {
 		std::vector<std::string> path_extractors;
 		std::vector<std::string> path_params;
 		std::vector<std::type_index> required_states;
+		std::size_t max_body_size{};
+		std::string openapi_summary;
 		bool uses_body{};
 	};
 
 public:
+	class RouteRef {
+	public:
+		RouteRef(
+			App &app,
+			std::size_t index)
+			: app_(std::addressof(app))
+			, index_(index) {}
+
+		RouteRef &name(
+			std::string_view value) {
+			metadata().name = std::string{value};
+			return *this;
+		}
+
+		RouteRef &max_body_size(
+			std::size_t value) {
+			metadata().max_body_size = value;
+			return *this;
+		}
+
+		RouteRef &openapi_summary(
+			std::string_view value) {
+			metadata().openapi_summary = std::string{value};
+			return *this;
+		}
+
+	private:
+		[[nodiscard]] AppRouteMetadata &metadata() const { return app_->route_metadata_.at(index_); }
+
+		App *app_;
+		std::size_t index_;
+	};
+
 	[[nodiscard]] static App default_server() { return App{Config::public_server()}; }
 	explicit App(
 		Config cfg = Config::public_server())
@@ -530,6 +570,19 @@ public:
 			router_.add(method, path, std::forward<F>(handler));
 		}
 		return *this;
+	}
+	template<typename F>
+	[[nodiscard]] RouteRef route(
+		std::string_view method,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		auto const before = route_metadata_.size();
+		add(method, path, std::forward<F>(handler), loc);
+		if (route_metadata_.size() == before) {
+			record_route_metadata<std::tuple<RequestView>>(method, path, "raw", loc);
+		}
+		return RouteRef{*this, route_metadata_.size() - 1};
 	}
 	template<typename F>
 	App &get(
@@ -790,11 +843,15 @@ public:
 				AppRouteInfo{
 					.method = route.method,
 					.path = route.path,
+					.name = route.name,
 					.handler_kind = route.handler_kind,
 					.source_file = route.source_file,
 					.source_line = route.source_line,
 					.extractors = route.extractors,
-					.required_state_count = route.required_states.size()});
+					.path_params = route.path_params,
+					.required_state_count = route.required_states.size(),
+					.max_body_size = route.max_body_size,
+					.openapi_summary = route.openapi_summary});
 		}
 		return out;
 	}
@@ -805,6 +862,9 @@ public:
 				out += '\n';
 			}
 			out += std::format("{} {} [{}]", route.method, route.path, route.handler_kind);
+			if (!route.name.empty()) {
+				out += std::format(" name={}", route.name);
+			}
 			if (!route.extractors.empty()) {
 				out += " ";
 				for (std::size_t i = 0; i < route.extractors.size(); ++i) {
@@ -815,6 +875,97 @@ public:
 				}
 			}
 		}
+		return out;
+	}
+	[[nodiscard]] std::string openapi_spec(
+		std::string_view title = "API",
+		std::string_view version = "1.0.0") const {
+		auto json_str = [](std::string_view value) {
+			std::string out = "\"";
+			for (auto const ch: value) {
+				auto const c = static_cast<unsigned char>(ch);
+				if (c == '"') {
+					out += "\\\"";
+				} else if (c == '\\') {
+					out += "\\\\";
+				} else if (c == '\n') {
+					out += "\\n";
+				} else if (c == '\r') {
+					out += "\\r";
+				} else if (c == '\t') {
+					out += "\\t";
+				} else if (c < 0x20) {
+					out += std::format("\\u{:04x}", c);
+				} else {
+					out += static_cast<char>(c);
+				}
+			}
+			out += '"';
+			return out;
+		};
+		auto method_key = [](std::string_view method) {
+			std::string out;
+			out.reserve(method.size());
+			for (char const ch: method) {
+				out += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+			}
+			return out;
+		};
+
+		std::string out;
+		out += R"({"openapi":"3.0.0","info":{"title":)";
+		out += json_str(title);
+		out += R"(,"version":)";
+		out += json_str(version);
+		out += R"(},"paths":{)";
+		std::vector<std::string> path_order;
+		std::map<std::string, std::vector<AppRouteMetadata const *>> routes_by_path;
+		for (auto const &route: route_metadata_) {
+			auto [it, inserted] = routes_by_path.try_emplace(route.path);
+			if (inserted) {
+				path_order.push_back(route.path);
+			}
+			it->second.push_back(std::addressof(route));
+		}
+		for (std::size_t path_index = 0; path_index < path_order.size(); ++path_index) {
+			auto const &path = path_order[path_index];
+			auto const &routes = routes_by_path.at(path);
+			if (path_index != 0) {
+				out += ',';
+			}
+			out += json_str(path);
+			out += ":{";
+			for (std::size_t route_index = 0; route_index < routes.size(); ++route_index) {
+				auto const &route = *routes[route_index];
+				if (route_index != 0) {
+					out += ',';
+				}
+				out += json_str(method_key(route.method));
+				out += ":{";
+				if (!route.name.empty()) {
+					out += R"("operationId":)";
+					out += json_str(route.name);
+					out += ',';
+				}
+				if (!route.openapi_summary.empty()) {
+					out += R"("summary":)";
+					out += json_str(route.openapi_summary);
+					out += ',';
+				}
+				out += R"("parameters":[)";
+				for (std::size_t i = 0; i < route.path_params.size(); ++i) {
+					if (i != 0) {
+						out += ',';
+					}
+					out += R"({"name":)";
+					out += json_str(route.path_params[i]);
+					out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
+				}
+				out += R"(],"responses":{"200":{"description":"OK"}}})";
+			}
+			out += "}";
+		}
+		out += "}}";
 		return out;
 	}
 	[[nodiscard]] ValidationReport validate() const {
