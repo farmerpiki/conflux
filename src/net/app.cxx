@@ -959,7 +959,14 @@ public:
 		if (states_->contains(key)) {
 			state_issues_.push_back(std::format("duplicate app state: {}", typeid(T).name()));
 		}
-		(*states_)[key] = std::move(value);
+		auto shared_value = std::move(value);
+		(*states_)[key] = shared_value;
+		using SharedState = std::shared_ptr<T>;
+		auto const shared_key = std::type_index{typeid(SharedState)};
+		if (states_->contains(shared_key)) {
+			state_issues_.push_back(std::format("duplicate app state: {}", typeid(SharedState).name()));
+		}
+		(*states_)[shared_key] = std::make_shared<SharedState>(std::move(shared_value));
 		return *this;
 	}
 	template<class T>

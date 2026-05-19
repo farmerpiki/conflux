@@ -40,6 +40,8 @@ TEST_CASE(
 	app.state(owned);
 	CHECK(app.state<std::string>().value == owned_ptr);
 	CHECK(*app.state<std::string>() == "owned");
+	REQUIRE(app.state<std::shared_ptr<std::string>>().value != nullptr);
+	CHECK(*app.state<std::shared_ptr<std::string>>().get() == "owned");
 }
 
 TEST_CASE(
