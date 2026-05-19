@@ -117,12 +117,6 @@ template<class F>
 }
 
 template<class T>
-[[nodiscard]] Json<T> ok(
-	T value) {
-	return Json<T>{std::move(value)};
-}
-
-template<class T>
 [[nodiscard]] Json<T> json(
 	T value) {
 	return Json<T>{std::move(value)};
