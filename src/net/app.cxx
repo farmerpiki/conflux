@@ -2693,7 +2693,7 @@ public:
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
-				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::JsonDocument, "
+				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::Json<T>, http::JsonDocument, "
 				"http::BodyBytes, http::OwnedBodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, "
 				"http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");
