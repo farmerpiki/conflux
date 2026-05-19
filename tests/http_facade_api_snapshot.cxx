@@ -48,6 +48,7 @@ namespace http_snapshot {
 static_assert(std::same_as<http::RequestView, HttpRequestView>);
 static_assert(std::same_as<http::Request, HttpRequest>);
 static_assert(std::same_as<http::Response, HttpResponse>);
+static_assert(std::same_as<http::RequestContext, RequestContext>);
 
 void route_forms_compile() {
 	auto app = http::app();

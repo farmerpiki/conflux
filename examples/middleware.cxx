@@ -65,6 +65,14 @@ int main() {
 
 	app.use(request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
+	app.use(
+		[](http::Request const &req,
+		   http::RequestContext const &ctx,
+		   http::AsyncNext const &next) -> http::Task<http::Response> {
+			auto response = co_await next(req, ctx);
+			response.headers.set("x-middleware-model", "async-owned");
+			co_return response;
+		});
 
 	app.get("/", [](http::Request const &) {
 		return http::html(
