@@ -617,6 +617,19 @@ public:
 		}
 		return out;
 	}
+	[[nodiscard]] std::vector<AppStaticMountInfo> static_mounts() const {
+		std::vector<AppStaticMountInfo> out;
+		out.reserve(static_mounts_.size());
+		for (auto const &mount: static_mounts_) {
+			out.push_back(
+				AppStaticMountInfo{
+					.url_prefix = mount.url_prefix,
+					.root_dir = mount.root_dir,
+					.source_file = mount.source_file,
+					.source_line = mount.source_line});
+		}
+		return out;
+	}
 	[[nodiscard]] std::string route_table() const {
 		std::string out;
 		for (auto const &route: routes()) {

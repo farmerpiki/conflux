@@ -355,4 +355,11 @@ struct AppRouteInfo {
 	bool allow_get_body{};
 };
 
+struct AppStaticMountInfo {
+	std::string url_prefix;
+	std::string root_dir;
+	std::string source_file;
+	std::uint_least32_t source_line{};
+};
+
 } // namespace conflux::http

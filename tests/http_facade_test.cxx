@@ -280,6 +280,13 @@ TEST_CASE(
 	CHECK(report.issues[0].message.find("static root does not exist") != std::string::npos);
 	CHECK(report.issues[0].source_file.ends_with("http_facade_test.cxx"));
 	CHECK(report.issues[0].source_line > 0);
+
+	auto mounts = app.static_mounts();
+	REQUIRE(mounts.size() == 1);
+	CHECK(mounts[0].url_prefix == "/assets");
+	CHECK(mounts[0].root_dir == "/tmp/conflux-missing-static-root-for-test");
+	CHECK(mounts[0].source_file.ends_with("http_facade_test.cxx"));
+	CHECK(mounts[0].source_line > 0);
 }
 
 TEST_CASE(
