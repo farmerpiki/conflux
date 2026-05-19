@@ -1269,6 +1269,7 @@ TEST_CASE(
 
 	auto missing = app.router().dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
+	CHECK(missing.content_type == "application/problem+json");
 	CHECK(missing.text_body().find("unsupported content type") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
@@ -1279,7 +1280,7 @@ TEST_CASE(
 	req.body = R"({"value":)";
 	auto malformed = app.router().dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
-	CHECK(malformed.content_type == "application/json");
+	CHECK(malformed.content_type == "application/problem+json");
 	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
 	CHECK(malformed.text_body().find(R"("stage":"parse")") != std::string_view::npos);
 	CHECK(malformed.text_body().find(R"("kind":"unexpected_eof")") != std::string_view::npos);
@@ -1308,6 +1309,7 @@ TEST_CASE(
 
 	auto missing = app.router().dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
+	CHECK(missing.content_type == "application/problem+json");
 	CHECK(missing.text_body().find("unsupported content type") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
@@ -1318,6 +1320,7 @@ TEST_CASE(
 	req.body = R"({"value":)";
 	auto malformed = app.router().dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
+	CHECK(malformed.content_type == "application/problem+json");
 	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
 
 	auto routes = app.routes();

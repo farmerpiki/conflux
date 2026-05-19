@@ -108,14 +108,18 @@ template<class T>
 			err.source->column);
 	}
 	body += "}";
-	return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	response.content_type = "application/problem+json";
+	return response;
 }
 
 [[nodiscard]] HttpResponse unsupported_json_content_type_problem() {
-	return HttpResponse::json(
+	auto response = HttpResponse::json(
 		R"({"error":"unsupported content type","expected":"application/json"})",
 		kHttpBadRequest,
 		"Bad Request");
+	response.content_type = "application/problem+json";
+	return response;
 }
 #endif
 
