@@ -94,26 +94,24 @@ int main() {
 				.traceparent = std::string{trace.traceparent}});
 	});
 
-	app.group("/private", [](http::Router::Group &g) {
+	app.group("/private", [](auto &g) {
 		g.use(basic_auth_middleware(
 			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
-		g.get("/profile", [](http::Request const &req) {
-			return http::into_response(
-				http::json(
-					ProfileReply{
-						.user = "demo",
-						.request_id = std::string{req.header("x-request-id")},
-						.remote_addr = req.remote_addr}));
+		(void)g.get("/profile", [](http::Request const &req) {
+			return http::json(
+				ProfileReply{
+					.user = "demo",
+					.request_id = std::string{req.header("x-request-id")},
+					.remote_addr = req.remote_addr});
 		});
 	});
 
-	app.group("/private", [](http::Router::Group &g) {
+	app.group("/private", [](auto &g) {
 		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
-		g.get("/token", [](http::Request const &req) {
-			return http::into_response(
-				http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}));
+		(void)g.get("/token", [](http::Request const &req) {
+			return http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}});
 		});
 	});
 
