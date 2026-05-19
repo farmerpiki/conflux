@@ -605,6 +605,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.post("/echo-text", [](http::BodyText body) { return http::text(body.get()); });
 	app.post("/echo-bytes", [](http::BodyBytes body) { return http::text(body.get()); });
+	app.post("/echo-owned", [](http::OwnedBodyBytes body) { return http::text(body.get()); });
 
 	HttpRequest req;
 	req.method = "POST";
@@ -615,6 +616,10 @@ TEST_CASE(
 	req.path = "/echo-bytes";
 	req.body = "bytes";
 	CHECK(app.router().dispatch(req).text_body() == "bytes");
+
+	req.path = "/echo-owned";
+	req.body = "owned";
+	CHECK(app.router().dispatch(req).text_body() == "owned");
 }
 
 TEST_CASE(
