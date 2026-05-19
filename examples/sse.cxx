@@ -8,11 +8,10 @@ int main() {
 	namespace http = conflux::http;
 	auto app = http::app();
 
-	// Raw frames, 200 ms apart.
+	// Raw frames.
 	app.sse("/events", [](http::Request const &, std::shared_ptr<http::SseChannel> const &ch) {
 		for (int i = 1; i <= 5; ++i) {
 			auto _ = ch->send(std::format("data: event{}\n\n", i));
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
 		}
 		ch->close();
 	});
@@ -22,7 +21,6 @@ int main() {
 		auto name = req.param("name");
 		for (int i = 1; i <= 3; ++i) {
 			auto _ = ch->send_event("greet", std::format("hello {}, message {}", name, i));
-			std::this_thread::sleep_for(std::chrono::milliseconds(300));
 		}
 		ch->close();
 	});
