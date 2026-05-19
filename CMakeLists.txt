@@ -2867,6 +2867,14 @@ if(CONFLUX_BUILD_EXAMPLES)
             LABELS "examples;lint"
         )
 
+        add_test(NAME examples/public-policy
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-public-examples.sh"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+        )
+        set_tests_properties(examples/public-policy PROPERTIES
+            LABELS "examples;lint"
+        )
+
         add_test(NAME examples/compile
             COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
                     --target conflux_examples --config "$<CONFIG>"
