@@ -2357,18 +2357,18 @@ if(CONFLUX_BUILD_EXAMPLES)
     endif()
 
     if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-        add_executable(conflux_h3_probe examples/h3_probe.cxx)
+        add_executable(conflux_h3_probe examples/advanced/h3_probe.cxx)
         target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
-        add_executable(conflux_h3_server examples/h3_server.cxx)
+        add_executable(conflux_h3_server examples/advanced/h3_server.cxx)
         target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
     endif()
 
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-        add_executable(conflux_db_basic examples/db_basic.cxx)
+        add_executable(conflux_db_basic examples/advanced/db_basic.cxx)
         target_link_libraries(conflux_db_basic
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
 
-        add_executable(conflux_db_pool examples/db_pool.cxx)
+        add_executable(conflux_db_pool examples/advanced/db_pool.cxx)
         target_link_libraries(conflux_db_pool
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
@@ -2780,10 +2780,10 @@ endif()
 # ---------------------------------------------------------------------------
 
 if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_WANT_FILE_IO)
-    add_executable(conflux_file_io_example examples/file_io.cxx)
+    add_executable(conflux_file_io_example examples/advanced/file_io.cxx)
     target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
 
-    add_executable(conflux_coroutines examples/coroutines.cxx)
+    add_executable(conflux_coroutines examples/advanced/coroutines.cxx)
     target_link_libraries(conflux_coroutines PRIVATE conflux_file_io conflux_work conflux_options)
 endif()
 
