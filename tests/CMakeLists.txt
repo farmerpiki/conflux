@@ -241,6 +241,11 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_raw_string
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_raw_string_extractor EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_raw_string_extractor.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_raw_string_extractor
+        PRIVATE conflux_net_http conflux_options)
+
     add_library(conflux_http_facade_compile_fail_json_codec EXCLUDE_FROM_ALL
         OBJECT http_facade_compile_fail_json_codec.cxx)
     target_link_libraries(conflux_http_facade_compile_fail_json_codec
@@ -264,6 +269,17 @@ if(TARGET conflux_net_http)
                 "use http::text(...)"
                 "http::html(...)")
     set_tests_properties(http-facade/compile-fail-raw-string PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-raw-string-extractor
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_raw_string_extractor
+                "HTTP app handlers must not return raw strings"
+                "use http::text(...)"
+                "http::html(...)")
+    set_tests_properties(http-facade/compile-fail-raw-string-extractor PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 

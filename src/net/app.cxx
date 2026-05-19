@@ -2452,7 +2452,15 @@ public:
 	template<class Fn, class Args, std::size_t... Is>
 	void record_extracted_return_metadata(
 		std::index_sequence<Is...>) {
-		record_return_metadata<std::invoke_result_t<Fn &, std::tuple_element_t<Is, Args>...>>();
+		using Result = std::invoke_result_t<Fn &, std::tuple_element_t<Is, Args>...>;
+		if constexpr (RawStringResponse<Result>) {
+			static_assert(
+				kDependentFalse<Fn>,
+				"HTTP app handlers must not return raw strings; use http::text(...), http::html(...), or "
+				"http::Json{...}");
+		} else {
+			record_return_metadata<Result>();
+		}
 	}
 
 	template<typename F>
