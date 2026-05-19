@@ -1,3 +1,6 @@
+module;
+#include <cstdio>
+
 export module conflux.http;
 
 export import :problem;
@@ -84,13 +87,27 @@ template<typename F>
 [[nodiscard]] Response file(
 	std::filesystem::path const &path,
 	std::string content_type = "application/octet-stream") {
-	std::ifstream input{path, std::ios::binary};
-	if (!input) {
+	auto path_string = path.string();
+	auto *input = std::fopen(path_string.c_str(), "rb");
+	if (input == nullptr) {
 		return Response::not_found(path.string());
 	}
-	std::ostringstream body;
-	body << input.rdbuf();
-	return Response::with_body(std::move(body).str(), std::move(content_type));
+	struct FileCloser {
+		void operator ()(
+			std::FILE *file) const noexcept {
+			(void)std::fclose(file);
+		}
+	};
+	std::unique_ptr<std::FILE, FileCloser> file{input};
+	std::string body;
+	std::array<char, 8192> buffer{};
+	while (auto const n = std::fread(buffer.data(), 1, buffer.size(), file.get())) {
+		body.append(buffer.data(), n);
+	}
+	if (std::ferror(file.get()) != 0) {
+		return Response::internal_error("failed to read file");
+	}
+	return Response::with_body(std::move(body), std::move(content_type));
 }
 
 struct StreamSink {

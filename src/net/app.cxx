@@ -1,4 +1,5 @@
 module;
+#include <cstdio>
 #include <memory>
 #include <typeindex>
 
@@ -1481,7 +1482,10 @@ public:
 		AppRunOptions opts = {}) && {
 		auto report = validate();
 		if (!report) {
-			std::cerr << "http app validation failed:\n" << report.summary() << '\n';
+			auto summary = report.summary();
+			std::fputs("http app validation failed:\n", stderr);
+			std::fputs(summary.c_str(), stderr);
+			std::fputc('\n', stderr);
 			return RunStatus::fatal_internal_exception;
 		}
 		cfg_.port = opts.port;
