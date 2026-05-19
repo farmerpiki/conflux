@@ -37,7 +37,7 @@ Current HTTP direction:
 
 - Keep synchronous handlers supported, but they run on ring threads and must stay
   short, bounded, and non-blocking.
-- Prefer root-backed async handlers (`root::Task<HttpResponse>`) when the work
+- Prefer facade async handlers (`http::Task<http::Response>`) when the work
   has explicit suspension points.
 - Use explicit executor handoff for executor-owned chains. Reserve
   `blocking_*` names for raw syscall-style helpers that can block the calling
