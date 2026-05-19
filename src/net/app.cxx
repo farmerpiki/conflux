@@ -276,6 +276,7 @@ struct AppRouteInfo {
 	std::size_t required_state_count{};
 	std::vector<std::string> consumes;
 	std::vector<std::string> produces;
+	bool problem_response{};
 	std::size_t max_body_size{};
 	std::chrono::milliseconds timeout{};
 	std::size_t middleware_count{};
@@ -550,6 +551,15 @@ struct ResponseMetadataType<T> {
 	using type = typename ExpectedValueType<std::remove_cvref_t<T>>::type;
 };
 
+template<class T>
+struct ReturnsProblemResponse : std::false_type {};
+
+template<>
+struct ReturnsProblemResponse<Problem> : std::true_type {};
+
+template<class T>
+struct ReturnsProblemResponse<std::expected<T, Problem>> : std::true_type {};
+
 template<class Args, std::size_t... Is>
 consteval bool has_state_arg_impl(
 	std::index_sequence<Is...>) {
@@ -653,6 +663,7 @@ class App {
 		std::vector<std::type_index> required_states;
 		std::vector<std::string> consumes;
 		std::vector<std::string> produces;
+		bool problem_response{};
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::chrono::milliseconds timeout{};
 		std::size_t middleware_count{};
@@ -1096,6 +1107,7 @@ public:
 					.required_state_count = route.required_states.size(),
 					.consumes = route.consumes,
 					.produces = route.produces,
+					.problem_response = route.problem_response,
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
 					.middleware_count = route.middleware_count,
@@ -1298,7 +1310,12 @@ public:
 					}
 					out += "}";
 				}
-				out += R"(}}})";
+				out += "}}";
+				if (route.problem_response) {
+					out +=
+						R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
+				}
+				out += "}";
 			}
 			out += "}";
 		}
@@ -1900,6 +1917,9 @@ public:
 		using Clean = typename detail::ResponseMetadataType<Return>::type;
 		if constexpr (detail::JsonArg<Clean>) {
 			meta.produces = {"application/json"};
+		}
+		if constexpr (detail::ReturnsProblemResponse<std::remove_cvref_t<Return>>::value) {
+			meta.problem_response = true;
 		}
 	}
 

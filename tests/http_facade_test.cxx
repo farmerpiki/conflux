@@ -401,8 +401,12 @@ TEST_CASE(
 	REQUIRE(routes.size() == 2);
 	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
 	CHECK(routes[1].produces == std::vector<std::string>{"application/json"});
+	CHECK_FALSE(routes[0].problem_response);
+	CHECK(routes[1].problem_response);
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("application/json")") != std::string::npos);
+	CHECK(spec.find(R"("400":{"description":"Problem")") != std::string::npos);
+	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
 }
 
 TEST_CASE(
