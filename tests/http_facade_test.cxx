@@ -180,6 +180,9 @@ TEST_CASE(
 	app.route("POST", "/upload", [](http::BodyText) { return http::no_content(); })
 		.name("upload.create")
 		.max_body_size(1024 * 1024)
+		.timeout(std::chrono::seconds{5})
+		.rate_limit("uploads")
+		.auth_policy("user")
 		.openapi_summary("Upload a small body");
 
 	auto routes = app.routes();
@@ -188,6 +191,9 @@ TEST_CASE(
 	CHECK(routes[0].path == "/upload");
 	CHECK(routes[0].name == "upload.create");
 	CHECK(routes[0].max_body_size == 1024 * 1024);
+	CHECK(routes[0].timeout == std::chrono::seconds{5});
+	CHECK(routes[0].rate_limit == "uploads");
+	CHECK(routes[0].auth_policy == "user");
 	CHECK(routes[0].openapi_summary == "Upload a small body");
 	CHECK(app.route_table() == "POST /upload [app] name=upload.create BodyText");
 }

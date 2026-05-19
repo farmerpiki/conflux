@@ -251,6 +251,9 @@ struct AppRouteInfo {
 	std::vector<std::string> path_params;
 	std::size_t required_state_count{};
 	std::size_t max_body_size{};
+	std::chrono::milliseconds timeout{};
+	std::string rate_limit;
+	std::string auth_policy;
 	std::string openapi_summary;
 };
 
@@ -581,6 +584,9 @@ class App {
 		std::map<std::string, std::string> path_param_types;
 		std::vector<std::type_index> required_states;
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
+		std::chrono::milliseconds timeout{};
+		std::string rate_limit;
+		std::string auth_policy;
 		std::string openapi_summary;
 		bool uses_body{};
 	};
@@ -603,6 +609,24 @@ public:
 		RouteRef &max_body_size(
 			std::size_t value) {
 			*metadata().max_body_size = value;
+			return *this;
+		}
+
+		RouteRef &timeout(
+			std::chrono::milliseconds value) {
+			metadata().timeout = value;
+			return *this;
+		}
+
+		RouteRef &rate_limit(
+			std::string_view value) {
+			metadata().rate_limit = std::string{value};
+			return *this;
+		}
+
+		RouteRef &auth_policy(
+			std::string_view value) {
+			metadata().auth_policy = std::string{value};
 			return *this;
 		}
 
@@ -962,6 +986,9 @@ public:
 					.path_params = route.path_params,
 					.required_state_count = route.required_states.size(),
 					.max_body_size = *route.max_body_size,
+					.timeout = route.timeout,
+					.rate_limit = route.rate_limit,
+					.auth_policy = route.auth_policy,
 					.openapi_summary = route.openapi_summary});
 		}
 		return out;
