@@ -1585,5 +1585,9 @@ TEST_CASE(
 	CHECK(http::problem::unauthorized("login_required", "sign in").response.status == kHttpUnauthorized);
 	CHECK(http::problem::forbidden("forbidden", "no access").response.status == kHttpForbidden);
 	CHECK(http::problem::unprocessable_entity("invalid_entity", "invalid").response.status == kHttpUnprocessableEntity);
+	CHECK(http::problem::content_too_large().response.status == kHttpRequestEntityTooLarge);
+	CHECK(http::problem::uri_too_long().response.status == kHttpUriTooLong);
+	CHECK(http::problem::header_fields_too_large().response.status == kHttpRequestHeaderFieldsTooLarge);
+	CHECK(http::problem::gateway_timeout().response.status == kHttpGatewayTimeout);
 	CHECK(http::problem::internal_error("internal", "failed").response.status == kHttpInternalServerError);
 }

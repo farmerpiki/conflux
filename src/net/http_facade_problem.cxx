@@ -76,6 +76,30 @@ export namespace conflux::http::problem {
 	return make(kHttpUnprocessableEntity, "Unprocessable Entity", code, detail);
 }
 
+[[nodiscard]] Problem content_too_large(
+	std::string_view code = "content_too_large",
+	std::string_view detail = "request body is larger than the configured limit") {
+	return make(kHttpRequestEntityTooLarge, "Content Too Large", code, detail);
+}
+
+[[nodiscard]] Problem uri_too_long(
+	std::string_view code = "uri_too_long",
+	std::string_view detail = "request target is too long") {
+	return make(kHttpUriTooLong, "URI Too Long", code, detail);
+}
+
+[[nodiscard]] Problem header_fields_too_large(
+	std::string_view code = "header_fields_too_large",
+	std::string_view detail = "request headers are too large") {
+	return make(kHttpRequestHeaderFieldsTooLarge, "Request Header Fields Too Large", code, detail);
+}
+
+[[nodiscard]] Problem gateway_timeout(
+	std::string_view code = "gateway_timeout",
+	std::string_view detail = "request timed out") {
+	return make(kHttpGatewayTimeout, "Gateway Timeout", code, detail);
+}
+
 [[nodiscard]] Problem internal_error(
 	std::string_view code,
 	std::string_view detail) {
