@@ -31,6 +31,10 @@ struct Nested {
 	std::string id;
 	Point origin{};
 };
+struct WithArrays {
+	std::vector<Point> points;
+	std::array<int, 3> weights{};
+};
 // ---------------------------------------------------------------------------
 // Minimal test runner
 // ---------------------------------------------------------------------------
@@ -105,6 +109,19 @@ void test_decode_nested_aggregate() {
 	CHECK(n->id == "root");
 	CHECK(n->origin.x == 10);
 	CHECK(n->origin.y == 20);
+}
+void test_decode_array_members() {
+	auto doc = *parse(R"({"points":[{"x":1,"y":2},{"x":3,"y":4}],"weights":[5,6,7]})");
+	auto value = decode<WithArrays>(doc);
+	REQUIRE(value.has_value());
+	REQUIRE(value->points.size() == 2UZ);
+	CHECK(value->points[0].x == 1);
+	CHECK(value->points[0].y == 2);
+	CHECK(value->points[1].x == 3);
+	CHECK(value->points[1].y == 4);
+	CHECK(value->weights[0] == 5);
+	CHECK(value->weights[1] == 6);
+	CHECK(value->weights[2] == 7);
 }
 
 void test_decode_unknown_member_ignore_policy() {
@@ -267,6 +284,17 @@ void test_reader_path_decode_ignore_unknown_nested() {
 	CHECK(p->x == 5);
 	CHECK(p->y == -3);
 }
+void test_reader_path_decode_array_members() {
+	using Provider = conflux::json::boundary::NativeReflectJsonProvider;
+	auto value = conflux::json::boundary::decode_with<Provider, WithArrays>(
+		R"({"points":[{"x":1,"y":2},{"x":3,"y":4}],"weights":[5,6,7]})",
+		conflux::json::boundary::DecodeOptions{.copy_input = false});
+	REQUIRE(value.has_value());
+	REQUIRE(value->points.size() == 2UZ);
+	CHECK(value->points[0].x == 1);
+	CHECK(value->points[1].y == 4);
+	CHECK(value->weights[2] == 7);
+}
 void test_reader_path_decode_unknown_rejected() {
 	std::string_view input = R"({"x": 5, "ignored": {"nested": [1, 2, 3]}, "y": -3})";
 	JsonReader reader{input};
@@ -292,6 +320,7 @@ export int run_tests() {
 		{			 test_decode_skip_field_present_rejected,              "decode skip field present rejected"},
 		{					test_decode_skip_field_absent_ok,                     "decode skip field absent ok"},
 		{						test_decode_nested_aggregate,                         "decode nested aggregate"},
+		{						   test_decode_array_members,                            "decode array members"},
 		{			test_decode_unknown_member_ignore_policy,             "decode unknown member ignore policy"},
 		{test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
 		{				 test_boundary_reflect_provider_dump,                  "boundary reflect provider dump"},
@@ -307,6 +336,7 @@ export int run_tests() {
 		{							 test_reader_path_decode,                              "reader path decode"},
 		{				 test_reader_path_decode_escaped_key,                  "reader path decode escaped key"},
 		{       test_reader_path_decode_ignore_unknown_nested,        "reader path decode ignore unknown nested"},
+		{			   test_reader_path_decode_array_members,                "reader path decode array members"},
 		{			test_reader_path_decode_unknown_rejected,             "reader path decode unknown rejected"},
 	};
 	int saved = g_failures;

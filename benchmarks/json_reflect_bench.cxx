@@ -143,8 +143,7 @@ struct ReflectMedium {
 	std::string name{};
 	std::string tag{};
 	std::optional<std::int64_t> limit{};
-	std::int64_t value_a{};
-	std::int64_t value_b{};
+	std::vector<std::int64_t> values{};
 };
 
 template<class T>
@@ -190,7 +189,7 @@ int main(
 	using Provider = conflux::json::boundary::NativeReflectJsonProvider;
 	std::string const small = R"({"id":7,"active":true})";
 	std::string const medium =
-		R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"value_a":1,"value_b":2})";
+		R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4,5,6,7,8]})";
 	ReflectMedium const medium_value{
 		.id = 7,
 		.count = 42,
@@ -199,8 +198,7 @@ int main(
 		.name = "bench",
 		.tag = "direct",
 		.limit = 64,
-		.value_a = 1,
-		.value_b = 2,
+		.values = {1, 2, 3, 4, 5, 6, 7, 8},
 	};
 	conflux::json::boundary::DumpOptions sorted;
 	sorted.sort_object_keys = true;

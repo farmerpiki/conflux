@@ -325,9 +325,8 @@ Implementation notes:
   release build with the `std` BMI compiled under `-freflection`.
 - `scripts/run-build-artifact.sh` accepts the new release P2996 preset, keeping
   benchmark execution on the same helper path as the rest of the tree.
-- Reflected direct decode benchmark coverage currently uses the implemented
-  reflected reader surface: primitive, string, optional, and aggregate members.
-  Reflected vector-member reader decode remains outside this proposal slice.
+- Reflected direct decode benchmark coverage includes primitive, string,
+  optional, aggregate, vector, and fixed-array members.
 
 ### Phase B — direct `JsonMembers<T>` reader decode
 
@@ -418,7 +417,8 @@ Implementation notes:
   reflected `JsonCodec<T>::decode(NodeRef, ...)`.
 - The streaming reflected path uses borrowed/scratch key decode, respects
   annotations, optional fields, skipped fields, unknown-member policy, nested
-  reflected aggregates, and primitive/string member decode.
+  reflected aggregates, vector/fixed-array members, and primitive/string member
+  decode.
 - Added reflection tests for escaped annotation keys, ignored nested unknown
   values, and rejected unknown members.
 - Fixed the `debug-p2996-gcc` preset/build wiring so reflection selects C++26

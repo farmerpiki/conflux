@@ -63,6 +63,14 @@ template<class T>
 struct is_opt_refl : std::false_type {};
 template<class T>
 struct is_opt_refl<std::optional<T>> : std::true_type {};
+template<class T>
+struct is_vector_refl : std::false_type {};
+template<class T, class Alloc>
+struct is_vector_refl<std::vector<T, Alloc>> : std::true_type {};
+template<class T>
+struct is_array_refl : std::false_type {};
+template<class T, std::size_t N>
+struct is_array_refl<std::array<T, N>> : std::true_type {};
 
 inline void reflect_append_u_escape(
 	std::string &out,
@@ -211,7 +219,80 @@ template<class M>
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
 	using Raw = std::remove_cvref_t<M>;
-	if constexpr (conflux::json::ReflectJsonAggregate<Raw>) {
+	if constexpr (is_vector_refl<Raw>::value) {
+		using Elem = typename Raw::value_type;
+		if (event != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		Raw result;
+		while (true) {
+			auto next = reader.next();
+			if (!next) {
+				return std::unexpected(std::move(next).error());
+			}
+			if (!*next) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**next == Ev::end_array) {
+				return result;
+			}
+			auto elem = decode_reflect_reader_member<Elem>(reader, **next, opts, scratch);
+			if (!elem) {
+				return std::unexpected(std::move(elem).error());
+			}
+			result.push_back(std::move(*elem));
+		}
+	} else if constexpr (is_array_refl<Raw>::value) {
+		using Elem = typename Raw::value_type;
+		constexpr std::size_t N = std::tuple_size_v<Raw>;
+		if (event != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		Raw result{};
+		for (std::size_t i = 0; i < N; ++i) {
+			auto next = reader.next();
+			if (!next) {
+				return std::unexpected(std::move(next).error());
+			}
+			if (!*next) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**next == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = std::format("expected array of length {}", N)});
+			}
+			auto elem = decode_reflect_reader_member<Elem>(reader, **next, opts, scratch);
+			if (!elem) {
+				return std::unexpected(std::move(elem).error());
+			}
+			result[i] = std::move(*elem);
+		}
+		auto next = reader.next();
+		if (!next) {
+			return std::unexpected(std::move(next).error());
+		}
+		if (!*next || **next != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("expected array of length {}", N)});
+		}
+		return result;
+	} else if constexpr (conflux::json::ReflectJsonAggregate<Raw>) {
 		return JsonCodec<Raw>::decode(reader, event, opts, scratch);
 	} else if constexpr (std::same_as<Raw, bool>) {
 		if (event != Ev::bool_value) {
@@ -293,7 +374,59 @@ template<class M>
 [[nodiscard]] std::expected<M, JsonError> decode_reflect_member(
 	NodeRef node,
 	JsonDecodeOptions const &opts) {
-	if constexpr (has_json_codec<M>) {
+	if constexpr (is_vector_refl<M>::value) {
+		using Elem = typename M::value_type;
+		auto arr = node.as_array();
+		if (!arr) {
+			return std::unexpected(std::move(arr).error());
+		}
+		M result;
+		result.reserve(arr->size());
+		for (std::size_t i = 0; i < arr->size(); ++i) {
+			auto elem_node = arr->element(i);
+			if (!elem_node) {
+				return std::unexpected(std::move(elem_node).error());
+			}
+			auto elem = decode_reflect_member<Elem>(*elem_node, opts);
+			if (!elem) {
+				JsonPath prefix;
+				prefix.push_index(i);
+				return std::unexpected(std::move(elem).error().with_prefix(prefix));
+			}
+			result.push_back(std::move(*elem));
+		}
+		return result;
+	} else if constexpr (is_array_refl<M>::value) {
+		using Elem = typename M::value_type;
+		constexpr std::size_t N = std::tuple_size_v<M>;
+		auto arr = node.as_array();
+		if (!arr) {
+			return std::unexpected(std::move(arr).error());
+		}
+		if (arr->size() != N) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.container_size = N,
+					.message = std::format("expected array of length {}, got {}", N, arr->size())});
+		}
+		M result{};
+		for (std::size_t i = 0; i < N; ++i) {
+			auto elem_node = arr->element(i);
+			if (!elem_node) {
+				return std::unexpected(std::move(elem_node).error());
+			}
+			auto elem = decode_reflect_member<Elem>(*elem_node, opts);
+			if (!elem) {
+				JsonPath prefix;
+				prefix.push_index(i);
+				return std::unexpected(std::move(elem).error().with_prefix(prefix));
+			}
+			result[i] = std::move(*elem);
+		}
+		return result;
+	} else if constexpr (has_json_codec<M>) {
 		return ::decode<M>(node, opts);
 	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
 		auto r = JsonCodec<std::int64_t>::decode(node);
