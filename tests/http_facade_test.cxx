@@ -590,6 +590,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route auth policy wraps extracted handlers",
+	"[http.facade]") {
+	auto app = http::app();
+	std::string secret = "state-secret";
+	app.state(secret);
+	app.get("/private-state", [](http::State<std::string> state) { return http::text(state.get()); })
+		.auth_policy("user");
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/private-state";
+
+	auto unauthorized = app.router().dispatch(req);
+	CHECK(unauthorized.status == kHttpUnauthorized);
+
+	req.headers["authorization"] = "Bearer token";
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == "state-secret");
+}
+
+TEST_CASE(
 	"http facade: route rate limit gates repeated requests",
 	"[http.facade]") {
 	auto app = http::app();
