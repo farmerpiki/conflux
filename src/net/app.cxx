@@ -88,6 +88,17 @@ struct Path {
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
 };
 
+template<std::size_t Index, class T = std::string_view>
+struct PathAt {
+	using value_type = T;
+	static constexpr std::size_t index = Index;
+
+	T value{};
+
+	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+};
+
 template<FixedString Name, class T = std::string_view>
 struct Query {
 	using value_type = T;
@@ -406,6 +417,18 @@ template<class T>
 concept PathArg = requires { typename PathType<std::remove_cvref_t<T>>::type; };
 
 template<class T>
+struct PathAtType {};
+
+template<std::size_t Index, class T>
+struct PathAtType<PathAt<Index, T>> {
+	using type = T;
+	static constexpr std::size_t index = Index;
+};
+
+template<class T>
+concept PathAtArg = requires { typename PathAtType<std::remove_cvref_t<T>>::type; };
+
+template<class T>
 struct QueryType {};
 
 template<FixedString Name, class T>
@@ -497,6 +520,7 @@ consteval bool has_state_arg_impl(
 		|| ...
 		|| (StateArg<std::tuple_element_t<Is, Args>>
 			|| PathArg<std::tuple_element_t<Is, Args>>
+			|| PathAtArg<std::tuple_element_t<Is, Args>>
 			|| QueryArg<std::tuple_element_t<Is, Args>>
 			|| HeaderArg<std::tuple_element_t<Is, Args>>
 			|| CookieArg<std::tuple_element_t<Is, Args>>
@@ -582,6 +606,7 @@ class App {
 		std::vector<std::string> extractors;
 		std::vector<std::string> path_extractors;
 		std::vector<std::pair<std::string, std::string>> path_extractor_types;
+		std::vector<std::pair<std::size_t, std::string>> path_index_extractor_types;
 		std::vector<std::string> path_params;
 		std::map<std::string, std::string> path_param_types;
 		std::vector<std::type_index> required_states;
@@ -1264,6 +1289,37 @@ public:
 							.source_line = route.source_line});
 				}
 			}
+			for (auto const &[index, expected_type]: route.path_index_extractor_types) {
+				if (index >= route.path_params.size()) {
+					report.issues.push_back(
+						ValidationIssue{
+							.message = std::format("missing path parameter for Path<{}>", index),
+							.method = route.method,
+							.path = route.path,
+							.source_file = route.source_file,
+							.source_line = route.source_line});
+					continue;
+				}
+				if (expected_type.empty()) {
+					continue;
+				}
+				auto const type_it = route.path_param_types.find(route.path_params[index]);
+				if (type_it != route.path_param_types.end()
+					&& !type_it->second.empty()
+					&& type_it->second != expected_type) {
+					report.issues.push_back(
+						ValidationIssue{
+							.message = std::format(
+								"path parameter type mismatch for Path<{}>: route has {}, handler expects {}",
+								index,
+								type_it->second,
+								expected_type),
+							.method = route.method,
+							.path = route.path,
+							.source_file = route.source_file,
+							.source_line = route.source_line});
+				}
+			}
 			if (route.method == "GET" && route.uses_body) {
 				report.issues.push_back(
 					ValidationIssue{
@@ -1406,6 +1462,8 @@ public:
 			return "State";
 		} else if constexpr (detail::PathArg<Clean>) {
 			return std::format("Path<{}>", detail::PathType<Clean>::name.view());
+		} else if constexpr (detail::PathAtArg<Clean>) {
+			return std::format("PathAt<{}>", detail::PathAtType<Clean>::index);
 		} else if constexpr (detail::QueryArg<Clean>) {
 			return std::format("Query<{}>", detail::QueryType<Clean>::name.view());
 		} else if constexpr (detail::HeaderArg<Clean>) {
@@ -1486,6 +1544,7 @@ public:
 	template<class Args, std::size_t... Is>
 	static void append_path_extractor_types(
 		std::vector<std::pair<std::string, std::string>> &out,
+		std::vector<std::pair<std::size_t, std::string>> &index_out,
 		std::index_sequence<Is...>) {
 		(
 			[&] {
@@ -1496,6 +1555,9 @@ public:
 					out.emplace_back(
 						std::string{detail::PathType<Clean>::name.view()},
 						std::string{route_type_tag<PathValue>()});
+				} else if constexpr (detail::PathAtArg<Clean>) {
+					using PathValue = typename detail::PathAtType<Clean>::type;
+					index_out.emplace_back(detail::PathAtType<Clean>::index, std::string{route_type_tag<PathValue>()});
 				}
 			}(),
 			...);
@@ -1591,6 +1653,7 @@ public:
 		append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		append_path_extractor_types<Args>(
 			meta.path_extractor_types,
+			meta.path_index_extractor_types,
 			std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.path_params = collect_path_params(path);
 		meta.path_param_types = collect_path_param_types(path);
@@ -1632,6 +1695,36 @@ public:
 		return std::move(*value);
 	}
 
+	[[nodiscard]] static std::optional<std::pair<std::string_view, std::string_view>> path_param_at(
+		RequestView const &req,
+		std::size_t index) noexcept {
+		std::size_t i = 0;
+		for (auto const &[name, value]: req.params) {
+			if (i == index) {
+				return std::pair<std::string_view, std::string_view>{name, value};
+			}
+			++i;
+		}
+		return std::nullopt;
+	}
+
+	template<class T>
+	[[nodiscard]] static std::expected<T, HttpFieldError> path_param_as_at(
+		RequestView const &req,
+		std::size_t index) {
+		auto param = path_param_at(req, index);
+		auto name = std::format("#{}", index);
+		if (!param) {
+			auto err = HttpFieldError{
+				.kind = HttpFieldErrorKind::missing,
+				.source = HttpFieldSource::params,
+				.name = std::move(name),
+				.message = std::format("params field '#{}' is missing", index)};
+			return std::unexpected{std::move(err)};
+		}
+		return parse_http_field_value<T>(param->second, HttpFieldSource::params, param->first);
+	}
+
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
@@ -1657,6 +1750,16 @@ public:
 					.value = extract_or_throw(
 						req.template param_as<PathValue>(detail::PathType<Clean>::name.view()),
 						"Path")};
+			}
+		} else if constexpr (detail::PathAtArg<Clean>) {
+			using PathValue = typename detail::PathAtType<Clean>::type;
+			if constexpr (std::same_as<PathValue, std::string_view>) {
+				auto param = path_param_at(req, detail::PathAtType<Clean>::index);
+				return Clean{.value = param ? param->second : std::string_view{}};
+			} else {
+				return Clean{
+					.value =
+						extract_or_throw(path_param_as_at<PathValue>(req, detail::PathAtType<Clean>::index), "PathAt")};
 			}
 		} else if constexpr (detail::QueryArg<Clean>) {
 			using QueryValue = typename detail::QueryType<Clean>::type;
@@ -1730,7 +1833,8 @@ public:
 			static_assert(
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
-				"http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, http::BodyText, "
+				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
+				"http::BodyText, "
 				"http::BodyBytes, http::OwnedBodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, "
 				"http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");

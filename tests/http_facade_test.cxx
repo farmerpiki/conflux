@@ -435,6 +435,44 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: positional path extractors dispatch by capture order",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/teams/{team}/users/{id:u64}">([](http::PathAt<0> team, http::PathAt<1, std::uint64_t> id) {
+		return http::text(std::format("{}:{}", team.get(), id.get()));
+	});
+
+	CHECK(app.validate().ok());
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 2);
+	CHECK(routes[0].extractors[0] == "PathAt<0>");
+	CHECK(routes[0].extractors[1] == "PathAt<1>");
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/teams/core/users/42";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "core:42");
+}
+
+TEST_CASE(
+	"http facade: validate reports positional path parameter mismatch",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/typed/{id:u64}">(
+		[](http::PathAt<0, std::int64_t> id) { return http::text(std::format("{}", id.get())); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].message == "path parameter type mismatch for Path<0>: route has u64, handler expects i64");
+}
+
+TEST_CASE(
 	"http facade: validate reports typed route parameter mismatch",
 	"[http.facade]") {
 	auto app = http::app();
