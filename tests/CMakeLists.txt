@@ -226,6 +226,10 @@ if(TARGET conflux_net_http)
     add_executable(conflux_http_facade_import_smoke http_facade_import_smoke.cxx)
     target_link_libraries(conflux_http_facade_import_smoke
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
+
+    add_library(conflux_http_facade_api_snapshot OBJECT http_facade_api_snapshot.cxx)
+    target_link_libraries(conflux_http_facade_api_snapshot
+        PRIVATE conflux_net_http conflux_options)
 endif()
 
 if(TARGET conflux_http_response)
