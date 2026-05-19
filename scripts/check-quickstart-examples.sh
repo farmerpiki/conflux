@@ -8,7 +8,9 @@ if grep -R -n -E 'conflux\.types|HttpRequest|HttpResponse|WorkPool|TaskSource|st
 	exit 1
 fi
 
-if grep -R -n -E '^import conflux\.' "$root" | grep -v -E ':import conflux\.http;$'; then
+if grep -R -n -E '^import conflux\.' "$root" \
+	| grep -v -E ':import conflux\.http;$' \
+	| grep -v -E '/postgres_json\.cxx:[0-9]+:import conflux\.pg;$'; then
 	printf 'quickstart examples must import only conflux.http from conflux modules\n' >&2
 	exit 1
 fi

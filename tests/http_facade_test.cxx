@@ -497,6 +497,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: extracted handlers can return tasks",
+	"[http.facade]") {
+	auto app = http::app();
+	std::string value = "async-state";
+	app.state(value);
+
+	app.get("/async-state", [](http::State<std::string> state) -> http::Task<http::Json<FacadeAnswer>> {
+		co_return http::json(FacadeAnswer{.value = state.get()});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"State"});
+	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
+	CHECK(app.router().has_context_routes());
+}
+
+TEST_CASE(
 	"http facade: verb helpers return route metadata handles",
 	"[http.facade]") {
 	auto app = http::app();
