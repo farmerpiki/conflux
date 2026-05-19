@@ -14,6 +14,8 @@ struct AppOpenApiRoute {
 	std::string auth_policy;
 	std::chrono::milliseconds timeout{};
 	std::string rate_limit;
+	std::size_t max_body_size{};
+	std::size_t middleware_count{};
 	std::vector<std::string> path_params;
 	std::map<std::string, std::string> path_param_types;
 	std::vector<std::string> consumes;
@@ -144,6 +146,16 @@ struct AppOpenApiRoute {
 			if (!route.rate_limit.empty()) {
 				out += R"("x-rate-limit":)";
 				out += openapi_json_str(route.rate_limit);
+				out += ',';
+			}
+			if (route.max_body_size != 0) {
+				out += R"("x-max-body-size":)";
+				out += std::to_string(route.max_body_size);
+				out += ',';
+			}
+			if (route.middleware_count != 0) {
+				out += R"("x-middleware-count":)";
+				out += std::to_string(route.middleware_count);
 				out += ',';
 			}
 			out += R"("parameters":[)";

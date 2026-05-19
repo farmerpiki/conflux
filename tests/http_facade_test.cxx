@@ -695,14 +695,18 @@ TEST_CASE(
 	"http facade: app openapi spec includes route-local policy metadata",
 	"[http.facade]") {
 	auto app = http::app();
+	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
 	app.post("/upload", [](http::BodyText) { return http::no_content(); })
 		.timeout(std::chrono::seconds{5})
 		.rate_limit("uploads")
-		.auth_policy("user");
+		.auth_policy("user")
+		.max_body_size(4096);
 
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("x-timeout-ms":5000)") != std::string::npos);
 	CHECK(spec.find(R"("x-rate-limit":"uploads")") != std::string::npos);
+	CHECK(spec.find(R"("x-max-body-size":4096)") != std::string::npos);
+	CHECK(spec.find(R"("x-middleware-count":1)") != std::string::npos);
 	CHECK(spec.find(R"("401":{"description":"Unauthorized"})") != std::string::npos);
 	CHECK(spec.find(R"("429":{"description":"Too Many Requests"})") != std::string::npos);
 	CHECK(spec.find(R"("504":{"description":"Gateway Timeout"})") != std::string::npos);

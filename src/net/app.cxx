@@ -669,6 +669,8 @@ public:
 					.auth_policy = *route.auth_policy,
 					.timeout = *route.timeout,
 					.rate_limit = route.rate_limit->name,
+					.max_body_size = *route.max_body_size,
+					.middleware_count = route.middleware_count,
 					.path_params = route.path_params,
 					.path_param_types = route.path_param_types,
 					.consumes = route.consumes,
