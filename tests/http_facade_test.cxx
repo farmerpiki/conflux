@@ -618,6 +618,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app handlers can receive multipart extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/upload", [](http::Multipart multipart) {
+		auto const *file = multipart.file("upload");
+		return http::text(
+			std::format(
+				"{}:{}:{}",
+				multipart.form_value("title"),
+				file == nullptr ? std::string_view{} : file->filename,
+				file == nullptr ? std::string_view{} : file->data));
+	});
+
+	HttpRequest req;
+	req.method = "POST";
+	req.path = "/upload";
+	req.form["title"] = "Report";
+	req.files.push_back(UploadedFile::borrowed("upload", "report.txt", "text/plain", "file-body"));
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "Report:report.txt:file-body");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	REQUIRE(routes[0].extractors.size() == 1);
+	CHECK(routes[0].extractors[0] == "Multipart");
+}
+
+TEST_CASE(
 	"http facade: response helpers cover redirect and created JSON",
 	"[http.facade]") {
 	auto redirect = http::redirect("/next");

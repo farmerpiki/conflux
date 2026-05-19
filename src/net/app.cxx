@@ -146,6 +146,26 @@ struct BodyBytes {
 	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return value; }
 };
 
+struct Multipart {
+	HttpFieldsView form;
+	std::span<UploadedFile const> files;
+
+	[[nodiscard]] std::string_view form_value(
+		std::string_view name) const {
+		return form[name];
+	}
+
+	[[nodiscard]] UploadedFile const *file(
+		std::string_view name) const noexcept {
+		for (auto const &item: files) {
+			if (item.name == name) {
+				return std::addressof(item);
+			}
+		}
+		return nullptr;
+	}
+};
+
 struct RequestId {
 	std::string_view value{};
 
@@ -434,6 +454,9 @@ template<class Arg>
 concept BodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, BodyBytes>;
 
 template<class Arg>
+concept MultipartArg = std::same_as<std::remove_cvref_t<Arg>, Multipart>;
+
+template<class Arg>
 concept RequestIdArg = std::same_as<std::remove_cvref_t<Arg>, RequestId>;
 
 template<class Arg>
@@ -465,6 +488,7 @@ consteval bool has_state_arg_impl(
 			|| FormArg<std::tuple_element_t<Is, Args>>
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
+			|| MultipartArg<std::tuple_element_t<Is, Args>>
 			|| RequestIdArg<std::tuple_element_t<Is, Args>>
 			|| ConnectionInfoArg<std::tuple_element_t<Is, Args>>
 			|| TraceContextArg<std::tuple_element_t<Is, Args>>
@@ -1258,6 +1282,8 @@ public:
 			return "BodyText";
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
 			return "BodyBytes";
+		} else if constexpr (detail::MultipartArg<Clean>) {
+			return "Multipart";
 		} else if constexpr (detail::RequestIdArg<Clean>) {
 			return "RequestId";
 		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
@@ -1345,6 +1371,7 @@ public:
 			|| ...
 			|| (detail::BodyTextArg<std::tuple_element_t<Is, Args>>
 				|| detail::BodyBytesArg<std::tuple_element_t<Is, Args>>
+				|| detail::MultipartArg<std::tuple_element_t<Is, Args>>
 				|| detail::JsonArg<std::tuple_element_t<Is, Args>>));
 	}
 
@@ -1536,6 +1563,8 @@ public:
 			return BodyText{.value = req.body};
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
 			return BodyBytes{.value = req.body};
+		} else if constexpr (detail::MultipartArg<Clean>) {
+			return Multipart{.form = req.form, .files = req.files};
 		} else if constexpr (detail::RequestIdArg<Clean>) {
 			return RequestId{.value = req.header("x-request-id")};
 		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
@@ -1561,7 +1590,8 @@ public:
 				kDependentFalse<Arg>,
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, http::BodyText, "
-				"http::BodyBytes, http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, "
+				"http::BodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, http::TraceContext, "
+				"http::Bearer, "
 				"http::BasicAuth, or http::State<T>");
 		}
 	}
