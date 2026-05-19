@@ -571,6 +571,21 @@ router.use(make_access_log_middleware([](std::string const& line) {
 
 ## OpenAPI / Route metadata
 
+Facade applications expose richer app metadata:
+
+```cpp
+auto routes = app.routes();          // AppRouteInfo: source, extractors, limits, auth, schemas
+auto statics = app.static_mounts();  // AppStaticMountInfo: prefix, root, source location
+auto table = app.route_table();      // printable startup/debug route table
+auto spec = app.openapi_spec();      // app metadata backed OpenAPI JSON
+```
+
+`app.validate()` returns source locations for route and static-mount issues.
+`ValidationReport::detailed_summary()` includes both the reported source and any
+related source, such as the earlier registration for a duplicate route.
+
+The lower-level router still exposes minimal route metadata for advanced users:
+
 ```cpp
 struct RouteInfo {
     std::string              method;
@@ -579,11 +594,13 @@ struct RouteInfo {
 };
 
 auto infos = router.route_infos();
-// App facade users can call app.route_infos() before std::move(app).run(...).
 // Use with conflux.net.openapi to generate an OpenAPI spec document
 ```
 
-`conflux.net.openapi` consumes `route_infos()` and produces an OpenAPI 3.x JSON document. Import the narrow module directly when linking `conflux::http_openapi`; the complete `conflux.net.http` umbrella also re-exports it.
+`conflux.net.openapi` consumes router `route_infos()` and produces a minimal
+OpenAPI 3.x JSON document. Import the narrow module directly when linking
+`conflux::http_openapi`; the complete `conflux.net.http` umbrella also re-exports
+it.
 
 ---
 
