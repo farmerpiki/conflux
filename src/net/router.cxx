@@ -356,7 +356,25 @@ private:
 	static Middleware make_middleware(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, Handler const &>) {
+		if constexpr (requires(Fn &middleware, HttpRequestView const &req, Handler const &next) {
+						  {
+							  std::invoke(middleware, req, next)
+						  } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+					  }) {
+			static_assert(
+				kDependentFalse<Fn>,
+				"Async middleware is not normalized yet; middleware must return HttpResponse. Use a sync "
+				"middleware, or offload/defer inside a route handler.");
+		} else if constexpr (requires(Fn &middleware, HttpRequest const &req, Handler const &next) {
+								 {
+									 std::invoke(middleware, req, next)
+								 } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+							 }) {
+			static_assert(
+				kDependentFalse<Fn>,
+				"Async middleware is not normalized yet; middleware must return HttpResponse. Use a sync "
+				"middleware, or offload/defer inside a route handler.");
+		} else if constexpr (std::invocable<Fn &, HttpRequestView const &, Handler const &>) {
 			return Middleware{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, Handler const &>) {
 			return Middleware{

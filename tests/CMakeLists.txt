@@ -251,6 +251,11 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_json_codec
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_async_middleware EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_async_middleware.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_async_middleware
+        PRIVATE conflux_net_http conflux_options)
+
     add_test(NAME http-facade/compile-fail-request-view-task
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
@@ -290,6 +295,16 @@ if(TARGET conflux_net_http)
                 "http::Json<T> responses require T to be serializable"
                 "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
     set_tests_properties(http-facade/compile-fail-json-codec PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-async-middleware
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_async_middleware
+                "Async middleware is not normalized yet"
+                "middleware must return HttpResponse")
+    set_tests_properties(http-facade/compile-fail-async-middleware PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 endif()
