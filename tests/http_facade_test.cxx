@@ -1270,7 +1270,8 @@ TEST_CASE(
 	auto missing = app.router().dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
 	CHECK(missing.content_type == "application/problem+json");
-	CHECK(missing.text_body().find("unsupported content type") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
 	auto ok = app.router().dispatch(req);
@@ -1310,7 +1311,8 @@ TEST_CASE(
 	auto missing = app.router().dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
 	CHECK(missing.content_type == "application/problem+json");
-	CHECK(missing.text_body().find("unsupported content type") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
 	auto ok = app.router().dispatch(req);

@@ -115,7 +115,7 @@ template<class T>
 
 [[nodiscard]] HttpResponse unsupported_json_content_type_problem() {
 	auto response = HttpResponse::json(
-		R"({"error":"unsupported content type","expected":"application/json"})",
+		R"({"code":"unsupported_content_type","detail":"expected application/json","expected":"application/json"})",
 		kHttpBadRequest,
 		"Bad Request");
 	response.content_type = "application/problem+json";
