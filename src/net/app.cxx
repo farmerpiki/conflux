@@ -994,6 +994,11 @@ public:
 		router_.serve_static(url_prefix, std::move(root_dir), sopts);
 		return *this;
 	}
+	App &openapi_strict(
+		bool enabled = true) noexcept {
+		openapi_strict_ = enabled;
+		return *this;
+	}
 	template<typename F>
 	App &on_not_found(
 		F &&handler) {
@@ -1424,6 +1429,9 @@ public:
 						.source_file = route.source_file,
 						.source_line = route.source_line});
 			}
+			if (openapi_strict_) {
+				validate_openapi_completeness(route, report);
+			}
 		}
 		for (auto const &mount: static_mounts_) {
 			std::error_code ec;
@@ -1461,6 +1469,32 @@ public:
 #else
 		return false;
 #endif
+	}
+
+	void validate_openapi_completeness(
+		AppRouteMetadata const &route,
+		ValidationReport &report) const {
+		auto add_issue = [&](std::string message) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = std::move(message),
+					.method = route.method,
+					.path = route.path,
+					.source_file = route.source_file,
+					.source_line = route.source_line});
+		};
+		if (route.name.empty()) {
+			add_issue("OpenAPI strict mode: route operationId is missing");
+		}
+		if (route.openapi_summary.empty()) {
+			add_issue("OpenAPI strict mode: route summary is missing");
+		}
+		if (route.produces.empty() && route.method != "HEAD") {
+			add_issue("OpenAPI strict mode: route response content metadata is missing");
+		}
+		if (route.uses_body && route.consumes.empty()) {
+			add_issue("OpenAPI strict mode: route request body content metadata is missing");
+		}
 	}
 
 	void validate_tls_config(
@@ -2261,6 +2295,7 @@ private:
 	std::vector<AppRouteMetadata> route_metadata_;
 	std::vector<StaticMountMetadata> static_mounts_;
 	std::size_t middleware_count_{};
+	bool openapi_strict_{};
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
 #endif

@@ -450,6 +450,39 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports OpenAPI strict omissions",
+	"[http.facade]") {
+	auto app = http::app();
+	app.openapi_strict();
+	app.get("/plain", [] { return http::text("ok"); });
+	app.post("/body", [](http::BodyText) { return http::no_content(); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	auto has_issue = [&](std::string_view path, std::string_view message) {
+		return std::ranges::any_of(report.issues, [&](auto const &issue) {
+			return issue.path == path && issue.message == message;
+		});
+	};
+	CHECK(has_issue("/plain", "OpenAPI strict mode: route operationId is missing"));
+	CHECK(has_issue("/plain", "OpenAPI strict mode: route summary is missing"));
+	CHECK(has_issue("/plain", "OpenAPI strict mode: route response content metadata is missing"));
+	CHECK(has_issue("/body", "OpenAPI strict mode: route request body content metadata is missing"));
+}
+
+TEST_CASE(
+	"http facade: validate accepts OpenAPI strict metadata",
+	"[http.facade]") {
+	auto app = http::app();
+	app.openapi_strict();
+	app.get("/answer", [] { return http::Json{FacadeAnswer{.value = "ok"}}; })
+		.name("answers.show")
+		.openapi_summary("Show an answer");
+
+	CHECK(app.validate().ok());
+}
+
+TEST_CASE(
 	"http facade: app openapi handler serves metadata spec",
 	"[http.facade]") {
 	auto app = http::app();
