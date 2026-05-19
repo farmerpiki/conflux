@@ -149,6 +149,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports duplicate app state registration",
+	"[http.facade]") {
+	auto app = http::app();
+	std::string first = "first";
+	std::string second = "second";
+	app.state(first);
+	app.state(second);
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].method == "APP");
+	CHECK(report.issues[0].path == "state");
+	CHECK(report.issues[0].message.find("duplicate app state") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: routes expose app metadata",
 	"[http.facade]") {
 	auto app = http::app();

@@ -945,13 +945,21 @@ public:
 	template<class T>
 	App &state(
 		T &value) {
-		(*states_)[std::type_index{typeid(T)}] = std::shared_ptr<void>{std::addressof(value), [](void *) {}};
+		auto const key = std::type_index{typeid(T)};
+		if (states_->contains(key)) {
+			state_issues_.push_back(std::format("duplicate app state: {}", typeid(T).name()));
+		}
+		(*states_)[key] = std::shared_ptr<void>{std::addressof(value), [](void *) {}};
 		return *this;
 	}
 	template<class T>
 	App &state(
 		std::shared_ptr<T> value) {
-		(*states_)[std::type_index{typeid(T)}] = std::move(value);
+		auto const key = std::type_index{typeid(T)};
+		if (states_->contains(key)) {
+			state_issues_.push_back(std::format("duplicate app state: {}", typeid(T).name()));
+		}
+		(*states_)[key] = std::move(value);
 		return *this;
 	}
 	template<class T>
@@ -1126,6 +1134,9 @@ public:
 	}
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
+		for (auto const &issue: state_issues_) {
+			report.issues.push_back(ValidationIssue{.message = issue, .method = "APP", .path = "state"});
+		}
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen_shapes;
 		for (auto const &route: route_metadata_) {
@@ -1800,6 +1811,7 @@ private:
 	Config cfg_;
 	Router router_;
 	std::shared_ptr<StateMap> states_;
+	std::vector<std::string> state_issues_;
 	std::vector<AppRouteMetadata> route_metadata_;
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
