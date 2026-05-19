@@ -1208,6 +1208,7 @@ public:
 		for (auto const &issue: state_issues_) {
 			report.issues.push_back(ValidationIssue{.message = issue, .method = "APP", .path = "state"});
 		}
+		validate_tls_config(report);
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen_shapes;
 		for (auto const &route: route_metadata_) {
@@ -1354,6 +1355,63 @@ public:
 			}
 		}
 		return report;
+	}
+
+	void validate_tls_config(
+		ValidationReport &report) const {
+		auto const primary_cert = !cfg_.cert_file.empty();
+		auto const primary_key = !cfg_.key_file.empty();
+		auto const primary_tls = primary_cert && primary_key;
+		if (primary_cert != primary_key) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = "TLS config invalid: cert_file and key_file must be set together",
+					.method = "APP",
+					.path = "config"});
+		}
+		if (cfg_.http3.enabled && !primary_tls) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = "TLS config invalid: HTTP/3 requires cert_file and key_file",
+					.method = "APP",
+					.path = "config"});
+		}
+		if (cfg_.http_redirect_to_https && !primary_tls) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = "TLS config invalid: HTTPS redirect requires cert_file and key_file",
+					.method = "APP",
+					.path = "config"});
+		}
+		for (auto const &host: cfg_.virtual_hosts) {
+			auto const host_cert = !host.cert_file.empty();
+			auto const host_key = !host.key_file.empty();
+			if (host.hostname.empty()) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = "TLS config invalid: virtual host hostname is empty",
+						.method = "APP",
+						.path = "config"});
+			}
+			if (host_cert != host_key) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = std::format(
+							"TLS config invalid: virtual host '{}' cert_file and key_file must be set together",
+							host.hostname),
+						.method = "APP",
+						.path = "config"});
+			}
+			if ((host_cert || host_key) && !primary_tls) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = std::format(
+							"TLS config invalid: virtual host '{}' requires primary cert_file and key_file",
+							host.hostname),
+						.method = "APP",
+						.path = "config"});
+			}
+		}
 	}
 
 	[[nodiscard]] static std::optional<std::string> validate_path_pattern(
