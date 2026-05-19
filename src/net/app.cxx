@@ -1352,7 +1352,7 @@ public:
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
 			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{HttpResponse::content_too_large()};
+				throw ExtractorFailure{detail::json_body_too_large_problem()};
 			}
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
@@ -1368,7 +1368,7 @@ public:
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
 			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{HttpResponse::content_too_large()};
+				throw ExtractorFailure{detail::json_body_too_large_problem()};
 			}
 			auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 				req.body,
@@ -1657,14 +1657,11 @@ public:
 				auto content_type = req.header("content-type");
 				if (!content_type.starts_with("application/json")
 					&& !content_type.starts_with("application/problem+json")) {
-					return HttpResponse::json(
-						R"({"error":"unsupported content type","expected":"application/json"})",
-						kHttpBadRequest,
-						"Bad Request");
+					return detail::unsupported_json_content_type_problem();
 				}
 				auto const limit = *max_body_size != 0 ? *max_body_size : json_options->max_body_size;
 				if (limit != 0 && req.body.size() > limit) {
-					return HttpResponse::content_too_large();
+					return detail::json_body_too_large_problem();
 				}
 				auto const &effective_decode_opts = decode_opts ? *decode_opts : json_options->decode;
 				auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(

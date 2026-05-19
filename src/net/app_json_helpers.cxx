@@ -121,6 +121,15 @@ template<class T>
 	response.content_type = "application/problem+json";
 	return response;
 }
+
+[[nodiscard]] HttpResponse json_body_too_large_problem() {
+	auto response = HttpResponse::json(
+		R"({"code":"content_too_large","detail":"request body is larger than the configured limit"})",
+		kHttpRequestEntityTooLarge,
+		"Content Too Large");
+	response.content_type = "application/problem+json";
+	return response;
+}
 #endif
 
 } // namespace conflux::http::detail
