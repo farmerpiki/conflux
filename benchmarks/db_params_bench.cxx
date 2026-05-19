@@ -2,7 +2,12 @@ import std;
 import conflux.db;
 import bench_common;
 
-using namespace std;
+using std::atomic;
+using std::memory_order_relaxed;
+using std::size_t;
+using std::string_view;
+using std::uint64_t;
+using std::uintptr_t;
 using namespace conflux::db;
 namespace {
 
