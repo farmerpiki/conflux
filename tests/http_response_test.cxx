@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/eventfd.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -235,6 +236,20 @@ TEST_CASE(
 	CHECK(resp.ws_upgrade_ptr() == ws);
 	CHECK(resp.take_ws_upgrade() == ws);
 	CHECK_FALSE(resp.ws_upgrade_ptr());
+
+	int sockets[2]{};
+	REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+	{
+		WsConn conn{sockets[0]};
+		int closed = 0;
+		conn.on_close([&] { ++closed; });
+		conn.close();
+		conn.close();
+		CHECK(closed == 1);
+		conn.on_close([&] { ++closed; });
+		CHECK(closed == 2);
+	}
+	::close(sockets[1]);
 
 	auto mapped = std::make_shared<MappedBody>();
 	mapped->offset = 3;

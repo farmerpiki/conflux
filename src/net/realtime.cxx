@@ -532,6 +532,7 @@ public:
 	~WsConn() noexcept {
 		stop_keepalive();
 		if (!closed_.test_and_set()) {
+			notify_close_noexcept();
 			::shutdown(fd_, SHUT_WR);
 		}
 	}
@@ -723,6 +724,7 @@ public:
 		if (closed_.test_and_set()) {
 			return;
 		}
+		notify_close_noexcept();
 		stop_keepalive();
 		std::array<char, 2> code_bytes{static_cast<char>(code >> 8), static_cast<char>(code & 0xFF)};
 		std::string payload{code_bytes.data(), 2};
@@ -744,6 +746,19 @@ public:
 	}
 	[[nodiscard]] bool is_open() const noexcept { return !closed_.test(); }
 	[[nodiscard]] int fd() const noexcept { return fd_; }
+	void on_close(
+		std::function<void()> callback) {
+		if (closed_.test()) {
+			invoke_close_callback(std::move(callback));
+			return;
+		}
+		std::scoped_lock const lk{close_mtx_};
+		if (closed_.test()) {
+			invoke_close_callback(std::move(callback));
+			return;
+		}
+		close_callbacks_.push_back(std::move(callback));
+	}
 	// Start a background keepalive std::thread that sends a Ping frame every
 	// interval_ms milliseconds.  The std::thread exits when the connection closes.
 	// Multiple calls are ignored after the first.
@@ -768,6 +783,22 @@ public:
 	}
 
 private:
+	static void invoke_close_callback(
+		std::function<void()> callback) noexcept {
+		try {
+			callback();
+		} catch (...) {}
+	}
+	void notify_close_noexcept() noexcept {
+		std::vector<std::function<void()>> callbacks;
+		{
+			std::scoped_lock const lk{close_mtx_};
+			callbacks = std::move(close_callbacks_);
+		}
+		for (auto &callback: callbacks) {
+			invoke_close_callback(std::move(callback));
+		}
+	}
 	void stop_keepalive() noexcept {
 		if (!keepalive_thread_.joinable()) {
 			return;
@@ -783,9 +814,11 @@ private:
 #endif
 	std::atomic_flag closed_{};
 	std::mutex send_mtx_;
+	std::mutex close_mtx_;
 	std::mutex keepalive_mtx_;
 	std::condition_variable_any keepalive_cv_;
 	std::jthread keepalive_thread_{};
+	std::vector<std::function<void()>> close_callbacks_{};
 	std::string buf_;
 	std::optional<Opcode> frag_opcode_{};
 	std::string frag_payload_{};
