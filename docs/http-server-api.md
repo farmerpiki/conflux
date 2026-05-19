@@ -606,11 +606,21 @@ CPU pinning: set `ring_core` and `worker_core_base` in `Config`; benchmark conte
 
 ## JSON route responses
 
-Raw serialized JSON can still use `HttpResponse::json(std::string)`. Structured
-values should go through the optional `conflux.net.http.response_json` or
-`conflux.net.http.app_json` modules so route code depends on the provider
-boundary instead of one concrete DOM. Framework/reusable code should select the
-provider explicitly:
+First-contact application routes should return structured values with
+`http::json(value)`:
+
+```cpp
+import conflux.http;
+
+app.get("/api/count", [] {
+    return http::json(Count{.value = 42});
+});
+```
+
+Raw serialized JSON can still use `HttpResponse::json(std::string)` in lower-level
+router code. Framework/reusable code that needs provider control should use
+`http::codec::json`, which keeps the JSON boundary explicit instead of binding
+route code to one concrete DOM:
 
 ```cpp
 import conflux.net.http.response_json;
