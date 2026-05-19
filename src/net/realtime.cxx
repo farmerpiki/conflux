@@ -42,6 +42,7 @@ private:
 	std::size_t max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
 	std::atomic<std::size_t> dropped_{0};
+	std::vector<std::function<void()>> close_callbacks_{};
 
 public:
 	static constexpr std::size_t kDefaultMaxQueueBytes = std::size_t{4} * 1024 * 1024;
@@ -137,10 +138,37 @@ public:
 		if (closed_.test_and_set()) {
 			return;
 		} // already closed
+		std::vector<std::function<void()>> callbacks;
+		{
+			std::scoped_lock const lk{mtx_};
+			callbacks = std::move(close_callbacks_);
+		}
+		for (auto &callback: callbacks) {
+			try {
+				callback();
+			} catch (...) {}
+		}
 		std::uint64_t v = 1;
 		if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
 			eprintln(std::format("SseChannel::close: eventfd write: {}", strerror(errno)));
 		} // wake the io_uring poll
+	}
+	void on_close(
+		std::function<void()> callback) {
+		if (closed_.test()) {
+			try {
+				callback();
+			} catch (...) {}
+			return;
+		}
+		std::scoped_lock const lk{mtx_};
+		if (closed_.test()) {
+			try {
+				callback();
+			} catch (...) {}
+			return;
+		}
+		close_callbacks_.push_back(std::move(callback));
 	}
 	[[nodiscard]] std::string drain() {
 		std::scoped_lock const lk{mtx_};

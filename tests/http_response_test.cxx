@@ -219,6 +219,15 @@ TEST_CASE(
 	CHECK(resp.take_sse_channel() == sse);
 	CHECK_FALSE(resp.sse_channel_ptr());
 
+	auto close_observed = std::make_shared<SseChannel>();
+	int closed = 0;
+	close_observed->on_close([&] { ++closed; });
+	close_observed->close();
+	close_observed->close();
+	CHECK(closed == 1);
+	close_observed->on_close([&] { ++closed; });
+	CHECK(closed == 2);
+
 	auto ws = std::make_shared<WsUpgrade>();
 	ws->accept_key = "accept";
 	resp.set_ws_upgrade(ws);
