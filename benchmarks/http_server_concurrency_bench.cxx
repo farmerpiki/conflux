@@ -411,13 +411,13 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_server_concurrency","parser":"standard","configs":[{"name":"default","extra":{},"args":["--duration","5"]}]})");
+		R"({"name":"http_server_concurrency","parser":"standard","configs":[{"name":"default","extra":{},"args":["--duration","1"]}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;
 	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
 
-	int duration_s = 5;
+	int duration_s = 1;
 	for (int i = 1; i < argc; ++i) {
 		if (std::string_view{argv[i]} == "--duration" && i + 1 < argc) {
 			std::from_chars(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]), duration_s);

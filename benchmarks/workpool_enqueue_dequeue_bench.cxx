@@ -527,7 +527,7 @@ int main(
 				",\"queue_modes\":[\"stealing\",\"no_stealing\"]"
 #endif
 				"}},\"args\":[\"--threads\",\"{0}\","
-				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\","
+				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"1000\","
 				"\"--work\",\"2048\"]}}",
 				ts[i]);
 		}

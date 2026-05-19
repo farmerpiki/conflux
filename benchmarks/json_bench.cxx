@@ -253,12 +253,12 @@ std::string make_mixed_numbers_corpus() {
 
 void bench_parse_small(
 	std::string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 50, 500, 1, corpus.size());
+	auto s = measure([&] { (void)parse(corpus); }, 100, 500, 1, corpus.size());
 	print_row("parse/small (~4KB config)", s);
 }
 void bench_parse_large(
 	std::string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 5, 20, 1, corpus.size());
+	auto s = measure([&] { (void)parse(corpus); }, 4, 20, 1, corpus.size());
 	print_row("parse/large (~1MB nested)", s);
 }
 void bench_decode(
@@ -289,7 +289,7 @@ void bench_decode(
 				}
 			}
 		},
-		10,
+		20,
 		100,
 		1,
 		corpus.size());
@@ -313,7 +313,7 @@ void bench_find_member(
 			(void)obj->find_member("member_511");
 			(void)obj->find_member("member_1023");
 		},
-		200,
+		100,
 		500,
 		1000);
 	s.ns_per_iter /= 3.0;
@@ -343,7 +343,7 @@ void bench_array_traversal(
 			}
 			(void)sum;
 		},
-		50,
+		100,
 		500);
 	print_row("A/traverse 10k numbers", s);
 }
@@ -361,7 +361,7 @@ void bench_builder() {
 			std::move(*obj).commit();
 			(void)std::move(b).finish();
 		},
-		50,
+		100,
 		500);
 	print_row("builder/64-member object", s);
 }
@@ -375,7 +375,7 @@ void bench_dump_plain(
 	if (!json_str) {
 		return;
 	}
-	auto s = measure([&] { (void)doc->dump(); }, 50, 500, 1, json_str->size());
+	auto s = measure([&] { (void)doc->dump(); }, 100, 500, 1, json_str->size());
 	print_row("dump/plain (no sort / no ascii_only)", s);
 }
 void bench_dump_sorted(
@@ -390,7 +390,7 @@ void bench_dump_sorted(
 	if (!json_str) {
 		return;
 	}
-	auto s = measure([&] { (void)doc->dump(opts); }, 20, 200, 1, json_str->size());
+	auto s = measure([&] { (void)doc->dump(opts); }, 40, 200, 1, json_str->size());
 	print_row("dump/sort_object_keys", s);
 }
 void bench_accumulate_chunked(
@@ -585,7 +585,7 @@ void bench_e2e_decode(
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
 	try {
 		auto file_stats =
-			measure([&] { block_on(files, decode_file_once(files, file_path)); }, 5, 20, 1, corpus.size());
+			measure([&] { block_on(files, decode_file_once(files, file_path)); }, 4, 20, 1, corpus.size());
 		print_row(std::format("{}/file_reader", name), file_stats);
 		{
 			std::uint16_t port = 0;
@@ -595,7 +595,7 @@ void bench_e2e_decode(
 			try {
 				auto socket_stats = measure(
 					[&] { sync_wait_socket_task(ring, decode_socket_once(ring, port)); },
-					5,
+					4,
 					20,
 					1,
 					corpus.size());
@@ -702,7 +702,7 @@ void bench_find_member_linear31(
 			(void)obj->find_member("member_15");
 			(void)obj->find_member("member_30");
 		},
-		200,
+		100,
 		500,
 		1000);
 	s.ns_per_iter /= 3.0;
@@ -727,7 +727,7 @@ void bench_find_member_escaped(
 			(void)obj->find_member("member_511");
 			(void)obj->find_member("member_1023");
 		},
-		200,
+		100,
 		500,
 		1000);
 	s.ns_per_iter /= 3.0;
@@ -751,7 +751,7 @@ void bench_find_member_mixed(
 			(void)obj->find_member("member_511"); // escaped (odd)
 			(void)obj->find_member("member_1023"); // escaped (odd)
 		},
-		200,
+		100,
 		500,
 		1000);
 	s.ns_per_iter /= 3.0;
@@ -792,7 +792,7 @@ void bench_builder_name_length() {
 				std::move(*obj).commit();
 				(void)std::move(b).finish();
 			},
-			50,
+			100,
 			500);
 		s.ns_per_iter /= static_cast<double>(kMembers);
 		print_row(label, s);
@@ -816,7 +816,7 @@ void bench_builder_name_length() {
 				std::move(*obj).commit();
 				(void)std::move(b).finish();
 			},
-			50,
+			100,
 			500);
 		s.ns_per_iter /= static_cast<double>(kMembers);
 		print_row(label, s);
@@ -830,7 +830,7 @@ void bench_builder_name_length() {
 void bench_parse_named(
 	std::string_view name,
 	std::string const &corpus,
-	std::size_t warmup = 5,
+	std::size_t warmup = 10,
 	std::size_t iters = 50) {
 	auto s = measure([&] { (void)parse(corpus); }, warmup, iters, 1, corpus.size());
 	print_row(name, s);
@@ -838,7 +838,7 @@ void bench_parse_named(
 void bench_dump_named(
 	std::string_view name,
 	std::string const &corpus,
-	std::size_t warmup = 5,
+	std::size_t warmup = 10,
 	std::size_t iters = 50) {
 	auto doc = parse(corpus);
 	if (!doc) {
@@ -855,7 +855,7 @@ void bench_dump_named(
 struct CorpusFileSpec {
 	std::string_view label;
 	std::string_view file;
-	std::size_t warmup{5};
+	std::size_t warmup{10};
 	std::size_t iters{50};
 	bool dump{true};
 };
@@ -875,7 +875,7 @@ struct CorpusFileSpec {
 void bench_parse_required_named(
 	std::string_view name,
 	std::string const &corpus,
-	std::size_t warmup = 5,
+	std::size_t warmup = 10,
 	std::size_t iters = 50,
 	JsonParseOptions const &opts = {}) {
 	auto s = measure(
@@ -894,7 +894,7 @@ void bench_parse_required_named(
 void bench_parse_reject_named(
 	std::string_view name,
 	std::string const &corpus,
-	std::size_t warmup = 10,
+	std::size_t warmup = 20,
 	std::size_t iters = 100) {
 	auto s = measure(
 		[&] {
@@ -950,8 +950,8 @@ void bench_duplicate_policy_fixture(
 	std::string const &corpus) {
 	JsonParseOptions opts;
 	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
-	bench_parse_required_named("parse/edge/duplicate_keys last_wins", corpus, 20, 200, opts);
-	bench_parse_reject_named("reject/edge/duplicate_keys default", corpus, 20, 200);
+	bench_parse_required_named("parse/edge/duplicate_keys last_wins", corpus, 40, 200, opts);
+	bench_parse_reject_named("reject/edge/duplicate_keys default", corpus, 40, 200);
 }
 // FI-1 — measures two components that together show the value of the sentinel:
 //
@@ -989,7 +989,7 @@ void bench_fi1_sentinel(
 		print_row("FI-1/sentinel: (A) linear-only 7-member (failure path proxy)", s);
 	}
 	{
-		auto parse_only = measure([&] { (void)parse(lookup_corpus); }, 10, 100);
+		auto parse_only = measure([&] { (void)parse(lookup_corpus); }, 20, 100);
 		auto parse_find = measure(
 			[&] {
 				auto d = parse(lookup_corpus);
@@ -1002,7 +1002,7 @@ void bench_fi1_sentinel(
 				}
 				(void)o->find_member("member_512");
 			},
-			10,
+			20,
 			100);
 		double const build_ns = parse_find.ns_per_iter - parse_only.ns_per_iter;
 		BenchStats diff{};
@@ -1069,7 +1069,7 @@ void bench_reject_policy() {
 				auto r = decode<BenchModel5>(d->root(), opts);
 				(void)r;
 			},
-			20,
+			100,
 			500);
 		print_row(std::format("decode/reject 5+{} members", extra), s_reject);
 
@@ -1085,7 +1085,7 @@ void bench_reject_policy() {
 				auto r = decode<BenchModel5>(d->root(), opts);
 				(void)r;
 			},
-			20,
+			100,
 			500);
 		print_row(std::format("decode/ignore 5+{} members", extra), s_ignore);
 	}
@@ -1159,9 +1159,9 @@ int main(
 	bench_dump_named("dump/long_strings", long_strings_corpus);
 	bench_parse_named("parse/pretty_ws (1MB indented)", pretty_ws_corpus);
 	bench_dump_named("dump/pretty_ws", pretty_ws_corpus);
-	bench_parse_named("parse/escape_heavy (256KiB)", escape_heavy_corpus, 10, 100);
-	bench_dump_named("dump/escape_heavy", escape_heavy_corpus, 10, 100);
-	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 50, 500);
+	bench_parse_named("parse/escape_heavy (256KiB)", escape_heavy_corpus, 20, 100);
+	bench_dump_named("dump/escape_heavy", escape_heavy_corpus, 20, 100);
+	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 100, 500);
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
 	bench_accumulate_chunked("accumulate/byte_span chunked (1MB large)", large_corpus, 4096);

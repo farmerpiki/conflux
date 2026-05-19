@@ -150,7 +150,7 @@ else
 	FAILED=1
 fi
 
-if run_logged build-debug-gcc-stdcxx cmake --build --preset debug-gcc-stdcxx -j1; then
+if run_logged build-debug-gcc-stdcxx cmake --build --preset debug-gcc-stdcxx; then
 	status_line "build-debug-gcc" "ok"
 else
 	status_line "build-debug-gcc" "failed"
@@ -164,7 +164,7 @@ else
 	FAILED=1
 fi
 
-if run_logged build-debug-clang-libcxx cmake --build --preset debug-clang-libcxx -j1; then
+if run_logged build-debug-clang-libcxx cmake --build --preset debug-clang-libcxx; then
 	status_line "build-debug-clang" "ok"
 else
 	status_line "build-debug-clang" "failed"

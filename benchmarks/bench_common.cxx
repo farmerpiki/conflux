@@ -19,8 +19,8 @@ export [[nodiscard]] inline std::size_t bench_parse_sz(
 	return v;
 }
 export struct BenchArgs {
-	std::size_t iterations = 1000000;
-	std::size_t warmup = 50000;
+	std::size_t iterations = 200000;
+	std::size_t warmup = 40000;
 	bool json_out = false;
 	std::string config_name;
 };

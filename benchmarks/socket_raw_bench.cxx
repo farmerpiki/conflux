@@ -511,7 +511,7 @@ void run_multishot_recv_Nconn(
 	};
 
 	auto iters = std::min(args.iterations, std::size_t{50000});
-	auto warmup = std::min(args.warmup, std::size_t{5000});
+	auto warmup = std::min(args.warmup, std::size_t{10000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
@@ -992,7 +992,7 @@ void run_link_timeout(
 	};
 
 	auto iters = std::min(args.iterations, std::size_t{10000});
-	auto warmup = std::min(args.warmup, std::size_t{1000});
+	auto warmup = std::min(args.warmup, std::size_t{2000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 }
@@ -1151,7 +1151,7 @@ void run_buf_ring_exhaustion_recover(
 	};
 
 	auto iters = std::min(args.iterations, std::size_t{5000});
-	auto warmup = std::min(args.warmup, std::size_t{500});
+	auto warmup = std::min(args.warmup, std::size_t{1000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 }
@@ -1413,7 +1413,7 @@ void run_batch_recv_send_16(
 	};
 
 	auto iters = std::min(args.iterations, std::size_t{50000});
-	auto warmup = std::min(args.warmup, std::size_t{5000});
+	auto warmup = std::min(args.warmup, std::size_t{10000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
@@ -1584,7 +1584,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","100000","--warmup","10000"]}]})");
+		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","1000","--warmup","200"]}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;

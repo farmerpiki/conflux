@@ -26,8 +26,8 @@ constexpr std::uint64_t pack_ud(
 	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 struct Config {
-	std::size_t iterations = 100000;
-	std::size_t warmup = 5000;
+	std::size_t iterations = 200;
+	std::size_t warmup = 40;
 	std::size_t clients = 4;
 	std::string_view config_name = "default";
 	bool json_out = false;
@@ -552,7 +552,7 @@ int main(
 	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::print(
 			"{}\n",
-			R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50","--config","default"]},{"name":"parallel_4","extra":{},"args":["--iterations","200","--warmup","50","--clients","4","--config","parallel_4"]}]})");
+			R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","40","--config","default"]},{"name":"parallel_4","extra":{},"args":["--iterations","200","--warmup","40","--clients","4","--config","parallel_4"]}]})");
 		return 0;
 	}
 	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});

@@ -62,7 +62,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","180000","--warmup","36000"]}]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 
@@ -161,7 +161,7 @@ int main(
 			},
 			cfg.warmup,
 			cfg.iterations,
-			100));
+			50));
 
 	for (std::size_t sz: {32UZ, 128UZ, 512UZ, 4096UZ}) {
 		std::vector<char> buf(sz, 'X');
@@ -179,7 +179,7 @@ int main(
 				},
 				cfg.warmup,
 				cfg.iterations,
-				100,
+				10,
 				sz));
 	}
 

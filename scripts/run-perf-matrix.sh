@@ -10,7 +10,6 @@
 #
 # Env:
 #   SOURCE_DIR   path to project root (default: repo root via git)
-#   JOBS         parallel jobs for cmake --build (default: nproc)
 set -euo pipefail
 
 MATRIX=(
@@ -55,7 +54,6 @@ if [[ -z "${SOURCE_DIR:-}" ]]; then
     SOURCE_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || script_repo_root)"
 fi
 SOURCE_DIR="$(realpath "$SOURCE_DIR")"
-JOBS="${JOBS:-$(nproc)}"
 
 in_only() {
     local preset="$1"
@@ -129,7 +127,7 @@ for preset in "${MATRIX[@]}"; do
     fi
 
     if [[ "$status" == PASS ]]; then
-        if ! cmake --build --preset "$preset" --target "$TARGET" -j "$JOBS" 2>&1; then
+        if ! cmake --build --preset "$preset" --target "$TARGET" 2>&1; then
             status=BUILD_FAIL
         fi
     fi

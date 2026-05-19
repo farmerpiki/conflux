@@ -107,6 +107,30 @@ configuration. If one source file or optional feature breaks that configuration,
 disable the conflicting flag only for that compiler and source file/feature; do
 not downgrade the rest of the target or library.
 
+Benchmark policy:
+
+- A DB row is exactly one benchmark function, parameter set, and mode/config.
+- Normal rows target 0.4s to 2s measured time. Slow rows may exceed 2s; torture
+  rows are adversarial. Slow and torture rows must still stay below 30s each.
+- Suites are separate: smoke is tiny and CI-safe, normal uses 0.4s to 2s rows,
+  slow is explicit >2s coverage, torture is adversarial.
+- Suite runtime is budgeted too; many valid rows must not create an unbounded
+  run.
+- Calibrate first, warm up second, measure third: estimate the iteration count,
+  run `ceil(iterations * 0.20)` warmup iterations, then measure that row once.
+- Warmup is excluded from samples and recorded as metadata alongside measured
+  iterations and measured seconds.
+- Cold-path rows do not warm up unless explicitly marked, including cold parse,
+  first route use, first TLS handshake, cold mmap/page-cache file reads, and
+  allocator cold start.
+- Metadata must record compiler, flags, CPU, kernel, governor/turbo state when
+  known, target timing range, measured row time, iteration count, warmup count,
+  and slow/torture classification.
+- Allocation-sensitive rows must name whether arenas/pools reset per iteration
+  or are intentionally reused.
+- HTTP/io_uring row timing measures steady-state request handling, not server
+  startup, unless the row name says startup or lifecycle.
+
 ## Supported kernel/runtime matrix
 
 Conflux is Linux-only and `io_uring`-first. Runtime-facing feature sets require:

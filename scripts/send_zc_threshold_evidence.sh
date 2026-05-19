@@ -5,7 +5,7 @@
 #   SEND_ZC_PRESET           CMake preset; default perf-clang-libcxx
 #   SEND_ZC_THRESHOLDS       space-separated thresholds; default "4096 16384 65536"
 #   SEND_ZC_ITERATIONS       measured iterations per request-at-a-time rep; default 1000
-#   SEND_ZC_WARMUP           warmup iterations per request-at-a-time rep; default 100
+#   SEND_ZC_WARMUP           warmup iterations per request-at-a-time rep; default 20% of SEND_ZC_ITERATIONS
 #   SEND_ZC_REPS             repeated benchmark launches per threshold/config; default 5
 #   SEND_ZC_LOAD             run concurrent keep-alive load sweep; default 1
 #   SEND_ZC_CONNECTIONS      concurrent load connections; default 64
@@ -82,7 +82,8 @@ cd "$REPO_ROOT"
 PRESET="${SEND_ZC_PRESET:-perf-clang-libcxx}"
 THRESHOLDS="${SEND_ZC_THRESHOLDS:-4096 16384 65536}"
 ITERATIONS="${SEND_ZC_ITERATIONS:-1000}"
-WARMUP="${SEND_ZC_WARMUP:-100}"
+WARMUP="${SEND_ZC_WARMUP:-$(( ITERATIONS / 5 ))}"
+(( WARMUP < 1 )) && WARMUP=1
 REPS="${SEND_ZC_REPS:-5}"
 LOAD="${SEND_ZC_LOAD:-1}"
 CONNECTIONS="${SEND_ZC_CONNECTIONS:-64}"
@@ -126,7 +127,7 @@ if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
 fi
 
 printf 'building SEND_ZC benchmark\n'
-if ! cmake --build "$BUILD_DIR" --target conflux_send_zc_bench -- -j"$(nproc)" \
+if ! cmake --build "$BUILD_DIR" --target conflux_send_zc_bench \
 	> "$build_log" 2>&1; then
 	printf 'build failed; log=%s\n' "$build_log" >&2
 	tail -40 "$build_log" >&2

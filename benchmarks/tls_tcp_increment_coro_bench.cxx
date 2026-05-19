@@ -31,7 +31,7 @@ constexpr std::uint64_t pack_ud(
 	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 struct Config {
-	std::size_t iterations = 50000;
+	std::size_t iterations = 10000;
 	std::size_t warmup = 2000;
 	bool json_out = false;
 };
@@ -352,7 +352,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","500"]}]})");
+		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","2000"]}]})");
 	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 
 	auto kc = make_self_signed();

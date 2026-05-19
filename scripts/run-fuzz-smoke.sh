@@ -6,7 +6,6 @@
 #
 # Env:
 #   SOURCE_DIR   path to project root (default: repo root via git)
-#   JOBS         parallel jobs for cmake --build (default: nproc)
 set -euo pipefail
 
 PRESET=fuzz-clang-stdcxx
@@ -38,7 +37,6 @@ if [[ -z "${SOURCE_DIR:-}" ]]; then
 fi
 SOURCE_DIR="$(realpath "$SOURCE_DIR")"
 
-JOBS="${JOBS:-$(nproc)}"
 build_dir="/tmp/$(basename "$SOURCE_DIR")/$PRESET"
 
 cache_value() {
@@ -110,7 +108,7 @@ assert_fuzz_cache() {
 
 cmake --preset "$PRESET" -S "$SOURCE_DIR"
 assert_fuzz_cache
-cmake --build --preset "$PRESET" -j "$JOBS"
+cmake --build --preset "$PRESET"
 ctest_args=(
     --test-dir "$build_dir"
     --output-on-failure

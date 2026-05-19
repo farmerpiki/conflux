@@ -16,14 +16,14 @@ production-style codegen.
 
 ```sh
 cmake --preset perf-clang-libcxx
-cmake --build --preset perf-clang-libcxx --target conflux_record_benches -j1
+cmake --build --preset perf-clang-libcxx --target conflux_record_benches
 ```
 
 or:
 
 ```sh
 cmake --preset perf-gcc-stdcxx
-cmake --build --preset perf-gcc-stdcxx --target conflux_record_benches -j1
+cmake --build --preset perf-gcc-stdcxx --target conflux_record_benches
 ```
 
 Focused debug builds are still available when you need instrumentation or a

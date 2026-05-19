@@ -419,7 +419,7 @@ BenchStats run_variant(
 	std::string_view config_name) {
 	if (v.iters_override) {
 		iterations = std::min(iterations, v.iters_override);
-		warmup = std::min(warmup, std::max(std::size_t{2}, v.iters_override / 10));
+		warmup = std::min(warmup, std::max(std::size_t{2}, v.iters_override / 5));
 	}
 	if (v.setup) {
 		v.setup();
@@ -507,7 +507,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"args":["--iterations","100","--warmup","30"],"reps":1}]})");
+		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"args":["--iterations","100","--warmup","20"],"reps":1}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;

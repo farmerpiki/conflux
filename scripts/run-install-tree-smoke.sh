@@ -9,12 +9,11 @@ components="core"
 feature_set="core"
 build_type="Release"
 generator=""
-jobs="${CONFLUX_BUILD_JOBS:-}"
 extra_cmake_args=()
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--jobs <n>] [-- <extra cmake configure args>]
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -64,11 +63,6 @@ while (($#)); do
             generator="$2"
             shift 2
             ;;
-        --jobs)
-            [[ $# -ge 2 ]] || { usage; exit 2; }
-            jobs="$2"
-            shift 2
-            ;;
         --)
             shift
             extra_cmake_args+=("$@")
@@ -99,14 +93,6 @@ base_dir="${TMPDIR:-/tmp}/conflux-install-tree-smoke"
 [[ -n "$build_dir" ]] || build_dir="$base_dir/build"
 [[ -n "$prefix" ]] || prefix="$base_dir/prefix"
 [[ -n "$smoke_build_dir" ]] || smoke_build_dir="$base_dir/package-smoke"
-
-if [[ -z "$jobs" ]]; then
-    if command -v nproc >/dev/null 2>&1; then
-        jobs="$(nproc)"
-    else
-        jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')"
-    fi
-fi
 
 cmake_configure=(
     cmake -S "$source_root" -B "$build_dir"
@@ -148,12 +134,11 @@ prepare_clean_dir "$build_dir" "build"
 prepare_clean_dir "$prefix" "install prefix"
 prepare_clean_dir "$smoke_build_dir" "consumer build"
 "${cmake_configure[@]}"
-cmake --build "$build_dir" --target install --parallel "$jobs"
+cmake --build "$build_dir" --target install
 "$source_root/scripts/run-package-config-smoke.sh" \
     --source "$source_root" \
     --prefix "$prefix" \
     --build-dir "$smoke_build_dir" \
-    --components "$components" \
-    --jobs "$jobs"
+    --components "$components"
 
 printf 'run-install-tree-smoke: ok (%s, %s)\n' "$feature_set" "$components"

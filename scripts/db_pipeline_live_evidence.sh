@@ -86,7 +86,7 @@ if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
 fi
 
 printf 'building DB integration and pipeline benchmark targets\n'
-if ! cmake --build "$BUILD_DIR" --target conflux_db_integration conflux_db_pipeline_bench -- -j"$(nproc)" \
+if ! cmake --build "$BUILD_DIR" --target conflux_db_integration conflux_db_pipeline_bench \
 	> "$build_log" 2>&1; then
 	printf 'build failed; log=%s\n' "$build_log" >&2
 	tail -40 "$build_log" >&2

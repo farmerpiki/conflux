@@ -590,7 +590,7 @@ run_compare() {
     assert_recording_cache "$p" "$bdir"
     copy_build_cache_artifact "$p" "$bdir"
     local build_log="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$p")-build.log"
-    if ! cmake --build "$bdir" --target conflux_work_benchmarks -- -j"$(nproc)" \
+    if ! cmake --build "$bdir" --target conflux_work_benchmarks \
         > "$build_log" 2>&1; then
       echo "build failed for preset $p; log=$build_log" >&2
       tail -40 "$build_log" >&2
@@ -911,7 +911,7 @@ for PRESET in "${PRESET_LIST[@]}"; do
 
   CURRENT_BUILD_DIR="$BUILD_DIR"
   BUILD_LOG="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$PRESET")-build.log"
-  if ! cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" \
+  if ! cmake --build "$BUILD_DIR" --target conflux_record_benches \
       > "$BUILD_LOG" 2>&1; then
     echo "build failed; preset=$PRESET log=$BUILD_LOG" >&2
     tail -40 "$BUILD_LOG" >&2

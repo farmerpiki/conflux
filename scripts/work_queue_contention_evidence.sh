@@ -5,7 +5,7 @@
 #   WORK_QUEUE_PRESET          CMake preset; default perf-clang-libcxx
 #   WORK_QUEUE_THREADS         producer/worker count passed to the benchmark; default nproc
 #   WORK_QUEUE_ITERATIONS      measured iterations per rep; default 5000
-#   WORK_QUEUE_WARMUP          warmup iterations per rep; default 500
+#   WORK_QUEUE_WARMUP          warmup iterations per rep; default 20% of WORK_QUEUE_ITERATIONS
 #   WORK_QUEUE_WORK            CPU work units per redistribution child job; default 2048
 #   WORK_QUEUE_REPS            repeated benchmark launches; default 5
 #   WORK_QUEUE_ARTIFACT_DIR    output dir; default /tmp/<repo>/work-queue-evidence/<stamp>
@@ -63,7 +63,8 @@ cd "$REPO_ROOT"
 PRESET="${WORK_QUEUE_PRESET:-perf-clang-libcxx}"
 THREADS="${WORK_QUEUE_THREADS:-$(nproc)}"
 ITERATIONS="${WORK_QUEUE_ITERATIONS:-5000}"
-WARMUP="${WORK_QUEUE_WARMUP:-500}"
+WARMUP="${WORK_QUEUE_WARMUP:-$(( ITERATIONS / 5 ))}"
+(( WARMUP < 1 )) && WARMUP=1
 WORK_UNITS="${WORK_QUEUE_WORK:-2048}"
 REPS="${WORK_QUEUE_REPS:-5}"
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -93,7 +94,7 @@ if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
 fi
 
 printf 'building workpool queue mode comparison benchmark\n'
-if ! cmake --build "$BUILD_DIR" --target conflux_workpool_queue_mode_compare_bench -- -j"$(nproc)" \
+if ! cmake --build "$BUILD_DIR" --target conflux_workpool_queue_mode_compare_bench \
 	> "$build_log" 2>&1; then
 	printf 'build failed; log=%s\n' "$build_log" >&2
 	tail -40 "$build_log" >&2

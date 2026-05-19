@@ -200,7 +200,7 @@ int main(
 				std::string const out = env.render_string(std::string(kSimpleTmpl), std::string(kSimpleCtx));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: simple substitution", s);
 	}
@@ -211,7 +211,7 @@ int main(
 				std::string const out = env.render_string(std::string(kLoopTmpl), std::string(kLoopCtx10));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: loop 10 items", s);
 	}
@@ -223,7 +223,7 @@ int main(
 				std::string const out = env.render_string(std::string(kLoopTmpl), ctx100);
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: loop 100 items", s);
 	}
@@ -234,7 +234,7 @@ int main(
 				std::string const out = env.render_string(std::string(kCondTmpl), std::string(kCondCtxTrue));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: conditionals (true branch)", s);
 	}
@@ -245,7 +245,7 @@ int main(
 				std::string const out = env.render_string(std::string(kFilterTmpl), std::string(kFilterCtx));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: filter chain (join+upper)", s);
 	}
@@ -256,7 +256,7 @@ int main(
 				std::string const out = env.render_string(std::string(kPageTmpl), std::string(kPageCtx));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: page fragment (5 products)", s);
 	}
@@ -267,7 +267,7 @@ int main(
 				std::string const out = env.render_string(std::string(kMacroTmpl), std::string(kMacroCtx));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: macro define+call x3", s);
 	}
@@ -278,7 +278,7 @@ int main(
 				std::string const out = env.render_string(std::string(kExprHeavyTmpl), std::string(kExprHeavyCtx));
 				(void)out;
 			},
-			20,
+			100,
 			500);
 		report("parse+render: expression-heavy page", s);
 	}
@@ -310,7 +310,7 @@ int main(
 				std::string const out = env.render_string(std::string(kLoopTmpl), ctx100);
 				(void)out;
 			},
-			50,
+			400,
 			2000);
 		report("render_string: loop 100 (shared env, re-parse)", s);
 	}
@@ -321,7 +321,7 @@ int main(
 				std::string const out = env.render_string(std::string(kPageTmpl), std::string(kPageCtx));
 				(void)out;
 			},
-			50,
+			400,
 			2000);
 		report("render_string: page fragment (2000 iters)", s);
 	}
@@ -337,7 +337,7 @@ int main(
 				std::string const out = env.render_string(std::string(kPageTmpl), parsed->root());
 				(void)out;
 			},
-			50,
+			400,
 			2000);
 		report("render_string: page fragment (parsed ctx)", s);
 	}
@@ -355,7 +355,7 @@ int main(
 				std::string const out = env.render("page.html", parsed->root());
 				(void)out;
 			},
-			50,
+			1000,
 			5000);
 		std::filesystem::remove_all(dir);
 		report("render cached: page fragment (parsed ctx)", s);
@@ -374,7 +374,7 @@ int main(
 				std::string const out = env.render("expr.html", parsed->root());
 				(void)out;
 			},
-			50,
+			1000,
 			5000);
 		std::filesystem::remove_all(dir);
 		report("render cached: expression-heavy page (parsed ctx)", s);
