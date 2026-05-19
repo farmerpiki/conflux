@@ -74,7 +74,13 @@ void route_forms_compile() {
 		return http::created(*body);
 	});
 
-	(void)app.routes();
+	auto routes = app.routes();
+	static_assert(std::same_as<decltype(routes), std::vector<http::AppRouteInfo>>);
+	auto static_mounts = app.static_mounts();
+	static_assert(std::same_as<decltype(static_mounts), std::vector<http::AppStaticMountInfo>>);
+	(void)app.route_table();
+	(void)app.openapi_spec();
+	(void)app.validate().detailed_summary();
 }
 
 void offload_spelling_compiles(
