@@ -48,10 +48,47 @@ Expected handling policy for a release branch:
 4. publish the fix with credit if the reporter wants credit;
 5. add a migration or mitigation note when existing deployments need action.
 
+
+## Language standard policy
+
+Conflux should not artificially gate components behind a newer C++ standard than
+the code actually needs. Standard requirements are part of each component's public
+contract and should be capability-driven, not set globally for convenience.
+
+Policy:
+
+- every public CMake target declares the lowest standard it genuinely needs with
+  target-level compile features;
+- optional feature targets may raise the consumer requirement only when the
+  consumer links that feature;
+- the default/umbrella surface should stay curated and should not pull
+  experimental C++26-only features by accident;
+- build probes should test capabilities such as reflection, `<simd>`,
+  `<experimental/simd>`, `import std`, and platform support instead of assuming
+  that a standard number implies availability;
+- compatibility that costs nothing is welcome; compatibility that requires
+  polyfills, duplicate implementations, public dialect aliases, or extra
+  maintenance needs an explicit ergonomics/performance justification.
+
+Expected target tiers before release:
+
+| Target family | Baseline rule | Notes |
+|---|---|---|
+| core, JSON, HTTP, runtime, DB, crypto | C++23 unless the implementation genuinely needs more | This is the practical default user tier. |
+| JSON reflection | C++26 plus a reflection-capable compiler probe | Keep isolated behind its own component/target. |
+| standard SIMD fast paths | C++26 plus a `<simd>` compile probe | Scalar fallback must remain available. |
+| vendor experimental SIMD fast paths | C++23 plus an `<experimental/simd>` compile probe | Treat as opportunistic, not a portable contract. |
+
+A top-level developer preset may still request a newer language mode while the
+project is being developed. That preset is not the public compatibility contract.
+The exported/installable targets are authoritative for downstream consumers.
+
 ## Supported compiler matrix
 
-The project targets C++26 and uses CMake presets as the source of truth for
-supported developer configurations.
+Current developer presets use C++26-capable toolchains because the module-first
+development lane uses `import std` and optional reflection experiments. Public
+consumer requirements are still per-target, as described in the language
+standard policy above.
 
 | Preset family | Compiler | Standard library | Current role |
 |---|---|---|---|
