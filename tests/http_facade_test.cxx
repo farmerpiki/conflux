@@ -307,6 +307,37 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: typed route parameter tags dispatch with untyped extractor names",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/typed/{id:u64}">(
+		[](http::Path<"id", std::uint64_t> id) { return http::text(std::format("{}", id.get())); });
+
+	CHECK(app.validate().ok());
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/typed/42";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "42");
+}
+
+TEST_CASE(
+	"http facade: validate reports typed route parameter mismatch",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/typed/{id:u64}">(
+		[](http::Path<"id", std::int64_t> id) { return http::text(std::format("{}", id.get())); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].message == "path parameter type mismatch for Path<id>: route has u64, handler expects i64");
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive field extractors",
 	"[http.facade]") {
 	auto app = http::app();

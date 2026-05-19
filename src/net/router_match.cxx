@@ -13,19 +13,27 @@ export struct Segment {
 	bool is_wildcard; // true -> {*name} greedy tail capture (must be last segment)
 };
 
+[[nodiscard]] std::string route_param_name(
+	std::string_view value) {
+	if (auto colon = value.find(':'); colon != std::string_view::npos) {
+		value = value.substr(0, colon);
+	}
+	return std::string{value};
+}
+
 export std::vector<Segment> parse_pattern(
 	std::string_view pattern) {
 	std::vector<Segment> segs;
-	segs.reserve(std::ranges::count(pattern, '/') + 1);
+	segs.reserve(static_cast<std::size_t>(std::ranges::count(pattern, '/')) + 1);
 	std::size_t pos = 0;
 	while (true) {
 		auto next = pattern.find('/', pos);
 		auto part = (next == std::string_view::npos) ? pattern.substr(pos) : pattern.substr(pos, next - pos);
 
 		if (part.size() >= 3 && part.front() == '{' && part.back() == '}' && part[1] == '*') {
-			segs.push_back({std::string{part.substr(2, part.size() - 3)}, false, true});
+			segs.push_back({route_param_name(part.substr(2, part.size() - 3)), false, true});
 		} else if (part.size() >= 2 && part.front() == '{' && part.back() == '}') {
-			segs.push_back({std::string{part.substr(1, part.size() - 2)}, true, false});
+			segs.push_back({route_param_name(part.substr(1, part.size() - 2)), true, false});
 		} else {
 			segs.push_back({std::string{part}, false, false});
 		}

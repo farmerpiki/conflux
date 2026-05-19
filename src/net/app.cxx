@@ -535,7 +535,9 @@ class App {
 		std::uint_least32_t source_line{};
 		std::vector<std::string> extractors;
 		std::vector<std::string> path_extractors;
+		std::vector<std::pair<std::string, std::string>> path_extractor_types;
 		std::vector<std::string> path_params;
+		std::map<std::string, std::string> path_param_types;
 		std::vector<std::type_index> required_states;
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::string openapi_summary;
@@ -1081,6 +1083,25 @@ public:
 							.source_line = route.source_line});
 				}
 			}
+			for (auto const &[name, expected_type]: route.path_extractor_types) {
+				if (expected_type.empty()) {
+					continue;
+				}
+				auto const it = route.path_param_types.find(name);
+				if (it != route.path_param_types.end() && !it->second.empty() && it->second != expected_type) {
+					report.issues.push_back(
+						ValidationIssue{
+							.message = std::format(
+								"path parameter type mismatch for Path<{}>: route has {}, handler expects {}",
+								name,
+								it->second,
+								expected_type),
+							.method = route.method,
+							.path = route.path,
+							.source_file = route.source_file,
+							.source_line = route.source_line});
+				}
+			}
 			if (route.method == "GET" && route.uses_body) {
 				report.issues.push_back(
 					ValidationIssue{
@@ -1255,6 +1276,42 @@ public:
 			...);
 	}
 
+	template<class T>
+	[[nodiscard]] static consteval std::string_view route_type_tag() {
+		using Clean = std::remove_cvref_t<T>;
+		if constexpr (std::same_as<Clean, std::uint64_t>) {
+			return "u64";
+		} else if constexpr (std::same_as<Clean, std::int64_t>) {
+			return "i64";
+		} else if constexpr (std::same_as<Clean, std::uint32_t>) {
+			return "u32";
+		} else if constexpr (std::same_as<Clean, std::int32_t>) {
+			return "i32";
+		} else if constexpr (std::same_as<Clean, std::string> || std::same_as<Clean, std::string_view>) {
+			return "string";
+		} else {
+			return "";
+		}
+	}
+
+	template<class Args, std::size_t... Is>
+	static void append_path_extractor_types(
+		std::vector<std::pair<std::string, std::string>> &out,
+		std::index_sequence<Is...>) {
+		(
+			[&] {
+				using Arg = std::tuple_element_t<Is, Args>;
+				using Clean = std::remove_cvref_t<Arg>;
+				if constexpr (detail::PathArg<Clean>) {
+					using PathValue = typename detail::PathType<Clean>::type;
+					out.emplace_back(
+						std::string{detail::PathType<Clean>::name.view()},
+						std::string{route_type_tag<PathValue>()});
+				}
+			}(),
+			...);
+	}
+
 	template<class Args, std::size_t... Is>
 	[[nodiscard]] static consteval bool has_body_extractor_impl(
 		std::index_sequence<Is...>) {
@@ -1298,6 +1355,35 @@ public:
 		return out;
 	}
 
+	[[nodiscard]] static std::map<std::string, std::string> collect_path_param_types(
+		std::string_view path) {
+		std::map<std::string, std::string> out;
+		for (std::size_t pos = 0; pos < path.size();) {
+			auto open = path.find('{', pos);
+			if (open == std::string_view::npos) {
+				break;
+			}
+			auto close = path.find('}', open + 1);
+			if (close == std::string_view::npos) {
+				break;
+			}
+			auto name = path.substr(open + 1, close - open - 1);
+			if (name.starts_with('*')) {
+				name.remove_prefix(1);
+			}
+			std::string_view type;
+			if (auto colon = name.find(':'); colon != std::string_view::npos) {
+				type = name.substr(colon + 1);
+				name = name.substr(0, colon);
+			}
+			if (!name.empty()) {
+				out.emplace(std::string{name}, std::string{type});
+			}
+			pos = close + 1;
+		}
+		return out;
+	}
+
 	template<class Args>
 	void record_route_metadata(
 		std::string_view method,
@@ -1312,7 +1398,11 @@ public:
 			.source_line = loc.line()};
 		append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		append_path_extractor_types<Args>(
+			meta.path_extractor_types,
+			std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.path_params = collect_path_params(path);
+		meta.path_param_types = collect_path_param_types(path);
 		append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.uses_body = has_body_extractor<Args>() || handler_kind == "json_body";
 		route_metadata_.push_back(std::move(meta));

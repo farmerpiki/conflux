@@ -437,13 +437,17 @@ template<typename Key>
 [[nodiscard]] bool auth_response_is_failure(
 	HttpResponse const &response,
 	AuthThrottleMiddlewareOptions const &opts) {
-	return std::ranges::find(opts.failure_statuses, response.status) != opts.failure_statuses.end();
+	return response.status >= 0
+		&& std::ranges::find(opts.failure_statuses, static_cast<unsigned>(response.status))
+			   != opts.failure_statuses.end();
 }
 
 [[nodiscard]] bool auth_response_is_success(
 	HttpResponse const &response,
 	AuthThrottleMiddlewareOptions const &opts) noexcept {
-	return response.status >= opts.success_status_min && response.status <= opts.success_status_max;
+	return response.status >= 0
+		&& static_cast<unsigned>(response.status) >= opts.success_status_min
+		&& static_cast<unsigned>(response.status) <= opts.success_status_max;
 }
 
 } // namespace auth_detail
