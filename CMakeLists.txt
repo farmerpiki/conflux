@@ -2027,6 +2027,7 @@ target_sources(conflux_http_app
             src/net/app_json_helpers.cxx
             src/net/app_policies.cxx
             src/net/app_route_helpers.cxx
+            src/net/app_types.cxx
             src/net/app.cxx
 )
 target_link_libraries(conflux_http_app
