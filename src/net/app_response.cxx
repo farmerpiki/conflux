@@ -42,9 +42,9 @@ template<class T>
 	Json<T> const &body) {
 #if CONFLUX_HAS_JSON
 	if constexpr (requires(T const &value) {
-					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+					  { codec::json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
 				  }) {
-		return json::response_or_internal_error(body.value);
+		return codec::json::response_or_internal_error(body.value);
 	} else {
 		static_assert(
 			kDependentFalse<T>,
@@ -62,9 +62,9 @@ template<class T>
 	Json<T> &&body) {
 #if CONFLUX_HAS_JSON
 	if constexpr (requires(T const &value) {
-					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+					  { codec::json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
 				  }) {
-		return json::response_or_internal_error(body.value);
+		return codec::json::response_or_internal_error(body.value);
 	} else {
 		static_assert(
 			kDependentFalse<T>,

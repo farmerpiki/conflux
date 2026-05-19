@@ -5,7 +5,7 @@ import conflux.types;
 export import conflux.net.http.response_json;
 export import conflux.json.native_provider;
 
-export namespace conflux::http::json {
+export namespace conflux::http::codec::json {
 
 using DefaultJsonProvider = conflux::json::boundary::NativeJsonProvider;
 
@@ -82,4 +82,4 @@ template<class T>
 	return response_or_internal_error_with<DefaultJsonProvider>(value, status, status_text, opts);
 }
 
-} // namespace conflux::http::json
+} // namespace conflux::http::codec::json

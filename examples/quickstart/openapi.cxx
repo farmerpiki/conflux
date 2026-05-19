@@ -16,7 +16,7 @@ int main() {
 
 	auto app = http::app();
 
-	app.get("/health", [] { return http::ok(StatusReply{.status = "ok"}); })
+	app.get("/health", [] { return http::json(StatusReply{.status = "ok"}); })
 		.name("health.check")
 		.openapi_summary("Health check");
 	app.get("/openapi.json", app.openapi_handler("conflux quickstart", "0.1.0"));

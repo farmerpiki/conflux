@@ -107,7 +107,7 @@ int main() {
 
 		HashRequest request = *body;
 		return http::offload(pool, [request = std::move(request)] {
-			return http::json::response_or_internal_error(
+			return http::codec::json::response_or_internal_error(
 				HashReply{
 					.algorithm = "fnv1a64",
 					.rounds = request.rounds,

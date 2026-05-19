@@ -6,7 +6,7 @@ import conflux.net.http.types;
 export import conflux.net.http.request;
 export import conflux.json.boundary;
 
-export namespace conflux::http::json {
+export namespace conflux::http::codec::json {
 
 template<class Provider, class T>
 inline ClientRequest::Builder &set_body_with(
@@ -41,4 +41,4 @@ template<class Provider, class T>
 	return conflux::json::boundary::decode_with<Provider, std::remove_cvref_t<T>>(std::string_view{req.body()}, opts);
 }
 
-} // namespace conflux::http::json
+} // namespace conflux::http::codec::json

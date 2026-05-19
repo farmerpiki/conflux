@@ -7,7 +7,7 @@ import conflux.net.http.types;
 export import conflux.net.http.response;
 export import conflux.net.http.json;
 
-export namespace conflux::http::json {
+export namespace conflux::http::codec::json {
 
 struct ResponseOptions {
 	int status{kHttpOk};
@@ -131,4 +131,4 @@ template<class Provider, class T>
 	return response_or_internal_error_with<Provider>(value, status, status_text, opts);
 }
 
-} // namespace conflux::http::json
+} // namespace conflux::http::codec::json

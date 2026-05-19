@@ -254,7 +254,7 @@ when it intentionally chooses the current `conflux.json` adapter:
 import conflux.net.http.json;
 
 auto b = ClientRequest::post("https://example.test/submit");
-conflux::http::json::set_body_with<CustomProvider>(b, value);
+conflux::http::codec::json::set_body_with<CustomProvider>(b, value);
 auto req = std::move(b).build();
 ```
 
@@ -262,7 +262,7 @@ auto req = std::move(b).build();
 import conflux.net.http.native_json;
 
 auto b = ClientRequest::post("https://example.test/submit");
-conflux::http::json::set_body(b, doc);
+conflux::http::codec::json::set_body(b, doc);
 auto req = std::move(b).build();
 ```
 

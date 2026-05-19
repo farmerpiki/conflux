@@ -968,10 +968,12 @@ public:
 			return into_response(std::forward<T>(result).error());
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using Body = typename detail::JsonType<Clean>::type;
-			if constexpr (requires(Body const &value, json::ResponseOptions const &opts) {
-							  { json::response_or_internal_error(value, opts) } -> std::same_as<HttpResponse>;
+			if constexpr (requires(Body const &value, codec::json::ResponseOptions const &opts) {
+							  { codec::json::response_or_internal_error(value, opts) } -> std::same_as<HttpResponse>;
 						  }) {
-				return json::response_or_internal_error(result.value, json::ResponseOptions{.dump = json_options.dump});
+				return codec::json::response_or_internal_error(
+					result.value,
+					codec::json::ResponseOptions{.dump = json_options.dump});
 			} else {
 				static_assert(
 					kDependentFalse<Body>,
@@ -1175,7 +1177,7 @@ public:
 			if (limit != 0 && req.body.size() > limit) {
 				throw ExtractorFailure{HttpResponse::content_too_large()};
 			}
-			auto parsed = json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
+			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
 			}
@@ -1191,7 +1193,7 @@ public:
 			if (limit != 0 && req.body.size() > limit) {
 				throw ExtractorFailure{HttpResponse::content_too_large()};
 			}
-			auto decoded = conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(
+			auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 				req.body,
 				json_options.decode);
 			if (!decoded) {
@@ -1412,7 +1414,7 @@ public:
 					return HttpResponse::content_too_large();
 				}
 				auto const &effective_decode_opts = decode_opts ? *decode_opts : json_options->decode;
-				auto decoded = conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(
+				auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 					req.body,
 					effective_decode_opts);
 				if (!decoded) {

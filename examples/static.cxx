@@ -55,7 +55,7 @@ int main() {
 	app.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
 
 	app.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
-		return http::ok(StaticInfo{.status = "ok", .assets = asset_dir, .routes = "/,/api/info,/assets/{*file}"});
+		return http::json(StaticInfo{.status = "ok", .assets = asset_dir, .routes = "/,/api/info,/assets/{*file}"});
 	});
 
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});

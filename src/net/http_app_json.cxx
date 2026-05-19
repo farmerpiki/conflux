@@ -7,7 +7,7 @@ import conflux.net.app;
 import conflux.net.router;
 import conflux.net.http.response_json;
 
-export namespace conflux::http::json {
+export namespace conflux::http::codec::json {
 
 [[nodiscard]] inline HttpResponse decode_error_response() {
 	return HttpResponse::json(R"({"error":"json decode failed"})", kHttpBadRequest, "Bad Request");
@@ -305,4 +305,4 @@ template<class Provider>
 	return AppJsonRoutes<Provider>{app};
 }
 
-} // namespace conflux::http::json
+} // namespace conflux::http::codec::json

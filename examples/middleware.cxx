@@ -79,7 +79,7 @@ int main() {
 	});
 
 	app.get("/public/ping", [](http::RequestId request_id, http::TraceContext trace) {
-		return http::ok(
+		return http::json(
 			PingReply{
 				.status = "ok",
 				.request_id = std::string{request_id.get()},
@@ -92,7 +92,7 @@ int main() {
 
 		g.get("/profile", [](http::Request const &req) {
 			return http::into_response(
-				http::ok(
+				http::json(
 					ProfileReply{
 						.user = "demo",
 						.request_id = std::string{req.header("x-request-id")},
@@ -105,7 +105,7 @@ int main() {
 
 		g.get("/token", [](http::Request const &req) {
 			return http::into_response(
-				http::ok(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}));
+				http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}));
 		});
 	});
 

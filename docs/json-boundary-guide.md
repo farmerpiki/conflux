@@ -69,7 +69,7 @@ Provider-neutral response code:
 ```cpp
 import conflux.net.http.response_json;
 
-auto r = conflux::http::json::try_response_with<MyProvider>(payload);
+auto r = conflux::http::codec::json::try_response_with<MyProvider>(payload);
 ```
 
 Provider-neutral app/router code:
@@ -77,7 +77,7 @@ Provider-neutral app/router code:
 ```cpp
 import conflux.net.http.app_json;
 
-conflux::http::json::routes<MyProvider>(app)
+conflux::http::codec::json::routes<MyProvider>(app)
     .get("/status", [] { return StatusDto{.ok = true}; })
     .post_body<CreateUserDto>("/users", [](CreateUserDto const& body) {
         return CreatedUserDto{.id = body.name};
@@ -89,7 +89,7 @@ Native convenience edge:
 ```cpp
 import conflux.net.http.native_json;
 
-auto r = conflux::http::json::try_response(payload);
+auto r = conflux::http::codec::json::try_response(payload);
 ```
 
 The convenience module exists for ergonomics, but it is not the framework seam.

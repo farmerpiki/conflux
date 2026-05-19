@@ -4,7 +4,7 @@ import conflux.net.http.native_json;
 import std;
 
 namespace jb = conflux::json::boundary;
-namespace hj = conflux::http::json;
+namespace hj = conflux::http::codec::json;
 
 struct Metric {
 	int value{};

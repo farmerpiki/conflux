@@ -123,27 +123,35 @@ template<class T>
 }
 
 template<class T>
+[[nodiscard]] Json<T> json(
+	T value) {
+	return Json<T>{std::move(value)};
+}
+
+template<class T>
 [[nodiscard]] Created created(
 	Json<T> const &body) {
-	return Created{.response = json::response_or_internal_error(body.value, kHttpCreated, "Created")};
+	return Created{.response = codec::json::response_or_internal_error(body.value, kHttpCreated, "Created")};
 }
 
 template<class T>
 [[nodiscard]] Created created(
 	T const &value)
-	requires conflux::json::boundary::
-		JsonWritableProvider<json::DefaultJsonProvider, std::remove_cvref_t<T>, json::detail::ResponseBodySink &>
+	requires conflux::json::boundary::JsonWritableProvider<
+		codec::json::DefaultJsonProvider,
+		std::remove_cvref_t<T>,
+		codec::json::detail::ResponseBodySink &>
 {
-	return Created{.response = json::response_or_internal_error(value, kHttpCreated, "Created")};
+	return Created{.response = codec::json::response_or_internal_error(value, kHttpCreated, "Created")};
 }
 
 } // namespace conflux::http
 
-export namespace conflux::http::json {
+export namespace conflux::http::codec::json {
 
 [[nodiscard]] inline AppJsonRoutes<DefaultJsonProvider> routes(
 	App &app) {
 	return AppJsonRoutes<DefaultJsonProvider>{app};
 }
 
-} // namespace conflux::http::json
+} // namespace conflux::http::codec::json

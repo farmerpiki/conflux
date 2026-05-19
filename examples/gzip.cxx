@@ -43,7 +43,7 @@ int main() {
 	});
 
 	app.get("/api/data", [](http::RequestView const &) {
-		return http::ok(
+		return http::json(
 			DataReply{
 				.message = "JSON is also compressed when the client accepts gzip",
 				.first = "1",

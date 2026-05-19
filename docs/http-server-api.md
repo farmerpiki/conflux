@@ -617,12 +617,12 @@ provider explicitly:
 import conflux.net.http.response_json;
 
 router.get("/api/count", [](HttpRequestView const &) {
-    return conflux::http::json::response_or_internal_error_with<MyProvider>(
+    return conflux::http::codec::json::response_or_internal_error_with<MyProvider>(
         static_cast<i64>(42));
 });
 
 router.post("/api/items", [](HttpRequestView const &) {
-    auto resp = conflux::http::json::try_response_with<MyProvider>(
+    auto resp = conflux::http::codec::json::try_response_with<MyProvider>(
         ItemCreated{.id = 7},
         {.status = kHttpCreated, .status_text = "Created"});
     return resp ? std::move(*resp) : HttpResponse::internal_error();
@@ -639,7 +639,7 @@ provider's owning fallback.
 ```cpp
 import conflux.net.http.app_json;
 
-conflux::http::json::routes<MyProvider>(app)
+conflux::http::codec::json::routes<MyProvider>(app)
     .get("/api/count", [] { return Count{.value = 42}; })
     .post_body<CreateItem>("/api/items", [](CreateItem const& body) {
         return ItemCreated{.id = body.name};
@@ -653,7 +653,7 @@ Application code that intentionally uses the current native provider can import
 import conflux.net.http.native_json;
 
 router.get("/api/count", [](HttpRequestView const &) {
-    return conflux::http::json::response_or_internal_error(static_cast<i64>(42));
+    return conflux::http::codec::json::response_or_internal_error(static_cast<i64>(42));
 });
 ```
 

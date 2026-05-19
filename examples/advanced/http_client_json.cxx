@@ -61,7 +61,7 @@ int main() {
 	}
 
 	CreateItem payload{.name = "buffer slab", .quantity = 8};
-	http::json::set_body(*builder, payload);
+	http::codec::json::set_body(*builder, payload);
 
 	auto req = std::move(*builder)
 				   .query("trace", "local-json-demo")
@@ -75,7 +75,7 @@ int main() {
 	std::println("accept: {}", req.headers()["accept"]);
 	std::println("encoded body: {}", req.body());
 
-	auto decoded_request = http::json::decode_body<CreateItem>(req);
+	auto decoded_request = http::codec::json::decode_body<CreateItem>(req);
 	if (decoded_request) {
 		std::println("decoded request: {} x{}", decoded_request->name, decoded_request->quantity);
 	}
