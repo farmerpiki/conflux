@@ -1,0 +1,122 @@
+module;
+#include <memory>
+
+export module conflux.net.app:json_helpers;
+
+import std;
+import conflux.net.http.response;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+import conflux.net.http.native_json;
+#endif
+
+export namespace conflux::http::detail {
+
+#if CONFLUX_HAS_JSON
+template<class T>
+[[nodiscard]] std::string schema_json_or_object() {
+	if constexpr (requires { schema_for<std::remove_cvref_t<T>>(); }) {
+		auto schema = schema_for<std::remove_cvref_t<T>>();
+		if (!schema) {
+			return R"({"type":"object"})";
+		}
+		auto dumped = schema->dump();
+		if (!dumped) {
+			return R"({"type":"object"})";
+		}
+		return std::move(*dumped);
+	} else {
+		return R"({"type":"object"})";
+	}
+}
+
+[[nodiscard]] std::string json_escape(
+	std::string_view value) {
+	std::string out;
+	out.reserve(value.size());
+	for (char ch: value) {
+		switch (ch) {
+		case '"' : out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default  : out += ch; break;
+		}
+	}
+	return out;
+}
+
+[[nodiscard]] std::string_view json_error_stage_name(
+	conflux::json::boundary::ErrorStage stage) noexcept {
+	using enum conflux::json::boundary::ErrorStage;
+	switch (stage) {
+	case parse   : return "parse";
+	case lookup  : return "lookup";
+	case decode  : return "decode";
+	case build   : return "build";
+	case dump    : return "dump";
+	case provider: return "provider";
+	}
+	return "provider";
+}
+
+[[nodiscard]] std::string_view json_error_code_name(
+	conflux::json::boundary::ErrorCode code) noexcept {
+	using enum conflux::json::boundary::ErrorCode;
+	switch (code) {
+	case provider_failure      : return "provider_failure";
+	case syntax_error          : return "syntax_error";
+	case unexpected_eof        : return "unexpected_eof";
+	case trailing_garbage      : return "trailing_garbage";
+	case input_too_large       : return "input_too_large";
+	case string_too_large      : return "string_too_large";
+	case nesting_too_deep      : return "nesting_too_deep";
+	case wrong_kind            : return "wrong_kind";
+	case missing_member        : return "missing_member";
+	case index_out_of_range    : return "index_out_of_range";
+	case invalid_number        : return "invalid_number";
+	case number_out_of_range   : return "number_out_of_range";
+	case sign_mismatch         : return "sign_mismatch";
+	case duplicate_member      : return "duplicate_member";
+	case invalid_unicode_escape: return "invalid_unicode_escape";
+	case invalid_utf8          : return "invalid_utf8";
+	case invalid_pointer       : return "invalid_pointer";
+	case constraint_violation  : return "constraint_violation";
+	case invalid_value         : return "invalid_value";
+	case output_too_large      : return "output_too_large";
+	case resource_exhausted    : return "resource_exhausted";
+	}
+	return "provider_failure";
+}
+
+[[nodiscard]] HttpResponse json_decode_problem(
+	conflux::json::boundary::Error const &err) {
+	std::string body = std::format(
+		R"({{"code":"invalid_json","stage":"{}","kind":"{}","detail":"{}")",
+		json_error_stage_name(err.stage),
+		json_error_code_name(err.code),
+		json_escape(err.message));
+	if (err.member_name) {
+		body += std::format(R"(,"member":"{}")", json_escape(*err.member_name));
+	}
+	if (err.source) {
+		body += std::format(
+			R"(,"source":{{"offset":{},"line":{},"column":{}}})",
+			err.source->offset,
+			err.source->line,
+			err.source->column);
+	}
+	body += "}";
+	return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+}
+
+[[nodiscard]] HttpResponse unsupported_json_content_type_problem() {
+	return HttpResponse::json(
+		R"({"error":"unsupported content type","expected":"application/json"})",
+		kHttpBadRequest,
+		"Bad Request");
+}
+#endif
+
+} // namespace conflux::http::detail
