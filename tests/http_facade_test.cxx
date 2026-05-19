@@ -224,6 +224,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: GET body extractors require explicit opt-in",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/body", [](http::BodyText body) { return http::text(body.get()); }).allow_get_body();
+
+	auto report = app.validate();
+	CHECK(report.ok());
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].allow_get_body);
+}
+
+TEST_CASE(
 	"http facade: validate reports body extractors without body limits",
 	"[http.facade]") {
 	auto cfg = http::Config::public_server();

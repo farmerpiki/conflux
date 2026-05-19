@@ -310,6 +310,7 @@ struct AppRouteInfo {
 	std::string rate_limit;
 	std::string auth_policy;
 	std::string openapi_summary;
+	bool allow_get_body{};
 };
 
 template<class T>
@@ -757,6 +758,7 @@ class App {
 		std::string auth_policy;
 		std::string openapi_summary;
 		bool uses_body{};
+		bool allow_get_body{};
 	};
 
 	struct StaticMountMetadata {
@@ -784,6 +786,11 @@ public:
 		RouteRef &max_body_size(
 			std::size_t value) {
 			*metadata().max_body_size = value;
+			return *this;
+		}
+
+		RouteRef &allow_get_body() {
+			metadata().allow_get_body = true;
 			return *this;
 		}
 
@@ -1207,7 +1214,8 @@ public:
 					.middleware_count = route.middleware_count,
 					.rate_limit = route.rate_limit,
 					.auth_policy = route.auth_policy,
-					.openapi_summary = route.openapi_summary});
+					.openapi_summary = route.openapi_summary,
+					.allow_get_body = route.allow_get_body});
 		}
 		return out;
 	}
@@ -1550,7 +1558,7 @@ public:
 							.source_line = route.source_line});
 				}
 			}
-			if (route.method == "GET" && route.uses_body) {
+			if (route.method == "GET" && route.uses_body && !route.allow_get_body) {
 				report.issues.push_back(
 					ValidationIssue{
 						.message = "body extractor used on GET route",
