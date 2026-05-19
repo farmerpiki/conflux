@@ -117,6 +117,12 @@ that crossed the SEND_ZC threshold but intentionally used the TLS send path
 instead of SEND_ZC, so benchmark runs can separate copy-notification behavior
 from TLS-incompatible fallback policy.
 
+Protocol/parser/static-file rejection taxonomy is intentionally an observability
+surface, not a mandatory facade response rewrite. Applications that need
+uniform rejection counters should install middleware or metrics hooks at the app
+edge and map application-visible failures with `http::problem::*` helpers. The
+server metrics snapshot remains focused on transport and io_uring counters.
+
 ---
 
 ## Hardened request limits
@@ -506,11 +512,14 @@ std::optional<WsConn::Frame> recv();
 bool send_text(std::string_view);
 bool send_binary(std::span<std::byte const>);
 bool send_ping(std::string_view = {});
+void on_close(std::function<void()> callback);
 void close(uint16_t code = 1000, std::string_view reason = {});
 ```
 
 WebSocket routing is implemented as a GET route that returns a `WsUpgrade`
 response. The router handles the Upgrade/101 handshake transparently.
+`on_close` callbacks run once when the connection closes through `close()` or
+handler teardown.
 
 ---
 
