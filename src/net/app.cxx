@@ -322,6 +322,9 @@ concept ExpectedHttpProblem = requires(T value) {
 	{ value.error() } -> std::same_as<Problem &>;
 };
 
+template<class>
+inline constexpr bool kDependentFalse = false;
+
 [[nodiscard]] inline HttpResponse into_response(
 	HttpResponse response) {
 	return response;
@@ -341,7 +344,16 @@ template<class T>
 [[nodiscard]] HttpResponse into_response(
 	Json<T> const &body) {
 #if CONFLUX_HAS_JSON
-	return json::response_or_internal_error(body.value);
+	if constexpr (requires(T const &value) {
+					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+				  }) {
+		return json::response_or_internal_error(body.value);
+	} else {
+		static_assert(
+			kDependentFalse<T>,
+			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
+			"JSON support for T");
+	}
 #else
 	(void)body;
 	return HttpResponse::internal_error("JSON support is not enabled");
@@ -352,7 +364,16 @@ template<class T>
 [[nodiscard]] HttpResponse into_response(
 	Json<T> &&body) {
 #if CONFLUX_HAS_JSON
-	return json::response_or_internal_error(body.value);
+	if constexpr (requires(T const &value) {
+					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+				  }) {
+		return json::response_or_internal_error(body.value);
+	} else {
+		static_assert(
+			kDependentFalse<T>,
+			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
+			"JSON support for T");
+	}
 #else
 	(void)body;
 	return HttpResponse::internal_error("JSON support is not enabled");
@@ -384,9 +405,6 @@ template<class F>
 concept NullaryRawStringHandler = requires(F &fn) {
 	{ fn() } -> RawStringResponse;
 };
-
-template<class>
-inline constexpr bool kDependentFalse = false;
 
 class ExtractorFailure final : public std::exception {
 public:
