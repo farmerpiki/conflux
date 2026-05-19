@@ -2352,6 +2352,10 @@ if(CONFLUX_BUILD_EXAMPLES)
         add_executable(conflux_http_client_json_example examples/advanced/http_client_json.cxx)
         target_link_libraries(conflux_http_client_json_example
             PRIVATE conflux_http_native_json conflux_json conflux_options)
+
+        add_executable(conflux_custom_json_provider_example examples/advanced/custom_json_provider.cxx)
+        target_link_libraries(conflux_custom_json_provider_example
+            PRIVATE conflux_http_native_json conflux_json conflux_options)
     endif()
 
     add_executable(conflux_work_join_all_example examples/advanced/work_join_all.cxx)
