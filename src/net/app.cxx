@@ -1090,7 +1090,18 @@ public:
 		out += json_str(title);
 		out += R"(,"version":)";
 		out += json_str(version);
-		out += R"(},"paths":{)";
+		out += R"(})";
+		bool has_auth_policy = false;
+		for (auto const &route: route_metadata_) {
+			if (!route.auth_policy.empty()) {
+				has_auth_policy = true;
+				break;
+			}
+		}
+		if (has_auth_policy) {
+			out += R"(,"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}})";
+		}
+		out += R"(,"paths":{)";
 		std::vector<std::string> path_order;
 		std::map<std::string, std::vector<AppRouteMetadata const *>> routes_by_path;
 		for (auto const &route: route_metadata_) {
@@ -1123,6 +1134,11 @@ public:
 				if (!route.openapi_summary.empty()) {
 					out += R"("summary":)";
 					out += json_str(route.openapi_summary);
+					out += ',';
+				}
+				if (!route.auth_policy.empty()) {
+					out += R"("security":[{"bearerAuth":[]}],"x-auth-policy":)";
+					out += json_str(route.auth_policy);
 					out += ',';
 				}
 				out += R"("parameters":[)";

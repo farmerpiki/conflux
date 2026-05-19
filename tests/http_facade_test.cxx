@@ -298,6 +298,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi spec includes auth policies",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/private", [] { return http::no_content(); }).auth_policy("user");
+
+	auto spec = app.openapi_spec();
+	CHECK(
+		spec.find("\"securitySchemes\":{\"bearerAuth\":{\"type\":\"http\",\"scheme\":\"bearer\"}}")
+		!= std::string::npos);
+	CHECK(spec.find("\"security\":[{\"bearerAuth\":[]}]") != std::string::npos);
+	CHECK(spec.find("\"x-auth-policy\":\"user\"") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app openapi handler serves metadata spec",
 	"[http.facade]") {
 	auto app = http::app();
