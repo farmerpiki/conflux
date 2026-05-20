@@ -413,7 +413,7 @@ on the server import surface. Use this shape when a route needs the ring context
 to call `async_send` without blocking the HTTP ring thread.
 
 ```cpp
-import conflux.net.http.server;
+import conflux.http;
 import conflux.net.async_client;
 
 using ContextHandler =

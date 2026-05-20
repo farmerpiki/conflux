@@ -86,6 +86,10 @@ function(conflux_configure_interface_mode)
         set(CONFLUX_BRIDGE_HEADER_IMPL_SOURCES
             "${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES}" PARENT_SCOPE)
     endif()
+    if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_MODULES)
+        set(CONFLUX_BRIDGE_HEADER_IMPL_MODULES
+            "${CONFLUX_BRIDGE_HEADER_IMPL_MODULES}" PARENT_SCOPE)
+    endif()
 
     if(CONFLUX_USE_MOCK_LIBURING)
         if(DEFINED ENV{PKG_CONFIG_PATH} AND NOT "$ENV{PKG_CONFIG_PATH}" STREQUAL "")
@@ -130,6 +134,122 @@ endfunction()
 function(conflux_source_id_to_target_suffix out source_id)
     string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _target_suffix "${source_id}")
     set(${out} "${_target_suffix}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_append_header_impl_sources_for_modules out module_regex)
+    if(NOT DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES
+            OR NOT DEFINED CONFLUX_BRIDGE_HEADER_IMPL_MODULES)
+        set(${out} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    list(LENGTH CONFLUX_BRIDGE_HEADER_IMPL_SOURCES _source_count)
+    list(LENGTH CONFLUX_BRIDGE_HEADER_IMPL_MODULES _module_count)
+    if(NOT _source_count EQUAL _module_count)
+        message(FATAL_ERROR
+            "conflux: generated header implementation source/module lists are out of sync")
+    endif()
+
+    set(_selected ${${out}})
+    if(_source_count GREATER 0)
+        math(EXPR _last_index "${_source_count} - 1")
+        foreach(_index RANGE 0 ${_last_index})
+            list(GET CONFLUX_BRIDGE_HEADER_IMPL_SOURCES ${_index} _source)
+            list(GET CONFLUX_BRIDGE_HEADER_IMPL_MODULES ${_index} _module)
+            if(_module MATCHES "${module_regex}")
+                list(APPEND _selected "${_source}")
+            endif()
+        endforeach()
+    endif()
+    list(REMOVE_DUPLICATES _selected)
+    set(${out} "${_selected}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_select_header_impl_sources out)
+    set(_selected)
+
+    conflux_append_header_impl_sources_for_modules(_selected
+        "^conflux\\.(types|utils)$")
+
+    if(CONFLUX_WANT_CRYPTO)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.crypto($|\\.)")
+    endif()
+    if(CONFLUX_WANT_JSON OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.json\\.boundary$")
+    endif()
+    if(CONFLUX_WANT_JSON)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.json($|\\.)")
+    endif()
+    if(CONFLUX_WANT_JSON_FILE)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.json\\.file$")
+    endif()
+    if(CONFLUX_WANT_FILE_IO_SYNC)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.file_io\\.sync$")
+    endif()
+    if(CONFLUX_WANT_FILE_MAP)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.file_io\\.map$")
+    endif()
+    if(CONFLUX_NEEDS_RUNTIME)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.(uring($|\\.)|work($|\\.)|net\\.io_buffer|net\\.cancel($|:))")
+    endif()
+    if(CONFLUX_WANT_FILE_IO)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.file_io($|\\.)")
+    endif()
+    if(CONFLUX_WANT_FILE_WATCH)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.file_watch$")
+    endif()
+    if(CONFLUX_WANT_SOCKET_IO)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.socket_io($|[.:])")
+    endif()
+    if(CONFLUX_WANT_DNS)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.net\\.dns($|:)")
+    endif()
+    if(CONFLUX_WANT_PROCESS)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.process$")
+    endif()
+    if(CONFLUX_WANT_TEMPLATES)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.templates$")
+    endif()
+    if(CONFLUX_WANT_TEMPLATES_WATCH)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.templates\\.watch$")
+    endif()
+    if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.net\\.(config|http\\.types|http\\.request|http\\.server_types|http\\.json|http1|http_parse_helpers)$")
+    endif()
+    if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED OR CONFLUX_HTTP_CLIENT_STACK_REQUESTED OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.(http($|:)|net\\.(app($|\\.)|auth|cache_control|client($|\\.)|compress|cookie_signing|cors|csrf|etag|forwarded|http($|\\.)|http_server($|:)|ip_filter|jwt|metrics|openid|password_hash|proxy($|:)|rate_limit|realtime|redirect|request_id|response|response_cache|router($|:)|router_static|security|smtp|static($|\\.)|structured_log|tls|tracing|trailing_slash|vhost|openapi))")
+    endif()
+    if(CONFLUX_WANT_DB_POSTGRES)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.db($|\\.)")
+    endif()
+    if(CONFLUX_WANT_SMTP)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux\\.net\\.smtp$")
+    endif()
+    if(CONFLUX_WANT_HTTP_SERVER)
+        conflux_append_header_impl_sources_for_modules(_selected
+            "^conflux$")
+    endif()
+
+    list(REMOVE_DUPLICATES _selected)
+    set(${out} "${_selected}" PARENT_SCOPE)
 endfunction()
 
 function(conflux_resolve_source_id out source_id)
@@ -217,7 +337,15 @@ function(conflux_add_header_interface_target)
         CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
 
     if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
-        add_library(conflux_header_impl STATIC ${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES})
+        conflux_select_header_impl_sources(CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
+        if(NOT CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
+            message(STATUS
+                "conflux: HEADER_INTERFACE_WITH_SOURCES selected no implementation sources")
+        endif()
+    endif()
+
+    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
+        add_library(conflux_header_impl STATIC ${CONFLUX_SELECTED_HEADER_IMPL_SOURCES})
         add_library(conflux::header_impl ALIAS conflux_header_impl)
         target_include_directories(conflux_header_impl PRIVATE
             "${CONFLUX_GENERATED_INCLUDE_DIR}"
@@ -262,6 +390,27 @@ function(conflux_add_header_example_from_id target source_id)
     conflux_add_executable_from_id(${target} "${source_id}")
     target_link_libraries(${target} PRIVATE conflux_headers)
     set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS ${target})
+endfunction()
+
+function(conflux_add_header_component_smoke_targets)
+    set(_smoke_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/header-component-smoke")
+    file(MAKE_DIRECTORY "${_smoke_dir}")
+
+    file(WRITE "${_smoke_dir}/core.cxx" "#include <conflux/types.hxx>\nint main() { return 0; }\n")
+    add_executable(conflux_header_smoke_core "${_smoke_dir}/core.cxx")
+    target_link_libraries(conflux_header_smoke_core PRIVATE conflux_headers)
+
+    if(CONFLUX_WANT_JSON)
+        file(WRITE "${_smoke_dir}/json.cxx" "#include <conflux/json.hxx>\nint main() { return 0; }\n")
+        add_executable(conflux_header_smoke_json "${_smoke_dir}/json.cxx")
+        target_link_libraries(conflux_header_smoke_json PRIVATE conflux_headers)
+    endif()
+
+    if(CONFLUX_NEEDS_RUNTIME)
+        file(WRITE "${_smoke_dir}/runtime.cxx" "#include <conflux/work.hxx>\nint main() { return 0; }\n")
+        add_executable(conflux_header_smoke_runtime "${_smoke_dir}/runtime.cxx")
+        target_link_libraries(conflux_header_smoke_runtime PRIVATE conflux_headers)
+    endif()
 endfunction()
 
 function(conflux_add_header_examples_from_source_ids)

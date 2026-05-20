@@ -42,25 +42,23 @@ find_package(conflux REQUIRED COMPONENTS core json http)
 target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 ```
 
-The component/target map lives in [`docs/component-map.md`](docs/component-map.md).
+The component/target map lives in [`docs/component-map.md`](docs/component-map.md);
+the public import map lives in [`docs/public-api-map.md`](docs/public-api-map.md).
 
 ## Small HTTP app
 
 ```cpp
-import conflux.net.http.server;
+import conflux.http;
 import std;
 
 namespace http = conflux::http;
 
 int main() {
-    auto app = http::App::default_server();
+    auto app = http::app();
 
-    app.get("/", [](http::Request const &) {
-        return http::Response::text("hello from conflux\n");
-    });
+    app.get("/", [] { return http::text("hello from conflux\n"); });
 
-    auto const status = move(app).run({.port = 8080});
-    return status == http::RunStatus::stopped_normally ? 0 : 1;
+    return http::run(std::move(app), {.port = 8080}) == http::RunStatus::stopped_normally ? 0 : 1;
 }
 ```
 
