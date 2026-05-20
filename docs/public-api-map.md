@@ -2,6 +2,9 @@
 
 New HTTP users should start with `import conflux.http;`.
 
+For copy/allocation boundaries, borrow lifetimes, and blocking placement, see
+[`cost-lifetime-model.md`](cost-lifetime-model.md).
+
 | Tier | Import | Use |
 | --- | --- | --- |
 | Stable candidate | `import conflux;` | Curated common surface. |

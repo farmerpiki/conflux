@@ -27,6 +27,9 @@ Use `Router` + `HttpServer` directly when you need lower-level server ownership;
 use `http::App` for first-contact routes, middleware, WebSocket/SSE, and static
 file registration.
 
+For request/response copy costs, borrow lifetimes, coroutine ownership rules,
+and zero-copy caveats, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
+
 ---
 
 ## Fallible setup factories

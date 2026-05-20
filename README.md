@@ -44,6 +44,8 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 
 The component/target map lives in [`docs/component-map.md`](docs/component-map.md);
 the public import map lives in [`docs/public-api-map.md`](docs/public-api-map.md).
+The copy/allocation/lifetime model is summarized in
+[`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md).
 
 ## Small HTTP app
 
@@ -88,6 +90,8 @@ execution-name cleanup inventory is documented in [`docs/naming-audit.md`](docs/
 Component bundles, package targets, primary module imports, and API/doc ownership
 are indexed in [`docs/component-map.md`](docs/component-map.md). The pre-v1
 release evidence checklist lives in [`docs/release-checklist.md`](docs/release-checklist.md).
+Cost, allocation, blocking, and borrow lifetimes are summarized in
+[`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md).
 
 ## Runtime Preflight
 

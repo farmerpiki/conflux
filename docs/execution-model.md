@@ -6,6 +6,10 @@ API naming. The canonical code-review guide for these rules is
 explicit because the public names will still go through a larger cleanup before
 v1.
 
+For the table-form cost model covering request lifetimes, response bodies, JSON
+ownership, and blocking behavior, see
+[`cost-lifetime-model.md`](cost-lifetime-model.md).
+
 ## Core rule
 
 All `conflux` tasks execute on an executor. There is no supported task model

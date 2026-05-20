@@ -7,6 +7,8 @@
 All types live in namespace `conflux::json`. All fallible operations return
 `std::expected<T, JsonError>`. Design-level invariants, including the single
 permitted process-lifetime locale holder, are documented in `docs/json-design.md`.
+For ownership, allocation, and borrowed-string lifetime summaries across JSON
+and HTTP JSON helpers, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
 
 ---
 

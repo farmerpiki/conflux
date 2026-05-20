@@ -17,6 +17,7 @@ bundle, or security-sensitive surface is added.
 | Header compatibility | Full `HEADER_INTERFACE` compile pass log | Pre-release only: enable examples, tests, and benchmarks to catch generated-header consumer regressions. Public header-mode profiles may stay examples-only. |
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
+| Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
 | Benchmarks | Same-machine benchmark artifact path and comparison summary | Required for claimed performance changes; use perf presets only. |
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
 | Alias cleanup | Remaining aliases or confirmation none remain | Alias removal belongs to the final release-cleanup branch only. |
@@ -47,6 +48,8 @@ bundle, or security-sensitive surface is added.
   ring threads unless code explicitly moves work elsewhere.
 - HTTP parser/security corpus covers any request parsing, header, chunking,
   Host, Content-Length, Transfer-Encoding, range/static, or proxy change.
+- `docs/cost-lifetime-model.md` matches request view/owned request lifetimes,
+  response body ownership, static/file zero-copy caveats, and TLS behavior.
 - HTTP/1 rejection taxonomy docs match status codes and passive server metrics:
   `malformed_content_length` -> 400 -> `rejections.malformed_content_length`,
   `duplicate_content_length` -> 400 -> `rejections.duplicate_content_length`,
@@ -61,6 +64,9 @@ bundle, or security-sensitive surface is added.
 
 - Parser/DOM ownership docs match the code: borrowed parse requires stable input;
   owning parse is explicit.
+- `docs/cost-lifetime-model.md` matches JSON borrowed/owned parse, decode, and
+  writer allocation behavior without making the native provider the framework
+  contract.
 - HTTP/app framework code depends on `conflux.json.boundary` provider contracts,
   not directly on a concrete JSON provider unless the module is a native-provider
   convenience edge.
