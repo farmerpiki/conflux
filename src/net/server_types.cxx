@@ -37,6 +37,109 @@ export struct SendZcMetrics {
 	std::uint64_t adaptive_disable_count{};
 };
 
+export enum class HttpRejectReason : std::uint8_t {
+	none,
+	malformed_request,
+	request_line_too_large,
+	header_line_too_large,
+	header_block_too_large,
+	too_many_headers,
+	missing_host,
+	duplicate_host,
+	malformed_content_length,
+	duplicate_content_length,
+	content_length_with_transfer_encoding,
+	unsupported_transfer_encoding,
+	invalid_transfer_encoding,
+	invalid_chunk,
+	body_too_large,
+	expectation_failed,
+	header_timeout,
+};
+
+export [[nodiscard]] constexpr std::string_view reject_reason_code(
+	HttpRejectReason reason) noexcept {
+	switch (reason) {
+	case HttpRejectReason::none                                 : return "none";
+	case HttpRejectReason::malformed_request                    : return "malformed_request";
+	case HttpRejectReason::request_line_too_large               : return "request_line_too_large";
+	case HttpRejectReason::header_line_too_large                : return "header_line_too_large";
+	case HttpRejectReason::header_block_too_large               : return "header_block_too_large";
+	case HttpRejectReason::too_many_headers                     : return "too_many_headers";
+	case HttpRejectReason::missing_host                         : return "missing_host";
+	case HttpRejectReason::duplicate_host                       : return "duplicate_host";
+	case HttpRejectReason::malformed_content_length             : return "malformed_content_length";
+	case HttpRejectReason::duplicate_content_length             : return "duplicate_content_length";
+	case HttpRejectReason::content_length_with_transfer_encoding: return "content_length_with_transfer_encoding";
+	case HttpRejectReason::unsupported_transfer_encoding        : return "unsupported_transfer_encoding";
+	case HttpRejectReason::invalid_transfer_encoding            : return "invalid_transfer_encoding";
+	case HttpRejectReason::invalid_chunk                        : return "invalid_chunk";
+	case HttpRejectReason::body_too_large                       : return "body_too_large";
+	case HttpRejectReason::expectation_failed                   : return "expectation_failed";
+	case HttpRejectReason::header_timeout                       : return "header_timeout";
+	}
+	return "malformed_request";
+}
+
+export [[nodiscard]] constexpr int reject_reason_status(
+	HttpRejectReason reason) noexcept {
+	switch (reason) {
+	case HttpRejectReason::request_line_too_large: return 414;
+	case HttpRejectReason::header_line_too_large :
+	case HttpRejectReason::header_block_too_large:
+	case HttpRejectReason::too_many_headers      : return 431;
+	case HttpRejectReason::body_too_large        : return 413;
+	case HttpRejectReason::expectation_failed    : return 417;
+	case HttpRejectReason::header_timeout        : return 408;
+	case HttpRejectReason::none                  : return 200;
+	default                                      : return 400;
+	}
+}
+
+export [[nodiscard]] constexpr std::string_view reject_reason_detail(
+	HttpRejectReason reason) noexcept {
+	switch (reason) {
+	case HttpRejectReason::malformed_request       : return "request syntax is invalid";
+	case HttpRejectReason::request_line_too_large  : return "request line exceeds the configured limit";
+	case HttpRejectReason::header_line_too_large   : return "a header line exceeds the configured limit";
+	case HttpRejectReason::header_block_too_large  : return "request headers exceed the configured aggregate limit";
+	case HttpRejectReason::too_many_headers        : return "request contains too many headers";
+	case HttpRejectReason::missing_host            : return "HTTP/1.1 request is missing a Host header";
+	case HttpRejectReason::duplicate_host          : return "HTTP/1.1 request contains more than one Host header";
+	case HttpRejectReason::malformed_content_length: return "Content-Length is not a valid decimal length";
+	case HttpRejectReason::duplicate_content_length: return "request contains more than one Content-Length header";
+	case HttpRejectReason::content_length_with_transfer_encoding:
+		return "request contains both Content-Length and Transfer-Encoding";
+	case HttpRejectReason::unsupported_transfer_encoding: return "Transfer-Encoding is not supported for this request";
+	case HttpRejectReason::invalid_transfer_encoding    : return "Transfer-Encoding header is invalid";
+	case HttpRejectReason::invalid_chunk                : return "chunked request body framing is invalid";
+	case HttpRejectReason::body_too_large               : return "request body exceeds the configured limit";
+	case HttpRejectReason::expectation_failed           : return "request Expect header cannot be satisfied";
+	case HttpRejectReason::header_timeout               : return "request headers were not received before the timeout";
+	case HttpRejectReason::none                         : return "";
+	}
+	return "request syntax is invalid";
+}
+
+export struct HttpRejectionMetrics {
+	std::uint64_t malformed_request{};
+	std::uint64_t request_line_too_large{};
+	std::uint64_t header_line_too_large{};
+	std::uint64_t header_block_too_large{};
+	std::uint64_t too_many_headers{};
+	std::uint64_t missing_host{};
+	std::uint64_t duplicate_host{};
+	std::uint64_t malformed_content_length{};
+	std::uint64_t duplicate_content_length{};
+	std::uint64_t content_length_with_transfer_encoding{};
+	std::uint64_t unsupported_transfer_encoding{};
+	std::uint64_t invalid_transfer_encoding{};
+	std::uint64_t invalid_chunk{};
+	std::uint64_t body_too_large{};
+	std::uint64_t expectation_failed{};
+	std::uint64_t header_timeout{};
+};
+
 export enum class SendZcPendingAction : std::uint8_t {
 	none,
 	complete_response,
@@ -158,6 +261,7 @@ export struct HttpServerMetrics {
 	std::uint64_t recv_bundle_slices{};
 	std::uint64_t recv_bundle_bytes{};
 	SendZcMetrics send_zc{};
+	HttpRejectionMetrics rejections{};
 };
 
 export struct UploadedFile {
@@ -671,6 +775,8 @@ export namespace conflux::http {
 
 using RunStatus = ::RunStatus;
 using SendZcMetrics = ::SendZcMetrics;
+using RejectReason = ::HttpRejectReason;
+using RejectionMetrics = ::HttpRejectionMetrics;
 using ServerMetrics = ::HttpServerMetrics;
 using RequestView = ::HttpRequestView;
 using OwnedRequest = ::HttpRequest;

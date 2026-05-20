@@ -188,7 +188,7 @@ struct Conn;
 void dispatch_request(
 	Conn &conn,
 	std::string_view raw,
-	Ring const &ring,
+	Ring &ring,
 	std::size_t max_body_size,
 	bool http_redirect_to_https,
 	std::vector<std::string> const &https_redirect_hosts,
@@ -376,6 +376,7 @@ struct Ring {
 	std::size_t send_zc_threshold_ = 16384;
 	bool send_zc_report_usage_ = true;
 	SendZcCounters zc_counters_{};
+	HttpRejectionMetrics rejection_counters_{};
 	std::uint64_t accepted_direct_failures_{};
 	std::uint64_t recv_bundle_cqes_{};
 	std::uint64_t recv_bundle_slices_{};

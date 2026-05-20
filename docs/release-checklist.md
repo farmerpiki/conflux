@@ -47,6 +47,13 @@ bundle, or security-sensitive surface is added.
   ring threads unless code explicitly moves work elsewhere.
 - HTTP parser/security corpus covers any request parsing, header, chunking,
   Host, Content-Length, Transfer-Encoding, range/static, or proxy change.
+- HTTP/1 rejection taxonomy docs match status codes and passive server metrics:
+  `malformed_content_length` -> 400 -> `rejections.malformed_content_length`,
+  `duplicate_content_length` -> 400 -> `rejections.duplicate_content_length`,
+  `content_length_with_transfer_encoding` -> 400 ->
+  `rejections.content_length_with_transfer_encoding`,
+  `header_block_too_large` -> 431 -> `rejections.header_block_too_large`, and
+  `body_too_large` -> 413 -> `rejections.body_too_large`.
 - Auth, CSRF, JWT, cookie, rate-limit, and password-hash docs are updated when
   defaults or policy knobs change.
 

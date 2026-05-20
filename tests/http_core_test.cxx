@@ -117,11 +117,26 @@ TEST_CASE(
 	"http core: server request aliases expose first-contact namespace names",
 	"[http.core]") {
 	static_assert(std::same_as<chttp::RunStatus, RunStatus>);
+	static_assert(std::same_as<chttp::RejectReason, HttpRejectReason>);
+	static_assert(std::same_as<chttp::RejectionMetrics, HttpRejectionMetrics>);
 	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);
 	static_assert(std::same_as<chttp::RequestView, HttpRequestView>);
 	static_assert(std::same_as<chttp::Request, HttpRequest>);
 	static_assert(std::same_as<chttp::OwnedRequest, HttpRequest>);
 	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
+}
+
+TEST_CASE(
+	"http core: rejection reason helpers expose stable codes and statuses",
+	"[http.core]") {
+	CHECK(reject_reason_code(HttpRejectReason::duplicate_content_length) == "duplicate_content_length");
+	CHECK(reject_reason_code(HttpRejectReason::header_block_too_large) == "header_block_too_large");
+	CHECK(reject_reason_status(HttpRejectReason::duplicate_content_length) == 400);
+	CHECK(reject_reason_status(HttpRejectReason::header_block_too_large) == 431);
+	CHECK(reject_reason_status(HttpRejectReason::body_too_large) == 413);
+	CHECK(
+		reject_reason_detail(HttpRejectReason::content_length_with_transfer_encoding).find("Content-Length")
+		!= std::string_view::npos);
 }
 
 TEST_CASE(

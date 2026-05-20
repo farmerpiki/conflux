@@ -6609,6 +6609,37 @@ std::string send_raw_bytes(
 	return response;
 }
 
+std::string send_raw_bytes_on(
+	std::uint16_t port,
+	std::string_view raw) {
+	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0) {
+		throw std::runtime_error{"socket failed"};
+	}
+	sockaddr_in addr{};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+		::close(fd);
+		throw std::runtime_error{"connect failed"};
+	}
+	timeval tv{.tv_sec = 3, .tv_usec = 0};
+	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	::send(fd, raw.data(), raw.size(), MSG_NOSIGNAL);
+	std::string response;
+	std::array<char, 4096> buf{};
+	for (;;) {
+		auto n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n <= 0) {
+			break;
+		}
+		response.append(buf.data(), static_cast<std::size_t>(n));
+	}
+	::close(fd);
+	return response;
+}
+
 } // namespace
 TEST_CASE(
 	"parser: request line exceeding 8 KiB returns 414") {
@@ -6811,6 +6842,95 @@ TEST_CASE(
 		"ffffffffffffffff\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 413"));
+}
+TEST_CASE(
+	"parser: rejection metrics count classified HTTP/1 rejects") {
+	Router router;
+	router.post("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.body}); });
+	Config cfg = mw_config();
+	cfg.max_body_size = 4;
+	ScopedTestServer srv{cfg, std::move(router)};
+	auto const port = srv.port();
+
+	auto malformed_cl = send_raw_bytes_on(
+		port,
+		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello");
+	REQUIRE(malformed_cl.starts_with("HTTP/1.1 400"));
+	REQUIRE(malformed_cl.find(R"("code":"malformed_content_length")") != std::string::npos);
+
+	auto duplicate_cl = send_raw_bytes_on(
+		port,
+		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nContent-Length: 2\r\n"
+		"Connection: close\r\n\r\nhi");
+	REQUIRE(duplicate_cl.starts_with("HTTP/1.1 400"));
+	REQUIRE(duplicate_cl.find(R"("code":"duplicate_content_length")") != std::string::npos);
+
+	auto cl_te = send_raw_bytes_on(
+		port,
+		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nTransfer-Encoding: chunked\r\n"
+		"Connection: close\r\n\r\n0\r\n\r\n");
+	REQUIRE(cl_te.starts_with("HTTP/1.1 400"));
+	REQUIRE(cl_te.find(R"("code":"content_length_with_transfer_encoding")") != std::string::npos);
+
+	std::string long_path = "/";
+	long_path.append(9000, 'a');
+	auto request_line = send_raw_bytes_on(
+		port,
+		std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", long_path));
+	REQUIRE(request_line.starts_with("HTTP/1.1 414"));
+	REQUIRE(request_line.find(R"("code":"request_line_too_large")") != std::string::npos);
+
+	std::string header_line_value(9000, 'v');
+	auto header_line = send_raw_bytes_on(
+		port,
+		std::format(
+			"GET /echo HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n",
+			header_line_value));
+	REQUIRE(header_line.starts_with("HTTP/1.1 431"));
+	REQUIRE(header_line.find(R"("code":"header_line_too_large")") != std::string::npos);
+
+	std::string header_block_req = "GET /echo HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
+	for (int i = 0; i < 80; ++i) {
+		header_block_req += std::format("X-Block-{}: {}\r\n", i, std::string(900, 'v'));
+	}
+	header_block_req += "\r\n";
+	auto header_block = send_raw_bytes_on(port, header_block_req);
+	REQUIRE(header_block.starts_with("HTTP/1.1 431"));
+	REQUIRE(header_block.find(R"("code":"header_block_too_large")") != std::string::npos);
+
+	std::string too_many_headers_req = "GET /echo HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
+	for (int i = 0; i < 120; ++i) {
+		too_many_headers_req += std::format("X-Count-{}: v\r\n", i);
+	}
+	too_many_headers_req += "\r\n";
+	auto too_many_headers = send_raw_bytes_on(port, too_many_headers_req);
+	REQUIRE(too_many_headers.starts_with("HTTP/1.1 431"));
+	REQUIRE(too_many_headers.find(R"("code":"too_many_headers")") != std::string::npos);
+
+	auto too_large_body = send_raw_bytes_on(
+		port,
+		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
+	REQUIRE(too_large_body.starts_with("HTTP/1.1 413"));
+	REQUIRE(too_large_body.find(R"("code":"body_too_large")") != std::string::npos);
+
+	auto invalid_chunk = send_raw_bytes_on(
+		port,
+		"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+		"z\r\nx\r\n");
+	REQUIRE(invalid_chunk.starts_with("HTTP/1.1 400"));
+	REQUIRE(invalid_chunk.find(R"("code":"invalid_chunk")") != std::string::npos);
+
+	srv.stop();
+	auto const metrics = srv.metrics();
+	CHECK(metrics.rejections.malformed_content_length == 1);
+	CHECK(metrics.rejections.duplicate_content_length == 1);
+	CHECK(metrics.rejections.content_length_with_transfer_encoding == 1);
+	CHECK(metrics.rejections.request_line_too_large == 1);
+	CHECK(metrics.rejections.header_line_too_large == 1);
+	CHECK(metrics.rejections.header_block_too_large == 1);
+	CHECK(metrics.rejections.too_many_headers == 1);
+	CHECK(metrics.rejections.body_too_large == 1);
+	CHECK(metrics.rejections.invalid_chunk == 1);
 }
 // ---------------------------------------------------------------------------
 // WebSocket frame validation + fragmentation (A2)
@@ -7852,33 +7972,33 @@ TEST_CASE(
 	REQUIRE(status == ParseStatus::BadRequest);
 }
 TEST_CASE(
-	"http1_parser: incomplete header line over limit returns HeaderFieldsTooLarge") {
+	"http1_parser: incomplete header line over limit returns HeaderLineTooLarge") {
 	using namespace conflux::http1;
 	ParserLimits limits{};
 	limits.max_header_line_size = 8;
 	ParsedRequest out;
 	auto status = parse_request("GET / HTTP/1.1\r\nX-Long: still-growing", limits, out);
-	REQUIRE(status == ParseStatus::HeaderFieldsTooLarge);
+	REQUIRE(status == ParseStatus::HeaderLineTooLarge);
 }
 
 TEST_CASE(
-	"http1_parser: incomplete header count over limit returns HeaderFieldsTooLarge") {
+	"http1_parser: incomplete header count over limit returns TooManyHeaders") {
 	using namespace conflux::http1;
 	ParserLimits limits{};
 	limits.max_headers = 2;
 	ParsedRequest out;
 	auto status = parse_request("GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\n", limits, out);
-	REQUIRE(status == ParseStatus::HeaderFieldsTooLarge);
+	REQUIRE(status == ParseStatus::TooManyHeaders);
 }
 
 TEST_CASE(
-	"http1_parser: too many headers returns HeaderFieldsTooLarge") {
+	"http1_parser: too many headers returns TooManyHeaders") {
 	using namespace conflux::http1;
 	ParserLimits limits{};
 	limits.max_headers = 2;
 	ParsedRequest out;
 	auto status = parse_request("GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\n\r\n", limits, out);
-	REQUIRE(status == ParseStatus::HeaderFieldsTooLarge);
+	REQUIRE(status == ParseStatus::TooManyHeaders);
 }
 TEST_CASE(
 	"http1_parser: header value leading/trailing whitespace is stripped") {

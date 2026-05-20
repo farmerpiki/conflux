@@ -81,6 +81,22 @@ void add_metrics(
 	dst.send_zc.tls_bypass += src.send_zc.tls_bypass;
 	dst.send_zc.tls_bypass_bytes += src.send_zc.tls_bypass_bytes;
 	dst.send_zc.adaptive_disable_count += src.send_zc.adaptive_disable_count;
+	dst.rejections.malformed_request += src.rejections.malformed_request;
+	dst.rejections.request_line_too_large += src.rejections.request_line_too_large;
+	dst.rejections.header_line_too_large += src.rejections.header_line_too_large;
+	dst.rejections.header_block_too_large += src.rejections.header_block_too_large;
+	dst.rejections.too_many_headers += src.rejections.too_many_headers;
+	dst.rejections.missing_host += src.rejections.missing_host;
+	dst.rejections.duplicate_host += src.rejections.duplicate_host;
+	dst.rejections.malformed_content_length += src.rejections.malformed_content_length;
+	dst.rejections.duplicate_content_length += src.rejections.duplicate_content_length;
+	dst.rejections.content_length_with_transfer_encoding += src.rejections.content_length_with_transfer_encoding;
+	dst.rejections.unsupported_transfer_encoding += src.rejections.unsupported_transfer_encoding;
+	dst.rejections.invalid_transfer_encoding += src.rejections.invalid_transfer_encoding;
+	dst.rejections.invalid_chunk += src.rejections.invalid_chunk;
+	dst.rejections.body_too_large += src.rejections.body_too_large;
+	dst.rejections.expectation_failed += src.rejections.expectation_failed;
+	dst.rejections.header_timeout += src.rejections.header_timeout;
 }
 
 struct HttpServer::Impl {

@@ -273,6 +273,7 @@ public:
 		wait_for_server(server_->port());
 	}
 	[[nodiscard]] std::uint16_t port() const { return server_->port(); }
+	[[nodiscard]] HttpServerMetrics metrics() const noexcept { return server_->metrics(); }
 	void stop() {
 		if (thread_.joinable()) {
 			server_->request_shutdown();

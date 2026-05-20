@@ -313,9 +313,13 @@ void Ring::phase1_copy_recv_bufs() {
 		raw_receive_cap = bounded_add(raw_receive_cap, kMaxChunkTrailerBytes);
 		raw_receive_cap = bounded_add(raw_receive_cap, 6);
 		if (recv_buffered > raw_receive_cap) {
-			conn.own_response.clear();
-			conn.own_response.append(
-				"HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+			++rejection_counters_.body_too_large;
+			conn.own_response =
+				"HTTP/1.1 413 Content Too Large\r\n"
+				"Content-Type: application/problem+json\r\n"
+				"Content-Length: 78\r\n"
+				"Connection: close\r\n\r\n"
+				"{\"code\":\"body_too_large\",\"detail\":\"request body exceeds the configured limit\"}";
 			conn.has_response = true;
 			conn.close_after_send = true;
 			start_response_send(rc.fd, conn);

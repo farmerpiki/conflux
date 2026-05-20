@@ -12,7 +12,9 @@ enum class ParseStatus : std::uint8_t {
 	Incomplete,
 	BadRequest,
 	UriTooLong,
-	HeaderFieldsTooLarge,
+	HeaderLineTooLarge,
+	HeaderBlockTooLarge,
+	TooManyHeaders,
 };
 struct ParsedRequest {
 	std::string_view method;
@@ -77,7 +79,7 @@ ParseStatus parse_request(
 	auto header_end = raw.find("\r\n\r\n", eol);
 	if (header_end == std::string_view::npos) {
 		if (raw.size() > post_req_line && raw.size() - post_req_line > limits.max_header_block_size) {
-			return ParseStatus::HeaderFieldsTooLarge;
+			return ParseStatus::HeaderBlockTooLarge;
 		}
 
 		std::size_t header_count = 0;
@@ -86,13 +88,13 @@ ParseStatus parse_request(
 			auto const line_end = raw.find("\r\n", pos);
 			auto const line_size = line_end == std::string_view::npos ? raw.size() - pos : line_end - pos;
 			if (line_size > limits.max_header_line_size) {
-				return ParseStatus::HeaderFieldsTooLarge;
+				return ParseStatus::HeaderLineTooLarge;
 			}
 			if (line_end == std::string_view::npos) {
 				return ParseStatus::Incomplete;
 			}
 			if (++header_count > limits.max_headers) {
-				return ParseStatus::HeaderFieldsTooLarge;
+				return ParseStatus::TooManyHeaders;
 			}
 			pos = line_end + 2;
 		}
@@ -101,7 +103,7 @@ ParseStatus parse_request(
 
 	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : std::size_t{0};
 	if (header_block_size > limits.max_header_block_size) {
-		return ParseStatus::HeaderFieldsTooLarge;
+		return ParseStatus::HeaderBlockTooLarge;
 	}
 	out.headers.reserve(std::min(limits.max_headers, std::size_t{16}));
 
@@ -137,10 +139,10 @@ ParseStatus parse_request(
 		}
 		auto line = raw.substr(pos, line_end - pos);
 		if (line.size() > limits.max_header_line_size) {
-			return ParseStatus::HeaderFieldsTooLarge;
+			return ParseStatus::HeaderLineTooLarge;
 		}
 		if (++header_count > limits.max_headers) {
-			return ParseStatus::HeaderFieldsTooLarge;
+			return ParseStatus::TooManyHeaders;
 		}
 		if (line.empty() || line.front() == ' ' || line.front() == '\t') {
 			return ParseStatus::BadRequest;

@@ -93,6 +93,49 @@ struct SendZcMetrics {
     u64 adaptive_disable_count;
 };
 
+enum class HttpRejectReason : u8 {
+    none,
+    malformed_request,
+    request_line_too_large,
+    header_line_too_large,
+    header_block_too_large,
+    too_many_headers,
+    missing_host,
+    duplicate_host,
+    malformed_content_length,
+    duplicate_content_length,
+    content_length_with_transfer_encoding,
+    unsupported_transfer_encoding,
+    invalid_transfer_encoding,
+    invalid_chunk,
+    body_too_large,
+    expectation_failed,
+    header_timeout,
+};
+
+string_view reject_reason_code(HttpRejectReason) noexcept;
+int reject_reason_status(HttpRejectReason) noexcept;
+string_view reject_reason_detail(HttpRejectReason) noexcept;
+
+struct HttpRejectionMetrics {
+    u64 malformed_request;
+    u64 request_line_too_large;
+    u64 header_line_too_large;
+    u64 header_block_too_large;
+    u64 too_many_headers;
+    u64 missing_host;
+    u64 duplicate_host;
+    u64 malformed_content_length;
+    u64 duplicate_content_length;
+    u64 content_length_with_transfer_encoding;
+    u64 unsupported_transfer_encoding;
+    u64 invalid_transfer_encoding;
+    u64 invalid_chunk;
+    u64 body_too_large;
+    u64 expectation_failed;
+    u64 header_timeout;
+};
+
 struct HttpServerMetrics {
     u64 sq_dropped;
     u64 cq_overflow;
@@ -102,6 +145,7 @@ struct HttpServerMetrics {
     u64 recv_bundle_slices;
     u64 recv_bundle_bytes;
     SendZcMetrics send_zc;
+    HttpRejectionMetrics rejections;
 };
 
 HttpServerMetrics HttpServer::metrics() const noexcept;
@@ -117,11 +161,30 @@ that crossed the SEND_ZC threshold but intentionally used the TLS send path
 instead of SEND_ZC, so benchmark runs can separate copy-notification behavior
 from TLS-incompatible fallback policy.
 
-Protocol/parser/static-file rejection taxonomy is intentionally an observability
-surface, not a mandatory facade response rewrite. Applications that need
-uniform rejection counters should install middleware or metrics hooks at the app
-edge and map application-visible failures with `http::problem::*` helpers. The
-server metrics snapshot remains focused on transport and io_uring counters.
+HTTP/1 parser and dispatch rejections increment passive server counters under
+`HttpServerMetrics::rejections`; they are server metrics, not middleware
+metrics, and do not require installing application middleware. Classified
+HTTP/1 rejection responses use `application/problem+json` with stable
+snake-case `code` strings and non-sensitive `detail` text.
+
+| Reason | Status | Counter |
+|---|---:|---|
+| `malformed_request` | 400 | `rejections.malformed_request` |
+| `request_line_too_large` | 414 | `rejections.request_line_too_large` |
+| `header_line_too_large` | 431 | `rejections.header_line_too_large` |
+| `header_block_too_large` | 431 | `rejections.header_block_too_large` |
+| `too_many_headers` | 431 | `rejections.too_many_headers` |
+| `missing_host` | 400 | `rejections.missing_host` |
+| `duplicate_host` | 400 | `rejections.duplicate_host` |
+| `malformed_content_length` | 400 | `rejections.malformed_content_length` |
+| `duplicate_content_length` | 400 | `rejections.duplicate_content_length` |
+| `content_length_with_transfer_encoding` | 400 | `rejections.content_length_with_transfer_encoding` |
+| `unsupported_transfer_encoding` | 400 | `rejections.unsupported_transfer_encoding` |
+| `invalid_transfer_encoding` | 400 | `rejections.invalid_transfer_encoding` |
+| `invalid_chunk` | 400 | `rejections.invalid_chunk` |
+| `body_too_large` | 413 | `rejections.body_too_large` |
+| `expectation_failed` | 417 | `rejections.expectation_failed` |
+| `header_timeout` | 408 | `rejections.header_timeout` |
 
 ---
 
