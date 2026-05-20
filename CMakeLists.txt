@@ -329,8 +329,16 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    if(CONFLUX_HAS_DB STREQUAL "true")
+        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    else()
+        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            PATTERN "pg" EXCLUDE
+            PATTERN "pg.hxx" EXCLUDE
+            PATTERN "db.hxx" EXCLUDE)
+    endif()
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
@@ -2547,43 +2555,31 @@ if(CONFLUX_BUILD_EXAMPLES)
 
     add_executable(conflux_quickstart_hello examples/quickstart/hello.cxx)
     target_link_libraries(conflux_quickstart_hello PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_hello built "preview HTTP example")
 
     add_executable(conflux_quickstart_middleware examples/quickstart/middleware.cxx)
     target_link_libraries(conflux_quickstart_middleware PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_middleware built "preview HTTP example")
 
     add_executable(conflux_quickstart_sse examples/quickstart/sse.cxx)
     target_link_libraries(conflux_quickstart_sse PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_sse built "preview HTTP example")
 
     add_executable(conflux_quickstart_static_files examples/quickstart/static_files.cxx)
     target_link_libraries(conflux_quickstart_static_files PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_static_files built "preview HTTP example")
 
     add_executable(conflux_quickstart_websocket examples/quickstart/websocket.cxx)
     target_link_libraries(conflux_quickstart_websocket PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_websocket built "preview HTTP example")
 
     add_executable(conflux_quickstart_openapi examples/quickstart/openapi.cxx)
     target_link_libraries(conflux_quickstart_openapi PRIVATE conflux conflux_options)
-    conflux_note_example(conflux_quickstart_openapi built "preview HTTP example")
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)
         add_executable(conflux_quickstart_json_crud examples/quickstart/json_crud.cxx)
         target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
-        conflux_note_example(conflux_quickstart_json_crud built "JSON support enabled")
-    else()
-        conflux_note_example(conflux_quickstart_json_crud skipped "JSON HTTP support target unavailable")
     endif()
 
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
         add_executable(conflux_quickstart_postgres examples/quickstart/postgres_json.cxx)
         target_link_libraries(conflux_quickstart_postgres
             PRIVATE conflux conflux_pg conflux_file_io conflux_work conflux_options)
-        conflux_note_example(conflux_quickstart_postgres built "DB support enabled and libpq found")
-    else()
-        conflux_note_example(conflux_quickstart_postgres skipped "requires CONFLUX_ENABLE_DB=ON, libpq, and conflux_db")
     endif()
 
     # Easy HTTP examples (first-contact / v1-facing)
@@ -3058,13 +3054,23 @@ set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
     "Semicolon-separated installed conflux components to validate with package smoke tests")
 set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
     "Optional installed conflux prefix to validate with the package smoke project")
+set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
+    "Expected installed interface mode for package smoke tests, or empty to accept the package mode")
+set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
+    "" MODULE_INTERFACE HEADER_INTERFACE)
 if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
+    set(_conflux_package_smoke_args
+        --source "${CMAKE_CURRENT_SOURCE_DIR}"
+        --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
+        --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke"
+        --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+    if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE)
+        list(APPEND _conflux_package_smoke_args
+            --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
+    endif()
     add_test(NAME build/package-config-install-tree
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
-                --source "${CMAKE_CURRENT_SOURCE_DIR}"
-                --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
-                --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke"
-                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+                ${_conflux_package_smoke_args})
     set_tests_properties(build/package-config-install-tree PROPERTIES
         LABELS "build;package;install"
     )
@@ -3159,10 +3165,59 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_coroutines
         conflux_json_reflect_example
     )
+    set(CONFLUX_EXAMPLE_TARGET_REASONS
+        "preview HTTP example"
+        "requires JSON HTTP support"
+        "preview HTTP example"
+        "preview HTTP example"
+        "requires DB support and libpq"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "preview HTTP example"
+        "requires compression support"
+        "HTTP client example"
+        "HTTP server example"
+        "process support example"
+        "crypto support example"
+        "observability example"
+        "production showcase example"
+        "HTTP policy example"
+        "vhost/OpenAPI example"
+        "HTTP client builder example"
+        "requires JSON HTTP support"
+        "requires JSON HTTP support"
+        "requires work and JSON HTTP support"
+        "work support example"
+        "requires template support"
+        "requires HTTP/3 support"
+        "requires HTTP/3 support"
+        "requires DB support and libpq"
+        "requires DB support and libpq"
+        "requires DB support and libpq"
+        "JSON example"
+        "JSON example"
+        "JSON example"
+        "JSON example"
+        "JSON example"
+        "requires file I/O support"
+        "requires file I/O support"
+        "requires JSON reflection support")
     set(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
-    foreach(_conflux_example_target IN LISTS CONFLUX_EXAMPLE_TARGETS)
+    list(LENGTH CONFLUX_EXAMPLE_TARGETS _conflux_example_count)
+    math(EXPR _conflux_example_last "${_conflux_example_count} - 1")
+    foreach(_conflux_example_index RANGE 0 ${_conflux_example_last})
+        list(GET CONFLUX_EXAMPLE_TARGETS ${_conflux_example_index} _conflux_example_target)
+        list(GET CONFLUX_EXAMPLE_TARGET_REASONS ${_conflux_example_index} _conflux_example_reason)
         if(TARGET ${_conflux_example_target})
             list(APPEND CONFLUX_AVAILABLE_EXAMPLE_TARGETS ${_conflux_example_target})
+            conflux_note_example(${_conflux_example_target} built "${_conflux_example_reason}")
+        else()
+            conflux_note_example(${_conflux_example_target} skipped "${_conflux_example_reason}")
         endif()
     endforeach()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CONFLUX_GCC_EAGER_MODULE_IMPORTS)

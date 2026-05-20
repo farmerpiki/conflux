@@ -38,7 +38,10 @@ cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCONFLUX_ENABLE_DB=OFF
 cmake --build /tmp/conflux-header
 cmake --install /tmp/conflux-header --prefix /tmp/conflux-install
+find /tmp/conflux-install/include/conflux -maxdepth 2 \( -name 'pg*' -o -name 'db.hxx' \) -print
 ```
+
+The `find` command should print no DB headers when `CONFLUX_ENABLE_DB=OFF`.
 
 Installed package smoke from outside the source tree:
 
@@ -140,6 +143,8 @@ ctest --test-dir /tmp/conflux-tests --output-on-failure
 - File-layer docs preserve the boundary between POSIX sync file helpers, mmap
   helpers, and async/runtime-backed file I/O.
 - DB docs match libpq feature-gate behavior and pool/query contracts.
+- DB-off header-interface installs do not expose generated `conflux/pg*` or
+  `conflux/db.hxx` headers.
 - Process-spawn changes include argument/env/lifetime/error-path tests.
 - DNS and SMTP changes include timeout/cancel/error-path tests.
 

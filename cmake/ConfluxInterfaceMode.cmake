@@ -491,6 +491,62 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_json_reflect_example examples/advanced/json_reflect)
     endif()
 
+    file(WRITE "${_conflux_examples_manifest}" "Conflux examples manifest\n\n")
+    set(_conflux_header_manifest_targets
+        conflux_quickstart_hello
+        conflux_quickstart_json_crud
+        conflux_quickstart_middleware
+        conflux_quickstart_openapi
+        conflux_quickstart_postgres
+        conflux_quickstart_sse
+        conflux_quickstart_static_files
+        conflux_quickstart_websocket
+        conflux_hello
+        conflux_middleware
+        conflux_sse
+        conflux_static
+        conflux_forms
+        conflux_gzip
+        conflux_http_client
+        conflux_dual
+        conflux_process_run_example
+        conflux_crypto_sealing_example
+        conflux_http_observability_example
+        conflux_http_policy_stack_example
+        conflux_vhost_openapi_example
+        conflux_http_client_builder_example
+        conflux_api_typed_json_example
+        conflux_http_client_json_example
+        conflux_http_explicit_offload_example
+        conflux_work_join_all_example
+        conflux_template_pages_example
+        conflux_h3_probe
+        conflux_h3_server
+        conflux_db_basic
+        conflux_db_pool
+        conflux_advanced_postgres
+        conflux_json_example
+        conflux_json_config_example
+        conflux_json_stream_ingest_example
+        conflux_json_diagnostics_example
+        conflux_json_transform_example
+        conflux_json_reflect_example)
+    foreach(_conflux_header_manifest_target IN LISTS _conflux_header_manifest_targets)
+        if(TARGET ${_conflux_header_manifest_target})
+            conflux_note_header_example(${_conflux_header_manifest_target} built "target available")
+        elseif(_conflux_header_manifest_target MATCHES "postgres|db_")
+            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires CONFLUX_ENABLE_DB=ON and libpq")
+        elseif(_conflux_header_manifest_target MATCHES "json|typed_json|explicit_offload|custom_json")
+            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires JSON support")
+        elseif(_conflux_header_manifest_target MATCHES "h3_")
+            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires HTTP/3 support")
+        elseif(_conflux_header_manifest_target MATCHES "template")
+            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires template support")
+        else()
+            conflux_note_header_example(${_conflux_header_manifest_target} skipped "target unavailable")
+        endif()
+    endforeach()
+
     add_custom_target(conflux_header_examples)
     add_custom_target(conflux_examples)
     get_property(_conflux_header_example_targets GLOBAL PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS)
