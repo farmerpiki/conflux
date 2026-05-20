@@ -654,7 +654,13 @@ app.ws("/ws", [](HttpRequestView const& req, WsConn& ws) {
 ```
 
 `WsConn` provides blocking connection-local operations on the worker that owns the
-upgraded connection:
+upgraded connection. There is no server-owned WebSocket outbound backlog after
+handoff: `send_text`, `send_binary`, and `send_ping` write the frame on the
+owning worker thread under a connection-local send mutex. Slow peer backpressure
+therefore blocks that WebSocket worker, not an HTTP ring thread. Applications
+that need queued broadcast semantics should put an explicit queue in front of
+`WsConn`, choose an `OverflowPolicy`, and account that queue in application
+metrics.
 
 ```cpp
 std::optional<WsConn::Frame> recv();
@@ -669,6 +675,9 @@ WebSocket routing is implemented as a GET route that returns a `WsUpgrade`
 response. The router handles the Upgrade/101 handshake transparently.
 `on_close` callbacks run once when the connection closes through `close()` or
 handler teardown.
+`HttpPressureMetrics::websocket_closed_for_pressure` counts server-owned
+handoff pressure, such as a full/closed WebSocket worker pool or a failed
+blocking-fd transition before the handler owns the connection.
 
 ---
 

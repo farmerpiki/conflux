@@ -5198,12 +5198,14 @@ TEST_CASE(
 	pressure.accept_rejected = 2;
 	pressure.drain_started = 1;
 	pressure.drain_deadline_hit = 1;
+	pressure.websocket_closed_for_pressure = 3;
 
 	auto out = format_pressure_metrics_prometheus(pressure);
 	CHECK(out.find("# TYPE http_pressure_events_total counter") != std::string::npos);
 	CHECK(out.find("http_pressure_events_total{event=\"accept_rejected\"} 2") != std::string::npos);
 	CHECK(out.find("http_pressure_events_total{event=\"drain_started\"} 1") != std::string::npos);
 	CHECK(out.find("http_pressure_events_total{event=\"drain_deadline_hit\"} 1") != std::string::npos);
+	CHECK(out.find("http_pressure_events_total{event=\"websocket_closed_for_pressure\"} 3") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Metrics
@@ -7184,6 +7186,30 @@ CloseFrame read_close(
 }
 
 } // namespace ws_test
+TEST_CASE(
+	"ws: closed worker pool increments pressure metric",
+	"[ws][http.lifecycle]") {
+	Router router;
+	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	pool->stop();
+	router.set_work_pool(pool);
+	router.ws("/ws", [](HttpRequest const &, WsConn &) {});
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
+
+	int const fd = ws_test::ws_handshake(srv.port());
+	for (int i = 0; i < 50; ++i) {
+		if (srv.metrics().pressure.websocket_closed_for_pressure > 0) {
+			break;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	::close(fd);
+	srv.stop();
+
+	auto const metrics = srv.metrics();
+	CHECK(metrics.pressure.websocket_closed_for_pressure >= 1);
+}
+
 TEST_CASE(
 	"ws: frame with RSV bit set triggers close 1002") {
 	Router router;

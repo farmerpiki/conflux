@@ -261,6 +261,10 @@ TEST_CASE(
 		WsConn conn{sockets[0]};
 		int closed = 0;
 		conn.on_close([&] { ++closed; });
+		CHECK(conn.send_text("hello"));
+		auto bytes = std::string_view{"bytes"};
+		CHECK(conn.send_binary(std::as_bytes(std::span{bytes.data(), bytes.size()})));
+		CHECK(conn.send_ping("p"));
 		conn.close();
 		conn.close();
 		CHECK(closed == 1);
