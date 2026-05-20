@@ -349,7 +349,9 @@ if(TARGET conflux_http_server AND CONFLUX_EXPERIMENTAL_SEND_ZC)
 endif()
 
 add_executable(conflux_template_tests template_test.cxx)
-target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+target_link_libraries(
+    conflux_template_tests
+    PRIVATE conflux_template conflux_json conflux_types conflux_options Catch2::Catch2WithMain)
 
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)

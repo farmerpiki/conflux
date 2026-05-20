@@ -20,6 +20,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.async_client;
 import conflux.net.http;
+import conflux.net.jwt;
 import conflux.net.compress;
 import conflux.net.proxy;
 import conflux.net.http.static_core;

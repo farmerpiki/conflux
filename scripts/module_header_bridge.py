@@ -895,6 +895,9 @@ LIBURING_UNSIGNED_RETURN_FUNCTIONS = {
 LIBURING_SIZE_RETURN_FUNCTIONS = {
     "io_uring_mlock_size",
 }
+LIBURING_SSIZE_RETURN_FUNCTIONS = {
+    "io_uring_memory_size_params",
+}
 LIBURING_UINT64_RETURN_FUNCTIONS = {
     "io_uring_cqe_get_data64",
 }
@@ -917,6 +920,8 @@ LIBURING_VOID_FUNCTIONS = {
 LIBURING_BASE_IDENTIFIERS = {
     "IORING_CQE_BUFFER_SHIFT",
     "IORING_FILE_INDEX_ALLOC",
+    "IORING_FEAT_FAST_POLL",
+    "IORING_OP_RECV",
     "IOU_PBUF_RING_INC",
     "io_uring_get_sqe",
     "io_uring_setup_buf_ring",
@@ -929,8 +934,10 @@ LIBURING_BASE_IDENTIFIERS = {
     "io_uring_submit",
     "io_uring_submit_and_wait",
     "io_uring_submit_and_wait_timeout",
+    "io_uring_memory_size_params",
     "io_uring_peek_cqe",
     "io_uring_wait_cqe",
+    "io_uring_wait_cqe_timeout",
     "io_uring_peek_batch_cqe",
     "io_uring_cq_advance",
     "io_uring_cqe_seen",
@@ -957,6 +964,7 @@ def liburing_constant_value(name: str) -> str:
         "IORING_FEAT_NODROP": "(1u << 0)",
         "IORING_FEAT_SUBMIT_STABLE": "(1u << 1)",
         "IORING_FEAT_RECVSEND_BUNDLE": "(1u << 2)",
+        "IORING_FEAT_FAST_POLL": "(1u << 3)",
         "SPLICE_F_FD_IN_FIXED": "(1u << 31)",
         "SOCKET_URING_OP_SETSOCKOPT": "0u",
     }
@@ -979,12 +987,14 @@ def render_mock_liburing_header(identifiers: set[str]) -> str:
         set(LIBURING_POINTER_RETURN_FUNCTIONS)
         | LIBURING_UNSIGNED_RETURN_FUNCTIONS
         | LIBURING_SIZE_RETURN_FUNCTIONS
+        | LIBURING_SSIZE_RETURN_FUNCTIONS
         | LIBURING_UINT64_RETURN_FUNCTIONS
         | LIBURING_BOOLISH_RETURN_FUNCTIONS
         | LIBURING_VOID_FUNCTIONS
         | {
             "io_uring_peek_cqe",
             "io_uring_wait_cqe",
+            "io_uring_wait_cqe_timeout",
             "io_uring_submit_and_wait_timeout",
         }
     )
@@ -1025,10 +1035,10 @@ def render_mock_liburing_header(identifiers: set[str]) -> str:
         "struct io_uring_cqe;\n",
         "struct io_sqring_offsets { __u32 head, tail, ring_mask, ring_entries, flags, dropped, array, resv1; __u64 user_addr; };\n",
         "struct io_cqring_offsets { __u32 head, tail, ring_mask, ring_entries, overflow, cqes, flags, resv1; __u64 user_addr; };\n",
-        "struct io_uring_sq { unsigned *khead; unsigned *ktail; unsigned *kring_mask; unsigned *kring_entries; unsigned *kflags; unsigned *kdropped; unsigned *array; io_uring_sqe *sqes; unsigned sqe_head; unsigned sqe_tail; unsigned ring_entries; unsigned ring_sz; void *ring_ptr; };\n",
+        "struct io_uring_sq { unsigned *khead; unsigned *ktail; unsigned *kring_mask; unsigned *kring_entries; unsigned *kflags; unsigned *kdropped; unsigned *array; io_uring_sqe *sqes; unsigned sqe_head; unsigned sqe_tail; unsigned ring_entries; unsigned ring_mask; unsigned ring_sz; void *ring_ptr; };\n",
         "struct io_uring_cq { unsigned *khead; unsigned *ktail; unsigned *kring_mask; unsigned *kring_entries; unsigned *kflags; unsigned *koverflow; io_uring_cqe *cqes; unsigned ring_entries; unsigned ring_sz; void *ring_ptr; };\n",
         "struct io_uring { io_uring_sq sq; io_uring_cq cq; unsigned flags; int ring_fd; unsigned features; };\n",
-        "struct io_uring_sqe { __u8 opcode; __u8 flags; __u16 ioprio; __s32 fd; __u64 off; __u64 addr; __u32 len; __u32 rw_flags; __u64 user_data; __u16 buf_index; __u16 buf_group; __u16 personality; __s32 splice_fd_in; __u32 file_index; __u32 uring_cmd_flags; __u32 waitid_flags; __u32 futex_flags; __u64 addr3; __u64 __pad2[1]; };\n",
+        "struct io_uring_sqe { __u8 opcode; __u8 flags; __u16 ioprio; __s32 fd; __u64 off; __u64 addr; __u32 len; __u32 rw_flags; __u64 user_data; __u16 buf_index; __u16 buf_group; __u16 personality; __s32 splice_fd_in; __u32 file_index; __u32 uring_cmd_flags; __u32 waitid_flags; __u32 futex_flags; __u32 cmd_op; __u32 level; __u32 optname; __u32 optlen; __u64 optval; __u64 addr3; __u64 __pad2[1]; };\n",
         "struct io_uring_cqe { __u64 user_data; __s32 res; __u32 flags; };\n",
         "struct io_uring_params { __u32 sq_entries; __u32 cq_entries; __u32 flags; __u32 sq_thread_cpu; __u32 sq_thread_idle; __u32 features; __u32 wq_fd; __u32 resv[3]; io_sqring_offsets sq_off; io_cqring_offsets cq_off; };\n",
         "struct io_uring_probe_op { __u8 op; __u8 resv; __u16 flags; __u32 resv2; };\n",
@@ -1053,6 +1063,7 @@ def render_mock_liburing_header(identifiers: set[str]) -> str:
         "static inline int io_uring_opcode_supported(io_uring_probe const *, int) noexcept { return 0; }\n",
         "static inline int io_uring_peek_cqe(io_uring *, io_uring_cqe **cqe) noexcept { if (cqe) *cqe = nullptr; return -EAGAIN; }\n",
         "static inline int io_uring_wait_cqe(io_uring *, io_uring_cqe **cqe) noexcept { if (cqe) *cqe = nullptr; return -ENOSYS; }\n",
+        "static inline int io_uring_wait_cqe_timeout(io_uring *, io_uring_cqe **cqe, __kernel_timespec *) noexcept { if (cqe) *cqe = nullptr; return -ETIME; }\n",
         "static inline int io_uring_submit_and_wait_timeout(io_uring *, io_uring_cqe **cqe, unsigned, __kernel_timespec *, sigset_t *) noexcept { if (cqe) *cqe = nullptr; return -ETIME; }\n",
         "static inline void io_uring_sqe_set_data64(io_uring_sqe *sqe, __u64 data) noexcept { if (sqe) sqe->user_data = data; }\n",
         "static inline void io_uring_sqe_set_flags(io_uring_sqe *sqe, unsigned flags) noexcept { if (sqe) sqe->flags = static_cast<__u8>(sqe->flags | flags); }\n",
@@ -1067,6 +1078,7 @@ def render_mock_liburing_header(identifiers: set[str]) -> str:
         "static inline unsigned io_uring_sq_ready(io_uring const *) noexcept { return 0u; }\n",
         "static inline unsigned io_uring_sq_space_left(io_uring const *) noexcept { return 1u; }\n",
         "static inline std::size_t io_uring_mlock_size(unsigned, unsigned) noexcept { return 0u; }\n",
+        "static inline ssize_t io_uring_memory_size_params(unsigned, io_uring_params *) noexcept { return -ENOSYS; }\n",
         "static inline int io_uring_cq_has_overflow(io_uring const *) noexcept { return 0; }\n",
         "static inline void io_uring_buf_ring_add(io_uring_buf_ring *, void *, unsigned, unsigned short, unsigned short, int) noexcept {}\n",
         "static inline void io_uring_buf_ring_advance(io_uring_buf_ring *, int) noexcept {}\n",

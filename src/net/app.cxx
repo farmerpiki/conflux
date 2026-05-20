@@ -6,13 +6,13 @@ module;
 export module conflux.net.app;
 
 export import :defer;
-import :extractor_helpers;
-import :json_helpers;
-import :metadata_helpers;
-import :openapi;
+export import :extractor_helpers;
+export import :json_helpers;
+export import :metadata_helpers;
+export import :openapi;
 export import :policies;
 export import :response;
-import :route_helpers;
+export import :route_helpers;
 export import :traits;
 export import :types;
 import std;
