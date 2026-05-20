@@ -58,6 +58,7 @@ done
 rm -rf "$build_dir"
 cmake -S "$source_root/cmake/package-smoke" \
     -B "$build_dir" \
+    -G Ninja \
     -DCMAKE_PREFIX_PATH="$prefix" \
     -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$components"
 cmake --build "$build_dir"

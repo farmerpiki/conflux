@@ -566,6 +566,7 @@ elseif(CONFLUX_ENABLE_HTTP_TRACE)
 endif()
 
 add_library(conflux_types STATIC)
+target_compile_features(conflux_types PUBLIC cxx_std_23)
 target_sources(conflux_types
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
@@ -782,6 +783,7 @@ endif()
 
 if(CONFLUX_WANT_FILE_IO_SYNC)
 add_library(conflux_file_io_sync STATIC)
+target_compile_features(conflux_file_io_sync PUBLIC cxx_std_23)
 target_sources(conflux_file_io_sync
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
@@ -810,6 +812,7 @@ endif() # CONFLUX_WANT_FILE_MAP
 
 if(CONFLUX_WANT_JSON_FILE)
 add_library(conflux_json_file STATIC)
+target_compile_features(conflux_json_file PUBLIC cxx_std_23)
 target_sources(conflux_json_file
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
@@ -2842,6 +2845,11 @@ install(FILES
     ${CONFLUX_SRC_ROOT}/json_simd_backend.hxx
     ${CONFLUX_SRC_ROOT}/simd_backend.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules/src
+)
+install(FILES
+    ${CONFLUX_SRC_ROOT}/json_simd_backend.hxx
+    ${CONFLUX_SRC_ROOT}/simd_backend.hxx
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
 )
 install(FILES
     ${CONFLUX_SRC_ROOT}/conflux/detail/discard.hxx

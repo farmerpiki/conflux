@@ -11,6 +11,30 @@ import conflux.types;
 // JsonPath::from_pointer (after JsonError definition)
 // ---------------------------------------------------------------------------
 
+std::string JsonPath::to_pointer() const {
+	if (segs_.empty()) {
+		return "";
+	}
+	std::string out;
+	for (auto const &seg: segs_) {
+		out += '/';
+		if (holds_alternative<JsonPathMember>(seg)) {
+			for (char const c: get<JsonPathMember>(seg).name) {
+				if (c == '~') {
+					out += "~0";
+				} else if (c == '/') {
+					out += "~1";
+				} else {
+					out += c;
+				}
+			}
+		} else {
+			out += std::to_string(get<JsonPathIndex>(seg).index);
+		}
+	}
+	return out;
+}
+
 std::expected<JsonPath, JsonError> JsonPath::from_pointer(
 	std::string_view sv) {
 	if (sv.empty()) {
@@ -66,6 +90,18 @@ std::expected<JsonPath, JsonError> JsonPath::from_pointer(
 // Implement NodeRef methods that need ObjectView/ArrayView
 // ---------------------------------------------------------------------------
 
+JsonKind NodeRef::kind() const noexcept {
+	switch (rec().kind) {
+	case NodeKind::null_  : return JsonKind::null;
+	case NodeKind::boolean: return JsonKind::boolean;
+	case NodeKind::number : return JsonKind::number;
+	case NodeKind::string_: return JsonKind::string;
+	case NodeKind::array_ : return JsonKind::array;
+	case NodeKind::object : return JsonKind::object;
+	}
+	return JsonKind::null;
+}
+
 std::expected<ObjectView, JsonError> NodeRef::as_object() const {
 	if (rec().kind != NodeKind::object) {
 		return std::unexpected(
@@ -90,6 +126,58 @@ std::expected<ArrayView, JsonError> NodeRef::as_array() const {
 	}
 	return ArrayView{storage_, rec().off, rec().len};
 }
+
+std::expected<bool, JsonError> NodeRef::as_bool() const {
+	if (rec().kind != NodeKind::boolean) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::wrong_kind,
+				.expected_kind = JsonKind::boolean,
+				.actual_kind = kind(),
+				.message = "std::expected boolean"});
+	}
+	return rec().bool_val;
+}
+
+std::expected<std::string_view, JsonError> NodeRef::as_string() const {
+	if (rec().kind != NodeKind::string_) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::wrong_kind,
+				.expected_kind = JsonKind::string,
+				.actual_kind = kind(),
+				.message = "std::expected string"});
+	}
+	return storage_->bytes_at(rec().off, rec().len, rec().flags);
+}
+
+std::expected<JsonNumberView, JsonError> NodeRef::as_number() const {
+	if (rec().kind != NodeKind::number) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::wrong_kind,
+				.expected_kind = JsonKind::number,
+				.actual_kind = kind(),
+				.message = "std::expected number"});
+	}
+	return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
+}
+
+std::expected<std::int64_t, JsonError> NodeRef::as_i64() const {
+	return as_number().and_then([](JsonNumberView n) { return n.to_i64(); });
+}
+
+std::expected<std::uint64_t, JsonError> NodeRef::as_u64() const {
+	return as_number().and_then([](JsonNumberView n) { return n.to_u64(); });
+}
+
+std::expected<double, JsonError> NodeRef::as_double() const {
+	return as_number().and_then([](JsonNumberView n) { return n.to_f64(); });
+}
+
 void push_seg(
 	JsonPath &p,
 	JsonPathSegment const &s) {
@@ -173,11 +261,297 @@ std::expected<NodeRef, JsonError> NodeRef::at(
 	}
 	return cur;
 }
+
+std::optional<NodeRef> ObjectView::find_member(
+	std::string_view name) const noexcept {
+	auto to_ref = [&](std::optional<std::size_t> idx) -> std::optional<NodeRef> {
+		if (!idx) {
+			return std::nullopt;
+		}
+		return NodeRef{storage_, *idx};
+	};
+	if (mem_count_ < kHashThreshold) {
+		return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
+	}
+	// Lazy std::hash table build via Atom CAS. The std::hash slot is the only
+	// mutable surface on a published Document.
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	auto &raw = const_cast<ObjHashTable *&>(storage_->nodes[node_idx_].hash_idx_raw);
+	auto ref = std::atomic_ref<ObjHashTable *>{raw};
+	auto *ht = ref.load(std::memory_order_acquire);
+	if (ht == kHashBuildFailedSentinel) {
+		return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
+	}
+	if (ht == nullptr) {
+		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count_));
+		bool build_ok = false;
+		ObjHashTable *owned = nullptr;
+		if (cap > 0) {
+			owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(mem_count_), storage_->hash_mr_);
+			if (owned != nullptr && detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
+				ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+				if (ref.compare_exchange_strong(
+						expected_null,
+						owned,
+						std::memory_order_release,
+						std::memory_order_acquire)) {
+					ht = owned;
+					owned = nullptr;
+					build_ok = true;
+				} else {
+					ht = (expected_null == kHashBuildFailedSentinel) ? nullptr : expected_null;
+					build_ok = (ht != nullptr);
+				}
+			}
+		}
+		if (!build_ok) {
+			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+			auto _ = ref.compare_exchange_strong(
+				expected_null,
+				kHashBuildFailedSentinel,
+				std::memory_order_release,
+				std::memory_order_acquire);
+		}
+		ObjHashTable::destroy(owned);
+	}
+	if (ht != nullptr) {
+		return to_ref(detail::lookup_in(*ht, storage_, mem_start_, mem_count_, name));
+	}
+	return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
+}
+
+std::expected<NodeRef, JsonError> ObjectView::member(
+	std::string_view name) const {
+	auto found = find_member(name);
+	if (!found) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::missing_member,
+				.member_name = std::string{name},
+				.message = std::format("missing member: {}", name)});
+	}
+	return *found;
+}
+
 ObjectMemberRange ObjectView::members() const noexcept {
 	return {storage_, mem_start_, mem_count_};
 }
+
+std::expected<NodeRef, JsonError> ArrayView::element(
+	std::size_t index) const {
+	if (index >= child_count_) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::index_out_of_range,
+				.requested_index = index,
+				.container_size = child_count_,
+				.message = std::format("index {} out of range (size={})", index, child_count_)});
+	}
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	return NodeRef{storage_, storage_->array_children[child_start_ + index]};
+}
+
 ArrayElementRange ArrayView::elements() const noexcept {
 	return {storage_, child_start_, child_count_};
+}
+
+ObjectMember ObjectMemberRange::Iterator::operator *() const {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	auto const &m = storage_->object_members[start_ + idx_];
+	return {
+		storage_->member_name(m),
+		NodeRef{storage_, m.val_node}
+    };
+}
+
+ObjectMemberRange::Iterator &ObjectMemberRange::Iterator::operator ++() noexcept {
+	++idx_;
+	return *this;
+}
+
+ObjectMemberRange::Iterator ObjectMemberRange::Iterator::operator ++(
+	int) noexcept {
+	auto t = *this;
+	++idx_;
+	return t;
+}
+
+bool ObjectMemberRange::Iterator::operator ==(
+	Sentinel) const noexcept {
+	return idx_ >= count_;
+}
+
+bool ObjectMemberRange::Iterator::operator ==(
+	Iterator const &o) const noexcept {
+	return idx_ == o.idx_;
+}
+
+ObjectMemberRange::Iterator ObjectMemberRange::begin() const noexcept {
+	return {storage_, start_, count_, 0};
+}
+
+ObjectMemberRange::Sentinel ObjectMemberRange::end() const noexcept {
+	return {};
+}
+
+NodeRef ArrayElementRange::Iterator::operator *() const {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	return NodeRef{storage_, storage_->array_children[start_ + idx_]};
+}
+
+ArrayElementRange::Iterator &ArrayElementRange::Iterator::operator ++() noexcept {
+	++idx_;
+	return *this;
+}
+
+ArrayElementRange::Iterator ArrayElementRange::Iterator::operator ++(
+	int) noexcept {
+	auto t = *this;
+	++idx_;
+	return t;
+}
+
+bool ArrayElementRange::Iterator::operator ==(
+	Sentinel) const noexcept {
+	return idx_ >= count_;
+}
+
+bool ArrayElementRange::Iterator::operator ==(
+	Iterator const &o) const noexcept {
+	return idx_ == o.idx_;
+}
+
+ArrayElementRange::Iterator ArrayElementRange::begin() const noexcept {
+	return {storage_, start_, count_, 0};
+}
+
+ArrayElementRange::Sentinel ArrayElementRange::end() const noexcept {
+	return {};
+}
+
+bool is_same_node(
+	NodeRef a,
+	NodeRef b) noexcept {
+	return a.storage_ == b.storage_ && a.idx_ == b.idx_;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+bool is_value_equal(
+	NodeRef a,
+	NodeRef b) {
+	if (a.rec().kind != b.rec().kind) {
+		return false;
+	}
+	switch (a.rec().kind) {
+	case NodeKind::null_  : return true;
+	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
+	case NodeKind::string_:
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
+	case NodeKind::number:
+		{
+			auto la = a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags);
+			auto lb = b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
+			if (la == lb) {
+				return true;
+			}
+			auto fa = JsonNumberView{la, a.rec().flags, a.rec()._raw}.to_f64();
+			auto fb = JsonNumberView{lb, b.rec().flags, b.rec()._raw}.to_f64();
+			return fa && fb && *fa == *fb;
+		}
+	case NodeKind::array_:
+		{
+			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
+			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
+			if (av.size() != bv.size()) {
+				return false;
+			}
+			for (std::size_t i = 0; i < av.size(); ++i) {
+				if (!is_value_equal(*av.element(i), *bv.element(i))) {
+					return false;
+				}
+			}
+			return true;
+		}
+	case NodeKind::object:
+		{
+			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
+			if (ao.size() != bo.size()) {
+				return false;
+			}
+			for (auto const &[name, val]: ao.members()) {
+				auto found = bo.find_member(name);
+				if (!found || !is_value_equal(val, *found)) {
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+bool is_value_equal_exact(
+	NodeRef a,
+	NodeRef b) {
+	if (a.rec().kind != b.rec().kind) {
+		return false;
+	}
+	switch (a.rec().kind) {
+	case NodeKind::null_  : return true;
+	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
+	case NodeKind::number:
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
+	case NodeKind::string_:
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
+	case NodeKind::array_:
+		{
+			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
+			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
+			if (av.size() != bv.size()) {
+				return false;
+			}
+			for (std::size_t i = 0; i < av.size(); ++i) {
+				if (!is_value_equal_exact(*av.element(i), *bv.element(i))) {
+					return false;
+				}
+			}
+			return true;
+		}
+	case NodeKind::object:
+		{
+			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
+			if (ao.size() != bo.size()) {
+				return false;
+			}
+			for (auto const &[name, val]: ao.members()) {
+				auto found = bo.find_member(name);
+				if (!found || !is_value_equal_exact(val, *found)) {
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+std::size_t NodeIdentityHash::operator ()(
+	NodeRef n) const noexcept {
+	return std::hash<void const *>{}(n.storage_) ^ (std::hash<std::size_t>{}(n.idx_) << 1U);
+}
+
+bool NodeIdentityEqual::operator ()(
+	NodeRef a,
+	NodeRef b) const noexcept {
+	return is_same_node(a, b);
 }
 
 // ---------------------------------------------------------------------------

@@ -151,29 +151,7 @@ public:
 	}
 	[[nodiscard]] auto begin() const noexcept { return segs_.begin(); }
 	[[nodiscard]] auto end() const noexcept { return segs_.end(); }
-	[[nodiscard]] std::string to_pointer() const {
-		if (segs_.empty()) {
-			return "";
-		}
-		std::string out;
-		for (auto const &seg: segs_) {
-			out += '/';
-			if (holds_alternative<JsonPathMember>(seg)) {
-				for (char const c: get<JsonPathMember>(seg).name) {
-					if (c == '~') {
-						out += "~0";
-					} else if (c == '/') {
-						out += "~1";
-					} else {
-						out += c;
-					}
-				}
-			} else {
-				out += std::to_string(get<JsonPathIndex>(seg).index);
-			}
-		}
-		return out;
-	}
+	[[nodiscard]] std::string to_pointer() const;
 	static std::expected<JsonPath, JsonError> from_pointer(std::string_view sv);
 
 	bool friend operator ==(JsonPath const &, JsonPath const &) = default;
@@ -690,37 +668,10 @@ struct DocumentStorage {
 	DocumentStorage &operator =(DocumentStorage const &) = delete;
 	DocumentStorage(DocumentStorage &&) noexcept = default;
 	DocumentStorage &operator =(DocumentStorage &&) noexcept = default;
-	~DocumentStorage() noexcept {
-		for (auto &n: nodes) {
-			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-				ObjHashTable::destroy(n.hash_idx_raw);
-			}
-		}
-	}
-	[[nodiscard]] std::string_view str_at(
-		std::uint32_t off,
-		std::uint32_t len) const noexcept {
-		return {string_arena.data() + off, len};
-	}
-	[[nodiscard]] std::string_view bytes_at(
-		std::uint32_t off,
-		std::uint32_t len,
-		std::uint8_t flags) const noexcept {
-		if ((flags & kValueExternalView) != 0) {
-			return {external_ptrs_[off], len};
-		}
-		if ((flags & kStorageInputView) != 0) {
-			return input_view.substr(off, len);
-		}
-		return str_at(off, len);
-	}
-	[[nodiscard]] std::string_view member_name(
-		MemberEntry const &m) const noexcept {
-		if ((m.name_flags & kMemberExternalView) != 0) {
-			return {external_ptrs_[m.name_off], m.name_len};
-		}
-		return bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags));
-	}
+	~DocumentStorage() noexcept;
+	[[nodiscard]] std::string_view str_at(std::uint32_t off, std::uint32_t len) const noexcept;
+	[[nodiscard]] std::string_view bytes_at(std::uint32_t off, std::uint32_t len, std::uint8_t flags) const noexcept;
+	[[nodiscard]] std::string_view member_name(MemberEntry const &m) const noexcept;
 };
 // ---------------------------------------------------------------------------
 // Phase 0 — slow-path f64 classifier (v14 AAA–EEE, v15 QQQ)
@@ -1192,56 +1143,8 @@ public:
 		}
 		return raw_lexeme_.size() >= 2 ? raw_lexeme_.size() - 2 : 0;
 	}
-	[[nodiscard]] std::expected<void, JsonError> append_decoded_to(
-		std::string &out) const {
-		if (unquoted_) {
-			out.append(raw_lexeme_.data(), raw_lexeme_.size());
-			return {};
-		}
-		if (raw_lexeme_.size() < 2) {
-			return {};
-		}
-		std::string_view body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
-		if (!has_escapes_) {
-			out.append(body.data(), body.size());
-			return {};
-		}
-		auto res = detail::decode_str_body(
-			body,
-			[&](std::string_view chunk) { out.append(chunk.data(), chunk.size()); },
-			max_string_size_);
-		if (!res) {
-			return std::unexpected(std::move(res).error());
-		}
-		return {};
-	}
-	[[nodiscard]] std::expected<std::string_view, JsonError> decode_into(
-		std::span<char> buf) const {
-		if (unquoted_) {
-			std::ranges::copy(raw_lexeme_, buf.data());
-			return std::string_view{buf.data(), raw_lexeme_.size()};
-		}
-		if (raw_lexeme_.size() < 2) {
-			return std::string_view{buf.data(), 0};
-		}
-		std::string_view body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
-		if (!has_escapes_) {
-			std::ranges::copy(body, buf.data());
-			return std::string_view{buf.data(), body.size()};
-		}
-		std::size_t written = 0;
-		auto res = detail::decode_str_body(
-			body,
-			[&](std::string_view chunk) {
-				std::ranges::copy(chunk, buf.data() + written);
-				written += chunk.size();
-			},
-			max_string_size_);
-		if (!res) {
-			return std::unexpected(std::move(res).error());
-		}
-		return std::string_view{buf.data(), written};
-	}
+	[[nodiscard]] std::expected<void, JsonError> append_decoded_to(std::string &out) const;
+	[[nodiscard]] std::expected<std::string_view, JsonError> decode_into(std::span<char> buf) const;
 };
 // ---------------------------------------------------------------------------
 // JsonReader
@@ -1402,65 +1305,16 @@ public:
 	NodeRef(NodeRef &&) noexcept = default;
 	NodeRef &operator =(NodeRef const &) = default;
 	NodeRef &operator =(NodeRef &&) noexcept = default;
-	[[nodiscard]] JsonKind kind() const noexcept {
-		switch (rec().kind) {
-		case NodeKind::null_  : return JsonKind::null;
-		case NodeKind::boolean: return JsonKind::boolean;
-		case NodeKind::number : return JsonKind::number;
-		case NodeKind::string_: return JsonKind::string;
-		case NodeKind::array_ : return JsonKind::array;
-		case NodeKind::object : return JsonKind::object;
-		}
-		return JsonKind::null;
-	}
+	[[nodiscard]] JsonKind kind() const noexcept;
 	[[nodiscard]] bool is_null() const noexcept { return rec().kind == NodeKind::null_; }
 	[[nodiscard]] std::expected<ObjectView, JsonError> as_object() const;
 	[[nodiscard]] std::expected<ArrayView, JsonError> as_array() const;
-	[[nodiscard]] std::expected<bool, JsonError> as_bool() const {
-		if (rec().kind != NodeKind::boolean) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::wrong_kind,
-					.expected_kind = JsonKind::boolean,
-					.actual_kind = kind(),
-					.message = "std::expected boolean"});
-		}
-		return rec().bool_val;
-	}
-	[[nodiscard]] std::expected<std::string_view, JsonError> as_string() const {
-		if (rec().kind != NodeKind::string_) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::wrong_kind,
-					.expected_kind = JsonKind::string,
-					.actual_kind = kind(),
-					.message = "std::expected string"});
-		}
-		return storage_->bytes_at(rec().off, rec().len, rec().flags);
-	}
-	[[nodiscard]] std::expected<JsonNumberView, JsonError> as_number() const {
-		if (rec().kind != NodeKind::number) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::wrong_kind,
-					.expected_kind = JsonKind::number,
-					.actual_kind = kind(),
-					.message = "std::expected number"});
-		}
-		return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
-	}
-	[[nodiscard]] std::expected<std::int64_t, JsonError> as_i64() const {
-		return as_number().and_then([](JsonNumberView n) { return n.to_i64(); });
-	}
-	[[nodiscard]] std::expected<std::uint64_t, JsonError> as_u64() const {
-		return as_number().and_then([](JsonNumberView n) { return n.to_u64(); });
-	}
-	[[nodiscard]] std::expected<double, JsonError> as_double() const {
-		return as_number().and_then([](JsonNumberView n) { return n.to_f64(); });
-	}
+	[[nodiscard]] std::expected<bool, JsonError> as_bool() const;
+	[[nodiscard]] std::expected<std::string_view, JsonError> as_string() const;
+	[[nodiscard]] std::expected<JsonNumberView, JsonError> as_number() const;
+	[[nodiscard]] std::expected<std::int64_t, JsonError> as_i64() const;
+	[[nodiscard]] std::expected<std::uint64_t, JsonError> as_u64() const;
+	[[nodiscard]] std::expected<double, JsonError> as_double() const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at(JsonPath const &path) const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at_pointer(std::string_view pointer) const;
 };
@@ -1605,81 +1459,8 @@ export class ObjectView {
 
 public:
 	[[nodiscard]] std::size_t size() const noexcept { return mem_count_; }
-	[[nodiscard]] std::optional<NodeRef> find_member(
-		std::string_view name) const noexcept {
-		auto to_ref = [&](std::optional<std::size_t> idx) -> std::optional<NodeRef> {
-			if (!idx) {
-				return std::nullopt;
-			}
-			return NodeRef{storage_, *idx};
-		};
-		if (mem_count_ < kHashThreshold) {
-			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
-		}
-		// Lazy std::hash table build via Atom CAS. The std::hash slot is the only
-		// mutable surface on a published Document — see post-publication
-		// freeze contract; const_cast is justified by that invariant.
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-		auto &raw = const_cast<ObjHashTable *&>(storage_->nodes[node_idx_].hash_idx_raw);
-		auto ref = std::atomic_ref<ObjHashTable *>{raw};
-		auto *ht = ref.load(std::memory_order_acquire);
-		// FI-1: prior build failed and was cached. Skip the rebuild; go linear.
-		if (ht == kHashBuildFailedSentinel) {
-			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
-		}
-		if (ht == nullptr) {
-			std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count_));
-			bool build_ok = false;
-			ObjHashTable *owned = nullptr;
-			if (cap > 0) {
-				owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(mem_count_), storage_->hash_mr_);
-				if (owned != nullptr) {
-					if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
-						ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-						if (ref.compare_exchange_strong(
-								expected_null,
-								owned,
-								std::memory_order_release,
-								std::memory_order_acquire)) {
-							ht = owned;
-							owned = nullptr; // CAS won — table published
-							build_ok = true;
-						} else {
-							ht = (expected_null == kHashBuildFailedSentinel) ? nullptr : expected_null;
-							build_ok = (ht != nullptr);
-						}
-					}
-				}
-			}
-			if (!build_ok) {
-				// FI-1: cache the failure so subsequent lookups don't retry.
-				ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-				auto _ = ref.compare_exchange_strong(
-					expected_null,
-					kHashBuildFailedSentinel,
-					std::memory_order_release,
-					std::memory_order_acquire);
-			}
-			ObjHashTable::destroy(owned);
-		}
-		if (ht != nullptr) {
-			return to_ref(detail::lookup_in(*ht, storage_, mem_start_, mem_count_, name));
-		}
-		return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
-	}
-	[[nodiscard]] std::expected<NodeRef, JsonError> member(
-		std::string_view name) const {
-		auto found = find_member(name);
-		if (!found) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::missing_member,
-					.member_name = std::string{name},
-					.message = std::format("missing member: {}", name)});
-		}
-		return *found;
-	}
+	[[nodiscard]] std::optional<NodeRef> find_member(std::string_view name) const noexcept;
+	[[nodiscard]] std::expected<NodeRef, JsonError> member(std::string_view name) const;
 	[[nodiscard]] ObjectMemberRange members() const noexcept;
 };
 export class ArrayView {
@@ -1700,20 +1481,7 @@ export class ArrayView {
 
 public:
 	[[nodiscard]] std::size_t size() const noexcept { return child_count_; }
-	[[nodiscard]] std::expected<NodeRef, JsonError> element(
-		std::size_t index) const {
-		if (index >= child_count_) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::index_out_of_range,
-					.requested_index = index,
-					.container_size = child_count_,
-					.message = std::format("index {} out of range (size={})", index, child_count_)});
-		}
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-		return NodeRef{storage_, storage_->array_children[child_start_ + index]};
-	}
+	[[nodiscard]] std::expected<NodeRef, JsonError> element(std::size_t index) const;
 	[[nodiscard]] ArrayElementRange elements() const noexcept;
 };
 // ---------------------------------------------------------------------------
@@ -1757,35 +1525,14 @@ public:
 		using value_type = ObjectMember;
 		using iterator_category = std::forward_iterator_tag;
 		Iterator() = default;
-		[[nodiscard]] ObjectMember operator *() const {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-			auto const &m = storage_->object_members[start_ + idx_];
-			return {
-				storage_->member_name(m),
-				NodeRef{storage_, m.val_node}
-            };
-		}
-		Iterator &operator ++() noexcept {
-			++idx_;
-			return *this;
-		}
-		Iterator operator ++(
-			int) noexcept {
-			auto t = *this;
-			++idx_;
-			return t;
-		}
-		[[nodiscard]] bool operator ==(
-			Sentinel) const noexcept {
-			return idx_ >= count_;
-		}
-		[[nodiscard]] bool operator ==(
-			Iterator const &o) const noexcept {
-			return idx_ == o.idx_;
-		}
+		[[nodiscard]] ObjectMember operator *() const;
+		Iterator &operator ++() noexcept;
+		Iterator operator ++(int) noexcept;
+		[[nodiscard]] bool operator ==(Sentinel) const noexcept;
+		[[nodiscard]] bool operator ==(Iterator const &o) const noexcept;
 	};
-	[[nodiscard]] Iterator begin() const noexcept { return {storage_, start_, count_, 0}; }
-	[[nodiscard]] Sentinel end() const noexcept { return {}; }
+	[[nodiscard]] Iterator begin() const noexcept;
+	[[nodiscard]] Sentinel end() const noexcept;
 };
 export class ArrayElementRange {
 	DocumentStorage const *storage_{};
@@ -1824,157 +1571,29 @@ public:
 		using value_type = NodeRef;
 		using iterator_category = std::forward_iterator_tag;
 		Iterator() = default;
-		[[nodiscard]] NodeRef operator *() const {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-			return NodeRef{storage_, storage_->array_children[start_ + idx_]};
-		}
-		Iterator &operator ++() noexcept {
-			++idx_;
-			return *this;
-		}
-		Iterator operator ++(
-			int) noexcept {
-			auto t = *this;
-			++idx_;
-			return t;
-		}
-		[[nodiscard]] bool operator ==(
-			Sentinel) const noexcept {
-			return idx_ >= count_;
-		}
-		[[nodiscard]] bool operator ==(
-			Iterator const &o) const noexcept {
-			return idx_ == o.idx_;
-		}
+		[[nodiscard]] NodeRef operator *() const;
+		Iterator &operator ++() noexcept;
+		Iterator operator ++(int) noexcept;
+		[[nodiscard]] bool operator ==(Sentinel) const noexcept;
+		[[nodiscard]] bool operator ==(Iterator const &o) const noexcept;
 	};
-	[[nodiscard]] Iterator begin() const noexcept { return {storage_, start_, count_, 0}; }
-	[[nodiscard]] Sentinel end() const noexcept { return {}; }
+	[[nodiscard]] Iterator begin() const noexcept;
+	[[nodiscard]] Sentinel end() const noexcept;
 };
 // ---------------------------------------------------------------------------
 // Comparison free functions + identity helpers
 // ---------------------------------------------------------------------------
 
-export bool is_same_node(
-	NodeRef a,
-	NodeRef b) noexcept {
-	return a.storage_ == b.storage_ && a.idx_ == b.idx_;
-}
+export bool is_same_node(NodeRef a, NodeRef b) noexcept;
 // NOLINTNEXTLINE(misc-no-recursion)
-export bool is_value_equal(
-	NodeRef a,
-	NodeRef b) {
-	if (a.rec().kind != b.rec().kind) {
-		return false;
-	}
-	switch (a.rec().kind) {
-	case NodeKind::null_  : return true;
-	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
-	case NodeKind::string_:
-		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
-			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
-	case NodeKind::number:
-		{
-			auto la = a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags);
-			auto lb = b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
-			if (la == lb) {
-				return true;
-			}
-			auto fa = JsonNumberView{la, a.rec().flags, a.rec()._raw}.to_f64();
-			auto fb = JsonNumberView{lb, b.rec().flags, b.rec()._raw}.to_f64();
-			return fa && fb && *fa == *fb;
-		}
-	case NodeKind::array_:
-		{
-			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
-			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
-			if (av.size() != bv.size()) {
-				return false;
-			}
-			for (std::size_t i = 0; i < av.size(); ++i) {
-				if (!is_value_equal(*av.element(i), *bv.element(i))) {
-					return false;
-				}
-			}
-			return true;
-		}
-	case NodeKind::object:
-		{
-			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
-			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
-			if (ao.size() != bo.size()) {
-				return false;
-			}
-			for (auto const &[name, val]: ao.members()) {
-				auto found = bo.find_member(name);
-				if (!found || !is_value_equal(val, *found)) {
-					return false;
-				}
-			}
-			return true;
-		}
-	}
-	return false;
-}
+export bool is_value_equal(NodeRef a, NodeRef b);
 // NOLINTNEXTLINE(misc-no-recursion)
-export bool is_value_equal_exact(
-	NodeRef a,
-	NodeRef b) {
-	if (a.rec().kind != b.rec().kind) {
-		return false;
-	}
-	switch (a.rec().kind) {
-	case NodeKind::null_  : return true;
-	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
-	case NodeKind::number:
-		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
-			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
-	case NodeKind::string_:
-		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
-			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
-	case NodeKind::array_:
-		{
-			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
-			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
-			if (av.size() != bv.size()) {
-				return false;
-			}
-			for (std::size_t i = 0; i < av.size(); ++i) {
-				if (!is_value_equal_exact(*av.element(i), *bv.element(i))) {
-					return false;
-				}
-			}
-			return true;
-		}
-	case NodeKind::object:
-		{
-			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
-			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
-			if (ao.size() != bo.size()) {
-				return false;
-			}
-			for (auto const &[name, val]: ao.members()) {
-				auto found = bo.find_member(name);
-				if (!found || !is_value_equal_exact(val, *found)) {
-					return false;
-				}
-			}
-			return true;
-		}
-	}
-	return false;
-}
+export bool is_value_equal_exact(NodeRef a, NodeRef b);
 export struct NodeIdentityHash {
-	std::size_t operator ()(
-		NodeRef n) const noexcept {
-		return std::hash<void const *>{}(n.storage_) ^ (std::hash<std::size_t>{}(n.idx_) << 1U);
-	}
+	std::size_t operator ()(NodeRef n) const noexcept;
 };
 export struct NodeIdentityEqual {
-	bool operator ()(
-		NodeRef a,
-		NodeRef b) const noexcept {
-		return is_same_node(a, b);
-	}
+	bool operator ()(NodeRef a, NodeRef b) const noexcept;
 };
 // ---------------------------------------------------------------------------
 // Document
@@ -2483,60 +2102,18 @@ export class ObjectBuilder {
 			  .local_members = {},
 			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
-	[[nodiscard]] std::expected<void, JsonError> check_can_insert() const {
-		if (frame_.committed) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::constraint_violation,
-					.message = "ObjectBuilder already committed"});
-		}
-		if (frame_.state != nullptr && frame_.state->active_depth != frame_.depth) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::constraint_violation,
-					.message = "child builder already active"});
-		}
-		return {};
-	}
+	[[nodiscard]] std::expected<void, JsonError> check_can_insert() const;
 	std::expected<void, JsonError> do_insert_node(std::string_view name, std::size_t node_idx);
 	std::expected<void, JsonError> do_insert_node_view(std::string_view name, std::size_t node_idx);
 
 public:
-	ObjectBuilder(
-		ObjectBuilder &&o) noexcept
-		: frame_{std::move(o.frame_)} {
-		o.frame_.state = nullptr;
-	}
-	ObjectBuilder &operator =(
-		ObjectBuilder &&o) noexcept {
-		if (this != &o) {
-			abort_if_open();
-			frame_ = std::move(o.frame_);
-			o.frame_.state = nullptr;
-		}
-		return *this;
-	}
+	ObjectBuilder(ObjectBuilder &&o) noexcept;
+	ObjectBuilder &operator =(ObjectBuilder &&o) noexcept;
 	ObjectBuilder(ObjectBuilder const &) = delete;
 	ObjectBuilder &operator =(ObjectBuilder const &) = delete;
 	// NOLINTNEXTLINE(bugprone-exception-escape)
-	void abort_if_open() noexcept {
-		if ((frame_.state != nullptr) && !frame_.committed) {
-			auto *st = frame_.state;
-			st->built_input.resize(frame_.parent.arena_start);
-			frame_.local_members.clear();
-			frame_.local_external_ptrs_.clear();
-			frame_.dup_check.clear();
-			st->active_depth = frame_.depth - 1;
-			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
-				st->root_set = frame_.parent.saved_root_set;
-				st->child_active = false;
-			}
-			frame_.state = nullptr;
-		}
-	}
-	~ObjectBuilder() noexcept { abort_if_open(); }
+	void abort_if_open() noexcept;
+	~ObjectBuilder() noexcept;
 	std::expected<void, JsonError> insert_null(std::string_view name);
 	std::expected<void, JsonError> insert_bool(std::string_view name, bool v);
 	std::expected<void, JsonError> insert_string(std::string_view name, std::string_view value);
@@ -2555,52 +2132,11 @@ public:
 		requires has_json_codec<T>
 	std::expected<void, JsonError> insert(std::string_view name, T const &value);
 	// NOLINTNEXTLINE(bugprone-exception-escape)
-	void commit() && noexcept {
-		if ((frame_.state == nullptr) || frame_.committed) {
-			return;
-		}
-		auto *st = frame_.state;
-		std::size_t const mem_start = st->store.object_members.size();
-		for (auto m: frame_.local_members) { // copy: may patch name_off for external ptrs
-			if ((m.name_flags & kMemberExternalView) != 0) {
-				// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-				char const *ptr = frame_.local_external_ptrs_[m.name_off];
-				m.name_off = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
-				st->store.external_ptrs_.push_back(ptr);
-			}
-			st->store.object_members.push_back(m);
-		}
-		std::size_t const cnt = frame_.local_members.size();
-		st->store.nodes.push_back(
-			detail::node_object(static_cast<std::uint32_t>(mem_start), static_cast<std::uint32_t>(cnt)));
-		std::size_t const node_idx = st->store.nodes.size() - 1;
-		switch (frame_.parent.kind) {
-		case ParentSlot::Kind::set_root:
-			st->root_node = node_idx;
-			st->child_active = false;
-			break;
-		case ParentSlot::Kind::insert_member:
-			frame_.parent.parent_local_members->push_back(
-				{static_cast<std::uint32_t>(frame_.parent.name_off),
-				 static_cast<std::uint32_t>(frame_.parent.name_len),
-				 static_cast<std::uint32_t>(node_idx),
-				 kStorageInputView});
-			break;
-		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
-		}
-		st->active_depth = frame_.depth - 1;
-		frame_.local_members.clear();
-		frame_.local_external_ptrs_.clear();
-		frame_.dup_check.clear();
-		frame_.committed = true;
-	}
+	void commit() && noexcept;
 };
 export class ArrayBuilder {
 	ChildFrame frame_;
-	[[nodiscard]] static bool arr_check_active(
-		ChildFrame const &f) noexcept {
-		return !f.committed && (f.state != nullptr) && (f.state->active_depth == f.depth);
-	}
+	[[nodiscard]] static bool arr_check_active(ChildFrame const &f) noexcept;
 
 	friend class ValueBuilder;
 	friend class ObjectBuilder;
@@ -2616,38 +2152,14 @@ export class ArrayBuilder {
 			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
 	// NOLINTNEXTLINE(bugprone-exception-escape)
-	void abort_if_open() noexcept {
-		if ((frame_.state != nullptr) && !frame_.committed) {
-			auto *st = frame_.state;
-			st->built_input.resize(frame_.parent.arena_start);
-			frame_.local_children.clear();
-			st->active_depth = frame_.depth - 1;
-			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
-				st->root_set = frame_.parent.saved_root_set;
-				st->child_active = false;
-			}
-			frame_.state = nullptr;
-		}
-	}
+	void abort_if_open() noexcept;
 
 public:
-	ArrayBuilder(
-		ArrayBuilder &&o) noexcept
-		: frame_{std::move(o.frame_)} {
-		o.frame_.state = nullptr;
-	}
-	ArrayBuilder &operator =(
-		ArrayBuilder &&o) noexcept {
-		if (this != &o) {
-			abort_if_open();
-			frame_ = std::move(o.frame_);
-			o.frame_.state = nullptr;
-		}
-		return *this;
-	}
+	ArrayBuilder(ArrayBuilder &&o) noexcept;
+	ArrayBuilder &operator =(ArrayBuilder &&o) noexcept;
 	ArrayBuilder(ArrayBuilder const &) = delete;
 	ArrayBuilder &operator =(ArrayBuilder const &) = delete;
-	~ArrayBuilder() noexcept { abort_if_open(); }
+	~ArrayBuilder() noexcept;
 	std::expected<void, JsonError> append_null();
 	std::expected<void, JsonError> append_bool(bool v);
 	std::expected<void, JsonError> append_string(std::string_view value);
@@ -2665,37 +2177,7 @@ public:
 		requires has_json_codec<T>
 	std::expected<void, JsonError> append(T const &value);
 	// NOLINTNEXTLINE(bugprone-exception-escape)
-	void commit() && noexcept {
-		if ((frame_.state == nullptr) || frame_.committed) {
-			return;
-		}
-		auto *st = frame_.state;
-		std::size_t const child_start = st->store.array_children.size();
-		for (std::size_t const idx: frame_.local_children) {
-			st->store.array_children.push_back(static_cast<std::uint32_t>(idx));
-		}
-		std::size_t const cnt = frame_.local_children.size();
-		st->store.nodes.push_back(
-			detail::node_array(static_cast<std::uint32_t>(child_start), static_cast<std::uint32_t>(cnt)));
-		std::size_t const node_idx = st->store.nodes.size() - 1;
-		switch (frame_.parent.kind) {
-		case ParentSlot::Kind::set_root:
-			st->root_node = static_cast<std::uint32_t>(node_idx);
-			st->child_active = false;
-			break;
-		case ParentSlot::Kind::insert_member:
-			frame_.parent.parent_local_members->push_back(
-				{static_cast<std::uint32_t>(frame_.parent.name_off),
-				 static_cast<std::uint32_t>(frame_.parent.name_len),
-				 static_cast<std::uint32_t>(node_idx),
-				 kStorageInputView});
-			break;
-		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
-		}
-		st->active_depth = frame_.depth - 1;
-		frame_.local_children.clear();
-		frame_.committed = true;
-	}
+	void commit() && noexcept;
 };
 // ---------------------------------------------------------------------------
 // ValueBuilder

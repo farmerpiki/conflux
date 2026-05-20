@@ -32,7 +32,7 @@ inline constexpr std::size_t kDefaultJsonFileReadLimit = 128ULL * 1024ULL * 1024
 namespace {
 
 [[nodiscard]] std::size_t json_file_read_limit(
-	conflux::json::JsonParseOptions const &opts) noexcept {
+	JsonParseOptions const &opts) noexcept {
 	if (opts.max_input_size.is_unlimited()) {
 		return std::numeric_limits<std::size_t>::max();
 	}
@@ -51,7 +51,7 @@ namespace {
 }
 
 [[nodiscard]] conflux::json::JsonFileError make_parse_error(
-	conflux::json::JsonError err) {
+	JsonError err) {
 	std::string message = err.message;
 	return conflux::json::JsonFileError{
 		.stage = conflux::json::JsonFileStage::parse,

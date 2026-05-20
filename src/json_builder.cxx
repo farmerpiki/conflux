@@ -4,6 +4,171 @@ import std;
 import std.compat;
 import conflux.types;
 
+std::expected<void, JsonError> ObjectBuilder::check_can_insert() const {
+	if (frame_.committed) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "ObjectBuilder already committed"});
+	}
+	if (frame_.state != nullptr && frame_.state->active_depth != frame_.depth) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "child builder already active"});
+	}
+	return {};
+}
+
+ObjectBuilder::ObjectBuilder(
+	ObjectBuilder &&o) noexcept
+	: frame_{std::move(o.frame_)} {
+	o.frame_.state = nullptr;
+}
+
+ObjectBuilder &ObjectBuilder::operator =(
+	ObjectBuilder &&o) noexcept {
+	if (this != &o) {
+		abort_if_open();
+		frame_ = std::move(o.frame_);
+		o.frame_.state = nullptr;
+	}
+	return *this;
+}
+
+void ObjectBuilder::abort_if_open() noexcept {
+	if ((frame_.state != nullptr) && !frame_.committed) {
+		auto *st = frame_.state;
+		st->built_input.resize(frame_.parent.arena_start);
+		frame_.local_members.clear();
+		frame_.local_external_ptrs_.clear();
+		frame_.dup_check.clear();
+		st->active_depth = frame_.depth - 1;
+		if (frame_.parent.kind == ParentSlot::Kind::set_root) {
+			st->root_set = frame_.parent.saved_root_set;
+			st->child_active = false;
+		}
+		frame_.state = nullptr;
+	}
+}
+
+ObjectBuilder::~ObjectBuilder() noexcept {
+	abort_if_open();
+}
+
+void ObjectBuilder::commit() && noexcept {
+	if ((frame_.state == nullptr) || frame_.committed) {
+		return;
+	}
+	auto *st = frame_.state;
+	std::size_t const mem_start = st->store.object_members.size();
+	for (auto m: frame_.local_members) { // copy: may patch name_off for external ptrs
+		if ((m.name_flags & kMemberExternalView) != 0) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+			char const *ptr = frame_.local_external_ptrs_[m.name_off];
+			m.name_off = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
+			st->store.external_ptrs_.push_back(ptr);
+		}
+		st->store.object_members.push_back(m);
+	}
+	std::size_t const cnt = frame_.local_members.size();
+	st->store.nodes.push_back(
+		detail::node_object(static_cast<std::uint32_t>(mem_start), static_cast<std::uint32_t>(cnt)));
+	std::size_t const node_idx = st->store.nodes.size() - 1;
+	switch (frame_.parent.kind) {
+	case ParentSlot::Kind::set_root:
+		st->root_node = node_idx;
+		st->child_active = false;
+		break;
+	case ParentSlot::Kind::insert_member:
+		frame_.parent.parent_local_members->push_back(
+			{static_cast<std::uint32_t>(frame_.parent.name_off),
+			 static_cast<std::uint32_t>(frame_.parent.name_len),
+			 static_cast<std::uint32_t>(node_idx),
+			 kStorageInputView});
+		break;
+	case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+	}
+	st->active_depth = frame_.depth - 1;
+	frame_.local_members.clear();
+	frame_.local_external_ptrs_.clear();
+	frame_.dup_check.clear();
+	frame_.committed = true;
+}
+
+bool ArrayBuilder::arr_check_active(
+	ChildFrame const &f) noexcept {
+	return !f.committed && (f.state != nullptr) && (f.state->active_depth == f.depth);
+}
+
+void ArrayBuilder::abort_if_open() noexcept {
+	if ((frame_.state != nullptr) && !frame_.committed) {
+		auto *st = frame_.state;
+		st->built_input.resize(frame_.parent.arena_start);
+		frame_.local_children.clear();
+		st->active_depth = frame_.depth - 1;
+		if (frame_.parent.kind == ParentSlot::Kind::set_root) {
+			st->root_set = frame_.parent.saved_root_set;
+			st->child_active = false;
+		}
+		frame_.state = nullptr;
+	}
+}
+
+ArrayBuilder::ArrayBuilder(
+	ArrayBuilder &&o) noexcept
+	: frame_{std::move(o.frame_)} {
+	o.frame_.state = nullptr;
+}
+
+ArrayBuilder &ArrayBuilder::operator =(
+	ArrayBuilder &&o) noexcept {
+	if (this != &o) {
+		abort_if_open();
+		frame_ = std::move(o.frame_);
+		o.frame_.state = nullptr;
+	}
+	return *this;
+}
+
+ArrayBuilder::~ArrayBuilder() noexcept {
+	abort_if_open();
+}
+
+void ArrayBuilder::commit() && noexcept {
+	if ((frame_.state == nullptr) || frame_.committed) {
+		return;
+	}
+	auto *st = frame_.state;
+	std::size_t const child_start = st->store.array_children.size();
+	for (std::size_t const idx: frame_.local_children) {
+		st->store.array_children.push_back(static_cast<std::uint32_t>(idx));
+	}
+	std::size_t const cnt = frame_.local_children.size();
+	st->store.nodes.push_back(
+		detail::node_array(static_cast<std::uint32_t>(child_start), static_cast<std::uint32_t>(cnt)));
+	std::size_t const node_idx = st->store.nodes.size() - 1;
+	switch (frame_.parent.kind) {
+	case ParentSlot::Kind::set_root:
+		st->root_node = static_cast<std::uint32_t>(node_idx);
+		st->child_active = false;
+		break;
+	case ParentSlot::Kind::insert_member:
+		frame_.parent.parent_local_members->push_back(
+			{static_cast<std::uint32_t>(frame_.parent.name_off),
+			 static_cast<std::uint32_t>(frame_.parent.name_len),
+			 static_cast<std::uint32_t>(node_idx),
+			 kStorageInputView});
+		break;
+	case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+	}
+	st->active_depth = frame_.depth - 1;
+	frame_.local_children.clear();
+	frame_.committed = true;
+}
+
 // ---------------------------------------------------------------------------
 // ValueBuilder root writer
 // ---------------------------------------------------------------------------

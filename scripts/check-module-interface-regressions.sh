@@ -93,6 +93,7 @@ import sys
 from pathlib import Path
 
 cmake = Path(sys.argv[1]).read_text()
+cmake_for_match = cmake.replace("${CONFLUX_SRC_ROOT}/", "src/")
 failures: list[str] = []
 
 
@@ -101,14 +102,14 @@ def calls_for(name: str) -> list[str]:
     needle = f"target_sources({name}"
     pos = 0
     while True:
-        start = cmake.find(needle, pos)
+        start = cmake_for_match.find(needle, pos)
         if start < 0:
             return out
         depth = 0
         end = start
         seen_open = False
-        while end < len(cmake):
-            ch = cmake[end]
+        while end < len(cmake_for_match):
+            ch = cmake_for_match[end]
             if ch == '(':
                 depth += 1
                 seen_open = True
@@ -118,7 +119,7 @@ def calls_for(name: str) -> list[str]:
                     end += 1
                     break
             end += 1
-        out.append(cmake[start:end])
+        out.append(cmake_for_match[start:end])
         pos = end
 
 
