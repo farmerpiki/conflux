@@ -64,6 +64,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	Pool const &work_pool) {
 	try {
 		HttpFieldsView matched_params;
+		bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 
 		// Regular routes first. Candidate selection has already filtered by method.
 		for (auto const &route: routes) {
@@ -76,6 +77,9 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					if (!all_params.get(k)) {
 						all_params.emplace_back(k, v);
 					}
+				}
+				if (!all_params.get("__conflux_route_pattern")) {
+					all_params.emplace_back_owned_value("__conflux_route_pattern", segments_to_pattern(route.pattern));
 				}
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
 				std::string_view const effective_method =
@@ -97,6 +101,9 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					auto resp = route.handler(matched_view);
 					if (is_head) {
 						resp.head_only = true;
+					}
+					if (observe_route) {
+						resp.headers.set("__conflux-route-pattern", segments_to_pattern(route.pattern));
 					}
 					return resp;
 				} catch (std::exception const &ex) {
@@ -120,8 +127,13 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					for (auto &[k, v]: matched_params) {
 						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
+					matched.params.emplace_back("__conflux_route_pattern", segments_to_pattern(route.pattern));
 					router_launch_sse_handler(work_pool, route.handler, std::move(matched), channel);
-					return HttpResponse::sse(std::move(channel));
+					auto resp = HttpResponse::sse(std::move(channel));
+					if (observe_route) {
+						resp.headers.set("__conflux-route-pattern", segments_to_pattern(route.pattern));
+					}
+					return resp;
 				}
 			}
 		}
@@ -164,6 +176,7 @@ export template<typename ContextRouteRange, typename Ctx>
 		return std::nullopt;
 	}
 	HttpFieldsView matched_params;
+	bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 	for (auto const &route: context_routes) {
 		matched_params.clear();
 		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
@@ -175,7 +188,17 @@ export template<typename ContextRouteRange, typename Ctx>
 					call_req.params.emplace_back(std::string{k}, std::string{v});
 				}
 			}
-			return route.handler(call_req, ctx);
+			auto pattern = segments_to_pattern(route.pattern);
+			call_req.params.emplace_back("__conflux_route_pattern", pattern);
+			return [](auto task,
+					  std::string route_pattern,
+					  bool should_annotate) -> conflux::work::root::Task<HttpResponse> {
+				auto resp = co_await std::move(task);
+				if (should_annotate) {
+					resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+				}
+				co_return resp;
+			}(route.handler(call_req, ctx), std::move(pattern), observe_route);
 		}
 	}
 	return std::nullopt;

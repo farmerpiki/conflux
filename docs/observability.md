@@ -1,0 +1,43 @@
+# Observability
+
+Conflux HTTP apps can install the unified observability facade:
+
+```cpp
+auto app = conflux::http::app();
+app.use(conflux::http::observability({
+    .service_name = "api",
+    .metrics_path = "/metrics",
+}));
+```
+
+Defaults:
+
+- request ID header propagation with `X-Request-ID`
+- W3C `traceparent` propagation
+- one structured JSON access log event per request
+- Prometheus text metrics at `/metrics`
+- route-pattern labels, with `<unmatched>` for 404s
+- sensitive-header redaction
+
+Redacted headers are `Authorization`, `Proxy-Authorization`, `Cookie`,
+`Set-Cookie`, `X-Api-Key`, `X-Api-Token`, `X-Auth-Token`, and `X-CSRF-Token`.
+Add service-specific names with `extra_sensitive_headers`.
+
+Metrics intentionally use low-cardinality labels:
+
+```text
+http_requests_total{service,route,method,status_class,status}
+http_request_duration_seconds_bucket{service,route,method,le}
+http_request_duration_seconds_sum{service,route,method}
+http_request_duration_seconds_count{service,route,method}
+http_rejections_total{service,reason,status}
+```
+
+Query strings are never metric labels and are excluded from access logs by
+default. Header logging is also off by default; if enabled, redaction still
+applies.
+
+The facade does not add an exporter or global singleton. Existing lower-level
+middleware such as `request_id_middleware`, `tracing_middleware`,
+`structured_log_middleware`, and `metrics_middleware` remains available for
+services that need custom wiring.

@@ -24,6 +24,7 @@ export import conflux.net.rate_limit;
 export import conflux.net.request_id;
 export import conflux.net.security;
 export import conflux.net.tracing;
+export import conflux.net.observability;
 import conflux.work;
 #if CONFLUX_HAS_METRICS
 export import conflux.net.metrics;

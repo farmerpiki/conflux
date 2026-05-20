@@ -21,6 +21,9 @@ import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http_server;
+import conflux.net.observability;
+import conflux.net.request_id;
+import conflux.net.tracing;
 import conflux.uring;
 import conflux.crypto;
 #if CONFLUX_HAS_JSON
@@ -629,6 +632,25 @@ public:
 		F &&middleware) {
 		router_.use(std::forward<F>(middleware));
 		++middleware_count_;
+		return *this;
+	}
+	App &use(
+		ObservabilityMiddleware middleware) {
+		if (middleware.options.request_id) {
+			router_.use(::request_id_middleware());
+			++middleware_count_;
+		}
+		if (middleware.options.trace_context) {
+			router_.use(::tracing_middleware());
+			++middleware_count_;
+		}
+		router_.use(middleware);
+		++middleware_count_;
+#if CONFLUX_HAS_METRICS
+		if (middleware.options.register_metrics_route) {
+			get(middleware.options.metrics_path, observability_metrics_handler(middleware));
+		}
+#endif
 		return *this;
 	}
 	template<typename F>

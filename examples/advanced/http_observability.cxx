@@ -1,21 +1,23 @@
-// HTTP observability example: metrics + request IDs + security headers.
+// HTTP observability example: unified request IDs, tracing, logs, and metrics.
 //
 // Build and run: build/release-clang-libcxx/conflux_http_observability_example
 // Try:
 //   curl -i http://localhost:9095/health
 //   curl -i http://localhost:9095/slow
-//   curl -H 'Authorization: Bearer metrics-token' http://localhost:9095/metrics
+//   curl -i http://localhost:9095/metrics
 import conflux.http;
 import std;
 
 int main() {
 	namespace http = conflux::http;
 
-	MetricsRegistry metrics;
 	auto app = http::app();
 
-	app.use(request_id_middleware());
-	app.use(metrics_middleware(metrics));
+	app.use(
+		http::observability({
+			.service_name = "observability-example",
+			.metrics_path = "/metrics",
+		}));
 	app.use(security_headers_middleware({
 		.hsts_max_age = 0,
 		.csp = "default-src 'none'; frame-ancestors 'none'",
@@ -43,10 +45,6 @@ int main() {
 		std::this_thread::sleep_for(std::chrono::milliseconds{50});
 		return http::text(std::format("slow path completed\nrequest_id={}\n", request_id.get()));
 	});
-
-	std::vector<http::Router::Middleware> metrics_auth;
-	metrics_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
-	app.get("/metrics", metrics_handler_protected(metrics, std::move(metrics_auth)));
 
 	auto const status = http::run(std::move(app), {.port = 9095});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;

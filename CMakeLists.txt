@@ -1883,6 +1883,7 @@ set(CONFLUX_HTTP_OBSERVABILITY_SOURCES
     ${CONFLUX_SRC_ROOT}/net/request_id.cxx
     ${CONFLUX_SRC_ROOT}/net/structured_log.cxx
     ${CONFLUX_SRC_ROOT}/net/tracing.cxx
+    ${CONFLUX_SRC_ROOT}/net/observability.cxx
 )
 if(CONFLUX_HAS_METRICS STREQUAL "true")
     list(APPEND CONFLUX_HTTP_OBSERVABILITY_SOURCES ${CONFLUX_SRC_ROOT}/net/metrics.cxx)

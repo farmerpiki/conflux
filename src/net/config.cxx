@@ -879,9 +879,6 @@ export [[nodiscard]] std::vector<ConfigIssue> validate_config(
 				.key = std::string{key},
 				.message = std::move(message)});
 	};
-	if (cfg.max_body_size == 0) {
-		add(ConfigIssueCode::invalid_value, "server", "max_body_size", "max_body_size must be greater than zero");
-	}
 	if (cfg.parser_limits.max_request_line_size == 0
 		|| cfg.parser_limits.max_header_line_size == 0
 		|| cfg.parser_limits.max_headers == 0

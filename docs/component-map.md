@@ -132,7 +132,7 @@ scripts/run-package-config-smoke.sh \
 | `http_realtime` | `conflux::http_realtime` | `conflux.net.http.realtime` | `examples/sse.cxx` |
 | `http_policy` | `conflux::http_policy` | `conflux.net.cache_control`, `conflux.net.cors`, `conflux.net.etag`, `conflux.net.forwarded`, `conflux.net.ip_filter`, `conflux.net.rate_limit`, `conflux.net.redirect`, `conflux.net.response_cache`, `conflux.net.security`, `conflux.net.trailing_slash` | `docs/auth-rate-limit-hooks.md`, `docs/http-security-corpus.md` |
 | `http_auth` | `conflux::http_auth` | `conflux.net.auth`, `conflux.net.csrf`, `conflux.net.cookie_signing`, `conflux.net.password_hash`; `conflux.net.jwt` when TLS is built | `docs/auth-password-hashing.md`, `docs/auth-session-token-audit.md` |
-| `http_observability` | `conflux::http_observability` | `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id`; `conflux.net.metrics` when metrics are enabled | `examples/advanced/http_observability.cxx` |
+| `http_observability` | `conflux::http_observability` | `conflux.net.observability`, `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id`; `conflux.net.metrics` when metrics are enabled | `examples/advanced/http_observability.cxx` |
 | `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | `examples/gzip.cxx` |
 | `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | `examples/advanced/vhost_openapi.cxx` |
 | `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | `examples/advanced/vhost_openapi.cxx` |

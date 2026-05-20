@@ -775,6 +775,27 @@ router.use(make_access_log_middleware([](std::string const& line) {
 // Logs: [ISO8601] METHOD path status bytes elapsed_ms
 ```
 
+### Built-in: observability
+
+`http::observability()` is the app-facing facade for request IDs, W3C
+`traceparent` propagation, structured access logs, and Prometheus text metrics:
+
+```cpp
+auto app = conflux::http::app();
+app.use(conflux::http::observability({
+    .service_name = "api",
+    .metrics_path = "/metrics",
+}));
+```
+
+The metrics route is registered by default and can be disabled with
+`register_metrics_route = false`. `app.validate()` reports the normal duplicate
+route issue if `metrics_path` collides with another `GET` route. Request metrics
+use route patterns such as `/users/{id}` and `<unmatched>` for 404s; query
+strings are never metric labels. Structured logs redact `Authorization`,
+`Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `X-Api-Token`,
+`X-Auth-Token`, and `X-CSRF-Token` by default.
+
 ---
 
 ## OpenAPI / Route metadata

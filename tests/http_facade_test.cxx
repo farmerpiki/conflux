@@ -182,7 +182,7 @@ TEST_CASE(
 	"http facade: validate aggregates config issues",
 	"[http.facade]") {
 	auto cfg = http::Config::development();
-	cfg.max_body_size = 0;
+	cfg.parser_limits.max_headers = 0;
 	auto app = http::App{cfg};
 
 	auto report = app.validate();
@@ -499,6 +499,101 @@ TEST_CASE(
 	CHECK(routes[1].middleware_count == 1);
 	CHECK(routes[2].path == "/after-two");
 	CHECK(routes[2].middleware_count == 2);
+}
+
+TEST_CASE(
+	"http facade: observability facade installs request id tracing logs and metrics",
+	"[http.facade]") {
+	auto app = http::app();
+	std::vector<std::string> logs;
+	app.use(
+		http::observability({
+			.service_name = "api",
+			.log_request_headers = true,
+			.extra_sensitive_headers = {"X-Secret"},
+			.access_log_sink = [&](std::string const &line) { logs.push_back(line); },
+		}));
+	app.get("/items/{id}", [](http::RequestId request_id, http::TraceContext trace) {
+		auto response = http::text(std::format("{} {}", request_id.get(), trace.traceparent));
+		response.headers.set("Set-Cookie", "session=abc");
+		return response;
+	});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/items/42?debug=true";
+	req.headers.set("Authorization", "Bearer secret");
+	req.headers.set("X-Secret", "secret");
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.headers.get("X-Request-ID").has_value());
+	CHECK(response.headers.get("Traceparent").has_value());
+	REQUIRE(logs.size() == 1);
+	CHECK(logs[0].contains(R"("service":"api")"));
+	CHECK(logs[0].contains(R"("route":"/items/{id}")"));
+	CHECK(logs[0].contains(R"("path":"/items/42")"));
+	CHECK_FALSE(logs[0].contains("debug=true"));
+	CHECK(logs[0].contains(R"("Authorization":"<redacted>")"));
+	CHECK(logs[0].contains(R"("X-Secret":"<redacted>")"));
+	CHECK_FALSE(logs[0].contains("Bearer secret"));
+
+	HttpRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = app.router().dispatch(metrics_req);
+	CHECK(metrics.status == kHttpOk);
+	CHECK(metrics.text_body().contains("http_requests_total"));
+	CHECK(metrics.text_body().contains(
+		R"(service="api",route="/items/{id}",method="GET",status_class="2xx",status="200")"));
+	CHECK(metrics.text_body().contains("http_request_duration_seconds_count"));
+	CHECK_FALSE(metrics.text_body().contains("debug=true"));
+}
+
+TEST_CASE(
+	"http facade: observability metrics route can be disabled and collision is validated",
+	"[http.facade]") {
+	auto disabled = http::app();
+	disabled.use(http::observability({.access_log = false, .register_metrics_route = false}));
+	CHECK(disabled.routes().empty());
+
+	auto colliding = http::app();
+	colliding.get("/metrics", [] { return http::text("custom"); });
+	colliding.use(http::observability({.access_log = false}));
+
+	auto report = colliding.validate();
+	REQUIRE_FALSE(report.ok());
+	CHECK(std::ranges::any_of(report.issues, [](auto const &issue) {
+		return issue.method == "GET" && issue.path == "/metrics" && issue.message == "duplicate route";
+	}));
+}
+
+TEST_CASE(
+	"http facade: observability records unmatched route metrics and logs",
+	"[http.facade]") {
+	auto app = http::app();
+	std::vector<std::string> logs;
+	app.use(
+		http::observability({
+			.service_name = "api",
+			.access_log_sink = [&](std::string const &line) { logs.push_back(line); },
+		}));
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/missing?token=secret";
+	auto missing = app.router().dispatch(req);
+	CHECK(missing.status == kHttpNotFound);
+	REQUIRE(logs.size() == 1);
+	CHECK(logs[0].contains(R"("route":"<unmatched>")"));
+	CHECK_FALSE(logs[0].contains("token=secret"));
+
+	HttpRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = app.router().dispatch(metrics_req);
+	CHECK(metrics.text_body().contains(R"(route="<unmatched>")"));
+	CHECK(metrics.text_body().contains("http_rejections_total"));
 }
 
 TEST_CASE(
@@ -1013,6 +1108,8 @@ TEST_CASE(
 	cfg.request_timeout_ms = 1000;
 	cfg.dump_effective_config = true;
 	cfg.send_fixed_buffers = true;
+	cfg.fixed_buffer_slabs = 1024 * 1024;
+	cfg.fixed_buffer_bytes = 1024 * 1024;
 	cfg.feature_fallback = conflux::runtime::FeatureFallback::silent_fallback;
 	cfg.auth_secrets.jwt.active = SecretSource{.kind = SecretSourceKind::literal, .value = "super-secret-token"};
 	auto app = http::App{cfg};
@@ -1029,7 +1126,7 @@ TEST_CASE(
 	CHECK(report.find("Fallbacks:") != std::string::npos);
 	CHECK(report.find("Config:") != std::string::npos);
 	CHECK(report.find("\"server\"") != std::string::npos);
-	CHECK(report.find("suppressed") != std::string::npos);
+	CHECK(report.find("policy=silent_fallback") != std::string::npos);
 	CHECK(report.find("super-secret-token") == std::string::npos);
 }
 
