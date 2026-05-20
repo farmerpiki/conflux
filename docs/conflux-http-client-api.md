@@ -33,7 +33,7 @@ auto result = client.blocking_send(
         .build());
 
 if (!result) {
-    std::println(stderr, "{}: {}", static_cast<int>(result.error().kind), result.error().message);
+    std::println(std::cerr, "{}: {}", static_cast<int>(result.error().kind), result.error().message);
     return 1;
 }
 auto const &resp = *result;
@@ -51,7 +51,7 @@ Use the free `try_get` / `try_post` / `try_put` / `try_patch` / `try_del` / `try
 ```cpp
 auto req_builder = try_get(configured_url);
 if (!req_builder) {
-    std::println(stderr, "bad URL: {}", req_builder.error().message);
+    std::println(std::cerr, "bad URL: {}", req_builder.error().message);
     return 1;
 }
 

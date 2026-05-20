@@ -30,7 +30,7 @@ int main() {
 
 	auto server = std::move(app).listen({.port = 8080});
 	if (!server) {
-		std::println(stderr, "server setup failed: {}", server.error());
+		std::println(std::cerr, "server setup failed: {}", server.error());
 		return 1;
 	}
 

@@ -39,7 +39,7 @@ and zero-copy caveats, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
 ```cpp
 auto server = HttpServer::try_create(cfg, std::move(router));
 if (!server) {
-    std::println(stderr, "server setup failed: {}", server.error());
+    std::println(std::cerr, "server setup failed: {}", server.error());
     return 1;
 }
 return static_cast<int>((*server)->run());
@@ -50,7 +50,7 @@ The `App` facade mirrors this with `try_server()` and `try_run()`.
 ```cpp
 auto status = std::move(app).try_run({.port = 8080});
 if (!status) {
-    std::println(stderr, "server setup failed: {}", status.error());
+    std::println(std::cerr, "server setup failed: {}", status.error());
     return 1;
 }
 return static_cast<int>(*status);

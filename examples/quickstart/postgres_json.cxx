@@ -1,5 +1,3 @@
-#include <cstdio>
-
 import conflux.http;
 import conflux.pg;
 import std;
@@ -26,7 +24,7 @@ struct JsonMembers<DbStatus> {
 int main() {
 	auto const *conninfo = std::getenv("PG_CONNINFO");
 	if (conninfo == nullptr || *conninfo == '\0') {
-		std::println(stderr, "set PG_CONNINFO, for example postgresql:///postgres?user=postgres");
+		std::println(std::cerr, "set PG_CONNINFO, for example postgresql:///postgres?user=postgres");
 		return 2;
 	}
 
