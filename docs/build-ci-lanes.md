@@ -29,6 +29,11 @@ source-shape check that keeps known fragile module interfaces from regrowing
 `import std`, coroutine bodies, or private implementation units in public module
 file sets. See `docs/module-fragility.md`.
 
+If CMake Python discovery stalls or selects a problematic virtual environment,
+pin the interpreter explicitly with `-DPython3_EXECUTABLE=/usr/bin/python3`.
+The top-level configure also restricts discovery to CPython and location-first
+probing to keep agent/CI sandboxes predictable.
+
 
 ## Fuzz smoke lane
 

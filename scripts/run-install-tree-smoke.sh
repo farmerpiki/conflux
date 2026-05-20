@@ -11,10 +11,11 @@ build_type="Release"
 generator=""
 interface_mode="MODULE_INTERFACE"
 extra_cmake_args=()
+package_smoke_args=()
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [-- <extra cmake configure args>]
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -68,6 +69,10 @@ while (($#)); do
             [[ $# -ge 2 ]] || { usage; exit 2; }
             interface_mode="$2"
             shift 2
+            ;;
+        --enable-db-smoke)
+            package_smoke_args+=(--enable-db)
+            shift
             ;;
         --)
             shift
@@ -150,6 +155,9 @@ cmake --build "$build_dir" --target install
     --prefix "$prefix" \
     --build-dir "$smoke_build_dir" \
     --components "$components" \
-    --interface-mode "$interface_mode"
+    --interface-mode "$interface_mode" \
+    "${package_smoke_args[@]}"
+mkdir -p "$smoke_build_dir"
+: > "$smoke_build_dir/.conflux-install-tree-smoke"
 
 printf 'run-install-tree-smoke: ok (%s, %s)\n' "$feature_set" "$components"

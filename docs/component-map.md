@@ -67,8 +67,14 @@ Validate an install tree with:
 ```sh
 scripts/run-package-config-smoke.sh \
   --prefix /tmp/conflux-install \
-  --components 'core;json;http_server'
+  --components 'core;json;file_io_sync'
 ```
+
+Mock-liburing header-interface installs publish only liburing-free package
+components: `core`, `types`, `json`, and `file_io_sync`. Runtime-facing package
+components, including `runtime`, `http`, async file/socket I/O, and HTTP
+server/client surfaces, require a real `liburing` package at producer configure
+time and are consumed through the separate runtime smoke lane.
 
 ## Public component map
 

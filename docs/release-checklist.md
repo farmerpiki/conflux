@@ -44,16 +44,25 @@ find /tmp/conflux-install/include/conflux -maxdepth 2 \( -name 'pg*' -o -name 'd
 
 The `find` command should print no DB headers when `CONFLUX_ENABLE_DB=OFF`.
 
-Installed package smoke from outside the source tree:
+Installed liburing-free package smoke from outside the source tree. This is the
+required lane for mock-liburing installs; mock liburing is compile evidence for
+the build tree and does not publish runtime/http package components.
 
 ```sh
 cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
   -DCMAKE_CXX_COMPILER=g++ \
   -Dconflux_DIR=/tmp/conflux-install/lib/cmake/conflux \
   -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE \
-  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;http;file_io_sync;runtime"
+  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;file_io_sync"
 cmake --build /tmp/conflux-smoke
 ctest --test-dir /tmp/conflux-smoke --output-on-failure
+```
+
+Runtime package smoke, only on hosts with real liburing discoverable through
+`pkg-config` and a non-mock install:
+
+```sh
+scripts/check-package-smoke-runtime.sh
 ```
 
 Optional DB-enabled lane, only on hosts with libpq headers:
@@ -89,6 +98,12 @@ ctest --test-dir /tmp/conflux-tests --output-on-failure
 ### Build/package
 
 - `scripts/check-package-config.sh` passes.
+- `scripts/check-package-smoke-liburing-free.sh` passes for mock-liburing
+  HEADER_INTERFACE installs. It must request `core;json;file_io_sync`, not
+  runtime/http.
+- `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
+  real `liburing` availability. It is the lane that requests
+  `core;json;http;file_io_sync;runtime`.
 - Installed `find_package(conflux REQUIRED COMPONENTS ...)` works for the
   components listed in `docs/component-map.md`.
 - Install/package smokes cover the selected public interface mode. Run module

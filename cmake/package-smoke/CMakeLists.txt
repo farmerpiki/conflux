@@ -78,7 +78,12 @@ set(_conflux_smoke_summary "${CMAKE_CURRENT_BINARY_DIR}/conflux-package-smoke-su
 file(WRITE "${_conflux_smoke_summary}"
     "components=${_conflux_find_components}\n"
     "requested_components=${_conflux_smoke_components}\n"
+    "available_components=${conflux_AVAILABLE_COMPONENTS}\n"
+    "available_targets=${conflux_AVAILABLE_TARGETS}\n"
     "interface_mode=${CONFLUX_INTERFACE_MODE}\n"
+    "package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}\n"
+    "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}\n"
+    "runtime_mock=${CONFLUX_RUNTIME_MOCK}\n"
     "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
     "cmake=${CMAKE_VERSION}\n"
     "enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"
@@ -177,7 +182,7 @@ int main() { return 0; }
     elseif(_component STREQUAL "db")
         if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
             conflux_add_component_smoke(db db [[
-#include <conflux/db.hpp>
+#include <conflux/pg/types.hxx>
 int main() { return 0; }
 ]])
         endif()

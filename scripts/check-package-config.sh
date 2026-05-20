@@ -14,6 +14,9 @@ fail() {
 [[ -f cmake/package-smoke/CMakeLists.txt ]] || fail "missing package smoke project"
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
+[[ -f scripts/check-package-smoke-liburing-free.sh ]] || fail "missing liburing-free package smoke lane"
+[[ -f scripts/check-package-smoke-runtime.sh ]] || fail "missing runtime package smoke lane"
+[[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
 [[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
 
@@ -53,6 +56,12 @@ grep -q 'include("${CMAKE_CURRENT_LIST_DIR}/confluxTargets.cmake")' cmake/conflu
     || fail "package config must include exported targets"
 grep -q 'set(conflux_AVAILABLE_COMPONENTS' cmake/conflux-config.cmake.in \
     || fail "package config must expose available components"
+grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
+    || fail "package config must expose runtime liburing status"
+grep -q 'set(CONFLUX_PACKAGE_MOCK_LIBURING' cmake/conflux-config.cmake.in \
+    || fail "package config must expose mock-liburing producer status"
+grep -q 'set(CONFLUX_RUNTIME_MOCK' cmake/conflux-config.cmake.in \
+    || fail "package config must expose runtime mock status"
 grep -q 'foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)' cmake/conflux-config.cmake.in \
     || fail "package config must validate requested components"
 grep -q 'check_required_components(conflux)' cmake/conflux-config.cmake.in \
@@ -72,13 +81,35 @@ grep -q 'import conflux.types;' cmake/package-smoke/CMakeLists.txt \
     || fail "module package smoke source must import an installed conflux module"
 grep -q '#include <conflux/types.hxx>' cmake/package-smoke/CMakeLists.txt \
     || fail "header package smoke source must include an installed conflux header"
+grep -q 'available_components=${conflux_AVAILABLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report available components"
+grep -q 'runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report runtime/liburing status"
+grep -q 'package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report producer mock-liburing status"
 grep -q 'cmake --build "\$build_dir"' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must build the downstream project"
 grep -q 'ctest --test-dir "\$build_dir" --output-on-failure' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must run downstream CTest"
+grep -q 'conflux-package-smoke-summary.txt' scripts/run-package-config-smoke.sh \
+    || fail "package smoke runner must print the downstream summary"
+grep -q -- '--enable-db' scripts/run-package-config-smoke.sh \
+    || fail "package smoke runner must expose a DB-enabled smoke option"
 grep -q 'cmake --build "\$build_dir" --target install' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must build and install conflux"
 grep -q 'run-package-config-smoke.sh' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must consume the installed prefix"
+grep -q -- '--enable-db-smoke' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward DB-enabled package smoke"
+grep -q "core;json;file_io_sync" scripts/check-package-smoke-liburing-free.sh \
+    || fail "liburing-free package smoke must request only liburing-free components"
+grep -q "core;json;http;file_io_sync;runtime" scripts/check-package-smoke-runtime.sh \
+    || fail "runtime package smoke must request runtime/http components"
+grep -q "pkg-config --exists liburing" scripts/check-package-smoke-runtime.sh \
+    || fail "runtime package smoke must gate on real liburing"
+grep -q "pkg-config --exists libpq" scripts/check-package-smoke-db.sh \
+    || fail "DB package smoke must gate on libpq"
+grep -q -- "--enable-db-smoke" scripts/check-package-smoke-db.sh \
+    || fail "DB package smoke must enable DB component checks"
 
 printf 'check-package-config: ok\n'
