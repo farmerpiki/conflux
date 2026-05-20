@@ -61,7 +61,11 @@ void emit_rejection(
 	}
 	r.content_type = "application/problem+json";
 	r.set_text_body(
-		std::format(R"({{"code":"{}","detail":"{}"}})", reject_reason_code(reason), reject_reason_detail(reason)));
+		std::format(
+			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
+			reject_reason_code(reason),
+			reject_reason_diagnostic_code(reason),
+			reject_reason_detail(reason)));
 	note_rejection(ring.rejection_counters_, reason);
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);

@@ -26,6 +26,9 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      historical proposals. Do not start work from an older proposal header alone.
    - `todo/parallel_priority_plan.md` remains the branch fan-out document after
      proposal state is known.
+   - Prerelease cleanup branches should start from
+     `conflux_prerelease_followup_cleanup_plan.md`, not older module-split or
+     performance proposal headers.
 
 1. **Keep file-layer boundaries honest.**
    - `file_io_sync` stays POSIX-only.

@@ -81,6 +81,16 @@ export [[nodiscard]] constexpr std::string_view reject_reason_code(
 	return "malformed_request";
 }
 
+export [[nodiscard]] constexpr std::string_view reject_reason_diagnostic_code(
+	HttpRejectReason reason) noexcept {
+	switch (reason) {
+	case HttpRejectReason::header_block_too_large: return "http.reject.header_block_too_large";
+	case HttpRejectReason::content_length_with_transfer_encoding:
+		return "http.reject.content_length_with_transfer_encoding";
+	default: return reject_reason_code(reason);
+	}
+}
+
 export [[nodiscard]] constexpr int reject_reason_status(
 	HttpRejectReason reason) noexcept {
 	switch (reason) {

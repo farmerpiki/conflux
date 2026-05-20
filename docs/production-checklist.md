@@ -1,8 +1,36 @@
-# Production checklist
+# Production Checklist
 
 Use this as a deployment-facing checklist for HTTP services built on conflux.
 `examples/advanced/production_showcase.cxx` shows these checks wired together in
 one small service.
+
+## Preset Review
+
+- [ ] `development` is used only for local work; limits and timeouts are still
+  bounded.
+- [ ] `public_server` is the default internet-facing preset; strict config,
+  parser limits, body limits, timeouts, and smuggling defenses are enabled.
+- [ ] `low_latency` is selected only with explicit owner sign-off and still has
+  bounded size/time limits.
+- [ ] `benchmark` is not used for production traffic.
+- [ ] Any `unsafe_max_speed`-style preset is treated as unsafe and must not be
+  deployed publicly.
+
+## Request Admission
+
+- [ ] Duplicate `Content-Length` returns `400` and increments
+  `duplicate_content_length`.
+- [ ] `Content-Length` with `Transfer-Encoding` returns `400` and increments
+  `content_length_with_transfer_encoding`.
+- [ ] Aggregate header bytes/count limits return `431` with
+  `header_block_too_large`.
+- [ ] Body limits return `413` with `body_too_large`.
+- [ ] Header timeout / slowloris behavior is covered by the runtime timeout
+  policy for this deployment.
+- [ ] Static file mounts reject path traversal and symlink policy is intentional.
+- [ ] Trusted proxy headers are enabled only for known proxy source addresses.
+- [ ] Structured logs redact `Authorization`, `Proxy-Authorization`, `Cookie`,
+  `Set-Cookie`, `X-Api-Key`, `X-Api-Token`, `X-Auth-Token`, and `X-CSRF-Token`.
 
 ## Lifecycle
 

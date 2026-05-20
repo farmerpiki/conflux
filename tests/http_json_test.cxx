@@ -180,5 +180,5 @@ TEST_CASE(
 	auto bad = handler(HttpRequestView{req});
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/json");
-	CHECK(bad.text_body() == R"({"error":"json decode failed"})");
+	CHECK(bad.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string::npos);
 }

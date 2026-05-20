@@ -277,6 +277,9 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     set_target_properties(conflux_types PROPERTIES EXPORT_NAME types)
 
     set(CONFLUX_HEADER_INSTALL_TARGETS conflux_headers conflux_core conflux_types)
+    if(TARGET conflux_header_impl)
+        list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_header_impl)
+    endif()
     set(CONFLUX_PACKAGE_COMPONENTS core types)
     set(CONFLUX_PACKAGE_TARGETS conflux::core conflux::types)
 
@@ -296,6 +299,42 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_net_http)
         list(APPEND CONFLUX_PACKAGE_COMPONENTS http)
         list(APPEND CONFLUX_PACKAGE_TARGETS conflux::http)
+    endif()
+
+    add_library(conflux_file_io_sync INTERFACE)
+    target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
+    set_target_properties(conflux_file_io_sync PROPERTIES EXPORT_NAME file_io_sync)
+    list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_file_io_sync)
+    list(APPEND CONFLUX_PACKAGE_COMPONENTS file_io_sync)
+    list(APPEND CONFLUX_PACKAGE_TARGETS conflux::file_io_sync)
+
+    add_library(conflux_work INTERFACE)
+    target_link_libraries(conflux_work INTERFACE conflux_headers)
+    set_target_properties(conflux_work PROPERTIES EXPORT_NAME runtime)
+    list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_work)
+    list(APPEND CONFLUX_PACKAGE_COMPONENTS runtime)
+    list(APPEND CONFLUX_PACKAGE_TARGETS conflux::runtime)
+
+    if(CONFLUX_HAS_DB STREQUAL "true")
+        add_library(conflux_db INTERFACE)
+        target_link_libraries(conflux_db INTERFACE conflux_headers)
+        set_target_properties(conflux_db PROPERTIES EXPORT_NAME db)
+        list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_db)
+        list(APPEND CONFLUX_PACKAGE_COMPONENTS db)
+        list(APPEND CONFLUX_PACKAGE_TARGETS conflux::db)
+    endif()
+
+    set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
+    file(MAKE_DIRECTORY "${CONFLUX_PUBLIC_HPP_DIR}")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#pragma once\n#include <conflux.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once\n#include <conflux/config.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once\n#include <conflux/types.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/http.hpp" "#pragma once\n#include <conflux/http.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once\n#include <conflux/file_io_sync.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/runtime.hpp" "#pragma once\n#include <conflux/work.hxx>\n")
+    if(CONFLUX_HAS_DB STREQUAL "true")
+        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/db.hpp" "#pragma once\n#include <conflux/db.hxx>\n")
     endif()
 
     set(CONFLUX_INSTALL_NEEDS_LIBURING FALSE)
@@ -344,6 +383,8 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
     )
+    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(EXPORT confluxTargets
         NAMESPACE conflux::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux

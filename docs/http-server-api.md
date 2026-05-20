@@ -821,6 +821,18 @@ auto spec = app.openapi_spec();      // app metadata backed OpenAPI JSON
 `app.validate()` returns source locations for route and static-mount issues.
 `ValidationReport::detailed_summary()` includes both the reported source and any
 related source, such as the earlier registration for a duplicate route.
+Stable diagnostic codes are included in summaries. For example:
+
+```text
+GET /same [http.route.duplicate]: duplicate route at src/app.cxx:42 related src/app.cxx:41
+```
+
+JSON extractor failures return problem JSON with grep-friendly codes. A type
+mismatch decode failure is reported as:
+
+```json
+{"code":"json.decode.type_mismatch","stage":"decode","kind":"wrong_kind","detail":"expected object"}
+```
 
 The lower-level router still exposes minimal route metadata for advanced users:
 

@@ -16,6 +16,7 @@ checked against this index before implementation starts.
 | DONE | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Parser/arena extraction landed and follow-up source-shape cleanup moved builder lifecycle, DOM lookup/equality, string-token decode, and storage helpers out of the primary module. | Keep public `import conflux.json` and `conflux::json` unchanged; future JSON work should be behavior-specific, not another broad implementation split. |
 | DONE | `template/compiled-cache-reload` | `proposals/template_compiled_cache_proposal.md` | Compiled reusable templates, structured compile/link diagnostics, checked reload, render-check preflight, parsed-context overloads, and explicit reload semantics implemented. | Further template work should be targeted polish or evidence, not the deferred watcher/header cleanup items. |
 | DONE | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Host evidence captured; no queue default or lock rewrite. | `no_stealing` is useful for bounded independent offload, but default `stealing` preserves work conservation on local-backlog redistribution. |
+| DONE | `release/prerelease-2-day-readiness` | `conflux_prerelease_2_day_agent_proposal.md` | Header-interface package lane, DB-off install pruning, package smoke, example manifest, diagnostics stream cleanup, prerelease known-limitations docs, and release checklist gates landed. | Remaining prerelease work starts from `conflux_prerelease_followup_cleanup_plan.md`; do not reopen the older prerelease proposal as an active blocker. |
 
 ## Historical / implemented proposals
 
@@ -35,6 +36,7 @@ checked against this index before implementation starts.
 | `proposals/p2_g_registered_send_buffers_proposal.md` | Implemented. | Follow-up only if HTTP send benchmarks prove more direct-format work is needed. |
 | `proposals/t1_a_send_zc_proposal.md` | Implemented for plain/mapped path; TLS intentionally unchanged. | Remaining decision is threshold benchmarking, not SEND_ZC plumbing. |
 | `proposals/t2_c_iopoll_ring_proposal.md` | Storage-only primitive implemented; HTTP/static adoption benchmark-gated. | Do not wire into HTTP static path until storage-read bottleneck is measured. |
+| `proposals/prerelease_2_day_coding_agent_plan.md` | Implemented by the prerelease readiness branch; active HEADER_INTERFACE, CONFLUX_ENABLE_DB, no_std_streams, and package-smoke checks moved to `docs/release-checklist.md`. | Treat as historical acceptance evidence. Follow-up cleanup starts from `conflux_prerelease_followup_cleanup_plan.md`. |
 
 ## Gaps found in current docs
 

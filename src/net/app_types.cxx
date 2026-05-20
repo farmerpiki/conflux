@@ -302,6 +302,7 @@ struct State {
 };
 
 struct ValidationIssue {
+	std::string code;
 	std::string message;
 	std::string method;
 	std::string path;
@@ -333,7 +334,8 @@ struct ValidationReport {
 			out += std::move(text);
 		};
 		for (auto const &issue: issues) {
-			append(std::format("{} {}: {}", issue.method, issue.path, issue.message));
+			auto const code = issue.code.empty() ? "app.validation" : issue.code;
+			append(std::format("{} {} [{}]: {}", issue.method, issue.path, code, issue.message));
 		}
 		for (auto const &issue: config_issues) {
 			append(config_issue_summary(issue));
@@ -355,7 +357,8 @@ struct ValidationReport {
 			out += std::move(text);
 		};
 		for (auto const &issue: issues) {
-			std::string line = std::format("{} {}: {}", issue.method, issue.path, issue.message);
+			auto const code = issue.code.empty() ? "app.validation" : issue.code;
+			std::string line = std::format("{} {} [{}]: {}", issue.method, issue.path, code, issue.message);
 			if (!issue.source_file.empty()) {
 				line += std::format(" at {}:{}", issue.source_file, issue.source_line);
 			}

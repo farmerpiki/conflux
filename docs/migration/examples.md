@@ -1,4 +1,4 @@
-# Migration Guide — examples/
+# Migration Guide - examples/
 
 No legacy `conflux.work` API usage found in `examples/` during the Phase 0
 inventory sweep. No migration needed for this group.
@@ -23,6 +23,19 @@ ctest --test-dir /tmp/conflux/<preset> -R '^examples/compile$'
 
 This gate compiles all example executables available in the active feature set;
 it does not run server examples that would block waiting for connections.
+
+## Removed preview spellings
+
+Current public examples use final preview names only. Historical snippets and
+old external drafts may need these replacements before being copied into current
+docs or quickstarts:
+
+| Historical spelling | Current spelling |
+| --- | --- |
+| historical short aliases | standard C++ names such as `std::string_view`, `std::optional`, `Callable`, `std::error_code`, `std::size_t` |
+| legacy async names | `async_*` coroutine/task APIs |
+| legacy direct fd helpers | `blocking_*` caller-thread helpers |
+| legacy socket wait helper | `sync_wait_socket_task` |
 
 ## Before / After pairs
 

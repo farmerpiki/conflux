@@ -10,7 +10,12 @@ import conflux.net.http.response_json;
 export namespace conflux::http::codec::json {
 
 [[nodiscard]] inline HttpResponse decode_error_response() {
-	return HttpResponse::json(R"({"error":"json decode failed"})", kHttpBadRequest, "Bad Request");
+	auto response = HttpResponse::json(
+		R"({"code":"json.decode.type_mismatch","detail":"json decode failed"})",
+		kHttpBadRequest,
+		"Bad Request");
+	response.content_type = "application/problem+json";
+	return response;
 }
 
 namespace detail {

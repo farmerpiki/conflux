@@ -131,6 +131,12 @@ TEST_CASE(
 	"[http.core]") {
 	CHECK(reject_reason_code(HttpRejectReason::duplicate_content_length) == "duplicate_content_length");
 	CHECK(reject_reason_code(HttpRejectReason::header_block_too_large) == "header_block_too_large");
+	CHECK(
+		reject_reason_diagnostic_code(HttpRejectReason::header_block_too_large)
+		== "http.reject.header_block_too_large");
+	CHECK(
+		reject_reason_diagnostic_code(HttpRejectReason::content_length_with_transfer_encoding)
+		== "http.reject.content_length_with_transfer_encoding");
 	CHECK(reject_reason_status(HttpRejectReason::duplicate_content_length) == 400);
 	CHECK(reject_reason_status(HttpRejectReason::header_block_too_large) == 431);
 	CHECK(reject_reason_status(HttpRejectReason::body_too_large) == 413);

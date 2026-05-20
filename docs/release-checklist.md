@@ -28,6 +28,7 @@ Header-interface build and install:
 
 ```sh
 python3 scripts/check_no_std_streams.py
+python3 scripts/check-first-contact-public-dialect.py
 cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
@@ -50,7 +51,7 @@ cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
   -DCMAKE_CXX_COMPILER=g++ \
   -Dconflux_DIR=/tmp/conflux-install/lib/cmake/conflux \
   -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE \
-  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;http"
+  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;http;file_io_sync;runtime"
 cmake --build /tmp/conflux-smoke
 ctest --test-dir /tmp/conflux-smoke --output-on-failure
 ```

@@ -119,7 +119,7 @@ template<class T>
 [[nodiscard]] HttpResponse json_decode_problem(
 	conflux::json::boundary::Error const &err) {
 	std::string body = std::format(
-		R"({{"code":"invalid_json","stage":"{}","kind":"{}","detail":"{}")",
+		R"({{"code":"json.decode.type_mismatch","stage":"{}","kind":"{}","detail":"{}")",
 		json_error_stage_name(err.stage),
 		json_error_code_name(err.code),
 		json_escape(err.message));

@@ -114,18 +114,18 @@ All combinators are eager — they operate on already-resolved chains.
 ### `map` and `then`
 
 ```cpp
-template<work_value T, class Fn>
-auto map(Chain<T>&&, Fn&&) -> Chain<U>;   // U = invoke_result_t<Fn&, T>
+template<work_value T, class Callable>
+auto map(Chain<T>&&, Callable&&) -> Chain<Result>;   // Result = invoke_result_t<Callable&, T>
 
-template<work_value T, class Fn>
-auto then(Chain<T>&&, Fn&&) -> Chain<U>;  // alias for map
+template<work_value T, class Callable>
+auto then(Chain<T>&&, Callable&&) -> Chain<Result>;  // alias for map
 ```
 
 Applies `fn` to the success value. Failure and cancellation pass through
 unchanged. If `fn` throws, the result is a `Failure` wrapping the exception.
 
-Requires `T != void` and `fn(T) -> U` where `U` satisfies `work_value`. The
-output `Chain<U>` preserves the input's `kind()`.
+Requires `T != void` and `fn(T) -> Result` where `Result` satisfies
+`work_value`. The output `Chain<Result>` preserves the input's `kind()`.
 
 ### `when_all`
 

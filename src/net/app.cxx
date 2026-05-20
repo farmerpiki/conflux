@@ -1024,7 +1024,8 @@ public:
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
 		for (auto const &issue: state_issues_) {
-			report.issues.push_back(ValidationIssue{.message = issue, .method = "APP", .path = "state"});
+			report.issues.push_back(
+				ValidationIssue{.code = "app.validation", .message = issue, .method = "APP", .path = "state"});
 		}
 		report.config_issues = validate_config(cfg_);
 		if (auto caps = conflux::runtime::detect_capabilities()) {
@@ -1044,6 +1045,7 @@ public:
 			if (auto pattern_issue = detail::validate_path_pattern(route.path)) {
 				report.issues.push_back(
 					ValidationIssue{
+						.code = "http.route.invalid_pattern",
 						.message = *pattern_issue,
 						.method = route.method,
 						.path = route.path,
@@ -1055,6 +1057,7 @@ public:
 			if (!inserted) {
 				report.issues.push_back(
 					ValidationIssue{
+						.code = "http.route.duplicate",
 						.message = "duplicate route",
 						.method = route.method,
 						.path = route.path,
@@ -1068,6 +1071,7 @@ public:
 			if (!shape_inserted && shape_it->second->path != route.path) {
 				report.issues.push_back(
 					ValidationIssue{
+						.code = "http.route.ambiguous",
 						.message = std::format("ambiguous route; also matches {}", shape_it->second->path),
 						.method = route.method,
 						.path = route.path,
@@ -1082,6 +1086,7 @@ public:
 				if (!states_->contains(state_type)) {
 					report.issues.push_back(
 						ValidationIssue{
+							.code = "app.state.missing",
 							.message = "missing app state",
 							.method = route.method,
 							.path = route.path,

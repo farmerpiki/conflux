@@ -166,6 +166,7 @@ TEST_CASE(
 	auto report = app.validate();
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].code == "http.route.duplicate");
 	CHECK(report.issues[0].message == "duplicate route");
 	CHECK(report.issues[0].method == "GET");
 	CHECK(report.issues[0].path == "/same");
@@ -174,7 +175,7 @@ TEST_CASE(
 	CHECK(report.issues[0].related_source_file.ends_with("http_facade_test.cxx"));
 	CHECK(report.issues[0].related_source_line > 0);
 	auto detailed = report.detailed_summary();
-	CHECK(detailed.find("GET /same: duplicate route at ") != std::string::npos);
+	CHECK(detailed.find("GET /same [http.route.duplicate]: duplicate route at ") != std::string::npos);
 	CHECK(detailed.find(" related ") != std::string::npos);
 }
 
@@ -248,6 +249,7 @@ TEST_CASE(
 	auto report = app.validate();
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].code == "http.route.ambiguous");
 	CHECK(report.issues[0].message == "ambiguous route; also matches /users/{id}");
 	CHECK(report.issues[0].method == "GET");
 	CHECK(report.issues[0].path == "/users/{slug}");
@@ -1634,7 +1636,7 @@ TEST_CASE(
 	auto malformed = app.router().dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
 	CHECK(malformed.content_type == "application/problem+json");
-	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
+	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
 	CHECK(malformed.text_body().find(R"("stage":"parse")") != std::string_view::npos);
 	CHECK(malformed.text_body().find(R"("kind":"unexpected_eof")") != std::string_view::npos);
 	CHECK(malformed.text_body().find(R"("source":)") != std::string_view::npos);
@@ -1675,7 +1677,7 @@ TEST_CASE(
 	auto malformed = app.router().dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
 	CHECK(malformed.content_type == "application/problem+json");
-	CHECK(malformed.text_body().find(R"("code":"invalid_json")") != std::string_view::npos);
+	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);

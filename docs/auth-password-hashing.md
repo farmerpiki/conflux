@@ -131,7 +131,7 @@ Basic auth now has a failed-attempt limiter enabled by default:
 
 ```cpp
 router.use(basic_auth_middleware(
-    [&](SV user, SV password) { return verify_user_password(user, password); },
+    [&](std::string_view user, std::string_view password) { return verify_user_password(user, password); },
     BasicAuthOptions{
         .realm = "Restricted",
         .failed_attempts = 10,
@@ -153,7 +153,7 @@ must not own user storage. Use the password hash API inside that callback:
 ```cpp
 PasswordHashOptions current = current_password_hash_options();
 
-router.use(basic_auth_middleware([&](SV user, SV password) {
+router.use(basic_auth_middleware([&](std::string_view user, std::string_view password) {
     auto stored = lookup_password_hash(user);
     if (!stored) {
         return false;
