@@ -1,6 +1,8 @@
 # Production checklist
 
 Use this as a deployment-facing checklist for HTTP services built on conflux.
+`examples/advanced/production_showcase.cxx` shows these checks wired together in
+one small service.
 
 ## Lifecycle
 

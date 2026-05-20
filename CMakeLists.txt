@@ -2450,6 +2450,9 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_http_lifecycle_example examples/advanced/http_lifecycle.cxx)
     target_link_libraries(conflux_http_lifecycle_example PRIVATE conflux conflux_options)
 
+    add_executable(conflux_production_showcase_example examples/advanced/production_showcase.cxx)
+    target_link_libraries(conflux_production_showcase_example PRIVATE conflux conflux_options)
+
     add_executable(conflux_http_policy_stack_example examples/advanced/http_policy_stack.cxx)
     target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 
@@ -2954,6 +2957,7 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_process_run_example
         conflux_crypto_sealing_example
         conflux_http_observability_example
+        conflux_production_showcase_example
         conflux_http_policy_stack_example
         conflux_vhost_openapi_example
         conflux_http_client_builder_example
