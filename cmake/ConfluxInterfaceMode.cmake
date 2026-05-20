@@ -485,6 +485,14 @@ function(conflux_add_header_examples_from_source_ids)
         add_dependencies(conflux_header_examples ${_conflux_header_example_targets})
         add_dependencies(conflux_examples ${_conflux_header_example_targets})
     endif()
+    if(CONFLUX_BUILD_TESTS)
+        add_test(NAME examples/compile
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+                    --target conflux_examples --config "$<CONFIG>")
+        set_tests_properties(examples/compile PROPERTIES
+            LABELS "examples;build;header"
+            RUN_SERIAL TRUE)
+    endif()
 endfunction()
 
 function(conflux_add_header_consumer_compile_target aggregate target_prefix enabled)
@@ -508,6 +516,14 @@ function(conflux_add_header_consumer_compile_target aggregate target_prefix enab
     add_custom_target(${aggregate})
     if(_conflux_header_consumer_targets)
         add_dependencies(${aggregate} ${_conflux_header_consumer_targets})
+    endif()
+    if(aggregate STREQUAL "conflux_header_tests" AND TARGET "${target_prefix}_tests_template_test")
+        add_test(NAME template/header-compile
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+                    --target "${target_prefix}_tests_template_test" --config "$<CONFIG>")
+        set_tests_properties(template/header-compile PROPERTIES
+            LABELS "template;build;header"
+            RUN_SERIAL TRUE)
     endif()
 endfunction()
 
