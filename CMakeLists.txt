@@ -2447,6 +2447,9 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_http_observability_example examples/advanced/http_observability.cxx)
     target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
 
+    add_executable(conflux_http_lifecycle_example examples/advanced/http_lifecycle.cxx)
+    target_link_libraries(conflux_http_lifecycle_example PRIVATE conflux conflux_options)
+
     add_executable(conflux_http_policy_stack_example examples/advanced/http_policy_stack.cxx)
     target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 

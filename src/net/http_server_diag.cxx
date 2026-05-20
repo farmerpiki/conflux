@@ -102,6 +102,7 @@ void Ring::note_recv_payload(
 	m.recv_bundle_bytes = recv_bundle_bytes_;
 	m.send_zc = zc_counters_.snapshot();
 	m.rejections = rejection_counters_;
+	m.pressure = pressure_counters_;
 	for (Conn const &conn: fd_table) {
 		if (conn.fd >= 0 && conn.zc_state.waiting_notification) {
 			++m.zc_notifications_pending;

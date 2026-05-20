@@ -300,6 +300,17 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	std::size_t want,
 	conflux::work::root::Task<FileReader::ReadFixedResult> read_task);
 struct Ring {
+	struct DrainControl {
+		DrainOptions options{};
+		std::chrono::steady_clock::time_point deadline{};
+		std::atomic_bool active{false};
+		std::atomic_bool deadline_hit{false};
+		std::atomic<std::uint64_t> accepted_before_stop{0};
+		std::atomic<std::uint64_t> idle_closed{0};
+		std::atomic<std::uint64_t> requests_finished{0};
+		std::atomic<std::uint64_t> streams_closed{0};
+		std::atomic<std::uint64_t> forced_closed{0};
+	};
 	struct DeferredWait {
 		int conn_fd{-1};
 		std::int32_t stream_id{-1};
@@ -377,6 +388,7 @@ struct Ring {
 	bool send_zc_report_usage_ = true;
 	SendZcCounters zc_counters_{};
 	HttpRejectionMetrics rejection_counters_{};
+	HttpPressureMetrics pressure_counters_{};
 	std::uint64_t accepted_direct_failures_{};
 	std::uint64_t recv_bundle_cqes_{};
 	std::uint64_t recv_bundle_slices_{};
@@ -392,6 +404,7 @@ struct Ring {
 	std::string alt_svc_header{}; // "h3=\":443\"; ma=86400" when h3 enabled; empty otherwise
 
 	int shutdown_efd = -1; // set by HttpServer before run_loop(); not owned
+	DrainControl *drain_control = nullptr; // set by HttpServer before run_loop(); not owned
 	std::uint64_t shutdown_buf = 0; // read target for the shutdown eventfd SQE
 
 	// file_io pools — constructed after io_uring_queue_init. Shared by

@@ -20,7 +20,7 @@ export module conflux.net.http.realtime;
 import std;
 import conflux.types;
 import conflux.net.http.types;
-import conflux.net.http.server_types;
+export import conflux.net.http.server_types;
 import conflux.crypto;
 import conflux.utils;
 #if CONFLUX_HAS_TLS
@@ -32,6 +32,35 @@ export enum class SseOverflowPolicy : std::uint8_t {
 	DropOldest,
 	Disconnect,
 };
+
+export constexpr OverflowPolicy to_overflow_policy(
+	SseOverflowPolicy policy) noexcept {
+	switch (policy) {
+	case SseOverflowPolicy::DropNewest: return OverflowPolicy::drop_newest;
+	case SseOverflowPolicy::DropOldest: return OverflowPolicy::drop_oldest;
+	case SseOverflowPolicy::Disconnect: return OverflowPolicy::close_connection;
+	}
+	return OverflowPolicy::drop_newest;
+}
+
+export constexpr SseOverflowPolicy sse_overflow_policy(
+	OverflowPolicy policy) noexcept {
+	switch (policy) {
+	case OverflowPolicy::drop_oldest     : return SseOverflowPolicy::DropOldest;
+	case OverflowPolicy::close_connection: return SseOverflowPolicy::Disconnect;
+	case OverflowPolicy::drop_newest     :
+	case OverflowPolicy::reject          :
+	case OverflowPolicy::backpressure    : return SseOverflowPolicy::DropNewest;
+	}
+	return SseOverflowPolicy::DropNewest;
+}
+
+export struct SsePressureMetrics {
+	std::uint64_t dropped_newest{};
+	std::uint64_t dropped_oldest{};
+	std::uint64_t disconnected_for_pressure{};
+};
+
 export class SseChannel {
 private:
 	int efd_{};
@@ -42,6 +71,9 @@ private:
 	std::size_t max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
 	std::atomic<std::size_t> dropped_{0};
+	std::atomic<std::uint64_t> dropped_newest_{0};
+	std::atomic<std::uint64_t> dropped_oldest_{0};
+	std::atomic<std::uint64_t> disconnected_for_pressure_{0};
 	std::vector<std::function<void()>> close_callbacks_{};
 
 public:
@@ -83,17 +115,22 @@ public:
 			std::size_t const would_be = queued_bytes_ + frame_bytes;
 			if (would_be > max_queue_bytes_ && max_queue_bytes_ != 0) {
 				switch (overflow_) {
-				case SseOverflowPolicy::DropNewest: dropped_.fetch_add(1, std::memory_order_relaxed); return false;
+				case SseOverflowPolicy::DropNewest:
+					dropped_.fetch_add(1, std::memory_order_relaxed);
+					dropped_newest_.fetch_add(1, std::memory_order_relaxed);
+					return false;
 				case SseOverflowPolicy::DropOldest:
 					while (!pending_.empty() && queued_bytes_ + frame_bytes > max_queue_bytes_) {
 						queued_bytes_ -= pending_.front().size();
 						pending_.pop();
 						dropped_.fetch_add(1, std::memory_order_relaxed);
+						dropped_oldest_.fetch_add(1, std::memory_order_relaxed);
 					}
 					break;
 				case SseOverflowPolicy::Disconnect:
 					closed_.test_and_set();
 					dropped_.fetch_add(1, std::memory_order_relaxed);
+					disconnected_for_pressure_.fetch_add(1, std::memory_order_relaxed);
 					wake = true;
 					break;
 				}
@@ -183,6 +220,15 @@ public:
 	[[nodiscard]] bool is_closed() const noexcept { return closed_.test(); }
 	[[nodiscard]] int eventfd_fd() const noexcept { return efd_; }
 	[[nodiscard]] std::size_t dropped_count() const noexcept { return dropped_.load(std::memory_order_relaxed); }
+	[[nodiscard]] SsePressureMetrics pressure_metrics() const noexcept {
+		return SsePressureMetrics{
+			.dropped_newest = dropped_newest_.load(std::memory_order_relaxed),
+			.dropped_oldest = dropped_oldest_.load(std::memory_order_relaxed),
+			.disconnected_for_pressure = disconnected_for_pressure_.load(std::memory_order_relaxed),
+		};
+	}
+	[[nodiscard]] SseOverflowPolicy overflow_policy() const noexcept { return overflow_; }
+	[[nodiscard]] OverflowPolicy overflow_policy_vocabulary() const noexcept { return to_overflow_policy(overflow_); }
 	[[nodiscard]] std::size_t max_queue_bytes() const noexcept { return max_queue_bytes_; }
 };
 

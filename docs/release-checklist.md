@@ -50,6 +50,8 @@ bundle, or security-sensitive surface is added.
   Host, Content-Length, Transfer-Encoding, range/static, or proxy change.
 - `docs/cost-lifetime-model.md` matches request view/owned request lifetimes,
   response body ownership, static/file zero-copy caveats, and TLS behavior.
+- Lifecycle/backpressure docs match `DrainOptions`, `DrainReport`,
+  `OverflowPolicy`, SSE overflow mapping, and `HttpPressureMetrics`.
 - HTTP/1 rejection taxonomy docs match status codes and passive server metrics:
   `malformed_content_length` -> 400 -> `rejections.malformed_content_length`,
   `duplicate_content_length` -> 400 -> `rejections.duplicate_content_length`,

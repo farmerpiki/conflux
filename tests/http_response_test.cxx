@@ -229,6 +229,24 @@ TEST_CASE(
 	close_observed->on_close([&] { ++closed; });
 	CHECK(closed == 2);
 
+	auto drop_newest = std::make_shared<SseChannel>(4, SseOverflowPolicy::DropNewest);
+	CHECK(drop_newest->overflow_policy_vocabulary() == OverflowPolicy::drop_newest);
+	CHECK(drop_newest->send("1234"));
+	CHECK_FALSE(drop_newest->send("5"));
+	CHECK(drop_newest->pressure_metrics().dropped_newest == 1);
+
+	auto drop_oldest = std::make_shared<SseChannel>(4, SseOverflowPolicy::DropOldest);
+	CHECK(drop_oldest->overflow_policy_vocabulary() == OverflowPolicy::drop_oldest);
+	CHECK(drop_oldest->send("1234"));
+	CHECK(drop_oldest->send("5"));
+	CHECK(drop_oldest->pressure_metrics().dropped_oldest == 1);
+
+	auto disconnect = std::make_shared<SseChannel>(4, sse_overflow_policy(OverflowPolicy::close_connection));
+	CHECK(disconnect->send("1234"));
+	CHECK_FALSE(disconnect->send("5"));
+	CHECK(disconnect->is_closed());
+	CHECK(disconnect->pressure_metrics().disconnected_for_pressure == 1);
+
 	auto ws = std::make_shared<WsUpgrade>();
 	ws->accept_key = "accept";
 	resp.set_ws_upgrade(ws);

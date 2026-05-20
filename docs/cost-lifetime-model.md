@@ -77,6 +77,7 @@ arena, string interning, or writer strategy.
 | HTTP handler | Ring thread | Handler runs inline until it returns | Yes if handler performs blocking or heavy work | Handler registration is explicit | Yes for bounded parsing, routing, response construction |
 | HTTP async handler | Starts on ring/task executor path | Suspends instead of blocking when awaiting async work | No unless coroutine body blocks | Must use coroutine handler and owned request state | Yes when it owns request data before suspension |
 | `http::offload` / worker pool path | Enqueues work from caller; work runs on worker | Caller should not block while queued work runs | No for the offloaded work | Yes | Yes for blocking/heavy work that has been explicitly moved |
+| `HttpServer::drain` | Caller requests drain; rings perform connection work | No long wait in the API itself; `run()` returns when rings finish | Wakes ring threads; deadline close work runs on rings | Yes | Yes from a controller thread, not from a handler |
 | File mmap setup | Caller performs setup/syscalls | May block on filesystem metadata/page setup | Yes, if caller is a ring thread | Yes through file/static setup path | Avoid in hot handler path unless cached or explicitly acceptable |
 | Socket send/recv task | Ring/task executor | No ordinary caller blocking | Ring thread progresses I/O events; task code must not block | Yes through async/socket API | Yes for non-blocking socket task operations |
 

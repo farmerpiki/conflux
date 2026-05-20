@@ -728,13 +728,20 @@ void Ring::arm_shutdown_read() {
 void Ring::arm_timer() {
 	if (shutting_down) {
 		bool pending_force_close = false;
+		bool drain_deadline_pending = false;
+		auto const now = std::chrono::steady_clock::now();
+		if (drain_control != nullptr
+			&& drain_control->active.load(std::memory_order_acquire)
+			&& now < drain_control->deadline) {
+			drain_deadline_pending = true;
+		}
 		for (auto const &conn: fd_table) {
 			if (conn.fd >= 0 && conn.send_queued && conn.close_after_send) {
 				pending_force_close = true;
 				break;
 			}
 		}
-		if (!pending_force_close && request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
+		if (!pending_force_close && !drain_deadline_pending && request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
 			return;
 		}
 	} else if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
@@ -748,10 +755,24 @@ void Ring::arm_timer() {
 }
 
 void Ring::handle_timer() {
-	if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
+	bool const drain_active = drain_control != nullptr && drain_control->active.load(std::memory_order_acquire);
+	if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0 && !drain_active) {
 		return;
 	}
 	auto now = std::chrono::steady_clock::now();
+	if (drain_active && now >= drain_control->deadline) {
+		drain_control->deadline_hit.store(true, std::memory_order_release);
+		++pressure_counters_.drain_deadline_hit;
+		for (auto &conn: fd_table) {
+			if (conn.fd >= 0 && !conn.closing) {
+				drain_control->forced_closed.fetch_add(1, std::memory_order_relaxed);
+				++pressure_counters_.drain_forced_close;
+				queue_close(conn.fd);
+			}
+		}
+		arm_timer();
+		return;
+	}
 	auto req_limit = std::chrono::milliseconds{request_timeout_ms};
 	auto sniff_limit = std::chrono::milliseconds{tls_sniff_timeout_ms};
 	for (auto &conn: fd_table) {
@@ -798,7 +819,17 @@ void Ring::handle_timer() {
 
 void Ring::handle_shutdown() {
 	shutting_down = true;
-	cancel_accept_or_defer();
+	auto *drain =
+		drain_control != nullptr && drain_control->active.load(std::memory_order_acquire) ? drain_control : nullptr;
+	++pressure_counters_.drain_started;
+	if (drain != nullptr) {
+		drain->accepted_before_stop.fetch_add(
+			static_cast<std::uint64_t>(std::ranges::count_if(fd_table, [](Conn const &conn) { return conn.fd >= 0; })),
+			std::memory_order_relaxed);
+	}
+	if (drain == nullptr || drain->options.stop_accepting) {
+		cancel_accept_or_defer();
+	}
 	auto const now = std::chrono::steady_clock::now();
 	for (std::size_t i = 0; i < fd_table.size(); ++i) {
 		auto &conn = fd_table[i];
@@ -806,17 +837,41 @@ void Ring::handle_shutdown() {
 			continue;
 		}
 		if (conn.sse_channel) {
-			conn.sse_channel->close();
+			bool const close_stream = drain == nullptr
+								   || !drain->options.finish_streams
+								   || drain->options.sse_policy != DrainStreamPolicy::leave_open;
+			if (close_stream) {
+				conn.sse_channel->close();
+				++pressure_counters_.connections_closed_for_pressure;
+				if (drain != nullptr) {
+					drain->streams_closed.fetch_add(1, std::memory_order_relaxed);
+				}
+			}
 		}
-		if (conn.send_queued) {
+		if (conn.is_ws) {
+			++pressure_counters_.websocket_closed_for_pressure;
+			if (drain != nullptr) {
+				drain->streams_closed.fetch_add(1, std::memory_order_relaxed);
+			}
+		}
+		bool const finish_send = drain == nullptr || drain->options.finish_requests;
+		if (conn.send_queued && finish_send) {
 			conn.close_after_send = true;
-			conn.close_after_send_deadline = now + shutdown_close_after_send_timeout;
+			conn.close_after_send_deadline =
+				drain != nullptr ? drain->deadline : now + shutdown_close_after_send_timeout;
 			if (conn.recv_armed) {
 				auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(i)) :
 														SocketHandle::from_os(conn.fd);
 				cancel_multishot_recv_or_defer(handle);
 			}
 		} else {
+			bool const idle = !conn.request_in_progress && !conn.send_queued;
+			if (drain != nullptr && idle && !drain->options.close_idle) {
+				continue;
+			}
+			if (drain != nullptr && idle) {
+				drain->idle_closed.fetch_add(1, std::memory_order_relaxed);
+			}
 			queue_close(static_cast<int>(i));
 		}
 	}
@@ -836,6 +891,29 @@ void Ring::handle_accept(
 				buffer_ring_mode_name(buf_ring_->mode()),
 				cqe_has_more(flg)));
 		if (!shutting_down) {
+			queue_multishot_accept();
+		}
+		return;
+	}
+	if (shutting_down) {
+		++pressure_counters_.accept_rejected;
+		if (accepted_sockets_direct) {
+			auto const ud = pack(Op::DirectSlotClose, 0, res);
+			if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud)) {
+				defer_op([this, res, ud] {
+					submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud);
+				});
+			}
+		} else {
+			auto const ud = pack(Op::Close, 0, res);
+			if (!submit_close(raw_, SocketHandle::from_os(res), ud)) {
+				defer_op([this, res, ud] { submit_close(raw_, SocketHandle::from_os(res), ud); });
+			}
+		}
+		if (!cqe_has_more(flg)
+			&& drain_control != nullptr
+			&& drain_control->active.load(std::memory_order_acquire)
+			&& !drain_control->options.stop_accepting) {
 			queue_multishot_accept();
 		}
 		return;

@@ -10,6 +10,33 @@ namespace http = conflux::http;
 static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
 static_assert(std::same_as<http::Next, http::Router::Handler>);
 static_assert(std::same_as<http::Config, Config>);
+static_assert(std::same_as<http::DrainOptions, DrainOptions>);
+static_assert(std::same_as<http::DrainReport, DrainReport>);
+static_assert(std::same_as<http::DrainStreamPolicy, DrainStreamPolicy>);
+static_assert(std::same_as<http::OverflowPolicy, OverflowPolicy>);
+static_assert(std::same_as<http::PressureMetrics, HttpPressureMetrics>);
+
+TEST_CASE(
+	"http facade: lifecycle and pressure vocabulary defaults are explicit",
+	"[http.facade]") {
+	http::DrainOptions drain{};
+	CHECK(drain.deadline == std::chrono::milliseconds{30000});
+	CHECK(drain.stop_accepting);
+	CHECK(drain.close_idle);
+	CHECK(drain.finish_requests);
+	CHECK_FALSE(drain.finish_streams);
+	CHECK(drain.websocket_policy == http::DrainStreamPolicy::close);
+	CHECK(drain.sse_policy == http::DrainStreamPolicy::close);
+
+	http::DrainReport report{};
+	CHECK(report.accepted_before_stop == 0);
+	CHECK_FALSE(report.deadline_hit);
+
+	http::ServerMetrics metrics{};
+	CHECK(metrics.pressure.accept_rejected == 0);
+	CHECK(metrics.pressure.drain_started == 0);
+	CHECK(metrics.pressure.drain_forced_close == 0);
+}
 
 struct FacadeAnswer {
 	std::string value;

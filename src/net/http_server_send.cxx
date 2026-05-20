@@ -570,6 +570,9 @@ bool Ring::handle_sse_send_complete(
 void Ring::handle_http_response_send_complete(
 	int fd,
 	Conn &conn) {
+	if (drain_control != nullptr && drain_control->active.load(std::memory_order_acquire)) {
+		drain_control->requests_finished.fetch_add(1, std::memory_order_relaxed);
+	}
 	if (conn.close_after_send) {
 		conn.close_after_send = false;
 #if CONFLUX_HAS_TLS

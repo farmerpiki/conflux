@@ -149,6 +149,7 @@ struct HttpServerMetrics {
     u64 recv_bundle_bytes;
     SendZcMetrics send_zc;
     HttpRejectionMetrics rejections;
+    HttpPressureMetrics pressure;
 };
 
 HttpServerMetrics HttpServer::metrics() const noexcept;
@@ -163,6 +164,28 @@ regular send path. `tls_bypass` / `tls_bypass_bytes` count large TLS responses
 that crossed the SEND_ZC threshold but intentionally used the TLS send path
 instead of SEND_ZC, so benchmark runs can separate copy-notification behavior
 from TLS-incompatible fallback policy.
+
+Pressure counters live under `HttpServerMetrics::pressure`:
+
+```cpp
+struct HttpPressureMetrics {
+    u64 accept_rejected;
+    u64 connections_closed_for_pressure;
+    u64 response_backpressure_events;
+    u64 sse_dropped_newest;
+    u64 sse_dropped_oldest;
+    u64 sse_disconnected_for_pressure;
+    u64 websocket_closed_for_pressure;
+    u64 drain_started;
+    u64 drain_deadline_hit;
+    u64 drain_forced_close;
+};
+```
+
+The snapshot currently covers server-owned drain/accept/WebSocket pressure
+directly. Application-owned SSE channels expose per-channel pressure counters
+through `SseChannel::pressure_metrics()`; aggregate those in application metrics
+when channels are created outside the server.
 
 HTTP/1 parser and dispatch rejections increment passive server counters under
 `HttpServerMetrics::rejections`; they are server metrics, not middleware
@@ -456,6 +479,62 @@ router.get("/slow", [pool](http::Request const&) -> http::Response {
 ```
 
 ---
+
+## Lifecycle and pressure
+
+`HttpServer::drain(options)` is the explicit graceful-shutdown entry point. It
+uses the same ring wakeup path as `shutdown()`, but records drain intent and
+pressure counters so shutdown behavior is visible in metrics.
+
+```cpp
+http::DrainOptions opts{
+    .deadline = 30s,
+    .stop_accepting = true,
+    .close_idle = true,
+    .finish_requests = true,
+    .finish_streams = false,
+    .websocket_policy = http::DrainStreamPolicy::close_with_reason,
+    .sse_policy = http::DrainStreamPolicy::close_with_retry,
+};
+auto report = server.drain(opts);
+```
+
+`shutdown()` remains the convenience wrapper for ordinary stop requests.
+`app.run(...)`, `app.try_run(...)`, and `http::run(...)` keep their existing
+behavior. `app.listen(...)` still returns a constructed `HttpServer` through the
+fallible setup path; call `run()` on another thread when a controller thread
+needs to call `port()`, `metrics()`, `drain()`, or `shutdown()`.
+
+| Situation | Default behavior | Config knob | Metric |
+|---|---|---|---|
+| New connection while draining | Stop accepting; close any accepted late socket | `DrainOptions::stop_accepting` | `pressure.accept_rejected` |
+| Idle keep-alive during drain | Close | `DrainOptions::close_idle` | `DrainReport::idle_closed` |
+| Active normal request during drain | Let current send finish until deadline | `DrainOptions::finish_requests`, `deadline` | `DrainReport::requests_finished`, `pressure.drain_deadline_hit` |
+| SSE channel full | Drop newest by default | `SseOverflowPolicy` / `OverflowPolicy` vocabulary | `SseChannel::pressure_metrics()` |
+| SSE stream during drain | Close unless stream finishing is requested | `DrainOptions::finish_streams`, `sse_policy` | `DrainReport::streams_closed` |
+| WebSocket during drain | Close/handoff path is pressure-accounted | `DrainOptions::websocket_policy` | `pressure.websocket_closed_for_pressure` |
+| Slow streaming client | Close at drain deadline | `DrainOptions::deadline` | `pressure.drain_forced_close` |
+| Ring CQ pressure | Report kernel CQ overflow and fatal overflow status | Ring sizing / runtime config | `cq_overflow`, fatal `RunStatus` |
+
+The shared overflow vocabulary is:
+
+```cpp
+enum class OverflowPolicy : std::uint8_t {
+    reject,
+    drop_oldest,
+    drop_newest,
+    close_connection,
+    backpressure,
+};
+```
+
+SSE keeps the narrower `SseOverflowPolicy` spelling because it has an existing
+channel API. `DropNewest`, `DropOldest`, and `Disconnect` map to
+`drop_newest`, `drop_oldest`, and `close_connection`.
+
+HTTP/1.1 drain behavior is implemented by the server ring shutdown path. HTTP/2
+and HTTP/3 keep their existing experimental behavior in this branch; full GOAWAY
+or QUIC drain correctness should be treated as separate protocol work.
 
 ## `http::Response`
 

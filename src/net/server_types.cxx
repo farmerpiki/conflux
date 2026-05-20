@@ -262,6 +262,54 @@ export struct HttpServerMetrics {
 	std::uint64_t recv_bundle_bytes{};
 	SendZcMetrics send_zc{};
 	HttpRejectionMetrics rejections{};
+	struct HttpPressureMetrics {
+		std::uint64_t accept_rejected{};
+		std::uint64_t connections_closed_for_pressure{};
+		std::uint64_t response_backpressure_events{};
+		std::uint64_t sse_dropped_newest{};
+		std::uint64_t sse_dropped_oldest{};
+		std::uint64_t sse_disconnected_for_pressure{};
+		std::uint64_t websocket_closed_for_pressure{};
+		std::uint64_t drain_started{};
+		std::uint64_t drain_deadline_hit{};
+		std::uint64_t drain_forced_close{};
+	} pressure{};
+};
+
+export using HttpPressureMetrics = HttpServerMetrics::HttpPressureMetrics;
+
+export enum class OverflowPolicy : std::uint8_t {
+	reject,
+	drop_oldest,
+	drop_newest,
+	close_connection,
+	backpressure,
+};
+
+export enum class DrainStreamPolicy : std::uint8_t {
+	close,
+	close_with_reason,
+	close_with_retry,
+	leave_open,
+};
+
+export struct DrainOptions {
+	std::chrono::milliseconds deadline{30000};
+	bool stop_accepting = true;
+	bool close_idle = true;
+	bool finish_requests = true;
+	bool finish_streams = false;
+	DrainStreamPolicy websocket_policy = DrainStreamPolicy::close;
+	DrainStreamPolicy sse_policy = DrainStreamPolicy::close;
+};
+
+export struct DrainReport {
+	std::uint64_t accepted_before_stop = 0;
+	std::uint64_t idle_closed = 0;
+	std::uint64_t requests_finished = 0;
+	std::uint64_t streams_closed = 0;
+	std::uint64_t forced_closed = 0;
+	bool deadline_hit = false;
 };
 
 export struct UploadedFile {
@@ -777,7 +825,12 @@ using RunStatus = ::RunStatus;
 using SendZcMetrics = ::SendZcMetrics;
 using RejectReason = ::HttpRejectReason;
 using RejectionMetrics = ::HttpRejectionMetrics;
+using PressureMetrics = ::HttpPressureMetrics;
 using ServerMetrics = ::HttpServerMetrics;
+using OverflowPolicy = ::OverflowPolicy;
+using DrainStreamPolicy = ::DrainStreamPolicy;
+using DrainOptions = ::DrainOptions;
+using DrainReport = ::DrainReport;
 using RequestView = ::HttpRequestView;
 using OwnedRequest = ::HttpRequest;
 using Request = OwnedRequest;

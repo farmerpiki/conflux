@@ -42,6 +42,12 @@ inline on the ring thread.
 Slow-handler diagnostics are useful as guardrails, but they do not change where
 handlers run.
 
+Server drain uses the same explicit placement model. A drain request wakes the
+HTTP rings, stops or closes accepts according to `DrainOptions`, closes idle
+connections, lets active responses finish until the deadline when requested, and
+then forces remaining connections closed. It does not silently offload handler
+work or create a second execution model for shutdown.
+
 ## Public naming model
 
 The long-term public naming model is prefix-based:

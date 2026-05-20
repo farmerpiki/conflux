@@ -97,6 +97,16 @@ void add_metrics(
 	dst.rejections.body_too_large += src.rejections.body_too_large;
 	dst.rejections.expectation_failed += src.rejections.expectation_failed;
 	dst.rejections.header_timeout += src.rejections.header_timeout;
+	dst.pressure.accept_rejected += src.pressure.accept_rejected;
+	dst.pressure.connections_closed_for_pressure += src.pressure.connections_closed_for_pressure;
+	dst.pressure.response_backpressure_events += src.pressure.response_backpressure_events;
+	dst.pressure.sse_dropped_newest += src.pressure.sse_dropped_newest;
+	dst.pressure.sse_dropped_oldest += src.pressure.sse_dropped_oldest;
+	dst.pressure.sse_disconnected_for_pressure += src.pressure.sse_disconnected_for_pressure;
+	dst.pressure.websocket_closed_for_pressure += src.pressure.websocket_closed_for_pressure;
+	dst.pressure.drain_started += src.pressure.drain_started;
+	dst.pressure.drain_deadline_hit += src.pressure.drain_deadline_hit;
+	dst.pressure.drain_forced_close += src.pressure.drain_forced_close;
 }
 
 struct HttpServer::Impl {
@@ -113,6 +123,8 @@ struct HttpServer::Impl {
 	std::exception_ptr startup_error{};
 	std::atomic_bool startup_failed{false};
 	std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(RunStatus::stopped_normally)};
+	Ring::DrainControl drain_control{};
+	std::atomic_bool running_{false};
 	// Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
 	// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
 	std::atomic<int> wq_ring_fd_{-2};
@@ -260,8 +272,44 @@ void HttpServer::shutdown() {
 #endif
 }
 
+[[nodiscard]] DrainReport HttpServer::drain(
+	DrainOptions options) {
+	if (impl_ == nullptr) {
+		return {};
+	}
+	if (options.deadline < std::chrono::milliseconds{0}) {
+		options.deadline = std::chrono::milliseconds{0};
+	}
+	auto &control = impl_->drain_control;
+	control.options = options;
+	control.deadline = std::chrono::steady_clock::now() + options.deadline;
+	control.deadline_hit.store(false, std::memory_order_release);
+	control.accepted_before_stop.store(0, std::memory_order_release);
+	control.idle_closed.store(0, std::memory_order_release);
+	control.requests_finished.store(0, std::memory_order_release);
+	control.streams_closed.store(0, std::memory_order_release);
+	control.forced_closed.store(0, std::memory_order_release);
+	control.active.store(true, std::memory_order_release);
+	request_shutdown();
+	while (impl_->running_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < control.deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	if (impl_->running_.load(std::memory_order_acquire)) {
+		control.deadline_hit.store(true, std::memory_order_release);
+	}
+	return DrainReport{
+		.accepted_before_stop = control.accepted_before_stop.load(std::memory_order_acquire),
+		.idle_closed = control.idle_closed.load(std::memory_order_acquire),
+		.requests_finished = control.requests_finished.load(std::memory_order_acquire),
+		.streams_closed = control.streams_closed.load(std::memory_order_acquire),
+		.forced_closed = control.forced_closed.load(std::memory_order_acquire),
+		.deadline_hit = control.deadline_hit.load(std::memory_order_acquire),
+	};
+}
+
 [[nodiscard]] RunStatus HttpServer::run() noexcept {
 	try {
+		impl_->running_.store(true, std::memory_order_release);
 		unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 
 		std::vector<std::thread> threads;
@@ -274,6 +322,7 @@ void HttpServer::shutdown() {
 					r.router = impl_->use_vhost ? nullptr : &impl_->router;
 					r.vhost_router = impl_->use_vhost ? &impl_->vhost_router : nullptr;
 					r.shutdown_efd = impl_->shutdown_efds[i];
+					r.drain_control = &impl_->drain_control;
 					r.max_body_size = impl_->cfg.max_body_size;
 					r.request_timeout_ms = impl_->cfg.request_timeout_ms;
 					r.tls_sniff_timeout_ms = impl_->cfg.tls_sniff_timeout_ms;
@@ -418,6 +467,8 @@ void HttpServer::shutdown() {
 		for (auto &t: threads) {
 			t.join();
 		}
+		impl_->running_.store(false, std::memory_order_release);
+		impl_->running_.notify_all();
 #if CONFLUX_HAS_HTTP3
 		std::unique_ptr<Http3Listener> to_reset;
 		{
@@ -429,7 +480,13 @@ void HttpServer::shutdown() {
 		}
 #endif
 		return static_cast<RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
-	} catch (...) { return RunStatus::fatal_internal_exception; }
+	} catch (...) {
+		if (impl_ != nullptr) {
+			impl_->running_.store(false, std::memory_order_release);
+			impl_->running_.notify_all();
+		}
+		return RunStatus::fatal_internal_exception;
+	}
 }
 
 [[nodiscard]] HttpServerMetrics HttpServer::metrics() const noexcept {

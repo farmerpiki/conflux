@@ -27,6 +27,7 @@ public:
 	// Thread-safe normal shutdown. Wakes rings, stops HTTP/3 listener if present,
 	// and lets run() drain in-flight responses before exiting.
 	void shutdown();
+	[[nodiscard]] DrainReport drain(DrainOptions options = {});
 	[[nodiscard]] RunStatus run() noexcept;
 	// Snapshot counters accumulated by all rings. Intended after run() returns;
 	// no synchronization is provided for concurrent calls while rings are active.
