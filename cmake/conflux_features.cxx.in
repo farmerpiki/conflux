@@ -35,4 +35,5 @@ export namespace conflux {
     inline constexpr bool HAS_HTTP3    = @CONFLUX_HAS_HTTP3@;
     // true when the PostgreSQL client module is compiled in (requires libpq).
     inline constexpr bool HAS_DB       = @CONFLUX_HAS_DB@;
+
 }

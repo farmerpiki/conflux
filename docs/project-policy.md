@@ -149,6 +149,12 @@ Startup probes and adaptive fallbacks decide which optional setup flags and
 opcodes are active on the host. A feature is considered supported only when the
 corresponding probe succeeds on that host.
 
+Configuration must make fallback policy explicit. Use
+`Config::feature_fallback` to choose fail-fast, warn-and-fallback, or
+silent-fallback behavior; do not add hidden watcher/background negotiation for
+core server startup. Diagnostic surfaces should report build info, capability
+issues, and redacted effective config without printing secrets by default.
+
 Required baseline behavior:
 
 - `io_uring_queue_init*` succeeds;

@@ -21,6 +21,7 @@ import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http_server;
+import conflux.uring;
 import conflux.crypto;
 #if CONFLUX_HAS_JSON
 import conflux.json;
@@ -1001,6 +1002,17 @@ public:
 		ValidationReport report;
 		for (auto const &issue: state_issues_) {
 			report.issues.push_back(ValidationIssue{.message = issue, .method = "APP", .path = "state"});
+		}
+		report.config_issues = validate_config(cfg_);
+		if (auto caps = conflux::runtime::detect_capabilities()) {
+			report.capability_issues = validate_config_capabilities(cfg_, *caps);
+			report.capability_issues_block_startup =
+				cfg_.feature_fallback == conflux::runtime::FeatureFallback::fail_fast
+				&& !report.capability_issues.empty();
+		} else {
+			report.capability_issues.push_back(caps.error());
+			report.capability_issues_block_startup =
+				cfg_.feature_fallback == conflux::runtime::FeatureFallback::fail_fast;
 		}
 		validate_tls_config(report);
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;

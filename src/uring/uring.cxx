@@ -4,6 +4,7 @@ module;
 #include <linux/futex.h>
 #include <linux/openat2.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
 
 export module conflux.uring;
 import std;
@@ -1796,3 +1797,73 @@ struct IoUringCaps {
 }
 
 } // namespace conflux::uring
+
+export namespace conflux::runtime {
+
+[[nodiscard]] std::expected<RuntimeCapabilities, CapabilityIssue> detect_capabilities() {
+	RuntimeCapabilities caps{};
+#if CONFLUX_USE_MOCK_LIBURING
+	caps.mock_backend = true;
+	caps.issues.push_back(
+		CapabilityIssue{
+			.code = CapabilityIssueCode::mock_backend,
+			.feature = "io_uring",
+			.message = "mock liburing backend is active",
+			.hint = "configure without CONFLUX_USE_MOCK_LIBURING to probe the running kernel"});
+	return caps;
+#else
+	auto ring = conflux::uring::Ring::init(32, {});
+	if (!ring) {
+		CapabilityIssue issue{
+			.code = CapabilityIssueCode::unavailable,
+			.feature = "io_uring",
+			.message = std::format("io_uring init failed: {}", ring.error()),
+			.hint = "check kernel io_uring support, seccomp policy, and process limits"};
+		return std::unexpected{std::move(issue)};
+	}
+	caps.io_uring = true;
+	auto const uring_caps = conflux::uring::detect_caps(*ring);
+	caps.sqpoll = ring->is_sqpoll();
+	caps.single_issuer = true;
+	caps.defer_taskrun = true;
+	caps.coop_taskrun = true;
+	caps.taskrun_flag = true;
+	caps.multishot_accept = uring_caps.accept_direct_supported;
+	caps.multishot_recv = uring_caps.recv_poll_first;
+	caps.provided_buffers = true;
+	caps.incremental_buffers = uring_caps.feat_pbuf_ring_inc;
+	caps.registered_files = true;
+	caps.fixed_buffers = true;
+	caps.send_zc = uring_caps.send_zc;
+	caps.recv_zc = uring_caps.recv_zc;
+	caps.openat2 = true;
+	struct rlimit limit{};
+	if (::getrlimit(RLIMIT_MEMLOCK, &limit) == 0) {
+		caps.memlock_soft = limit.rlim_cur == RLIM_INFINITY ? UINT64_MAX : static_cast<std::uint64_t>(limit.rlim_cur);
+		caps.memlock_hard = limit.rlim_max == RLIM_INFINITY ? UINT64_MAX : static_cast<std::uint64_t>(limit.rlim_max);
+	}
+	return caps;
+#endif
+}
+
+[[nodiscard]] std::string capability_report(
+	RuntimeCapabilities const &caps) {
+	auto yes_no = [](bool value) { return value ? "yes" : "no"; };
+	std::string out;
+	out += std::format("io_uring: {}\n", caps.mock_backend ? "mock" : yes_no(caps.io_uring));
+	out += std::format("provided_buffers: {}\n", yes_no(caps.provided_buffers));
+	out += std::format("incremental_buffers: {}\n", yes_no(caps.incremental_buffers));
+	out += std::format("send_zc: {}\n", yes_no(caps.send_zc));
+	out += std::format("recv_zc: {}\n", yes_no(caps.recv_zc));
+	out += std::format("memlock_soft: {}\n", caps.memlock_soft);
+	for (auto const &issue: caps.issues) {
+		out += std::format("issue {} {}: {}", capability_issue_code_string(issue.code), issue.feature, issue.message);
+		if (!issue.hint.empty()) {
+			out += std::format(" ({})", issue.hint);
+		}
+		out += '\n';
+	}
+	return out;
+}
+
+} // namespace conflux::runtime

@@ -4,6 +4,7 @@ module;
 export module conflux.net.app.types;
 
 import std;
+import conflux.types;
 import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.http.response;
@@ -292,38 +293,62 @@ struct ValidationIssue {
 
 struct ValidationReport {
 	std::vector<ValidationIssue> issues;
+	std::vector<ConfigIssue> config_issues;
+	std::vector<conflux::runtime::CapabilityIssue> capability_issues;
+	bool capability_issues_block_startup = false;
 
-	[[nodiscard]] bool ok() const noexcept { return issues.empty(); }
+	[[nodiscard]] bool ok() const noexcept {
+		return issues.empty() && config_issues.empty() && !capability_issues_block_startup;
+	}
 	explicit operator bool() const noexcept { return ok(); }
 	[[nodiscard]] std::string summary() const {
-		if (issues.empty()) {
+		if (issues.empty() && config_issues.empty() && capability_issues.empty()) {
 			return {};
 		}
 		std::string out;
-		for (auto const &issue: issues) {
+		auto append = [&](std::string text) {
 			if (!out.empty()) {
 				out += '\n';
 			}
-			out += std::format("{} {}: {}", issue.method, issue.path, issue.message);
+			out += std::move(text);
+		};
+		for (auto const &issue: issues) {
+			append(std::format("{} {}: {}", issue.method, issue.path, issue.message));
+		}
+		for (auto const &issue: config_issues) {
+			append(config_issue_summary(issue));
+		}
+		for (auto const &issue: capability_issues) {
+			append(std::format("capability.{}: {}", issue.feature, issue.message));
 		}
 		return out;
 	}
 	[[nodiscard]] std::string detailed_summary() const {
-		if (issues.empty()) {
+		if (issues.empty() && config_issues.empty() && capability_issues.empty()) {
 			return {};
 		}
 		std::string out;
-		for (auto const &issue: issues) {
+		auto append = [&](std::string text) {
 			if (!out.empty()) {
 				out += '\n';
 			}
-			out += std::format("{} {}: {}", issue.method, issue.path, issue.message);
+			out += std::move(text);
+		};
+		for (auto const &issue: issues) {
+			std::string line = std::format("{} {}: {}", issue.method, issue.path, issue.message);
 			if (!issue.source_file.empty()) {
-				out += std::format(" at {}:{}", issue.source_file, issue.source_line);
+				line += std::format(" at {}:{}", issue.source_file, issue.source_line);
 			}
 			if (!issue.related_source_file.empty()) {
-				out += std::format(" related {}:{}", issue.related_source_file, issue.related_source_line);
+				line += std::format(" related {}:{}", issue.related_source_file, issue.related_source_line);
 			}
+			append(std::move(line));
+		}
+		for (auto const &issue: config_issues) {
+			append(config_issue_summary(issue));
+		}
+		for (auto const &issue: capability_issues) {
+			append(std::format("capability.{}: {} {}", issue.feature, issue.message, issue.hint));
 		}
 		return out;
 	}

@@ -109,6 +109,24 @@ void add_metrics(
 	dst.pressure.drain_forced_close += src.pressure.drain_forced_close;
 }
 
+[[nodiscard]] std::optional<std::string> startup_config_error(
+	Config const &cfg) {
+	auto config_issues = validate_config(cfg);
+	if (!config_issues.empty()) {
+		return config_issue_summary(config_issues.front());
+	}
+	if (auto caps = conflux::runtime::detect_capabilities()) {
+		auto capability_issues = validate_config_capabilities(cfg, *caps);
+		if (cfg.feature_fallback == conflux::runtime::FeatureFallback::fail_fast && !capability_issues.empty()) {
+			auto const &issue = capability_issues.front();
+			return std::format("capability.{}: {}", issue.feature, issue.message);
+		}
+	} else if (cfg.feature_fallback == conflux::runtime::FeatureFallback::fail_fast) {
+		return std::format("capability.{}: {}", caps.error().feature, caps.error().message);
+	}
+	return std::nullopt;
+}
+
 struct HttpServer::Impl {
 	Config cfg{};
 	unsigned rings{};
@@ -234,6 +252,9 @@ HttpServer::~HttpServer() {
 std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	Config const &cfg,
 	Router &&router) {
+	if (auto error = startup_config_error(cfg)) {
+		return std::unexpected{std::move(*error)};
+	}
 	try {
 		return std::make_unique<HttpServer>(cfg, std::move(router));
 	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
@@ -244,6 +265,9 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	Config const &cfg,
 	VHostRouter &&vhost_router) {
+	if (auto error = startup_config_error(cfg)) {
+		return std::unexpected{std::move(*error)};
+	}
 	try {
 		return std::make_unique<HttpServer>(cfg, std::move(vhost_router));
 	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
@@ -498,6 +522,52 @@ void HttpServer::shutdown() {
 		if (ring) {
 			add_metrics(out, ring->metrics_snapshot());
 		}
+	}
+	return out;
+}
+
+[[nodiscard]] std::string HttpServer::startup_report() const {
+	std::string out;
+	out += "Build:\n  ";
+	out += conflux::build_info_summary();
+	out += "\n\nCapabilities:\n";
+	if (auto caps = conflux::runtime::detect_capabilities()) {
+		auto report = conflux::runtime::capability_report(*caps);
+		for (auto const line: LineRange{report}) {
+			out += "  ";
+			out += line.text;
+			out += '\n';
+		}
+		auto issues = validate_config_capabilities(impl_->cfg, *caps);
+		out += "\nFallbacks:\n";
+		out += std::format("  policy={}\n", feature_fallback_string(impl_->cfg.feature_fallback));
+		if (impl_->cfg.feature_fallback == conflux::runtime::FeatureFallback::silent_fallback && !issues.empty()) {
+			out += "  suppressed\n";
+		} else if (issues.empty()) {
+			out += "  none\n";
+		} else {
+			for (auto const &issue: issues) {
+				out += std::format(
+					"  {} {}: {}",
+					conflux::runtime::capability_issue_code_string(issue.code),
+					issue.feature,
+					issue.message);
+				if (!issue.hint.empty()) {
+					out += std::format(" ({})", issue.hint);
+				}
+				out += '\n';
+			}
+		}
+	} else {
+		out += std::format("  {}: {}\n", caps.error().feature, caps.error().message);
+	}
+	out += "\nConfig:\n  ";
+	out += impl_->cfg.summary_redacted();
+	out += '\n';
+	if (impl_->cfg.dump_effective_config) {
+		out += "  ";
+		out += impl_->cfg.to_json_redacted();
+		out += '\n';
 	}
 	return out;
 }

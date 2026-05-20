@@ -541,6 +541,32 @@ if(CONFLUX_WANT_JSON)
 else()
     set(CONFLUX_HAS_JSON "false")
 endif()
+if(CONFLUX_USE_MOCK_LIBURING)
+    set(CONFLUX_BUILD_INFO_MOCK_LIBURING "true")
+else()
+    set(CONFLUX_BUILD_INFO_MOCK_LIBURING "false")
+endif()
+
+execute_process(
+    COMMAND git rev-parse --short=12 HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE CONFLUX_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT CONFLUX_GIT_COMMIT)
+    set(CONFLUX_GIT_COMMIT "unknown")
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(CONFLUX_STDLIB_NAME "libstdc++")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CONFLUX_STDLIB_NAME "libc++/libstdc++")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    set(CONFLUX_STDLIB_NAME "msvc-stl")
+else()
+    set(CONFLUX_STDLIB_NAME "unknown")
+endif()
+set(CONFLUX_STDLIB_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
 
 # Generate the conflux.features module from the template.
 configure_file(
@@ -605,7 +631,17 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
     CONFLUX_ENABLE_RING_GROWTH=$<BOOL:${CONFLUX_EXPERIMENTAL_RING_GROWTH}>
     CONFLUX_ENABLE_IOPOLL_STORAGE_TEST=$<BOOL:${CONFLUX_EXPERIMENTAL_IOPOLL_STORAGE_TEST}>
+    CONFLUX_USE_MOCK_LIBURING=$<BOOL:${CONFLUX_USE_MOCK_LIBURING}>
     CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD=$<BOOL:${CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD}>
+    CONFLUX_BUILD_VERSION="${PROJECT_VERSION}"
+    CONFLUX_BUILD_GIT_COMMIT="${CONFLUX_GIT_COMMIT}"
+    CONFLUX_BUILD_COMPILER="${CMAKE_CXX_COMPILER_ID}"
+    CONFLUX_BUILD_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
+    CONFLUX_BUILD_STDLIB="${CONFLUX_STDLIB_NAME}"
+    CONFLUX_BUILD_STDLIB_VERSION="${CONFLUX_STDLIB_VERSION}"
+    CONFLUX_BUILD_TYPE_VALUE="${CMAKE_BUILD_TYPE}"
+    CONFLUX_BUILD_INTERFACE_MODE="${CONFLUX_INTERFACE_MODE}"
+    CONFLUX_BUILD_FEATURE_SET="${CONFLUX_FEATURE_SET}"
 )
 if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")
@@ -1471,6 +1507,16 @@ target_link_libraries(conflux_net_config
     PUBLIC  conflux_types
     PUBLIC  conflux_utils
 )
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    target_compile_definitions(conflux_net_config PUBLIC CONFLUX_HAS_TLS=1)
+else()
+    target_compile_definitions(conflux_net_config PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+    target_compile_definitions(conflux_net_config PUBLIC CONFLUX_HAS_HTTP3=1)
+else()
+    target_compile_definitions(conflux_net_config PUBLIC CONFLUX_HAS_HTTP3=0)
+endif()
 
 # Keep the package-facing core anchor aligned with the documented
 # "types + utils" core surface while leaving HTTP configuration as a separate

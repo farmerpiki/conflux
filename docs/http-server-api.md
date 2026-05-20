@@ -243,6 +243,19 @@ max_chunks = 100000
 HTTP/3 has a separate `[http3].max_body_size` knob; it defaults to the same
 1 MiB cap as HTTP/1 request bodies.
 
+`Config::feature_fallback` controls how requested optional runtime features are
+handled when host capabilities do not match the config:
+
+- `fail_fast`: startup validation rejects explicit capability misses.
+- `warn_and_fallback`: validation reports issues and the server uses supported
+  paths.
+- `silent_fallback`: supported paths are used without public warning.
+
+Use `Config::summary_redacted()` or `Config::to_json_redacted()` for effective
+configuration diagnostics. Secret-like fields are redacted. `HttpServer` also
+exposes `startup_report()` for pull-based startup diagnostics; the library does
+not print this report by default.
+
 ---
 
 ## Server request and response aliases

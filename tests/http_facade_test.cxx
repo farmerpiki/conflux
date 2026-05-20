@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.http;
 import conflux.json;
 import conflux.work;
@@ -175,6 +176,20 @@ TEST_CASE(
 	auto detailed = report.detailed_summary();
 	CHECK(detailed.find("GET /same: duplicate route at ") != std::string::npos);
 	CHECK(detailed.find(" related ") != std::string::npos);
+}
+
+TEST_CASE(
+	"http facade: validate aggregates config issues",
+	"[http.facade]") {
+	auto cfg = http::Config::development();
+	cfg.max_body_size = 0;
+	auto app = http::App{cfg};
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE_FALSE(report.config_issues.empty());
+	CHECK(report.config_issues.front().code == ConfigIssueCode::invalid_value);
+	CHECK(report.summary().find("config.invalid_value") != std::string::npos);
 }
 
 TEST_CASE(
@@ -987,6 +1002,35 @@ TEST_CASE(
 	auto server = std::move(app).listen();
 	REQUIRE_FALSE(server.has_value());
 	CHECK(server.error() == "GET /needs-state: missing app state");
+}
+
+TEST_CASE(
+	"http facade: server startup report is explicit and redacted",
+	"[http.facade]") {
+	auto cfg = http::Config::development();
+	cfg.port = 0;
+	cfg.startup_banner = false;
+	cfg.request_timeout_ms = 1000;
+	cfg.dump_effective_config = true;
+	cfg.send_fixed_buffers = true;
+	cfg.feature_fallback = conflux::runtime::FeatureFallback::silent_fallback;
+	cfg.auth_secrets.jwt.active = SecretSource{.kind = SecretSourceKind::literal, .value = "super-secret-token"};
+	auto app = http::App{cfg};
+	app.get("/health", [] { return http::text("ok"); });
+
+	auto server = std::move(app).try_server();
+	if (!server) {
+		FAIL_CHECK(server.error());
+	}
+	REQUIRE(server.has_value());
+	auto report = (*server)->startup_report();
+	CHECK(report.find("Build:") != std::string::npos);
+	CHECK(report.find("Capabilities:") != std::string::npos);
+	CHECK(report.find("Fallbacks:") != std::string::npos);
+	CHECK(report.find("Config:") != std::string::npos);
+	CHECK(report.find("\"server\"") != std::string::npos);
+	CHECK(report.find("suppressed") != std::string::npos);
+	CHECK(report.find("super-secret-token") == std::string::npos);
 }
 
 TEST_CASE(

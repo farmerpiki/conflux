@@ -73,6 +73,26 @@ export struct ResolvedSecretRotation {
 	std::vector<std::string> previous{};
 	std::size_t min_secret_bytes{16};
 };
+export enum class ConfigIssueCode {
+	unknown_section,
+	unknown_key,
+	invalid_value,
+	missing_required_value,
+	incompatible_options,
+	unsafe_option,
+	secret_would_be_logged,
+	deprecated_key,
+};
+export struct ConfigIssue {
+	ConfigIssueCode code{ConfigIssueCode::invalid_value};
+	std::string file;
+	std::size_t line{};
+	std::string section;
+	std::string key;
+	std::string value;
+	std::string message;
+	std::string hint;
+};
 // Per-hostname TLS credentials for SNI virtual hosting.
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
 // server switches to the certificate/key P from this struct.
@@ -83,9 +103,13 @@ export struct VirtualHost {
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
 export struct Config {
-	[[nodiscard]] static Config public_server() { return Config{}; }
+	[[nodiscard]] static Config public_server() {
+		Config cfg{};
+		cfg.strict_config = true;
+		return cfg;
+	}
 	[[nodiscard]] static Config development() {
-		Config cfg = public_server();
+		Config cfg{};
 		cfg.slow_handler_diagnostics = true;
 		cfg.startup_banner = true;
 		return cfg;
@@ -98,6 +122,7 @@ export struct Config {
 		cfg.defer_taskrun = true;
 		cfg.coop_taskrun = true;
 		cfg.taskrun_flag = true;
+		cfg.feature_fallback = conflux::runtime::FeatureFallback::fail_fast;
 		return cfg;
 	}
 	[[nodiscard]] static Config benchmark() {
@@ -134,6 +159,9 @@ export struct Config {
 	std::uint32_t slow_handler_warn_ms = 25;
 	ParserLimits parser_limits{};
 	bool startup_banner = true;
+	conflux::runtime::FeatureFallback feature_fallback = conflux::runtime::FeatureFallback::warn_and_fallback;
+	bool strict_config = false;
+	bool dump_effective_config = false;
 
 	// TLS (enabled when both cert_file and key_file are non-empty)
 	std::string cert_file{}; // path to PEM certificate chain
@@ -227,6 +255,9 @@ export struct Config {
 	std::string send_zc{"auto"};
 	std::size_t send_zc_threshold = 16384;
 	bool send_zc_report_usage = true;
+
+	[[nodiscard]] std::string summary_redacted() const;
+	[[nodiscard]] std::string to_json_redacted() const;
 };
 
 export [[nodiscard]] ResolvedSecretRotation single_secret_rotation(
@@ -424,7 +455,7 @@ int parse_int(
 	}
 	return result;
 }
-void apply_server_key(
+bool apply_server_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -437,7 +468,7 @@ void apply_server_key(
 	for (auto const &[k, member]: kUnsignedKeys) {
 		if (key == k) {
 			cfg.*member = parse_uint<unsigned>(val, key);
-			return;
+			return true;
 		}
 	}
 	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
@@ -449,7 +480,7 @@ void apply_server_key(
 	for (auto const &[k, member]: kStringKeys) {
 		if (key == k) {
 			cfg.*member = std::string{val};
-			return;
+			return true;
 		}
 	}
 	if (key == "port") {
@@ -496,9 +527,26 @@ void apply_server_key(
 		cfg.startup_banner = parse_bool(val, key);
 	} else if (key == "http_redirect_to_https") {
 		cfg.http_redirect_to_https = parse_bool(val, key);
+	} else if (key == "feature_fallback") {
+		if (val == "fail_fast") {
+			cfg.feature_fallback = conflux::runtime::FeatureFallback::fail_fast;
+		} else if (val == "warn_and_fallback") {
+			cfg.feature_fallback = conflux::runtime::FeatureFallback::warn_and_fallback;
+		} else if (val == "silent_fallback") {
+			cfg.feature_fallback = conflux::runtime::FeatureFallback::silent_fallback;
+		} else {
+			throw std::runtime_error{std::format("invalid feature_fallback: '{}'", val)};
+		}
+	} else if (key == "strict_config") {
+		cfg.strict_config = parse_bool(val, key);
+	} else if (key == "dump_effective_config") {
+		cfg.dump_effective_config = parse_bool(val, key);
+	} else {
+		return false;
 	}
+	return true;
 }
-void apply_http3_key(
+bool apply_http3_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -516,9 +564,12 @@ void apply_http3_key(
 		cfg.http3.alt_svc_max_age_sec = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "max_body_size") {
 		cfg.http3.max_body_size = parse_uint<std::size_t>(val, key);
+	} else {
+		return false;
 	}
+	return true;
 }
-void apply_static_cache_key(
+bool apply_static_cache_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -528,7 +579,10 @@ void apply_static_cache_key(
 		cfg.static_file_cache.small_file_max_bytes = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_total_bytes") {
 		cfg.static_file_cache.max_total_bytes = parse_uint<std::size_t>(val, key);
+	} else {
+		return false;
 	}
+	return true;
 }
 
 [[nodiscard]] SecretSource literal_secret_source(
@@ -543,7 +597,7 @@ void apply_static_cache_key(
 	std::string_view val) {
 	return {.kind = SecretSourceKind::file, .value = std::string{val}};
 }
-void apply_secret_rotation_key(
+bool apply_secret_rotation_key(
 	SecretRotationConfig &cfg,
 	std::string_view prefix,
 	std::string_view key,
@@ -567,9 +621,12 @@ void apply_secret_rotation_key(
 		cfg.previous.push_back(file_secret_source(val));
 	} else if (matches("_min_secret_bytes")) {
 		cfg.min_secret_bytes = parse_uint<std::size_t>(val, key);
+	} else {
+		return false;
 	}
+	return true;
 }
-void apply_auth_key(
+bool apply_auth_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -582,12 +639,13 @@ void apply_auth_key(
 	} else if (key == "password_verifier_min_secret_bytes") {
 		cfg.auth_secrets.password_verifier_min_secret_bytes = parse_uint<std::size_t>(val, key);
 	} else {
-		apply_secret_rotation_key(cfg.auth_secrets.jwt, "jwt", key, val);
-		apply_secret_rotation_key(cfg.auth_secrets.cookie, "cookie", key, val);
-		apply_secret_rotation_key(cfg.auth_secrets.session, "session", key, val);
+		return apply_secret_rotation_key(cfg.auth_secrets.jwt, "jwt", key, val)
+			|| apply_secret_rotation_key(cfg.auth_secrets.cookie, "cookie", key, val)
+			|| apply_secret_rotation_key(cfg.auth_secrets.session, "session", key, val);
 	}
+	return true;
 }
-void apply_tls_key(
+bool apply_tls_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -600,11 +658,12 @@ void apply_tls_key(
 	for (auto const &[k, member]: kStringKeys) {
 		if (key == k) {
 			cfg.*member = std::string{val};
-			return;
+			return true;
 		}
 	}
+	return false;
 }
-void apply_iouring_key(
+bool apply_iouring_key(
 	Config &cfg,
 	std::string_view key,
 	std::string_view val) {
@@ -632,28 +691,59 @@ void apply_iouring_key(
 	for (auto const &[k, member]: kBoolKeys) {
 		if (key == k) {
 			cfg.*member = parse_bool(val, key);
-			return;
+			return true;
 		}
 	}
 	if (key == "send_zc") {
 		if (val == "off" || val == "auto" || val == "on") {
 			cfg.send_zc = val;
+		} else {
+			throw std::runtime_error{std::format("invalid send_zc: '{}'", val)};
 		}
-		return;
+		return true;
 	}
 	if (key == "send_zc_threshold") {
 		cfg.send_zc_threshold = parse_uint<std::size_t>(val, key);
-		return;
+		return true;
 	}
 	if (key == "send_zc_report_usage") {
 		cfg.send_zc_report_usage = parse_bool(val, key);
-		return;
+		return true;
 	}
+	return false;
 }
 
-Config parse_ini_contents(
-	std::string_view contents) {
+[[nodiscard]] std::string hint_for_key(
+	std::string_view key) {
+	static constexpr std::array<std::string_view, 5> known{
+		"max_body_size",
+		"request_timeout_ms",
+		"tls_sniff_timeout_ms",
+		"send_zc_threshold",
+		"startup_banner",
+	};
+	for (auto known_key: known) {
+		if (!key.empty() && known_key.starts_with(key.substr(0, std::min<std::size_t>(key.size(), 7)))) {
+			return std::format("did you mean {}?", known_key);
+		}
+	}
+	if (key == "max_bdy_size") {
+		return "did you mean max_body_size?";
+	}
+	return {};
+}
+
+struct ParseResult {
+	Config cfg;
+	std::vector<ConfigIssue> issues;
+};
+
+ParseResult parse_ini_contents(
+	std::string_view contents,
+	std::string_view file,
+	bool strict) {
 	Config cfg{};
+	std::vector<ConfigIssue> issues;
 	std::string section;
 
 	std::size_t line_no = 0;
@@ -681,29 +771,299 @@ Config parse_ini_contents(
 		auto val = trim(strip_inline_comment(trim(s.substr(eq + 1))));
 
 		try {
+			bool applied = false;
+			bool known_section = true;
 			if (section == "server") {
-				apply_server_key(cfg, key, val);
+				applied = apply_server_key(cfg, key, val);
 			} else if (section == "io_uring") {
-				apply_iouring_key(cfg, key, val);
+				applied = apply_iouring_key(cfg, key, val);
 			} else if (section == "tls") {
-				apply_tls_key(cfg, key, val);
+				applied = apply_tls_key(cfg, key, val);
 			} else if (section == "http3") {
-				apply_http3_key(cfg, key, val);
+				applied = apply_http3_key(cfg, key, val);
 			} else if (section == "static_cache") {
-				apply_static_cache_key(cfg, key, val);
+				applied = apply_static_cache_key(cfg, key, val);
 			} else if (section == "auth") {
-				apply_auth_key(cfg, key, val);
+				applied = apply_auth_key(cfg, key, val);
+			} else {
+				known_section = false;
+			}
+			if (!known_section && strict) {
+				issues.push_back(
+					ConfigIssue{
+						.code = ConfigIssueCode::unknown_section,
+						.file = std::string{file},
+						.line = line_no,
+						.section = section,
+						.key = std::string{key},
+						.value = std::string{val},
+						.message = "unknown config section"});
+			}
+			if (known_section && !applied && strict && !section.empty()) {
+				issues.push_back(
+					ConfigIssue{
+						.code = ConfigIssueCode::unknown_key,
+						.file = std::string{file},
+						.line = line_no,
+						.section = section,
+						.key = std::string{key},
+						.value = std::string{val},
+						.message = "unknown config key",
+						.hint = hint_for_key(key)});
 			}
 		} catch (std::exception const &ex) {
-			throw std::runtime_error{std::format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
+			issues.push_back(
+				ConfigIssue{
+					.code = ConfigIssueCode::invalid_value,
+					.file = std::string{file},
+					.line = line_no,
+					.section = section,
+					.key = std::string{key},
+					.value = std::string{val},
+					.message = ex.what()});
 		}
 		// unknown sections/keys silently ignored — forward-compatible
 	}
 
-	return cfg;
+	return ParseResult{.cfg = std::move(cfg), .issues = std::move(issues)};
 }
 
 } // namespace
+
+export [[nodiscard]] std::string config_issue_code_string(
+	ConfigIssueCode code) {
+	switch (code) {
+	case ConfigIssueCode::unknown_section       : return "config.unknown_section";
+	case ConfigIssueCode::unknown_key           : return "config.unknown_key";
+	case ConfigIssueCode::invalid_value         : return "config.invalid_value";
+	case ConfigIssueCode::missing_required_value: return "config.missing_required_value";
+	case ConfigIssueCode::incompatible_options  : return "config.incompatible_options";
+	case ConfigIssueCode::unsafe_option         : return "config.unsafe_option";
+	case ConfigIssueCode::secret_would_be_logged: return "config.secret_would_be_logged";
+	case ConfigIssueCode::deprecated_key        : return "config.deprecated_key";
+	}
+	return "config.invalid_value";
+}
+
+export [[nodiscard]] std::string config_issue_summary(
+	ConfigIssue const &issue) {
+	auto out = std::format(
+		"{} file={} line={} section={} key={}",
+		config_issue_code_string(issue.code),
+		issue.file,
+		issue.line,
+		issue.section,
+		issue.key);
+	if (!issue.value.empty()) {
+		out += std::format(" value={}", issue.value);
+	}
+	if (!issue.message.empty()) {
+		out += std::format(" message={}", issue.message);
+	}
+	if (!issue.hint.empty()) {
+		out += std::format(" hint={}", issue.hint);
+	}
+	return out;
+}
+
+export [[nodiscard]] std::vector<ConfigIssue> validate_config(
+	Config const &cfg,
+	std::string_view file = {}) {
+	std::vector<ConfigIssue> issues;
+	auto add = [&](ConfigIssueCode code, std::string_view section, std::string_view key, std::string message) {
+		issues.push_back(
+			ConfigIssue{
+				.code = code,
+				.file = std::string{file},
+				.section = std::string{section},
+				.key = std::string{key},
+				.message = std::move(message)});
+	};
+	if (cfg.max_body_size == 0) {
+		add(ConfigIssueCode::invalid_value, "server", "max_body_size", "max_body_size must be greater than zero");
+	}
+	if (cfg.parser_limits.max_request_line_size == 0
+		|| cfg.parser_limits.max_header_line_size == 0
+		|| cfg.parser_limits.max_headers == 0
+		|| cfg.parser_limits.max_header_block_size == 0) {
+		add(ConfigIssueCode::invalid_value, "server", "parser_limits", "HTTP parser limits must be greater than zero");
+	}
+	if (cfg.request_timeout_ms > 24U * 60U * 60U * 1000U) {
+		add(ConfigIssueCode::invalid_value, "server", "request_timeout_ms", "request timeout exceeds one day");
+	}
+	if (cfg.http3.enabled) {
+#if !CONFLUX_HAS_HTTP3
+		add(ConfigIssueCode::incompatible_options, "http3", "enabled", "HTTP/3 support was disabled at build time");
+#endif
+		if (cfg.cert_file.empty() || cfg.key_file.empty()) {
+			add(ConfigIssueCode::incompatible_options, "http3", "enabled", "HTTP/3 requires TLS certificate and key");
+		}
+	}
+	if (cfg.http_redirect_to_https && (cfg.cert_file.empty() || cfg.key_file.empty())) {
+		add(ConfigIssueCode::incompatible_options,
+			"server",
+			"http_redirect_to_https",
+			"HTTPS redirect requires TLS certificate and key");
+	}
+	if (cfg.http_redirect_to_https && cfg.https_redirect_hosts.empty()) {
+		add(ConfigIssueCode::incompatible_options,
+			"server",
+			"https_redirect_hosts",
+			"HTTPS redirect requires an explicit allowed-host list");
+	}
+#if !CONFLUX_HAS_TLS
+	if (!cfg.cert_file.empty() || !cfg.key_file.empty() || cfg.http_redirect_to_https || cfg.ktls) {
+		add(ConfigIssueCode::incompatible_options, "tls", "enabled", "TLS support was disabled at build time");
+	}
+#endif
+	if (cfg.send_zc == "on") {
+#if !CONFLUX_ENABLE_SEND_ZC
+		add(ConfigIssueCode::incompatible_options, "io_uring", "send_zc", "SEND_ZC support was disabled at build time");
+#endif
+	}
+	if (cfg.feature_fallback == conflux::runtime::FeatureFallback::silent_fallback
+		&& cfg.request_timeout_ms == 0
+		&& cfg.tls_sniff_timeout_ms == 0) {
+		add(ConfigIssueCode::incompatible_options,
+			"server",
+			"feature_fallback",
+			"benchmark-style configs reject silent fallback");
+	}
+	return issues;
+}
+
+export [[nodiscard]] std::vector<ConfigIssue> unsafe_config_issues(
+	Config const &cfg,
+	std::string_view file = {}) {
+	std::vector<ConfigIssue> issues;
+	auto add = [&](std::string_view section, std::string_view key, std::string message) {
+		issues.push_back(
+			ConfigIssue{
+				.code = ConfigIssueCode::unsafe_option,
+				.file = std::string{file},
+				.section = std::string{section},
+				.key = std::string{key},
+				.message = std::move(message)});
+	};
+	if (cfg.request_timeout_ms == 0) {
+		add("server", "request_timeout_ms", "request timeout is disabled");
+	}
+	if (cfg.tls_sniff_timeout_ms == 0) {
+		add("server", "tls_sniff_timeout_ms", "TLS sniff timeout is disabled");
+	}
+	if (cfg.max_body_size > kConfigDefaultMaxBodySize) {
+		add("server", "max_body_size", "request body limit exceeds public default");
+	}
+	if (cfg.parser_limits.max_headers > kConfigDefaultMaxHeaders) {
+		add("server", "max_headers", "header count limit exceeds public default");
+	}
+	if (cfg.parser_limits.max_header_block_size > kConfigDefaultMaxHeaderBlockSize) {
+		add("server", "max_header_block_size", "header block limit exceeds public default");
+	}
+	if (cfg.send_fixed_buffers) {
+		add("server", "send_fixed_buffers", "registered send buffers are explicitly enabled");
+	}
+	if (cfg.send_zc == "on") {
+		add("io_uring", "send_zc", "SEND_ZC is required instead of opportunistic");
+	}
+	return issues;
+}
+
+export [[nodiscard]] std::vector<conflux::runtime::CapabilityIssue> validate_config_capabilities(
+	Config const &cfg,
+	conflux::runtime::RuntimeCapabilities const &caps) {
+	std::vector<conflux::runtime::CapabilityIssue> issues;
+	auto add = [&](conflux::runtime::CapabilityIssueCode code,
+				   std::string feature,
+				   std::string message,
+				   std::string hint = {}) {
+		issues.push_back(
+			conflux::runtime::CapabilityIssue{
+				.code = code,
+				.feature = std::move(feature),
+				.message = std::move(message),
+				.hint = std::move(hint)});
+	};
+	if (cfg.sqpoll && !caps.sqpoll) {
+		add(conflux::runtime::CapabilityIssueCode::unavailable,
+			"sqpoll",
+			"SQPOLL was requested but is not active",
+			"disable sqpoll or use fail_fast to reject fallback");
+	}
+	if (cfg.send_fixed_buffers && !caps.fixed_buffers) {
+		add(conflux::runtime::CapabilityIssueCode::unavailable,
+			"fixed_buffers",
+			"registered send buffers were requested but fixed buffers are unavailable",
+			"raise RLIMIT_MEMLOCK or disable send_fixed_buffers");
+	}
+	if (cfg.fixed_buffer_slabs != 0 && cfg.fixed_buffer_bytes != 0 && caps.memlock_soft != 0) {
+		auto const requested =
+			static_cast<std::uint64_t>(cfg.fixed_buffer_slabs) * static_cast<std::uint64_t>(cfg.fixed_buffer_bytes);
+		if (requested > caps.memlock_soft) {
+			add(conflux::runtime::CapabilityIssueCode::insufficient_memlock,
+				"fixed_buffers",
+				"configured fixed-buffer memory exceeds RLIMIT_MEMLOCK soft limit",
+				"reduce fixed_buffer_slabs/fixed_buffer_bytes or raise memlock");
+		}
+	}
+	if (cfg.send_zc == "on" && !caps.send_zc) {
+		add(conflux::runtime::CapabilityIssueCode::unavailable,
+			"send_zc",
+			"SEND_ZC was required but is unavailable",
+			"use send_zc=auto/off or run on a kernel that supports IORING_OP_SEND_ZC");
+	}
+	if (cfg.recv_incremental_buf && !caps.incremental_buffers) {
+		add(conflux::runtime::CapabilityIssueCode::unavailable,
+			"incremental_buffers",
+			"incremental provided buffers were requested but are unavailable",
+			"disable recv_incremental_buf");
+	}
+	return issues;
+}
+
+export [[nodiscard]] std::string feature_fallback_string(
+	conflux::runtime::FeatureFallback policy) {
+	switch (policy) {
+	case conflux::runtime::FeatureFallback::fail_fast        : return "fail_fast";
+	case conflux::runtime::FeatureFallback::warn_and_fallback: return "warn_and_fallback";
+	case conflux::runtime::FeatureFallback::silent_fallback  : return "silent_fallback";
+	}
+	return "warn_and_fallback";
+}
+
+std::string Config::summary_redacted() const {
+	return std::format(
+		"server.host=0.0.0.0 server.port={} server.max_body_size={} server.request_timeout_ms={} "
+		"server.feature_fallback={} server.strict_config={} auth.jwt_secret=<redacted> auth.cookie_secret=<redacted>",
+		port,
+		max_body_size,
+		request_timeout_ms,
+		feature_fallback_string(feature_fallback),
+		strict_config ? "true" : "false");
+}
+
+std::string Config::to_json_redacted() const {
+	return std::format(
+		"{{\n"
+		"  \"server\": {{\n"
+		"    \"host\": \"0.0.0.0\",\n"
+		"    \"port\": {},\n"
+		"    \"max_body_size\": {},\n"
+		"    \"request_timeout_ms\": {},\n"
+		"    \"feature_fallback\": \"{}\",\n"
+		"    \"strict_config\": {}\n"
+		"  }},\n"
+		"  \"security\": {{\n"
+		"    \"jwt_secret\": \"<redacted>\",\n"
+		"    \"cookie_secret\": \"<redacted>\"\n"
+		"  }}\n"
+		"}}",
+		port,
+		max_body_size,
+		request_timeout_ms,
+		feature_fallback_string(feature_fallback),
+		strict_config ? "true" : "false");
+}
 
 export [[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
 	char const *path) {
@@ -712,10 +1072,36 @@ export [[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
 		return std::unexpected{std::format("cannot open config: {}", path)};
 	}
 	try {
-		return parse_ini_contents(*contents);
+		auto parsed = parse_ini_contents(*contents, path, false);
+		if (!parsed.issues.empty()) {
+			return std::unexpected{config_issue_summary(parsed.issues.front())};
+		}
+		return std::move(parsed.cfg);
 	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
 		return std::unexpected{std::string{"unknown config parse error"}};
 	}
+}
+
+export [[nodiscard]] std::expected<Config, std::vector<ConfigIssue>> config_from_ini_checked(
+	char const *path,
+	bool strict) {
+	auto contents = read_text_file_local(std::string_view{path});
+	if (!contents) {
+		return std::unexpected{std::vector<ConfigIssue>{ConfigIssue{
+			.code = ConfigIssueCode::missing_required_value,
+			.file = std::string{path},
+			.message = "cannot open config"}}};
+	}
+	auto parsed = parse_ini_contents(*contents, path, strict);
+	auto validation = validate_config(parsed.cfg, path);
+	parsed.issues.insert(
+		parsed.issues.end(),
+		std::make_move_iterator(validation.begin()),
+		std::make_move_iterator(validation.end()));
+	if (!parsed.issues.empty()) {
+		return std::unexpected{std::move(parsed.issues)};
+	}
+	return std::move(parsed.cfg);
 }
 
 export [[nodiscard]] std::expected<Config, std::string> try_config_from_ini(

@@ -32,6 +32,7 @@ public:
 	// Snapshot counters accumulated by all rings. Intended after run() returns;
 	// no synchronization is provided for concurrent calls while rings are active.
 	[[nodiscard]] HttpServerMetrics metrics() const noexcept;
+	[[nodiscard]] std::string startup_report() const;
 	// Blocks until ring 0 has bound and called listen(); returns the actual port.
 	// Safe to call from any std::thread after run() has been dispatched.
 	[[nodiscard]] std::uint16_t port() const;

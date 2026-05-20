@@ -2,6 +2,7 @@ export module conflux;
 
 import std;
 export import conflux.types;
+export import conflux.features;
 #if CONFLUX_HAS_FILE_WATCH
 export import conflux.file_watch;
 #endif

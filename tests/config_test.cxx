@@ -42,16 +42,19 @@ TEST_CASE(
 	"net.config: HTTP presets expose safe and explicit speed profiles",
 	"[net.config]") {
 	auto public_cfg = Config::public_server();
+	CHECK(public_cfg.strict_config);
 	CHECK(public_cfg.max_body_size == kConfigDefaultMaxBodySize);
 	CHECK(public_cfg.request_timeout_ms == kConfigDefaultRequestTimeoutMs);
 	CHECK(public_cfg.tls_sniff_timeout_ms == kConfigDefaultTlsSniffTimeoutMs);
 	CHECK(public_cfg.parser_limits.max_headers == kConfigDefaultMaxHeaders);
 
 	auto dev = Config::development();
+	CHECK_FALSE(dev.strict_config);
 	CHECK(dev.slow_handler_diagnostics);
 	CHECK(dev.startup_banner);
 
 	auto bench = Config::benchmark();
+	CHECK(bench.feature_fallback == conflux::runtime::FeatureFallback::fail_fast);
 	CHECK_FALSE(bench.startup_banner);
 	CHECK(bench.request_timeout_ms == 0);
 	CHECK(bench.tls_sniff_timeout_ms == 0);
@@ -61,6 +64,114 @@ TEST_CASE(
 	CHECK(unsafe.parser_limits.max_headers > public_cfg.parser_limits.max_headers);
 	CHECK(unsafe.send_fixed_buffers);
 	CHECK(unsafe.send_zc == "on");
+}
+
+TEST_CASE(
+	"build info exposes configured fields",
+	"[net.config]") {
+	auto const info = conflux::build_info();
+	CHECK_FALSE(info.version.empty());
+	CHECK_FALSE(info.interface_mode.empty());
+	CHECK(info.modules != info.header_interface);
+	auto const summary = conflux::build_info_summary();
+	CHECK(summary.find("conflux") != std::string::npos);
+	CHECK(summary.find("interface=") != std::string::npos);
+}
+
+TEST_CASE(
+	"net.config: strict ini reports unknown keys with structured diagnostics",
+	"[net.config]") {
+	TempIni ini{R"ini(
+[server]
+max_bdy_size = 1048576
+)ini"};
+
+	auto checked = config_from_ini_checked(ini.c_str(), true);
+	REQUIRE_FALSE(checked.has_value());
+	REQUIRE_FALSE(checked.error().empty());
+	auto const &issue = checked.error().front();
+	CHECK(issue.code == ConfigIssueCode::unknown_key);
+	CHECK(issue.section == "server");
+	CHECK(issue.key == "max_bdy_size");
+	CHECK(issue.value == "1048576");
+	CHECK(issue.line == 3);
+	CHECK(issue.hint.find("max_body_size") != std::string::npos);
+	CHECK(config_issue_code_string(issue.code) == "config.unknown_key");
+}
+
+TEST_CASE(
+	"net.config: non-strict ini tolerates unknown keys",
+	"[net.config]") {
+	TempIni ini{R"ini(
+[server]
+max_bdy_size = 1048576
+port = 9091
+)ini"};
+
+	auto checked = config_from_ini_checked(ini.c_str());
+	REQUIRE(checked.has_value());
+	CHECK(checked->port == 9091);
+}
+
+TEST_CASE(
+	"net.config: redacted summaries hide configured secrets",
+	"[net.config]") {
+	Config cfg = Config::development();
+	cfg.auth_secrets.jwt.active = SecretSource{.kind = SecretSourceKind::literal, .value = "super-secret-token"};
+	cfg.auth_secrets.cookie.active = SecretSource{.kind = SecretSourceKind::literal, .value = "cookie-secret-token"};
+
+	auto text = cfg.summary_redacted();
+	auto json = cfg.to_json_redacted();
+	CHECK(text.find("super-secret-token") == std::string::npos);
+	CHECK(json.find("cookie-secret-token") == std::string::npos);
+	CHECK(json.find("<redacted>") != std::string::npos);
+	CHECK(json.find("\"port\"") != std::string::npos);
+}
+
+TEST_CASE(
+	"net.config: unsafe preset reports unsafe choices",
+	"[net.config]") {
+	auto issues = unsafe_config_issues(Config::unsafe_max_speed());
+	CHECK(issues.size() >= 4);
+	CHECK(std::ranges::any_of(issues, [](ConfigIssue const &issue) {
+		return issue.code == ConfigIssueCode::unsafe_option && issue.key == "send_zc";
+	}));
+}
+
+TEST_CASE(
+	"net.config: capability validation reports explicit unavailable features",
+	"[net.config]") {
+	Config cfg = Config::development();
+	cfg.send_zc = "on";
+	cfg.send_fixed_buffers = true;
+	conflux::runtime::RuntimeCapabilities caps{};
+	caps.memlock_soft = 1;
+
+	auto issues = validate_config_capabilities(cfg, caps);
+	CHECK(std::ranges::any_of(issues, [](conflux::runtime::CapabilityIssue const &issue) {
+		return issue.feature == "send_zc";
+	}));
+	CHECK(std::ranges::any_of(issues, [](conflux::runtime::CapabilityIssue const &issue) {
+		return issue.code == conflux::runtime::CapabilityIssueCode::insufficient_memlock;
+	}));
+
+	cfg.feature_fallback = conflux::runtime::FeatureFallback::silent_fallback;
+	auto silent_issues = validate_config_capabilities(cfg, caps);
+	CHECK_FALSE(silent_issues.empty());
+}
+
+TEST_CASE(
+	"net.config: HTTPS redirect requires allowed hosts",
+	"[net.config]") {
+	Config cfg = Config::development();
+	cfg.cert_file = "cert.pem";
+	cfg.key_file = "key.pem";
+	cfg.http_redirect_to_https = true;
+
+	auto issues = validate_config(cfg);
+	CHECK(std::ranges::any_of(issues, [](ConfigIssue const &issue) {
+		return issue.code == ConfigIssueCode::incompatible_options && issue.key == "https_redirect_hosts";
+	}));
 }
 
 TEST_CASE(

@@ -10,6 +10,9 @@ one small service.
 - Pick a drain deadline that matches the service's load balancer and process
   supervisor timeout.
 - Decide whether SSE/WebSocket streams should finish or close during drain.
+- Capture `build_info_summary()`, `HttpServer::startup_report()`, and the
+  redacted `Config` summary in startup logs when the service owner wants
+  diagnostics.
 - Export `HttpServer::metrics().pressure` and application-owned
   `SseChannel::pressure_metrics()`.
 
