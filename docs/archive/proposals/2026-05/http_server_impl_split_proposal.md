@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # HTTP server implementation module split proposal
 
 Date: 2026-05-15  

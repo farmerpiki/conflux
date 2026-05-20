@@ -29,6 +29,10 @@ Header-interface build and install:
 ```sh
 python3 scripts/check_no_std_streams.py
 python3 scripts/check-first-contact-public-dialect.py
+python3 scripts/check-planning-state.py
+python3 scripts/check-release-docs.py
+python3 scripts/check-package-docs.py
+python3 scripts/check-release-notes.py
 cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
@@ -98,8 +102,12 @@ ctest --test-dir /tmp/conflux-tests --output-on-failure
 ### Build/package
 
 - `scripts/check-package-config.sh` passes.
+- Planning/release docs guards pass:
+  `scripts/check-planning-state.py`, `scripts/check-release-docs.py`,
+  `scripts/check-package-docs.py`, and `scripts/check-release-notes.py`.
 - `scripts/check-package-smoke-liburing-free.sh` passes for mock-liburing
-  HEADER_INTERFACE installs. It must request `core;json;file_io_sync`, not
+  HEADER_INTERFACE installs. It must request `core;types;json;file_io_sync`
+  availability, with the smoke compile lane using `core;json;file_io_sync`, not
   runtime/http.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests

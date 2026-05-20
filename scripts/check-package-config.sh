@@ -19,6 +19,10 @@ fail() {
 [[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
 [[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
+[[ -f scripts/check-planning-state.py ]] || fail "missing planning-state guard"
+[[ -f scripts/check-release-docs.py ]] || fail "missing release-docs guard"
+[[ -f scripts/check-package-docs.py ]] || fail "missing package-docs guard"
+[[ -f scripts/check-release-notes.py ]] || fail "missing release-notes guard"
 
 grep -Eq '^project\(conflux VERSION [0-9]+\.[0-9]+\.[0-9]+ LANGUAGES CXX\)' CMakeLists.txt \
     || fail "project() must declare the package version"
@@ -39,6 +43,14 @@ grep -q 'add_test(NAME build/component-map' CMakeLists.txt \
     || fail "missing component-map CTest guard"
 grep -q 'add_test(NAME build/package-config' CMakeLists.txt \
     || fail "missing package-config CTest guard"
+grep -q 'add_test(NAME docs/planning-state' CMakeLists.txt \
+    || fail "missing planning-state CTest guard"
+grep -q 'add_test(NAME docs/release-docs' CMakeLists.txt \
+    || fail "missing release-docs CTest guard"
+grep -q 'add_test(NAME docs/package-docs' CMakeLists.txt \
+    || fail "missing package-docs CTest guard"
+grep -q 'add_test(NAME docs/release-notes' CMakeLists.txt \
+    || fail "missing release-notes CTest guard"
 grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
     || fail "missing package smoke component cache variable"
 grep -q 'add_test(NAME build/package-config-install-tree' CMakeLists.txt \

@@ -15,6 +15,8 @@ PATHS = [
 ]
 SKIP = {
     ROOT / "docs" / "archive",
+    ROOT / "docs" / "README.md",
+    ROOT / "docs" / "planning-policy.md",
     ROOT / "docs" / "naming-audit.md",
     ROOT / "docs" / "io_uring_direct_file_flow_design.md",
 }
@@ -22,6 +24,7 @@ SKIP = {
 PATTERN = re.compile(
     r"\b(S|SV|SP|UP|Opt|Fn|Tup|RE|EC|SZ)\b"
     r"|(?<![A-Za-z0-9_])(?:send_async|proxy_async|dispatch_async|block_on_socket_task|write_all_fd|read_all_fd)(?![A-Za-z0-9_])"
+    r"|Config::benchmark\(\)"
 )
 
 
@@ -51,6 +54,9 @@ def main() -> int:
         for line_no, line in enumerate(text.splitlines(), start=1):
             if "cmake -S" in line:
                 continue
+            if ("todo/" in line or "proposals/" in line) and "benchmarks/README.md" not in line:
+                rel = path.relative_to(ROOT)
+                failures.append(f"{rel}:{line_no}: first-contact docs must not route users through planning files")
             if PATTERN.search(line):
                 rel = path.relative_to(ROOT)
                 failures.append(f"{rel}:{line_no}: {line.strip()}")

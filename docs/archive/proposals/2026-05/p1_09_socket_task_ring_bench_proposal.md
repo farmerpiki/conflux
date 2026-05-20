@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # P1-09 Benchmark Proposal: FileReader → SocketTaskRing Migration
 
 > State note (2026-05-16): implementation coverage landed. Keep this as

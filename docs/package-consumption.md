@@ -25,12 +25,30 @@ Consumers include generated headers:
 
 ```cpp
 #include <conflux/json.hxx>
-#include <conflux/net/http.hxx>
+#include <conflux/file_io_sync.hxx>
 ```
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
+find_package(conflux REQUIRED COMPONENTS core json file_io_sync)
+target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io_sync)
+```
+
+## Package Contract
+
+- mock-liburing install: `core`, `types`, `json`, `file_io_sync` only.
+- real-liburing install: `runtime` and `http` may be requested when producer
+  configure found real `liburing` and consumers can find it through
+  `pkg-config`.
+- DB-off install: no generated DB headers and no `db` / `pg` package contract.
+- DB-on install: `db` is available only when libpq headers/library are found.
+- `HEADER_INTERFACE` is the prerelease consumption baseline.
+- `MODULE_INTERFACE` remains toolchain-sensitive.
+
+Runtime/http consumers use a real-liburing install:
+
+```cmake
+find_package(conflux REQUIRED COMPONENTS core json http runtime)
+target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http conflux::runtime)
 ```
 
 ## Module Interface

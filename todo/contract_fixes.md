@@ -1,5 +1,11 @@
 # Contract / Design-Rule Fixes
 
+Status: open inventory
+Open: public API alias cleanup, final naming pass, and measurement-gated
+low-level layout work.
+Done reference: completed component/package split chains are retained below as
+historical contract context.
+
 ## Hard breaks
 
 - [x] CMake: public component split per modular proposal is implemented. Foundation targets exist for `conflux::core`, `conflux::utils`, `conflux::net_config`, `conflux::file_io_sync`, `conflux::file_map`, `conflux::runtime`, `conflux::file_io`, `conflux::socket_io`, `conflux::dns`, `conflux::crypto`, `conflux::json`, `conflux::json_file`, `conflux::template`, and `conflux::template_watch`. HTTP/package targets now cover core, router, server, static, auth, JSON, policy, observability, OpenAPI, realtime, vhost, client, async-client, protocol, response, and app JSON slices with install/export/namespaced package targets.
@@ -49,7 +55,7 @@
 
 ## Module split proposals
 
-- [ ] `conflux.json` implementation-unit split: keep public `conflux::json` / `import conflux.json;`, move parser/dump/builder/reader/storage bodies into private module implementation units, and record BMI/incremental-build evidence. See `proposals/json_module_split_proposal.md`.
+- [ ] `conflux.json` implementation-unit split: keep public `conflux::json` / `import conflux.json;`, move parser/dump/builder/reader/storage bodies into private module implementation units, and record BMI/incremental-build evidence. See `docs/archive/proposals/2026-05/json_module_split_proposal.md`.
 
 ## Incomplete perf quick-wins
 

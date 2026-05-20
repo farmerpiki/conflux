@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # Template compiled cache proposal
 
 Date: 2026-05-17

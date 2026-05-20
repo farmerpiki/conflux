@@ -1,5 +1,10 @@
 # Performance Ideas — conflux (April 2026)
 
+Status: open inventory
+Branch: `perf/evidence-inventory`
+State note: this is the current performance inventory, not a single
+implementation proposal. Use `todo/proposal_state.md` before selecting work.
+
 Based on three independent ecosystem reviews of C++26 + io_uring best practices, cross-referenced against what the codebase already does. Module-based C++26 throughout.
 
 ---

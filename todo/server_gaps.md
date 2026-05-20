@@ -1,5 +1,10 @@
 # Server / Framework Gaps
 
+Status: open inventory
+Open: remaining deterministic coverage gaps and release-gated cleanup items.
+Done reference: completed server/framework passes below are retained as
+acceptance context, not active implementation requests.
+
 ## Immediate
 
 - [x] Direct-accept: set `tcp_nodelay_once` in `http_server.cxx` `DirectTcpAcceptSetup` (normal-accept already sets it)

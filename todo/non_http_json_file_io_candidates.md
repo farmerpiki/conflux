@@ -1,6 +1,10 @@
 # Non-HTTP / non-JSON / non-file_io proposal candidates
 
 Date: 2026-05-16
+Status: done reference
+Archive pointer: branch-selection authority moved to `todo/proposal_state.md`
+and `todo/parallel_priority_plan.md`; this file is retained as filtered
+historical rationale.
 Scope: branch candidates from current `todo/` and `proposals/` that do not need
 changes under HTTP, JSON, or file I/O implementation paths. Treat
 `http/send-threshold-bench`, `http/server-impl-split`, `json/impl-unit-split`, and
@@ -12,7 +16,7 @@ lanes.
 | Priority | Branch | Worth doing? | Touch set | Acceptance |
 |---|---|---|---|---|
 | P0 | `build/bench-regression-budget` | Done. Added DB-backed per-benchmark budgets, `bench_budget_eval`, and a merge-gate checker that blocks regressions/noisy/unbudgeted rows while printing artifact paths. | `scripts/bench_check_budget.py`, `scripts/bench_db_migrate.sql`, `benchmarks/README.md`. | Same-machine baseline/candidate comparison has explicit per-benchmark budgets, noisy rows are classified, and merge-blocking output points to recorded artifact paths. |
-| P1 | `docs/src-diagnostic-print-policy` | Done. Policy disallows direct reusable-source `std::print/std::println(stderr, ...)`; the CTest guard enforces it, `utils` diagnostics use `eprint/eprintln`, and `work/carrier_coro.cxx` keeps a local `write(2)` sink to avoid a logging-only `conflux_work -> conflux_utils` dependency. | `proposals/conflux_no_std_streams_proposal.updated.md`, `scripts/check_no_std_streams.py`, `src/utils.cxx`, `src/work/carrier_coro.cxx`. | Reusable `src/` has no direct stderr `std::print/std::println` calls; tests/examples/benchmarks remain free to use `std::println` for human output. |
+| P1 | `docs/src-diagnostic-print-policy` | Done. Policy disallows direct reusable-source `std::print/std::println(stderr, ...)`; the CTest guard enforces it, `utils` diagnostics use `eprint/eprintln`, and `work/carrier_coro.cxx` keeps a local `write(2)` sink to avoid a logging-only `conflux_work -> conflux_utils` dependency. | `docs/archive/proposals/2026-05/conflux_no_std_streams_proposal.updated.md`, `scripts/check_no_std_streams.py`, `src/utils.cxx`, `src/work/carrier_coro.cxx`. | Reusable `src/` has no direct stderr `std::print/std::println` calls; tests/examples/benchmarks remain free to use `std::println` for human output. |
 | P1 | `db/pipeline-live-evidence` | Done with host-local PostgreSQL evidence: 18 DB integration tests passed and paired pipeline benchmark median speedup was 2.33x. | `scripts/db_pipeline_live_evidence.sh`, `benchmarks/notes/db_pipeline_live_evidence.md`, generated evidence artifacts. | Wrapper output includes DB integration log, raw NDJSON with reps, summary JSON, and paired median/best pipeline speedup for repeated runs. |
 | P1 | `build/stale-tcp-parallel-bench-prune` | Done. Deleted the obsolete standalone bench and pruned recorder/docs support for its custom parser; N=4 coverage lives in `tcp_increment_coro_bench`. | `benchmarks/CMakeLists.txt`, `benchmarks/README.md`, `scripts/bench_record.sh`, `benchmarks/tcp_parallel_coro_bench.cxx`. | No stale `co_spawn` bench TODO remains; recorder docs/scripts no longer carry an unused `tcp_parallel` parser. |
 | P2 | `worker/queue-contention-measurement` | Done with host evidence. `no_stealing` wins independent external profiles, but `stealing` is 3.23x faster on local-backlog redistribution, so no default flip. | `scripts/work_queue_contention_evidence.sh`, `scripts/work_queue_contention_summary.py`, `benchmarks/notes/worker_queue_contention_profile.md`, `benchmarks/README.md`. | Host runs produce configure/build logs, raw NDJSON, manifest JSON, and summary JSON with admission/local/steal/futex rates per 1k jobs. |

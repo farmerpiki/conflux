@@ -3139,6 +3139,30 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;package"
     )
 
+    add_test(NAME docs/planning-state
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-planning-state.py")
+    set_tests_properties(docs/planning-state PROPERTIES
+        LABELS "docs;lint"
+    )
+
+    add_test(NAME docs/release-docs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-release-docs.py")
+    set_tests_properties(docs/release-docs PROPERTIES
+        LABELS "docs;lint"
+    )
+
+    add_test(NAME docs/package-docs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-docs.py")
+    set_tests_properties(docs/package-docs PROPERTIES
+        LABELS "docs;package"
+    )
+
+    add_test(NAME docs/release-notes
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-release-notes.py")
+    set_tests_properties(docs/release-notes PROPERTIES
+        LABELS "docs;release"
+    )
+
 endif()
 
 set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING

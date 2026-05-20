@@ -1,5 +1,11 @@
 # Code Quality Findings TODO
 
+Status: open inventory
+Open: public API alias cleanup, naming pass, verification backlog, and
+profiling-gated source splits.
+Done reference: completed small focused patches and landed split work remain
+below only as historical context.
+
 Scope: follow-up work from the code-quality review. Large source-file splits are
 tracked here only as dedicated-branch candidates; do not mix them into cleanup,
 correctness, or naming patches.

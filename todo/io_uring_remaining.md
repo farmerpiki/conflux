@@ -2,6 +2,11 @@
 
 _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed P0/P1/P2 items removed._
 
+Status: open inventory
+Open: benchmark/evidence-gated recv and HTTP/io_uring follow-up lanes.
+Done reference: completed P1/P2 items below are retained only to preserve
+implementation rationale and acceptance context.
+
 ---
 
 ## Bugs

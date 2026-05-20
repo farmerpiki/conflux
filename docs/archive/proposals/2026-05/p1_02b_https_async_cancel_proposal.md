@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # P1-02b: HTTP/HTTPS Async Cancellation
 
 Date: 2026-05-10

@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # T1-A: Zero-Copy HTTP Response Send (SEND_ZC)
 
 Date: 2026-05-10

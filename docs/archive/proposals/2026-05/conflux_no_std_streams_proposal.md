@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # Proposal: Remove standard stream dependencies from reusable `conflux` sources
 
 > State note (2026-05-16): superseded for source-state decisions by

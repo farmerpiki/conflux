@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # Proposal: split `conflux.file_io` into buffer, pipe, reader, IOPOLL, and driver modules
 
 ## Recommendation

@@ -35,6 +35,21 @@ to the exact compiler, standard library, and CMake versions. Header-interface
 mode is the prerelease consumption baseline and should not require CMake
 import-std discovery.
 
+## First-contact docs
+
+Read the release-facing docs in this order:
+
+1. [`README.md`](README.md)
+2. [`docs/package-consumption.md`](docs/package-consumption.md)
+3. [`docs/component-map.md`](docs/component-map.md)
+4. [`docs/public-api-map.md`](docs/public-api-map.md)
+5. [`docs/http-server-api.md`](docs/http-server-api.md) or [`docs/json-api.md`](docs/json-api.md)
+6. [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md)
+7. [`docs/production-checklist.md`](docs/production-checklist.md)
+8. [`docs/release-checklist.md`](docs/release-checklist.md)
+
+Maintainer planning files are outside this first-contact path.
+
 ## Install and consume
 
 After installing the package, consume only the components your program needs:
@@ -44,12 +59,8 @@ find_package(conflux REQUIRED COMPONENTS core json http)
 target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 ```
 
-The component/target map lives in [`docs/component-map.md`](docs/component-map.md);
-header and module consumption examples live in
-[`docs/package-consumption.md`](docs/package-consumption.md);
-the public import map lives in [`docs/public-api-map.md`](docs/public-api-map.md).
-The copy/allocation/lifetime model is summarized in
-[`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md).
+The package contract, component/target map, public import map, and
+copy/allocation/lifetime model are covered by the first-contact docs above.
 
 ## Small HTTP app
 

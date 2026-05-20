@@ -2,6 +2,12 @@
 
 _Collapsed from `JSON_PLAN.md`. Phases 0–4, 5.1/5.2/5.5, and 7 are complete._
 
+Status: open inventory
+Open: deferred Stage-0 tokenizer, platform-blocked number parsing cleanup, and
+future compile-time JSON literal design.
+Done reference: completed reflection/JSON5/schema/fuzz items remain below as
+context, not branch requests.
+
 ---
 
 ## Phase 5 — Deferred items

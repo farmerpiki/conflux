@@ -2,6 +2,11 @@
 
 _As of 2026-04-28. Completed items stripped; this tracks only open work._
 
+Status: open inventory
+Open: COPY API and query streaming once a worker stream primitive exists.
+Done reference: pipeline wire mode is implemented; live evidence belongs in
+release evidence manifests.
+
 ---
 
 ## Done (for reference)

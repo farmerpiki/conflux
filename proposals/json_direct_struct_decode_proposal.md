@@ -1,5 +1,9 @@
 # Proposal: JSON direct-to-struct serde fast path
 
+Status: open
+Branch: `json/direct-struct-decode`
+State note: active proposal, not archived.
+
 ## Status
 
 Implementation in progress.

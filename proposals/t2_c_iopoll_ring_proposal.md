@@ -2,6 +2,8 @@
 
 Date: 2026-05-10
 Status: PARTIALLY IMPLEMENTED — storage-only primitive landed; HTTP/static integration remains benchmark-gated
+Branch: `uring/iopoll-static-evidence`
+State note: historical implementation rationale plus deferred evidence gate.
 Effort: primitive landed; remaining consumer work depends on storage/static benchmark evidence
 Prerequisite for remaining work: benchmark proving storage-read bottleneck under HTTP/static load
 Kernel: 5.1+ (IOPOLL exists since initial io_uring; 5.11 adds some `io_uring_enter` extensions)

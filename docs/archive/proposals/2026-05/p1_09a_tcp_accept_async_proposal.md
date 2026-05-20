@@ -1,3 +1,5 @@
+> Archived historical rationale. Current branch selection lives in `todo/proposal_state.md` and `todo/parallel_priority_plan.md`.
+
 # P1-09a Proposal: Async TcpListener::accept() Coroutine API
 
 > State note (2026-05-16): implemented. Keep this as design rationale only;

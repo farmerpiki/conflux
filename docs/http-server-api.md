@@ -867,7 +867,7 @@ executor/work-pool placement, or raw syscall-style helpers whose `blocking_*`
 names advertise calling-thread blocking behavior. See `docs/execution-model.md` for the shared task/executor contract and
 `docs/concurrency-naming-model.md` for the code-review naming/placement guide.
 
-CPU pinning: set `ring_core` and `worker_core_base` in `Config`; benchmark context is tracked in [`../proposals/perf_ideas.md`](../proposals/perf_ideas.md).
+CPU pinning: set `ring_core` and `worker_core_base` in `Config`; benchmark context is tracked in [`../benchmarks/reproducibility.md`](../benchmarks/reproducibility.md).
 
 ---
 
