@@ -274,6 +274,14 @@ public:
 	}
 	[[nodiscard]] std::uint16_t port() const { return server_->port(); }
 	[[nodiscard]] HttpServerMetrics metrics() const noexcept { return server_->metrics(); }
+	[[nodiscard]] DrainReport drain(
+		DrainOptions options = {}) {
+		auto report = server_->drain(options);
+		if (thread_.joinable()) {
+			thread_.join();
+		}
+		return report;
+	}
 	void stop() {
 		if (thread_.joinable()) {
 			server_->request_shutdown();

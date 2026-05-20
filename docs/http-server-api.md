@@ -187,6 +187,10 @@ directly. Application-owned SSE channels expose per-channel pressure counters
 through `SseChannel::pressure_metrics()`; aggregate those in application metrics
 when channels are created outside the server.
 
+`conflux.net.metrics` also exposes
+`format_pressure_metrics_prometheus(HttpPressureMetrics const&)` for apps that
+want to append server pressure counters to an existing Prometheus response.
+
 HTTP/1 parser and dispatch rejections increment passive server counters under
 `HttpServerMetrics::rejections`; they are server metrics, not middleware
 metrics, and do not require installing application middleware. Classified

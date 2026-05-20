@@ -2012,6 +2012,107 @@ TEST_CASE(
 	}
 	REQUIRE(stopped);
 }
+
+TEST_CASE(
+	"drain closes idle keep-alive connection and reports idle close",
+	"[http.lifecycle]") {
+	Config cfg = mw_config();
+	Router router;
+	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	LocalTcpClient client{srv.port()};
+	(void)client.send("GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n");
+	auto resp = client.read_one_response();
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(resp.find("Connection: keep-alive") != std::string::npos);
+
+	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{2000}});
+	CHECK(report.accepted_before_stop >= 1);
+	CHECK(report.idle_closed >= 1);
+	CHECK_FALSE(report.deadline_hit);
+
+	char probe{};
+	CHECK(client.recv(&probe, 1) == 0);
+	auto metrics = srv.metrics();
+	CHECK(metrics.pressure.drain_started >= 1);
+}
+
+TEST_CASE(
+	"drain stops new accepts",
+	"[http.lifecycle]") {
+	Config cfg = mw_config();
+	Router router;
+	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	auto const port = srv.port();
+	auto before = http_get_on(port, "/ping", "Connection: close\r\n");
+	REQUIRE(before.starts_with("HTTP/1.1 200 OK"));
+
+	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{2000}});
+	CHECK_FALSE(report.deadline_hit);
+
+	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
+	REQUIRE(fd >= 0);
+	sockaddr_in addr{};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+	auto const rc = ::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
+	if (rc == 0) {
+		timeval tv{.tv_sec = 0, .tv_usec = 200000};
+		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		(void)::send(fd, "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", 59, 0);
+		char probe{};
+		auto const n = ::recv(fd, &probe, 1, 0);
+		CHECK(n <= 0);
+	} else {
+		CHECK(rc < 0);
+	}
+	::close(fd);
+}
+
+TEST_CASE(
+	"drain lets in-flight response finish",
+	"[http.lifecycle]") {
+	Config cfg = mw_config();
+	Router router;
+	router.get("/large", [](HttpRequest const &) { return HttpResponse::text(std::string(512 * 1024, 'x')); });
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	LocalTcpClient client{srv.port()};
+	(void)client.send("GET /large HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+	auto headers = client.read_headers();
+	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
+
+	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{5000}, .finish_requests = true});
+	CHECK_FALSE(report.deadline_hit);
+	auto resp = headers + client.read_until_close();
+	CHECK(resp.starts_with("HTTP/1.1 200 OK"));
+	CHECK(resp.find("Content-Length: 524288") != std::string::npos);
+	CHECK(resp.ends_with(std::string(32, 'x')));
+	CHECK(report.requests_finished >= 1);
+}
+
+TEST_CASE(
+	"drain deadline reports hit when idle close is disabled",
+	"[http.lifecycle]") {
+	Config cfg = mw_config();
+	Router router;
+	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	LocalTcpClient client{srv.port()};
+	(void)client.send("GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n");
+	auto resp = client.read_one_response();
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+
+	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{1}, .close_idle = false});
+	CHECK(report.deadline_hit);
+	auto metrics = srv.metrics();
+	CHECK(metrics.pressure.drain_started >= 1);
+}
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
@@ -5090,6 +5191,19 @@ TEST_CASE(
 	CHECK(h.bucket(0) == 1);
 	// bucket[1] is le=0.01; both qualify.
 	CHECK(h.bucket(1) == 2);
+}
+TEST_CASE(
+	"metrics: pressure counters render as Prometheus events") {
+	HttpPressureMetrics pressure{};
+	pressure.accept_rejected = 2;
+	pressure.drain_started = 1;
+	pressure.drain_deadline_hit = 1;
+
+	auto out = format_pressure_metrics_prometheus(pressure);
+	CHECK(out.find("# TYPE http_pressure_events_total counter") != std::string::npos);
+	CHECK(out.find("http_pressure_events_total{event=\"accept_rejected\"} 2") != std::string::npos);
+	CHECK(out.find("http_pressure_events_total{event=\"drain_started\"} 1") != std::string::npos);
+	CHECK(out.find("http_pressure_events_total{event=\"drain_deadline_hit\"} 1") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Metrics

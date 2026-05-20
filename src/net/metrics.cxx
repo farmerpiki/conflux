@@ -5,6 +5,7 @@ export module conflux.net.metrics;
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.net.http.server_types;
 import conflux.net.router;
 // ---------------------------------------------------------------------------
 // Public types
@@ -93,6 +94,29 @@ std::size_t status_idx(
 constexpr std::array<std::string_view, N_STATUS> kStatusLabels = {"1xx", "2xx", "3xx", "4xx", "5xx", "other"};
 
 } // namespace
+
+export std::string format_pressure_metrics_prometheus(
+	HttpPressureMetrics const &pressure) {
+	std::string out;
+	out.reserve(1024);
+	out += "# HELP http_pressure_events_total HTTP lifecycle and backpressure events\n";
+	out += "# TYPE http_pressure_events_total counter\n";
+	auto append = [&out](std::string_view name, std::uint64_t value) {
+		out += std::format("http_pressure_events_total{{event=\"{}\"}} {}\n", name, value);
+	};
+	append("accept_rejected", pressure.accept_rejected);
+	append("connections_closed_for_pressure", pressure.connections_closed_for_pressure);
+	append("response_backpressure_events", pressure.response_backpressure_events);
+	append("sse_dropped_newest", pressure.sse_dropped_newest);
+	append("sse_dropped_oldest", pressure.sse_dropped_oldest);
+	append("sse_disconnected_for_pressure", pressure.sse_disconnected_for_pressure);
+	append("websocket_closed_for_pressure", pressure.websocket_closed_for_pressure);
+	append("drain_started", pressure.drain_started);
+	append("drain_deadline_hit", pressure.drain_deadline_hit);
+	append("drain_forced_close", pressure.drain_forced_close);
+	return out;
+}
+
 export class MetricsRegistry {
 public:
 	// Record one completed request.
