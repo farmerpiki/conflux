@@ -41,3 +41,21 @@ The facade does not add an exporter or global singleton. Existing lower-level
 middleware such as `request_id_middleware`, `tracing_middleware`,
 `structured_log_middleware`, and `metrics_middleware` remains available for
 services that need custom wiring.
+
+Server pressure, work-pool, task-allocation, and JSON-arena metrics are only
+emitted when the app supplies an explicit source:
+
+```cpp
+auto pool = std::make_shared<WorkPool>();
+app.use(conflux::http::observability(
+    {
+        .work_pools = {{"default", pool}},
+        .task_allocation_metrics = true,
+    },
+    {
+        .pressure_metrics = [&server] { return server.metrics().pressure; },
+    }));
+```
+
+Streaming responses are measured at response creation/header commit time. Export
+stream-close counters from the stream owner when tail duration is needed.

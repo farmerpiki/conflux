@@ -796,6 +796,12 @@ strings are never metric labels. Structured logs redact `Authorization`,
 `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `X-Api-Token`,
 `X-Auth-Token`, and `X-CSRF-Token` by default.
 
+Runtime pressure and work-pool metrics require explicit sources, for example
+`ObservabilitySinks{.pressure_metrics = [&server] { return
+server.metrics().pressure; }}` and `ObservabilityOptions::work_pools`. Streaming
+responses currently measure response creation/header commit duration; stream
+owners should export close-duration metrics separately if needed.
+
 ---
 
 ## OpenAPI / Route metadata

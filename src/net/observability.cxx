@@ -10,6 +10,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.request_id;
 import conflux.net.tracing;
+import conflux.work;
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
 #endif
@@ -43,6 +44,20 @@ struct ObservabilityOptions {
 
 	std::vector<std::string> extra_sensitive_headers = {};
 	std::function<void(std::string const &)> access_log_sink = {};
+	std::function<HttpPressureMetrics()> pressure_metrics_source = {};
+	std::vector<std::pair<std::string, std::shared_ptr<WorkPool>>> work_pools = {};
+};
+
+struct JsonArenaMetrics {
+	std::uint64_t slabs_total{};
+	std::uint64_t high_water_bytes{};
+	std::uint64_t allocated_bytes{};
+};
+
+struct ObservabilitySinks {
+	std::function<void(std::string const &)> access_logs = {};
+	std::function<HttpPressureMetrics()> pressure_metrics = {};
+	std::function<JsonArenaMetrics()> json_arena_metrics = {};
 };
 
 namespace observability_detail {
@@ -206,6 +221,140 @@ void append_headers_json(
 }
 
 #if CONFLUX_HAS_METRICS
+void append_pressure_metric(
+	std::string &out,
+	std::string_view name,
+	std::uint64_t value) {
+	out += std::format("{} {}\n", name, value);
+}
+
+void append_pressure_metrics(
+	std::string &out,
+	HttpPressureMetrics const &pressure) {
+	out += "# HELP http_pressure_connections_active Active HTTP connections under pressure accounting\n";
+	out += "# TYPE http_pressure_connections_active gauge\n";
+	append_pressure_metric(out, "http_pressure_connections_active", 0);
+	out += "# HELP http_pressure_requests_inflight In-flight HTTP requests under pressure accounting\n";
+	out += "# TYPE http_pressure_requests_inflight gauge\n";
+	append_pressure_metric(out, "http_pressure_requests_inflight", 0);
+	out += "# HELP http_pressure_response_backlog Response backlog under pressure accounting\n";
+	out += "# TYPE http_pressure_response_backlog gauge\n";
+	append_pressure_metric(out, "http_pressure_response_backlog", pressure.response_backpressure_events);
+	out += "# HELP http_pressure_slow_clients Slow clients under pressure accounting\n";
+	out += "# TYPE http_pressure_slow_clients gauge\n";
+	append_pressure_metric(out, "http_pressure_slow_clients", pressure.drain_forced_close);
+	out += "# HELP http_pressure_overflow_total HTTP pressure overflow events\n";
+	out += "# TYPE http_pressure_overflow_total counter\n";
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="accept",policy="reject"}} {})"
+		"\n",
+		pressure.accept_rejected);
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="connection",policy="close"}} {})"
+		"\n",
+		pressure.connections_closed_for_pressure);
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="sse",policy="drop_newest"}} {})"
+		"\n",
+		pressure.sse_dropped_newest);
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="sse",policy="drop_oldest"}} {})"
+		"\n",
+		pressure.sse_dropped_oldest);
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="sse",policy="disconnect"}} {})"
+		"\n",
+		pressure.sse_disconnected_for_pressure);
+	out += std::format(
+		R"(http_pressure_overflow_total{{kind="websocket",policy="close"}} {})"
+		"\n",
+		pressure.websocket_closed_for_pressure);
+}
+
+[[nodiscard]] std::uint64_t saturating_sub(
+	std::uint64_t value,
+	std::uint64_t subtrahend) noexcept {
+	return value > subtrahend ? value - subtrahend : 0;
+}
+
+void append_work_pool_metrics(
+	std::string &out,
+	std::vector<std::pair<std::string, std::shared_ptr<WorkPool>>> const &work_pools) {
+	if (work_pools.empty()) {
+		return;
+	}
+	out += "# HELP work_pool_queue_depth Approximate accepted work items not yet completed\n";
+	out += "# TYPE work_pool_queue_depth gauge\n";
+	out += "# HELP work_pool_running Running workers, reported when available\n";
+	out += "# TYPE work_pool_running gauge\n";
+	out += "# HELP work_pool_rejected_total Work-pool enqueue rejections\n";
+	out += "# TYPE work_pool_rejected_total counter\n";
+	out += "# HELP work_pool_completed_total Work-pool completed jobs\n";
+	out += "# TYPE work_pool_completed_total counter\n";
+	for (auto const &[name, pool]: work_pools) {
+		if (!pool) {
+			continue;
+		}
+		auto const stats = pool->queue_stats();
+		auto const rejected = stats.enqueue_stopped_rejections + stats.enqueue_full_rejections;
+		auto const accepted = saturating_sub(stats.enqueue_attempts, rejected);
+		auto const pending = saturating_sub(accepted, stats.jobs_run);
+		out += std::format(
+			R"(work_pool_queue_depth{{pool="{}"}} {})"
+			"\n",
+			json_escape(name),
+			pending);
+		out += std::format(
+			R"(work_pool_running{{pool="{}"}} {})"
+			"\n",
+			json_escape(name),
+			0);
+		out += std::format(
+			R"(work_pool_rejected_total{{pool="{}",reason="stopped"}} {})"
+			"\n",
+			json_escape(name),
+			stats.enqueue_stopped_rejections);
+		out += std::format(
+			R"(work_pool_rejected_total{{pool="{}",reason="full"}} {})"
+			"\n",
+			json_escape(name),
+			stats.enqueue_full_rejections);
+		out += std::format(
+			R"(work_pool_completed_total{{pool="{}"}} {})"
+			"\n",
+			json_escape(name),
+			stats.jobs_run);
+	}
+}
+
+void append_task_allocation_metrics(
+	std::string &out) {
+	auto const stats = conflux::work::root::task_allocation_stats();
+	out += "# HELP work_task_frame_allocations_total Task coroutine frame allocation calls\n";
+	out += "# TYPE work_task_frame_allocations_total counter\n";
+	out += std::format("work_task_frame_allocations_total {}\n", stats.coroutine_frame_allocations);
+	out += "# HELP work_task_frame_pool_hits_total Task frame pool hits\n";
+	out += "# TYPE work_task_frame_pool_hits_total counter\n";
+	out += "work_task_frame_pool_hits_total 0\n";
+	out += "# HELP work_task_frame_pool_misses_total Task frame pool misses\n";
+	out += "# TYPE work_task_frame_pool_misses_total counter\n";
+	out += std::format("work_task_frame_pool_misses_total {}\n", stats.coroutine_frame_allocations);
+}
+
+void append_json_arena_metrics(
+	std::string &out,
+	JsonArenaMetrics const &metrics) {
+	out += "# HELP json_arena_slabs_total JSON arena slabs\n";
+	out += "# TYPE json_arena_slabs_total gauge\n";
+	out += std::format("json_arena_slabs_total {}\n", metrics.slabs_total);
+	out += "# HELP json_arena_high_water_bytes JSON arena high-water bytes\n";
+	out += "# TYPE json_arena_high_water_bytes gauge\n";
+	out += std::format("json_arena_high_water_bytes {}\n", metrics.high_water_bytes);
+	out += "# HELP json_arena_allocated_bytes JSON arena currently allocated bytes\n";
+	out += "# TYPE json_arena_allocated_bytes gauge\n";
+	out += std::format("json_arena_allocated_bytes {}\n", metrics.allocated_bytes);
+}
+
 struct ObservabilityRegistry {
 	struct RequestKey {
 		std::string service;
@@ -302,7 +451,8 @@ struct ObservabilityRegistry {
 	}
 
 	[[nodiscard]] std::string format_prometheus(
-		ObservabilityOptions const &opts) const {
+		ObservabilityOptions const &opts,
+		ObservabilitySinks const &sinks) const {
 		std::scoped_lock const lock{mutex};
 		std::string out;
 		out.reserve(4096);
@@ -365,6 +515,22 @@ struct ObservabilityRegistry {
 				key.second,
 				value);
 		}
+		if (opts.pressure_metrics) {
+			if (sinks.pressure_metrics) {
+				append_pressure_metrics(out, sinks.pressure_metrics());
+			} else if (opts.pressure_metrics_source) {
+				append_pressure_metrics(out, opts.pressure_metrics_source());
+			}
+		}
+		if (opts.work_pool_metrics) {
+			append_work_pool_metrics(out, opts.work_pools);
+		}
+		if (opts.task_allocation_metrics) {
+			append_task_allocation_metrics(out);
+		}
+		if (opts.json_arena_metrics && sinks.json_arena_metrics) {
+			append_json_arena_metrics(out, sinks.json_arena_metrics());
+		}
 		return out;
 	}
 
@@ -377,6 +543,7 @@ struct ObservabilityRegistry {
 
 struct ObservabilityState {
 	ObservabilityOptions options;
+	ObservabilitySinks sinks;
 	std::vector<std::string> sensitive;
 #if CONFLUX_HAS_METRICS
 	std::shared_ptr<ObservabilityRegistry> registry;
@@ -406,7 +573,9 @@ struct ObservabilityMiddleware {
 		if (state && state->options.access_log) {
 			auto line =
 				observability_detail::access_log_line(state->options, state->sensitive, observed_view, resp, elapsed);
-			if (state->options.access_log_sink) {
+			if (state->sinks.access_logs) {
+				state->sinks.access_logs(line);
+			} else if (state->options.access_log_sink) {
 				state->options.access_log_sink(line);
 			} else {
 				std::println(stderr, "{}", line);
@@ -421,6 +590,21 @@ struct ObservabilityMiddleware {
 	ObservabilityOptions options = {}) {
 	auto state = std::make_shared<observability_detail::ObservabilityState>();
 	state->options = options;
+	state->sinks.access_logs = options.access_log_sink;
+	state->sinks.pressure_metrics = options.pressure_metrics_source;
+	state->sensitive = observability_detail::sensitive_headers(options);
+#if CONFLUX_HAS_METRICS
+	state->registry = std::make_shared<observability_detail::ObservabilityRegistry>();
+#endif
+	return ObservabilityMiddleware{.options = std::move(options), .state = std::move(state)};
+}
+
+[[nodiscard]] ObservabilityMiddleware observability(
+	ObservabilityOptions options,
+	ObservabilitySinks sinks) {
+	auto state = std::make_shared<observability_detail::ObservabilityState>();
+	state->options = options;
+	state->sinks = std::move(sinks);
 	state->sensitive = observability_detail::sensitive_headers(options);
 #if CONFLUX_HAS_METRICS
 	state->registry = std::make_shared<observability_detail::ObservabilityRegistry>();
@@ -436,7 +620,9 @@ struct ObservabilityMiddleware {
 		r.status = kHttpOk;
 		r.status_text = "OK";
 		r.content_type = "text/plain; version=0.0.4; charset=utf-8";
-		r.set_text_body(state && state->registry ? state->registry->format_prometheus(state->options) : std::string{});
+		r.set_text_body(
+			state && state->registry ? state->registry->format_prometheus(state->options, state->sinks) :
+									   std::string{});
 		return r;
 	};
 }

@@ -1897,6 +1897,7 @@ target_link_libraries(conflux_http_observability
     PRIVATE conflux_options
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
+    PUBLIC  conflux_work
 )
 if(CONFLUX_HAS_METRICS STREQUAL "true")
     target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_METRICS=1)

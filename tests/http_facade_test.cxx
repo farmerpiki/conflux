@@ -597,6 +597,82 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: observability metrics include explicit runtime and work sources",
+	"[http.facade]") {
+	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+	std::atomic<int> ran{0};
+	REQUIRE(pool->enqueue([&ran] { ran.fetch_add(1, std::memory_order_relaxed); }));
+	pool->drain_and_stop();
+	CHECK(ran.load(std::memory_order_relaxed) == 1);
+
+	HttpPressureMetrics pressure{};
+	pressure.accept_rejected = 2;
+	pressure.sse_dropped_newest = 3;
+	pressure.websocket_closed_for_pressure = 4;
+
+	auto app = http::app();
+	app.use(
+		http::observability(
+			{
+				.service_name = "api",
+				.access_log = false,
+				.task_allocation_metrics = true,
+				.work_pools = {{"default", pool}},
+			},
+			http::ObservabilitySinks{
+				.pressure_metrics = [pressure] { return pressure; },
+				.json_arena_metrics =
+					[] {
+						return http::JsonArenaMetrics{
+							.slabs_total = 5,
+							.high_water_bytes = 4096,
+							.allocated_bytes = 2048};
+					},
+			}));
+
+	HttpRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = app.router().dispatch(metrics_req);
+	auto const body = metrics.text_body();
+	CHECK(body.contains(R"(http_pressure_overflow_total{kind="accept",policy="reject"} 2)"));
+	CHECK(body.contains(R"(http_pressure_overflow_total{kind="sse",policy="drop_newest"} 3)"));
+	CHECK(body.contains(R"(work_pool_completed_total{pool="default"})"));
+	CHECK(body.contains("work_task_frame_allocations_total"));
+	CHECK_FALSE(body.contains("json_arena_slabs_total"));
+}
+
+TEST_CASE(
+	"http facade: observability JSON arena metrics are opt-in",
+	"[http.facade]") {
+	auto app = http::app();
+	app.use(
+		http::observability(
+			{
+				.access_log = false,
+				.json_arena_metrics = true,
+			},
+			http::ObservabilitySinks{
+				.json_arena_metrics =
+					[] {
+						return http::JsonArenaMetrics{
+							.slabs_total = 2,
+							.high_water_bytes = 256,
+							.allocated_bytes = 128};
+					},
+			}));
+
+	HttpRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = app.router().dispatch(metrics_req);
+	auto const body = metrics.text_body();
+	CHECK(body.contains("json_arena_slabs_total 2"));
+	CHECK(body.contains("json_arena_high_water_bytes 256"));
+	CHECK(body.contains("json_arena_allocated_bytes 128"));
+}
+
+TEST_CASE(
 	"http facade: async middleware uses owned requests",
 	"[http.facade]") {
 	auto app = http::app();

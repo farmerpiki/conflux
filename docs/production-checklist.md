@@ -15,8 +15,8 @@ one small service.
   diagnostics.
 - Install `http::observability()` for request IDs, trace context, structured
   access logs, and route metrics. Export `HttpServer::metrics().pressure` and
-  application-owned `SseChannel::pressure_metrics()` when server pressure needs
-  to be scraped too.
+  application-owned `SseChannel::pressure_metrics()` through explicit
+  observability sinks when server pressure needs to be scraped too.
 
 ## Pressure
 
