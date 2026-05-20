@@ -25,7 +25,7 @@ void submit_nops_no_drain(
 	unsigned batch_sz) {
 	unsigned done = 0;
 	while (done < n) {
-		unsigned const b = min(n - done, batch_sz);
+		unsigned const b = std::min(n - done, batch_sz);
 		for (unsigned i = 0; i < b; ++i) {
 			auto sqe = ring.get_sqe();
 			if (!sqe) {

@@ -15,6 +15,13 @@ endif()
 project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
 option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
+set(CONFLUX_INTERFACE_MODE "MODULE_IMPORT_STD" CACHE STRING
+    "Public interface/build mode: MODULE_IMPORT_STD, MODULE_STD_HEADERS, or HEADER_INTERFACE")
+set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_IMPORT_STD MODULE_STD_HEADERS HEADER_INTERFACE)
+option(CONFLUX_USE_MOCK_LIBURING
+    "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
+option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
+    "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
 
 if(CONFLUX_JSON_REFLECT)
     set(CMAKE_CXX_STANDARD 26)
@@ -23,19 +30,22 @@ else()
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT ${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
-    set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
-    if(_conflux_import_std_levels STREQUAL "")
-        set(_conflux_import_std_levels "<none>")
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_IMPORT_STD")
+    if(NOT ${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+        set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
+        if(_conflux_import_std_levels STREQUAL "")
+            set(_conflux_import_std_levels "<none>")
+        endif()
+        message(FATAL_ERROR
+            "conflux requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support in MODULE_IMPORT_STD mode. "
+            "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
+            "Use CONFLUX_INTERFACE_MODE=MODULE_STD_HEADERS to keep project modules but replace import std with headers, "
+            "or CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to generate only the header interface target.")
     endif()
-    message(FATAL_ERROR
-        "conflux requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support. "
-        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
-        "Use a compiler/stdlib pair supported by CMake's CxxImportStd feature, "
-        "or configure a header-based/non-import-std build once that mode exists.")
+    set(CMAKE_CXX_MODULE_STD ON)
+else()
+    set(CMAKE_CXX_MODULE_STD OFF)
 endif()
-
-set(CMAKE_CXX_MODULE_STD ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -47,14 +57,17 @@ option(CONFLUX_ENABLE_TSAN    "Build with ThreadSanitizer"                   OFF
 option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF)
 set(CONFLUX_LTO_MODE "AUTO" CACHE STRING "LTO mode when CONFLUX_ENABLE_LTO=ON: AUTO, THIN, or FULL")
 set_property(CACHE CONFLUX_LTO_MODE PROPERTY STRINGS AUTO THIN FULL)
-if(CONFLUX_JSON_REFLECT AND NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+if(CONFLUX_JSON_REFLECT
+        AND CONFLUX_INTERFACE_MODE STREQUAL "MODULE_IMPORT_STD"
+        AND NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
     set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
     if(_conflux_import_std_levels STREQUAL "")
         set(_conflux_import_std_levels "<none>")
     endif()
     message(FATAL_ERROR
-        "conflux: CONFLUX_JSON_REFLECT requires C++26 import std support. "
-        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}.")
+        "conflux: CONFLUX_JSON_REFLECT requires C++26 import std support in MODULE_IMPORT_STD mode. "
+        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
+        "Use CONFLUX_INTERFACE_MODE=MODULE_STD_HEADERS or HEADER_INTERFACE to avoid import std.")
 endif()
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
@@ -157,9 +170,93 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ConfluxPresets)
 conflux_apply_preset()
 include(CompilerOptions)
-include(Dependencies)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(ConfluxInterfaceMode)
+conflux_configure_interface_mode()
+
+if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    if(CONFLUX_BUILD_EXAMPLES OR CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_BENCHMARKS)
+        include(Dependencies)
+        find_package(OpenSSL)
+        find_package(ZLIB)
+        set(CONFLUX_HAS_TLS "false")
+        if(OpenSSL_FOUND AND CONFLUX_ENABLE_TLS)
+            set(CONFLUX_HAS_TLS "true")
+        endif()
+        set(CONFLUX_HAS_HTTP2 "false")
+        if(CONFLUX_HAS_TLS STREQUAL "true" AND NGHTTP2_FOUND AND CONFLUX_ENABLE_HTTP2)
+            set(CONFLUX_HAS_HTTP2 "true")
+        endif()
+        set(CONFLUX_HAS_HTTP3 "false")
+        if(CONFLUX_HAS_TLS STREQUAL "true"
+                AND NGTCP2_FOUND
+                AND NGTCP2_CRYPTO_OSSL_FOUND
+                AND NGHTTP3_FOUND
+                AND CONFLUX_ENABLE_HTTP3)
+            set(CONFLUX_HAS_HTTP3 "true")
+        endif()
+        set(CONFLUX_HAS_JSON "true")
+        if(ZLIB_FOUND)
+            set(CONFLUX_HAS_COMPRESS "true")
+            set(CONFLUX_HAS_ZLIB "true")
+        else()
+            set(CONFLUX_HAS_COMPRESS "false")
+            set(CONFLUX_HAS_ZLIB "false")
+        endif()
+        if(LIBDEFLATE_FOUND)
+            set(CONFLUX_HAS_LIBDEFLATE "true")
+        else()
+            set(CONFLUX_HAS_LIBDEFLATE "false")
+        endif()
+        if(ZLIB_FOUND)
+            set(CONFLUX_HAS_ZLIB_NG "false")
+        elseif(ZLIB_NG_FOUND)
+            set(CONFLUX_HAS_ZLIB_NG "true")
+        else()
+            set(CONFLUX_HAS_ZLIB_NG "false")
+        endif()
+        if(LIBISAL_FOUND)
+            set(CONFLUX_HAS_ISAL "true")
+        else()
+            set(CONFLUX_HAS_ISAL "false")
+        endif()
+        if(BROTLI_FOUND)
+            set(CONFLUX_HAS_BROTLI "true")
+        else()
+            set(CONFLUX_HAS_BROTLI "false")
+        endif()
+        if(ZSTD_FOUND)
+            set(CONFLUX_HAS_ZSTD "true")
+        else()
+            set(CONFLUX_HAS_ZSTD "false")
+        endif()
+        set(CONFLUX_HAS_FILE_WATCH "true")
+        set(CONFLUX_HAS_TEMPLATES "true")
+        set(CONFLUX_HAS_TEMPLATES_WATCH "true")
+        if(CONFLUX_ENABLE_METRICS)
+            set(CONFLUX_HAS_METRICS "true")
+        else()
+            set(CONFLUX_HAS_METRICS "false")
+        endif()
+        if(LIBPQ_FOUND)
+            set(CONFLUX_HAS_DB "true")
+        else()
+            set(CONFLUX_HAS_DB "false")
+        endif()
+    endif()
+    if(CONFLUX_BUILD_TESTS)
+        enable_testing()
+    endif()
+    conflux_add_header_interface_target()
+    conflux_add_header_examples_from_source_ids()
+    conflux_add_header_test_compile_targets()
+    conflux_add_header_compile_fail_tests()
+    conflux_add_header_benchmark_compile_targets()
+    return()
+endif()
+
+include(Dependencies)
 
 # ---------------------------------------------------------------------------
 # Optional dependencies
@@ -403,10 +500,18 @@ unset(CMAKE_REQUIRED_FLAGS)
 add_library(conflux_options INTERFACE)
 conflux_apply_compiler_options(conflux_options)
 target_include_directories(conflux_options INTERFACE
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+    "$<BUILD_INTERFACE:${CONFLUX_SRC_ROOT}>"
+    "$<BUILD_INTERFACE:${CONFLUX_GENERATED_INCLUDE_DIR}>"
     "$<INSTALL_INTERFACE:include>"
 )
 target_compile_definitions(conflux_options INTERFACE
+    CONFLUX_HEADER_USE_IMPORT_STD=0
+    CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
+    CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+    CONFLUX_MODULE_USE_IMPORT_STD=$<BOOL:${CMAKE_CXX_MODULE_STD}>
+    CONFLUX_MODULE_USE_IMPORT_STD_COMPAT=0
+    CONFLUX_MODULE_USE_IMPORTS=0
+    CONFLUX_MODULE_REEXPORT_IMPORTS=0
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
     CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
     CONFLUX_ENABLE_RECV_INCREMENTAL_BUF=$<BOOL:${CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF}>
@@ -455,9 +560,9 @@ endif()
 add_library(conflux_types STATIC)
 target_sources(conflux_types
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/types.cxx
+        ${CONFLUX_SRC_ROOT}/types.cxx
 )
 target_link_libraries(conflux_types
     PRIVATE conflux_options
@@ -475,9 +580,9 @@ if(CONFLUX_WANT_CRYPTO)
 add_library(conflux_crypto STATIC)
 target_sources(conflux_crypto
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/crypto.cxx
+        ${CONFLUX_SRC_ROOT}/crypto.cxx
 )
 target_link_libraries(conflux_crypto
     PRIVATE conflux_options
@@ -486,8 +591,8 @@ target_link_libraries(conflux_crypto
 if(CONFLUX_HAS_AESNI)
     message(STATUS "conflux: AES-NI + PCLMUL + SSSE3 path enabled")
     target_compile_definitions(conflux_crypto PRIVATE CONFLUX_CRYPTO_USE_AESNI=1)
-    target_sources(conflux_crypto PRIVATE src/crypto_aesni.cxx)
-    set_source_files_properties(src/crypto_aesni.cxx PROPERTIES
+    target_sources(conflux_crypto PRIVATE ${CONFLUX_SRC_ROOT}/crypto_aesni.cxx)
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/crypto_aesni.cxx PROPERTIES
         COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1"
     )
 endif()
@@ -497,8 +602,8 @@ if(CONFLUX_WANT_JSON OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_json_boundary STATIC)
 target_sources(conflux_json_boundary
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/json_boundary.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/json_boundary.cxx
 )
 target_link_libraries(conflux_json_boundary
     PUBLIC  conflux_types
@@ -511,20 +616,20 @@ add_library(conflux_json STATIC)
 target_compile_features(conflux_json PUBLIC cxx_std_23)
 target_sources(conflux_json
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/json.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/json.cxx
 )
 target_sources(conflux_json
     PRIVATE
-        src/json_storage.cxx
-        src/json_number.cxx
-        src/json_reader.cxx
-        src/json_dom.cxx
-        src/json_lookup.cxx
-        src/json_dump.cxx
-        src/json_parse.cxx
-        src/json_builder.cxx
-        src/json_stream.cxx
+        ${CONFLUX_SRC_ROOT}/json_storage.cxx
+        ${CONFLUX_SRC_ROOT}/json_number.cxx
+        ${CONFLUX_SRC_ROOT}/json_reader.cxx
+        ${CONFLUX_SRC_ROOT}/json_dom.cxx
+        ${CONFLUX_SRC_ROOT}/json_lookup.cxx
+        ${CONFLUX_SRC_ROOT}/json_dump.cxx
+        ${CONFLUX_SRC_ROOT}/json_parse.cxx
+        ${CONFLUX_SRC_ROOT}/json_builder.cxx
+        ${CONFLUX_SRC_ROOT}/json_stream.cxx
 )
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
@@ -534,8 +639,8 @@ target_link_libraries(conflux_json
 add_library(conflux_json_native_provider STATIC)
 target_sources(conflux_json_native_provider
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/json_native_provider.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/json_native_provider.cxx
 )
 target_link_libraries(conflux_json_native_provider
     PRIVATE conflux_options
@@ -671,9 +776,9 @@ if(CONFLUX_WANT_FILE_IO_SYNC)
 add_library(conflux_file_io_sync STATIC)
 target_sources(conflux_file_io_sync
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/file_io/file_io_sync.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/file_io_sync.cxx
 )
 target_link_libraries(conflux_file_io_sync
     PRIVATE conflux_options
@@ -685,9 +790,9 @@ if(CONFLUX_WANT_FILE_MAP)
 add_library(conflux_file_map STATIC)
 target_sources(conflux_file_map
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/file_io/file_map.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/file_map.cxx
 )
 target_link_libraries(conflux_file_map
     PRIVATE conflux_options
@@ -699,9 +804,9 @@ if(CONFLUX_WANT_JSON_FILE)
 add_library(conflux_json_file STATIC)
 target_sources(conflux_json_file
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/json_file.cxx
+        ${CONFLUX_SRC_ROOT}/json_file.cxx
 )
 target_link_libraries(conflux_json_file
     PRIVATE conflux_options
@@ -713,11 +818,11 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     add_library(conflux_http_core STATIC)
     target_sources(conflux_http_core
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
             FILES
-            src/net/http_types.cxx
-            src/net/http_request.cxx
-            src/net/server_types.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_types.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_request.cxx
+            ${CONFLUX_SRC_ROOT}/net/server_types.cxx
     )
     target_link_libraries(conflux_http_core
         PRIVATE conflux_options
@@ -729,8 +834,8 @@ if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     add_library(conflux_http_json STATIC)
     target_sources(conflux_http_json
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/net/http_json.cxx
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
+            FILES ${CONFLUX_SRC_ROOT}/net/http_json.cxx
     )
     target_link_libraries(conflux_http_json
         PRIVATE conflux_options
@@ -744,12 +849,12 @@ if(CONFLUX_NEEDS_RUNTIME)
 add_library(conflux_uring STATIC)
 target_sources(conflux_uring
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/uring/uring.cxx
-        src/uring/flow.cxx
-        src/uring/uring_completion.cxx
-        src/uring/uring_handle.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring.cxx
+        ${CONFLUX_SRC_ROOT}/uring/flow.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring_completion.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring_handle.cxx
 )
 target_link_libraries(conflux_uring
     PRIVATE conflux_options
@@ -760,9 +865,9 @@ target_link_libraries(conflux_uring
 add_library(conflux_uring_timeout STATIC)
 target_sources(conflux_uring_timeout
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/uring/uring_timeout.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring_timeout.cxx
 )
 target_link_libraries(conflux_uring_timeout
     PRIVATE conflux_options
@@ -874,21 +979,21 @@ target_compile_definitions(conflux_uring
 add_library(conflux_work STATIC)
 target_sources(conflux_work
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/work/carrier_flags.cxx
-        src/work/carrier_model_a.cxx
-        src/work/carrier_scope.cxx
-        src/work/carrier_deadline.cxx
-        src/work/carrier_coro.cxx
-        src/work/carrier_streams.cxx
-        src/work/carrier_timer.cxx
-        src/work/root.cxx
-        src/work.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_flags.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_model_a.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_scope.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_deadline.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_coro.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_streams.cxx
+        ${CONFLUX_SRC_ROOT}/work/carrier_timer.cxx
+        ${CONFLUX_SRC_ROOT}/work/root.cxx
+        ${CONFLUX_SRC_ROOT}/work.cxx
 )
 target_sources(conflux_work
     PRIVATE
-        src/work_impl.cxx
+        ${CONFLUX_SRC_ROOT}/work_impl.cxx
 )
 target_compile_definitions(conflux_work
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_A=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_A}>
@@ -909,8 +1014,8 @@ if(CONFLUX_WANT_PROCESS)
 add_library(conflux_process STATIC)
 target_sources(conflux_process
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/process.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/process.cxx
 )
 target_link_libraries(conflux_process
     PRIVATE conflux_options
@@ -923,8 +1028,8 @@ if(CONFLUX_NEEDS_RUNTIME)
 add_library(conflux_net_io_buffer STATIC)
 target_sources(conflux_net_io_buffer
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/io_buffer.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/io_buffer.cxx
 )
 target_link_libraries(conflux_net_io_buffer
     PRIVATE conflux_options
@@ -937,14 +1042,14 @@ if(CONFLUX_WANT_FILE_IO)
 add_library(conflux_file_io STATIC)
 target_sources(conflux_file_io
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/file_io/buffers.cxx
-        src/file_io/pipe_pool.cxx
-        src/file_io/reader.cxx
-        src/file_io/iopoll.cxx
-        src/file_io/driver.cxx
-        src/file_io/file_io.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/buffers.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/pipe_pool.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/reader.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/iopoll.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/driver.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/file_io.cxx
 )
 target_link_libraries(conflux_file_io
     PRIVATE conflux_options
@@ -961,9 +1066,9 @@ if(CONFLUX_WANT_FILE_WATCH)
 add_library(conflux_file_watch STATIC)
 target_sources(conflux_file_watch
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/file_watch.cxx
+        ${CONFLUX_SRC_ROOT}/file_watch.cxx
 )
 target_link_libraries(conflux_file_watch
     PRIVATE conflux_options
@@ -975,9 +1080,9 @@ if(CONFLUX_WANT_TEMPLATES)
 add_library(conflux_template STATIC)
 target_sources(conflux_template
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/template.cxx
+        ${CONFLUX_SRC_ROOT}/template.cxx
 )
 target_link_libraries(conflux_template
     PRIVATE conflux_options
@@ -991,9 +1096,9 @@ if(CONFLUX_WANT_TEMPLATES_WATCH)
 add_library(conflux_template_watch STATIC)
 target_sources(conflux_template_watch
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/template_watch.cxx
+        ${CONFLUX_SRC_ROOT}/template_watch.cxx
 )
 target_link_libraries(conflux_template_watch
     PRIVATE conflux_options
@@ -1006,15 +1111,15 @@ if(CONFLUX_WANT_SOCKET_IO)
 add_library(conflux_socket_io STATIC)
 target_sources(conflux_socket_io
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/socket_io/socket_io.cxx
-        src/socket_io/socket_io_coro.cxx
-        src/socket_io/socket_io_blocking.cxx
+        ${CONFLUX_SRC_ROOT}/socket_io/socket_io.cxx
+        ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro.cxx
+        ${CONFLUX_SRC_ROOT}/socket_io/socket_io_blocking.cxx
 )
 target_sources(conflux_socket_io
     PRIVATE
-        src/socket_io/socket_io_coro_impl.cxx
+        ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro_impl.cxx
 )
 
 target_link_libraries(conflux_socket_io
@@ -1030,12 +1135,12 @@ if(CONFLUX_NEEDS_RUNTIME)
 add_library(conflux_net_cancel STATIC)
 target_sources(conflux_net_cancel
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/cancel.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/cancel.cxx
 )
 target_sources(conflux_net_cancel
     PRIVATE
-        src/net/cancel_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/cancel_impl.cxx
 )
 target_link_libraries(conflux_net_cancel
     PRIVATE conflux_options
@@ -1048,13 +1153,13 @@ if(CONFLUX_WANT_DNS)
 add_library(conflux_dns STATIC)
 target_sources(conflux_dns
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/net/dns/dns.cxx
+        ${CONFLUX_SRC_ROOT}/net/dns/dns.cxx
 )
 target_sources(conflux_dns
     PRIVATE
-        src/net/dns/dns_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/dns/dns_impl.cxx
 )
 target_link_libraries(conflux_dns
     PRIVATE conflux_options
@@ -1070,14 +1175,14 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
     add_library(conflux_pg STATIC)
     target_sources(conflux_pg
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
             FILES
-            src/db/types.cxx
-            src/db/params.cxx
-            src/db/result.cxx
-            src/db/connection.cxx
-            src/db/pool.cxx
-            src/db/pg.cxx
+            ${CONFLUX_SRC_ROOT}/db/types.cxx
+            ${CONFLUX_SRC_ROOT}/db/params.cxx
+            ${CONFLUX_SRC_ROOT}/db/result.cxx
+            ${CONFLUX_SRC_ROOT}/db/connection.cxx
+            ${CONFLUX_SRC_ROOT}/db/pool.cxx
+            ${CONFLUX_SRC_ROOT}/db/pg.cxx
     )
     target_link_libraries(conflux_pg
         PRIVATE conflux_options
@@ -1090,9 +1195,9 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
     add_library(conflux_db STATIC)
     target_sources(conflux_db
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
             FILES
-            src/db/db.cxx
+            ${CONFLUX_SRC_ROOT}/db/db.cxx
     )
     target_link_libraries(conflux_db
         PRIVATE conflux_options
@@ -1180,7 +1285,7 @@ int main() {
 endif()
 
 if(_conflux_simd_backend STREQUAL "STD26")
-    add_library(conflux_simd_std26 OBJECT src/simd_std26.cxx)
+    add_library(conflux_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/simd_std26.cxx)
     target_compile_features(conflux_simd_std26 PRIVATE cxx_std_26)
     target_link_libraries(conflux_simd_std26 PRIVATE conflux_options)
     set(_conflux_simd_std26_options "-mavx2")
@@ -1189,11 +1294,11 @@ if(_conflux_simd_backend STREQUAL "STD26")
             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
         list(APPEND _conflux_simd_std26_options "-fno-lto")
     endif()
-    set_source_files_properties(src/simd_std26.cxx PROPERTIES
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/simd_std26.cxx PROPERTIES
         COMPILE_OPTIONS "${_conflux_simd_std26_options}"
     )
     unset(_conflux_simd_std26_options)
-    add_library(conflux_json_simd_std26 OBJECT src/json_simd_std26.cxx)
+    add_library(conflux_json_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/json_simd_std26.cxx)
     target_compile_features(conflux_json_simd_std26 PRIVATE cxx_std_26)
     target_link_libraries(conflux_json_simd_std26 PRIVATE conflux_options)
     set(_conflux_json_simd_std26_options "-mavx2")
@@ -1202,23 +1307,23 @@ if(_conflux_simd_backend STREQUAL "STD26")
             AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
         list(APPEND _conflux_json_simd_std26_options "-fno-lto")
     endif()
-    set_source_files_properties(src/json_simd_std26.cxx PROPERTIES
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/json_simd_std26.cxx PROPERTIES
         COMPILE_OPTIONS "${_conflux_json_simd_std26_options}"
     )
     unset(_conflux_json_simd_std26_options)
 endif()
 
 if(_conflux_simd_backend STREQUAL "STDX")
-    add_library(conflux_simd_stdx OBJECT src/simd_stdx.cxx)
+    add_library(conflux_simd_stdx OBJECT ${CONFLUX_SRC_ROOT}/simd_stdx.cxx)
     target_compile_features(conflux_simd_stdx PRIVATE cxx_std_23)
     target_link_libraries(conflux_simd_stdx PRIVATE conflux_options)
-    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/simd_stdx.cxx PROPERTIES
         COMPILE_OPTIONS "-mavx2"
     )
-    add_library(conflux_json_simd_stdx OBJECT src/json_simd_stdx.cxx)
+    add_library(conflux_json_simd_stdx OBJECT ${CONFLUX_SRC_ROOT}/json_simd_stdx.cxx)
     target_compile_features(conflux_json_simd_stdx PRIVATE cxx_std_23)
     target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options)
-    set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/json_simd_stdx.cxx PROPERTIES
         COMPILE_OPTIONS "-mavx2"
     )
 endif()
@@ -1244,8 +1349,8 @@ endif()
 add_library(conflux_utils STATIC)
 target_sources(conflux_utils
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/utils.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/utils.cxx
 )
 target_link_libraries(conflux_utils
     PRIVATE conflux_options
@@ -1259,8 +1364,8 @@ endif()
 add_library(conflux_net_config STATIC)
 target_sources(conflux_net_config
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/config.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/config.cxx
 )
 target_link_libraries(conflux_net_config
     PRIVATE conflux_options
@@ -1277,8 +1382,8 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_parse_helpers STATIC)
 target_sources(conflux_http_parse_helpers
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_parse_helpers.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_parse_helpers.cxx
 )
 target_link_libraries(conflux_http_parse_helpers
     PRIVATE conflux_options
@@ -1294,8 +1399,8 @@ if(CONFLUX_HAS_TLS STREQUAL "true"
 add_library(conflux_net_tls STATIC)
 target_sources(conflux_net_tls
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/tls.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/tls.cxx
 )
 target_link_libraries(conflux_net_tls
     PRIVATE conflux_options
@@ -1317,8 +1422,8 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
     target_compile_features(conflux_json_reflect PUBLIC cxx_std_26)
     target_sources(conflux_json_reflect
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/json_reflect.cxx
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
+            FILES ${CONFLUX_SRC_ROOT}/json_reflect.cxx
     )
     target_link_libraries(conflux_json_reflect
         PUBLIC  conflux_json conflux_types
@@ -1329,8 +1434,8 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
     add_library(conflux_json_reflect_provider STATIC)
     target_sources(conflux_json_reflect_provider
         PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/json_reflect_provider.cxx
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
+            FILES ${CONFLUX_SRC_ROOT}/json_reflect_provider.cxx
     )
     target_link_libraries(conflux_json_reflect_provider
         PUBLIC  conflux_json_reflect conflux_json_native_provider conflux_json_boundary
@@ -1343,9 +1448,9 @@ endif()
 add_library(conflux_direct_slot_pool STATIC)
 target_sources(conflux_direct_slot_pool
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/net/direct_slot_pool.cxx
+        ${CONFLUX_SRC_ROOT}/net/direct_slot_pool.cxx
 )
 target_link_libraries(conflux_direct_slot_pool
     PRIVATE conflux_options
@@ -1356,8 +1461,8 @@ if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED)
 add_library(conflux_http_realtime STATIC)
 target_sources(conflux_http_realtime
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/realtime.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/realtime.cxx
 )
 target_link_libraries(conflux_http_realtime
     PRIVATE conflux_options
@@ -1385,8 +1490,8 @@ if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_response STATIC)
 target_sources(conflux_http_response
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/response.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/response.cxx
 )
 target_link_libraries(conflux_http_response
     PRIVATE conflux_options
@@ -1404,8 +1509,8 @@ if(TARGET conflux_http_response AND TARGET conflux_http_json)
 add_library(conflux_http_response_json STATIC)
 target_sources(conflux_http_response_json
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_response_json.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_response_json.cxx
 )
 target_link_libraries(conflux_http_response_json
     PRIVATE conflux_options
@@ -1419,8 +1524,8 @@ if(TARGET conflux_http_response_json AND TARGET conflux_json_native_provider)
 add_library(conflux_http_native_json STATIC)
 target_sources(conflux_http_native_json
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_native_json.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_native_json.cxx
 )
 target_link_libraries(conflux_http_native_json
     PRIVATE conflux_options
@@ -1433,8 +1538,8 @@ if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
 add_library(conflux_http_static_core STATIC)
 target_sources(conflux_http_static_core
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/static_core.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/static_core.cxx
 )
 target_link_libraries(conflux_http_static_core
     PRIVATE conflux_options
@@ -1444,8 +1549,8 @@ target_link_libraries(conflux_http_static_core
 add_library(conflux_http_static STATIC)
 target_sources(conflux_http_static
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/static.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/static.cxx
 )
 target_link_libraries(conflux_http_static
     PRIVATE conflux_options
@@ -1459,10 +1564,10 @@ if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_static_async STATIC)
 target_sources(conflux_http_static_async
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/static_async_iface.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/static_async_iface.cxx
     PRIVATE
-        src/net/static_async.cxx
+        ${CONFLUX_SRC_ROOT}/net/static_async.cxx
 )
 target_link_libraries(conflux_http_static_async
     PRIVATE conflux_options
@@ -1480,18 +1585,18 @@ target_link_libraries(conflux_http_static_async
 add_library(conflux_http_router STATIC)
 target_sources(conflux_http_router
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/router.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/router.cxx
 )
 target_sources(conflux_http_router
     PRIVATE
-        src/net/router_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/router_impl.cxx
 )
 add_library(conflux_http_router_dispatch STATIC)
 target_sources(conflux_http_router_dispatch
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/router_dispatch.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/router_dispatch.cxx
 )
 target_link_libraries(conflux_http_router_dispatch
     PRIVATE conflux_options
@@ -1505,8 +1610,8 @@ target_link_libraries(conflux_http_router_dispatch
 add_library(conflux_http_router_match STATIC)
 target_sources(conflux_http_router_match
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/router_match.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/router_match.cxx
 )
 target_link_libraries(conflux_http_router_match
     PRIVATE conflux_options
@@ -1517,10 +1622,10 @@ target_link_libraries(conflux_http_router_match
 add_library(conflux_http_router_static STATIC)
 target_sources(conflux_http_router_static
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/router_static.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/router_static.cxx
     PRIVATE
-        src/net/router_static_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/router_static_impl.cxx
 )
 target_link_libraries(conflux_http_router_static
     PRIVATE conflux_options
@@ -1554,18 +1659,18 @@ if(CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_policy STATIC)
 target_sources(conflux_http_policy
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/net/cache_control.cxx
-        src/net/cors.cxx
-        src/net/etag.cxx
-        src/net/forwarded.cxx
-        src/net/ip_filter.cxx
-        src/net/rate_limit.cxx
-        src/net/redirect.cxx
-        src/net/response_cache.cxx
-        src/net/security.cxx
-        src/net/trailing_slash.cxx
+        ${CONFLUX_SRC_ROOT}/net/cache_control.cxx
+        ${CONFLUX_SRC_ROOT}/net/cors.cxx
+        ${CONFLUX_SRC_ROOT}/net/etag.cxx
+        ${CONFLUX_SRC_ROOT}/net/forwarded.cxx
+        ${CONFLUX_SRC_ROOT}/net/ip_filter.cxx
+        ${CONFLUX_SRC_ROOT}/net/rate_limit.cxx
+        ${CONFLUX_SRC_ROOT}/net/redirect.cxx
+        ${CONFLUX_SRC_ROOT}/net/response_cache.cxx
+        ${CONFLUX_SRC_ROOT}/net/security.cxx
+        ${CONFLUX_SRC_ROOT}/net/trailing_slash.cxx
 )
 target_link_libraries(conflux_http_policy
     PRIVATE conflux_options
@@ -1577,17 +1682,17 @@ endif() # CONFLUX_WANT_HTTP_POLICY || CONFLUX_WANT_HTTP_SERVER
 if(CONFLUX_WANT_HTTP_AUTH OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_auth STATIC)
 set(CONFLUX_HTTP_AUTH_SOURCES
-    src/net/auth.cxx
-    src/net/password_hash.cxx
-    src/net/cookie_signing.cxx
-    src/net/csrf.cxx
+    ${CONFLUX_SRC_ROOT}/net/auth.cxx
+    ${CONFLUX_SRC_ROOT}/net/password_hash.cxx
+    ${CONFLUX_SRC_ROOT}/net/cookie_signing.cxx
+    ${CONFLUX_SRC_ROOT}/net/csrf.cxx
 )
 if(CONFLUX_HAS_TLS STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_AUTH_SOURCES src/net/jwt.cxx)
+    list(APPEND CONFLUX_HTTP_AUTH_SOURCES ${CONFLUX_SRC_ROOT}/net/jwt.cxx)
 endif()
 target_sources(conflux_http_auth
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES ${CONFLUX_HTTP_AUTH_SOURCES}
 )
 target_link_libraries(conflux_http_auth
@@ -1630,16 +1735,16 @@ endif() # CONFLUX_WANT_HTTP_AUTH || CONFLUX_WANT_HTTP_SERVER
 if(CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_observability STATIC)
 set(CONFLUX_HTTP_OBSERVABILITY_SOURCES
-    src/net/request_id.cxx
-    src/net/structured_log.cxx
-    src/net/tracing.cxx
+    ${CONFLUX_SRC_ROOT}/net/request_id.cxx
+    ${CONFLUX_SRC_ROOT}/net/structured_log.cxx
+    ${CONFLUX_SRC_ROOT}/net/tracing.cxx
 )
 if(CONFLUX_HAS_METRICS STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_OBSERVABILITY_SOURCES src/net/metrics.cxx)
+    list(APPEND CONFLUX_HTTP_OBSERVABILITY_SOURCES ${CONFLUX_SRC_ROOT}/net/metrics.cxx)
 endif()
 target_sources(conflux_http_observability
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES ${CONFLUX_HTTP_OBSERVABILITY_SOURCES}
 )
 target_link_libraries(conflux_http_observability
@@ -1658,8 +1763,8 @@ if(CONFLUX_WANT_HTTP_OPENAPI OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_openapi STATIC)
 target_sources(conflux_http_openapi
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/openapi.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/openapi.cxx
 )
 target_link_libraries(conflux_http_openapi
     PRIVATE conflux_options
@@ -1672,8 +1777,8 @@ if(CONFLUX_WANT_HTTP_VHOST OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_vhost STATIC)
 target_sources(conflux_http_vhost
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/vhost.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/vhost.cxx
 )
 target_link_libraries(conflux_http_vhost
     PRIVATE conflux_options
@@ -1687,8 +1792,8 @@ if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED)
 add_library(conflux_dns_bridge STATIC)
 target_sources(conflux_dns_bridge
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/client_dns_bridge.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/client_dns_bridge.cxx
 )
 target_link_libraries(conflux_dns_bridge
     PRIVATE conflux_options
@@ -1699,11 +1804,11 @@ target_link_libraries(conflux_dns_bridge
 add_library(conflux_net_client STATIC)
 target_sources(conflux_net_client
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-            src/net/client_wire.cxx
-            src/net/client.cxx
-            src/net/http_client.cxx
+            ${CONFLUX_SRC_ROOT}/net/client_wire.cxx
+            ${CONFLUX_SRC_ROOT}/net/client.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_client.cxx
 )
 target_link_libraries(conflux_net_client
     PRIVATE conflux_options
@@ -1722,12 +1827,12 @@ endif()
 add_library(conflux_net_async_client STATIC)
 target_sources(conflux_net_async_client
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/client_async.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/client_async.cxx
 )
 target_sources(conflux_net_async_client
     PRIVATE
-        src/net/client_async_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/client_async_impl.cxx
 )
 target_link_libraries(conflux_net_async_client
     PRIVATE conflux_options
@@ -1749,22 +1854,22 @@ endif() # CONFLUX_HTTP_CLIENT_STACK_REQUESTED
 
 if(CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_compression STATIC)
-set(CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress.cxx)
+set(CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress.cxx)
 if(CONFLUX_HAS_ZLIB STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_zlib.cxx)
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress_backend_zlib.cxx)
 endif()
 if(CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_libdeflate.cxx)
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress_backend_libdeflate.cxx)
 endif()
 if(CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_zlibng.cxx)
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress_backend_zlibng.cxx)
 endif()
 if(CONFLUX_HAS_ISAL STREQUAL "true")
-    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_isal.cxx)
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress_backend_isal.cxx)
 endif()
 target_sources(conflux_http_compression
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES ${CONFLUX_HTTP_COMPRESSION_SOURCES}
 )
 target_link_libraries(conflux_http_compression
@@ -1806,12 +1911,12 @@ if(CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_proxy STATIC)
 target_sources(conflux_http_proxy
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/proxy.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/proxy.cxx
 )
 target_sources(conflux_http_proxy
     PRIVATE
-        src/net/proxy_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/proxy_impl.cxx
 )
 target_link_libraries(conflux_http_proxy
     PRIVATE conflux_options
@@ -1830,8 +1935,8 @@ if(CONFLUX_WANT_SMTP OR (CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_TLS STREQUAL "
 add_library(conflux_net_smtp STATIC)
 target_sources(conflux_net_smtp
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/smtp.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/smtp.cxx
 )
 target_link_libraries(conflux_net_smtp
     PRIVATE conflux_options
@@ -1848,8 +1953,8 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http1 STATIC)
 target_sources(conflux_http1
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http1_parser.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http1_parser.cxx
 )
 target_link_libraries(conflux_http1
     PRIVATE conflux_options
@@ -1863,8 +1968,8 @@ if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_HTTP2 STREQUAL "true")
 add_library(conflux_http2 STATIC)
 target_sources(conflux_http2
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http2.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http2.cxx
 )
 target_link_libraries(conflux_http2
     PRIVATE conflux_options
@@ -1880,8 +1985,8 @@ if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_HTTP3 STREQUAL "true")
 add_library(conflux_http3 STATIC)
 target_sources(conflux_http3
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http3.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http3.cxx
 )
 target_link_libraries(conflux_http3
     PRIVATE conflux_options
@@ -1902,8 +2007,8 @@ if(CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_protocol STATIC)
 target_sources(conflux_http_protocol
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_protocol.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_protocol.cxx
 )
 target_link_libraries(conflux_http_protocol
     PRIVATE conflux_options
@@ -1928,8 +2033,8 @@ if(CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_server_helpers STATIC)
 target_sources(conflux_http_server_helpers
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_server_helpers.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_server_helpers.cxx
 )
 target_link_libraries(conflux_http_server_helpers
     PRIVATE conflux_options
@@ -1942,8 +2047,8 @@ target_link_libraries(conflux_http_server_helpers
 add_library(conflux_http_server_config STATIC)
 target_sources(conflux_http_server_config
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_server_config.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_server_config.cxx
 )
 target_link_libraries(conflux_http_server_config
     PRIVATE conflux_options
@@ -1955,27 +2060,27 @@ target_link_libraries(conflux_http_server_config
 add_library(conflux_http_server STATIC)
 target_sources(conflux_http_server
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_server.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_server.cxx
 )
 target_sources(conflux_http_server
     PRIVATE FILE_SET private_http_server_partitions TYPE CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-            src/net/http_server_state.cxx
-            src/net/http_server_h2.cxx
-            src/net/http_server_tls.cxx
-            src/net/http_server_send.cxx
-            src/net/http_server_ws.cxx
-            src/net/http_server_recv.cxx
-            src/net/http_server_cqe.cxx
-            src/net/http_server_diag.cxx
-            src/net/http_server_loop.cxx
-            src/net/http_server_dispatch.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_state.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_h2.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_tls.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_send.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_ws.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_recv.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_cqe.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_diag.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_loop.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_dispatch.cxx
 )
 target_sources(conflux_http_server
     PRIVATE
-        src/net/http_server_impl.cxx
+        ${CONFLUX_SRC_ROOT}/net/http_server_impl.cxx
 )
 target_link_libraries(conflux_http_server
     PRIVATE conflux_options
@@ -2022,19 +2127,19 @@ if(CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_app STATIC)
 target_sources(conflux_http_app
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-            src/net/app_defer.cxx
-            src/net/app_extractor_helpers.cxx
-            src/net/app_json_helpers.cxx
-            src/net/app_metadata_helpers.cxx
-            src/net/app_openapi.cxx
-            src/net/app_policies.cxx
-            src/net/app_response.cxx
-            src/net/app_route_helpers.cxx
-            src/net/app_traits.cxx
-            src/net/app_types.cxx
-            src/net/app.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_defer.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_extractor_helpers.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_json_helpers.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_metadata_helpers.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_openapi.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_policies.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_response.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_route_helpers.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_traits.cxx
+            ${CONFLUX_SRC_ROOT}/net/app_types.cxx
+            ${CONFLUX_SRC_ROOT}/net/app.cxx
 )
 target_link_libraries(conflux_http_app
     PRIVATE conflux_options
@@ -2057,8 +2162,8 @@ if(TARGET conflux_http_response_json AND TARGET conflux_http_app AND TARGET conf
 add_library(conflux_http_app_json STATIC)
 target_sources(conflux_http_app_json
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http_app_json.cxx
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES ${CONFLUX_SRC_ROOT}/net/http_app_json.cxx
 )
 target_link_libraries(conflux_http_app_json
     PRIVATE conflux_options
@@ -2072,12 +2177,12 @@ if(CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_net_http STATIC)
 target_sources(conflux_net_http
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-            src/net/http_facade_problem.cxx
-            src/net/http_facade.cxx
-            src/net/http_server_umbrella.cxx
-            src/net/http.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_facade_problem.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_facade.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_server_umbrella.cxx
+            ${CONFLUX_SRC_ROOT}/net/http.cxx
 )
 target_link_libraries(conflux_net_http
     PRIVATE conflux_options
@@ -2137,9 +2242,9 @@ add_library(conflux STATIC)
 
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        src/conflux.cxx
+        ${CONFLUX_SRC_ROOT}/conflux.cxx
 )
 
 target_sources(conflux
@@ -2720,12 +2825,12 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
 install(FILES
-    src/json_simd_backend.hxx
-    src/simd_backend.hxx
+    ${CONFLUX_SRC_ROOT}/json_simd_backend.hxx
+    ${CONFLUX_SRC_ROOT}/simd_backend.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules/src
 )
 install(FILES
-    src/conflux/detail/discard.hxx
+    ${CONFLUX_SRC_ROOT}/conflux/detail/discard.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail
 )
 install(EXPORT confluxTargets

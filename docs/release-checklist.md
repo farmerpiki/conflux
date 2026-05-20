@@ -14,6 +14,7 @@ bundle, or security-sensitive surface is added.
 | Tests | `ctest` command, preset, result summary | Use `scripts/run-ctest.sh` where possible. |
 | Sanitizers / fuzz | Sanitizer preset logs and parser-facing fuzz/security corpus result | Required when HTTP parser, JSON parser, URL/form decoding, or WebSocket framing changed. |
 | Examples | `examples/compile` CTest result | Examples must compile, not necessarily run server loops in CI. |
+| Header compatibility | Full `HEADER_INTERFACE` compile pass log | Pre-release only: enable examples, tests, and benchmarks to catch generated-header consumer regressions. Public header-mode profiles may stay examples-only. |
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
 | Benchmarks | Same-machine benchmark artifact path and comparison summary | Required for claimed performance changes; use perf presets only. |
