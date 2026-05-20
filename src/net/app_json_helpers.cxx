@@ -51,12 +51,13 @@ template<class T>
 	conflux::json::boundary::ErrorStage stage) noexcept {
 	using enum conflux::json::boundary::ErrorStage;
 	switch (stage) {
-	case parse   : return "parse";
-	case lookup  : return "lookup";
-	case decode  : return "decode";
-	case build   : return "build";
-	case dump    : return "dump";
-	case provider: return "provider";
+	case parse     : return "parse";
+	case lookup    : return "lookup";
+	case decode    : return "decode";
+	case build     : return "build";
+	case dump      : return "dump";
+	case json_patch: return "json_patch";
+	case provider  : return "provider";
 	}
 	return "provider";
 }
@@ -86,8 +87,33 @@ template<class T>
 	case invalid_value         : return "invalid_value";
 	case output_too_large      : return "output_too_large";
 	case resource_exhausted    : return "resource_exhausted";
+	case invalid_patch         : return "invalid_patch";
 	}
 	return "provider_failure";
+}
+
+[[nodiscard]] std::string_view json_issue_code_name(
+	JsonIssueCode code) noexcept {
+	using enum JsonIssueCode;
+	switch (code) {
+	case invalid_patch                 : return "invalid_patch";
+	case patch_op_missing              : return "patch_op_missing";
+	case patch_op_unknown              : return "patch_op_unknown";
+	case patch_path_missing            : return "patch_path_missing";
+	case patch_path_invalid            : return "patch_path_invalid";
+	case patch_from_missing            : return "patch_from_missing";
+	case patch_from_invalid            : return "patch_from_invalid";
+	case patch_test_failed             : return "patch_test_failed";
+	case patch_target_missing          : return "patch_target_missing";
+	case patch_parent_missing          : return "patch_parent_missing";
+	case patch_array_index_invalid     : return "patch_array_index_invalid";
+	case patch_array_index_out_of_range: return "patch_array_index_out_of_range";
+	case patch_move_into_child         : return "patch_move_into_child";
+	case patch_remove_document_root    : return "patch_remove_document_root";
+	case patch_too_many_operations     : return "patch_too_many_operations";
+	case patch_pointer_too_deep        : return "patch_pointer_too_deep";
+	default                            : return "invalid_json";
+	}
 }
 
 [[nodiscard]] HttpResponse json_decode_problem(
@@ -106,6 +132,30 @@ template<class T>
 			err.source->offset,
 			err.source->line,
 			err.source->column);
+	}
+	body += "}";
+	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	response.content_type = "application/problem+json";
+	return response;
+}
+
+[[nodiscard]] HttpResponse json_patch_problem(
+	JsonError const &err) {
+	std::string body = std::format(
+		R"({{"code":"{}","stage":"json_patch","detail":"{}")",
+		json_issue_code_name(err.code),
+		json_escape(err.message));
+	if (err.operation_index) {
+		body += std::format(R"(,"operation_index":{})", *err.operation_index);
+	}
+	if (err.operation) {
+		body += std::format(R"(,"operation":"{}")", json_escape(*err.operation));
+	}
+	if (err.pointer) {
+		body += std::format(R"(,"path":"{}")", json_escape(*err.pointer));
+	}
+	if (err.from_pointer) {
+		body += std::format(R"(,"from":"{}")", json_escape(*err.from_pointer));
 	}
 	body += "}";
 	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");

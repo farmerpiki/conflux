@@ -52,6 +52,10 @@ template<class Arg>
 #if CONFLUX_HAS_JSON
 	} else if constexpr (JsonDocumentArg<Clean>) {
 		return "JsonDocument";
+	} else if constexpr (JsonPatchArg<Clean>) {
+		return "JsonPatch";
+	} else if constexpr (MergePatchArg<Clean>) {
+		return "MergePatch";
 #endif
 	} else if constexpr (MultipartArg<Clean>) {
 		return "Multipart";
@@ -148,6 +152,8 @@ template<class Args, std::size_t... Is>
 #if CONFLUX_HAS_JSON
 			|| FormParamsArg<std::tuple_element_t<Is, Args>>
 			|| JsonDocumentArg<std::tuple_element_t<Is, Args>>
+			|| JsonPatchArg<std::tuple_element_t<Is, Args>>
+			|| MergePatchArg<std::tuple_element_t<Is, Args>>
 #endif
 			|| MultipartArg<std::tuple_element_t<Is, Args>>
 			|| JsonArg<std::tuple_element_t<Is, Args>>));

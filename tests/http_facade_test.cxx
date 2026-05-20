@@ -1509,6 +1509,78 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JsonPatch extractor validates content type and patch shape",
+	"[http.facade]") {
+	auto app = http::app();
+	app.patch("/patch", [](http::JsonPatch patch) {
+		auto ok = conflux::json::validate_patch(patch.value.root());
+		REQUIRE(ok.has_value());
+		return http::no_content();
+	});
+
+	HttpRequest req;
+	req.method = "PATCH";
+	req.path = "/patch";
+	req.body = R"([{"op":"add","path":"/name","value":"Ada"}])";
+
+	auto wrong = app.router().dispatch(req);
+	CHECK(wrong.status == kHttpBadRequest);
+	CHECK(wrong.content_type == "application/problem+json");
+	CHECK(wrong.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
+
+	req.headers["content-type"] = "application/json-patch+json";
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpNoContent);
+
+	req.body = R"([{"path":"/name","value":"Ada"}])";
+	auto invalid = app.router().dispatch(req);
+	CHECK(invalid.status == kHttpBadRequest);
+	CHECK(invalid.content_type == "application/problem+json");
+	CHECK(invalid.text_body().find(R"("code":"patch_op_missing")") != std::string_view::npos);
+	CHECK(invalid.text_body().find(R"("stage":"json_patch")") != std::string_view::npos);
+
+	auto spec = app.openapi_spec("Patch API", "1.0");
+	CHECK(spec.find("application/json-patch+json") != std::string::npos);
+	CHECK(spec.find(R"("required":["op","path"])") != std::string::npos);
+}
+
+TEST_CASE(
+	"http facade: MergePatch extractor validates content type and body limit",
+	"[http.facade]") {
+	auto app = http::app();
+	app.patch(
+		   "/merge",
+		   [](http::MergePatch patch) {
+			   auto dumped = patch->dump();
+			   REQUIRE(dumped.has_value());
+			   return http::text(*dumped);
+		   })
+		.max_body_size(8);
+
+	HttpRequest req;
+	req.method = "PATCH";
+	req.path = "/merge";
+	req.body = R"({"a":1})";
+
+	auto wrong = app.router().dispatch(req);
+	CHECK(wrong.status == kHttpBadRequest);
+	CHECK(wrong.content_type == "application/problem+json");
+
+	req.headers["content-type"] = "application/merge-patch+json";
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == R"({"a":1})");
+
+	req.body = R"({"long":true})";
+	auto too_large = app.router().dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
+	CHECK(too_large.content_type == "application/problem+json");
+
+	auto spec = app.openapi_spec("Merge API", "1.0");
+	CHECK(spec.find("application/merge-patch+json") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: JSON body routes enforce route-local body limits",
 	"[http.facade]") {
 	auto app = http::app();

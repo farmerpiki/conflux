@@ -173,6 +173,12 @@ concept OwnedBodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, OwnedBodyByte
 #if CONFLUX_HAS_JSON
 template<class Arg>
 concept JsonDocumentArg = std::same_as<std::remove_cvref_t<Arg>, JsonDocument>;
+
+template<class Arg>
+concept JsonPatchArg = std::same_as<std::remove_cvref_t<Arg>, JsonPatch>;
+
+template<class Arg>
+concept MergePatchArg = std::same_as<std::remove_cvref_t<Arg>, MergePatch>;
 #endif
 
 template<class Arg>
@@ -241,12 +247,16 @@ consteval bool has_state_arg_impl(
 			|| QueryParamsArg<std::tuple_element_t<Is, Args>>
 			|| FormParamsArg<std::tuple_element_t<Is, Args>>
 			|| JsonArg<std::tuple_element_t<Is, Args>>
+			|| JsonPatchArg<std::tuple_element_t<Is, Args>>
+			|| MergePatchArg<std::tuple_element_t<Is, Args>>
 #endif
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
 #if CONFLUX_HAS_JSON
 			|| JsonDocumentArg<std::tuple_element_t<Is, Args>>
+			|| JsonPatchArg<std::tuple_element_t<Is, Args>>
+			|| MergePatchArg<std::tuple_element_t<Is, Args>>
 #endif
 			|| MultipartArg<std::tuple_element_t<Is, Args>>
 			|| RequestIdArg<std::tuple_element_t<Is, Args>>

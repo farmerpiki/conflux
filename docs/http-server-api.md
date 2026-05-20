@@ -468,6 +468,13 @@ accessible through `req.params["param"]`.
 
 The public concepts are intended for user helpers and diagnostics. `http::Request` / `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept `http::OwnedRequest`. A synchronous handler may also accept `http::OwnedRequest const&`; that deliberately materializes an owned request before the call, so prefer `http::Request const&` unless ownership is needed.
 
+Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`
+requires `Content-Type: application/json-patch+json`, parses the body, and
+validates RFC 6902 operation shape before invoking the handler. `http::MergePatch`
+requires `application/merge-patch+json`. Both use the route/app JSON body limit,
+return `application/problem+json` on extractor failure, and record the matching
+PATCH content type in OpenAPI metadata.
+
 ---
 
 ## Handlers

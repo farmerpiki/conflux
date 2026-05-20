@@ -68,6 +68,7 @@ export enum class JsonStage {
 	decode,
 	build,
 	dump,
+	json_patch,
 };
 // NOLINTNEXTLINE(performance-enum-size)
 export enum class JsonIssueCode {
@@ -91,6 +92,22 @@ export enum class JsonIssueCode {
 	string_too_large,
 	output_too_large,
 	resource_exhausted,
+	invalid_patch,
+	patch_op_missing,
+	patch_op_unknown,
+	patch_path_missing,
+	patch_path_invalid,
+	patch_from_missing,
+	patch_from_invalid,
+	patch_test_failed,
+	patch_target_missing,
+	patch_parent_missing,
+	patch_array_index_invalid,
+	patch_array_index_out_of_range,
+	patch_move_into_child,
+	patch_remove_document_root,
+	patch_too_many_operations,
+	patch_pointer_too_deep,
 };
 export struct JsonSourceLocation {
 	std::size_t offset{};
@@ -185,6 +202,10 @@ export struct JsonError {
 	std::optional<std::string> target_type{};
 	std::optional<std::size_t> requested_index{};
 	std::optional<std::size_t> container_size{};
+	std::optional<std::size_t> operation_index{};
+	std::optional<std::string> operation{};
+	std::optional<std::string> pointer{};
+	std::optional<std::string> from_pointer{};
 	std::string message{};
 	[[nodiscard]] JsonError with_prefix(
 		JsonPath const &prefix) const & {
@@ -213,6 +234,7 @@ export struct JsonError {
 		return static_cast<JsonError const &>(*this).with_prefix(prefix);
 	}
 };
+
 // ---------------------------------------------------------------------------
 // LimitOption / JsonParseOptions
 // ---------------------------------------------------------------------------
@@ -2230,6 +2252,28 @@ public:
 export ValueBuilder value_builder();
 export [[nodiscard]] std::expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
 export [[nodiscard]] std::expected<Document, JsonError> merge_patch(Document const &target, Document const &patch);
+export namespace conflux::json {
+
+enum class JsonPatchOp {
+	add,
+	remove,
+	replace,
+	move,
+	copy,
+	test,
+};
+struct JsonPatchOptions {
+	std::size_t max_operations{1024};
+	std::size_t max_pointer_depth{128};
+	bool reject_duplicate_object_members{true};
+	bool allow_missing_remove{false};
+};
+[[nodiscard]] std::expected<Document, JsonError> apply_patch(NodeRef target, NodeRef patch, JsonPatchOptions opts = {});
+[[nodiscard]] std::expected<Document, JsonError>
+apply_patch(Document const &target, Document const &patch, JsonPatchOptions opts = {});
+[[nodiscard]] std::expected<void, JsonError> validate_patch(NodeRef patch, JsonPatchOptions opts = {});
+
+} // namespace conflux::json
 // Internal helpers: encode a value of type T into a shared BuilderState,
 // returning the resulting node index. Rolls back on failure.
 // Used by ArrayBuilder::append<T> and ObjectBuilder::insert<T>.

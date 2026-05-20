@@ -10,11 +10,12 @@ namespace conflux::json::boundary::detail {
 [[nodiscard]] inline ErrorStage map_stage(
 	JsonStage stage) noexcept {
 	switch (stage) {
-	case JsonStage::parse : return ErrorStage::parse;
-	case JsonStage::lookup: return ErrorStage::lookup;
-	case JsonStage::decode: return ErrorStage::decode;
-	case JsonStage::build : return ErrorStage::build;
-	case JsonStage::dump  : return ErrorStage::dump;
+	case JsonStage::parse     : return ErrorStage::parse;
+	case JsonStage::lookup    : return ErrorStage::lookup;
+	case JsonStage::decode    : return ErrorStage::decode;
+	case JsonStage::build     : return ErrorStage::build;
+	case JsonStage::dump      : return ErrorStage::dump;
+	case JsonStage::json_patch: return ErrorStage::json_patch;
 	}
 	return ErrorStage::provider;
 }
@@ -22,26 +23,42 @@ namespace conflux::json::boundary::detail {
 [[nodiscard]] inline ErrorCode map_code(
 	JsonIssueCode code) noexcept {
 	switch (code) {
-	case JsonIssueCode::syntax_error          : return ErrorCode::syntax_error;
-	case JsonIssueCode::unexpected_eof        : return ErrorCode::unexpected_eof;
-	case JsonIssueCode::trailing_garbage      : return ErrorCode::trailing_garbage;
-	case JsonIssueCode::input_too_large       : return ErrorCode::input_too_large;
-	case JsonIssueCode::string_too_large      : return ErrorCode::string_too_large;
-	case JsonIssueCode::nesting_too_deep      : return ErrorCode::nesting_too_deep;
-	case JsonIssueCode::wrong_kind            : return ErrorCode::wrong_kind;
-	case JsonIssueCode::missing_member        : return ErrorCode::missing_member;
-	case JsonIssueCode::index_out_of_range    : return ErrorCode::index_out_of_range;
-	case JsonIssueCode::invalid_number        : return ErrorCode::invalid_number;
-	case JsonIssueCode::number_out_of_range   : return ErrorCode::number_out_of_range;
-	case JsonIssueCode::sign_mismatch         : return ErrorCode::sign_mismatch;
-	case JsonIssueCode::duplicate_member      : return ErrorCode::duplicate_member;
-	case JsonIssueCode::invalid_unicode_escape: return ErrorCode::invalid_unicode_escape;
-	case JsonIssueCode::invalid_utf8          : return ErrorCode::invalid_utf8;
-	case JsonIssueCode::invalid_pointer       : return ErrorCode::invalid_pointer;
-	case JsonIssueCode::constraint_violation  : return ErrorCode::constraint_violation;
-	case JsonIssueCode::invalid_value         : return ErrorCode::invalid_value;
-	case JsonIssueCode::output_too_large      : return ErrorCode::output_too_large;
-	case JsonIssueCode::resource_exhausted    : return ErrorCode::resource_exhausted;
+	case JsonIssueCode::syntax_error                  : return ErrorCode::syntax_error;
+	case JsonIssueCode::unexpected_eof                : return ErrorCode::unexpected_eof;
+	case JsonIssueCode::trailing_garbage              : return ErrorCode::trailing_garbage;
+	case JsonIssueCode::input_too_large               : return ErrorCode::input_too_large;
+	case JsonIssueCode::string_too_large              : return ErrorCode::string_too_large;
+	case JsonIssueCode::nesting_too_deep              : return ErrorCode::nesting_too_deep;
+	case JsonIssueCode::wrong_kind                    : return ErrorCode::wrong_kind;
+	case JsonIssueCode::missing_member                : return ErrorCode::missing_member;
+	case JsonIssueCode::index_out_of_range            : return ErrorCode::index_out_of_range;
+	case JsonIssueCode::invalid_number                : return ErrorCode::invalid_number;
+	case JsonIssueCode::number_out_of_range           : return ErrorCode::number_out_of_range;
+	case JsonIssueCode::sign_mismatch                 : return ErrorCode::sign_mismatch;
+	case JsonIssueCode::duplicate_member              : return ErrorCode::duplicate_member;
+	case JsonIssueCode::invalid_unicode_escape        : return ErrorCode::invalid_unicode_escape;
+	case JsonIssueCode::invalid_utf8                  : return ErrorCode::invalid_utf8;
+	case JsonIssueCode::invalid_pointer               : return ErrorCode::invalid_pointer;
+	case JsonIssueCode::constraint_violation          : return ErrorCode::constraint_violation;
+	case JsonIssueCode::invalid_value                 : return ErrorCode::invalid_value;
+	case JsonIssueCode::output_too_large              : return ErrorCode::output_too_large;
+	case JsonIssueCode::resource_exhausted            : return ErrorCode::resource_exhausted;
+	case JsonIssueCode::invalid_patch                 :
+	case JsonIssueCode::patch_op_missing              :
+	case JsonIssueCode::patch_op_unknown              :
+	case JsonIssueCode::patch_path_missing            :
+	case JsonIssueCode::patch_path_invalid            :
+	case JsonIssueCode::patch_from_missing            :
+	case JsonIssueCode::patch_from_invalid            :
+	case JsonIssueCode::patch_test_failed             :
+	case JsonIssueCode::patch_target_missing          :
+	case JsonIssueCode::patch_parent_missing          :
+	case JsonIssueCode::patch_array_index_invalid     :
+	case JsonIssueCode::patch_array_index_out_of_range:
+	case JsonIssueCode::patch_move_into_child         :
+	case JsonIssueCode::patch_remove_document_root    :
+	case JsonIssueCode::patch_too_many_operations     :
+	case JsonIssueCode::patch_pointer_too_deep        : return ErrorCode::invalid_patch;
 	}
 	return ErrorCode::provider_failure;
 }

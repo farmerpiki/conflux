@@ -1326,6 +1326,12 @@ public:
 					using JsonValue = typename detail::JsonType<Clean>::type;
 					meta.consumes = {"application/json", "application/problem+json"};
 					meta.request_body_schema = detail::schema_json_or_object<JsonValue>();
+				} else if constexpr (detail::JsonPatchArg<Clean>) {
+					meta.consumes = {"application/json-patch+json"};
+					meta.request_body_schema = R"({"type":"array","items":{"type":"object","required":["op","path"]}})";
+				} else if constexpr (detail::MergePatchArg<Clean>) {
+					meta.consumes = {"application/merge-patch+json"};
+					meta.request_body_schema = "{}";
 				}
 			}(),
 			...);
@@ -1363,6 +1369,12 @@ public:
 		if constexpr (detail::has_body_extractor<Args>()) {
 			if (std::ranges::contains(meta.extractors, "JsonDocument")) {
 				meta.consumes = {"application/json", "application/problem+json"};
+			} else if (std::ranges::contains(meta.extractors, "JsonPatch")) {
+				meta.consumes = {"application/json-patch+json"};
+				meta.request_body_schema = R"({"type":"array","items":{"type":"object","required":["op","path"]}})";
+			} else if (std::ranges::contains(meta.extractors, "MergePatch")) {
+				meta.consumes = {"application/merge-patch+json"};
+				meta.request_body_schema = "{}";
 			}
 #if CONFLUX_HAS_JSON
 			apply_json_body_metadata<Args>(meta, std::make_index_sequence<std::tuple_size_v<Args>>{});
@@ -1513,6 +1525,37 @@ public:
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
 			}
 			return JsonDocument{.value = std::move(*parsed)};
+		} else if constexpr (detail::JsonPatchArg<Clean>) {
+			auto content_type = req.header("content-type");
+			if (!content_type.starts_with("application/json-patch+json")) {
+				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
+			}
+			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
+			if (limit != 0 && req.body.size() > limit) {
+				throw ExtractorFailure{detail::json_body_too_large_problem()};
+			}
+			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
+			if (!parsed) {
+				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
+			}
+			if (auto ok = conflux::json::validate_patch(parsed->root()); !ok) {
+				throw ExtractorFailure{detail::json_patch_problem(ok.error())};
+			}
+			return JsonPatch{.value = std::move(*parsed)};
+		} else if constexpr (detail::MergePatchArg<Clean>) {
+			auto content_type = req.header("content-type");
+			if (!content_type.starts_with("application/merge-patch+json")) {
+				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
+			}
+			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
+			if (limit != 0 && req.body.size() > limit) {
+				throw ExtractorFailure{detail::json_body_too_large_problem()};
+			}
+			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
+			if (!parsed) {
+				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
+			}
+			return MergePatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using BodyValue = typename detail::JsonType<Clean>::type;
 			auto content_type = req.header("content-type");
@@ -1560,8 +1603,8 @@ public:
 				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
 				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::Json<T>, http::JsonDocument, "
-				"http::BodyBytes, http::OwnedBodyBytes, http::Multipart, http::RequestId, http::ConnectionInfo, "
-				"http::TraceContext, http::Bearer, "
+				"http::JsonPatch, http::MergePatch, http::BodyBytes, http::OwnedBodyBytes, http::Multipart, "
+				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");
 		}
 	}

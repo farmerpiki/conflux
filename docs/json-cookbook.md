@@ -188,6 +188,7 @@ struct JsonError {
 | `decode` | `decode<T>`: type mismatch, missing required field, constraint violation |
 | `build` | Builder: duplicate key, invalid value (NaN/Inf), builder misuse |
 | `query` | `at()`, `as_object()`, etc.: wrong kind or missing path segment |
+| `json_patch` | RFC 6902 validation or patch application |
 
 ### Common `JsonIssueCode` values
 
@@ -203,6 +204,9 @@ struct JsonError {
 | `depth_exceeded` | Nesting deeper than `max_depth` |
 | `string_too_large` | String exceeds `max_string_size` limit |
 | `unexpected_token` | Structural parse error |
+| `patch_op_missing` | RFC 6902 operation object is missing `op` |
+| `patch_path_invalid` | RFC 6902 `path` is not a valid JSON Pointer |
+| `patch_test_failed` | RFC 6902 `test` compared unequal values |
 
 ### Building user-facing error messages
 

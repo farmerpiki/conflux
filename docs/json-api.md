@@ -381,6 +381,38 @@ recursively, and arrays are replaced as whole values. Target member order is
 preserved for unchanged/replaced members; new patch members are appended in patch
 order.
 
+### JSON Patch
+
+```cpp
+namespace conflux::json {
+
+enum class JsonPatchOp { add, remove, replace, move, copy, test };
+
+struct JsonPatchOptions {
+    size_t max_operations = 1024;
+    size_t max_pointer_depth = 128;
+    bool reject_duplicate_object_members = true;
+    bool allow_missing_remove = false;
+};
+
+expected<Document, JsonError>
+apply_patch(NodeRef target, NodeRef patch, JsonPatchOptions opts = {});
+expected<Document, JsonError>
+apply_patch(Document const& target, Document const& patch, JsonPatchOptions opts = {});
+expected<void, JsonError>
+validate_patch(NodeRef patch, JsonPatchOptions opts = {});
+
+}
+```
+
+`apply_patch` implements RFC 6902 over the immutable DOM and returns a new
+owning `Document`. `add`, `remove`, `replace`, `move`, `copy`, and `test` are
+supported. Root replacement is allowed through `add`/`replace`; root removal is
+rejected with `patch_remove_document_root`. Failed operations do not mutate the
+input document. Patch diagnostics use `JsonStage::json_patch` and stable
+`JsonIssueCode::patch_*` values, with operation index and pointer text attached
+when available.
+
 ---
 
 ## Build API

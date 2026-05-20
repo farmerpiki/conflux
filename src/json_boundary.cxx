@@ -40,6 +40,7 @@ enum class ErrorStage : std::uint8_t {
 	decode,
 	build,
 	dump,
+	json_patch,
 	provider,
 };
 
@@ -65,6 +66,7 @@ enum class ErrorCode : std::uint8_t {
 	invalid_value,
 	output_too_large,
 	resource_exhausted,
+	invalid_patch,
 };
 
 struct SourceLocation {

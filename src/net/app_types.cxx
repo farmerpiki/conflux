@@ -222,6 +222,26 @@ struct JsonDocument {
 	[[nodiscard]] value_type const &operator *() const noexcept { return value; }
 	[[nodiscard]] value_type const *operator ->() const noexcept { return std::addressof(value); }
 };
+
+struct JsonPatch {
+	using value_type = Document;
+
+	value_type value;
+
+	[[nodiscard]] value_type const &get() const noexcept { return value; }
+	[[nodiscard]] value_type const &operator *() const noexcept { return value; }
+	[[nodiscard]] value_type const *operator ->() const noexcept { return std::addressof(value); }
+};
+
+struct MergePatch {
+	using value_type = Document;
+
+	value_type value;
+
+	[[nodiscard]] value_type const &get() const noexcept { return value; }
+	[[nodiscard]] value_type const &operator *() const noexcept { return value; }
+	[[nodiscard]] value_type const *operator ->() const noexcept { return std::addressof(value); }
+};
 #endif
 
 struct Multipart {
