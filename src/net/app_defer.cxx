@@ -1,7 +1,7 @@
 module;
 #include <memory>
 
-export module conflux.net.app:defer;
+export module conflux.net.app.defer;
 
 import std;
 import conflux.net.http.response;

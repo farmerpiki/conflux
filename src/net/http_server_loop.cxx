@@ -5,6 +5,7 @@ module;
 #include <cassert>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <liburing.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -173,11 +174,11 @@ void Ring::init(
 			throw std::runtime_error{"io_uring_mlock_size failed"};
 		}
 		auto *raw = static_cast<std::byte *>(
-			::aligned_alloc(static_cast<std::size_t>(sysconf(_SC_PAGESIZE)), static_cast<std::size_t>(sz)));
+			std::aligned_alloc(static_cast<std::size_t>(sysconf(_SC_PAGESIZE)), static_cast<std::size_t>(sz)));
 		if (raw == nullptr) {
 			throw std::bad_alloc{};
 		}
-		ring_mem = {raw, ::free};
+		ring_mem = std::unique_ptr<std::byte[], void (*)(void *)>{raw, std::free};
 		if (io_uring_queue_init_mem(entries, &ring, &params, raw, static_cast<std::size_t>(sz)) < 0) {
 			throw std::runtime_error{"io_uring_queue_init_mem failed"};
 		}
@@ -797,6 +798,7 @@ void Ring::handle_timer() {
 		if (conn.send_queued) {
 			continue;
 		} // mid-send: handler already responded
+#if CONFLUX_HAS_TLS
 		// TLS sniff-undecided sentinel: ssl==nullptr && tls_hs_done==true && partial empty.
 		// Use the (usually shorter) sniff timeout to reap silent connections that opened
 		// the TCP socket but never sent a std::byte.
@@ -807,6 +809,7 @@ void Ring::handle_timer() {
 			}
 			continue;
 		}
+#endif
 		if (request_timeout_ms != 0) {
 			auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
 			if (now - ref > req_limit) {

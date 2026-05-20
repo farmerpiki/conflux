@@ -29,6 +29,9 @@ bundle, or security-sensitive surface is added.
 - `scripts/check-package-config.sh` passes.
 - Installed `find_package(conflux REQUIRED COMPONENTS ...)` works for the
   components listed in `docs/component-map.md`.
+- Install/package smokes cover the selected public interface mode. Run module
+  and header package lanes separately; mixed import/include consumers are not a
+  supported release gate.
 - Feature bundles in `cmake/ConfluxPresets.cmake` match the bundle descriptions
   in `docs/component-map.md`.
 

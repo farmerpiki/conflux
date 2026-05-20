@@ -1,14 +1,14 @@
 module;
 #include <memory>
 
-export module conflux.net.app:policies;
+export module conflux.net.app.policies;
 
 import std;
 import conflux.net.http.types;
 import conflux.net.http.response;
 import conflux.net.http.request;
 import conflux.net.http.server_types;
-import :route_helpers;
+import conflux.net.app.route_helpers;
 
 export namespace conflux::http {
 

@@ -1,7 +1,7 @@
 module;
 #include <memory>
 
-export module conflux.net.app:types;
+export module conflux.net.app.types;
 
 import std;
 import conflux.net.config;

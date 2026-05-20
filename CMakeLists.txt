@@ -22,13 +22,19 @@ endif()
 project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
 option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
-set(CONFLUX_INTERFACE_MODE "MODULE_IMPORT_STD" CACHE STRING
-    "Public interface/build mode: MODULE_IMPORT_STD, MODULE_STD_HEADERS, or HEADER_INTERFACE")
-set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_IMPORT_STD MODULE_STD_HEADERS HEADER_INTERFACE)
+set(CONFLUX_INTERFACE_MODE "MODULE_INTERFACE" CACHE STRING
+    "Public consumer interface: MODULE_INTERFACE or HEADER_INTERFACE")
+set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_INTERFACE HEADER_INTERFACE)
 option(CONFLUX_USE_MOCK_LIBURING
     "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
 option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
     "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
+
+if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+        AND NOT CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    message(FATAL_ERROR
+        "CONFLUX_INTERFACE_MODE must be MODULE_INTERFACE or HEADER_INTERFACE; got '${CONFLUX_INTERFACE_MODE}'")
+endif()
 
 if(CONFLUX_JSON_REFLECT)
     set(CMAKE_CXX_STANDARD 26)
@@ -37,17 +43,16 @@ else()
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_IMPORT_STD")
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     if(NOT ${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
         set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
         if(_conflux_import_std_levels STREQUAL "")
             set(_conflux_import_std_levels "<none>")
         endif()
         message(FATAL_ERROR
-            "conflux requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support in MODULE_IMPORT_STD mode. "
+            "conflux requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support in MODULE_INTERFACE mode. "
             "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
-            "Use CONFLUX_INTERFACE_MODE=MODULE_STD_HEADERS to keep project modules but replace import std with headers, "
-            "or CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to generate only the header interface target.")
+            "Use CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to generate the header consumer surface.")
     endif()
     set(CMAKE_CXX_MODULE_STD ON)
 else()
@@ -65,16 +70,16 @@ option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF
 set(CONFLUX_LTO_MODE "AUTO" CACHE STRING "LTO mode when CONFLUX_ENABLE_LTO=ON: AUTO, THIN, or FULL")
 set_property(CACHE CONFLUX_LTO_MODE PROPERTY STRINGS AUTO THIN FULL)
 if(CONFLUX_JSON_REFLECT
-        AND CONFLUX_INTERFACE_MODE STREQUAL "MODULE_IMPORT_STD"
+        AND CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
         AND NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
     set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
     if(_conflux_import_std_levels STREQUAL "")
         set(_conflux_import_std_levels "<none>")
     endif()
     message(FATAL_ERROR
-        "conflux: CONFLUX_JSON_REFLECT requires C++26 import std support in MODULE_IMPORT_STD mode. "
+        "conflux: CONFLUX_JSON_REFLECT requires C++26 import std support in MODULE_INTERFACE mode. "
         "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
-        "Use CONFLUX_INTERFACE_MODE=MODULE_STD_HEADERS or HEADER_INTERFACE to avoid import std.")
+        "Use CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to avoid import std.")
 endif()
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
@@ -119,7 +124,7 @@ set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO S
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable pooled coroutine frame allocation for work Task/EagerChain frames" OFF)
 option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_WORK_QUEUE_STATS "Enable relaxed WorkPool queue/wake contention counters for profiling" OFF)
-option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption globally with -fno-module-lazy on GCC 15+" OFF)
+option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Force GCC module imports to eager-load with -fno-module-lazy for local compiler diagnostics" OFF)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         AND CONFLUX_GCC_EAGER_MODULE_IMPORTS
@@ -261,6 +266,80 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     conflux_add_header_test_compile_targets()
     conflux_add_header_compile_fail_tests()
     conflux_add_header_benchmark_compile_targets()
+
+    add_library(conflux_core INTERFACE)
+    target_link_libraries(conflux_core INTERFACE conflux_headers)
+    target_compile_definitions(conflux_core INTERFACE CONFLUX_INTERFACE_HEADER=1)
+    set_target_properties(conflux_core PROPERTIES EXPORT_NAME core)
+
+    add_library(conflux_types INTERFACE)
+    target_link_libraries(conflux_types INTERFACE conflux_headers)
+    set_target_properties(conflux_types PROPERTIES EXPORT_NAME types)
+
+    set(CONFLUX_HEADER_INSTALL_TARGETS conflux_headers conflux_core conflux_types)
+    set(CONFLUX_PACKAGE_COMPONENTS core types)
+    set(CONFLUX_PACKAGE_TARGETS conflux::core conflux::types)
+
+    if(CONFLUX_WANT_JSON)
+        add_library(conflux_json INTERFACE)
+        target_link_libraries(conflux_json INTERFACE conflux_headers)
+        set_target_properties(conflux_json PROPERTIES EXPORT_NAME json)
+        list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_json)
+        list(APPEND CONFLUX_PACKAGE_COMPONENTS json)
+        list(APPEND CONFLUX_PACKAGE_TARGETS conflux::json)
+    endif()
+
+    if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+        add_library(conflux_net_http INTERFACE)
+        target_link_libraries(conflux_net_http INTERFACE conflux_headers)
+        set_target_properties(conflux_net_http PROPERTIES EXPORT_NAME http)
+        list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_net_http)
+        list(APPEND CONFLUX_PACKAGE_COMPONENTS http)
+        list(APPEND CONFLUX_PACKAGE_TARGETS conflux::http)
+    endif()
+
+    set(CONFLUX_INSTALL_NEEDS_LIBURING FALSE)
+    set(CONFLUX_INSTALL_NEEDS_XXHASH FALSE)
+    set(CONFLUX_INSTALL_NEEDS_LIBPQ FALSE)
+    set(CONFLUX_INSTALL_NEEDS_OPENSSL FALSE)
+    set(CONFLUX_INSTALL_NEEDS_ZLIB FALSE)
+    set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE FALSE)
+    set(CONFLUX_INSTALL_NEEDS_ZLIB_NG FALSE)
+    set(CONFLUX_INSTALL_NEEDS_ISAL FALSE)
+    set(CONFLUX_INSTALL_NEEDS_BROTLI FALSE)
+    set(CONFLUX_INSTALL_NEEDS_ZSTD FALSE)
+    set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
+    set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
+    set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
+
+    configure_package_config_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/conflux-config.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+    )
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+
+    install(TARGETS ${CONFLUX_HEADER_INSTALL_TARGETS}
+        EXPORT confluxTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+    )
+    install(EXPORT confluxTargets
+        NAMESPACE conflux::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+    )
     return()
 endif()
 
@@ -584,6 +663,9 @@ target_link_libraries(conflux_types
 add_library(conflux_core INTERFACE)
 target_compile_features(conflux_core INTERFACE cxx_std_23)
 target_link_libraries(conflux_core INTERFACE conflux_types)
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    target_compile_definitions(conflux_core INTERFACE CONFLUX_INTERFACE_MODULE=1)
+endif()
 
 if(CONFLUX_WANT_CRYPTO)
 add_library(conflux_crypto STATIC)
@@ -761,7 +843,13 @@ endif()
 if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_SOCKET_IO)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_SOCKET_IO")
 endif()
-if(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
+if(CONFLUX_WANT_SMTP
+        AND CONFLUX_HAS_TLS STREQUAL "false"
+        AND CONFLUX_BUILD_SMTP STREQUAL "AUTO")
+    set(CONFLUX_WANT_SMTP FALSE)
+    set(CONFLUX_WANT_SMTP FALSE CACHE INTERNAL "Resolved conflux component flag" FORCE)
+    message(STATUS "conflux: SMTP disabled (TLS unavailable)")
+elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_ENABLE_TLS and OpenSSL")
 endif()
 
@@ -2167,26 +2255,36 @@ if(TARGET conflux_http_native_json)
 else()
     target_compile_definitions(conflux_http_app PUBLIC CONFLUX_HAS_JSON=0)
 endif()
+target_link_libraries(conflux_http_app
+    PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_response_json
+    PUBLIC  conflux_net_client
+    PUBLIC  conflux_http_protocol
+    PUBLIC  conflux_http_auth
+    PUBLIC  conflux_http_compression
+    PUBLIC  conflux_http_policy
+    PUBLIC  conflux_http_observability
+    PUBLIC  conflux_http_openapi
+    PUBLIC  conflux_http_vhost
+)
 endif() # CONFLUX_WANT_HTTP_SERVER (app facade)
 
 if(TARGET conflux_http_response_json AND TARGET conflux_http_app AND TARGET conflux_http_router)
-add_library(conflux_http_app_json STATIC)
-target_sources(conflux_http_app_json
+target_sources(conflux_http_app
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES ${CONFLUX_SRC_ROOT}/net/http_app_json.cxx
 )
+add_library(conflux_http_app_json INTERFACE)
 target_link_libraries(conflux_http_app_json
-    PRIVATE conflux_options
-    PUBLIC  conflux_http_app
-    PUBLIC  conflux_http_router
-    PUBLIC  conflux_http_response_json
+    INTERFACE conflux_http_app
+    INTERFACE conflux_http_router
+    INTERFACE conflux_http_response_json
 )
 endif() # conflux_http_response_json && conflux_http_app && conflux_http_router
 
 if(CONFLUX_WANT_HTTP_SERVER)
-add_library(conflux_net_http STATIC)
-target_sources(conflux_net_http
+target_sources(conflux_http_app
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
@@ -2195,51 +2293,51 @@ target_sources(conflux_net_http
             ${CONFLUX_SRC_ROOT}/net/http_server_umbrella.cxx
             ${CONFLUX_SRC_ROOT}/net/http.cxx
 )
+add_library(conflux_net_http INTERFACE)
 target_link_libraries(conflux_net_http
-    PRIVATE conflux_options
-    PUBLIC  conflux_types
-    PUBLIC  conflux_net_config
-    PUBLIC  conflux_http_core
-    PUBLIC  conflux_http_json
-    PUBLIC  conflux_http_response_json
-    PUBLIC  conflux_http_app_json
-    PUBLIC  conflux_http_router
-    PUBLIC  conflux_net_client
-    PUBLIC  conflux_http_protocol
-    PUBLIC  conflux_http_server
-    PUBLIC  conflux_http_app
-    PUBLIC  conflux_http_auth
-    PUBLIC  conflux_http_compression
-    PUBLIC  conflux_http_policy
-    PUBLIC  conflux_http_observability
-    PUBLIC  conflux_http_openapi
-    PUBLIC  conflux_http_vhost
+    INTERFACE conflux_types
+    INTERFACE conflux_net_config
+    INTERFACE conflux_http_core
+    INTERFACE conflux_http_json
+    INTERFACE conflux_http_response_json
+    INTERFACE conflux_http_app_json
+    INTERFACE conflux_http_router
+    INTERFACE conflux_net_client
+    INTERFACE conflux_http_protocol
+    INTERFACE conflux_http_server
+    INTERFACE conflux_http_app
+    INTERFACE conflux_http_auth
+    INTERFACE conflux_http_compression
+    INTERFACE conflux_http_policy
+    INTERFACE conflux_http_observability
+    INTERFACE conflux_http_openapi
+    INTERFACE conflux_http_vhost
 )
 if(TARGET conflux_http_native_json)
-    target_link_libraries(conflux_net_http PUBLIC conflux_http_native_json)
+    target_link_libraries(conflux_net_http INTERFACE conflux_http_native_json)
 endif()
 if(TARGET conflux_json)
-    target_link_libraries(conflux_net_http PUBLIC conflux_json)
+    target_link_libraries(conflux_net_http INTERFACE conflux_json)
 endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=1)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_TLS=1)
 else()
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=0)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_TLS=0)
 endif()
 if(CONFLUX_HAS_METRICS STREQUAL "true")
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=1)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_METRICS=1)
 else()
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=0)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_METRICS=0)
 endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=1)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP2=1)
 else()
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=0)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP2=0)
 endif()
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP3=1)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP3=1)
 else()
-    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP3=0)
+    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP3=0)
 endif()
 endif() # CONFLUX_WANT_HTTP_SERVER (HTTP umbrella)
 

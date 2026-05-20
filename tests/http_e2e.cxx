@@ -8,8 +8,10 @@
 #include <ctime>
 #include <fcntl.h>
 #include <netinet/in.h>
+#if CONFLUX_HAS_TLS
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#endif
 #include <sys/socket.h>
 #include <unistd.h>
 #include <zlib.h>
@@ -20,12 +22,16 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.async_client;
 import conflux.net.http;
+#if CONFLUX_HAS_TLS
 import conflux.net.jwt;
+#endif
 import conflux.net.compress;
 import conflux.net.proxy;
 import conflux.net.http.static_core;
 import conflux.net.http1_parser;
+#if CONFLUX_HAS_TLS
 import conflux.net.tls;
+#endif
 import conflux.tests.support;
 import conflux.work;
 
@@ -4114,6 +4120,7 @@ TEST_CASE(
 // TLS (HTTPS) shared infrastructure
 // ---------------------------------------------------------------------------
 
+#if CONFLUX_HAS_TLS
 std::uint16_t g_tls_port = 0;
 // Generate a self-signed cert+key P once, start a TLS server, delete the
 // temp files (already loaded into SSL_CTX by the time port() returns).
@@ -4525,6 +4532,7 @@ TEST_CASE(
 
 	srv.stop();
 }
+#endif
 // ---------------------------------------------------------------------------
 // forwarded_middleware
 // ---------------------------------------------------------------------------
@@ -4900,6 +4908,7 @@ TEST_CASE(
 // JWT
 // ---------------------------------------------------------------------------
 
+#if CONFLUX_HAS_TLS
 namespace {
 
 // Shared JWT test server (single instance, lazy-init).
@@ -5149,6 +5158,7 @@ TEST_CASE(
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("HS256") != std::string::npos);
 }
+#endif
 // ---------------------------------------------------------------------------
 // Counter / Gauge / Histogram unit tests
 // ---------------------------------------------------------------------------

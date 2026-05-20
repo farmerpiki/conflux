@@ -1,4 +1,4 @@
-export module conflux.net.app:route_helpers;
+export module conflux.net.app.route_helpers;
 
 import std;
 import conflux.net.http.types;

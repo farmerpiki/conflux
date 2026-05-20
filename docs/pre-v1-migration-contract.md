@@ -15,6 +15,9 @@ For code-review rules around handler placement and `blocking_`/`sync_`/`async_` 
   Conflux remains Linux/io_uring-first.
 - Breaking API changes are expected before v1 when they simplify the final
   public surface.
+- A configured package exposes one public consumer interface. Use
+  `MODULE_INTERFACE` with `import conflux.*` or `HEADER_INTERFACE` with generated
+  headers; mixed import/include consumption is unsupported.
 - `conflux.work` legacy `Flow<T>` APIs have been removed from the current source;
   migration docs retain historical spellings only as before-state examples.
 - `conflux.work.root` is the async base for public-facing async flows.

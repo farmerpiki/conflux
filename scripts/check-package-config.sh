@@ -62,14 +62,16 @@ grep -q 'conflux::conflux' cmake/conflux-config.cmake.in \
 
 grep -q 'find_package(conflux REQUIRED COMPONENTS' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must consume find_package(conflux COMPONENTS ...)"
-grep -q 'add_executable(conflux_package_smoke package_smoke.cxx)' cmake/package-smoke/CMakeLists.txt \
-    || fail "package smoke project must compile a downstream executable"
+grep -q 'add_executable(conflux_package_smoke "${_conflux_package_smoke_source}")' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke project must compile a generated downstream executable"
 grep -q 'target_link_libraries(conflux_package_smoke PRIVATE' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must link installed namespaced targets"
 grep -q 'add_test(NAME package-smoke/run' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must run the downstream executable"
-grep -q 'import conflux.types;' cmake/package-smoke/package_smoke.cxx \
-    || fail "package smoke source must import an installed conflux module"
+grep -q 'import conflux.types;' cmake/package-smoke/CMakeLists.txt \
+    || fail "module package smoke source must import an installed conflux module"
+grep -q '#include <conflux/types.hxx>' cmake/package-smoke/CMakeLists.txt \
+    || fail "header package smoke source must include an installed conflux header"
 grep -q 'cmake --build "\$build_dir"' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must build the downstream project"
 grep -q 'ctest --test-dir "\$build_dir" --output-on-failure' scripts/run-package-config-smoke.sh \

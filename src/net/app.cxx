@@ -5,16 +5,16 @@ module;
 
 export module conflux.net.app;
 
-export import :defer;
-export import :extractor_helpers;
-export import :json_helpers;
-export import :metadata_helpers;
-export import :openapi;
-export import :policies;
-export import :response;
-export import :route_helpers;
-export import :traits;
-export import :types;
+export import conflux.net.app.defer;
+export import conflux.net.app.extractor_helpers;
+export import conflux.net.app.json_helpers;
+export import conflux.net.app.metadata_helpers;
+export import conflux.net.app.openapi;
+export import conflux.net.app.policies;
+export import conflux.net.app.response;
+export import conflux.net.app.route_helpers;
+export import conflux.net.app.traits;
+export import conflux.net.app.types;
 import std;
 import conflux.types;
 import conflux.net.config;
@@ -1597,23 +1597,34 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
-		try {
-			auto result =
-				fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
-					states,
-					req
+		return conflux::work::root::spawn(
+			[&states,
+			 &fn,
+			 &req
 #if CONFLUX_HAS_JSON
-					,
-					json_options,
-					max_body_size
+			 ,
+			 &json_options,
+			 max_body_size
 #endif
-					)...);
+		]() mutable -> conflux::work::root::Task<HttpResponse> {
+				try {
+					auto result =
+						fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
+							states,
+							req
 #if CONFLUX_HAS_JSON
-			co_return into_app_response(co_await std::move(result), json_options);
+							,
+							json_options,
+							max_body_size
+#endif
+							)...);
+#if CONFLUX_HAS_JSON
+					co_return into_app_response(co_await std::move(result), json_options);
 #else
-			co_return into_app_response(co_await std::move(result));
+					co_return into_app_response(co_await std::move(result));
 #endif
-		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+				} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+			});
 	}
 
 	template<class Fn, class Args, std::size_t... Is>

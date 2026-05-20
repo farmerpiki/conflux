@@ -1,4 +1,4 @@
-export module conflux.net.app:openapi;
+export module conflux.net.app.openapi;
 
 import std;
 import conflux.net.http.types;

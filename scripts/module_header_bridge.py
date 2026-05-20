@@ -1636,8 +1636,6 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "    string(REPLACE \":\" \"/\" _stem \"${_stem}\")",
         "    if(mode STREQUAL \"HEADER\")",
         "        set(${out} \"${CONFLUX_GENERATED_INCLUDE_DIR}/${_stem}.hxx\" PARENT_SCOPE)",
-        "    elseif(mode STREQUAL \"MODULE_STD_HEADERS\")",
-        "        set(${out} \"${CONFLUX_GENERATED_SOURCE_DIR}/${_stem}.cxx\" PARENT_SCOPE)",
         "    else()",
         "        message(FATAL_ERROR \"unknown conflux bridge mode: ${mode}\")",
         "    endif()",

@@ -23,8 +23,18 @@ enable_testing()
 
 set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
     "Semicolon-separated conflux components to require from the install tree")
+set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
+    "Expected installed interface mode, or empty to accept the package mode")
+set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
+    "" MODULE_INTERFACE HEADER_INTERFACE)
 
 find_package(conflux REQUIRED COMPONENTS ${CONFLUX_PACKAGE_SMOKE_COMPONENTS})
+
+if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE
+        AND NOT CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE STREQUAL CONFLUX_INTERFACE_MODE)
+    message(FATAL_ERROR
+        "package smoke expected ${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}, got ${CONFLUX_INTERFACE_MODE}")
+endif()
 
 set(_conflux_smoke_link_targets conflux::core)
 if(TARGET conflux::types)
@@ -46,7 +56,53 @@ foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_COMPONENTS)
 endforeach()
 list(REMOVE_DUPLICATES _conflux_smoke_link_targets)
 
-add_executable(conflux_package_smoke package_smoke.cxx)
+set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    file(WRITE "${_conflux_package_smoke_source}" [[
+import std;
+import conflux.types;
+
+int main() {
+    std::string value{"conflux"};
+    std::vector<std::string> values{};
+    values.emplace_back(value);
+
+    std::optional<std::size_t> count{values.size()};
+    if (not count.has_value()) {
+        return 1;
+    }
+
+    return (*count == std::size_t{1} and values.front() == value) ? 0 : 1;
+}
+]])
+elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    file(WRITE "${_conflux_package_smoke_source}" [[
+#include <conflux/types.hxx>
+
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <vector>
+
+int main() {
+    std::string value{"conflux"};
+    std::vector<std::string> values{};
+    values.emplace_back(value);
+
+    std::optional<std::size_t> count{values.size()};
+    if (not count.has_value()) {
+        return 1;
+    }
+
+    return (*count == std::size_t{1} and values.front() == value) ? 0 : 1;
+}
+]])
+else()
+    message(FATAL_ERROR
+        "package smoke found unknown CONFLUX_INTERFACE_MODE='${CONFLUX_INTERFACE_MODE}'")
+endif()
+
+add_executable(conflux_package_smoke "${_conflux_package_smoke_source}")
 target_compile_features(conflux_package_smoke PRIVATE cxx_std_23)
 target_link_libraries(conflux_package_smoke PRIVATE ${_conflux_smoke_link_targets})
 

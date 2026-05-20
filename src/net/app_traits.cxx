@@ -1,7 +1,8 @@
-export module conflux.net.app:traits;
+export module conflux.net.app.traits;
 
 import std;
-import :types;
+import conflux.net.app.types;
+import conflux.net.http.server_types;
 
 export namespace conflux::http { namespace detail {
 

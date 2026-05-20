@@ -1,8 +1,8 @@
-export module conflux.net.app:response;
+export module conflux.net.app.response;
 
 import std;
 import conflux.net.http.response;
-import :types;
+import conflux.net.app.types;
 #if CONFLUX_HAS_JSON
 import conflux.net.http.native_json;
 #endif

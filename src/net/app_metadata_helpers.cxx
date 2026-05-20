@@ -1,7 +1,7 @@
-export module conflux.net.app:metadata_helpers;
+export module conflux.net.app.metadata_helpers;
 
 import std;
-import :traits;
+import conflux.net.app.traits;
 
 export namespace conflux::http::detail {
 

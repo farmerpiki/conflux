@@ -64,8 +64,22 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/confluxTargets.cmake")
 
 set(conflux_VERSION "@PROJECT_VERSION@")
+set(CONFLUX_INTERFACE_MODE "@CONFLUX_INTERFACE_MODE@")
 set(conflux_AVAILABLE_COMPONENTS "@CONFLUX_PACKAGE_COMPONENTS@")
 set(conflux_AVAILABLE_TARGETS "@CONFLUX_PACKAGE_TARGETS@")
+
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    if(TARGET conflux::core)
+        target_compile_definitions(conflux::core INTERFACE CONFLUX_INTERFACE_MODULE=1)
+    endif()
+elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    if(TARGET conflux::core)
+        target_compile_definitions(conflux::core INTERFACE CONFLUX_INTERFACE_HEADER=1)
+    endif()
+else()
+    message(FATAL_ERROR
+        "conflux package has unknown CONFLUX_INTERFACE_MODE='${CONFLUX_INTERFACE_MODE}'")
+endif()
 
 if(TARGET conflux::umbrella AND NOT TARGET conflux::conflux)
     add_library(conflux::conflux INTERFACE IMPORTED)

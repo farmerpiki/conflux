@@ -1,7 +1,7 @@
-export module conflux.net.app:extractor_helpers;
+export module conflux.net.app.extractor_helpers;
 
 import std;
-import :types;
+import conflux.net.app.types;
 import conflux.net.http.types;
 import conflux.net.http.response;
 import conflux.net.http.server_types;
@@ -9,7 +9,7 @@ import conflux.net.http.server_types;
 import conflux.json;
 #endif
 
-namespace conflux::http::detail {
+export namespace conflux::http::detail {
 
 template<class Arg>
 [[nodiscard]] auto field_problem(

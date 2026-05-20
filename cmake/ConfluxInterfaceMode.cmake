@@ -26,7 +26,7 @@ function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_BENCHMARKS_DIR "${CONFLUX_GENERATED_BENCHMARKS_DIR}" PARENT_SCOPE)
     set(CONFLUX_MOCK_LIBURING_ROOT "${CONFLUX_MOCK_LIBURING_ROOT}" PARENT_SCOPE)
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_IMPORT_STD")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
         return()
     endif()
 
@@ -45,12 +45,7 @@ function(conflux_configure_interface_mode)
             --mock-liburing-out "${CONFLUX_MOCK_LIBURING_ROOT}")
     endif()
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_STD_HEADERS")
-        list(APPEND _bridge_args
-            --module-out "${CONFLUX_GENERATED_ROOT}/modules"
-            --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
-            --source-mode module-std-headers)
-    elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args
             --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
             --source-mode header
@@ -99,9 +94,6 @@ function(conflux_configure_interface_mode)
         endif()
     endif()
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_STD_HEADERS")
-        set(CONFLUX_SRC_ROOT "${CONFLUX_GENERATED_SOURCE_DIR}" PARENT_SCOPE)
-    endif()
 endfunction()
 
 function(conflux_bridge_link_header_dependencies target scope)
@@ -271,10 +263,6 @@ function(conflux_resolve_source_id out source_id)
             set(${out} "${CONFLUX_GENERATED_SOURCE_DIR}/${_rel}.cxx" PARENT_SCOPE)
             return()
         endif()
-    elseif(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_STD_HEADERS" AND source_id MATCHES "^src/")
-        string(REGEX REPLACE "^src/" "" _rel "${source_id}")
-        set(${out} "${CONFLUX_GENERATED_SOURCE_DIR}/${_rel}.cxx" PARENT_SCOPE)
-        return()
     endif()
     set(${out} "${CMAKE_CURRENT_SOURCE_DIR}/${source_id}.cxx" PARENT_SCOPE)
 endfunction()
@@ -294,6 +282,7 @@ endfunction()
 function(conflux_add_header_interface_target)
     add_library(conflux_headers INTERFACE)
     add_library(conflux::headers ALIAS conflux_headers)
+    set_target_properties(conflux_headers PROPERTIES EXPORT_NAME headers)
     target_include_directories(conflux_headers INTERFACE
         "$<BUILD_INTERFACE:${CONFLUX_GENERATED_INCLUDE_DIR}>"
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
@@ -316,6 +305,7 @@ function(conflux_add_header_interface_target)
         target_compile_features(conflux_headers INTERFACE cxx_std_23)
     endif()
     target_compile_definitions(conflux_headers INTERFACE
+        CONFLUX_INTERFACE_HEADER=1
         CONFLUX_HEADER_USE_IMPORT_STD=0
         CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
         CONFLUX_HEADER_USE_MODULE_IMPORTS=0

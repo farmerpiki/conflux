@@ -36,6 +36,17 @@ surface area.
 
 ## Downstream CMake usage
 
+Choose one public interface mode when configuring the package:
+
+```cmake
+-DCONFLUX_INTERFACE_MODE=MODULE_INTERFACE
+-DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE
+```
+
+`MODULE_INTERFACE` consumers import `conflux.*` modules. `HEADER_INTERFACE`
+consumers include generated headers. Mixing module imports and generated
+headers in one consumer package or executable is unsupported.
+
 Install a build, then consume the exported package by component:
 
 ```cmake

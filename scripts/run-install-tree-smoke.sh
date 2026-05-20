@@ -9,11 +9,12 @@ components="core"
 feature_set="core"
 build_type="Release"
 generator=""
+interface_mode="MODULE_INTERFACE"
 extra_cmake_args=()
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [-- <extra cmake configure args>]
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -63,6 +64,11 @@ while (($#)); do
             generator="$2"
             shift 2
             ;;
+        --interface-mode)
+            [[ $# -ge 2 ]] || { usage; exit 2; }
+            interface_mode="$2"
+            shift 2
+            ;;
         --)
             shift
             extra_cmake_args+=("$@")
@@ -87,6 +93,9 @@ fail() {
 [[ -n "$source_root" ]] || source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -d "$source_root" ]] || fail "source does not exist: $source_root"
 [[ -f "$source_root/CMakeLists.txt" ]] || fail "missing CMakeLists.txt under $source_root"
+if [[ "$interface_mode" != "MODULE_INTERFACE" && "$interface_mode" != "HEADER_INTERFACE" ]]; then
+    fail "invalid interface mode: $interface_mode"
+fi
 source_root="$(realpath -m "$source_root")"
 
 base_dir="${TMPDIR:-/tmp}/conflux-install-tree-smoke"
@@ -99,6 +108,7 @@ cmake_configure=(
     -DCMAKE_BUILD_TYPE="$build_type"
     -DCMAKE_INSTALL_PREFIX="$prefix"
     -DCONFLUX_FEATURE_SET="$feature_set"
+    -DCONFLUX_INTERFACE_MODE="$interface_mode"
     -DCONFLUX_BUILD_TESTS=OFF
     -DCONFLUX_BUILD_EXAMPLES=OFF
     -DCONFLUX_BUILD_BENCHMARKS=OFF
@@ -139,6 +149,7 @@ cmake --build "$build_dir" --target install
     --source "$source_root" \
     --prefix "$prefix" \
     --build-dir "$smoke_build_dir" \
-    --components "$components"
+    --components "$components" \
+    --interface-mode "$interface_mode"
 
 printf 'run-install-tree-smoke: ok (%s, %s)\n' "$feature_set" "$components"

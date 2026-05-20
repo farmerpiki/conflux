@@ -1,7 +1,7 @@
 module;
 #include <memory>
 
-export module conflux.net.app:json_helpers;
+export module conflux.net.app.json_helpers;
 
 import std;
 import conflux.net.http.response;
