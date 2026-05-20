@@ -42,6 +42,11 @@ middleware such as `request_id_middleware`, `tracing_middleware`,
 `structured_log_middleware`, and `metrics_middleware` remains available for
 services that need custom wiring.
 
+When an `App` with observability creates a `HttpServer`, it passes internal
+server hooks that record parser/admission rejections into the same registry as
+the app middleware. Manually constructed `Router` + `HttpServer` stacks can use
+`observability_server_hooks()` if they want the same unified registry.
+
 Server pressure, work-pool, task-allocation, and JSON-arena metrics are only
 emitted when the app supplies an explicit source:
 

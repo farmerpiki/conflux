@@ -63,6 +63,9 @@ void emit_rejection(
 	r.set_text_body(
 		std::format(R"({{"code":"{}","detail":"{}"}})", reject_reason_code(reason), reject_reason_detail(reason)));
 	note_rejection(ring.rejection_counters_, reason);
+	if (ring.observability_hooks_.rejection) {
+		ring.observability_hooks_.rejection(reason, r.status);
+	}
 	conn.own_response = format_response(r, alt_svc, true);
 	conn.has_response = true;
 	conn.close_after_send = true;

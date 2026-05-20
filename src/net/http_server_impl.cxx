@@ -136,6 +136,7 @@ struct HttpServer::Impl {
 	bool use_vhost = false;
 	std::vector<std::unique_ptr<Ring>> ring_vec;
 	std::vector<int> shutdown_efds;
+	HttpServerObservabilityHooks observability_hooks{};
 	std::atomic<std::uint16_t> bound_port_;
 	std::mutex startup_error_mu;
 	std::exception_ptr startup_error{};
@@ -345,6 +346,7 @@ void HttpServer::shutdown() {
 					auto &r = *impl_->ring_vec[i];
 					r.router = impl_->use_vhost ? nullptr : &impl_->router;
 					r.vhost_router = impl_->use_vhost ? &impl_->vhost_router : nullptr;
+					r.observability_hooks_ = impl_->observability_hooks;
 					r.shutdown_efd = impl_->shutdown_efds[i];
 					r.drain_control = &impl_->drain_control;
 					r.max_body_size = impl_->cfg.max_body_size;
@@ -570,6 +572,16 @@ void HttpServer::shutdown() {
 		out += '\n';
 	}
 	return out;
+}
+
+void HttpServer::set_observability_hooks(
+	HttpServerObservabilityHooks hooks) {
+	impl_->observability_hooks = std::move(hooks);
+	for (auto const &ring: impl_->ring_vec) {
+		if (ring) {
+			ring->observability_hooks_ = impl_->observability_hooks;
+		}
+	}
 }
 
 [[nodiscard]] std::uint16_t HttpServer::port() const {

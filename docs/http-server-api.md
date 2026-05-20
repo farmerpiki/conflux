@@ -801,6 +801,9 @@ Runtime pressure and work-pool metrics require explicit sources, for example
 server.metrics().pressure; }}` and `ObservabilityOptions::work_pools`. Streaming
 responses currently measure response creation/header commit duration; stream
 owners should export close-duration metrics separately if needed.
+Parser/admission rejections are bridged into the same registry for servers
+created through `App`; manual `Router` + `HttpServer` users can install
+`observability_server_hooks()` explicitly.
 
 ---
 

@@ -673,6 +673,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: observability server rejection hook shares metrics registry",
+	"[http.facade]") {
+	auto middleware = http::observability({.access_log = false});
+	auto hooks = http::observability_server_hooks(middleware);
+	REQUIRE(static_cast<bool>(hooks.rejection));
+	hooks.rejection(
+		HttpRejectReason::header_line_too_large,
+		reject_reason_status(HttpRejectReason::header_line_too_large));
+
+	auto app = http::app();
+	app.use(middleware);
+
+	HttpRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = app.router().dispatch(metrics_req);
+	CHECK(metrics.text_body().contains(
+		R"(http_rejections_total{service="conflux",reason="header_line_too_large",status="431"} 1)"));
+}
+
+TEST_CASE(
 	"http facade: async middleware uses owned requests",
 	"[http.facade]") {
 	auto app = http::app();

@@ -446,8 +446,15 @@ struct ObservabilityRegistry {
 			}
 		}
 		if (opts.rejection_metrics && resp.status >= 400) {
-			++rejections[std::pair{klass, status}];
+			++rejections[std::pair{std::format("status_{}", klass), status}];
 		}
+	}
+
+	void observe_server_rejection(
+		HttpRejectReason reason,
+		int status) {
+		std::scoped_lock const lock{mutex};
+		++rejections[std::pair{std::string{reject_reason_code(reason)}, std::to_string(status)}];
 	}
 
 	[[nodiscard]] std::string format_prometheus(
@@ -508,7 +515,7 @@ struct ObservabilityRegistry {
 		out += "# TYPE http_rejections_total counter\n";
 		for (auto const &[key, value]: rejections) {
 			out += std::format(
-				R"(http_rejections_total{{service="{}",reason="status_{}",status="{}"}} {})"
+				R"(http_rejections_total{{service="{}",reason="{}",status="{}"}} {})"
 				"\n",
 				opts.service_name,
 				key.first,
@@ -610,6 +617,22 @@ struct ObservabilityMiddleware {
 	state->registry = std::make_shared<observability_detail::ObservabilityRegistry>();
 #endif
 	return ObservabilityMiddleware{.options = std::move(options), .state = std::move(state)};
+}
+
+[[nodiscard]] HttpServerObservabilityHooks observability_server_hooks(
+	ObservabilityMiddleware const &middleware) {
+	return HttpServerObservabilityHooks{
+		.rejection =
+			[state = middleware.state](HttpRejectReason reason, int status) {
+				if (state && state->options.rejection_metrics) {
+#if CONFLUX_HAS_METRICS
+					if (state->registry) {
+						state->registry->observe_server_rejection(reason, status);
+					}
+#endif
+				}
+			},
+	};
 }
 
 #if CONFLUX_HAS_METRICS

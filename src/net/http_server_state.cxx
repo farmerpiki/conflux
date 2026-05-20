@@ -389,6 +389,7 @@ struct Ring {
 	SendZcCounters zc_counters_{};
 	HttpRejectionMetrics rejection_counters_{};
 	HttpPressureMetrics pressure_counters_{};
+	HttpServerObservabilityHooks observability_hooks_{};
 	std::uint64_t accepted_direct_failures_{};
 	std::uint64_t recv_bundle_cqes_{};
 	std::uint64_t recv_bundle_slices_{};

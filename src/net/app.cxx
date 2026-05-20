@@ -651,6 +651,7 @@ public:
 			get(middleware.options.metrics_path, observability_metrics_handler(middleware));
 		}
 #endif
+		observability_ = middleware;
 		return *this;
 	}
 	template<typename F>
@@ -1960,7 +1961,11 @@ public:
 			return std::unexpected{report.summary()};
 		}
 		cfg_.port = opts.port;
-		return HttpServer::try_create(cfg_, std::move(router_));
+		auto server = HttpServer::try_create(cfg_, std::move(router_));
+		if (server && observability_) {
+			(*server)->set_observability_hooks(observability_server_hooks(*observability_));
+		}
+		return server;
 	}
 	[[nodiscard]] std::expected<std::unique_ptr<HttpServer>, std::string> listen(
 		AppRunOptions opts = {}) && {
@@ -1986,6 +1991,9 @@ public:
 		}
 		cfg_.port = opts.port;
 		HttpServer srv{cfg_, std::move(router_)};
+		if (observability_) {
+			srv.set_observability_hooks(observability_server_hooks(*observability_));
+		}
 		return srv.run();
 	}
 
@@ -2000,6 +2008,7 @@ private:
 	ScopedMiddlewareList *group_middlewares_{};
 	ScopedContextMiddlewareList *group_context_middlewares_{};
 	bool openapi_strict_{};
+	std::optional<ObservabilityMiddleware> observability_{};
 #if CONFLUX_HAS_JSON
 	std::shared_ptr<AppJsonOptions> json_options_;
 #endif

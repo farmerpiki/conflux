@@ -121,6 +121,10 @@ export [[nodiscard]] constexpr std::string_view reject_reason_detail(
 	return "request syntax is invalid";
 }
 
+export struct HttpServerObservabilityHooks {
+	std::function<void(HttpRejectReason, int)> rejection = {};
+};
+
 export struct HttpRejectionMetrics {
 	std::uint64_t malformed_request{};
 	std::uint64_t request_line_too_large{};
