@@ -358,7 +358,38 @@ int main(
 			1000,
 			5000);
 		std::filesystem::remove_all(dir);
-		report("render cached: page fragment (parsed ctx)", s);
+		report("warm cached render: NodeRef context", s);
+	}
+	{
+		auto dir = make_template_dir("simple.html", kSimpleTmpl);
+		conflux::templates::Environment env{dir.string()};
+		env.blocking_load_all();
+		auto s = measure(
+			[&] {
+				std::string const out = env.render("simple.html", std::string{kSimpleCtx});
+				(void)out;
+			},
+			1000,
+			5000);
+		std::filesystem::remove_all(dir);
+		report("warm cached render: JSON string context", s);
+	}
+	{
+		conflux::templates::TmplValue ctx{conflux::templates::TmplValue::Object{}};
+		ctx.set("name", conflux::templates::TmplValue{std::string{"Alice"}});
+		ctx.set("count", conflux::templates::TmplValue{std::int64_t{42}});
+		auto dir = make_template_dir("simple.html", kSimpleTmpl);
+		conflux::templates::Environment env{dir.string()};
+		env.blocking_load_all();
+		auto s = measure(
+			[&] {
+				std::string const out = env.render("simple.html", ctx);
+				(void)out;
+			},
+			1000,
+			5000);
+		std::filesystem::remove_all(dir);
+		report("warm cached render: TmplValue context", s);
 	}
 	{
 		auto parsed = conflux::json::parse(std::string_view{kExprHeavyCtx});
@@ -378,6 +409,70 @@ int main(
 			5000);
 		std::filesystem::remove_all(dir);
 		report("render cached: expression-heavy page (parsed ctx)", s);
+	}
+	{
+		auto s = measure(
+			[] {
+				conflux::templates::Environment const env{"."};
+				std::string const out = env.render_string(std::string{kSimpleTmpl}, std::string{kSimpleCtx});
+				(void)out;
+			},
+			400,
+			2000);
+		report("cold render_string: simple JSON context", s);
+	}
+	{
+		auto dir = make_template_dir("main.html", "Hello, {{ name }}!");
+		conflux::templates::Environment env{dir.string()};
+		conflux::templates::TmplValue ctx{conflux::templates::TmplValue::Object{}};
+		ctx.set("name", conflux::templates::TmplValue{std::string{"Alice"}});
+		std::array checks{
+			conflux::templates::TemplateRenderCheckCase{.label = "main", .template_name = "main.html", .context = ctx},
+		};
+		auto s = measure(
+			[&] {
+				auto report = env.blocking_reload_all_checked(checks);
+				if (!report) {
+					std::terminate();
+				}
+			},
+			100,
+			1000);
+		std::filesystem::remove_all(dir);
+		report("reload-all success: render checked", s);
+	}
+	{
+		auto dir = make_template_dir("main.html", "{% include 'missing.html' %}");
+		conflux::templates::Environment env{dir.string()};
+		auto s = measure(
+			[&] {
+				auto report = env.blocking_reload_all_checked();
+				if (report) {
+					std::terminate();
+				}
+			},
+			100,
+			1000);
+		std::filesystem::remove_all(dir);
+		report("reload-all link failure", s);
+	}
+	{
+		auto dir = make_template_dir("main.html", "Hello");
+		conflux::templates::Environment env{dir.string()};
+		std::array checks{
+			conflux::templates::TemplateRenderCheckCase{.label = "missing", .template_name = "missing.html"},
+		};
+		auto s = measure(
+			[&] {
+				auto report = env.blocking_reload_all_checked(checks);
+				if (report) {
+					std::terminate();
+				}
+			},
+			100,
+			1000);
+		std::filesystem::remove_all(dir);
+		report("reload-all render-check failure", s);
 	}
 
 	if (!g_csv && !g_json) {

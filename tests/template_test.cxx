@@ -427,6 +427,156 @@ TEST_CASE(
 	dir.rm("main.html");
 }
 TEST_CASE(
+	"template: successful reload publishes new cache",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	CHECK(env.render("main.html", "{}") == "old");
+
+	dir.write("main.html", "new");
+	auto report = env.blocking_reload_all_checked();
+	REQUIRE(report);
+	CHECK(env.render("main.html", "{}") == "new");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: parse failure reload keeps old cache",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	dir.write("main.html", "{% if ok %}broken");
+
+	auto report = env.blocking_reload_all_checked();
+	REQUIRE_FALSE(report);
+	CHECK(report.error().diagnostics.front().code == "parse_failed");
+	CHECK(env.render("main.html", "{}") == "old");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render-check failure keeps old cache",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	dir.write("main.html", "new");
+
+	std::array checks{
+		TemplateRenderCheckCase{.label = "missing", .template_name = "missing.html"},
+	};
+	auto report = env.blocking_reload_all_checked(checks);
+	REQUIRE_FALSE(report);
+	REQUIRE_FALSE(report.error().diagnostics.empty());
+	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::render_check);
+	CHECK(report.error().diagnostics.front().code == "render_check.template_not_found");
+	CHECK(report.error().diagnostics.front().check_label == "missing");
+	CHECK(env.render("main.html", "{}") == "old");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render-check success publishes new cache",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	dir.write("main.html", "Hello, {{ name }}!");
+
+	TmplValue ctx{TmplValue::Object{}};
+	ctx.set("name", TmplValue{std::string{"Alice"}});
+	std::array checks{
+		TemplateRenderCheckCase{.label = "main", .template_name = "main.html", .context = ctx},
+	};
+	auto report = env.blocking_reload_all_checked(checks);
+	REQUIRE(report);
+	CHECK(env.render("main.html", R"({"name":"Bob"})") == "Hello, Bob!");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render-check coverage reports uncovered top-level templates",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "main");
+	dir.write("other.html", "other");
+
+	auto env = dir.make();
+	std::array checks{
+		TemplateRenderCheckCase{.label = "main", .template_name = "main.html"},
+	};
+	auto report =
+		env.blocking_reload_all_checked(checks, TemplateRenderCheckOptions{.require_all_templates_covered = true});
+	REQUIRE_FALSE(report);
+	REQUIRE_FALSE(report.error().diagnostics.empty());
+	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::render_check);
+	CHECK(report.error().diagnostics.front().code == "render_check.coverage_missing");
+
+	dir.rm("main.html");
+	dir.rm("other.html");
+}
+TEST_CASE(
+	"template: render-check output cap rejects large render",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	dir.write("main.html", "1234567890");
+
+	std::array checks{
+		TemplateRenderCheckCase{.label = "cap", .template_name = "main.html"},
+	};
+	auto report = env.blocking_reload_all_checked(checks, TemplateRenderCheckOptions{.max_output_bytes = 4});
+	REQUIRE_FALSE(report);
+	CHECK(report.error().diagnostics.front().code == "render_check.output_too_large");
+	CHECK(report.error().diagnostics.front().check_label == "cap");
+	CHECK(env.render("main.html", "{}") == "old");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render-check render failure reports stable code",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "old");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	dir.write("main.html", "{% macro loop() %}{{ loop() }}{% endmacro %}{{ loop() }}");
+
+	std::array checks{
+		TemplateRenderCheckCase{.label = "recursive", .template_name = "main.html"},
+	};
+	auto report = env.blocking_reload_all_checked(checks);
+	REQUIRE_FALSE(report);
+	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::render_check);
+	CHECK(report.error().diagnostics.front().code == "render_check.render_failed");
+	CHECK(report.error().diagnostics.front().check_label == "recursive");
+	CHECK(env.render("main.html", "{}") == "old");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render_string remains uncached",
+	"[template]") {
+	TmplDir dir;
+	auto env = dir.make();
+	CHECK(env.render_string("inline", "{}") == "inline");
+	CHECK_THROWS_AS(env.render("<std::string>", "{}"), std::runtime_error);
+}
+TEST_CASE(
 	"template: render accepts parsed json context",
 	"[template]") {
 	TmplDir dir;

@@ -195,6 +195,7 @@ struct TemplateDiagnostic {
 	TemplateDiagnosticPhase phase = TemplateDiagnosticPhase::compile;
 	TemplateSourceLocation location;
 	std::vector<TemplateSourceLocation> stack;
+	std::string check_label;
 	std::string code;
 	std::string message;
 };
@@ -206,6 +207,12 @@ struct TemplateBuildReport {
 	[[nodiscard]] bool ok() const noexcept;
 	[[nodiscard]] std::string format_text() const;
 };
+struct TemplateRenderCheckCase;
+struct TemplateRenderCheckOptions {
+	bool require_all_templates_covered = false;
+	std::size_t max_output_bytes = 0;
+};
+using TemplateRenderCheckReport = TemplateBuildReport;
 struct TemplateBuildError final : std::runtime_error {
 	TemplateBuildReport report;
 	explicit TemplateBuildError(TemplateBuildReport report);
@@ -225,6 +232,8 @@ public:
 	void blocking_reload_all();
 	[[nodiscard]] std::expected<void, TemplateBuildReport> blocking_load_all_checked();
 	[[nodiscard]] std::expected<void, TemplateBuildReport> blocking_reload_all_checked();
+	[[nodiscard]] std::expected<void, TemplateRenderCheckReport>
+	blocking_reload_all_checked(std::span<TemplateRenderCheckCase const> cases, TemplateRenderCheckOptions opts = {});
 	[[nodiscard]] std::string render(std::string const &name, std::string const &json_ctx) const;
 	[[nodiscard]] std::string render(std::string const &name, TmplValue const &ctx) const;
 	[[nodiscard]] std::string render(std::string const &name, NodeRef ctx) const;
@@ -291,6 +300,9 @@ std::string TemplateBuildReport::format_text() const {
 			diagnostic_phase_name(d.phase),
 			d.code.empty() ? "unknown" : d.code,
 			d.message);
+		if (!d.check_label.empty()) {
+			out += std::format(" [check:{}]", d.check_label);
+		}
 		if (!d.stack.empty()) {
 			out += " [stack:";
 			for (auto const &frame: d.stack) {
@@ -387,6 +399,11 @@ export struct TmplValue {
 	[[nodiscard]] bool operator ==(TmplValue const &) const = default;
 
 	[[nodiscard]] std::string dump() const;
+};
+struct TemplateRenderCheckCase {
+	std::string label;
+	std::string template_name;
+	TmplValue context{TmplValue::Object{}};
 };
 // NOLINTNEXTLINE(misc-no-recursion)
 std::string TmplValue::dump() const {
@@ -1269,16 +1286,24 @@ struct Environment::Impl {
 	std::string render_nodes(
 		NodeList const &nodes,
 		TmplValue context,
+		std::unordered_map<std::string, Template> const &active_cache,
 		std::unordered_map<std::string, NodeList> const *blocks,
 		std::unordered_map<std::string, MacroBinding> *macros,
 		int depth = 0) const;
 	std::string render_template(
 		Template const &tmpl,
 		TmplValue context,
+		std::unordered_map<std::string, Template> const &active_cache,
 		std::unordered_map<std::string, NodeList> const *child_blocks = nullptr,
 		int depth = 0) const;
 	std::expected<std::unordered_map<std::string, Template>, TemplateBuildReport> build_cache_from_directory() const;
-	std::expected<void, TemplateBuildReport> reload_all_checked();
+	std::expected<void, TemplateBuildReport>
+	reload_all_checked(std::span<TemplateRenderCheckCase const> cases = {}, TemplateRenderCheckOptions opts = {});
+	void check_render(
+		std::unordered_map<std::string, Template> const &candidate,
+		std::span<TemplateRenderCheckCase const> cases,
+		TemplateRenderCheckOptions opts,
+		TemplateBuildReport &report) const;
 	void validate_links(std::unordered_map<std::string, Template> const &candidate, TemplateBuildReport &report) const;
 	void reload_path(std::string const &path);
 	void remove_path(std::string const &path);
@@ -2681,6 +2706,7 @@ bool Environment::Impl::is_truthy(
 std::string Environment::Impl::render_nodes(
 	NodeList const &nodes,
 	TmplValue context,
+	std::unordered_map<std::string, Template> const &active_cache,
 	std::unordered_map<std::string, NodeList> const *blocks,
 	std::unordered_map<std::string, MacroBinding> *macros,
 	int depth) const {
@@ -2729,7 +2755,7 @@ std::string Environment::Impl::render_nodes(
 									context.set(params[i], TmplValue{});
 								}
 							}
-							out += render_nodes(body, context, blocks, macros, depth + 1);
+							out += render_nodes(body, context, active_cache, blocks, macros, depth + 1);
 							restore_scope(context, saved);
 							macro_handled = true;
 						}
@@ -2741,20 +2767,20 @@ std::string Environment::Impl::render_nodes(
 					if (blocks) {
 						auto it = blocks->find(n.name);
 						if (it != blocks->end()) {
-							out += render_nodes(it->second, context, blocks, macros, depth + 1);
+							out += render_nodes(it->second, context, active_cache, blocks, macros, depth + 1);
 							return;
 						}
 					}
-					out += render_nodes(n.body, context, blocks, macros, depth + 1);
+					out += render_nodes(n.body, context, active_cache, blocks, macros, depth + 1);
 				} else if constexpr (std::is_same_v<T, ExtendsNode>) {
 					// handled at template level
 				} else if constexpr (std::is_same_v<T, IncludeNode>) {
-					auto it = cache.find(n.name);
-					if (it == cache.end()) {
+					auto it = active_cache.find(n.name);
+					if (it == active_cache.end()) {
 						throw std::runtime_error{
 							std::format("template error: included template '{}' not found", n.name)};
 					}
-					out += render_template(it->second, context, blocks, depth + 1);
+					out += render_template(it->second, context, active_cache, blocks, depth + 1);
 				} else if constexpr (std::is_same_v<T, SetNode>) {
 					auto val = eval_expr(n.compiled, context);
 					if (context.is_object()) {
@@ -2788,7 +2814,7 @@ std::string Environment::Impl::render_nodes(
 							loop_obj.set("last", TmplValue{i == arr.size() - 1});
 							loop_obj.set("length", TmplValue{static_cast<std::int64_t>(arr.size())});
 							context.set("loop", std::move(loop_obj));
-							out += render_nodes(n.body, context, blocks, macros, depth + 1);
+							out += render_nodes(n.body, context, active_cache, blocks, macros, depth + 1);
 						}
 						restore_scope(context, saved);
 						if (saved_loop) {
@@ -2800,19 +2826,19 @@ std::string Environment::Impl::render_nodes(
 				} else if constexpr (std::is_same_v<T, IfNode>) {
 					for (auto &branch: n.branches) {
 						if (branch.condition.empty()) {
-							out += render_nodes(branch.body, context, blocks, macros, depth + 1);
+							out += render_nodes(branch.body, context, active_cache, blocks, macros, depth + 1);
 							break;
 						}
 						if (is_truthy(eval_expr(branch.compiled_condition, context))) {
-							out += render_nodes(branch.body, context, blocks, macros, depth + 1);
+							out += render_nodes(branch.body, context, active_cache, blocks, macros, depth + 1);
 							break;
 						}
 					}
 				} else if constexpr (std::is_same_v<T, MacroNode>) {
 					(*macros)[n.name] = {n.params, n.compiled_defaults, n.body};
 				} else if constexpr (std::is_same_v<T, FromImportNode>) {
-					auto it_tmpl = cache.find(n.file);
-					if (it_tmpl == cache.end()) {
+					auto it_tmpl = active_cache.find(n.file);
+					if (it_tmpl == active_cache.end()) {
 						throw std::runtime_error{std::format("template error: imported file '{}' not found", n.file)};
 					}
 					bool found = false;
@@ -2843,14 +2869,15 @@ std::string Environment::Impl::render_nodes(
 std::string Environment::Impl::render_template(
 	Template const &tmpl,
 	TmplValue context,
+	std::unordered_map<std::string, Template> const &active_cache,
 	std::unordered_map<std::string, NodeList> const *child_blocks,
 	int depth) const {
 	if (depth > kMaxTemplateDepth) {
 		throw std::runtime_error{"template render recursion depth exceeded"};
 	}
 	if (!tmpl.extends_name.empty()) {
-		auto it = cache.find(tmpl.extends_name);
-		if (it == cache.end()) {
+		auto it = active_cache.find(tmpl.extends_name);
+		if (it == active_cache.end()) {
 			throw std::runtime_error{"template not found: " + tmpl.extends_name};
 		}
 
@@ -2878,10 +2905,10 @@ std::string Environment::Impl::render_template(
 			}
 		}
 
-		return render_template(it->second, std::move(context), &merged, depth + 1);
+		return render_template(it->second, std::move(context), active_cache, &merged, depth + 1);
 	}
 
-	return render_nodes(tmpl.nodes, std::move(context), child_blocks, nullptr, depth);
+	return render_nodes(tmpl.nodes, std::move(context), active_cache, child_blocks, nullptr, depth);
 }
 // ---------------------------------------------------------------------------
 // Environment public interface
@@ -2898,13 +2925,15 @@ static void add_template_diag(
 	TemplateSourceLocation location,
 	std::string code,
 	std::string message,
-	std::vector<TemplateSourceLocation> stack = {}) {
+	std::vector<TemplateSourceLocation> stack = {},
+	std::string check_label = {}) {
 	report.diagnostics.push_back(
 		TemplateDiagnostic{
 			.severity = TemplateDiagnosticSeverity::error,
 			.phase = phase,
 			.location = std::move(location),
 			.stack = std::move(stack),
+			.check_label = std::move(check_label),
 			.code = std::move(code),
 			.message = std::move(message),
 		});
@@ -3164,10 +3193,82 @@ Environment::Impl::build_cache_from_directory() const {
 	}
 	return parsed;
 }
-std::expected<void, TemplateBuildReport> Environment::Impl::reload_all_checked() {
+void Environment::Impl::check_render(
+	std::unordered_map<std::string, Template> const &candidate,
+	std::span<TemplateRenderCheckCase const> cases,
+	TemplateRenderCheckOptions opts,
+	TemplateBuildReport &report) const {
+	std::unordered_set<std::string> covered;
+	for (auto const &check: cases) {
+		covered.insert(check.template_name);
+		auto it = candidate.find(check.template_name);
+		if (it == candidate.end()) {
+			add_template_diag(
+				report,
+				TemplateDiagnosticPhase::render_check,
+				template_location(check.template_name),
+				"render_check.template_not_found",
+				std::format("render check template '{}' was not loaded", check.template_name),
+				{},
+				check.label);
+			continue;
+		}
+		try {
+			auto out = render_template(it->second, check.context, candidate);
+			if (opts.max_output_bytes != 0 && out.size() > opts.max_output_bytes) {
+				add_template_diag(
+					report,
+					TemplateDiagnosticPhase::render_check,
+					template_location(check.template_name),
+					"render_check.output_too_large",
+					std::format(
+						"render check output for '{}' was {} bytes, above limit {}",
+						check.template_name,
+						out.size(),
+						opts.max_output_bytes),
+					{},
+					check.label);
+			}
+		} catch (std::exception const &e) {
+			add_template_diag(
+				report,
+				TemplateDiagnosticPhase::render_check,
+				template_location(check.template_name),
+				"render_check.render_failed",
+				std::format("render check failed for '{}': {}", check.template_name, e.what()),
+				{},
+				check.label);
+		}
+	}
+	if (opts.require_all_templates_covered) {
+		for (auto const &[name, tmpl]: candidate) {
+			if (!tmpl.extends_name.empty()) {
+				continue;
+			}
+			if (!covered.contains(name)) {
+				add_template_diag(
+					report,
+					TemplateDiagnosticPhase::render_check,
+					template_location(name),
+					"render_check.coverage_missing",
+					std::format("top-level template '{}' was not covered by a render check", name));
+			}
+		}
+	}
+}
+std::expected<void, TemplateBuildReport> Environment::Impl::reload_all_checked(
+	std::span<TemplateRenderCheckCase const> cases,
+	TemplateRenderCheckOptions opts) {
 	auto candidate = build_cache_from_directory();
 	if (!candidate) {
 		return std::unexpected{std::move(candidate.error())};
+	}
+	TemplateBuildReport render_report;
+	render_report.templates_seen = candidate->size();
+	render_report.templates_compiled = candidate->size();
+	check_render(*candidate, cases, opts, render_report);
+	if (!render_report.ok()) {
+		return std::unexpected{std::move(render_report)};
 	}
 	{
 		std::unique_lock const lk{cache_mtx};
@@ -3227,6 +3328,11 @@ std::expected<void, TemplateBuildReport> Environment::blocking_load_all_checked(
 std::expected<void, TemplateBuildReport> Environment::blocking_reload_all_checked() {
 	return impl_->reload_all_checked();
 }
+std::expected<void, TemplateRenderCheckReport> Environment::blocking_reload_all_checked(
+	std::span<TemplateRenderCheckCase const> cases,
+	TemplateRenderCheckOptions opts) {
+	return impl_->reload_all_checked(cases, opts);
+}
 std::string Environment::render(
 	std::string const &name,
 	std::string const &json_ctx) const {
@@ -3242,7 +3348,7 @@ std::string Environment::render(
 	if (it == impl_->cache.end()) {
 		throw std::runtime_error{"template not found: " + name};
 	}
-	return impl_->render_template(it->second, ctx);
+	return impl_->render_template(it->second, ctx, impl_->cache);
 }
 std::string Environment::render(
 	std::string const &name,
@@ -3261,7 +3367,7 @@ std::string Environment::render_string(
 	TmplValue const &ctx) const {
 	auto tmpl = impl_->parse("<std::string>", source);
 	std::shared_lock const lk{impl_->cache_mtx};
-	return impl_->render_template(tmpl, ctx);
+	return impl_->render_template(tmpl, ctx, impl_->cache);
 }
 std::string Environment::render_string(
 	std::string const &source,
