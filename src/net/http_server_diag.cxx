@@ -4,7 +4,6 @@ module;
 #include <arpa/inet.h>
 #include <cassert>
 #include <cerrno>
-#include <cstdio>
 #include <liburing.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -230,17 +229,18 @@ void Ring::dispatch_cqe_fatal(
 		default:
 			{
 				// unknown op — future Op additions must be handled here
-				auto _ = std::fprintf(
-					stderr,
-					"dispatch_cqe_fatal: unknown op=%u ud=0x%llx\n",
-					static_cast<unsigned>(static_cast<std::uint8_t>(op)),
-					static_cast<unsigned long long>(cqe->user_data));
+				eprintln(
+					std::format(
+						"dispatch_cqe_fatal: unknown op={} ud=0x{:x}",
+						static_cast<unsigned>(static_cast<std::uint8_t>(op)),
+						static_cast<unsigned long long>(cqe->user_data)));
 				break;
 			}
 		}
 	} catch (std::exception const &e) {
-		auto _ = std::fprintf(stderr, "dispatch_cqe_fatal: suppressed std::exception: %s\n", e.what());
-	} catch (...) { auto _ = std::fputs("dispatch_cqe_fatal: suppressed unknown std::exception\n", stderr); }
+		eprint("dispatch_cqe_fatal: suppressed std::exception: ");
+		eprintln(e.what());
+	} catch (...) { eprintln("dispatch_cqe_fatal: suppressed unknown std::exception"); }
 }
 
 void Ring::emit_ring_diagnostics() noexcept {
@@ -290,8 +290,9 @@ void Ring::emit_ring_diagnostics() noexcept {
 			eprintln("ring_overflow_flush_limit_hit=1");
 		}
 	} catch (std::exception const &e) {
-		auto _ = std::fprintf(stderr, "emit_ring_diagnostics: suppressed std::exception: %s\n", e.what());
-	} catch (...) { auto _ = std::fputs("emit_ring_diagnostics: suppressed unknown std::exception\n", stderr); }
+		eprint("emit_ring_diagnostics: suppressed std::exception: ");
+		eprintln(e.what());
+	} catch (...) { eprintln("emit_ring_diagnostics: suppressed unknown std::exception"); }
 }
 
 void Ring::flush_overflow_cqes_until_clear_or_limit() noexcept {

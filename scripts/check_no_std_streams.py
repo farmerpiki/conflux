@@ -22,6 +22,18 @@ WHOLE_FILE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "standard print to stderr",
         re.compile(r"\bstd::(?:print|println)\s*\(\s*(?:stderr|std::cerr)\b", re.DOTALL),
     ),
+    (
+        "raw C stderr fprintf",
+        re.compile(r"\bstd::fprintf\s*\(\s*stderr\b", re.DOTALL),
+    ),
+    (
+        "raw C stderr fputs",
+        re.compile(r"\bstd::fputs\s*\([^;\n]*,\s*stderr\s*\)", re.DOTALL),
+    ),
+    (
+        "raw C stderr fputc",
+        re.compile(r"\bstd::fputc\s*\([^;\n]*,\s*stderr\s*\)", re.DOTALL),
+    ),
 )
 
 

@@ -14,8 +14,8 @@ compatibility clutter or fixes an incorrect contract.
   to the current user/container.
 - `pkg-config`; `liburing` development headers and library are required only
   when building runtime-facing components.
-- CMake 3.30 or newer and Ninja.
-- A C++26-capable compiler matching one of the provided CMake presets.
+- CMake 3.30 or newer and Ninja for the current known-good prerelease lanes.
+- A C++23/26-capable compiler matching one of the provided CMake presets.
 
 Optional protocol, storage, and runtime-facing features are enabled when their
 libraries are available or selected by the feature bundle, including `liburing`,
@@ -31,7 +31,9 @@ cmake --build --preset release-clang-libcxx
 ```
 
 Use the checked-in presets as the support matrix. C++26 modules remain sensitive
-to the exact compiler, standard library, and CMake versions.
+to the exact compiler, standard library, and CMake versions. Header-interface
+mode is the prerelease consumption baseline and should not require CMake
+import-std discovery.
 
 ## Install and consume
 
@@ -43,6 +45,8 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 ```
 
 The component/target map lives in [`docs/component-map.md`](docs/component-map.md);
+header and module consumption examples live in
+[`docs/package-consumption.md`](docs/package-consumption.md);
 the public import map lives in [`docs/public-api-map.md`](docs/public-api-map.md).
 The copy/allocation/lifetime model is summarized in
 [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md).
@@ -114,6 +118,9 @@ setup.
 - Containers or seccomp policy can block runtime setup.
 - Optional protocol/storage dependencies are feature-gated.
 - C++26 modules support is toolchain-sensitive.
+- `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
+- Runtime proof is maintained as separate release evidence.
+- DB examples require DB support enabled and usable libpq headers.
 - Preview APIs may still break before v1.
 
 ## License

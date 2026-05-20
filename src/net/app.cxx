@@ -1,5 +1,4 @@
 module;
-#include <cstdio>
 #include <memory>
 #include <typeindex>
 
@@ -26,6 +25,7 @@ import conflux.net.request_id;
 import conflux.net.tracing;
 import conflux.uring;
 import conflux.crypto;
+import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
 import conflux.net.http.native_json;
@@ -1984,9 +1984,8 @@ public:
 		auto report = validate();
 		if (!report) {
 			auto summary = report.summary();
-			std::fputs("http app validation failed:\n", stderr);
-			std::fputs(summary.c_str(), stderr);
-			std::fputc('\n', stderr);
+			eprintln("http app validation failed:");
+			eprintln(summary);
 			return RunStatus::fatal_internal_exception;
 		}
 		cfg_.port = opts.port;

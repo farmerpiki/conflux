@@ -22,6 +22,64 @@ bundle, or security-sensitive surface is added.
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
 | Alias cleanup | Remaining aliases or confirmation none remain | Alias removal belongs to the final release-cleanup branch only. |
 
+## Prerelease command lanes
+
+Header-interface build and install:
+
+```sh
+python3 scripts/check_no_std_streams.py
+cmake -S . -B /tmp/conflux-header -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DCONFLUX_USE_MOCK_LIBURING=ON \
+  -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
+  -DCONFLUX_BUILD_TESTS=OFF \
+  -DCONFLUX_BUILD_BENCHMARKS=OFF \
+  -DCONFLUX_ENABLE_DB=OFF
+cmake --build /tmp/conflux-header
+cmake --install /tmp/conflux-header --prefix /tmp/conflux-install
+```
+
+Installed package smoke from outside the source tree:
+
+```sh
+cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -Dconflux_DIR=/tmp/conflux-install/lib/cmake/conflux \
+  -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE \
+  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;http"
+cmake --build /tmp/conflux-smoke
+ctest --test-dir /tmp/conflux-smoke --output-on-failure
+```
+
+Optional DB-enabled lane, only on hosts with libpq headers:
+
+```sh
+cmake -S . -B /tmp/conflux-db -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DCONFLUX_USE_MOCK_LIBURING=ON \
+  -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
+  -DCONFLUX_BUILD_TESTS=OFF \
+  -DCONFLUX_BUILD_BENCHMARKS=OFF \
+  -DCONFLUX_ENABLE_DB=ON
+cmake --build /tmp/conflux-db
+```
+
+Test lane, when Catch2 is available from the system or an approved cache:
+
+```sh
+cmake -S . -B /tmp/conflux-tests -G Ninja \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DCONFLUX_USE_MOCK_LIBURING=ON \
+  -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
+  -DCONFLUX_BUILD_TESTS=ON \
+  -DCONFLUX_TEST_CATCH2_PROVIDER=SYSTEM \
+  -DCONFLUX_BUILD_BENCHMARKS=OFF
+cmake --build /tmp/conflux-tests
+ctest --test-dir /tmp/conflux-tests --output-on-failure
+```
+
 ## Component-specific checks
 
 ### Build/package

@@ -1,5 +1,4 @@
 module;
-#include <cstdio>
 #include <unistd.h>
 
 export module conflux.uring.handle;
@@ -39,9 +38,16 @@ export class IoHandle {
 		}
 #ifndef NDEBUG
 		if (h_.is_direct()) {
-			std::fputs(
-				"IoHandle dropped with live direct slot — close_async was never called; slot will leak\n",
-				stderr);
+			static constexpr char message[] =
+				"IoHandle dropped with live direct slot - close_async was never called; slot will leak\n";
+			auto remaining = std::string_view{message, sizeof(message) - 1};
+			while (!remaining.empty()) {
+				auto const n = ::write(STDERR_FILENO, remaining.data(), remaining.size());
+				if (n <= 0) {
+					break;
+				}
+				remaining.remove_prefix(static_cast<std::size_t>(n));
+			}
 		}
 #endif
 		h_ = RingFd{};

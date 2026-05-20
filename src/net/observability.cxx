@@ -1,6 +1,5 @@
 module;
 #include <cctype>
-#include <cstdio>
 
 export module conflux.net.observability;
 
@@ -10,6 +9,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.request_id;
 import conflux.net.tracing;
+import conflux.utils;
 import conflux.work;
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
@@ -585,7 +585,7 @@ struct ObservabilityMiddleware {
 			} else if (state->options.access_log_sink) {
 				state->options.access_log_sink(line);
 			} else {
-				std::println(stderr, "{}", line);
+				eprintln(line);
 			}
 		}
 		resp.headers.erase("__conflux-route-pattern");
