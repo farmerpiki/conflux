@@ -37,5 +37,13 @@ if "real-liburing install" not in package:
     fail("package-consumption.md must document real-liburing runtime/http installs")
 if "DB-off install" not in package:
     fail("package-consumption.md must document DB-off install behavior")
+for phrase in [
+    "`MODULE_INTERFACE` is the primary",
+    "Generated headers are release artifacts",
+    "internal compile evidence",
+    "`HEADER_INTERFACE` exists for generated release artifacts",
+]:
+    if phrase not in package:
+        fail(f"package-consumption.md must document modules-first artifact contract: {phrase}")
 
 print("check-package-docs: ok")

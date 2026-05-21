@@ -33,4 +33,8 @@ for phrase in ["mock-liburing", "real-liburing", "core", "json", "file_io_sync",
     if phrase not in text:
         fail(f"release notes must mention {phrase}")
 
+for phrase in ["modules-first", "Generated headers are staged release artifacts", "stage-release-artifacts.sh"]:
+    if phrase not in text:
+        fail(f"release notes must document modules-first release artifacts: {phrase}")
+
 print("check-release-notes: ok")

@@ -170,6 +170,21 @@
       }
     },
     {
+      "name": "release-header-artifacts",
+      "displayName": "Release · generated header artifacts",
+      "inherits": "gcc-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_USE_MOCK_LIBURING": "ON",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_ENABLE_DB": "OFF"
+      }
+    },
+    {
       "name": "release-p2996-gcc",
       "displayName": "Release · g++-16 · P2996 reflection",
       "inherits": "gcc16-stdcxx",
@@ -386,6 +401,10 @@
       "configurePreset": "release-gcc16-stdcxx"
     },
     {
+      "name": "release-header-artifacts",
+      "configurePreset": "release-header-artifacts"
+    },
+    {
       "name": "release-p2996-gcc",
       "configurePreset": "release-p2996-gcc"
     },
@@ -450,6 +469,13 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "release-clang-libcxx",
+      "configurePreset": "release-clang-libcxx",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
     {
       "name": "fuzz-clang-stdcxx",
       "configurePreset": "fuzz-clang-stdcxx",

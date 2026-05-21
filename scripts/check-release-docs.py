@@ -47,10 +47,16 @@ for phrase in [
     "mock liburing",
     "real-liburing",
     "DB-off",
-    "check-package-smoke-liburing-free.sh",
+    "MODULE_INTERFACE",
+    "Generated headers are release artifacts",
+    "stage-release-artifacts.sh",
 ]:
     if phrase not in status:
         fail(f"docs/prerelease-status.md must mention {phrase}")
+
+for phrase in ["modules-first", "Generated headers are staged release artifacts"]:
+    if phrase not in readme:
+        fail(f"README.md must document modules-first release artifacts: {phrase}")
 
 for match in re.finditer(r"\]\(([^)]+)\)", readme):
     target = match.group(1)

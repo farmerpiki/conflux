@@ -13,7 +13,7 @@ long getrandom(void *, unsigned long, unsigned int);
 #include "json_simd_backend.hxx"
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
-export module conflux.json;
+export module conflux.json:api;
 import std;
 import std.compat;
 import conflux.types;

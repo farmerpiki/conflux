@@ -714,6 +714,7 @@ target_include_directories(conflux_options INTERFACE
     "$<BUILD_INTERFACE:${CONFLUX_SRC_ROOT}>"
     "$<BUILD_INTERFACE:${CONFLUX_GENERATED_INCLUDE_DIR}>"
     "$<INSTALL_INTERFACE:include>"
+    "$<INSTALL_INTERFACE:include/conflux/modules>"
 )
 target_compile_definitions(conflux_options INTERFACE
     CONFLUX_HEADER_USE_IMPORT_STD=0
@@ -784,7 +785,8 @@ target_sources(conflux_types
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        ${CONFLUX_SRC_ROOT}/types.cxx
+        ${CONFLUX_SRC_ROOT}/types.cppm
+        ${CONFLUX_SRC_ROOT}/types_api.cxx
 )
 target_link_libraries(conflux_types
     PRIVATE conflux_options
@@ -842,7 +844,9 @@ target_compile_features(conflux_json PUBLIC cxx_std_23)
 target_sources(conflux_json
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/json.cxx
+        FILES
+        ${CONFLUX_SRC_ROOT}/json.cppm
+        ${CONFLUX_SRC_ROOT}/json_api.cxx
 )
 target_sources(conflux_json
     PRIVATE
@@ -1222,7 +1226,8 @@ target_sources(conflux_work
         ${CONFLUX_SRC_ROOT}/work/carrier_streams.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_timer.cxx
         ${CONFLUX_SRC_ROOT}/work/root.cxx
-        ${CONFLUX_SRC_ROOT}/work.cxx
+        ${CONFLUX_SRC_ROOT}/work.cppm
+        ${CONFLUX_SRC_ROOT}/work_api.cxx
 )
 target_sources(conflux_work
     PRIVATE
@@ -2391,6 +2396,9 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_types
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
+    PUBLIC  conflux_json
+    PUBLIC  conflux_json_boundary
     PUBLIC  conflux_http_router
     PUBLIC  conflux_http_server
     PUBLIC  conflux_work
@@ -2437,7 +2445,7 @@ target_sources(conflux_http_app
             ${CONFLUX_SRC_ROOT}/net/http_facade_problem.cxx
             ${CONFLUX_SRC_ROOT}/net/http_facade.cxx
             ${CONFLUX_SRC_ROOT}/net/http_server_umbrella.cxx
-            ${CONFLUX_SRC_ROOT}/net/http.cxx
+            ${CONFLUX_SRC_ROOT}/net/http.cppm
 )
 add_library(conflux_net_http INTERFACE)
 target_link_libraries(conflux_net_http
@@ -2499,7 +2507,7 @@ target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
-        ${CONFLUX_SRC_ROOT}/conflux.cxx
+        ${CONFLUX_SRC_ROOT}/conflux.cppm
 )
 
 target_sources(conflux
@@ -2990,6 +2998,17 @@ foreach(_target IN ITEMS
         conflux_direct_slot_pool)
     if(TARGET ${_target})
         list(APPEND CONFLUX_INSTALL_MODULE_TARGETS ${_target})
+    endif()
+endforeach()
+
+foreach(_target IN LISTS CONFLUX_INSTALL_MODULE_TARGETS)
+    if(NOT _target STREQUAL "conflux_types")
+        get_target_property(_target_type ${_target} TYPE)
+        if(_target_type STREQUAL "INTERFACE_LIBRARY")
+            target_link_libraries(${_target} INTERFACE conflux_types)
+        else()
+            target_link_libraries(${_target} PUBLIC conflux_types)
+        endif()
     endif()
 endforeach()
 

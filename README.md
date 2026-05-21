@@ -1,6 +1,6 @@
 # conflux
 
-`conflux` is a Linux-only C++26 runtime and networking library built around
+`conflux` is a modules-first Linux-only C++26 runtime and networking library built around
 `io_uring`. The preview surface focuses on the runtime core, JSON, HTTP server
 building blocks, and PostgreSQL support when the DB evidence lane is green.
 
@@ -30,10 +30,12 @@ cmake --preset release-clang-libcxx
 cmake --build --preset release-clang-libcxx
 ```
 
-Use the checked-in presets as the support matrix. C++26 modules remain sensitive
-to the exact compiler, standard library, and CMake versions. Header-interface
-mode is the prerelease consumption baseline and should not require CMake
-import-std discovery.
+Use the checked-in presets as the support matrix. `MODULE_INTERFACE` is the
+primary source-consumption and development mode. C++26 modules remain sensitive
+to the exact compiler, standard library, and CMake versions, so unsupported
+toolchains should fail at configure/build time instead of silently selecting a
+different contract. Generated headers are staged release artifacts for
+compatibility consumers and should not require CMake import-std discovery.
 
 ## First-contact docs
 

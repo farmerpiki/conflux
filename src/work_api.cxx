@@ -11,7 +11,7 @@ module;
 	#define CONFLUX_WORK_QUEUE_STATS 0
 #endif
 
-export module conflux.work;
+export module conflux.work:api;
 
 import std;
 import conflux.types;

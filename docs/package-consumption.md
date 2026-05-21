@@ -3,9 +3,28 @@
 Conflux supports one public interface mode per configured package. Configure,
 install, and consume header and module packages as separate lanes.
 
-## Header Interface
+## Module Interface
 
-Header-interface packages are the prerelease consumption baseline. They should
+`MODULE_INTERFACE` is the primary source-consumption and development mode for
+the preview. It uses C++ module imports and remains toolchain-sensitive: use the
+checked compiler/CMake presets, and expect strict configure failures when the
+selected toolchain cannot provide the required module support.
+
+```cpp
+import conflux.json;
+import conflux.http;
+```
+
+```cmake
+find_package(conflux REQUIRED COMPONENTS core json http)
+target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
+```
+
+## Generated Header Artifact
+
+Generated headers are release artifacts for consumers that cannot use modules.
+They are generated from the module source, shipped in staged release artifacts,
+and are not the design center for new API work. Header-interface packages should
 not require CMake import-std discovery.
 
 ```sh
@@ -35,36 +54,21 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io
 
 ## Package Contract
 
-- mock-liburing install: `core`, `types`, `json`, `file_io_sync` only.
+- mock-liburing install: `core`, `types`, `json`, `file_io_sync` only, as
+  internal compile evidence for generated header artifacts.
 - real-liburing install: `runtime` and `http` may be requested when producer
   configure found real `liburing` and consumers can find it through
   `pkg-config`.
 - DB-off install: no generated DB headers and no `db` / `pg` package contract.
 - DB-on install: `db` is available only when libpq headers/library are found.
-- `HEADER_INTERFACE` is the prerelease consumption baseline.
-- `MODULE_INTERFACE` remains toolchain-sensitive.
+- `MODULE_INTERFACE` is the prerelease primary interface.
+- `HEADER_INTERFACE` exists for generated release artifacts and compatibility.
 
 Runtime/http consumers use a real-liburing install:
 
 ```cmake
 find_package(conflux REQUIRED COMPONENTS core json http runtime)
 target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http conflux::runtime)
-```
-
-## Module Interface
-
-Module-interface packages use C++ module imports and remain toolchain-sensitive.
-They may require CMake import-std support for the selected compiler and standard
-library.
-
-```cpp
-import conflux.json;
-import conflux.http;
-```
-
-```cmake
-find_package(conflux REQUIRED COMPONENTS core json http)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 ```
 
 Do not mix `import conflux.*` and generated Conflux headers in one consumer

@@ -272,10 +272,10 @@ def discover_module_unit(path: Path, src_root: Path) -> ModuleUnit | None:
             uses_std = True
         elif name == "std.compat":
             uses_std_compat = True
-        elif name.startswith(":"):
-            imports.append(name)
         elif is_export:
             export_imports.append(name)
+        elif name.startswith(":"):
+            imports.append(name)
         else:
             imports.append(name)
     return ModuleUnit(
@@ -1572,12 +1572,12 @@ def emit_source_overlay(src_root: Path, source_out: Path, units: Iterable[Module
                 out_content = transform_to_module_no_import_source(unit)
                 emit_mode = "module-impl-no-import-std"
         elif mode == "header":
-            if unit.is_interface:
-                out_content = f"{GENERATED_BANNER}\n// Header-mode public declarations live in <{module_to_header_relpath(unit.module_name).as_posix()}>.\n"
-                emit_mode = "header-interface-stub"
-            elif unit.is_partition:
+            if unit.is_partition:
                 out_content = transform_to_header_mode_source(unit, include_own_header=False)
                 emit_mode = "header-impl-partition"
+            elif unit.is_interface:
+                out_content = f"{GENERATED_BANNER}\n// Header-mode public declarations live in <{module_to_header_relpath(unit.module_name).as_posix()}>.\n"
+                emit_mode = "header-interface-stub"
             else:
                 out_content = transform_to_header_mode_source(unit)
                 emit_mode = "header-impl"
@@ -1693,11 +1693,39 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
 
 def collect_units(src_root: Path) -> list[ModuleUnit]:
     units: list[ModuleUnit] = []
-    for path in sorted(src_root.rglob("*.cxx")):
+    for path in sorted([*src_root.rglob("*.cxx"), *src_root.rglob("*.cppm")]):
         unit = discover_module_unit(path, src_root)
         if unit is not None:
             units.append(unit)
     return units
+
+
+def public_header_source_unit(unit: ModuleUnit, units_by_name: dict[str, ModuleUnit]) -> ModuleUnit:
+    if unit.is_partition:
+        return unit
+    for imported in unit.export_imports:
+        if not imported.startswith(":"):
+            continue
+        partition = units_by_name.get(f"{unit.module_name}{imported}")
+        if partition is not None and partition.is_interface:
+            return partition
+    return unit
+
+
+def manifest_option_value(value: object) -> object:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def manifest_options(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        key: manifest_option_value(value)
+        for key, value in sorted(vars(args).items())
+        if key != "bridge_argv"
+    }
 
 
 def generate(args: argparse.Namespace) -> int:
@@ -1705,7 +1733,9 @@ def generate(args: argparse.Namespace) -> int:
     include_out = args.include_out.resolve()
     module_out = args.module_out.resolve() if args.module_out else None
     units = collect_units(src_root)
-    interface_units = [u for u in units if u.is_interface]
+    units_by_name = {u.module_name: u for u in units}
+    exported_units = [u for u in units if u.is_interface]
+    interface_units = [u for u in exported_units if not u.is_partition]
     manifest: dict[str, object] = {
         "source_root": str(src_root),
         "include_out": str(include_out),
@@ -1720,6 +1750,14 @@ def generate(args: argparse.Namespace) -> int:
         "mock_liburing": None,
         "source_overlay": None,
         "consumer_overlays": {},
+        "bridge": {
+            "script": str(Path(__file__).resolve()),
+            "python_executable": sys.executable,
+            "python_version": sys.version,
+            "argv": list(getattr(args, "bridge_argv", [])),
+            "options": manifest_options(args),
+            "stdlib_only": True,
+        },
     }
 
     changed = 0
@@ -1728,14 +1766,15 @@ def generate(args: argparse.Namespace) -> int:
         changed += 1
     if write_if_changed(include_out / FEATURES_HEADER_RELPATH, render_features_header(), args.write):
         changed += 1
-    private_changed, private_includes = emit_private_include_headers(src_root, include_out, interface_units, args.write)
+    private_changed, private_includes = emit_private_include_headers(src_root, include_out, exported_units, args.write)
     changed += private_changed
     manifest["private_includes"] = private_includes
 
     for unit in interface_units:
         header_relpath = module_to_header_relpath(unit.module_name)
         header_path = include_out / header_relpath
-        header_content, header_warnings = transform_to_header(unit)
+        header_source_unit = public_header_source_unit(unit, units_by_name)
+        header_content, header_warnings = transform_to_header(header_source_unit)
         if write_if_changed(header_path, header_content, args.write):
             changed += 1
 
@@ -1753,6 +1792,7 @@ def generate(args: argparse.Namespace) -> int:
             "module": unit.module_name,
             "unit": module_unit_stem(unit.module_name),
             "source": str(unit.relpath),
+            "header_source": str(header_source_unit.relpath),
             "header": str(header_path),
             "header_relpath": header_relpath.as_posix(),
             "header_stem": header_relpath.with_suffix("").as_posix(),
@@ -1766,7 +1806,7 @@ def generate(args: argparse.Namespace) -> int:
 
     private_partitions = manifest["private_partitions"]
     assert isinstance(private_partitions, list)
-    for unit in (u for u in units if u.is_partition and not u.is_interface):
+    for unit in (u for u in units if u.is_partition):
         header_relpath = module_to_header_relpath(unit.module_name)
         header_path = include_out / header_relpath
         header_content, header_warnings = transform_to_header(unit)
@@ -1878,7 +1918,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--cxx-std", default="c++23", help="standard flag value for mock smoke compile, e.g. c++20/c++23/c++26")
     parser.add_argument("--warnings-as-errors", action="store_true", help="return non-zero when manifest warnings are produced")
     parser.add_argument("--write", action="store_true", help="write generated files; default is dry-run")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.bridge_argv = list(argv)
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

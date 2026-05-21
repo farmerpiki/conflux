@@ -43,9 +43,10 @@ Choose one public interface mode when configuring the package:
 -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE
 ```
 
-`MODULE_INTERFACE` consumers import `conflux.*` modules. `HEADER_INTERFACE`
-consumers include generated headers. Mixing module imports and generated
-headers in one consumer package or executable is unsupported.
+`MODULE_INTERFACE` consumers import `conflux.*` modules and are the primary
+source-consumption path for the preview. `HEADER_INTERFACE` consumers include
+generated headers from staged release artifacts. Mixing module imports and
+generated headers in one consumer package or executable is unsupported.
 
 Install a build, then consume the exported package by component:
 

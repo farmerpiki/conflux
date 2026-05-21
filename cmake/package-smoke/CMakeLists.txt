@@ -35,7 +35,7 @@ list(REMOVE_DUPLICATES _conflux_smoke_components)
 
 set(_conflux_find_components ${_conflux_smoke_components})
 if("http" IN_LIST _conflux_find_components)
-    list(APPEND _conflux_find_components core json runtime)
+    list(APPEND _conflux_find_components core json runtime http_app)
 endif()
 if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
     list(APPEND _conflux_find_components db)
@@ -149,36 +149,71 @@ function(conflux_add_component_smoke name component source)
     file(WRITE "${_source}" "${source}")
     add_executable("conflux_package_smoke_${name}" "${_source}")
     target_compile_features("conflux_package_smoke_${name}" PRIVATE cxx_std_23)
-    target_link_libraries("conflux_package_smoke_${name}" PRIVATE "conflux::${component}")
+    target_link_libraries("conflux_package_smoke_${name}" PRIVATE ${_conflux_smoke_link_targets})
     add_test(NAME "package-smoke/${name}" COMMAND "conflux_package_smoke_${name}")
 endfunction()
 
 foreach(_component IN LISTS _conflux_smoke_components)
     if(_component STREQUAL "core")
-        conflux_add_component_smoke(core core [[
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(core core [[
+import conflux.types;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(core core [[
 #include <conflux/config.hpp>
 int main() { return 0; }
 ]])
+        endif()
     elseif(_component STREQUAL "json")
-        conflux_add_component_smoke(json json [[
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(json json [[
+import conflux.json;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(json json [[
 #include <conflux/json.hpp>
 int main() { return 0; }
 ]])
+        endif()
     elseif(_component STREQUAL "http")
-        conflux_add_component_smoke(http http [[
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(http http [[
+import conflux.net.http;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(http http [[
 #include <conflux/http.hpp>
 int main() { return 0; }
 ]])
+        endif()
     elseif(_component STREQUAL "file_io_sync")
-        conflux_add_component_smoke(file_io_sync file_io_sync [[
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(file_io_sync file_io_sync [[
+import conflux.file_io_sync;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(file_io_sync file_io_sync [[
 #include <conflux/file_io_sync.hpp>
 int main() { return 0; }
 ]])
+        endif()
     elseif(_component STREQUAL "runtime")
-        conflux_add_component_smoke(runtime runtime [[
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(runtime runtime [[
+import conflux.work;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(runtime runtime [[
 #include <conflux/runtime.hpp>
 int main() { return 0; }
 ]])
+        endif()
     elseif(_component STREQUAL "db")
         if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
             conflux_add_component_smoke(db db [[

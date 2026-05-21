@@ -46,7 +46,7 @@ module;
 	#define CONFLUX_HAS_JSON 0
 #endif
 
-export module conflux.types;
+export module conflux.types:api;
 
 import std;
 

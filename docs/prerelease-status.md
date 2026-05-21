@@ -13,13 +13,19 @@ replacement for the release checklist.
 
 ## Interface Modes
 
-`HEADER_INTERFACE` is the prerelease consumption baseline. `MODULE_INTERFACE`
-remains toolchain-sensitive and must be validated with the matching preset.
+`MODULE_INTERFACE` is the prerelease primary interface for source consumption
+and development. It remains toolchain-sensitive and must fail clearly when the
+selected compiler/CMake preset cannot provide the required module support.
+
+Generated headers are release artifacts for compatibility consumers. They are
+generated from module sources during artifact staging and are not tracked as
+hand-maintained source.
 
 ## Package Components
 
-Mock-liburing header installs publish only `core`, `types`, `json`, and
-`file_io_sync`. They intentionally do not publish `runtime` or `http`.
+Mock liburing header installs publish only `core`, `types`, `json`, and
+`file_io_sync` as internal compile evidence for generated header artifacts. They
+intentionally do not publish `runtime` or `http`.
 
 Real-liburing installs may publish `runtime` and `http`; consumers must be able
 to find `liburing` through `pkg-config`.
@@ -58,5 +64,5 @@ python3 scripts/check-release-docs.py
 python3 scripts/check-package-docs.py
 python3 scripts/check-release-notes.py
 bash scripts/check-package-config.sh
-bash scripts/check-package-smoke-liburing-free.sh
+bash scripts/stage-release-artifacts.sh --stage-dir /tmp/conflux-release-artifacts/stage --no-tarball
 ```

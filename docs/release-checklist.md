@@ -14,7 +14,8 @@ bundle, or security-sensitive surface is added.
 | Tests | `ctest` command, preset, result summary | Use `scripts/run-ctest.sh` where possible. |
 | Sanitizers / fuzz | Sanitizer preset logs and parser-facing fuzz/security corpus result | Required when HTTP parser, JSON parser, URL/form decoding, or WebSocket framing changed. |
 | Examples | `examples/compile` CTest result | Examples must compile, not necessarily run server loops in CI. |
-| Header compatibility | Full `HEADER_INTERFACE` compile pass log | Pre-release only: enable examples, tests, and benchmarks to catch generated-header consumer regressions. Public header-mode profiles may stay examples-only. |
+| Module package | Full `MODULE_INTERFACE` configure/build/test/package log | Primary prerelease consumption mode; use checked presets and fail clearly on unsupported toolchains. |
+| Generated header artifact | Staged artifact tree and `HEADER_INTERFACE` compile pass log | Generated headers are release artifacts from module sources, not hand-maintained source. |
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
 | Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
@@ -24,7 +25,7 @@ bundle, or security-sensitive surface is added.
 
 ## Prerelease command lanes
 
-Header-interface build and install:
+Module-interface build and install:
 
 ```sh
 python3 scripts/check_no_std_streams.py
@@ -33,6 +34,18 @@ python3 scripts/check-planning-state.py
 python3 scripts/check-release-docs.py
 python3 scripts/check-package-docs.py
 python3 scripts/check-release-notes.py
+cmake --preset release-clang-libcxx
+cmake --build --preset release-clang-libcxx
+ctest --preset release-clang-libcxx --output-on-failure
+scripts/run-install-tree-smoke.sh \
+  --interface-mode MODULE_INTERFACE \
+  --components 'core;json;http;runtime' \
+  -- -DCONFLUX_USE_MOCK_LIBURING=OFF
+```
+
+Generated-header artifact build and install:
+
+```sh
 cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
@@ -47,10 +60,21 @@ find /tmp/conflux-install/include/conflux -maxdepth 2 \( -name 'pg*' -o -name 'd
 ```
 
 The `find` command should print no DB headers when `CONFLUX_ENABLE_DB=OFF`.
+The generated-header lane stages release artifacts and compile evidence; it is
+not the primary source-consumption contract.
+
+Release artifact staging:
+
+```sh
+scripts/stage-release-artifacts.sh \
+  --stage-dir /tmp/conflux-release-artifacts/stage \
+  --no-tarball
+```
 
 Installed liburing-free package smoke from outside the source tree. This is the
-required lane for mock-liburing installs; mock liburing is compile evidence for
-the build tree and does not publish runtime/http package components.
+required generated-header artifact lane for mock-liburing installs; mock
+liburing is compile evidence for the build tree and does not publish
+runtime/http package components.
 
 ```sh
 cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
@@ -102,21 +126,23 @@ ctest --test-dir /tmp/conflux-tests --output-on-failure
 ### Build/package
 
 - `scripts/check-package-config.sh` passes.
+- `scripts/stage-release-artifacts.sh` stages source modules, installed package
+  config, generated headers, bridge manifest metadata, and the release evidence
+  template.
 - Planning/release docs guards pass:
   `scripts/check-planning-state.py`, `scripts/check-release-docs.py`,
   `scripts/check-package-docs.py`, and `scripts/check-release-notes.py`.
-- `scripts/check-package-smoke-liburing-free.sh` passes for mock-liburing
-  HEADER_INTERFACE installs. It must request `core;types;json;file_io_sync`
-  availability, with the smoke compile lane using `core;json;file_io_sync`, not
-  runtime/http.
+- Mock-liburing HEADER_INTERFACE installs are internal generated-header artifact
+  evidence. They must request `core;types;json;file_io_sync` availability, with
+  the smoke compile lane using `core;json;file_io_sync`, not runtime/http.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
   `core;json;http;file_io_sync;runtime`.
 - Installed `find_package(conflux REQUIRED COMPONENTS ...)` works for the
   components listed in `docs/component-map.md`.
-- Install/package smokes cover the selected public interface mode. Run module
-  and header package lanes separately; mixed import/include consumers are not a
-  supported release gate.
+- Install/package smokes cover the selected public interface mode. Run the
+  module package lane as primary and the generated-header artifact lane
+  separately; mixed import/include consumers are not a supported release gate.
 - Feature bundles in `cmake/ConfluxPresets.cmake` match the bundle descriptions
   in `docs/component-map.md`.
 

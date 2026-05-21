@@ -23,6 +23,8 @@ fail() {
 [[ -f scripts/check-release-docs.py ]] || fail "missing release-docs guard"
 [[ -f scripts/check-package-docs.py ]] || fail "missing package-docs guard"
 [[ -f scripts/check-release-notes.py ]] || fail "missing release-notes guard"
+[[ -f scripts/stage-release-artifacts.sh ]] || fail "missing release artifact staging script"
+[[ -f scripts/check-release-artifact.py ]] || fail "missing release artifact guard"
 
 grep -Eq '^project\(conflux VERSION [0-9]+\.[0-9]+\.[0-9]+ LANGUAGES CXX\)' CMakeLists.txt \
     || fail "project() must declare the package version"
@@ -59,6 +61,10 @@ grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
     || fail "missing opt-in install-tree smoke CTest option"
 grep -q 'add_test(NAME build/install-tree-smoke' CMakeLists.txt \
     || fail "missing install-tree smoke CTest guard"
+grep -q '"name": "release-header-artifacts"' CMakePresets.json \
+    || fail "missing release-header-artifacts preset"
+grep -q '"configurePreset": "release-clang-libcxx"' CMakePresets.json \
+    || fail "missing release-clang-libcxx test preset"
 
 grep -q '@PACKAGE_INIT@' cmake/conflux-config.cmake.in \
     || fail "package config must use PACKAGE_INIT"
@@ -123,5 +129,13 @@ grep -q "pkg-config --exists libpq" scripts/check-package-smoke-db.sh \
     || fail "DB package smoke must gate on libpq"
 grep -q -- "--enable-db-smoke" scripts/check-package-smoke-db.sh \
     || fail "DB package smoke must enable DB component checks"
+grep -q 'check-release-artifact.py' scripts/stage-release-artifacts.sh \
+    || fail "release artifact staging must self-check staged output"
+grep -q 'cmake --preset "$preset"' scripts/stage-release-artifacts.sh \
+    || fail "release artifact staging must prefer the preset build"
+grep -q 'module-header-bridge-manifest.json' scripts/stage-release-artifacts.sh \
+    || fail "release artifact staging must include the bridge manifest"
+grep -q 'python_version' scripts/check-release-artifact.py \
+    || fail "release artifact guard must validate bridge python metadata"
 
 printf 'check-package-config: ok\n'

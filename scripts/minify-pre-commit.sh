@@ -2,7 +2,7 @@
 set -euo pipefail
 
 minifier=/home/claudiu/minify/minify.py
-anchor=src/types.cxx
+anchor=src/types_api.cxx
 
 if [[ ! -f "$minifier" ]]; then
 	printf 'minifier not found: %s\n' "$minifier" >&2
