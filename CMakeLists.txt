@@ -3025,6 +3025,11 @@ if(CONFLUX_BUILD_EXAMPLES)
         target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
     endif()
 
+    if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
+        add_executable(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud.cxx)
+        target_link_libraries(conflux_quickstart_json_reflect_crud PRIVATE conflux conflux_json_reflect conflux_options)
+    endif()
+
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
         add_executable(conflux_quickstart_postgres examples/quickstart/postgres_json.cxx)
         target_link_libraries(conflux_quickstart_postgres
@@ -3676,6 +3681,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     set(CONFLUX_EXAMPLE_TARGETS
         conflux_quickstart_hello
         conflux_quickstart_json_crud
+        conflux_quickstart_json_reflect_crud
         conflux_quickstart_middleware
         conflux_quickstart_openapi
         conflux_quickstart_postgres
@@ -3719,6 +3725,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     set(CONFLUX_EXAMPLE_TARGET_REASONS
         "preview HTTP example"
         "requires JSON HTTP support"
+        "requires JSON reflection support"
         "preview HTTP example"
         "preview HTTP example"
         "requires DB support and libpq"

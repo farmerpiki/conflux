@@ -49,6 +49,39 @@ conflux::json::ValueBuilder b;
 auto encoded = std::move(b).finish();
 ```
 
+HTTP handlers can use the same direct aggregate serde. This is the no-registration
+variant of the JSON CRUD quickstart:
+
+```cpp
+import conflux.http;
+import conflux.json.reflect;
+import std;
+
+namespace http = conflux::http;
+
+struct Todo {
+    int64_t id{};
+    std::string title;
+    bool done{};
+};
+
+struct CreateTodo {
+    std::string title;
+};
+
+app.get<"/todos/{id:i64}">([](std::int64_t id) -> http::Json<Todo> {
+    return http::json(Todo{.id = id, .title = "write docs"});
+});
+
+app.post("/todos", [](http::Json<CreateTodo> const& body) {
+    return http::created(Todo{.id = 1, .title = body->title});
+});
+```
+
+See `examples/quickstart/json_reflect_crud.cxx` for the full route set. The
+portable `examples/quickstart/json_crud.cxx` still uses `JsonMembers<T>` because
+reflection is toolchain-gated.
+
 Provider-boundary usage:
 
 ```cpp

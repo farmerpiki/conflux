@@ -511,6 +511,10 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_note_header_example(conflux_quickstart_json_crud skipped "JSON HTTP support target unavailable")
     endif()
 
+    if(CONFLUX_JSON_REFLECT)
+        conflux_add_header_example_from_id(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud)
+    endif()
+
     if(CONFLUX_WANT_TEMPLATES)
         conflux_add_header_example_from_id(conflux_template_pages_example examples/advanced/template_pages)
     endif()
@@ -544,6 +548,7 @@ function(conflux_add_header_examples_from_source_ids)
     set(_conflux_header_manifest_targets
         conflux_quickstart_hello
         conflux_quickstart_json_crud
+        conflux_quickstart_json_reflect_crud
         conflux_quickstart_middleware
         conflux_quickstart_openapi
         conflux_quickstart_postgres

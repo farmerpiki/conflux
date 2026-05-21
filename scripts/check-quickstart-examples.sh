@@ -10,6 +10,7 @@ fi
 
 if grep -R -n -E '^import conflux\.' "$root" \
 	| grep -v -E ':import conflux\.http;$' \
+	| grep -v -E '/json_reflect_crud\.cxx:[0-9]+:import conflux\.json\.reflect;$' \
 	| grep -v -E '/postgres_json\.cxx:[0-9]+:import conflux\.pg;$'; then
 	printf 'quickstart examples must import only conflux.http from conflux modules\n' >&2
 	exit 1
@@ -36,3 +37,4 @@ check_max_lines() {
 
 check_max_lines hello.cxx 25
 check_max_lines json_crud.cxx 120
+check_max_lines json_reflect_crud.cxx 90
