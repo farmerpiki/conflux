@@ -1,7 +1,6 @@
 module;
 #include <cerrno>
 #include <liburing.h>
-#include <memory>
 
 export module conflux.file_io.iopoll;
 

@@ -1,5 +1,4 @@
 module;
-#include <memory>
 
 #ifndef CONFLUX_WORK_CORO_FRAME_POOL
 	#define CONFLUX_WORK_CORO_FRAME_POOL 0

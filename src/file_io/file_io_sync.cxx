@@ -3,7 +3,6 @@ module;
 #include <fcntl.h>
 #include <linux/fs.h>
 #include <linux/openat2.h>
-#include <memory>
 #include <stdio.h>
 #include <sys/random.h>
 #include <sys/stat.h>

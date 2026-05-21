@@ -5,7 +5,6 @@ module;
 #include <cstring>
 #include <fcntl.h>
 #include <liburing.h>
-#include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>

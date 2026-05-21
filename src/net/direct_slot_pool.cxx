@@ -1,6 +1,5 @@
 module;
 #include <cassert>
-#include <memory>
 
 export module conflux.net.direct_slot_pool;
 import std;

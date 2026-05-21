@@ -2,7 +2,6 @@ module;
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
-#include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>

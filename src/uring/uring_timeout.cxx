@@ -1,6 +1,5 @@
 module;
 #include <liburing.h>
-#include <memory>
 
 export module conflux.uring.timeout;
 

@@ -1,5 +1,4 @@
 module;
-#include <memory>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <poll.h>

@@ -1,7 +1,6 @@
 module;
 #include <cstdlib>
 #include <liburing.h>
-#include <memory>
 #include <sys/mman.h>
 #include <sys/uio.h>
 #include <unistd.h>

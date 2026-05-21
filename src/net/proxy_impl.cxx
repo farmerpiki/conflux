@@ -1,5 +1,4 @@
 module;
-#include <memory>
 
 module conflux.net.proxy;
 

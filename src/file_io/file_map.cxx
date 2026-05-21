@@ -2,7 +2,6 @@ module;
 #include <cerrno>
 #include <fcntl.h>
 #include <linux/openat2.h>
-#include <memory>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>

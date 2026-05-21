@@ -5,7 +5,6 @@ module;
 #include <linux/futex.h>
 #include <linux/openat2.h>
 #include <linux/stat.h>
-#include <memory>
 #include <poll.h>
 #include <sys/epoll.h>
 #include <sys/random.h>
