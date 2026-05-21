@@ -25,6 +25,13 @@ bundle, or security-sensitive surface is added.
 
 ## Prerelease command lanes
 
+Before tagging, re-check whether GCC debug sanitizer coverage can be narrowed
+back on. Prefer the smallest workaround if GCC still has module/sanitizer
+trouble: disable only the problematic sanitizer, and only for the affected
+translation unit if CMake can express that cleanly. If ongoing module splitting
+removes the failure, keep the normal sanitizer lane instead of carrying a
+special case.
+
 Module-interface build and install:
 
 ```sh
