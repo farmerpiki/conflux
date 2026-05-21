@@ -189,7 +189,7 @@ BenchStats bench_read_storm(
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto slot = std::make_shared<JoinSlot<std::size_t>>();
 			slot->done = &done;
-			auto offset = static_cast<std::uint64_t>(((batch + i) % cfg.depth) * cfg.chunk);
+			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
 			install_join(files.read_into(fh, offset, std::span{buffers[i]}), slot);
 			slots.push_back(std::move(slot));
 		}
@@ -225,7 +225,7 @@ BenchStats bench_write_storm(
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto slot = std::make_shared<JoinSlot<std::size_t>>();
 			slot->done = &done;
-			auto offset = static_cast<std::uint64_t>(((batch + i) % cfg.depth) * cfg.chunk);
+			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
 			install_join(files.write_into(fh, offset, std::span<std::byte const>{buffers[i]}), slot);
 			slots.push_back(std::move(slot));
 		}
