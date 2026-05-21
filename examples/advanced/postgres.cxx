@@ -5,8 +5,7 @@
 //
 // Build and run:
 //   cmake --build build/release-clang-libcxx --target conflux_advanced_postgres
-//   PG_CONNINFO='postgresql:///postgres?user=postgres' \
-//     build/release-clang-libcxx/conflux_advanced_postgres
+//   env PG_CONNINFO='postgresql:///postgres?user=postgres' build/release-clang-libcxx/conflux_advanced_postgres
 #include <liburing.h>
 
 import std;

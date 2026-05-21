@@ -40,6 +40,11 @@ function(conflux_pkg_provider prefix required)
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
     execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --cflags-only-I ${_packages}
+        OUTPUT_VARIABLE _include_flags
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
         COMMAND "${PKG_CONFIG_EXECUTABLE}" --libs ${_packages}
         OUTPUT_VARIABLE _libs
         OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -47,8 +52,24 @@ function(conflux_pkg_provider prefix required)
 
     if(NOT TARGET PkgConfig::${prefix})
         add_library(PkgConfig::${prefix} INTERFACE IMPORTED)
+        set(_include_dirs)
+        if(NOT _include_flags STREQUAL "")
+            separate_arguments(_include_flags_list UNIX_COMMAND "${_include_flags}")
+            foreach(_flag IN LISTS _include_flags_list)
+                if(_flag MATCHES "^-I(.+)$")
+                    list(APPEND _include_dirs "${CMAKE_MATCH_1}")
+                endif()
+            endforeach()
+            if(_include_dirs)
+                set_target_properties(PkgConfig::${prefix} PROPERTIES
+                    INTERFACE_INCLUDE_DIRECTORIES "${_include_dirs}")
+            endif()
+        endif()
         if(NOT _cflags STREQUAL "")
             separate_arguments(_cflags_list UNIX_COMMAND "${_cflags}")
+            foreach(_dir IN LISTS _include_dirs)
+                list(REMOVE_ITEM _cflags_list "-I${_dir}")
+            endforeach()
             set_target_properties(PkgConfig::${prefix} PROPERTIES
                 INTERFACE_COMPILE_OPTIONS "${_cflags_list}")
         endif()
@@ -407,4 +428,18 @@ endif()
 string(TOUPPER "${CONFLUX_POSTGRES_PROVIDER}" CONFLUX_POSTGRES_PROVIDER_UPPER)
 if(CONFLUX_WANT_DB_POSTGRES AND NOT CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "OFF")
     conflux_pkg_provider(LIBPQ FALSE libpq)
+    if(LIBPQ_FOUND)
+        include(CheckIncludeFileCXX)
+        set(_conflux_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
+        get_target_property(_conflux_libpq_include_dirs PkgConfig::LIBPQ INTERFACE_INCLUDE_DIRECTORIES)
+        if(_conflux_libpq_include_dirs)
+            set(CMAKE_REQUIRED_INCLUDES "${_conflux_libpq_include_dirs}")
+        endif()
+        check_include_file_cxx("libpq-fe.h" CONFLUX_LIBPQ_HAS_HEADER)
+        set(CMAKE_REQUIRED_INCLUDES "${_conflux_saved_required_includes}")
+        if(NOT CONFLUX_LIBPQ_HAS_HEADER)
+            set(LIBPQ_FOUND FALSE)
+            message(STATUS "conflux: libpq pkg-config entry found, but libpq-fe.h is not usable")
+        endif()
+    endif()
 endif()

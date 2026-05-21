@@ -227,7 +227,7 @@ function(conflux_select_header_impl_sources out)
         conflux_append_header_impl_sources_for_modules(_selected
             "^conflux\\.(http($|:)|net\\.(app($|\\.)|auth|cache_control|client($|\\.)|compress|cookie_signing|cors|csrf|etag|forwarded|http($|\\.)|http_server($|:)|ip_filter|jwt|metrics|openid|password_hash|proxy($|:)|rate_limit|realtime|redirect|request_id|response|response_cache|router($|:)|router_static|security|smtp|static($|\\.)|structured_log|tls|tracing|trailing_slash|vhost|openapi))")
     endif()
-    if(CONFLUX_WANT_DB_POSTGRES)
+    if(CONFLUX_HAS_DB STREQUAL "true")
         conflux_append_header_impl_sources_for_modules(_selected
             "^conflux\\.db($|\\.)")
     endif()
@@ -394,17 +394,65 @@ function(conflux_add_header_component_smoke_targets)
     file(WRITE "${_smoke_dir}/core.cxx" "#include <conflux/types.hxx>\nint main() { return 0; }\n")
     add_executable(conflux_header_smoke_core "${_smoke_dir}/core.cxx")
     target_link_libraries(conflux_header_smoke_core PRIVATE conflux_headers)
+    conflux_apply_header_smoke_warnings(conflux_header_smoke_core)
 
     if(CONFLUX_WANT_JSON)
         file(WRITE "${_smoke_dir}/json.cxx" "#include <conflux/json.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_json "${_smoke_dir}/json.cxx")
         target_link_libraries(conflux_header_smoke_json PRIVATE conflux_headers)
+        conflux_apply_header_smoke_warnings(conflux_header_smoke_json)
     endif()
 
     if(CONFLUX_NEEDS_RUNTIME)
         file(WRITE "${_smoke_dir}/runtime.cxx" "#include <conflux/work.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_runtime "${_smoke_dir}/runtime.cxx")
         target_link_libraries(conflux_header_smoke_runtime PRIVATE conflux_headers)
+        conflux_apply_header_smoke_warnings(conflux_header_smoke_runtime)
+    endif()
+
+    if(CONFLUX_HAS_DB STREQUAL "true")
+        file(WRITE "${_smoke_dir}/pg.cxx" "#include <conflux/pg/types.hxx>\nint main() { return 0; }\n")
+        add_executable(conflux_header_smoke_pg "${_smoke_dir}/pg.cxx")
+        target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_headers)
+        conflux_apply_header_smoke_warnings(conflux_header_smoke_pg)
+    endif()
+endfunction()
+
+function(conflux_apply_header_smoke_warnings target)
+    target_compile_options(${target} PRIVATE
+        -Wall
+        -Wcast-align
+        -Wconversion
+        -Wdisabled-optimization
+        -Wdouble-promotion
+        -Wextra
+        -Wformat=2
+        -Wimplicit-fallthrough
+        -Wnon-virtual-dtor
+        -Wnull-dereference
+        -Wold-style-cast
+        -Woverloaded-virtual
+        -Wpedantic
+        -Wredundant-decls
+        -Wsign-conversion
+        -Wunused)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${target} PRIVATE
+            -Wmisleading-indentation
+            -Wduplicated-cond
+            -Wduplicated-branches
+            -Wlogical-op
+            -Wuseless-cast
+            -Wmissing-noreturn
+            -Wmissing-format-attribute
+            -Wno-global-module
+            -Wno-missing-field-initializers)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${target} PRIVATE
+            -Wno-c++98-compat
+            -Wno-c++98-compat-pedantic
+            -Wno-unqualified-std-cast-call
+            -Wno-missing-designated-field-initializers)
     endif()
 endfunction()
 
@@ -472,7 +520,7 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_h3_server examples/advanced/h3_server)
     endif()
 
-    if(CONFLUX_HAS_DB)
+    if(CONFLUX_HAS_DB STREQUAL "true")
         conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json)
         conflux_note_header_example(conflux_quickstart_postgres built "DB support enabled and libpq found")
         conflux_add_header_example_from_id(conflux_db_basic examples/advanced/db_basic)

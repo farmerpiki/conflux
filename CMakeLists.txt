@@ -1671,6 +1671,9 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
     target_link_libraries(conflux_pg
         PRIVATE conflux_options
         PUBLIC  conflux_work
+        PUBLIC  conflux_uring
+        PUBLIC  conflux_uring_timeout
+        PUBLIC  conflux_file_io_sync
         PUBLIC  conflux_file_io
         PUBLIC  PkgConfig::LIBPQ
     )
