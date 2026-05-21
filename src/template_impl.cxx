@@ -255,7 +255,7 @@ static std::string str_capitalize(
 	return s;
 }
 std::vector<std::string> split_args(
-	std::string const &s) {
+	std::string_view s) {
 	std::vector<std::string> args;
 	std::string current;
 	int depth = 0;
