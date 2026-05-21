@@ -1,21 +1,13 @@
 module;
-#include <array>
-#include <atomic>
 #include <cerrno>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <format>
+
 #include <liburing.h>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <type_traits>
-#include <variant>
 
 export module conflux.socket_io.blocking;
 
+import std;
 import conflux.types;
 import conflux.socket_io;
 import conflux.socket_io.coro;

@@ -1,7 +1,7 @@
 module;
-#include <memory>
 
 export module conflux.templates;
+import std;
 import conflux.types;
 import std.compat;
 import conflux.json;

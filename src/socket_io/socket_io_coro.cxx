@@ -1,33 +1,17 @@
 module;
-#include <atomic>
 #include <cerrno>
-#include <chrono>
-#include <coroutine>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <format>
-#include <functional>
+
 #include <liburing.h>
-#include <memory>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <optional>
-#include <span>
-#include <string>
 #include <sys/socket.h>
-#include <type_traits>
 #include <unistd.h>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module conflux.socket_io.coro;
 
-// Keep this module off `import std` for GCC 16: the exported coroutine/socket
-// surface is large enough to trip CMI deserialization with direct std-module
-// imports.  Textual std headers in the global module fragment keep the public
-// API unchanged while shrinking the CMI dependency surface for importers.
+import std;
 import conflux.types;
 import conflux.uring.completion;
 import conflux.uring.handle;

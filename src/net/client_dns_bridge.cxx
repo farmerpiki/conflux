@@ -1,11 +1,8 @@
 module;
-#include <algorithm>
-#include <chrono>
 #include <cstring>
-#include <exception>
-#include <string_view>
 
 export module conflux.dns_bridge;
+import std;
 import conflux.types;
 import conflux.net.dns;
 

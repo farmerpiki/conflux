@@ -1,12 +1,8 @@
 module;
-#include <atomic>
-#include <coroutine>
-#include <exception>
-#include <mutex>
-#include <optional>
-#include <utility>
 
 module conflux.net.cancel;
+
+import std;
 
 namespace {
 
