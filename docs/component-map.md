@@ -106,6 +106,7 @@ time and are consumed through the separate runtime smoke lane.
 | `template_watch` | `conflux::template_watch` | `conflux.templates.watch` | `examples/advanced/template_pages.cxx` |
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
 | `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
+| `dns_bridge` | `conflux::dns_bridge` | `conflux.dns_bridge` HTTP-client DNS bridge provider | `examples/advanced/http_client_builder.cxx` |
 | `process` | `conflux::process` | `conflux.process` | `examples/advanced/process_run.cxx`, `tests/process_test.cxx` |
 | `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | `docs/db-api.md`, `examples/advanced/db_basic.cxx`, `examples/advanced/db_pool.cxx` |
 | `db` | `conflux::db` | compatibility re-export of PostgreSQL API; not advertised for new public code | `docs/db-api.md` |
@@ -159,5 +160,4 @@ link interfaces may need them. They are not intended as public starting points:
 |---|---|---|
 | `_options` | `conflux::_options` | propagated compile options/definitions |
 | `_direct_slot_pool` | `conflux::_direct_slot_pool` | HTTP/runtime direct-slot helper |
-| `_dns_bridge` | `conflux::_dns_bridge` | internal HTTP-client DNS bridge module `conflux.dns_bridge` |
 | `_simd_runtime` | `conflux::_simd_runtime` | private selected SIMD backend symbols for static-library link interfaces |

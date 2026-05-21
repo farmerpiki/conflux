@@ -54,6 +54,23 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io
 
 ## Package Contract
 
+- `find_package(conflux REQUIRED COMPONENTS ...)` imports only the requested
+  components and their direct dependency closure. Unrequested package targets
+  must not be visible to the consumer, so `find_package(conflux COMPONENTS dns)`
+  may expose `conflux::dns`, `conflux::runtime`, `conflux::file_io`,
+  `conflux::socket_io`, `conflux::uring`, and other required support targets,
+  but it must not expose unrelated targets such as `conflux::http`,
+  `conflux::template`, or `conflux::pg`.
+- Installed CMake exports are split by component as
+  `confluxTargets-<component>.cmake`. Register new public components in
+  `CMakeLists.txt` and express component/provider dependencies with
+  `target_link_libraries`; installed package metadata is generated from the
+  exported targets.
+- Package smoke tests configure a downstream consumer and fail if any installed
+  public target exists outside `conflux_VISIBLE_TARGETS`. Check
+  isolated components with `scripts/run-install-tree-smoke.sh --components
+  '<component>' --feature-set <matching-feature-set>`; this is the guard that
+  prevents broad aggregates from leaking into minimal installs.
 - mock-liburing install: `core`, `types`, `json`, `file_io_sync` only, as
   internal compile evidence for generated header artifacts.
 - real-liburing install: `runtime` and `http` may be requested when producer

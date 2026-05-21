@@ -104,6 +104,9 @@ fi
 if grep -q '@CONFLUX_INSTALL_NEEDS_.*pkg_check_modules\|if(@CONFLUX_INSTALL_NEEDS_' cmake/conflux-config.cmake.in; then
     fail "package config must not resolve optional deps from install-wide booleans"
 fi
+if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::LIBURING' cmake/ConfluxInterfaceMode.cmake; then
+    fail "header support target must not leak liburing into every header package component"
+fi
 grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
     || fail "package config must expose runtime liburing status"
 grep -q 'set(CONFLUX_PACKAGE_MOCK_LIBURING' cmake/conflux-config.cmake.in \
