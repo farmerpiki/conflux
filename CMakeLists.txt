@@ -2400,6 +2400,8 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_json
     PUBLIC  conflux_json_boundary
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_server
     PUBLIC  conflux_work
 )
@@ -2421,6 +2423,12 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_http_openapi
     PUBLIC  conflux_http_vhost
 )
+if(TARGET conflux_http2)
+    target_link_libraries(conflux_http_app PUBLIC conflux_http2)
+endif()
+if(TARGET conflux_http3)
+    target_link_libraries(conflux_http_app PUBLIC conflux_http3)
+endif()
 endif() # CONFLUX_WANT_HTTP_SERVER (app facade)
 
 if(TARGET conflux_http_response_json AND TARGET conflux_http_app AND TARGET conflux_http_router)
@@ -2827,23 +2835,63 @@ endif()
 
 set(CONFLUX_PACKAGE_COMPONENTS)
 set(CONFLUX_PACKAGE_TARGETS)
+set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
+set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
+set(CONFLUX_PACKAGE_ALL_COMPONENTS)
+set(CONFLUX_PACKAGE_ALL_TARGETS)
 
-function(conflux_public_component target export_name)
+function(conflux_component target export_name)
+    set(options)
+    set(one_value_args KIND)
+    set(multi_value_args)
+    cmake_parse_arguments(CONFLUX_COMPONENT
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    if(NOT CONFLUX_COMPONENT_KIND)
+        set(CONFLUX_COMPONENT_KIND REQUESTABLE)
+    endif()
+    if(NOT CONFLUX_COMPONENT_KIND MATCHES "^(REQUESTABLE|SUPPORT)$")
+        message(FATAL_ERROR
+            "conflux: component '${export_name}' has invalid KIND '${CONFLUX_COMPONENT_KIND}'")
+    endif()
+
     if(TARGET ${target})
         set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
         if(NOT TARGET conflux::${export_name})
             add_library(conflux::${export_name} ALIAS ${target})
         endif()
 
-        set(_components ${CONFLUX_PACKAGE_COMPONENTS})
-        list(APPEND _components "${export_name}")
-        set(CONFLUX_PACKAGE_COMPONENTS "${_components}" PARENT_SCOPE)
+        set(_all_components ${CONFLUX_PACKAGE_ALL_COMPONENTS})
+        list(APPEND _all_components "${export_name}")
+        set(CONFLUX_PACKAGE_ALL_COMPONENTS "${_all_components}" PARENT_SCOPE)
 
-        set(_targets ${CONFLUX_PACKAGE_TARGETS})
-        list(APPEND _targets "conflux::${export_name}")
-        set(CONFLUX_PACKAGE_TARGETS "${_targets}" PARENT_SCOPE)
+        set(_all_targets ${CONFLUX_PACKAGE_ALL_TARGETS})
+        list(APPEND _all_targets "conflux::${export_name}")
+        set(CONFLUX_PACKAGE_ALL_TARGETS "${_all_targets}" PARENT_SCOPE)
+
+        if(CONFLUX_COMPONENT_KIND STREQUAL "SUPPORT")
+            set(_support_components ${CONFLUX_PACKAGE_SUPPORT_COMPONENTS})
+            list(APPEND _support_components "${export_name}")
+            set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS "${_support_components}" PARENT_SCOPE)
+
+            set(_support_targets ${CONFLUX_PACKAGE_SUPPORT_TARGETS})
+            list(APPEND _support_targets "conflux::${export_name}")
+            set(CONFLUX_PACKAGE_SUPPORT_TARGETS "${_support_targets}" PARENT_SCOPE)
+        else()
+            set(_components ${CONFLUX_PACKAGE_COMPONENTS})
+            list(APPEND _components "${export_name}")
+            set(CONFLUX_PACKAGE_COMPONENTS "${_components}" PARENT_SCOPE)
+
+            set(_targets ${CONFLUX_PACKAGE_TARGETS})
+            list(APPEND _targets "conflux::${export_name}")
+            set(CONFLUX_PACKAGE_TARGETS "${_targets}" PARENT_SCOPE)
+        endif()
+
     endif()
 endfunction()
+
+macro(conflux_public_component target export_name)
+    conflux_component(${target} ${export_name} KIND REQUESTABLE)
+endmacro()
 
 conflux_public_component(conflux_core core)
 conflux_public_component(conflux_types types)
@@ -2883,7 +2931,7 @@ conflux_public_component(conflux_net_client http_client)
 conflux_public_component(conflux_net_async_client http_async_client)
 conflux_public_component(conflux_http_proxy http_proxy)
 conflux_public_component(conflux_net_smtp smtp)
-conflux_public_component(conflux_dns_bridge _dns_bridge)
+conflux_public_component(conflux_dns_bridge dns_bridge)
 conflux_public_component(conflux_http_observability http_observability)
 conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
@@ -2911,14 +2959,16 @@ conflux_public_component(conflux_pg pg)
 conflux_public_component(conflux umbrella)
 
 # Internal-but-exported support targets needed by static-library link interfaces.
-conflux_public_component(conflux_options _options)
-conflux_public_component(conflux_direct_slot_pool _direct_slot_pool)
-conflux_public_component(conflux_simd_runtime _simd_runtime)
+conflux_component(conflux_options _options KIND SUPPORT)
+conflux_component(conflux_direct_slot_pool _direct_slot_pool KIND SUPPORT)
+conflux_component(conflux_simd_runtime _simd_runtime KIND SUPPORT)
 
 if(TARGET conflux AND NOT TARGET conflux::conflux)
     add_library(conflux::conflux ALIAS conflux)
     list(APPEND CONFLUX_PACKAGE_COMPONENTS conflux)
     list(APPEND CONFLUX_PACKAGE_TARGETS conflux::conflux)
+    list(APPEND CONFLUX_PACKAGE_ALL_COMPONENTS conflux)
+    list(APPEND CONFLUX_PACKAGE_ALL_TARGETS conflux::conflux)
 endif()
 
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
@@ -3013,28 +3063,34 @@ foreach(_target IN LISTS CONFLUX_INSTALL_MODULE_TARGETS)
 endforeach()
 
 if(CONFLUX_INSTALL_INTERFACE_TARGETS)
-    install(TARGETS ${CONFLUX_INSTALL_INTERFACE_TARGETS}
-        EXPORT confluxTargets
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
+    foreach(_target IN LISTS CONFLUX_INSTALL_INTERFACE_TARGETS)
+        get_target_property(_export_name ${_target} EXPORT_NAME)
+        install(TARGETS ${_target}
+            EXPORT confluxTargets-${_export_name}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endforeach()
 endif()
 
 if(CONFLUX_INSTALL_MODULE_TARGETS)
-    install(TARGETS ${CONFLUX_INSTALL_MODULE_TARGETS}
-        EXPORT confluxTargets
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
-        FILE_SET generated_mods DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/generated/modules
-    )
+    foreach(_target IN LISTS CONFLUX_INSTALL_MODULE_TARGETS)
+        get_target_property(_export_name ${_target} EXPORT_NAME)
+        install(TARGETS ${_target}
+            EXPORT confluxTargets-${_export_name}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
+            FILE_SET generated_mods DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/generated/modules
+        )
+    endforeach()
 endif()
 
 if(TARGET conflux)
     install(TARGETS conflux
-        EXPORT confluxTargets
+        EXPORT confluxTargets-umbrella
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -3096,6 +3152,12 @@ if(TARGET conflux_http3)
     set(CONFLUX_INSTALL_NEEDS_NGHTTP3 TRUE)
 endif()
 
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ConfluxGeneratePackageMetadata.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake"
+    @ONLY
+)
+
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/conflux-config.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
@@ -3125,10 +3187,22 @@ install(FILES
     ${CONFLUX_SRC_ROOT}/conflux/detail/discard.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail
 )
-install(EXPORT confluxTargets
-    NAMESPACE conflux::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
-)
+foreach(_target IN LISTS CONFLUX_INSTALL_INTERFACE_TARGETS CONFLUX_INSTALL_MODULE_TARGETS)
+    get_target_property(_export_name ${_target} EXPORT_NAME)
+    install(EXPORT confluxTargets-${_export_name}
+        NAMESPACE conflux::
+        FILE confluxTargets-${_export_name}.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+    )
+endforeach()
+if(TARGET conflux)
+    install(EXPORT confluxTargets-umbrella
+        NAMESPACE conflux::
+        FILE confluxTargets-umbrella.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+    )
+endif()
+install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")
 
 if(CONFLUX_BUILD_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

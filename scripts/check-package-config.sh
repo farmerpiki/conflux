@@ -11,6 +11,7 @@ fail() {
 
 [[ -f CMakeLists.txt ]] || fail "missing CMakeLists.txt"
 [[ -f cmake/conflux-config.cmake.in ]] || fail "missing package config template"
+[[ -f cmake/ConfluxGeneratePackageMetadata.cmake.in ]] || fail "missing package metadata generator"
 [[ -f cmake/package-smoke/CMakeLists.txt ]] || fail "missing package smoke project"
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
@@ -37,6 +38,8 @@ grep -q 'VERSION ${PROJECT_VERSION}' CMakeLists.txt \
     || fail "package version file must use PROJECT_VERSION"
 grep -q 'install(EXPORT confluxTargets' CMakeLists.txt \
     || fail "missing install(EXPORT confluxTargets)"
+grep -q 'install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")' CMakeLists.txt \
+    || fail "missing install-time package metadata generator"
 grep -q 'NAMESPACE conflux::' CMakeLists.txt \
     || fail "export namespace must stay conflux::"
 grep -q 'add_test(NAME build/cmake-source-files' CMakeLists.txt \
@@ -70,10 +73,37 @@ grep -q '@PACKAGE_INIT@' cmake/conflux-config.cmake.in \
     || fail "package config must use PACKAGE_INIT"
 grep -q 'include(CMakeFindDependencyMacro)' cmake/conflux-config.cmake.in \
     || fail "package config must include CMakeFindDependencyMacro"
-grep -q 'include("${CMAKE_CURRENT_LIST_DIR}/confluxTargets.cmake")' cmake/conflux-config.cmake.in \
-    || fail "package config must include exported targets"
+grep -q 'conflux-component-targets.cmake' cmake/conflux-config.cmake.in \
+    || fail "package config must include generated component target metadata"
+grep -q 'conflux-component-deps.cmake' cmake/conflux-config.cmake.in \
+    || fail "package config must include generated component dependency metadata"
+grep -q 'conflux-component-external-deps.cmake' cmake/conflux-config.cmake.in \
+    || fail "package config must include generated external dependency metadata"
+grep -q 'confluxTargets-${_export_component}.cmake' cmake/conflux-config.cmake.in \
+    || fail "package config must include requested split exported targets"
 grep -q 'set(conflux_AVAILABLE_COMPONENTS' cmake/conflux-config.cmake.in \
     || fail "package config must expose available components"
+grep -q 'set(conflux_AVAILABLE_SUPPORT_TARGETS' cmake/conflux-config.cmake.in \
+    || fail "package config must expose available support targets"
+grep -q 'set(conflux_VISIBLE_COMPONENTS' cmake/conflux-config.cmake.in \
+    || fail "package config must expose visible components"
+grep -q 'set(conflux_VISIBLE_SUPPORT_TARGETS' cmake/conflux-config.cmake.in \
+    || fail "package config must expose visible support targets"
+grep -q 'set(conflux_RESOLVED_EXTERNAL_DEPS' cmake/conflux-config.cmake.in \
+    || fail "package config must expose resolved external deps"
+grep -q '_conflux_import_component' cmake/conflux-config.cmake.in \
+    || fail "package config must compute requested component dependency closure"
+grep -q '_conflux_find_external_dep' cmake/conflux-config.cmake.in \
+    || fail "package config must resolve closure-scoped external deps"
+if grep -q '^set(_conflux_component_deps_' cmake/conflux-config.cmake.in; then
+    fail "package config must not contain a hand-written component dependency table"
+fi
+if grep -q '^set(_conflux_component_order' cmake/conflux-config.cmake.in; then
+    fail "package config must not contain a hand-written component import order"
+fi
+if grep -q '@CONFLUX_INSTALL_NEEDS_.*pkg_check_modules\|if(@CONFLUX_INSTALL_NEEDS_' cmake/conflux-config.cmake.in; then
+    fail "package config must not resolve optional deps from install-wide booleans"
+fi
 grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
     || fail "package config must expose runtime liburing status"
 grep -q 'set(CONFLUX_PACKAGE_MOCK_LIBURING' cmake/conflux-config.cmake.in \
@@ -101,6 +131,14 @@ grep -q '#include <conflux/types.hxx>' cmake/package-smoke/CMakeLists.txt \
     || fail "header package smoke source must include an installed conflux header"
 grep -q 'available_components=${conflux_AVAILABLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report available components"
+grep -q 'visible_components=${conflux_VISIBLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report visible components"
+grep -q 'visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report visible support targets"
+grep -q 'resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report resolved external deps"
+grep -q 'found unrequested visible target' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must reject unrequested visible targets"
 grep -q 'runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report runtime/liburing status"
 grep -q 'package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}' cmake/package-smoke/CMakeLists.txt \

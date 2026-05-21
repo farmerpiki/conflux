@@ -34,12 +34,6 @@ set(_conflux_smoke_components ${CONFLUX_PACKAGE_SMOKE_COMPONENTS})
 list(REMOVE_DUPLICATES _conflux_smoke_components)
 
 set(_conflux_find_components ${_conflux_smoke_components})
-if("http" IN_LIST _conflux_find_components)
-    list(APPEND _conflux_find_components core json runtime http_app)
-endif()
-if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
-    list(APPEND _conflux_find_components db)
-endif()
 list(REMOVE_DUPLICATES _conflux_find_components)
 
 find_package(conflux REQUIRED COMPONENTS ${_conflux_find_components})
@@ -54,10 +48,6 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     set(CMAKE_CXX_MODULE_STD ON)
 endif()
 
-set(_conflux_smoke_link_targets conflux::core)
-if(TARGET conflux::types)
-    list(APPEND _conflux_smoke_link_targets conflux::types)
-endif()
 foreach(_component IN LISTS _conflux_find_components)
     if(_component STREQUAL "conflux")
         set(_target conflux::conflux)
@@ -69,10 +59,20 @@ foreach(_component IN LISTS _conflux_find_components)
         message(FATAL_ERROR
             "conflux package smoke expected target '${_target}' for component '${_component}'")
     endif()
-
-    list(APPEND _conflux_smoke_link_targets ${_target})
 endforeach()
-list(REMOVE_DUPLICATES _conflux_smoke_link_targets)
+
+foreach(_component IN LISTS conflux_AVAILABLE_COMPONENTS)
+    if(_component STREQUAL "conflux")
+        set(_target conflux::conflux)
+    else()
+        set(_target "conflux::${_component}")
+    endif()
+
+    if(TARGET ${_target} AND NOT _component IN_LIST conflux_VISIBLE_COMPONENTS)
+        message(FATAL_ERROR
+            "conflux package smoke found unrequested visible target '${_target}'")
+    endif()
+endforeach()
 
 set(_conflux_smoke_summary "${CMAKE_CURRENT_BINARY_DIR}/conflux-package-smoke-summary.txt")
 file(WRITE "${_conflux_smoke_summary}"
@@ -80,6 +80,11 @@ file(WRITE "${_conflux_smoke_summary}"
     "requested_components=${_conflux_smoke_components}\n"
     "available_components=${conflux_AVAILABLE_COMPONENTS}\n"
     "available_targets=${conflux_AVAILABLE_TARGETS}\n"
+    "available_support_targets=${conflux_AVAILABLE_SUPPORT_TARGETS}\n"
+    "visible_components=${conflux_VISIBLE_COMPONENTS}\n"
+    "visible_targets=${conflux_VISIBLE_TARGETS}\n"
+    "visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}\n"
+    "resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}\n"
     "interface_mode=${CONFLUX_INTERFACE_MODE}\n"
     "package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}\n"
     "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}\n"
@@ -137,7 +142,12 @@ endif()
 
 add_executable(conflux_package_smoke "${_conflux_package_smoke_source}")
 target_compile_features(conflux_package_smoke PRIVATE cxx_std_23)
-target_link_libraries(conflux_package_smoke PRIVATE ${_conflux_smoke_link_targets})
+if(TARGET conflux::core)
+    target_link_libraries(conflux_package_smoke PRIVATE conflux::core)
+endif()
+if(TARGET conflux::types)
+    target_link_libraries(conflux_package_smoke PRIVATE conflux::types)
+endif()
 
 add_test(NAME package-smoke/run COMMAND conflux_package_smoke)
 
@@ -149,7 +159,13 @@ function(conflux_add_component_smoke name component source)
     file(WRITE "${_source}" "${source}")
     add_executable("conflux_package_smoke_${name}" "${_source}")
     target_compile_features("conflux_package_smoke_${name}" PRIVATE cxx_std_23)
-    target_link_libraries("conflux_package_smoke_${name}" PRIVATE ${_conflux_smoke_link_targets})
+    if(TARGET conflux::core)
+        target_link_libraries("conflux_package_smoke_${name}" PRIVATE conflux::core)
+    endif()
+    if(TARGET conflux::types)
+        target_link_libraries("conflux_package_smoke_${name}" PRIVATE conflux::types)
+    endif()
+    target_link_libraries("conflux_package_smoke_${name}" PRIVATE "conflux::${component}")
     add_test(NAME "package-smoke/${name}" COMMAND "conflux_package_smoke_${name}")
 endfunction()
 
@@ -202,6 +218,30 @@ int main() { return 0; }
 int main() { return 0; }
 ]])
         endif()
+    elseif(_component STREQUAL "template")
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(template template [[
+import conflux.templates;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(template template [[
+#include <conflux/template.hpp>
+int main() { return 0; }
+]])
+        endif()
+    elseif(_component STREQUAL "dns")
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            conflux_add_component_smoke(dns dns [[
+import conflux.net.dns;
+int main() { return 0; }
+]])
+        else()
+            conflux_add_component_smoke(dns dns [[
+#include <conflux/dns.hpp>
+int main() { return 0; }
+]])
+        endif()
     elseif(_component STREQUAL "runtime")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
             conflux_add_component_smoke(runtime runtime [[
@@ -216,10 +256,31 @@ int main() { return 0; }
         endif()
     elseif(_component STREQUAL "db")
         if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
-            conflux_add_component_smoke(db db [[
+            if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+                conflux_add_component_smoke(db db [[
+import conflux.db;
+int main() { return 0; }
+]])
+            else()
+                conflux_add_component_smoke(db db [[
 #include <conflux/pg/types.hxx>
 int main() { return 0; }
 ]])
+            endif()
+        endif()
+    elseif(_component STREQUAL "pg")
+        if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
+            if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+                conflux_add_component_smoke(pg pg [[
+import conflux.pg;
+int main() { return 0; }
+]])
+            else()
+                conflux_add_component_smoke(pg pg [[
+#include <conflux/pg/types.hxx>
+int main() { return 0; }
+]])
+            endif()
         endif()
     endif()
 endforeach()
