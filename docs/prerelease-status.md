@@ -45,6 +45,11 @@ Runtime and benchmark proof belongs in release evidence or the separate proof
 repository, not as bulk logs in this source tree. Use
 `docs/releases/evidence-template.md` for small manifests.
 
+Final public proof capture is intentionally deferred until release-candidate
+source freeze. During normal prerelease churn, this page describes the evidence
+contract only; it is not a performance claim and should not point at stale graphs
+from a source/API shape that will not be tagged.
+
 ## Known Unsupported Areas
 
 - non-Linux platforms

@@ -1,7 +1,9 @@
 # Benchmark Reproducibility
 
 This page defines how benchmark proof artifacts should be produced. It is not a
-performance claim.
+performance claim. Final public benchmark capture is performed only after
+release-candidate source/API/docs/example shape is frozen, so published graphs
+match the commit users can actually build.
 
 Record raw command lines with each artifact:
 
@@ -23,6 +25,11 @@ Use a six-run policy for public comparisons: compare the external best run with
 the Conflux worst run, and publish raw min, median, and max for both systems.
 Keep raw JSON/CSV artifacts in the proof repository unless they are tiny smoke
 fixtures.
+
+Do not refresh release graphs during active implementation churn. Refresh them
+from the final proof-repository run immediately before tagging, after the source
+commit, public examples, minimum toolchain baseline, and benchmark cases are
+settled.
 
 ## Artifact Schema
 

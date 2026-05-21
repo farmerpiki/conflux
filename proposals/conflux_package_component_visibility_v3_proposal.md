@@ -2,7 +2,7 @@
 
 Status: implemented
 Branch: `modules-first-release-artifacts`
-State note: implemented package visibility design. This supersedes
+state note: implemented package visibility design. This supersedes
 `conflux_package_component_visibility_proposal.md` and
 `conflux_package_component_visibility_counterproposal.md`.
 

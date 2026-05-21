@@ -21,6 +21,7 @@ checked against this index before implementation starts.
 | P2 | `json/direct-struct-decode` | `proposals/json_direct_struct_decode_proposal.md` | Open but not prerelease-blocking. | Keep behind the current prerelease package/docs gates; implement only after release-facing docs and evidence are settled. |
 | P2 | `uring/iopoll-static-evidence` | `proposals/t2_c_iopoll_ring_proposal.md`, `proposals/perf_ideas.md` | Storage-only primitive is implemented; HTTP/static adoption remains evidence-gated. | Do not wire IOPOLL into HTTP static paths until a same-machine benchmark proves storage-read bottleneck. |
 | P2 | `perf/evidence-inventory` | `proposals/perf_ideas.md` | Open inventory, not a direct implementation branch. | Use it to classify benchmark/evidence gaps after checking this state index. |
+| P1 | `release/proof-repo-final-evidence` | `proposals/release_proof_repo_proposal.md` | Proposed release-blocking evidence packaging lane. | Implement scripts/templates now, but defer final proof capture until release-candidate source/API/docs/benchmark shape is frozen. |
 
 ## Historical / implemented proposals
 
@@ -40,6 +41,7 @@ checked against this index before implementation starts.
 | `docs/archive/proposals/README.md` | Implemented. | Follow-up only if HTTP send benchmarks prove more direct-format work is needed. |
 | `docs/archive/proposals/README.md` | Implemented for plain/mapped path; TLS intentionally unchanged. | Remaining decision is threshold benchmarking, not SEND_ZC plumbing. |
 | `proposals/t2_c_iopoll_ring_proposal.md` | Storage-only primitive implemented; HTTP/static adoption benchmark-gated. | Do not wire into HTTP static path until storage-read bottleneck is measured. |
+| `proposals/conflux_package_component_visibility_v3_proposal.md` | Implemented package visibility v3. | Split exports, metadata-driven component import, closure-scoped external deps, support/requestable separation, and package visibility smokes landed. |
 | `proposals/prerelease_2_day_coding_agent_plan.md` | Implemented by the prerelease readiness branch; active HEADER_INTERFACE, CONFLUX_ENABLE_DB, no_std_streams, and package-smoke checks moved to `docs/release-checklist.md`. | Treat as historical acceptance evidence. Follow-up cleanup starts from `conflux_prerelease_followup_cleanup_plan.md`. |
 
 ## Gaps found in current docs

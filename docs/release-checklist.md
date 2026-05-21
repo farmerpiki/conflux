@@ -19,7 +19,7 @@ bundle, or security-sensitive surface is added.
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
 | Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
-| Benchmarks | Same-machine benchmark artifact path and comparison summary | Required for claimed performance changes; use perf presets only. |
+| Benchmarks | Same-machine benchmark artifact path, proof-repository run path/commit, raw-run summary, and graph output path | Required for claimed performance changes; use perf presets only. Final public capture is deferred until release-candidate source freeze. |
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
 | Alias cleanup | Remaining aliases or confirmation none remain | Alias removal belongs to the final release-cleanup branch only. |
 
@@ -127,6 +127,24 @@ cmake -S . -B /tmp/conflux-tests -G Ninja \
 cmake --build /tmp/conflux-tests
 ctest --test-dir /tmp/conflux-tests --output-on-failure
 ```
+
+## Final proof capture timing
+
+Prepare scripts, templates, and local smoke evidence throughout prerelease work,
+but do not publish final runtime proof or benchmark graphs until the release
+candidate source tree is otherwise frozen. Final proof capture must happen after:
+
+- public formatting and human-readable cleanup are complete;
+- public examples and first-contact docs use final preview spelling;
+- advertised component/package/interface modes are settled;
+- the minimum compiler and CMake baseline has been lowered to the actual working
+  floor;
+- benchmark cases, graph scripts, and comparison targets are settled;
+- release notes contain placeholders for proof repository paths.
+
+Store bulky logs, raw benchmark rows, perf data, and generated graphs in the
+separate proof repository. Keep this source tree to source, small manifests, and
+links to immutable proof runs.
 
 ## Component-specific checks
 

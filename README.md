@@ -132,7 +132,8 @@ setup.
 - Optional protocol/storage dependencies are feature-gated.
 - C++26 modules support is toolchain-sensitive.
 - `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
-- Runtime proof is maintained as separate release evidence.
+- Runtime proof is maintained as separate release evidence and finalized only
+  after the release-candidate source tree is frozen.
 - DB examples require DB support enabled and usable libpq headers.
 - Preview APIs may still break before v1.
 
