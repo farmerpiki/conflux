@@ -9,15 +9,35 @@
 //   curl -i -H 'Origin: https://app.example' http://localhost:9100/v2/users
 //   curl -i -H 'Authorization: Bearer docs-token' http://localhost:9100/openapi.json
 //   curl -i http://localhost:9100/form
+#include <unistd.h>
+
 import conflux.net.http.server;
 import conflux.types;
 import std;
+
+namespace {
+
+struct TempFile {
+	std::string path;
+	explicit TempFile(
+		std::filesystem::path p)
+		: path{std::move(p).string()} {}
+	~TempFile() {
+		if (!path.empty()) {
+			::unlink(path.c_str());
+		}
+	}
+};
+
+} // namespace
 
 int main() {
 	namespace http = conflux::http;
 
 	auto app = http::App::default_server();
-	auto log_path = (std::filesystem::temp_directory_path() / "conflux_policy_stack_access.jsonl").string();
+	TempFile access_log{
+		std::filesystem::temp_directory_path() / std::format("conflux_policy_stack_access_{}.jsonl", ::getpid())};
+	auto const &log_path = access_log.path;
 
 	// Register broad request boundary policy first: first-registered middleware is
 	// the outer wrapper, so CORS preflight can short-circuit before auth/CSRF.

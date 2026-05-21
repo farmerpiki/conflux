@@ -12,4 +12,4 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --feature-set json \
     --interface-mode HEADER_INTERFACE \
     --generator Ninja \
-    -- -DCONFLUX_USE_MOCK_LIBURING=ON -DCONFLUX_ENABLE_DB=OFF
+    -- -DCONFLUX_USE_MOCK_LIBURING=ON -DCONFLUX_POSTGRES_PROVIDER=OFF

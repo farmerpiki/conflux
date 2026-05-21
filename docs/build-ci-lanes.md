@@ -21,6 +21,8 @@ Development and validation presets are separate. They intentionally opt into the
 full development feature set, tests, and the compiler/runtime shape named by the
 preset:
 
+- `dev-core`, `dev-json`, and `dev-http` are auto-compiler local development
+  profiles for focused component work.
 - `dev-all` and `dev-exp-all` are auto-compiler local development profiles for
   the full stable and full experimental surfaces.
 - `debug-*`, `tsan-*`, and `fuzz-*` are correctness and instrumentation lanes.
@@ -248,3 +250,21 @@ For CI with a separately installed prefix, set
 should perform the fresh configure/build/install/consume flow from CTest, set
 `-DCONFLUX_RUN_INSTALL_TREE_SMOKE=ON`; the default smoke feature set remains
 `core` so it stays cheap and liburing-free.
+
+## Provider Policy Lane
+
+Use:
+
+```sh
+scripts/check-provider-policy-matrix.sh
+```
+
+This lane configures and builds representative provider-policy scenarios without
+mock liburing: dependency-light `core`, JSON with system/default and internal
+hash providers, web-server compression with automatic gzip selection and
+`CONFLUX_GZIP_PROVIDER=ALL`, stable HTTP server with HTTP/3 gated off, and HTTP
+auth with the Argon2 runtime provider. `CONFLUX_GZIP_PROVIDER=AUTO` benchmarks
+all discovered gzip backends during configure when more than one backend is
+available, skips the benchmark when only one backend exists, and compiles only
+the selected backend by default. Use `CONFLUX_GZIP_PROVIDER=ALL` or a specific
+provider to build multiple or pinned backends.

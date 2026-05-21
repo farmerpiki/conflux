@@ -25,8 +25,8 @@ struct Config {
 	std::size_t chunk_kib = 64;
 	std::size_t runs = 2;
 	bool json_out = false;
-	std::string src_path = "/tmp/conflux_copy_src.bin";
-	std::string dst_path = "/tmp/conflux_copy_dst.bin";
+	std::string src_path = std::format("/tmp/conflux_copy_src_{}.bin", ::getpid());
+	std::string dst_path = std::format("/tmp/conflux_copy_dst_{}.bin", ::getpid());
 };
 namespace {
 

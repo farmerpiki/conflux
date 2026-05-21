@@ -61,10 +61,10 @@ assert_fuzz_cache() {
     http_core="$(cache_value CONFLUX_BUILD_HTTP_CORE)"
     http_realtime="$(cache_value CONFLUX_BUILD_HTTP_REALTIME)"
     crypto="$(cache_value CONFLUX_BUILD_CRYPTO)"
-    tls="$(cache_value CONFLUX_ENABLE_TLS)"
-    http2="$(cache_value CONFLUX_ENABLE_HTTP2)"
-    http3="$(cache_value CONFLUX_ENABLE_HTTP3)"
-    db="$(cache_value CONFLUX_ENABLE_DB)"
+    tls="$(cache_value CONFLUX_TLS_PROVIDER)"
+    http2="$(cache_value CONFLUX_HTTP2_PROVIDER)"
+    http3="$(cache_value CONFLUX_HTTP3_PROVIDER)"
+    db="$(cache_value CONFLUX_POSTGRES_PROVIDER)"
 
     [[ "$build_type" == RelWithDebInfo ]] || {
         printf '%s expected RelWithDebInfo, got %s.\n' "$PRESET" "$build_type" >&2

@@ -843,7 +843,7 @@ struct TempCorpusFile {
 	std::filesystem::path path;
 	explicit TempCorpusFile(
 		std::string_view corpus) {
-		path = std::filesystem::temp_directory_path() / "conflux_json_bench_e2e.json";
+		path = std::filesystem::temp_directory_path() / std::format("conflux_json_bench_e2e_{}.json", ::getpid());
 		std::ofstream out{path, std::ios::binary | std::ios::trunc};
 		if (!out) {
 			throw std::runtime_error{std::format("cannot open {}", path.string())};

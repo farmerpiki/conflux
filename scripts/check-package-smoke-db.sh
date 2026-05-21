@@ -18,4 +18,4 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --interface-mode HEADER_INTERFACE \
     --enable-db-smoke \
     --generator Ninja \
-    -- -DCONFLUX_USE_MOCK_LIBURING=OFF -DCONFLUX_ENABLE_DB=ON
+    -- -DCONFLUX_USE_MOCK_LIBURING=OFF -DCONFLUX_POSTGRES_PROVIDER=LIBPQ

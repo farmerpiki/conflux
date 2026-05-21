@@ -17,6 +17,19 @@ import bench_common;
 using namespace std::literals;
 namespace {
 
+struct TempDir {
+	std::filesystem::path path;
+	explicit TempDir(
+		std::filesystem::path p)
+		: path{std::move(p)} {
+		std::filesystem::create_directories(path);
+	}
+	~TempDir() {
+		std::error_code ec;
+		(void)std::filesystem::remove_all(path, ec);
+	}
+};
+
 // ── BenchClient ─────────────────────────────────────────────────────────────
 
 struct BenchClient {
@@ -635,8 +648,8 @@ int main(
 	auto plain_rn = start_server(bench_config(std::thread::hardware_concurrency()), std::move(rn_router));
 
 	// static file serving
-	auto const static_dir = std::filesystem::temp_directory_path() / "conflux_bench_static";
-	std::filesystem::create_directories(static_dir);
+	TempDir static_root{std::filesystem::temp_directory_path() / std::format("conflux_bench_static_{}", ::getpid())};
+	auto const &static_dir = static_root.path;
 	{
 		auto write_file = [&](std::string_view name, std::size_t size, char fill) {
 			auto path = static_dir / name;
@@ -680,8 +693,23 @@ int main(
 	auto small_buf_ring_128 = start_server(bench_config(1, 32), std::move(br128_router));
 
 #if CONFLUX_BENCH_HAS_TLS
+	struct TempCertFiles {
+		std::string cert;
+		std::string key;
+		~TempCertFiles() {
+			if (!cert.empty()) {
+				::unlink(cert.c_str());
+			}
+			if (!key.empty()) {
+				::unlink(key.c_str());
+			}
+		}
+		TempCertFiles() = default;
+		TempCertFiles(TempCertFiles const &) = delete;
+		TempCertFiles &operator =(TempCertFiles const &) = delete;
+	};
 	// tls — self-signed cert
-	std::string tls_cert_path, tls_key_path;
+	TempCertFiles tls_cert_files;
 	{
 		char cert_tmp[] = "/tmp/conflux_bench_cert_XXXXXX.pem";
 		char key_tmp[] = "/tmp/conflux_bench_key_XXXXXX.pem";
@@ -700,8 +728,8 @@ int main(
 		if (::system(cmd.c_str()) != 0) {
 			throw std::runtime_error{"openssl req failed — TLS bench requires openssl CLI"};
 		}
-		tls_cert_path = cert_tmp;
-		tls_key_path = key_tmp;
+		tls_cert_files.cert = cert_tmp;
+		tls_cert_files.key = key_tmp;
 	}
 	Router tls_router;
 	tls_router.get("/", [](HttpRequest const &) {
@@ -711,8 +739,8 @@ int main(
 	tls_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	tls_router.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
 	auto tls_cfg = bench_config();
-	tls_cfg.cert_file = tls_cert_path;
-	tls_cfg.key_file = tls_key_path;
+	tls_cfg.cert_file = tls_cert_files.cert;
+	tls_cfg.key_file = tls_cert_files.key;
 	auto tls_srv = start_server(tls_cfg, std::move(tls_router));
 #endif
 
@@ -1805,8 +1833,6 @@ int main(
 	small_buf_ring_128.thr.join();
 #if CONFLUX_BENCH_HAS_TLS
 	tls_srv.thr.join();
-	::unlink(tls_cert_path.c_str());
-	::unlink(tls_key_path.c_str());
 #endif
 
 	defer_pool->drain_and_stop();

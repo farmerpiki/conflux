@@ -18,6 +18,14 @@ import conflux.tests.support;
 #if CONFLUX_HAS_HTTP3
 namespace {
 
+struct TempPathCleanup {
+	std::string path;
+	~TempPathCleanup() {
+		if (!path.empty()) {
+			::unlink(path.c_str());
+		}
+	}
+};
 struct TempCert {
 	std::string cert_path;
 	std::string key_path;
@@ -30,6 +38,8 @@ struct TempCert {
 		REQUIRE(key_fd >= 0);
 		::close(cert_fd);
 		::close(key_fd);
+		TempPathCleanup cert_cleanup{cert_tmp};
+		TempPathCleanup key_cleanup{key_tmp};
 		auto const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
@@ -38,6 +48,8 @@ struct TempCert {
 		REQUIRE(::system(cmd.c_str()) == 0);
 		cert_path = cert_tmp;
 		key_path = key_tmp;
+		cert_cleanup.path.clear();
+		key_cleanup.path.clear();
 	}
 	~TempCert() {
 		::unlink(cert_path.c_str());

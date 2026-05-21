@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
 
 import conflux.http;
 import std;
@@ -13,14 +14,27 @@ void write_file(
 	out << contents;
 }
 
+struct TempDir {
+	std::filesystem::path path;
+	explicit TempDir(
+		std::filesystem::path p)
+		: path{std::move(p)} {
+		std::filesystem::create_directories(path);
+	}
+	~TempDir() {
+		std::error_code ec;
+		(void)std::filesystem::remove_all(path, ec);
+	}
+};
+
 } // namespace
 
 int main() {
 	namespace http = conflux::http;
 
 	auto app = http::app();
-	auto asset_dir = std::filesystem::temp_directory_path() / "conflux_quickstart_static";
-	std::filesystem::create_directories(asset_dir);
+	TempDir assets{std::filesystem::temp_directory_path() / std::format("conflux_quickstart_static_{}", ::getpid())};
+	auto const &asset_dir = assets.path;
 	write_file(asset_dir / "index.html", "<h1>conflux static files</h1>");
 
 	app.get("/", [] { return http::redirect("/assets/"); });

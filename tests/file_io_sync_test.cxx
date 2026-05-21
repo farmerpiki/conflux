@@ -31,8 +31,8 @@ struct TempDir {
 			::close(fd);
 		}
 		if (!path.empty()) {
-			auto cmd = std::format("rm -rf {}", path);
-			auto _ = ::system(cmd.c_str());
+			std::error_code ec;
+			std::filesystem::remove_all(path, ec);
 		}
 	}
 	static TempDir create() {

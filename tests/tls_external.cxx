@@ -56,6 +56,13 @@ TEST_CASE(
 	char *const dir_ptr = ::mkdtemp(dir_template);
 	REQUIRE(dir_ptr != nullptr);
 	std::string const dir{dir_ptr};
+	struct Cleanup {
+		std::string path;
+		~Cleanup() {
+			std::error_code ec;
+			(void)std::filesystem::remove_all(path, ec);
+		}
+	} cleanup{dir};
 	std::string const body(256UL * 1024, 'M');
 	{
 		std::ofstream out{dir + "/large.bin", std::ios::binary};
@@ -71,7 +78,6 @@ TEST_CASE(
 	conflux::tests::HttpsServerFixture const fx{cfg, std::move(router)};
 	auto [code, got] = conflux::tests::run_cmd_retry(
 		std::format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}/static/large.bin", fx.port()));
-	std::filesystem::remove_all(dir);
 
 	REQUIRE(code == 0);
 	REQUIRE(got == body);

@@ -497,6 +497,13 @@ TEST_CASE(
 	char *const dir_ptr = ::mkdtemp(dir_template);
 	REQUIRE(dir_ptr != nullptr);
 	std::string const dir{dir_ptr};
+	struct Cleanup {
+		std::string path;
+		~Cleanup() {
+			std::error_code ec;
+			(void)std::filesystem::remove_all(path, ec);
+		}
+	} cleanup{dir};
 	std::string const body(256UL * 1024, 'L');
 	{
 		std::ofstream out{dir + "/large.bin", std::ios::binary};
@@ -509,7 +516,6 @@ TEST_CASE(
 	CurlEasy curl;
 	auto resp = curl.perform(
 		CurlRequest{.url = https_url(fx.port(), "/static/large.bin"), .http_version = CURL_HTTP_VERSION_1_1});
-	std::filesystem::remove_all(dir);
 	require_ok(resp, 200, body);
 }
 

@@ -8,6 +8,7 @@
 //   curl http://localhost:9095/assets/app.css
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
 
 import conflux.http;
 import std;
@@ -35,14 +36,28 @@ static void write_file(
 	std::ofstream out(path, std::ios::binary);
 	out << contents;
 }
+
+struct TempDir {
+	std::filesystem::path path;
+	explicit TempDir(
+		std::filesystem::path p)
+		: path{std::move(p)} {
+		std::filesystem::create_directories(path);
+	}
+	~TempDir() {
+		std::error_code ec;
+		(void)std::filesystem::remove_all(path, ec);
+	}
+};
+
 int main() {
 	namespace http = conflux::http;
 	auto app = http::app();
 	app.config().fixed_buffer_slabs = 8;
 	app.config().splice_pipe_pairs = 2;
 
-	auto asset_dir = std::filesystem::temp_directory_path() / "conflux_static_example";
-	std::filesystem::create_directories(asset_dir);
+	TempDir assets{std::filesystem::temp_directory_path() / std::format("conflux_static_example_{}", ::getpid())};
+	auto const &asset_dir = assets.path;
 	write_file(asset_dir / "hello.txt", "hello from conflux static files\n");
 	write_file(asset_dir / "app.css", "body{font-family:monospace;background:#f6f6f1;color:#222;}");
 	write_file(

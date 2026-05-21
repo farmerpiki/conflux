@@ -213,3 +213,20 @@ sandbox so results match the real runtime environment.
 - Ask for wildcard approval once, then reuse it for the same script prefix.
 - Keep runs representative; do not rely on sandboxed execution for final
   verification.
+
+Temporary artifacts must be cleaned up by default.
+
+- Scripts, examples, benchmarks, and tests should use unique paths under
+  `${TMPDIR:-/tmp}` or `std::filesystem::temp_directory_path()`, not shared
+  fixed names.
+- Short-lived generated inputs, build trees, install prefixes, logs, TLS
+  certificates, and keys should be removed with `trap` handlers or RAII guards
+  on normal exit and failure paths.
+- Explicit retention controls such as `KEEP_BUILD=1`, evidence output
+  directories, benchmark artifact directories, and release staging directories
+  may keep artifacts, but retaining files must be opt-in and documented by the
+  script.
+- Prefer in-memory credentials and test data when the API supports them. If an
+  API currently accepts only filesystem paths, materialize unique files and
+  unlink them as soon as the consumer has loaded them or when the owning scope
+  exits.

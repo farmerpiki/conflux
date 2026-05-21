@@ -22,6 +22,19 @@ import bench_common;
 using namespace std::literals;
 namespace {
 
+struct TempDir {
+	std::filesystem::path path;
+	explicit TempDir(
+		std::filesystem::path p)
+		: path{std::move(p)} {
+		std::filesystem::create_directories(path);
+	}
+	~TempDir() {
+		std::error_code ec;
+		(void)std::filesystem::remove_all(path, ec);
+	}
+};
+
 struct BenchClient {
 	int fd = -1;
 	explicit BenchClient(
@@ -618,7 +631,27 @@ struct SslDeleter {
 		}
 	}
 };
-std::pair<std::string, std::string> make_self_signed_cert() {
+struct TempCertFiles {
+	std::string cert;
+	std::string key;
+	~TempCertFiles() {
+		if (!cert.empty()) {
+			::unlink(cert.c_str());
+		}
+		if (!key.empty()) {
+			::unlink(key.c_str());
+		}
+	}
+	TempCertFiles() = default;
+	TempCertFiles(TempCertFiles const &) = delete;
+	TempCertFiles &operator =(TempCertFiles const &) = delete;
+	TempCertFiles(
+		TempCertFiles &&o) noexcept
+		: cert{std::move(o.cert)}
+		, key{std::move(o.key)} {}
+	TempCertFiles &operator =(TempCertFiles &&) = delete;
+};
+TempCertFiles make_self_signed_cert() {
 	char cert_tmp[] = "/tmp/conflux_send_zc_cert_XXXXXX.pem";
 	char key_tmp[] = "/tmp/conflux_send_zc_key_XXXXXX.pem";
 	{
@@ -642,7 +675,10 @@ std::pair<std::string, std::string> make_self_signed_cert() {
 	if (::system(cmd.c_str()) != 0) {
 		throw std::runtime_error{"openssl req failed — TLS send_zc bench requires openssl CLI"};
 	}
-	return {std::string{cert_tmp}, std::string{key_tmp}};
+	TempCertFiles files;
+	files.cert = cert_tmp;
+	files.key = key_tmp;
+	return files;
 }
 void ssl_write_all(
 	SSL *ssl,
@@ -749,9 +785,9 @@ int main(
 		return r;
 	};
 
-	auto const static_dir =
-		std::filesystem::temp_directory_path() / std::format("conflux_send_zc_bench_static_{}", ::getpid());
-	std::filesystem::create_directories(static_dir);
+	TempDir static_root{
+		std::filesystem::temp_directory_path() / std::format("conflux_send_zc_bench_static_{}", ::getpid())};
+	auto const &static_dir = static_root.path;
 	for (auto const &[label, size]: kBodies) {
 		auto path = static_dir / std::format("{}.bin", label);
 		std::ofstream out{path, std::ios::binary};
@@ -941,7 +977,7 @@ int main(
 	}
 
 #if CONFLUX_BENCH_HAS_TLS
-	auto [tls_cert_path, tls_key_path] = make_self_signed_cert();
+	auto tls_cert_files = make_self_signed_cert();
 	std::unique_ptr<SSL_CTX, SslCtxDeleter> ssl_ctx{[] {
 		SSL_CTX *c = SSL_CTX_new(TLS_client_method());
 		if (c == nullptr) {
@@ -970,8 +1006,8 @@ int main(
 				[&, st, mode = std::string{mode}, router_factory = std::move(router_factory), send_zc_threshold] {
 					st->metrics = {};
 					auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
-					cfg.cert_file = tls_cert_path;
-					cfg.key_file = tls_key_path;
+					cfg.cert_file = tls_cert_files.cert;
+					cfg.key_file = tls_cert_files.key;
 					st->server = std::make_unique<ServerHandle>(start_server(cfg, router_factory()));
 					st->client = std::make_unique<BenchClient>(st->server->port);
 					SSL *ssl = SSL_new(ssl_ctx.get());
@@ -1046,8 +1082,4 @@ int main(
 	}
 
 	std::filesystem::remove_all(static_dir);
-#if CONFLUX_BENCH_HAS_TLS
-	::unlink(tls_cert_path.c_str());
-	::unlink(tls_key_path.c_str());
-#endif
 }

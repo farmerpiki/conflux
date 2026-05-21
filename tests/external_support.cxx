@@ -2,6 +2,7 @@ module;
 #include <arpa/inet.h>
 #include <cstdio>
 #include <cstdlib>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -11,6 +12,54 @@ export module conflux.tests.external_support;
 import std;
 import conflux.types;
 import conflux.net.http;
+namespace {
+
+struct TempPemPair {
+	std::string cert;
+	std::string key;
+	TempPemPair(
+		std::string cert_pattern,
+		std::string key_pattern) {
+		auto open_temp = [](std::string &pattern) {
+			std::vector<char> buf(pattern.begin(), pattern.end());
+			buf.push_back('\0');
+			int const fd = ::mkstemps(buf.data(), 4);
+			if (fd < 0) {
+				throw std::runtime_error{"mkstemps failed"};
+			}
+			::close(fd);
+			pattern = buf.data();
+		};
+		cert = std::move(cert_pattern);
+		key = std::move(key_pattern);
+		try {
+			open_temp(cert);
+			open_temp(key);
+		} catch (...) {
+			if (!cert.empty()) {
+				::unlink(cert.c_str());
+			}
+			throw;
+		}
+	}
+	~TempPemPair() {
+		if (!cert.empty()) {
+			::unlink(cert.c_str());
+		}
+		if (!key.empty()) {
+			::unlink(key.c_str());
+		}
+	}
+	TempPemPair(TempPemPair const &) = delete;
+	TempPemPair &operator =(TempPemPair const &) = delete;
+	void release() noexcept {
+		cert.clear();
+		key.clear();
+	}
+};
+
+} // namespace
+
 export namespace conflux::tests {
 
 [[nodiscard]] std::pair<int, std::string> run_cmd(
@@ -33,21 +82,12 @@ export namespace conflux::tests {
 // per-suite cost of spawning openssl.
 std::pair<std::string, std::string> const &cached_test_cert() {
 	static std::pair<std::string, std::string> const bytes = [] {
-		char cert_tmp[] = "/tmp/conflux_cached_cert_XXXXXX.pem";
-		char key_tmp[] = "/tmp/conflux_cached_key_XXXXXX.pem";
-		{
-			int const f = ::mkstemps(cert_tmp, 4);
-			::close(f);
-		}
-		{
-			int const f = ::mkstemps(key_tmp, 4);
-			::close(f);
-		}
+		TempPemPair tmp{"/tmp/conflux_cached_cert_XXXXXX.pem", "/tmp/conflux_cached_key_XXXXXX.pem"};
 		std::string const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-			key_tmp,
-			cert_tmp);
+			tmp.key,
+			tmp.cert);
 		if (::system(cmd.c_str()) != 0) {
 			throw std::runtime_error{"openssl req failed"};
 		}
@@ -57,9 +97,7 @@ std::pair<std::string, std::string> const &cached_test_cert() {
 			ss << in.rdbuf();
 			return ss.str();
 		};
-		std::pair<std::string, std::string> out{slurp(cert_tmp), slurp(key_tmp)};
-		::unlink(cert_tmp);
-		::unlink(key_tmp);
+		std::pair<std::string, std::string> out{slurp(tmp.cert.c_str()), slurp(tmp.key.c_str())};
 		return out;
 	}();
 	return bytes;
@@ -68,12 +106,11 @@ std::pair<std::string, std::string> const &cached_test_cert() {
 // paths on disk; we unlink after the server starts.
 std::pair<std::string, std::string> write_cached_cert_files() {
 	auto const &[cert_pem, key_pem] = cached_test_cert();
-	char cert_tmp[] = "/tmp/conflux_ext_cert_XXXXXX.pem";
-	char key_tmp[] = "/tmp/conflux_ext_key_XXXXXX.pem";
+	TempPemPair tmp{"/tmp/conflux_ext_cert_XXXXXX.pem", "/tmp/conflux_ext_key_XXXXXX.pem"};
 	{
-		int const f = ::mkstemps(cert_tmp, 4);
+		int const f = ::open(tmp.cert.c_str(), O_WRONLY | O_TRUNC | O_CLOEXEC);
 		if (f < 0) {
-			throw std::runtime_error{"mkstemps failed"};
+			throw std::runtime_error{"cert open failed"};
 		}
 		if (::write(f, cert_pem.data(), cert_pem.size()) != static_cast<ssize_t>(cert_pem.size())) {
 			::close(f);
@@ -82,9 +119,9 @@ std::pair<std::string, std::string> write_cached_cert_files() {
 		::close(f);
 	}
 	{
-		int const f = ::mkstemps(key_tmp, 4);
+		int const f = ::open(tmp.key.c_str(), O_WRONLY | O_TRUNC | O_CLOEXEC);
 		if (f < 0) {
-			throw std::runtime_error{"mkstemps failed"};
+			throw std::runtime_error{"key open failed"};
 		}
 		if (::write(f, key_pem.data(), key_pem.size()) != static_cast<ssize_t>(key_pem.size())) {
 			::close(f);
@@ -92,7 +129,9 @@ std::pair<std::string, std::string> write_cached_cert_files() {
 		}
 		::close(f);
 	}
-	return {cert_tmp, key_tmp};
+	auto out = std::pair<std::string, std::string>{tmp.cert, tmp.key};
+	tmp.release();
+	return out;
 }
 [[nodiscard]] std::pair<int, std::string> run_cmd_retry(
 	std::string const &cmd,

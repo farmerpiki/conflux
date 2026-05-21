@@ -135,6 +135,38 @@
       }
     },
     {
+      "name": "dev-core",
+      "displayName": "Dev core · auto compiler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CONFLUX_FEATURE_SET": "dev-core",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_TEST_CATCH2_PROVIDER": "AUTO",
+        "CONFLUX_FETCH_TEST_DEPS": "ON"
+      }
+    },
+    {
+      "name": "dev-json",
+      "displayName": "Dev JSON · auto compiler",
+      "inherits": "dev-core",
+      "cacheVariables": {
+        "CONFLUX_FEATURE_SET": "dev-json"
+      }
+    },
+    {
+      "name": "dev-http",
+      "displayName": "Dev HTTP · auto compiler",
+      "inherits": "dev-core",
+      "cacheVariables": {
+        "CONFLUX_FEATURE_SET": "dev-http",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test"
+      }
+    },
+    {
       "name": "dev-all",
       "displayName": "Dev all · auto compiler",
       "inherits": "base",
@@ -208,7 +240,7 @@
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "OFF",
         "CONFLUX_JSON_REFLECT": "ON",
-        "CONFLUX_ENABLE_DB": "OFF"
+        "CONFLUX_POSTGRES_PROVIDER": "OFF"
       }
     },
     {
@@ -282,7 +314,7 @@
         "CONFLUX_BUILD_TESTS": "OFF",
         "CONFLUX_BUILD_EXAMPLES": "OFF",
         "CONFLUX_BUILD_BENCHMARKS": "OFF",
-        "CONFLUX_ENABLE_DB": "OFF"
+        "CONFLUX_POSTGRES_PROVIDER": "OFF"
       }
     },
     {
@@ -298,7 +330,7 @@
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON",
         "CONFLUX_JSON_REFLECT": "ON",
-        "CONFLUX_ENABLE_DB": "OFF"
+        "CONFLUX_POSTGRES_PROVIDER": "OFF"
       }
     },
 
@@ -454,10 +486,10 @@
         "CONFLUX_BUILD_CRYPTO": "ON",
         "CONFLUX_BUILD_HTTP_CORE": "ON",
         "CONFLUX_BUILD_HTTP_REALTIME": "ON",
-        "CONFLUX_ENABLE_TLS": "OFF",
-        "CONFLUX_ENABLE_HTTP2": "OFF",
-        "CONFLUX_ENABLE_HTTP3": "OFF",
-        "CONFLUX_ENABLE_DB": "OFF"
+        "CONFLUX_TLS_PROVIDER": "OFF",
+        "CONFLUX_HTTP2_PROVIDER": "OFF",
+        "CONFLUX_HTTP3_PROVIDER": "OFF",
+        "CONFLUX_POSTGRES_PROVIDER": "OFF"
       }
     },
     {

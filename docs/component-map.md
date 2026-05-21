@@ -27,12 +27,10 @@ Explicit `CONFLUX_BUILD_*=ON/OFF` cache values override the bundle defaults.
 | `web-server` | static/template/realtime web serving | HTTP server, static files, compression, realtime, templates |
 | `http-server-complete` | full HTTP stack without DB/SMTP/process/file-watch extras | HTTP server/client/proxy/vhost/policy/auth/observability/OpenAPI |
 | `complete` | aggregate validation and local experimentation | HTTP, runtime, JSON, DB, SMTP, process, file-watch; JSON file/reflection remain opt-in |
-| `current` | development default mirroring the historical monolith | most runtime/HTTP/DB/SMTP components on; JSON file/reflection remain opt-in |
 
 For first-contact public use, prefer `core`, `json`, `http-minimal`, `http-api`,
 and `pg` when PostgreSQL support is included in the release evidence. Use
-`complete` and `current` only when intentionally testing aggregate development
-surface area.
+`complete` only when intentionally testing aggregate development surface area.
 
 ## Downstream CMake usage
 

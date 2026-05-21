@@ -3,10 +3,10 @@
 # Explicit user overrides (ON/OFF) are never overwritten; AUTO resolves to preset default.
 
 set(CONFLUX_FEATURE_SET "core" CACHE STRING
-    "Feature bundle: core;runtime;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full;current")
+    "Feature bundle: core;runtime;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
 set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
     core runtime json http-minimal http-api http-api-full web-server http-server-complete complete
-    dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full current)
+    dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full)
 
 # ---------------------------------------------------------------------------
 # Tri-state resolver
@@ -76,7 +76,13 @@ set(CONFLUX_BUILD_SMTP          "AUTO" CACHE STRING "Build SMTP client")
 
 macro(conflux_apply_preset)
     set(_p "${CONFLUX_FEATURE_SET}")
-    if(_p STREQUAL "dev-all")
+    if(_p STREQUAL "dev-core")
+        set(_p "core")
+    elseif(_p STREQUAL "dev-json")
+        set(_p "json")
+    elseif(_p STREQUAL "dev-http")
+        set(_p "http-api")
+    elseif(_p STREQUAL "dev-all")
         set(_p "complete")
     elseif(_p STREQUAL "dev-exp-all")
         set(_p "complete")
@@ -127,37 +133,7 @@ macro(conflux_apply_preset)
 
     # ── preset overlays (additive) ──
 
-    if(_p STREQUAL "current")
-        # Today's monolith behavior — everything ON except reflection.
-        set(_d_RUNTIME TRUE)
-        set(_d_FILE_IO_SYNC TRUE)
-        set(_d_FILE_MAP TRUE)
-        set(_d_FILE_IO TRUE)
-        set(_d_FILE_WATCH TRUE)
-        set(_d_SOCKET_IO TRUE)
-        set(_d_DNS TRUE)
-        set(_d_PROCESS TRUE)
-        set(_d_CRYPTO TRUE)
-        set(_d_JSON TRUE)
-        set(_d_TEMPLATES TRUE)
-        set(_d_TEMPLATES_WATCH TRUE)
-        set(_d_HTTP_CORE TRUE)
-        set(_d_HTTP_ROUTER TRUE)
-        set(_d_HTTP_SERVER TRUE)
-        set(_d_HTTP_CLIENT TRUE)
-        set(_d_HTTP_JSON TRUE)
-        set(_d_HTTP_STATIC TRUE)
-        set(_d_HTTP_REALTIME TRUE)
-        set(_d_HTTP_POLICY TRUE)
-        set(_d_HTTP_AUTH TRUE)
-        set(_d_HTTP_COMPRESSION TRUE)
-        set(_d_HTTP_OBSERVABILITY TRUE)
-        set(_d_HTTP_OPENAPI TRUE)
-        set(_d_HTTP_PROXY TRUE)
-        set(_d_HTTP_VHOST TRUE)
-        set(_d_DB_POSTGRES TRUE)
-        set(_d_SMTP TRUE)
-    elseif(_p STREQUAL "core")
+    if(_p STREQUAL "core")
         # Types, utils, generated features. No liburing, no HTTP, no JSON.
     elseif(_p STREQUAL "runtime")
         set(_d_RUNTIME TRUE)

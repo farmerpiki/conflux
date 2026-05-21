@@ -35,7 +35,7 @@ cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
-  -DCONFLUX_ENABLE_DB=OFF
+  -DCONFLUX_POSTGRES_PROVIDER=OFF
 cmake --build /tmp/conflux-header
 cmake --install /tmp/conflux-header --prefix /tmp/conflux-install
 ```

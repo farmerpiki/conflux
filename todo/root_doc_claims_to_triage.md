@@ -7,31 +7,8 @@ worth discussing after a source/doc spot-check. The original files were stale as
 active docs:
 `benchmarks.md`, `ergonomics_potential.md`, and `conflux-feedback.json.md`.
 
-Claims that were already satisfied by the current tree are kept at the end with
-evidence so they do not keep resurfacing as open work.
-
-## Benchmarking Claims
-
-- Benchmark runs need a quiet machine: performance governor, no swap pressure, no
-  concurrent heavy work, and no interactive diagnosis while a benchmark is
-  executing. Use timeouts for hard stops and inspect hangs after the run.
-- Correctness/sanitizer lanes and benchmark/performance lanes should remain
-  separate. Benchmark artifacts are built from `perf-*` or explicit release
-  lanes, not sanitizer/debug correctness builds.
-- Benchmark evidence should prefer DB-recorded runs through
-  `scripts/bench_record.sh` when comparing candidates, because the recorder
-  captures descriptors, raw NDJSON, summaries, manifests, and preset metadata.
-- Cross-candidate performance comparisons should be interleaved after all
-  candidates are prebuilt. Order effects should be checked from the recorded
-  `round`/`position` metadata before accepting small deltas.
-- Allocation-dominated microbenchmarks may be judged by best/p10, while
-  throughput workloads usually need median/p10 and noise checks. High MAD on a
-  CPU-bound run is environmental evidence, not product evidence.
-- New recordable benchmark binaries should implement `--bench-info` and
-  `--json`, then be added to the recorder target list in
-  `benchmarks/CMakeLists.txt`.
-- Benchmarks that create threads or perform I/O per measured invocation should
-  avoid hidden internal repetition that changes the measured workload.
+Claims that were already covered or satisfied by the current tree are kept at
+the end with evidence so they do not keep resurfacing as open work.
 
 ## HTTP API Claims
 
@@ -122,6 +99,34 @@ evidence so they do not keep resurfacing as open work.
 - Deterministic scheduling helpers or fake clocks may be useful for async tests.
 - High-level examples should make the intended application-facing golden path
   easier to discover.
+
+## Covered In Other Docs
+
+- Benchmark host hygiene, benchmark/perf lane separation, DB-recorded benchmark
+  runs, candidate comparison methodology, result interpretation, and the
+  `--bench-info` / `--json` benchmark binary contract are covered by
+  `benchmarks/README.md`, `benchmarks/reproducibility.md`, and
+  `docs/project-policy.md`.
+- Public component/package ownership and consumer-facing component names are
+  covered by `docs/component-map.md`, `docs/package-consumption.md`, and
+  `docs/public-api-map.md`. The only open claim retained above is whether a
+  drift check should enforce that ownership.
+- HTTP server execution placement, borrowed/owned request lifetimes, and
+  sync-vs-async naming guidance are covered by `docs/execution-model.md`,
+  `docs/concurrency-naming-model.md`, and `docs/cost-lifetime-model.md`.
+- HTTP server lifecycle, drain behavior, pressure metrics, SSE, WebSocket, and
+  streaming response surfaces are covered by `docs/http-server-api.md`.
+- JSON typed decode, provider-boundary integration, duplicate-key policy,
+  borrowed/owned lifetime rules, and streaming JSON APIs are covered by
+  `docs/json-api.md`, `docs/json-boundary-guide.md`, `docs/json-cookbook.md`,
+  and `docs/json-reflect.md`.
+- HTTP client request/response shapes, timeout knobs, telemetry, redirect/cookie
+  handling, TLS verification, and current Phase 1 limitations are covered by
+  `docs/conflux-http-client-api.md`.
+- Work/root cancellation, deadlines, scopes, and carrier behavior are covered by
+  the `conflux.work` source modules and the work migration docs; this file keeps
+  only higher-level ergonomics questions that were not obviously settled by that
+  coverage.
 
 ## Landed or Mostly Landed Claims
 

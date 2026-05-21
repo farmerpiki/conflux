@@ -81,6 +81,9 @@ target_link_libraries(conflux_tests
         conflux_options
         Catch2::Catch2WithMain
 )
+if(ZLIB_FOUND)
+    target_link_libraries(conflux_tests PRIVATE ZLIB::ZLIB)
+endif()
 
 if(CONFLUX_HAS_TLS STREQUAL "true")
     add_executable(conflux_tls_external)

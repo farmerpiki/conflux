@@ -62,6 +62,182 @@ function(conflux_pkg_provider prefix required)
     set(${prefix}_VERSION "${_version}" PARENT_SCOPE)
 endfunction()
 
+function(conflux_gzip_probe_source backend out)
+    if(backend STREQUAL "LIBDEFLATE")
+        set(_code [[
+#include <chrono>
+#include <cstdio>
+#include <string>
+#include <libdeflate.h>
+int main() {
+    std::string input;
+    for (int i = 0; i < 256; ++i) input += "content-type: application/json\n{\"hello\":\"world\",\"value\":123456789}\n";
+    auto *c = libdeflate_alloc_compressor(6);
+    if (!c) return 2;
+    auto bound = libdeflate_gzip_compress_bound(c, input.size());
+    std::string out(bound, '\0');
+    auto start = std::chrono::steady_clock::now();
+    std::size_t total = 0;
+    for (int i = 0; i < 256; ++i) {
+        auto n = libdeflate_gzip_compress(c, input.data(), input.size(), out.data(), out.size());
+        if (n == 0) return 3;
+        total += n;
+    }
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%lld %zu\n", static_cast<long long>(ns), total);
+    libdeflate_free_compressor(c);
+}
+]])
+    elseif(backend STREQUAL "ZLIB_NG")
+        set(_code [[
+#include <chrono>
+#include <cstdio>
+#include <string>
+#include <zlib-ng.h>
+int main() {
+    std::string input;
+    for (int i = 0; i < 256; ++i) input += "content-type: application/json\n{\"hello\":\"world\",\"value\":123456789}\n";
+    std::string out(input.size() + input.size() / 8 + 256, '\0');
+    auto start = std::chrono::steady_clock::now();
+    std::size_t total = 0;
+    for (int i = 0; i < 256; ++i) {
+        zng_stream zs{};
+        if (zng_deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 | 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return 2;
+        zs.next_in = reinterpret_cast<unsigned char const *>(input.data());
+        zs.avail_in = static_cast<unsigned int>(input.size());
+        zs.next_out = reinterpret_cast<unsigned char *>(out.data());
+        zs.avail_out = static_cast<unsigned int>(out.size());
+        int rc = zng_deflate(&zs, Z_FINISH);
+        zng_deflateEnd(&zs);
+        if (rc != Z_STREAM_END) return 3;
+        total += zs.total_out;
+    }
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%lld %zu\n", static_cast<long long>(ns), total);
+}
+]])
+    elseif(backend STREQUAL "ISAL")
+        set(_code [[
+#include <chrono>
+#include <cstdio>
+#include <string>
+#include <isa-l/igzip_lib.h>
+int main() {
+    std::string input;
+    for (int i = 0; i < 256; ++i) input += "content-type: application/json\n{\"hello\":\"world\",\"value\":123456789}\n";
+    std::string out(input.size() + input.size() / 8 + 256, '\0');
+    auto start = std::chrono::steady_clock::now();
+    std::size_t total = 0;
+    for (int i = 0; i < 256; ++i) {
+        isal_zstream stream{};
+        isal_deflate_stateless_init(&stream);
+        stream.next_in = reinterpret_cast<unsigned char *>(const_cast<char *>(input.data()));
+        stream.avail_in = static_cast<unsigned int>(input.size());
+        stream.next_out = reinterpret_cast<unsigned char *>(out.data());
+        stream.avail_out = static_cast<unsigned int>(out.size());
+        stream.level = 1;
+        stream.end_of_stream = 1;
+        stream.flush = FULL_FLUSH;
+        stream.gzip_flag = IGZIP_GZIP;
+        if (isal_deflate_stateless(&stream) != COMP_OK) return 2;
+        total += stream.total_out;
+    }
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%lld %zu\n", static_cast<long long>(ns), total);
+}
+]])
+    elseif(backend STREQUAL "ZLIB")
+        set(_code [[
+#include <chrono>
+#include <cstdio>
+#include <string>
+#include <zlib.h>
+int main() {
+    std::string input;
+    for (int i = 0; i < 256; ++i) input += "content-type: application/json\n{\"hello\":\"world\",\"value\":123456789}\n";
+    std::string out(input.size() + input.size() / 8 + 256, '\0');
+    auto start = std::chrono::steady_clock::now();
+    std::size_t total = 0;
+    for (int i = 0; i < 256; ++i) {
+        z_stream zs{};
+        if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 | 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return 2;
+        zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(input.data()));
+        zs.avail_in = static_cast<uInt>(input.size());
+        zs.next_out = reinterpret_cast<Bytef *>(out.data());
+        zs.avail_out = static_cast<uInt>(out.size());
+        int rc = deflate(&zs, Z_FINISH);
+        deflateEnd(&zs);
+        if (rc != Z_STREAM_END) return 3;
+        total += zs.total_out;
+    }
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%lld %zu\n", static_cast<long long>(ns), total);
+}
+]])
+    else()
+        message(FATAL_ERROR "unknown gzip probe backend '${backend}'")
+    endif()
+    set(${out} "${_code}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_benchmark_gzip_backend backend out_ns)
+    conflux_gzip_probe_source("${backend}" _source)
+    set(_dir "${CMAKE_BINARY_DIR}/CMakeFiles/conflux-provider-probes")
+    file(MAKE_DIRECTORY "${_dir}")
+    set(_src "${_dir}/gzip_${backend}.cxx")
+    set(_exe "${_dir}/gzip_${backend}")
+    file(WRITE "${_src}" "${_source}")
+    if(backend STREQUAL "LIBDEFLATE")
+        set(_target PkgConfig::LIBDEFLATE)
+    elseif(backend STREQUAL "ZLIB_NG")
+        set(_target PkgConfig::ZLIB_NG)
+    elseif(backend STREQUAL "ISAL")
+        set(_target PkgConfig::LIBISAL)
+    elseif(backend STREQUAL "ZLIB")
+        set(_target PkgConfig::ZLIB_PKG)
+    else()
+        message(FATAL_ERROR "unknown gzip probe backend '${backend}'")
+    endif()
+    get_target_property(_libs ${_target} INTERFACE_LINK_LIBRARIES)
+    get_target_property(_copts ${_target} INTERFACE_COMPILE_OPTIONS)
+    if(NOT _libs)
+        set(_libs "")
+    endif()
+    if(NOT _copts)
+        set(_copts "")
+    endif()
+    set(_compiler_flags)
+    if(NOT CMAKE_CXX_FLAGS STREQUAL "")
+        separate_arguments(_compiler_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS}")
+    endif()
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type_upper)
+    if(_build_type_upper AND NOT CMAKE_CXX_FLAGS_${_build_type_upper} STREQUAL "")
+        separate_arguments(_build_type_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS_${_build_type_upper}}")
+        list(APPEND _compiler_flags ${_build_type_flags})
+    endif()
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_flags} -O2 -std=c++17 ${_copts} "${_src}" -o "${_exe}" ${_libs}
+        RESULT_VARIABLE _compile_rc
+        OUTPUT_QUIET
+        ERROR_QUIET)
+    if(NOT _compile_rc EQUAL 0)
+        set(${out_ns} "" PARENT_SCOPE)
+        return()
+    endif()
+    execute_process(
+        COMMAND "${_exe}"
+        RESULT_VARIABLE _run_rc
+        OUTPUT_VARIABLE _run_out
+        ERROR_QUIET
+        TIMEOUT 5)
+    if(NOT _run_rc EQUAL 0)
+        set(${out_ns} "" PARENT_SCOPE)
+        return()
+    endif()
+    string(REGEX MATCH "^[0-9]+" _ns "${_run_out}")
+    set(${out_ns} "${_ns}" PARENT_SCOPE)
+endfunction()
+
 if(CONFLUX_BUILD_TESTS)
     string(TOUPPER "${CONFLUX_TEST_CATCH2_PROVIDER}" CONFLUX_TEST_CATCH2_PROVIDER_UPPER)
     if(NOT CONFLUX_TEST_CATCH2_PROVIDER_UPPER MATCHES "^(FETCH|SYSTEM|AUTO)$")
@@ -194,17 +370,30 @@ if(CONFLUX_WANT_JSON)
     message(STATUS "conflux: JSON hash provider ${CONFLUX_JSON_HASH_PROVIDER_UPPER}")
 endif()
 
-if(CONFLUX_WANT_HTTP_COMPRESSION)
-    conflux_pkg_provider(BROTLI FALSE libbrotlienc libbrotlidec)
-    conflux_pkg_provider(ZSTD FALSE libzstd)
+string(TOUPPER "${CONFLUX_GZIP_PROVIDER}" CONFLUX_GZIP_PROVIDER_UPPER)
+string(TOUPPER "${CONFLUX_BROTLI_PROVIDER}" CONFLUX_BROTLI_PROVIDER_UPPER)
+string(TOUPPER "${CONFLUX_ZSTD_PROVIDER}" CONFLUX_ZSTD_PROVIDER_UPPER)
+if(CONFLUX_WANT_HTTP_COMPRESSION AND NOT CONFLUX_GZIP_PROVIDER_UPPER STREQUAL "OFF")
+    conflux_pkg_provider(ZLIB_PKG FALSE zlib)
     conflux_pkg_provider(LIBDEFLATE FALSE libdeflate)
     conflux_pkg_provider(ZLIB_NG FALSE zlib-ng)
     conflux_pkg_provider(LIBISAL FALSE libisal)
 endif()
-if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT)
+if(CONFLUX_WANT_HTTP_COMPRESSION AND NOT CONFLUX_BROTLI_PROVIDER_UPPER STREQUAL "OFF")
+    conflux_pkg_provider(BROTLI FALSE libbrotlienc libbrotlidec)
+endif()
+if(CONFLUX_WANT_HTTP_COMPRESSION AND NOT CONFLUX_ZSTD_PROVIDER_UPPER STREQUAL "OFF")
+    conflux_pkg_provider(ZSTD FALSE libzstd)
+endif()
+string(TOUPPER "${CONFLUX_HTTP2_PROVIDER}" CONFLUX_HTTP2_PROVIDER_UPPER)
+if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT)
+        AND NOT CONFLUX_HTTP2_PROVIDER_UPPER STREQUAL "OFF")
     conflux_pkg_provider(NGHTTP2 FALSE libnghttp2)
 endif()
-if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_ENABLE_EXPERIMENTAL AND CONFLUX_ENABLE_HTTP3)
+string(TOUPPER "${CONFLUX_HTTP3_PROVIDER}" CONFLUX_HTTP3_PROVIDER_UPPER)
+if(CONFLUX_WANT_HTTP_SERVER
+        AND CONFLUX_ENABLE_EXPERIMENTAL
+        AND NOT CONFLUX_HTTP3_PROVIDER_UPPER STREQUAL "OFF")
     conflux_pkg_provider(NGTCP2 FALSE libngtcp2)
     conflux_pkg_provider(NGTCP2_CRYPTO_OSSL FALSE libngtcp2_crypto_ossl)
     conflux_pkg_provider(NGHTTP3 FALSE libnghttp3)
@@ -215,6 +404,7 @@ if(CONFLUX_WANT_HTTP_AUTH
             OR CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "SYSTEM"))
     conflux_pkg_provider(ARGON2 FALSE libargon2)
 endif()
-if(CONFLUX_WANT_DB_POSTGRES)
+string(TOUPPER "${CONFLUX_POSTGRES_PROVIDER}" CONFLUX_POSTGRES_PROVIDER_UPPER)
+if(CONFLUX_WANT_DB_POSTGRES AND NOT CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "OFF")
     conflux_pkg_provider(LIBPQ FALSE libpq)
 endif()

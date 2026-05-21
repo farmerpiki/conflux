@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 import std;
@@ -1896,7 +1898,17 @@ TEST_CASE(
 TEST_CASE(
 	"http facade: file helper reads small files",
 	"[http.facade]") {
-	auto path = std::filesystem::temp_directory_path() / "conflux_http_facade_file_helper.txt";
+	struct Cleanup {
+		std::filesystem::path path;
+		~Cleanup() {
+			std::error_code ec;
+			(void)std::filesystem::remove(path, ec);
+		}
+	};
+	Cleanup file{
+		.path =
+			std::filesystem::temp_directory_path() / std::format("conflux_http_facade_file_helper_{}.txt", ::getpid())};
+	auto const &path = file.path;
 	{
 		std::ofstream out{path, std::ios::binary};
 		out << "file-body";
@@ -1906,8 +1918,6 @@ TEST_CASE(
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "text/plain");
 	CHECK(response.text_body() == "file-body");
-
-	std::filesystem::remove(path);
 }
 
 TEST_CASE(

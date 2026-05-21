@@ -11,6 +11,20 @@ import conflux.types;
 namespace root = conflux::work::root;
 namespace {
 
+struct TempFile {
+	std::string path;
+	explicit TempFile(
+		std::string p)
+		: path{std::move(p)} {}
+	~TempFile() {
+		if (!path.empty()) {
+			::unlink(path.c_str());
+		}
+	}
+	TempFile(TempFile const &) = delete;
+	TempFile &operator =(TempFile const &) = delete;
+};
+
 constexpr std::uint64_t pack_ud(
 	std::uint32_t slot,
 	std::uint32_t gen) noexcept {
@@ -39,7 +53,8 @@ root::Task<void> demo(
 
 } // namespace
 int main() {
-	std::string const path = "/tmp/conflux_coroutine_example.txt";
+	std::string const path = std::format("/tmp/conflux_coroutine_example_{}.txt", ::getpid());
+	TempFile cleanup{path};
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
 		std::println(std::cerr, "open seed failed");
@@ -66,10 +81,8 @@ int main() {
 	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
-		::unlink(path.c_str());
 		return 1;
 	}
 
 	::io_uring_queue_exit(&ring);
-	::unlink(path.c_str());
 }

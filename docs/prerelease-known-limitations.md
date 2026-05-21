@@ -8,7 +8,7 @@ repository.
   CMake import-std support.
 - `CONFLUX_USE_MOCK_LIBURING=ON` is build evidence only. It does not prove that
   the host can run runtime-facing components.
-- DB examples and generated DB headers require `CONFLUX_ENABLE_DB=ON`, libpq
+- DB examples and generated DB headers require `CONFLUX_POSTGRES_PROVIDER=LIBPQ`, libpq
   headers, and the `conflux_db` target. When DB is disabled, DB examples and
   DB headers are skipped even if libpq is installed on the host.
 - Header-interface package smoke is the baseline consumer lane and should not

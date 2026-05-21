@@ -88,7 +88,7 @@ else
         -DCONFLUX_BUILD_TESTS=OFF \
         -DCONFLUX_BUILD_EXAMPLES=OFF \
         -DCONFLUX_BUILD_BENCHMARKS=OFF \
-        -DCONFLUX_ENABLE_DB=OFF
+        -DCONFLUX_POSTGRES_PROVIDER=OFF
     cmake --build "$build_dir"
 fi
 cmake --install "$build_dir" --prefix "$stage_dir/install"

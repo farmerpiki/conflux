@@ -181,6 +181,33 @@ struct TempDir {
 	}
 };
 
+struct TempPath {
+	std::string path;
+	static TempPath unique(
+		std::string_view stem) {
+		TempPath t;
+		t.path = std::format("{}/{}_XXXXXX", temp_file_root(), stem);
+		auto *r = ::mkdtemp(t.path.data());
+		REQUIRE(r != nullptr);
+		std::error_code ec;
+		std::filesystem::remove_all(t.path, ec);
+		return t;
+	}
+	~TempPath() {
+		if (!path.empty()) {
+			std::error_code ec;
+			std::filesystem::remove_all(path, ec);
+		}
+	}
+	TempPath() = default;
+	TempPath(TempPath const &) = delete;
+	TempPath &operator =(TempPath const &) = delete;
+	TempPath(
+		TempPath &&o) noexcept
+		: path{std::move(o.path)} {}
+	TempPath &operator =(TempPath &&) = delete;
+};
+
 } // namespace
 TEST_CASE(
 	"file_io: CompletionTable reserve/dispatch round-trip",
@@ -871,11 +898,8 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	std::string dir_path = "/tmp/conflux_file_io_mkdir_XXXXXX";
-	// Use mkdtemp to get a unique name, then remove it so we can recreate via async.
-	char const *tmp = ::mkdtemp(dir_path.data());
-	REQUIRE(tmp != nullptr);
-	::rmdir(dir_path.c_str());
+	auto dir = TempPath::unique("conflux_file_io_mkdir");
+	std::string const &dir_path = dir.path;
 
 	bool ok = false;
 	int err = 0;
@@ -2104,12 +2128,8 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	std::string const dir_path = "/tmp/conflux_file_io_mkdir_test_XXXXXX";
-	// Use mktemp to get a unique name; don't create it yet.
-	auto path = std::string(dir_path);
-	path.resize(path.size() - 6); // strip XXXXXX template
-	path += "mkdir_async_test_dir";
-	::rmdir(path.c_str()); // clean up if leftover
+	auto path_guard = TempPath::unique("conflux_file_io_mkdir_test");
+	std::string const &path = path_guard.path;
 
 	bool ok{false};
 	try {
@@ -2122,7 +2142,6 @@ TEST_CASE(
 		struct stat st{};
 		CHECK(::stat(path.c_str(), &st) == 0);
 		CHECK(S_ISDIR(st.st_mode));
-		::rmdir(path.c_str());
 	}
 }
 TEST_CASE(

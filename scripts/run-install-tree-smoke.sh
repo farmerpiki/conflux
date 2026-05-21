@@ -107,6 +107,19 @@ base_dir="${TMPDIR:-/tmp}/conflux-install-tree-smoke"
 [[ -n "$build_dir" ]] || build_dir="$base_dir/build"
 [[ -n "$prefix" ]] || prefix="$base_dir/prefix"
 [[ -n "$smoke_build_dir" ]] || smoke_build_dir="$base_dir/package-smoke"
+cleanup_dir() {
+    local path="$1"
+    [[ "${KEEP_BUILD:-0}" != "1" && -n "$path" && "$path" == /tmp/* && -d "$path" ]] || return 0
+    if [[ -f "$path/.conflux-install-tree-smoke" ]]; then
+        rm -rf "$path"
+    fi
+}
+cleanup_all() {
+    cleanup_dir "$smoke_build_dir"
+    cleanup_dir "$prefix"
+    cleanup_dir "$build_dir"
+}
+trap cleanup_all EXIT
 
 cmake_configure=(
     cmake -S "$source_root" -B "$build_dir"

@@ -5,8 +5,19 @@ import conflux.net.http;
 import std;
 import conflux.types;
 int main() {
-	std::string cert_path = "/tmp/conflux_h3_probe_cert.pem";
-	std::string key_path = "/tmp/conflux_h3_probe_key.pem";
+	auto make_tmp_pem = [](std::string_view tag) {
+		std::string tmpl = std::format("/tmp/conflux_h3_probe_{}_XXXXXX.pem", tag);
+		std::vector<char> buf(tmpl.begin(), tmpl.end());
+		buf.push_back('\0');
+		int const fd = ::mkstemps(buf.data(), 4);
+		if (fd < 0) {
+			throw std::runtime_error{std::format("mkstemps failed for {}", tag)};
+		}
+		::close(fd);
+		return std::string{buf.data()};
+	};
+	std::string cert_path = make_tmp_pem("cert");
+	std::string key_path = make_tmp_pem("key");
 	std::string const gen_cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
@@ -14,6 +25,8 @@ int main() {
 		cert_path);
 	if (std::system(gen_cmd.c_str()) != 0) {
 		std::println(std::cerr, "openssl req failed");
+		::unlink(cert_path.c_str());
+		::unlink(key_path.c_str());
 		return 1;
 	}
 
@@ -33,6 +46,8 @@ int main() {
 	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
 
 	HttpServer srv{cfg, std::move(router)};
+	::unlink(cert_path.c_str());
+	::unlink(key_path.c_str());
 	std::println(std::cerr, "h3 probe running on :9443");
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;

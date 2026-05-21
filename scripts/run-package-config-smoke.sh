@@ -81,6 +81,12 @@ fi
 [[ -d "$prefix" ]] || { printf 'run-package-config-smoke: prefix does not exist: %s\n' "$prefix" >&2; exit 1; }
 [[ -d "$source_root/cmake/package-smoke" ]] || { printf 'run-package-config-smoke: missing package-smoke project under %s\n' "$source_root" >&2; exit 1; }
 [[ -n "$build_dir" ]] || build_dir="${TMPDIR:-/tmp}/conflux-package-smoke"
+cleanup_build_dir() {
+    if [[ "${KEEP_BUILD:-0}" != "1" && -n "$build_dir" && "$build_dir" == /tmp/* && -d "$build_dir" ]]; then
+        rm -rf "$build_dir"
+    fi
+}
+trap cleanup_build_dir EXIT
 
 if [[ "$components" != *";"* ]]; then
     case "$components" in

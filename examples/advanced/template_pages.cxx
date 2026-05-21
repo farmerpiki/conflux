@@ -4,6 +4,8 @@
 // Try:
 //   curl http://localhost:9102/
 //   curl http://localhost:9102/users
+#include <unistd.h>
+
 import conflux.net.http.server;
 import conflux.templates;
 import conflux.types;
@@ -16,9 +18,22 @@ static void write_template(
 	out << body;
 }
 
+struct TempDir {
+	std::filesystem::path path;
+	explicit TempDir(
+		std::filesystem::path p)
+		: path{std::move(p)} {
+		std::filesystem::create_directories(path);
+	}
+	~TempDir() {
+		std::error_code ec;
+		(void)std::filesystem::remove_all(path, ec);
+	}
+};
+
 int main() {
-	auto dir = std::filesystem::temp_directory_path() / "conflux_template_pages";
-	std::filesystem::create_directories(dir);
+	TempDir templates{std::filesystem::temp_directory_path() / std::format("conflux_template_pages_{}", ::getpid())};
+	auto const &dir = templates.path;
 
 	write_template(
 		dir / "layout.html",

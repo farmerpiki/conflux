@@ -60,13 +60,13 @@ cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
-  -DCONFLUX_ENABLE_DB=OFF
+  -DCONFLUX_POSTGRES_PROVIDER=OFF
 cmake --build /tmp/conflux-header
 cmake --install /tmp/conflux-header --prefix /tmp/conflux-install
 find /tmp/conflux-install/include/conflux -maxdepth 2 \( -name 'pg*' -o -name 'db.hxx' \) -print
 ```
 
-The `find` command should print no DB headers when `CONFLUX_ENABLE_DB=OFF`.
+The `find` command should print no DB headers when `CONFLUX_POSTGRES_PROVIDER=OFF`.
 The generated-header lane stages release artifacts and compile evidence; it is
 not the primary source-consumption contract.
 
@@ -110,7 +110,7 @@ cmake -S . -B /tmp/conflux-db -G Ninja \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
-  -DCONFLUX_ENABLE_DB=ON
+  -DCONFLUX_POSTGRES_PROVIDER=LIBPQ
 cmake --build /tmp/conflux-db
 ```
 
