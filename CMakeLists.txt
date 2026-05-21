@@ -83,16 +83,16 @@ if(CONFLUX_JSON_REFLECT
 endif()
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
-option(CONFLUX_BUILD_TESTS    "Build test targets"                           ON)
-option(CONFLUX_FETCH_TEST_DEPS "Allow FetchContent downloads for test-only dependencies" ON)
-set(CONFLUX_TEST_CATCH2_PROVIDER "FETCH" CACHE STRING
+option(CONFLUX_BUILD_TESTS    "Build test targets"                           OFF)
+option(CONFLUX_FETCH_TEST_DEPS "Allow FetchContent downloads for test-only dependencies" OFF)
+set(CONFLUX_TEST_CATCH2_PROVIDER "SYSTEM" CACHE STRING
     "Catch2 provider for tests: FETCH builds Catch2 with the active stdlib, SYSTEM uses find_package, AUTO tries SYSTEM then FETCH")
 set_property(CACHE CONFLUX_TEST_CATCH2_PROVIDER PROPERTY STRINGS FETCH SYSTEM AUTO)
 set(CONFLUX_CATCH2_SOURCE_DIR "" CACHE PATH "Path to a local Catch2 source tree for CONFLUX_TEST_CATCH2_PROVIDER=FETCH")
 option(CONFLUX_ENABLE_JSON_TESTSUITE "Build nst/JSONTestSuite conformance gate when JSONTestSuite is available" OFF)
 set(JSONTESTSUITE_DIR "" CACHE PATH "Path to nst/JSONTestSuite/test_parsing, or repository root containing test_parsing")
 option(CONFLUX_BUILD_BENCHMARKS "Build benchmark targets"                    OFF)
-option(CONFLUX_BUILD_EXAMPLES "Build example targets"                        ON)
+option(CONFLUX_BUILD_EXAMPLES "Build example targets"                        OFF)
 option(CONFLUX_ALLOW_SANITIZED_BENCHMARKS
     "Allow benchmark targets in sanitizer builds for local instrumentation debugging only" OFF)
 option(CONFLUX_BUILD_FUZZ     "Build libFuzzer harness targets"              OFF)
@@ -121,6 +121,9 @@ option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B pr
 set(CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER "AUTO" CACHE STRING
     "Argon2 backend for password hashing: AUTO uses system libargon2 when found, otherwise runtime dlopen; SYSTEM requires libargon2; RUNTIME uses dlopen only; OFF disables Argon2")
 set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO SYSTEM RUNTIME OFF)
+set(CONFLUX_JSON_HASH_PROVIDER "AUTO" CACHE STRING
+    "JSON object-name hash provider: AUTO prefers system xxhash and falls back to internal; XXHASH requires libxxhash; INTERNAL avoids external hash deps")
+set_property(CACHE CONFLUX_JSON_HASH_PROVIDER PROPERTY STRINGS AUTO XXHASH INTERNAL)
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable pooled coroutine frame allocation for work Task/EagerChain frames" OFF)
 option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_WORK_QUEUE_STATS "Enable relaxed WorkPool queue/wake contention counters for profiling" OFF)
@@ -207,6 +210,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
                 AND NGTCP2_FOUND
                 AND NGTCP2_CRYPTO_OSSL_FOUND
                 AND NGHTTP3_FOUND
+                AND CONFLUX_ENABLE_EXPERIMENTAL
                 AND CONFLUX_ENABLE_HTTP3)
             set(CONFLUX_HAS_HTTP3 "true")
         endif()
@@ -385,7 +389,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 
     set(CONFLUX_INSTALL_NEEDS_LIBURING ${CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS})
     set(CONFLUX_INSTALL_NEEDS_XXHASH FALSE)
-    if(CONFLUX_WANT_JSON)
+    if(CONFLUX_WANT_JSON AND CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
         set(CONFLUX_INSTALL_NEEDS_XXHASH TRUE)
     endif()
     set(CONFLUX_INSTALL_NEEDS_LIBPQ FALSE)
@@ -480,11 +484,17 @@ include(Dependencies)
 # Optional dependencies
 # ---------------------------------------------------------------------------
 
-find_package(OpenSSL)
-find_package(ZLIB)
+if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+    find_package(OpenSSL)
+endif()
+if(CONFLUX_WANT_HTTP_COMPRESSION)
+    find_package(ZLIB)
+endif()
 
 # ---- OpenSSL / TLS ---------------------------------------------------------
-if(OpenSSL_FOUND AND CONFLUX_ENABLE_TLS)
+if(NOT (CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH))
+    set(CONFLUX_HAS_TLS "false")
+elseif(OpenSSL_FOUND AND CONFLUX_ENABLE_TLS)
     set(CONFLUX_HAS_TLS "true")
     message(STATUS "conflux: TLS enabled (OpenSSL ${OPENSSL_VERSION})")
 else()
@@ -514,7 +524,9 @@ if(LIBISAL_FOUND AND CONFLUX_ENABLE_ISAL)
     list(APPEND CONFLUX_GZIP_BACKENDS "isa-l")
 endif()
 
-if(CONFLUX_GZIP_BACKENDS)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_COMPRESS "false")
+elseif(CONFLUX_GZIP_BACKENDS)
     set(CONFLUX_HAS_COMPRESS "true")
     list(JOIN CONFLUX_GZIP_BACKENDS ", " CONFLUX_GZIP_BACKENDS_STR)
     message(STATUS "conflux: gzip enabled (${CONFLUX_GZIP_BACKENDS_STR})")
@@ -524,7 +536,9 @@ else()
 endif()
 
 # ---- optional gzip backends ------------------------------------------------
-if(LIBDEFLATE_FOUND AND CONFLUX_ENABLE_LIBDEFLATE)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_LIBDEFLATE "false")
+elseif(LIBDEFLATE_FOUND AND CONFLUX_ENABLE_LIBDEFLATE)
     set(CONFLUX_HAS_LIBDEFLATE "true")
     message(STATUS "conflux: libdeflate enabled")
 else()
@@ -536,7 +550,9 @@ else()
     endif()
 endif()
 
-if(ZLIB_NG_FOUND AND CONFLUX_ENABLE_ZLIB_NG)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_ZLIB_NG "false")
+elseif(ZLIB_NG_FOUND AND CONFLUX_ENABLE_ZLIB_NG)
     set(CONFLUX_HAS_ZLIB_NG "true")
     message(STATUS "conflux: zlib-ng enabled")
 else()
@@ -548,7 +564,9 @@ else()
     endif()
 endif()
 
-if(LIBISAL_FOUND AND CONFLUX_ENABLE_ISAL)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_ISAL "false")
+elseif(LIBISAL_FOUND AND CONFLUX_ENABLE_ISAL)
     set(CONFLUX_HAS_ISAL "true")
     message(STATUS "conflux: isa-l enabled")
 else()
@@ -561,7 +579,9 @@ else()
 endif()
 
 # ---- brotli ----------------------------------------------------------------
-if(BROTLI_FOUND AND CONFLUX_ENABLE_BROTLI)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_BROTLI "false")
+elseif(BROTLI_FOUND AND CONFLUX_ENABLE_BROTLI)
     set(CONFLUX_HAS_BROTLI "true")
     message(STATUS "conflux: brotli enabled")
 else()
@@ -574,7 +594,9 @@ else()
 endif()
 
 # ---- zstd ------------------------------------------------------------------
-if(ZSTD_FOUND AND CONFLUX_ENABLE_ZSTD)
+if(NOT CONFLUX_WANT_HTTP_COMPRESSION)
+    set(CONFLUX_HAS_ZSTD "false")
+elseif(ZSTD_FOUND AND CONFLUX_ENABLE_ZSTD)
     set(CONFLUX_HAS_ZSTD "true")
     message(STATUS "conflux: zstd enabled")
 else()
@@ -596,7 +618,9 @@ else()
 endif()
 
 # ---- HTTP/2 (requires nghttp2 + TLS) ---------------------------------------
-if(NGHTTP2_FOUND AND CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_ENABLE_HTTP2)
+if(NOT (CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT))
+    set(CONFLUX_HAS_HTTP2 "false")
+elseif(NGHTTP2_FOUND AND CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_ENABLE_HTTP2)
     set(CONFLUX_HAS_HTTP2 "true")
     message(STATUS "conflux: HTTP/2 enabled (nghttp2)")
 else()
@@ -616,15 +640,24 @@ if(OpenSSL_FOUND AND OPENSSL_VERSION VERSION_GREATER_EQUAL "3.5.0")
     set(CONFLUX_HAS_HTTP3_OPENSSL "true")
 endif()
 
-if(NGTCP2_FOUND AND NGTCP2_CRYPTO_OSSL_FOUND AND NGHTTP3_FOUND
+if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_ENABLE_HTTP3 AND NOT CONFLUX_ENABLE_EXPERIMENTAL)
+    message(STATUS "conflux: HTTP/3 deps may be present; disabled because CONFLUX_ENABLE_EXPERIMENTAL=OFF")
+endif()
+
+if(NOT CONFLUX_WANT_HTTP_SERVER)
+    set(CONFLUX_HAS_HTTP3 "false")
+elseif(NGTCP2_FOUND AND NGTCP2_CRYPTO_OSSL_FOUND AND NGHTTP3_FOUND
         AND CONFLUX_HAS_TLS STREQUAL "true"
         AND CONFLUX_HAS_HTTP3_OPENSSL STREQUAL "true"
+        AND CONFLUX_ENABLE_EXPERIMENTAL
         AND CONFLUX_ENABLE_HTTP3)
     set(CONFLUX_HAS_HTTP3 "true")
     message(STATUS "conflux: HTTP/3 enabled (ngtcp2 ${NGTCP2_VERSION}, nghttp3 ${NGHTTP3_VERSION})")
 else()
     set(CONFLUX_HAS_HTTP3 "false")
-    if(NOT NGTCP2_FOUND)
+    if(NOT CONFLUX_ENABLE_EXPERIMENTAL)
+        message(STATUS "conflux: HTTP/3 disabled (CONFLUX_ENABLE_EXPERIMENTAL=OFF)")
+    elseif(NOT NGTCP2_FOUND)
         message(STATUS "conflux: HTTP/3 disabled (libngtcp2 not found)")
     elseif(NOT NGTCP2_CRYPTO_OSSL_FOUND)
         message(STATUS "conflux: HTTP/3 disabled (libngtcp2_crypto_ossl not found)")
@@ -640,7 +673,9 @@ else()
 endif()
 
 # ---- Postgres (libpq) ------------------------------------------------------
-if(LIBPQ_FOUND AND CONFLUX_ENABLE_DB)
+if(NOT CONFLUX_WANT_DB_POSTGRES)
+    set(CONFLUX_HAS_DB "false")
+elseif(LIBPQ_FOUND AND CONFLUX_ENABLE_DB)
     set(CONFLUX_HAS_DB "true")
     message(STATUS "conflux: db enabled (libpq ${LIBPQ_VERSION})")
 else()
@@ -895,8 +930,14 @@ target_sources(conflux_json
 )
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
-    PRIVATE conflux_options PkgConfig::XXHASH
+    PRIVATE conflux_options
 )
+if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+    target_link_libraries(conflux_json PRIVATE PkgConfig::XXHASH)
+    target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+    target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+endif()
 
 add_library(conflux_json_native_provider STATIC)
 target_sources(conflux_json_native_provider
@@ -3150,7 +3191,7 @@ set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
 if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_process OR TARGET conflux_net_io_buffer OR TARGET conflux_file_io OR TARGET conflux_file_watch OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux_http_server OR TARGET conflux_http_app OR TARGET conflux_net_http OR TARGET conflux)
     set(CONFLUX_INSTALL_NEEDS_LIBURING TRUE)
 endif()
-if(TARGET conflux_json)
+if(TARGET conflux_json AND CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
     set(CONFLUX_INSTALL_NEEDS_XXHASH TRUE)
 endif()
 if(TARGET conflux_db)

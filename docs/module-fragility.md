@@ -24,10 +24,16 @@ instantiating inline standard-library bodies from the lazy-loaded `std` module.
   `CXX_MODULES` file-set entry.
 
 `conflux.socket_io.coro` is still a larger exported interface, but it has one
-important build-stability rule until it is split further: do not reintroduce
-`import std` or `import std.compat` into `src/socket_io/socket_io_coro.cxx`.
-Method bodies that are already in `src/socket_io/socket_io_coro_impl.cxx` must
-stay in that private implementation unit.
+important build-stability rule until it is split further: use explicit standard
+headers in its global module fragment and do not reintroduce `import std` or
+`import std.compat` into `src/socket_io/socket_io_coro.cxx`. The exported API
+still names `std::span`, `std::shared_ptr`, `std::vector`, and related types, so
+the standard declarations are needed, but importing the `std` module there makes
+GCC deserialize that module through a large public socket/coroutine CMI. A
+`debug-gcc16-stdcxx` build of `conflux_socket_io` was verified with the explicit
+header shape. Method bodies that are already in
+`src/socket_io/socket_io_coro_impl.cxx` must stay in that private implementation
+unit.
 
 ## Regression check
 

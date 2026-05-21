@@ -2,6 +2,39 @@
 
 Conflux keeps correctness instrumentation separate from performance artifacts.
 
+## Preset Families
+
+User-facing source/package presets are intentionally small and unsurprising:
+
+- `core` — release build, auto-detected compiler, no tests/examples/benchmarks,
+  no FetchContent downloads, no runtime dependencies.
+- `json` — `core` plus JSON; prefers system xxhash when present and falls back
+  to the internal seeded hash otherwise.
+- `http-api` — stable HTTP application/API surface without examples or test
+  dependencies.
+- `web-server` — stable web-server surface with provider auto-detection for
+  selected components.
+- `full` — all stable components for source consumers; experimental protocols
+  such as HTTP/3 still require `CONFLUX_ENABLE_EXPERIMENTAL=ON`.
+
+Development and validation presets are separate. They intentionally opt into the
+full development feature set, tests, and the compiler/runtime shape named by the
+preset:
+
+- `dev-all` and `dev-exp-all` are auto-compiler local development profiles for
+  the full stable and full experimental surfaces.
+- `debug-*`, `tsan-*`, and `fuzz-*` are correctness and instrumentation lanes.
+- `release-*`, `release-*-p5`, and `release-p2996-gcc` are optimized build and
+  LTO/reflection smoke lanes, not the default consumer configure.
+- `perf-*` presets build benchmark artifacts only.
+- `pgo-*` presets are profile-generation/profile-use lanes.
+- `release-header-artifacts` validates generated header consumers.
+
+For a normal package-oriented configure, prefer `cmake --preset core`,
+`cmake --preset json`, `cmake --preset http-api`, `cmake --preset web-server`,
+or `cmake --preset full`. For library development, use the explicit compiler
+presets below.
+
 ## Correctness lane
 
 Use:

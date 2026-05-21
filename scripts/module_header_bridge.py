@@ -1700,8 +1700,21 @@ def collect_units(src_root: Path) -> list[ModuleUnit]:
     return units
 
 
+def unit_has_public_body(unit: ModuleUnit) -> bool:
+    for line in unit.lines[unit.declaration_index + 1 :]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//") or stripped.startswith("#"):
+            continue
+        if IMPORT_RE.match(line) is not None:
+            continue
+        return True
+    return False
+
+
 def public_header_source_unit(unit: ModuleUnit, units_by_name: dict[str, ModuleUnit]) -> ModuleUnit:
     if unit.is_partition:
+        return unit
+    if unit_has_public_body(unit):
         return unit
     for imported in unit.export_imports:
         if not imported.startswith(":"):

@@ -1,7 +1,13 @@
 module;
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
 
 #include <liburing.h>
 #include <netinet/in.h>
@@ -11,7 +17,6 @@ module;
 
 export module conflux.socket_io.coro;
 
-import std;
 import conflux.types;
 import conflux.uring.completion;
 import conflux.uring.handle;

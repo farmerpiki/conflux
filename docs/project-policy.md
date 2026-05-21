@@ -85,10 +85,14 @@ The exported/installable targets are authoritative for downstream consumers.
 
 ## Supported compiler matrix
 
-Current developer presets use C++26-capable toolchains because the module-first
-development lane uses `import std` and optional reflection experiments. Public
-consumer requirements are still per-target, as described in the language
-standard policy above.
+Consumer presets are `core`, `json`, `http-api`, `web-server`, and `full`. They
+use the default compiler selected by CMake, keep tests/examples/benchmarks and
+FetchContent downloads off, and select only the requested stable feature set.
+
+Developer and CI presets use named compilers and the full development feature
+set because the module-first development lane uses `import std` and optional
+reflection experiments. Public consumer requirements are still per-target, as
+described in the language standard policy above.
 
 | Preset family | Compiler | Standard library | Current role |
 |---|---|---|---|

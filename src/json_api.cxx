@@ -1,5 +1,6 @@
 module;
 #include <cassert>
+#include <cstdint>
 #include <locale.h>
 // stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
 // std module BMI under GCC -freflection; forward-declare what we need instead
@@ -7,7 +8,9 @@ extern "C" {
 double strtod_l(char const *, char **, ::locale_t) noexcept;
 long getrandom(void *, unsigned long, unsigned int);
 }
-#include <xxhash.h>
+#if defined(CONFLUX_JSON_HASH_PROVIDER_XXHASH)
+	#include <xxhash.h>
+#endif
 // <immintrin.h> → mm_malloc.h → stdlib.h → pthreadtypes.h conflicts with the
 // std module BMI under GCC -freflection; scalar fallback used in that build.
 #include "json_simd_backend.hxx"
@@ -1357,7 +1360,20 @@ namespace detail {
 [[nodiscard]] inline std::uint32_t hash_name(
 	std::string_view name,
 	std::uint64_t seed) noexcept {
+#if defined(CONFLUX_JSON_HASH_PROVIDER_XXHASH)
 	return static_cast<std::uint32_t>(XXH3_64bits_withSeed(name.data(), name.size(), seed));
+#else
+	std::uint64_t h = UINT64_C(1469598103934665603) ^ seed;
+	for (char c: name) {
+		auto const byte = static_cast<unsigned char>(c);
+		h ^= static_cast<std::uint64_t>(byte);
+		h *= UINT64_C(1099511628211);
+	}
+	h ^= h >> 33U;
+	h *= UINT64_C(0xff51afd7ed558ccd);
+	h ^= h >> 33U;
+	return static_cast<std::uint32_t>(h);
+#endif
 }
 // Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
 // at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — std::byte-budget cap).

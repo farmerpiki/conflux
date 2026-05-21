@@ -34,6 +34,8 @@ def documented_components() -> dict[str, str]:
     text = COMPONENT_MAP.read_text(encoding="utf-8")
     components: dict[str, str] = {}
     for component, target in DOC_COMPONENT_RE.findall(text):
+        if component.startswith("_"):
+            continue
         if component in components:
             raise ValueError(f"duplicate documented component: {component}")
         components[component] = target

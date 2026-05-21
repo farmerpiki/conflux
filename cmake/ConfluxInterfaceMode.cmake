@@ -317,6 +317,14 @@ function(conflux_add_header_interface_target)
         CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
         CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
         CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
+    if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+        target_compile_definitions(conflux_headers INTERFACE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+        if(TARGET PkgConfig::XXHASH)
+            target_link_libraries(conflux_headers INTERFACE PkgConfig::XXHASH)
+        endif()
+    elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+        target_compile_definitions(conflux_headers INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+    endif()
 
     if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
         conflux_select_header_impl_sources(CONFLUX_SELECTED_HEADER_IMPL_SOURCES)

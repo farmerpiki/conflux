@@ -7,8 +7,7 @@
       "generator": "Ninja",
       "binaryDir": "/tmp/${sourceDirName}/${presetName}",
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       },
       "condition": {                       
         "type": "equals",                                                                                                               
@@ -24,7 +23,12 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_CXX_FLAGS": "-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
         "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++",
-        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++"
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++",
+        "CONFLUX_FEATURE_SET": "dev-all",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_FETCH_TEST_DEPS": "ON",
+        "CONFLUX_TEST_CATCH2_PROVIDER": "FETCH",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test"
       }
     },
     {
@@ -35,6 +39,9 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_CXX_FLAGS": "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
         "CMAKE_EXE_LINKER_FLAGS": "",
+        "CONFLUX_FEATURE_SET": "dev-all",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test",
         "CONFLUX_TEST_CATCH2_PROVIDER": "SYSTEM"
       }
     },
@@ -44,6 +51,9 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "g++",
+        "CONFLUX_FEATURE_SET": "dev-all",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test",
         "CONFLUX_TEST_CATCH2_PROVIDER": "SYSTEM"
       }
     },
@@ -53,7 +63,98 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "g++-16",
+        "CONFLUX_FEATURE_SET": "dev-all",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test",
         "CONFLUX_TEST_CATCH2_PROVIDER": "SYSTEM"
+      }
+    },
+    {
+      "name": "core",
+      "displayName": "Core · auto compiler · package default",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-core",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_FETCH_TEST_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "json",
+      "displayName": "JSON · auto compiler · system hash preferred",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-json",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_FETCH_TEST_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "http-api",
+      "displayName": "HTTP API · auto compiler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-http-api",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_FETCH_TEST_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "web-server",
+      "displayName": "Web server · auto compiler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-web-server",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_FETCH_TEST_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "full",
+      "displayName": "Full stable · auto compiler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-full",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_FETCH_TEST_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "dev-all",
+      "displayName": "Dev all · auto compiler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CONFLUX_FEATURE_SET": "dev-all",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_TEST_CATCH2_PROVIDER": "AUTO",
+        "CONFLUX_FETCH_TEST_DEPS": "ON",
+        "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test"
+      }
+    },
+    {
+      "name": "dev-exp-all",
+      "displayName": "Dev experimental all · auto compiler",
+      "inherits": "dev-all",
+      "cacheVariables": {
+        "CONFLUX_FEATURE_SET": "dev-exp-all"
       }
     },
     {
@@ -372,6 +473,34 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "core",
+      "configurePreset": "core"
+    },
+    {
+      "name": "json",
+      "configurePreset": "json"
+    },
+    {
+      "name": "http-api",
+      "configurePreset": "http-api"
+    },
+    {
+      "name": "web-server",
+      "configurePreset": "web-server"
+    },
+    {
+      "name": "full",
+      "configurePreset": "full"
+    },
+    {
+      "name": "dev-all",
+      "configurePreset": "dev-all"
+    },
+    {
+      "name": "dev-exp-all",
+      "configurePreset": "dev-exp-all"
+    },
     {
       "name": "debug-clang-libcxx",
       "configurePreset": "debug-clang-libcxx"

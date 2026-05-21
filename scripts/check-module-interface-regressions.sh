@@ -76,13 +76,16 @@ require_contains src/net/cancel_impl.cxx 'std::(mutex|atomic|optional|lock_guard
 require_contains src/net/cancel_impl.cxx '\bco_await\b' \
     'implementation-only coroutine bodies'
 
-# conflux.socket_io.coro is not fully declaration-only yet, but its current GCC
-# mitigation is still important: avoid importing the std module into this large
-# coroutine/socket interface, and keep method bodies in the implementation unit.
+# conflux.socket_io.coro is not fully declaration-only yet. It names std types in
+# its exported API, so it uses explicit standard headers in the global module
+# fragment instead of importing std into this public CMI. GCC 16 has ICEd while
+# deserializing larger imported CMIs; keeping std out of this interface CMI was
+# verified against debug-gcc16-stdcxx. Keep method bodies in the implementation
+# unit so coroutine frames and synchronization state do not grow the public CMI.
 require_contains src/socket_io/socket_io_coro.cxx '^export[[:space:]]+module[[:space:]]+conflux\.socket_io\.coro;' \
     'the conflux.socket_io.coro exported module declaration'
 reject_contains src/socket_io/socket_io_coro.cxx '^[[:space:]]*import[[:space:]]+std(\.compat)?[[:space:]]*;' \
-    'direct std module imports'
+    'direct std module imports; use explicit standard headers here so GCC does not deserialize std through this public socket coroutine CMI'
 require_contains src/socket_io/socket_io_coro_impl.cxx '^module[[:space:]]+conflux\.socket_io\.coro;' \
     'the conflux.socket_io.coro implementation-unit declaration'
 

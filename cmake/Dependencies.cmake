@@ -1,8 +1,66 @@
 # cmake/Dependencies.cmake
-# Resolved in order: system packages first, then optional FetchContent for
-# small test-only dependencies not yet packaged on this host.
+# Resolved in order: selected system packages first, then optional FetchContent
+# for small test-only dependencies not yet packaged on this host. pkg-config is
+# requested lazily so core/header/package configures do not require it.
 
-find_package(PkgConfig REQUIRED)
+function(conflux_require_pkg_config reason)
+    if(NOT PkgConfig_FOUND)
+        find_package(PkgConfig REQUIRED)
+    endif()
+endfunction()
+
+function(conflux_pkg_provider prefix required)
+    set(_packages ${ARGN})
+    if(NOT _packages)
+        message(FATAL_ERROR "conflux_pkg_provider(${prefix}): missing pkg-config package")
+    endif()
+    conflux_require_pkg_config("${prefix}")
+    execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --exists ${_packages}
+        RESULT_VARIABLE _exists
+        OUTPUT_QUIET
+        ERROR_QUIET)
+    if(NOT _exists EQUAL 0)
+        set(${prefix}_FOUND FALSE PARENT_SCOPE)
+        if(required)
+            string(JOIN " " _pkg_list ${_packages})
+            message(FATAL_ERROR "conflux: required pkg-config package(s) missing for ${prefix}: ${_pkg_list}")
+        endif()
+        return()
+    endif()
+
+    execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --modversion ${ARGV2}
+        OUTPUT_VARIABLE _version
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --cflags ${_packages}
+        OUTPUT_VARIABLE _cflags
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --libs ${_packages}
+        OUTPUT_VARIABLE _libs
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+
+    if(NOT TARGET PkgConfig::${prefix})
+        add_library(PkgConfig::${prefix} INTERFACE IMPORTED)
+        if(NOT _cflags STREQUAL "")
+            separate_arguments(_cflags_list UNIX_COMMAND "${_cflags}")
+            set_target_properties(PkgConfig::${prefix} PROPERTIES
+                INTERFACE_COMPILE_OPTIONS "${_cflags_list}")
+        endif()
+        if(NOT _libs STREQUAL "")
+            separate_arguments(_libs_list UNIX_COMMAND "${_libs}")
+            set_target_properties(PkgConfig::${prefix} PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${_libs_list}")
+        endif()
+    endif()
+    set(${prefix}_FOUND TRUE PARENT_SCOPE)
+    set(${prefix}_VERSION "${_version}" PARENT_SCOPE)
+endfunction()
 
 if(CONFLUX_BUILD_TESTS)
     string(TOUPPER "${CONFLUX_TEST_CATCH2_PROVIDER}" CONFLUX_TEST_CATCH2_PROVIDER_UPPER)
@@ -101,21 +159,62 @@ if(CONFLUX_BUILD_TESTS)
     endif()
 endif()
 if(CONFLUX_NEEDS_RUNTIME)
-    pkg_check_modules(LIBURING REQUIRED IMPORTED_TARGET liburing)
+    conflux_require_pkg_config("liburing")
+    conflux_pkg_provider(LIBURING TRUE liburing)
 else()
     message(STATUS "conflux: liburing not required by preset '${CONFLUX_FEATURE_SET}'")
 endif()
-if(CONFLUX_WANT_JSON)
-    pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
+
+string(TOUPPER "${CONFLUX_JSON_HASH_PROVIDER}" CONFLUX_JSON_HASH_PROVIDER_UPPER)
+if(NOT CONFLUX_JSON_HASH_PROVIDER_UPPER MATCHES "^(AUTO|XXHASH|INTERNAL)$")
+    message(FATAL_ERROR
+        "conflux: CONFLUX_JSON_HASH_PROVIDER must be AUTO, XXHASH, or INTERNAL "
+        "(got '${CONFLUX_JSON_HASH_PROVIDER}')")
 endif()
-pkg_check_modules(BROTLI    IMPORTED_TARGET libbrotlienc libbrotlidec)
-pkg_check_modules(ZSTD      IMPORTED_TARGET libzstd)
-pkg_check_modules(LIBDEFLATE IMPORTED_TARGET libdeflate)
-pkg_check_modules(ZLIB_NG   IMPORTED_TARGET zlib-ng)
-pkg_check_modules(LIBISAL   IMPORTED_TARGET libisal)
-pkg_check_modules(NGHTTP2   IMPORTED_TARGET libnghttp2)
-pkg_check_modules(NGTCP2    IMPORTED_TARGET libngtcp2)
-pkg_check_modules(NGTCP2_CRYPTO_OSSL IMPORTED_TARGET libngtcp2_crypto_ossl)
-pkg_check_modules(NGHTTP3   IMPORTED_TARGET libnghttp3)
-pkg_check_modules(ARGON2    QUIET IMPORTED_TARGET libargon2)
-pkg_check_modules(LIBPQ     IMPORTED_TARGET libpq)
+if(CONFLUX_WANT_JSON AND NOT CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+    if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+        conflux_require_pkg_config("libxxhash")
+        conflux_pkg_provider(XXHASH TRUE libxxhash)
+    else()
+        conflux_require_pkg_config("libxxhash")
+        conflux_pkg_provider(XXHASH FALSE libxxhash)
+        if(XXHASH_FOUND)
+            set(CONFLUX_JSON_HASH_PROVIDER_UPPER "XXHASH")
+        else()
+            set(CONFLUX_JSON_HASH_PROVIDER_UPPER "INTERNAL")
+        endif()
+        set(CONFLUX_JSON_HASH_PROVIDER_UPPER "${CONFLUX_JSON_HASH_PROVIDER_UPPER}" CACHE INTERNAL
+            "Resolved JSON hash provider" FORCE)
+    endif()
+elseif(CONFLUX_WANT_JSON)
+    set(CONFLUX_JSON_HASH_PROVIDER_UPPER "INTERNAL" CACHE INTERNAL
+        "Resolved JSON hash provider" FORCE)
+endif()
+if(CONFLUX_WANT_JSON)
+    message(STATUS "conflux: JSON hash provider ${CONFLUX_JSON_HASH_PROVIDER_UPPER}")
+endif()
+
+if(CONFLUX_WANT_HTTP_COMPRESSION)
+    conflux_pkg_provider(BROTLI FALSE libbrotlienc libbrotlidec)
+    conflux_pkg_provider(ZSTD FALSE libzstd)
+    conflux_pkg_provider(LIBDEFLATE FALSE libdeflate)
+    conflux_pkg_provider(ZLIB_NG FALSE zlib-ng)
+    conflux_pkg_provider(LIBISAL FALSE libisal)
+endif()
+if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT)
+    conflux_pkg_provider(NGHTTP2 FALSE libnghttp2)
+endif()
+if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_ENABLE_EXPERIMENTAL AND CONFLUX_ENABLE_HTTP3)
+    conflux_pkg_provider(NGTCP2 FALSE libngtcp2)
+    conflux_pkg_provider(NGTCP2_CRYPTO_OSSL FALSE libngtcp2_crypto_ossl)
+    conflux_pkg_provider(NGHTTP3 FALSE libnghttp3)
+endif()
+string(TOUPPER "${CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER}" CONFLUX_ARGON2_PROVIDER_UPPER)
+if(CONFLUX_WANT_HTTP_AUTH
+        AND (CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "AUTO"
+            OR CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "SYSTEM"))
+    conflux_pkg_provider(ARGON2 FALSE libargon2)
+endif()
+if(CONFLUX_WANT_DB_POSTGRES)
+    conflux_pkg_provider(LIBPQ FALSE libpq)
+endif()

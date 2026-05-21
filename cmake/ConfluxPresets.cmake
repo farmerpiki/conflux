@@ -2,10 +2,11 @@
 # Feature preset resolver — CONFLUX_FEATURE_SET selects BUILD_*/WITH_* defaults.
 # Explicit user overrides (ON/OFF) are never overwritten; AUTO resolves to preset default.
 
-set(CONFLUX_FEATURE_SET "current" CACHE STRING
-    "Feature bundle: current;core;runtime;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete")
+set(CONFLUX_FEATURE_SET "core" CACHE STRING
+    "Feature bundle: core;runtime;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full;current")
 set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
-    current core runtime json http-minimal http-api http-api-full web-server http-server-complete complete)
+    core runtime json http-minimal http-api http-api-full web-server http-server-complete complete
+    dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full current)
 
 # ---------------------------------------------------------------------------
 # Tri-state resolver
@@ -75,6 +76,23 @@ set(CONFLUX_BUILD_SMTP          "AUTO" CACHE STRING "Build SMTP client")
 
 macro(conflux_apply_preset)
     set(_p "${CONFLUX_FEATURE_SET}")
+    if(_p STREQUAL "dev-all")
+        set(_p "complete")
+    elseif(_p STREQUAL "dev-exp-all")
+        set(_p "complete")
+        set(CONFLUX_ENABLE_EXPERIMENTAL ON CACHE BOOL
+            "Enable experimental runtime features and their tests/benchmarks" FORCE)
+    elseif(_p STREQUAL "release-core")
+        set(_p "core")
+    elseif(_p STREQUAL "release-json")
+        set(_p "json")
+    elseif(_p STREQUAL "release-http-api")
+        set(_p "http-api")
+    elseif(_p STREQUAL "release-web-server")
+        set(_p "web-server")
+    elseif(_p STREQUAL "release-full")
+        set(_p "complete")
+    endif()
 
     # ── base defaults: everything OFF ──
     set(_d_RUNTIME       FALSE)
