@@ -2,166 +2,182 @@
 
 Date: 2026-05-21
 
-This file preserves only claims from removed root-level notes that still appear
-worth discussing after a source/doc spot-check. The original files were stale as
-active docs:
-`benchmarks.md`, `ergonomics_potential.md`, and `conflux-feedback.json.md`.
+This note replaces the removed root-level scratch docs:
+`benchmarks.md`, `ergonomics_potential.md`, and
+`conflux-feedback.json.md`.
 
-Claims that were already covered or satisfied by the current tree are kept at
-the end with evidence so they do not keep resurfacing as open work.
+Those files mixed historical feedback, branch-ranking notes, and now-landed
+claims. Keep this file as a source-aware triage record only; do not treat it as
+an active roadmap. Active work ordering belongs in `todo/proposal_state.md`,
+`todo/parallel_priority_plan.md`, and module-specific docs/todos.
 
-## HTTP API Claims
+## Verification Summary
 
-- First-contact server docs and examples should prefer the server-first
-  namespace/import path and avoid pulling in the broad HTTP umbrella when the
-  example is server-only.
-- The complete HTTP umbrella remains useful, but docs should distinguish it from
-  narrower server/client imports so examples do not accidentally teach unrelated
-  client APIs.
-- Unqualified `HttpRequest`, `HttpRequestView`, and `HttpResponse` examples are
-  still worth auditing before v1. The final first-contact shape should favor
-  `http::RequestView`, `http::OwnedRequest`/`http::Request`,
-  `http::Response`, `http::ClientRequest`, `http::ClientResponse`, and
-  `http::ClientResult`.
-- Compile coverage should keep proving that server and client first-contact
-  names can coexist in one translation unit.
+Checked against the current repository snapshot and
+`../conflux_root_doc_triage.patch`:
+
+- `scripts/check-component-map.py` exists and `scripts/check-component-map.py`
+  reports `component-map: ok`.
+- First-contact HTTP facade coverage exists through
+  `tests/http_facade_import_smoke.cxx` and
+  `tests/http_facade_api_snapshot.cxx`.
+- JSON complaints from `conflux-feedback.json.md` are mostly satisfied by
+  `docs/json-api.md`, `docs/json-cookbook.md`,
+  `docs/json-boundary-guide.md`, `docs/json-reflect.md`, and
+  `tests/json_test.cxx`.
+- HTTP client limitations are intentionally documented in
+  `docs/conflux-http-client-api.md`, but one doc/source drift remains around
+  `HttpClientOptions::max_buffered_bytes`.
+- Work cancellation/deadline/composition basics are documented and tested in
+  `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md`, and
+  `tests/work_*`.
+
+## Still Worth Tracking
+
+### HTTP API Polish
+
+- Keep auditing public docs and examples for stale unqualified `HttpRequest`,
+  `HttpRequestView`, and `HttpResponse` first-contact examples. The
+  quickstart/facade path already prefers `http::RequestView`, typed extractors
+  such as `http::Path`, `http::Response` helpers, and `http::ClientRequest` /
+  `http::ClientResponse` / `http::ClientResult`, but lower-level and advanced
+  examples still use the legacy global spellings where they are intentionally
+  closer to the raw router/server modules.
+- Keep the complete HTTP umbrella, but keep narrow server/client imports visible
+  in docs. `conflux.net.http.server` and `conflux.net.http.client` are better
+  teaching surfaces than the aggregate umbrella when only one side is needed.
 - Do not start a broad namespace cleanup from these notes. Any remaining work
-  should be limited to user-visible first-contact names and examples.
+  should stay limited to user-visible first-contact names and examples.
 
-## Component Map Claim
+### JSON Remaining Questions
 
-- `docs/component-map.md` asks maintainers to keep component entries synced with
-  `conflux_public_component(...)`. A small drift check may still be useful if no
-  current script validates that mapping directly.
+Most original JSON complaints are now covered. Keep only these as open review
+questions:
 
-## JSON Claims
+- Interop with external JSON ecosystems may still need direct adapters beyond
+  serialize/parse round-trips if real migrations keep paying that cost. Current
+  provider-boundary helpers are the correct seam, but they do not by themselves
+  provide direct adapters for every external DOM/event API.
+- Framework-facing JSON should keep collapsing around typed HTTP helpers:
+  `http::Json<T>`, typed response helpers, provider-explicit seams, and clear
+  parse/decode error mapping. The raw DOM is already stronger; the main user
+  experience risk is exposing too much DOM machinery on ordinary HTTP routes.
+- Large-document traversal is no longer missing, but the desired golden path
+  should remain explicit: choose `parse_view` / borrowed DOM, `JsonReader`,
+  `JsonStreamReader`, `NdjsonRange`, or `JsonAccumulator` based on lifetime and
+  streaming needs.
 
-- Read APIs should make missing keys, explicit JSON null, and wrong-type values
-  easy to distinguish without repetitive boilerplate.
-- Object lookup behavior and cost should remain documented. If object storage is
-  still vector-backed, repeated lookup cost may matter for hot payload paths.
-- Path access helpers may still be useful for deep extraction if current APIs
-  require repeated manual null/type checks.
-- Protocol-payload construction may still need a compact object/array builder or
-  literal-like helper if current `set(...)` usage remains noisy.
-- Numeric access should support checked coercion into caller-requested numeric
-  types without repeated manual `int64_t`/`uint64_t`/`double` probing.
-- Interop with other JSON ecosystems may need adapters beyond serialize/parse
-  round-trips if migrations keep hitting this cost.
-- Const/read APIs should steer callers away from accidental mutation patterns,
-  especially around `operator[]`.
-- Pretty-print controls should be deterministic enough for logs and debugging.
-- Large-document traversal may need an explicit borrow/view-oriented path if
-  repeated reads are important.
-- JSON best practices around borrowed vs owned data, missing/null behavior, and
-  decode policy should remain visible from docs and signatures.
+### HTTP Client Remaining Questions
 
-## HTTP Client Claims
+- Streaming response consumption is still client-side incomplete for progressive
+  rendering and client-side SSE. `ClientResponse::body` remains fully assembled;
+  a callback, iterator, or body-chunk API would be the real missing surface.
+- `HttpClientOptions::max_buffered_bytes` is source-active for chunked response
+  decode buffering, but the client API doc still marks it as Phase 2/unused.
+  Fix the doc wording so it distinguishes transient dechunk buffering from a
+  public streaming/backpressure API.
+- Timeout controls exist for core phases, but poll/read/write timeouts still map
+  mostly through read/write errors with `os_errno == 0`. A distinct timeout
+  classification remains useful.
+- Connection pooling/reuse remains intentionally absent; docs say each call opens
+  and closes a socket, and telemetry fields such as `pool_wait` /
+  `reused_connection` are reserved for a later phase.
+- Retry/backoff hooks, client-side SSE parsing, request body streaming, client
+  HTTP/2/HTTP/3, content-coding decode, proxy client support, cookie jar, and
+  client-side auth/tracing/retry interceptors remain real future surfaces.
+- Testing/mocking injection is only partial. Resolver injection exists; transport
+  or connection-factory injection is still worth considering before public v1 if
+  client users need deterministic tests without rewriting call sites.
 
-- Streaming response consumption still appears client-side incomplete:
-  `ClientResponse::body` is documented as fully assembled, and
-  `HttpClientOptions::max_buffered_bytes` is documented as unused. A callback,
-  iterator, or body-chunk API may still matter for progressive rendering and
-  client-side SSE.
-- Timeout controls exist for core phases, but `docs/conflux-http-client-api.md`
-  says poll timeouts currently surface as read/write errors with
-  `os_errno == 0`; a distinct timeout error classification may still be useful.
-- Retry policy hooks may still be useful if callers keep reimplementing retries.
-- Connection pooling/reuse should be visible at the API level if the client is
-  intended for typical API workloads. The client docs still say Phase 1 opens
-  and closes a socket per call.
-- Client-side SSE ergonomics may need a dedicated parser or iterator. Server SSE
-  exists; this claim is specifically about consuming SSE as an HTTP client.
-- Backpressure and maximum buffering controls should be explicit for streaming
-  response bodies; the current client doc marks `max_buffered_bytes` unused.
-- Request body streaming may be needed for large upload flows. The client docs
-  say no `Transfer-Encoding: chunked` request bodies are sent.
-- HTTP protocol selection/diagnostics for client h1/h2/h3 should be clear to
-  callers.
-- Redirect, cookie, proxy, compression, and TLS diagnostics should remain
-  explicit policy surfaces instead of hidden behavior.
-- Client-side interceptors for auth refresh, tracing, retries, and metrics may
-  still be useful.
-- Testing and mocking injection points should be easy enough that callers do not
-  need to rewrite call sites.
+### Work Runtime Remaining Questions
 
-## Work Runtime Claims
-
-- Long-running jobs may need a standard progress/event channel for TUI/GUI and
-  operational integrations.
-- Composition utilities such as `when_any`, `when_all`, race, and timeout
-  wrappers may still be useful. `when_all` appears in migration docs; confirm
-  whether the complete user-facing set exists before treating this as open.
-- Executor or thread-affinity selection should be clear when integrating with UI
-  or main-thread callback handoff.
-- Instrumentation hooks for queue depth, run time, wait time, and failures may
-  still be needed.
-- Deterministic scheduling helpers or fake clocks may be useful for async tests.
-- High-level examples should make the intended application-facing golden path
-  easier to discover.
+- User-facing progress/event reporting for long-running jobs is still a product
+  question. The source has task progress ownership/capability concepts, but that
+  is not the same as a standard UI/TUI progress event channel.
+- `when_all` and `race` exist in the carrier layer. `when_any` is not a current
+  public surface, and `when_all_fast_fail` is documented as not yet delivering
+  sibling-cancellation semantics because the carrier path is eager.
+- Executor placement is clearer than the old notes suggested: `WorkPool`,
+  `RingLane`, `async_run_on`, queue modes, and optional worker pinning exist.
+  The remaining gap is application-facing guidance for UI/main-thread handoff.
+- Queue instrumentation exists via `WorkPoolQueueStats` when enabled, but run
+  time, wait time, and per-failure observability are still broader telemetry
+  questions.
+- Deterministic scheduling helpers/fake clocks are not a general public test
+  surface. Timer tests currently use wall-clock waits and timerfd-driven helpers.
+- High-level examples should keep improving the application-facing golden path,
+  especially around handler shape, typed extractors, async middleware, and
+  explicit offload.
 
 ## Covered In Other Docs
 
-- Benchmark host hygiene, benchmark/perf lane separation, DB-recorded benchmark
+### Benchmarks
+
+- Benchmark host hygiene, perf/correctness lane separation, DB-recorded benchmark
   runs, candidate comparison methodology, result interpretation, and the
   `--bench-info` / `--json` benchmark binary contract are covered by
   `benchmarks/README.md`, `benchmarks/reproducibility.md`, and
   `docs/project-policy.md`.
+
+### Component Ownership
+
 - Public component/package ownership and consumer-facing component names are
   covered by `docs/component-map.md`, `docs/package-consumption.md`, and
-  `docs/public-api-map.md`. The only open claim retained above is whether a
-  drift check should enforce that ownership.
-- HTTP server execution placement, borrowed/owned request lifetimes, and
-  sync-vs-async naming guidance are covered by `docs/execution-model.md`,
-  `docs/concurrency-naming-model.md`, and `docs/cost-lifetime-model.md`.
-- HTTP server lifecycle, drain behavior, pressure metrics, SSE, WebSocket, and
-  streaming response surfaces are covered by `docs/http-server-api.md`.
-- JSON typed decode, provider-boundary integration, duplicate-key policy,
-  borrowed/owned lifetime rules, and streaming JSON APIs are covered by
-  `docs/json-api.md`, `docs/json-boundary-guide.md`, `docs/json-cookbook.md`,
-  and `docs/json-reflect.md`.
-- HTTP client request/response shapes, timeout knobs, telemetry, redirect/cookie
-  handling, TLS verification, and current Phase 1 limitations are covered by
-  `docs/conflux-http-client-api.md`.
-- Work/root cancellation, deadlines, scopes, and carrier behavior are covered by
-  the `conflux.work` source modules and the work migration docs; this file keeps
-  only higher-level ergonomics questions that were not obviously settled by that
-  coverage.
+  `docs/public-api-map.md`. Automated drift checking already exists through
+  `scripts/check-component-map.py` and passes on this snapshot.
 
-## Landed or Mostly Landed Claims
+### HTTP Server/App
 
-- Client/server request and response first-contact names largely exist:
-  `ClientRequest`, `ClientResponse`, `ClientResult`, `RequestView`,
-  `OwnedRequest`/`Request`, and `Response`.
-- Non-throwing client request and config setup paths exist:
-  `try_get`/`try_post`/`try_method`/`try_request` and `try_config_from_ini`.
-- Context route sugar exists on the router for at least `get_context`, and docs
-  describe context-specific registration.
-- The template namespace has a canonical `conflux::templates` spelling in tests.
-- Typed HTTP request field accessors are documented on `RequestView` and
-  `OwnedRequest`, and `tests/http_core_test.cxx` covers typed query, form,
-  header, cookie, optional, and missing/invalid errors.
-- JSON typed decode/reflection and provider-boundary helpers exist, so the old
-  blanket "no typed decode layer" claim is obsolete.
-- JSON duplicate-key policy is documented and controllable through
-  `DuplicateKeyPolicy`.
-- JSON incremental/streaming support exists through `JsonStreamReader`,
-  `NdjsonRange`, and `JsonAccumulator` in `docs/json-api.md`.
-- Server SSE and streaming/chunked response support exist. `docs/http-server-api.md`
-  documents `SseChannel`, bounded overflow policies, drain behavior, and
-  streaming responses; tests cover `SseChannel` overflow policies.
-- HTTP client errors now use structured `HttpError` rather than
-  `expected<..., string>` as the primary documented shape.
-- Async HTTP client support exists through `async_send`; the old
-  "synchronous-only primary path" claim is obsolete.
-- HTTP client timeout knobs exist through `HttpTimeouts`, including connect and
-  first-byte coverage in tests.
-- HTTP client telemetry exists for peer address, connect, TLS, TTFB, body, and
-  byte counts, though partial telemetry is not returned on failure.
-- HTTP client header/auth helpers exist: `.bearer`, `.basic`, `.accept_json`,
-  `.content_type`, conditional request helpers, form bodies, and default headers.
-- Work cancellation, cancellation reasons, scopes, deadlines, and deadline
-  timers exist in `conflux.work`; the old blanket "no first-class cancellation"
-  and "no deadline primitives" claims are obsolete.
-- HTTP server shutdown/drain behavior is documented and tested, including
-  pressure metrics and configurable drain options.
+- Server execution placement, borrowed/owned request lifetimes, sync-vs-async
+  naming guidance, lifecycle/drain, pressure metrics, SSE, WebSocket, streaming
+  responses, typed extractors, typed JSON helpers, route introspection,
+  `app.validate()`, and response shortcut helpers are covered by current docs,
+  examples, or facade snapshot tests.
+- Compile coverage already proves server and client first-contact names can
+  coexist in one translation unit.
+- Non-throwing client request/config setup paths exist:
+  `try_get` / `try_post` / `try_method` / `try_request` and
+  `try_config_from_ini`.
+
+### JSON
+
+- Missing key vs explicit `null` is covered by `ObjectView::find_member`,
+  `ObjectView::member`, and cookbook `optional_*` / `require_*` helpers.
+- Object lookup cost is documented. Storage preserves member order and can warm
+  a hash index explicitly or by parse-time `warm_threshold`.
+- Deep extraction is covered by `JsonPath`, RFC 6901 JSON Pointer parsing, and
+  `NodeRef::at_pointer`.
+- Compact construction exists through `make_object` / `make_array`, with
+  `ValueBuilder` / `ObjectBuilder` / `ArrayBuilder` remaining for incremental
+  dynamic construction.
+- Numeric access supports checked conversion through `JsonNumberView::to_i64()`,
+  `to_u64()`, and `to_f64()`, and struct decode handles smaller
+  signed/unsigned integral targets with range checks.
+- Read-only DOM APIs do not expose a mutating `operator[]` path; lookup APIs are
+  explicit and fallible.
+- Pretty-print controls are documented through `JsonDumpOptions`.
+- Borrowed vs owned input and arena/storage policy are visible through
+  `parse_view`, `parse_borrowed`, `parse_copy`, `JsonDomPolicy`, and
+  `JsonArena`.
+- Streaming/incremental JSON exists through `JsonReader`, `JsonStreamReader`,
+  `NdjsonRange`, and `JsonAccumulator`.
+- Typed decode/reflection, duplicate-key policy, provider-boundary integration,
+  and HTTP JSON provider seams are documented.
+
+### HTTP Client
+
+- Structured `HttpError`, phase-aware `HttpTimeouts`, blocking and async send,
+  redirect limit handling, TLS verification diagnostics, telemetry, default
+  headers, auth helpers, conditional request helpers, form bodies, and native
+  JSON request helpers exist.
+- The client docs explicitly state current Phase 1 limits: no pool/keep-alive,
+  no HTTP/2 or HTTP/3 client, no content-coding decode, no request streaming,
+  no proxy client, no cookie jar, and no retry/backoff.
+
+### Work Runtime
+
+- Root cancellation, cancellation reasons, scopes, deadlines, timers, carrier
+  `when_all`, carrier `race`, queue modes, queue counters, and worker pinning are
+  implemented or documented. The remaining work is ergonomics, telemetry breadth,
+  and user-facing golden-path examples rather than the old blanket missing-core
+  claims.
