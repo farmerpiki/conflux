@@ -4,7 +4,7 @@ import std;
 
 export namespace conflux::detail {
 
-template<typename Signature, std::size_t InlineBytes = 32>
+template<typename Signature, std::size_t InlineBytes = 40>
 class small_move_only_function;
 
 template<typename R, typename... Args, std::size_t InlineBytes>
@@ -12,22 +12,23 @@ class small_move_only_function<R(Args...), InlineBytes> {
 	using invoke_fn = R (*)(void *, Args &&...);
 	using destroy_fn = void (*)(void *) noexcept;
 	using move_fn = void (*)(void *, void *) noexcept;
-	static constexpr std::uintptr_t kInlinedFlag = 1;
-	static constexpr std::uintptr_t kPointerMask = ~kInlinedFlag;
 
-	alignas(std::max_align_t) std::byte inline_storage_[InlineBytes]{};
-	std::uintptr_t object_bits_ = 0;
+	union storage_t {
+		alignas(void *) std::byte inline_storage[InlineBytes];
+		void *heap_object;
+	};
+
+	storage_t storage_{};
 	invoke_fn invoke_ = nullptr;
 	destroy_fn destroy_ = nullptr;
 	move_fn move_ = nullptr;
 
-	[[nodiscard]] void *object() const noexcept { return reinterpret_cast<void *>(object_bits_ & kPointerMask); }
-	[[nodiscard]] bool inlined() const noexcept { return (object_bits_ & kInlinedFlag) != 0; }
-	void set_object(
-		void *obj,
-		bool inlined) noexcept {
-		auto bits = reinterpret_cast<std::uintptr_t>(obj);
-		object_bits_ = bits | (inlined ? kInlinedFlag : 0);
+	[[nodiscard]] bool inlined() const noexcept { return move_ != nullptr; }
+	[[nodiscard]] void *object() noexcept {
+		return inlined() ? static_cast<void *>(storage_.inline_storage) : storage_.heap_object;
+	}
+	[[nodiscard]] void *object() const noexcept {
+		return inlined() ? const_cast<std::byte *>(storage_.inline_storage) : storage_.heap_object;
 	}
 
 	template<typename F>
@@ -65,7 +66,7 @@ class small_move_only_function<R(Args...), InlineBytes> {
 			return;
 		}
 		destroy_(object());
-		object_bits_ = 0;
+		storage_.heap_object = nullptr;
 		invoke_ = nullptr;
 		destroy_ = nullptr;
 		move_ = nullptr;
@@ -77,21 +78,21 @@ class small_move_only_function<R(Args...), InlineBytes> {
 		move_ = other.move_;
 
 		if (invoke_ == nullptr) {
-			object_bits_ = 0;
+			storage_.heap_object = nullptr;
 			return;
 		}
 
 		if (other.inlined()) {
-			set_object(inline_storage_, true);
+			storage_.heap_object = nullptr;
 			move_(object(), other.object());
-			other.object_bits_ = 0;
+			other.storage_.heap_object = nullptr;
 			other.invoke_ = nullptr;
 			other.destroy_ = nullptr;
 			other.move_ = nullptr;
 			return;
 		}
 
-		object_bits_ = std::exchange(other.object_bits_, 0);
+		storage_.heap_object = std::exchange(other.storage_.heap_object, nullptr);
 		other.invoke_ = nullptr;
 		other.destroy_ = nullptr;
 		other.move_ = nullptr;
@@ -139,15 +140,14 @@ public:
 
 		if constexpr (
 			sizeof(fn_t) <= InlineBytes
-			&& alignof(fn_t) <= alignof(std::max_align_t)
+			&& alignof(fn_t) <= alignof(void *)
 			&& std::is_nothrow_move_constructible_v<fn_t>) {
-			set_object(inline_storage_, true);
-			new (object()) fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_inline<fn_t>;
 			destroy_ = &destroy_inline<fn_t>;
 			move_ = &move_inline<fn_t>;
+			new (object()) fn_t(std::forward<F>(fn));
 		} else {
-			set_object(new fn_t(std::forward<F>(fn)), false);
+			storage_.heap_object = new fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_heap<fn_t>;
 			destroy_ = &destroy_heap<fn_t>;
 			move_ = nullptr;
@@ -170,7 +170,14 @@ public:
 	}
 };
 
-static_assert(sizeof(small_move_only_function<void()>) == 64);
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Winterference-size"
+#endif
+static_assert(sizeof(small_move_only_function<void()>) <= std::hardware_destructive_interference_size);
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 template<typename Signature, std::size_t InlineBytes>
 void swap(
