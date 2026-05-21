@@ -6,6 +6,7 @@
 import std;
 import conflux.types;
 import conflux.uring;
+import conflux.uring.completion;
 
 using namespace conflux::uring;
 namespace {
@@ -72,6 +73,23 @@ TEST_CASE(
 	auto ring = make_ring();
 	RingRef ref = ring.ref();
 	CHECK(ring.cq_overflow_count() == ref.cq_overflow_count());
+}
+TEST_CASE(
+	"uring.CompletionTable: dispatch accepts move-only callbacks",
+	"[completion]") {
+	CompletionTable completions{1};
+	auto owned = std::make_unique<int>(41);
+	int observed = 0;
+
+	auto [slot, gen] = completions.reserve([ptr = std::move(owned), &observed](IoResult r) mutable {
+		observed = *ptr + r.res;
+		ptr.reset();
+	});
+
+	completions.dispatch(slot, gen, 1, 0);
+
+	CHECK(observed == 42);
+	CHECK(completions.pending() == 0u);
 }
 TEST_CASE(
 	"uring.cq_overflow_count: koverflow null-safe",

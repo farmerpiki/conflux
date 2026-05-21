@@ -131,6 +131,12 @@ export class FileReader {
 		io_uring_sqe *sqe{};
 	};
 	template<typename T>
+	struct PreparedSqeDirect {
+		root::Task<T> task;
+		root::TaskSource<T> src;
+		io_uring_sqe *sqe{};
+	};
+	template<typename T>
 	[[nodiscard]] PreparedSqe<T> prepare_sqe() const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(raw_src));
@@ -139,6 +145,15 @@ export class FileReader {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 		}
 		return PreparedSqe<T>{.task = std::move(task), .src = std::move(shared_src), .sqe = sqe};
+	}
+	template<typename T>
+	[[nodiscard]] PreparedSqeDirect<T> prepare_sqe_direct() const {
+		auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
+		auto *sqe = io_uring_get_sqe(ring_);
+		if (sqe == nullptr) {
+			auto _ = src.try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+		}
+		return PreparedSqeDirect<T>{.task = std::move(task), .src = std::move(src), .sqe = sqe};
 	}
 	// Reserve a completion slot with a callback that bridges an IoResult into
 	// a root::TaskSource<T>. `decode` turns a non-negative res into a T; negative
@@ -160,6 +175,25 @@ export class FileReader {
 					auto _ = src->try_set_value(root::Success<T>{decode(r)});
 				}
 			} catch (...) { auto _ = src->try_set_exception(std::current_exception()); }
+		});
+	}
+	template<typename T, typename Decode>
+	std::pair<std::uint32_t, std::uint32_t> reserve_bridge_direct(
+		root::TaskSource<T> src,
+		Decode &&decode) {
+		return completions_->reserve([src = std::move(src), decode = std::forward<Decode>(decode)](IoResult r) mutable {
+			try {
+				if (r.res < 0) {
+					auto _ = src.try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
+					return;
+				}
+				if constexpr (std::is_void_v<T>) {
+					decode(r);
+					auto _ = src.try_set_value(root::Success<void>{});
+				} else {
+					auto _ = src.try_set_value(root::Success<T>{decode(r)});
+				}
+			} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
 		});
 	}
 	template<typename T, typename Decode>
@@ -388,14 +422,15 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::span<std::byte> dst) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
+		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
 		io_uring_prep_read(sqe, fd_for_io(fh), dst.data(), static_cast<unsigned>(dst.size()), offset);
 		set_fixed_file_if_direct(sqe, fh);
-		auto [slot, gen] =
-			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
+			return static_cast<std::size_t>(r.res);
+		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -559,14 +594,15 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::span<std::byte const> src_view) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
+		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
 		io_uring_prep_write(sqe, fd_for_io(fh), src_view.data(), static_cast<unsigned>(src_view.size()), offset);
 		set_fixed_file_if_direct(sqe, fh);
-		auto [slot, gen] =
-			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
+			return static_cast<std::size_t>(r.res);
+		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
 	}
