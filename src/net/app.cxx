@@ -1,5 +1,4 @@
 module;
-#include <typeindex>
 
 export module conflux.net.app;
 
