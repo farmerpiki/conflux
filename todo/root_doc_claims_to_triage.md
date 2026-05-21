@@ -2,9 +2,13 @@
 
 Date: 2026-05-21
 
-This file preserves claims from removed root-level notes that may still affect
-pre-v1 decisions. The original files were stale as active docs:
+This file preserves only claims from removed root-level notes that still appear
+worth discussing after a source/doc spot-check. The original files were stale as
+active docs:
 `benchmarks.md`, `ergonomics_potential.md`, and `conflux-feedback.json.md`.
+
+Claims that were already satisfied by the current tree are kept at the end with
+evidence so they do not keep resurfacing as open work.
 
 ## Benchmarking Claims
 
@@ -63,9 +67,6 @@ pre-v1 decisions. The original files were stale as active docs:
   require repeated manual null/type checks.
 - Protocol-payload construction may still need a compact object/array builder or
   literal-like helper if current `set(...)` usage remains noisy.
-- Runtime access/conversion errors should have cohesive diagnostics for missing
-  field, wrong type, and invalid domain value cases.
-- Duplicate-key parse policy should stay explicit, documented, and controllable.
 - Numeric access should support checked coercion into caller-requested numeric
   types without repeated manual `int64_t`/`uint64_t`/`double` probing.
 - Interop with other JSON ecosystems may need adapters beyond serialize/parse
@@ -73,8 +74,6 @@ pre-v1 decisions. The original files were stale as active docs:
 - Const/read APIs should steer callers away from accidental mutation patterns,
   especially around `operator[]`.
 - Pretty-print controls should be deterministic enough for logs and debugging.
-- Incremental or streaming parse support may matter for SSE-like or chunked JSON
-  streams.
 - Large-document traversal may need an explicit borrow/view-oriented path if
   repeated reads are important.
 - JSON best practices around borrowed vs owned data, missing/null behavior, and
@@ -82,29 +81,28 @@ pre-v1 decisions. The original files were stale as active docs:
 
 ## HTTP Client Claims
 
-- Async client support exists now, but streaming response consumption still needs
-  confirmation: callback/iterator/body-chunk APIs may matter for SSE and
-  progressive rendering.
-- Cancellation should remain request-scoped and visible at the API boundary, not
-  only as external timeout/thread management.
-- Timeout controls should cover useful phases such as connect, write, first
-  byte, body, and total deadline.
-- Client errors should remain structured enough for programmatic handling,
-  including transport, TLS, timeout, redirect, body-size, and protocol failures.
+- Streaming response consumption still appears client-side incomplete:
+  `ClientResponse::body` is documented as fully assembled, and
+  `HttpClientOptions::max_buffered_bytes` is documented as unused. A callback,
+  iterator, or body-chunk API may still matter for progressive rendering and
+  client-side SSE.
+- Timeout controls exist for core phases, but `docs/conflux-http-client-api.md`
+  says poll timeouts currently surface as read/write errors with
+  `os_errno == 0`; a distinct timeout error classification may still be useful.
 - Retry policy hooks may still be useful if callers keep reimplementing retries.
-- Transport telemetry such as DNS/connect/TLS/TTFB/body timing may still be
-  needed for production diagnosis.
 - Connection pooling/reuse should be visible at the API level if the client is
-  intended for typical API workloads.
-- SSE client ergonomics may need a dedicated parser or iterator.
+  intended for typical API workloads. The client docs still say Phase 1 opens
+  and closes a socket per call.
+- Client-side SSE ergonomics may need a dedicated parser or iterator. Server SSE
+  exists; this claim is specifically about consuming SSE as an HTTP client.
 - Backpressure and maximum buffering controls should be explicit for streaming
-  response bodies.
-- Request body streaming may be needed for large upload flows.
-- HTTP protocol selection/diagnostics for h1/h2/h3 should be clear to callers.
+  response bodies; the current client doc marks `max_buffered_bytes` unused.
+- Request body streaming may be needed for large upload flows. The client docs
+  say no `Transfer-Encoding: chunked` request bodies are sent.
+- HTTP protocol selection/diagnostics for client h1/h2/h3 should be clear to
+  callers.
 - Redirect, cookie, proxy, compression, and TLS diagnostics should remain
   explicit policy surfaces instead of hidden behavior.
-- Header and auth helper ergonomics should be checked against common API-client
-  use.
 - Client-side interceptors for auth refresh, tracing, retries, and metrics may
   still be useful.
 - Testing and mocking injection points should be easy enough that callers do not
@@ -112,29 +110,16 @@ pre-v1 decisions. The original files were stale as active docs:
 
 ## Work Runtime Claims
 
-- Cancellation should be first-class at task API boundaries, including operation
-  handles and signal/interrupt integration patterns.
-- Waiting/completion APIs should avoid forcing callers into sleep/poll loops.
 - Long-running jobs may need a standard progress/event channel for TUI/GUI and
   operational integrations.
-- Async error propagation should remain consistent across task APIs.
-- Task lifecycle introspection should expose enough queued/running/completed/
-  cancelled/failed state to debug hangs and shutdown races.
-- Shutdown/drain behavior should be explicit and documented, with predictable
-  policy choices for queued work.
-- Deadline-aware APIs and timeout wrappers should be ergonomic enough that
-  callers do not hand-roll clock loops.
 - Composition utilities such as `when_any`, `when_all`, race, and timeout
-  wrappers may still be useful.
+  wrappers may still be useful. `when_all` appears in migration docs; confirm
+  whether the complete user-facing set exists before treating this as open.
 - Executor or thread-affinity selection should be clear when integrating with UI
   or main-thread callback handoff.
-- Queue bounds, backpressure, and rejection policies should be prominent enough
-  that unbounded enqueueing is not the accidental default under load.
 - Instrumentation hooks for queue depth, run time, wait time, and failures may
   still be needed.
 - Deterministic scheduling helpers or fake clocks may be useful for async tests.
-- Cancellation and memory-visibility docs should include practical cookbook
-  guidance for common patterns.
 - High-level examples should make the intended application-facing golden path
   easier to discover.
 
@@ -149,10 +134,29 @@ pre-v1 decisions. The original files were stale as active docs:
   describe context-specific registration.
 - The template namespace has a canonical `conflux::templates` spelling in tests.
 - Typed HTTP request field accessors are documented on `RequestView` and
-  `OwnedRequest`.
+  `OwnedRequest`, and `tests/http_core_test.cxx` covers typed query, form,
+  header, cookie, optional, and missing/invalid errors.
 - JSON typed decode/reflection and provider-boundary helpers exist, so the old
   blanket "no typed decode layer" claim is obsolete.
+- JSON duplicate-key policy is documented and controllable through
+  `DuplicateKeyPolicy`.
+- JSON incremental/streaming support exists through `JsonStreamReader`,
+  `NdjsonRange`, and `JsonAccumulator` in `docs/json-api.md`.
+- Server SSE and streaming/chunked response support exist. `docs/http-server-api.md`
+  documents `SseChannel`, bounded overflow policies, drain behavior, and
+  streaming responses; tests cover `SseChannel` overflow policies.
 - HTTP client errors now use structured `HttpError` rather than
   `expected<..., string>` as the primary documented shape.
 - Async HTTP client support exists through `async_send`; the old
   "synchronous-only primary path" claim is obsolete.
+- HTTP client timeout knobs exist through `HttpTimeouts`, including connect and
+  first-byte coverage in tests.
+- HTTP client telemetry exists for peer address, connect, TLS, TTFB, body, and
+  byte counts, though partial telemetry is not returned on failure.
+- HTTP client header/auth helpers exist: `.bearer`, `.basic`, `.accept_json`,
+  `.content_type`, conditional request helpers, form bodies, and default headers.
+- Work cancellation, cancellation reasons, scopes, deadlines, and deadline
+  timers exist in `conflux.work`; the old blanket "no first-class cancellation"
+  and "no deadline primitives" claims are obsolete.
+- HTTP server shutdown/drain behavior is documented and tested, including
+  pressure metrics and configurable drain options.
