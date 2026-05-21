@@ -1909,7 +1909,3 @@ parse_dom(JsonArena &arena, std::string_view input, JsonDomPolicy const &policy 
 		JsonDomPolicy{.input = JsonDomInputOwnership::owned_move, .storage = JsonDomStorageModel::reusable_arena});
 
 } // namespace conflux::json
-
-// ---------------------------------------------------------------------------
-
-#include "json_api_codec.inc"

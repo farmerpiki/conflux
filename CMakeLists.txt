@@ -1181,6 +1181,7 @@ target_sources(conflux_json
         FILES
         ${CONFLUX_SRC_ROOT}/json.cppm
         ${CONFLUX_SRC_ROOT}/json_api.cxx
+        ${CONFLUX_SRC_ROOT}/json_codec.cxx
 )
 target_sources(conflux_json
     PRIVATE

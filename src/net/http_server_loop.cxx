@@ -37,6 +37,7 @@ import conflux.net.config;
 import conflux.net.http1_parser;
 import conflux.net.http_server_helpers;
 import conflux.net.http_server_config;
+import conflux.small_function;
 import conflux.uring;
 import conflux.uring.completion;
 import conflux.work;
@@ -426,7 +427,7 @@ io_uring_sqe *Ring::get_sqe() {
 // Defer an op whose SQE allocation failed. Replayed from run_loop once
 // the CQE reap frees ring capacity.
 void Ring::defer_op(
-	conflux::work::root::detail::small_move_only_function<void()> op) {
+	conflux::detail::small_move_only_function<void()> op) {
 	if (ring_fatal_) {
 		return;
 	}

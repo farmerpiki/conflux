@@ -37,6 +37,7 @@ import conflux.net.direct_slot_pool;
 import conflux.net.vhost;
 import conflux.net.config;
 import conflux.net.http_server_config;
+import conflux.small_function;
 import conflux.uring;
 import conflux.uring.completion;
 import conflux.work;
@@ -433,7 +434,7 @@ struct Ring {
 	// a flush. Drained at the top of each run_loop iteration (after CQE reap
 	// frees SQ slots). Each thunk re-invokes the original queue_* path so
 	// conn state (gen, buffers) is re-read at replay time.
-	std::deque<conflux::work::root::detail::small_move_only_function<void()>> pending_ops{};
+	std::deque<conflux::detail::small_move_only_function<void()>> pending_ops{};
 
 	Router const *router = nullptr; // set before init(); not owned
 	VHostRouter const *vhost_router = nullptr; // set before init(); not owned
@@ -556,7 +557,7 @@ struct Ring {
 	io_uring_sqe *get_sqe();
 	// Defer an op whose SQE allocation failed. Replayed from run_loop once
 	// the CQE reap frees ring capacity.
-	void defer_op(conflux::work::root::detail::small_move_only_function<void()> op);
+	void defer_op(conflux::detail::small_move_only_function<void()> op);
 	void cancel_multishot_recv_or_defer(SocketHandle handle);
 	void drain_pending_ops();
 	void defer_queue_send_if_current(int fd, std::uint32_t gen);

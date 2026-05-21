@@ -4,6 +4,7 @@ export module conflux.net.io_buffer;
 
 import std;
 import conflux.types;
+import conflux.small_function;
 import conflux.work.root;
 export struct IoBuffer {
 	std::span<std::byte const> bytes{};
@@ -43,9 +44,9 @@ export struct IoPlan {
 	};
 
 	Kind kind = Kind::callback;
-	conflux::work::root::detail::small_move_only_function<void()> callback{};
+	conflux::detail::small_move_only_function<void()> callback{};
 	[[nodiscard]] static IoPlan call(
-		conflux::work::root::detail::small_move_only_function<void()> fn) {
+		conflux::detail::small_move_only_function<void()> fn) {
 		return IoPlan{.kind = Kind::callback, .callback = std::move(fn)};
 	}
 };

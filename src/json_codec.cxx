@@ -1,3 +1,9 @@
+export module conflux.json:codec;
+import std;
+import std.compat;
+import conflux.types;
+import :api;
+
 // has_json_codec — forward-declared here so builders can use it in requires
 // ---------------------------------------------------------------------------
 
