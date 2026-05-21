@@ -177,7 +177,7 @@ Case make_httpfields_lookup_case() {
 		}};
 }
 Case make_typed_field_extract_case() {
-	auto req = std::make_shared<HttpRequest>();
+	auto req = std::make_shared<Request>();
 	req->headers.set("X-Limit", "128");
 	req->query.emplace_back("page", "42");
 	req->query.emplace_back("enabled", "true");
@@ -200,10 +200,10 @@ Case make_typed_field_extract_case() {
 Case make_router_exact_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("ok"); });
+	state->router.get("/health", [](RequestView const &) { return Response::text("ok"); });
 	state->req.method = "GET";
 	state->req.path = "/health";
 	state->req.version = "HTTP/1.1";
@@ -217,11 +217,11 @@ Case make_router_exact_case() {
 Case make_router_params_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.get("/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::text(std::format("{}:{}", req.params["user"], req.params["post"]));
+	state->router.get("/users/{user}/posts/{post}", [](RequestView const &req) {
+		return Response::text(std::format("{}:{}", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/users/alice/posts/42";
@@ -236,15 +236,13 @@ Case make_router_params_case() {
 Case make_compress_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
-		return HttpResponse::text(*payload);
-	});
+	state->router.get("/data", [payload = state->payload](RequestView const &) { return Response::text(*payload); });
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -262,15 +260,13 @@ Case make_compress_case() {
 Case make_compress_negotiation_miss_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
-		return HttpResponse::text(*payload);
-	});
+	state->router.get("/data", [payload = state->payload](RequestView const &) { return Response::text(*payload); });
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -288,15 +284,13 @@ Case make_compress_negotiation_miss_case() {
 Case make_compress_below_threshold_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(128, 'x');
 	state->router.use(compress_middleware({.min_body_size = 256}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
-		return HttpResponse::text(*payload);
-	});
+	state->router.get("/data", [payload = state->payload](RequestView const &) { return Response::text(*payload); });
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -318,7 +312,7 @@ Case make_codec_payload_case_owned(
 		std::string name;
 		std::string description;
 		Router router;
-		HttpRequest req;
+		Request req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
 	auto state = std::make_shared<State>();
@@ -327,9 +321,7 @@ Case make_codec_payload_case_owned(
 		std::format("Compression path pinned to {} for {} std::byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
-		return HttpResponse::text(*payload);
-	});
+	state->router.get("/data", [payload = state->payload](RequestView const &) { return Response::text(*payload); });
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -351,7 +343,7 @@ Case make_gzip_backend_payload_case(
 		std::string name;
 		std::string description;
 		Router router;
-		HttpRequest req;
+		Request req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 		GzipBackend backend;
 		bool configured = false;
@@ -363,9 +355,7 @@ Case make_gzip_backend_payload_case(
 		std::format("Gzip backend {} on {} std::byte text payloads", gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
-		return HttpResponse::text(*payload);
-	});
+	state->router.get("/data", [payload = state->payload](RequestView const &) { return Response::text(*payload); });
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -388,11 +378,11 @@ Case make_gzip_backend_payload_case(
 Case make_route_json_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::json(
+	state->router.get("/api/users/{user}/posts/{post}", [](RequestView const &req) {
+		return Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
@@ -408,16 +398,16 @@ Case make_route_json_case() {
 Case make_route_json_with_header_middleware_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](HttpRequestView const &req, Router::Handler const &next) {
+	state->router.use([](RequestView const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
 		return resp;
 	});
-	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::json(
+	state->router.get("/api/users/{user}/posts/{post}", [](RequestView const &req) {
+		return Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
@@ -436,12 +426,12 @@ Case make_route_json_with_header_middleware_case() {
 Case make_route_json_with_compress_negotiation_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::json(
+	state->router.get("/api/users/{user}/posts/{post}", [](RequestView const &req) {
+		return Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
@@ -461,17 +451,17 @@ Case make_route_json_with_compress_negotiation_case() {
 Case make_flow_route_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](HttpRequestView const &req, Router::Handler const &next) {
+	state->router.use([](RequestView const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
 		return resp;
 	});
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
-		return HttpResponse::json(
+	state->router.get("/api/users/{user}/posts/{post}", [](RequestView const &req) {
+		return Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
@@ -491,11 +481,11 @@ Case make_flow_route_case() {
 Case make_flow_not_found_case() {
 	struct State {
 		Router router;
-		HttpRequest req;
+		Request req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](HttpRequestView const &req, Router::Handler const &next) { return next(req); });
-	state->router.get("/api/health", [](HttpRequestView const &) { return HttpResponse::text("ok"); });
+	state->router.use([](RequestView const &req, Router::Handler const &next) { return next(req); });
+	state->router.get("/api/health", [](RequestView const &) { return Response::text("ok"); });
 	state->req.method = "GET";
 	state->req.path = "/api/missing/resource";
 	state->req.version = "HTTP/1.1";

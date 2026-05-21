@@ -120,9 +120,9 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::RejectReason, HttpRejectReason>);
 	static_assert(std::same_as<chttp::RejectionMetrics, HttpRejectionMetrics>);
 	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);
-	static_assert(std::same_as<chttp::RequestView, HttpRequestView>);
-	static_assert(std::same_as<chttp::Request, HttpRequest>);
-	static_assert(std::same_as<chttp::OwnedRequest, HttpRequest>);
+	static_assert(std::same_as<chttp::RequestView, RequestView>);
+	static_assert(std::same_as<chttp::Request, Request>);
+	static_assert(std::same_as<chttp::OwnedRequest, Request>);
 	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
 }
 
@@ -161,7 +161,7 @@ TEST_CASE(
 	HttpFieldsView cookies;
 	cookies.emplace_back("sid", "abc-123");
 
-	HttpRequestView req{
+	RequestView req{
 		"GET",
 		"/items/42",
 		"HTTP/1.1",
@@ -209,7 +209,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: typed owned request field extractors preserve owned lifetimes",
 	"[http.core]") {
-	HttpRequest req;
+	Request req;
 	req.headers.set("Content-Length", "512");
 	req.query.emplace_back("debug", "off");
 	req.cookies.emplace_back("theme", "dark");
@@ -309,7 +309,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: request views own uploaded files when converted",
 	"[http.core]") {
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/upload";
 	req.version = "HTTP/1.1";
@@ -317,7 +317,7 @@ TEST_CASE(
 	req.files.push_back(UploadedFile::borrowed("file", "a.txt", "text/plain", "payload"));
 	req.body = "body";
 
-	HttpRequestView view{req};
+	RequestView view{req};
 	auto owned = view.to_owned();
 	REQUIRE(owned.files.size() == 1);
 	CHECK(owned.files[0].owns_metadata);

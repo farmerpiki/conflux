@@ -25,7 +25,7 @@ export struct CacheControlOptions {
 // First matching rule wins; falls back to default_directive if set.
 export Router::Middleware cache_control_middleware(
 	CacheControlOptions opts = {}) {
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		// Don't overwrite an explicit Cache-Control already set by the handler.

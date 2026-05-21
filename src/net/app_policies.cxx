@@ -34,7 +34,7 @@ struct AppRouteRateLimit {
 
 namespace detail {
 
-[[nodiscard]] std::optional<HttpResponse> route_auth_failure(
+[[nodiscard]] std::optional<Response> route_auth_failure(
 	std::string_view policy,
 	RequestView const &req) {
 	if (policy.empty()) {
@@ -42,12 +42,12 @@ namespace detail {
 	}
 	auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
 	if (!token || token->empty()) {
-		return HttpResponse::unauthorized("Bearer");
+		return Response::unauthorized("Bearer");
 	}
 	return std::nullopt;
 }
 
-[[nodiscard]] std::optional<HttpResponse> route_rate_limit_failure(
+[[nodiscard]] std::optional<Response> route_rate_limit_failure(
 	AppRouteRateLimit &policy,
 	RequestView const &req) {
 	if (!policy.enabled) {
@@ -55,7 +55,7 @@ namespace detail {
 	}
 	auto const capacity = policy.options.requests + policy.options.burst;
 	if (capacity == 0) {
-		HttpResponse response;
+		Response response;
 		response.status = 429;
 		response.status_text = "Too Many Requests";
 		response.content_type = "text/plain; charset=utf-8";
@@ -96,7 +96,7 @@ namespace detail {
 		retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
 	}
 
-	HttpResponse response;
+	Response response;
 	response.status = 429;
 	response.status_text = "Too Many Requests";
 	response.content_type = "text/plain; charset=utf-8";
@@ -105,8 +105,8 @@ namespace detail {
 	return response;
 }
 
-[[nodiscard]] HttpResponse apply_route_timeout(
-	HttpResponse response,
+[[nodiscard]] Response apply_route_timeout(
+	Response response,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() > 0 && response.is_deferred()) {
 		if (auto const &deferred = response.deferred_response_ptr()) {

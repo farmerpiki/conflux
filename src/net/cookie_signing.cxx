@@ -117,7 +117,7 @@ export Router::Middleware cookie_signing_middleware(
 	if (auto valid = validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes); !valid) {
 		throw std::invalid_argument{valid.error()};
 	}
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {

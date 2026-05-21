@@ -75,8 +75,8 @@ Ring::~Ring() {
 	io_uring_queue_exit(&ring);
 }
 
-[[nodiscard]] HttpResponse Ring::dispatch(
-	HttpRequestView const &req) const {
+[[nodiscard]] Response Ring::dispatch(
+	RequestView const &req) const {
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch(req);
 	}
@@ -90,8 +90,8 @@ Ring::~Ring() {
 	return router != nullptr && router->has_context_routes();
 }
 
-[[nodiscard]] std::optional<HttpResponse> Ring::try_dispatch_context(
-	HttpRequestView const &req) const {
+[[nodiscard]] std::optional<Response> Ring::try_dispatch_context(
+	RequestView const &req) const {
 	if (!client_task_ring_) {
 		return std::nullopt;
 	}
@@ -99,7 +99,7 @@ Ring::~Ring() {
 		return std::nullopt;
 	}
 	RequestContext const ctx{*client_task_ring_};
-	HttpRequest const owned = req.to_owned();
+	Request const owned = req.to_owned();
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch_context(owned, ctx);
 	}
@@ -107,7 +107,7 @@ Ring::~Ring() {
 }
 
 [[nodiscard]] std::shared_ptr<WorkPool> Ring::resolve_ws_work_pool(
-	HttpRequestView const &req) const {
+	RequestView const &req) const {
 	if (vhost_router != nullptr) {
 		return vhost_router->resolved_work_pool(req.headers["host"]);
 	}

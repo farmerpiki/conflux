@@ -27,21 +27,21 @@ export struct RequestContext {
 	SocketTaskRing &ring;
 };
 
-export using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
-export using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const &, NextHandler const &)>;
+export using NextHandler = CloneableFunction<Response(RequestView const &)>;
+export using MiddlewareFunction = CloneableFunction<Response(RequestView const &, NextHandler const &)>;
 export using ContextNextHandler =
-	CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &)>;
+	CloneableFunction<conflux::work::root::Task<Response>(Request const &, RequestContext const &)>;
 
 export template<class R>
-concept HandlerResult = std::same_as<R, HttpResponse> || std::same_as<R, conflux::work::root::Task<HttpResponse>>;
+concept HandlerResult = std::same_as<R, Response> || std::same_as<R, conflux::work::root::Task<Response>>;
 
 export template<class F>
-concept ViewHandler = requires(std::decay_t<F> &fn, HttpRequestView const &req) {
-	{ std::invoke(fn, req) } -> std::same_as<HttpResponse>;
+concept ViewHandler = requires(std::decay_t<F> &fn, RequestView const &req) {
+	{ std::invoke(fn, req) } -> std::same_as<Response>;
 };
 
 export template<class F>
-concept RequestHandler = requires(std::decay_t<F> &fn, HttpRequest const &req) {
+concept RequestHandler = requires(std::decay_t<F> &fn, Request const &req) {
 	{ std::invoke(fn, req) } -> HandlerResult;
 };
 
@@ -49,24 +49,24 @@ export template<class F>
 concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
 export template<class F>
-concept ContextHandlerFunction = requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx) {
-	{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+concept ContextHandlerFunction = requires(std::decay_t<F> &fn, Request const &req, RequestContext const &ctx) {
+	{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<Response>>;
 };
 
 export template<class F>
 concept ContextMiddlewareFunction =
-	requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx, ContextNextHandler const &next) {
-		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+	requires(std::decay_t<F> &fn, Request const &req, RequestContext const &ctx, ContextNextHandler const &next) {
+		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
 	};
 
 export template<class F>
-concept ViewMiddleware = requires(std::decay_t<F> &fn, HttpRequestView const &req, NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, NextHandler const &next) {
+	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 export template<class F>
-concept RequestMiddleware = requires(std::decay_t<F> &fn, HttpRequest const &req, NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, NextHandler const &next) {
+	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 export template<class F>
@@ -122,13 +122,13 @@ public:
 	using Handler = NextHandler;
 	using ContextHandler = ContextNextHandler;
 	using ContextMiddleware = CloneableFunction<
-		conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &, ContextHandler const &)>;
+		conflux::work::root::Task<Response>(Request const &, RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
-	using SseHandler = CloneableFunction<void(HttpRequestView const &, std::shared_ptr<SseChannel>)>;
+	using SseHandler = CloneableFunction<void(RequestView const &, std::shared_ptr<SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = MiddlewareFunction;
-	using WsHandler = CloneableFunction<void(HttpRequestView const &, WsConn &)>;
-	using ErrorHandler = CloneableFunction<HttpResponse(HttpRequestView const &, std::exception const &)>;
+	using WsHandler = CloneableFunction<void(RequestView const &, WsConn &)>;
+	using ErrorHandler = CloneableFunction<Response(RequestView const &, std::exception const &)>;
 	Router();
 	explicit Router(Config const &cfg);
 	~Router();
@@ -285,7 +285,7 @@ public:
 			Handler h) const {
 			for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
 				auto mw = middlewares_[static_cast<std::size_t>(i)]; // copy: Group is destroyed after group() returns
-				h = [mw = std::move(mw), n = std::move(h)](HttpRequestView const &r) { return mw(r, n); };
+				h = [mw = std::move(mw), n = std::move(h)](RequestView const &r) { return mw(r, n); };
 			}
 			return h;
 		}
@@ -307,9 +307,9 @@ public:
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
 	Router &serve_static(std::string_view url_prefix, std::string root_dir, StaticOptions const &sopts = {});
-	[[nodiscard]] HttpResponse dispatch(HttpRequest const &req) const;
-	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;
-	[[nodiscard]] std::optional<HttpResponse> dispatch_context(HttpRequest const &req, RequestContext const &ctx) const;
+	[[nodiscard]] Response dispatch(Request const &req) const;
+	[[nodiscard]] Response dispatch(RequestView const &req) const;
+	[[nodiscard]] std::optional<Response> dispatch_context(Request const &req, RequestContext const &ctx) const;
 
 private:
 	struct Impl;
@@ -325,52 +325,52 @@ private:
 	static void launch_sse_handler(
 		std::shared_ptr<WorkPool> const &pool,
 		SseHandler handler,
-		HttpRequest matched,
+		Request matched,
 		std::shared_ptr<SseChannel> const &channel);
-	[[nodiscard]] static HttpResponse defer_http_task(conflux::work::root::Task<HttpResponse> task);
-	[[nodiscard]] HttpResponse run_middlewares(HttpRequestView const &req, Handler const &inner) const;
-	[[nodiscard]] std::optional<HttpResponse>
-	run_context_middlewares(HttpRequest const &req, RequestContext const &ctx, ContextHandler const &inner) const;
-	[[nodiscard]] static HttpResponse run_async_http_task(conflux::work::root::Task<HttpResponse> task);
+	[[nodiscard]] static Response defer_http_task(conflux::work::root::Task<Response> task);
+	[[nodiscard]] Response run_middlewares(RequestView const &req, Handler const &inner) const;
+	[[nodiscard]] std::optional<Response>
+	run_context_middlewares(Request const &req, RequestContext const &ctx, ContextHandler const &inner) const;
+	[[nodiscard]] static Response run_async_http_task(conflux::work::root::Task<Response> task);
 	template<class>
 	static constexpr bool kDependentFalse = false;
 	template<typename F>
 	static Handler make_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &>) {
-			using Ret = std::invoke_result_t<Fn &, HttpRequestView const &>;
-			if constexpr (std::same_as<Ret, HttpResponse>) {
+		if constexpr (std::invocable<Fn &, RequestView const &>) {
+			using Ret = std::invoke_result_t<Fn &, RequestView const &>;
+			if constexpr (std::same_as<Ret, Response>) {
 				return Handler{std::forward<F>(fn)};
-			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
+			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Async handlers must take HttpRequest const&, not HttpRequestView const& — "
+					"Async handlers must take Request const&, not RequestView const& — "
 					"the view can dangle after coroutine suspension");
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Handler taking HttpRequestView const& must return HttpResponse (sync only)");
+					"Handler taking RequestView const& must return Response (sync only)");
 			}
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &>) {
-			using Ret = std::invoke_result_t<Fn &, HttpRequest const &>;
-			if constexpr (std::same_as<Ret, HttpResponse>) {
-				return Handler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
+		} else if constexpr (std::invocable<Fn &, Request const &>) {
+			using Ret = std::invoke_result_t<Fn &, Request const &>;
+			if constexpr (std::same_as<Ret, Response>) {
+				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned);
 				}};
-			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
-				return Handler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
+			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
+				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
 					auto owned = req.to_owned();
 					return defer_http_task(std::invoke(wrapped, owned));
 				}};
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Handler returning HttpRequest const& must return HttpResponse or root::Task<HttpResponse>");
+					"Handler returning Request const& must return Response or root::Task<Response>");
 			}
 		} else {
-			static_assert(kDependentFalse<Fn>, "Handler must accept HttpRequestView const& or HttpRequest const&");
+			static_assert(kDependentFalse<Fn>, "Handler must accept RequestView const& or Request const&");
 		}
 	}
 	template<typename F>
@@ -379,12 +379,12 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (requires(
 						  Fn &middleware,
-						  HttpRequestView const &req,
+						  RequestView const &req,
 						  RequestContext const &ctx,
 						  ContextHandler const &next) {
 						  {
 							  std::invoke(middleware, req, ctx, next)
-						  } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+						  } -> std::same_as<conflux::work::root::Task<Response>>;
 					  }) {
 			static_assert(
 				kDependentFalse<Fn>,
@@ -392,27 +392,26 @@ private:
 				"the view can dangle after coroutine suspension");
 		} else if constexpr (requires(
 								 Fn &middleware,
-								 HttpRequest const &req,
+								 Request const &req,
 								 RequestContext const &ctx,
 								 ContextHandler const &next) {
 								 {
 									 std::invoke(middleware, req, ctx, next)
-								 } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+								 } -> std::same_as<conflux::work::root::Task<Response>>;
 							 }) {
 			static_assert(
 				kDependentFalse<Fn>,
 				"Async middleware must use Router::use_async so it can run through the context dispatch path");
-		} else if constexpr (std::invocable<Fn &, HttpRequestView const &, Handler const &>) {
+		} else if constexpr (std::invocable<Fn &, RequestView const &, Handler const &>) {
 			return Middleware{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, Handler const &>) {
+		} else if constexpr (std::invocable<Fn &, Request const &, Handler const &>) {
 			return Middleware{
-				[wrapped =
-					 Fn(std::forward<F>(fn))](HttpRequestView const &req, Handler const &next) mutable -> HttpResponse {
+				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, Handler const &next) mutable -> Response {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned, next);
 				}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "Middleware must accept HttpRequestView const& or HttpRequest const&");
+			static_assert(kDependentFalse<Fn>, "Middleware must accept RequestView const& or Request const&");
 		}
 	}
 	template<typename F>
@@ -421,12 +420,12 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (requires(
 						  Fn &middleware,
-						  HttpRequestView const &req,
+						  RequestView const &req,
 						  RequestContext const &ctx,
 						  ContextHandler const &next) {
 						  {
 							  std::invoke(middleware, req, ctx, next)
-						  } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+						  } -> std::same_as<conflux::work::root::Task<Response>>;
 					  }) {
 			static_assert(
 				kDependentFalse<Fn>,
@@ -434,71 +433,66 @@ private:
 				"the view can dangle after coroutine suspension");
 		} else if constexpr (requires(
 								 Fn &middleware,
-								 HttpRequest const &req,
+								 Request const &req,
 								 RequestContext const &ctx,
 								 ContextHandler const &next) {
 								 {
 									 std::invoke(middleware, req, ctx, next)
-								 } -> std::same_as<conflux::work::root::Task<HttpResponse>>;
+								 } -> std::same_as<conflux::work::root::Task<Response>>;
 							 }) {
 			return ContextMiddleware{std::forward<F>(fn)};
 		} else {
 			static_assert(
 				kDependentFalse<Fn>,
-				"Async middleware must accept HttpRequest const&, RequestContext const&, and Router::AsyncNext const&");
+				"Async middleware must accept Request const&, RequestContext const&, and Router::AsyncNext const&");
 		}
 	}
 	template<typename F>
 	static SseHandler make_sse_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::shared_ptr<SseChannel>>) {
+		if constexpr (std::invocable<Fn &, RequestView const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::shared_ptr<SseChannel>>) {
+		} else if constexpr (std::invocable<Fn &, Request const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{
-				[wrapped =
-					 Fn(std::forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
+				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
 					auto owned = req.to_owned();
 					std::invoke(wrapped, owned, std::move(ch));
 				}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "SSE handler must accept HttpRequestView const& or HttpRequest const&");
+			static_assert(kDependentFalse<Fn>, "SSE handler must accept RequestView const& or Request const&");
 		}
 	}
 	template<typename F>
 	static WsHandler make_ws_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, WsConn &>) {
+		if constexpr (std::invocable<Fn &, RequestView const &, WsConn &>) {
 			return WsHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, WsConn &>) {
-			return WsHandler{[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, WsConn &ws) mutable {
+		} else if constexpr (std::invocable<Fn &, Request const &, WsConn &>) {
+			return WsHandler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, WsConn &ws) mutable {
 				auto owned = req.to_owned();
 				std::invoke(wrapped, owned, ws);
 			}};
 		} else {
-			static_assert(
-				kDependentFalse<Fn>,
-				"WebSocket handler must accept HttpRequestView const& or HttpRequest const&");
+			static_assert(kDependentFalse<Fn>, "WebSocket handler must accept RequestView const& or Request const&");
 		}
 	}
 	template<typename F>
 	static ErrorHandler make_error_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::exception const &>) {
+		if constexpr (std::invocable<Fn &, RequestView const &, std::exception const &>) {
 			return ErrorHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::exception const &>) {
+		} else if constexpr (std::invocable<Fn &, Request const &, std::exception const &>) {
 			return ErrorHandler{
-				[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, std::exception const &ex) mutable
-					-> HttpResponse {
+				[wrapped =
+					 Fn(std::forward<F>(fn))](RequestView const &req, std::exception const &ex) mutable -> Response {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned, ex);
 				}};
 		} else {
-			static_assert(
-				kDependentFalse<Fn>,
-				"Error handler must accept HttpRequestView const& or HttpRequest const&");
+			static_assert(kDependentFalse<Fn>, "Error handler must accept RequestView const& or Request const&");
 		}
 	}
 };
@@ -508,7 +502,7 @@ private:
 // the caller's responsibility.
 export Router::Middleware make_access_log_middleware(
 	std::function<void(std::string const &)> sink) {
-	return [sink = std::move(sink)](HttpRequestView const &req, Router::Handler const &next) {
+	return [sink = std::move(sink)](RequestView const &req, Router::Handler const &next) {
 		auto const t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto const elapsed =

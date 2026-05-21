@@ -11,36 +11,36 @@ import conflux.net.http.response;
 
 export conflux::work::root::Task<void> do_serve_static_file(
 	std::shared_ptr<DeferredResponse> dr,
-	HttpResponse base,
+	Response base,
 	std::size_t send_off,
 	std::size_t send_sz,
 	std::size_t total_size,
 	conflux::work::root::Task<FileHandle> open_task);
 
-export HttpResponse handle_static_get(
+export Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &static_options,
 	StaticRequest const &r,
 	StaticCacheStore &static_cache);
 
-export HttpResponse handle_static_get_request(
+export Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache);
 
-export HttpResponse handle_static_put(
+export Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache);
 
-export HttpResponse handle_static_delete(
+export Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache);

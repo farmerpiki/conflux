@@ -745,7 +745,7 @@ struct HttpRequestFieldAccessors {
 	}
 };
 
-export struct HttpRequest : HttpRequestFieldAccessors {
+export struct Request : HttpRequestFieldAccessors {
 	std::string method;
 	std::string path; // path only, no query std::string
 	std::string version;
@@ -758,9 +758,9 @@ export struct HttpRequest : HttpRequestFieldAccessors {
 	HttpFields cookies; // parsed from Cookie: header
 	std::vector<UploadedFile> files; // parsed from multipart/form-data body
 	std::string body;
-	[[nodiscard]] HttpRequest to_owned() const { return *this; }
+	[[nodiscard]] Request to_owned() const { return *this; }
 };
-export struct HttpRequestView : HttpRequestFieldAccessors {
+export struct RequestView : HttpRequestFieldAccessors {
 	std::string_view method;
 	std::string_view path;
 	std::string_view version;
@@ -773,7 +773,7 @@ export struct HttpRequestView : HttpRequestFieldAccessors {
 	HttpFieldsView cookies;
 	std::span<UploadedFile const> files;
 	std::string_view body;
-	HttpRequestView(
+	RequestView(
 		std::string_view method_,
 		std::string_view path_,
 		std::string_view version_,
@@ -798,8 +798,8 @@ export struct HttpRequestView : HttpRequestFieldAccessors {
 		, cookies(std::move(cookies_))
 		, files(files_)
 		, body(body_) {}
-	HttpRequestView(
-		HttpRequest const &req)
+	RequestView(
+		Request const &req)
 		: method(req.method)
 		, path(req.path)
 		, version(req.version)
@@ -812,8 +812,8 @@ export struct HttpRequestView : HttpRequestFieldAccessors {
 		, cookies(req.cookies)
 		, files(req.files)
 		, body(req.body) {}
-	[[nodiscard]] HttpRequest to_owned() const {
-		HttpRequest owned;
+	[[nodiscard]] Request to_owned() const {
+		Request owned;
 		owned.method = std::string{method};
 		owned.path = std::string{path};
 		owned.version = std::string{version};
@@ -845,8 +845,8 @@ using OverflowPolicy = ::OverflowPolicy;
 using DrainStreamPolicy = ::DrainStreamPolicy;
 using DrainOptions = ::DrainOptions;
 using DrainReport = ::DrainReport;
-using RequestView = ::HttpRequestView;
-using OwnedRequest = ::HttpRequest;
+using RequestView = ::RequestView;
+using OwnedRequest = ::Request;
 using Request = OwnedRequest;
 using UploadedFile = ::UploadedFile;
 using FieldSource = ::HttpFieldSource;

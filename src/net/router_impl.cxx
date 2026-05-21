@@ -278,9 +278,9 @@ template<typename RouteT>
 }
 
 template<typename ImplT>
-[[nodiscard]] HttpResponse dispatch_router_sync(
+[[nodiscard]] Response dispatch_router_sync(
 	ImplT const &impl,
-	HttpRequestView const &req,
+	RequestView const &req,
 	std::string_view path_sv,
 	bool is_head) {
 	auto const route_method = is_head ? std::string_view{"GET"} : req.method;
@@ -300,9 +300,9 @@ template<typename ImplT>
 }
 
 template<typename ImplT>
-[[nodiscard]] std::optional<HttpResponse> dispatch_router_async(
+[[nodiscard]] std::optional<Response> dispatch_router_async(
 	ImplT const &impl,
-	HttpRequest const &req,
+	Request const &req,
 	RequestContext const &ctx,
 	std::string_view path_sv,
 	bool is_head) {
@@ -439,15 +439,15 @@ Router &Router::set_static_file_cache(
 Router &Router::ws_prepared(
 	std::string_view path,
 	WsHandler handler) {
-	add_prepared("GET", path, Handler{[h = std::move(handler)](HttpRequestView const &req) mutable -> HttpResponse {
+	add_prepared("GET", path, Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
 					 if (!ws_detail::is_valid_handshake(req)) {
-						 return HttpResponse::bad_request();
+						 return Response::bad_request();
 					 }
 					 auto key = trim_ascii_ws(req.headers["sec-websocket-key"]);
 					 auto up = std::make_shared<WsUpgrade>();
 					 up->accept_key = ws_detail::ws_accept_key(key);
 					 up->handler = h;
-					 HttpResponse r{.status = 101, .status_text = "Switching Protocols"};
+					 Response r{.status = 101, .status_text = "Switching Protocols"};
 					 r.set_ws_upgrade(std::move(up));
 					 return r;
 				 }});
@@ -471,26 +471,26 @@ Router &Router::ws_prepared(
 	return result;
 }
 
-[[nodiscard]] HttpResponse Router::defer_http_task(
-	conflux::work::root::Task<HttpResponse> task) {
+[[nodiscard]] Response Router::defer_http_task(
+	conflux::work::root::Task<Response> task) {
 	return router_defer_http_task(std::move(task));
 }
 
-[[nodiscard]] HttpResponse Router::run_async_http_task(
-	conflux::work::root::Task<HttpResponse> task) {
+[[nodiscard]] Response Router::run_async_http_task(
+	conflux::work::root::Task<Response> task) {
 	return defer_http_task(std::move(task));
 }
 
 void Router::launch_sse_handler(
 	std::shared_ptr<WorkPool> const &pool,
 	SseHandler handler,
-	HttpRequest matched,
+	Request matched,
 	std::shared_ptr<SseChannel> const &channel) {
 	router_launch_sse_handler(pool, std::move(handler), std::move(matched), channel);
 }
 
-[[nodiscard]] HttpResponse Router::run_middlewares(
-	HttpRequestView const &req,
+[[nodiscard]] Response Router::run_middlewares(
+	RequestView const &req,
 	Handler const &inner) const {
 	struct Step {
 		Router::Impl const *impl_;
@@ -503,10 +503,10 @@ void Router::launch_sse_handler(
 			Handler const *inner)
 			: impl_(impl)
 			, inner_(inner)
-			, next_([this](HttpRequestView const &r) -> HttpResponse { return call(r); }) {}
+			, next_([this](RequestView const &r) -> Response { return call(r); }) {}
 
-		HttpResponse call(
-			HttpRequestView const &r) {
+		Response call(
+			RequestView const &r) {
 			if (idx_ == impl_->middlewares.size()) {
 				return (*inner_)(r);
 			}
@@ -518,8 +518,8 @@ void Router::launch_sse_handler(
 	return s.call(req);
 }
 
-[[nodiscard]] std::optional<HttpResponse> Router::run_context_middlewares(
-	HttpRequest const &req,
+[[nodiscard]] std::optional<Response> Router::run_context_middlewares(
+	Request const &req,
 	RequestContext const &ctx,
 	ContextHandler const &inner) const {
 	if (impl_->context_middlewares.empty()) {
@@ -539,12 +539,13 @@ void Router::launch_sse_handler(
 
 		void bind_next(
 			std::shared_ptr<Step> self) {
-			next_ = [self = std::move(self)](HttpRequest const &r, RequestContext const &c)
-				-> conflux::work::root::Task<HttpResponse> { return self->call(r, c); };
+			next_ = [self = std::move(self)](
+						Request const &r,
+						RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
 		}
 
-		conflux::work::root::Task<HttpResponse> call(
-			HttpRequest const &r,
+		conflux::work::root::Task<Response> call(
+			Request const &r,
 			RequestContext const &c) {
 			if (idx_ == impl_->context_middlewares.size()) {
 				return inner_(r, c);
@@ -578,14 +579,14 @@ Router &Router::serve_static(
 	return *this;
 }
 
-[[nodiscard]] HttpResponse Router::dispatch(
-	HttpRequest const &req) const {
-	HttpRequestView const req_view{req};
+[[nodiscard]] Response Router::dispatch(
+	Request const &req) const {
+	RequestView const req_view{req};
 	return dispatch(req_view);
 }
 
-[[nodiscard]] HttpResponse Router::dispatch(
-	HttpRequestView const &req) const {
+[[nodiscard]] Response Router::dispatch(
+	RequestView const &req) const {
 	// HEAD is dispatched as GET; response body is suppressed before sending.
 	bool const is_head = (req.method == "HEAD");
 
@@ -600,15 +601,15 @@ Router &Router::serve_static(
 	}
 
 	// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
-	Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
+	Handler inner = [this, path_sv, is_head](RequestView const &r) -> Response {
 		return dispatch_router_sync(*impl_, r, path_sv, is_head);
 	};
 
 	return run_middlewares(req, inner);
 }
 
-[[nodiscard]] std::optional<HttpResponse> Router::dispatch_context(
-	HttpRequest const &req,
+[[nodiscard]] std::optional<Response> Router::dispatch_context(
+	Request const &req,
 	RequestContext const &ctx) const {
 	bool const is_head = (req.method == "HEAD");
 	std::string_view path_sv{req.path};
@@ -616,9 +617,8 @@ Router &Router::serve_static(
 		path_sv = path_sv.substr(0, q);
 	}
 	if (!impl_->context_middlewares.empty()) {
-		ContextHandler inner = [this, path_sv, is_head](
-								   HttpRequest const &r,
-								   RequestContext const &c) -> conflux::work::root::Task<HttpResponse> {
+		ContextHandler inner =
+			[this, path_sv, is_head](Request const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {
 			if (auto task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
 				auto resp = co_await std::move(*task);
 				if (is_head) {
@@ -626,7 +626,7 @@ Router &Router::serve_static(
 				}
 				co_return resp;
 			}
-			HttpRequestView const view{r};
+			RequestView const view{r};
 			co_return dispatch_router_sync(*impl_, view, path_sv, is_head);
 		};
 		return run_context_middlewares(req, ctx, inner);

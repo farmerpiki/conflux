@@ -117,16 +117,16 @@ std::optional<std::string_view> credentials_for_scheme(
 }
 
 [[nodiscard]] std::string failed_auth_key(
-	HttpRequestView const &req) {
+	RequestView const &req) {
 	if (req.remote_addr.empty()) {
 		return "unknown";
 	}
 	return std::string{req.remote_addr};
 }
 
-HttpResponse unauthorized(
+Response unauthorized(
 	std::string_view www_auth) {
-	HttpResponse r;
+	Response r;
 	r.status = kHttpUnauthorized;
 	r.status_text = "Unauthorized";
 	r.content_type = "text/plain; charset=utf-8";
@@ -135,9 +135,9 @@ HttpResponse unauthorized(
 	return r;
 }
 
-HttpResponse too_many_auth_attempts(
+Response too_many_auth_attempts(
 	std::chrono::seconds retry_after) {
-	HttpResponse r;
+	Response r;
 	r.status = 429;
 	r.status_text = "Too Many Requests";
 	r.content_type = "text/plain; charset=utf-8";
@@ -435,7 +435,7 @@ template<typename Key>
 }
 
 [[nodiscard]] bool auth_response_is_failure(
-	HttpResponse const &response,
+	Response const &response,
 	AuthThrottleMiddlewareOptions const &opts) {
 	return response.status >= 0
 		&& std::ranges::find(opts.failure_statuses, static_cast<unsigned>(response.status))
@@ -443,7 +443,7 @@ template<typename Key>
 }
 
 [[nodiscard]] bool auth_response_is_success(
-	HttpResponse const &response,
+	Response const &response,
 	AuthThrottleMiddlewareOptions const &opts) noexcept {
 	return response.status >= 0
 		&& static_cast<unsigned>(response.status) >= opts.success_status_min
@@ -539,7 +539,7 @@ export [[nodiscard]] std::string auth_throttle_key(
 }
 
 export [[nodiscard]] std::string auth_throttle_remote_key(
-	HttpRequestView const &req,
+	RequestView const &req,
 	std::string_view scope = "remote") {
 	auto subject = req.remote_addr.empty() ?
 					   std::string{"unknown"} :
@@ -548,7 +548,7 @@ export [[nodiscard]] std::string auth_throttle_remote_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
-	HttpRequestView const &req,
+	RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
 	auto value = req.form[field];
@@ -559,7 +559,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
-	HttpRequestView const &req,
+	RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
 	auto value = req.query[field];
@@ -570,7 +570,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
-	HttpRequestView const &req,
+	RequestView const &req,
 	std::string_view scope = "api-token") {
 	auto credentials = auth_detail::credentials_for_scheme(req.headers["authorization"], "Bearer");
 	if (!credentials) {
@@ -584,7 +584,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	return auth_throttle_key(scope, base64url_encode(digest));
 }
 
-export inline HttpResponse auth_throttle_too_many_requests(
+export inline Response auth_throttle_too_many_requests(
 	AuthThrottleOutcome const &outcome) {
 	return auth_detail::too_many_auth_attempts(outcome.retry_after);
 }
@@ -596,7 +596,7 @@ Router::Middleware auth_throttle_middleware(
 	AuthThrottleMiddlewareOptions opts = {}) {
 	return [limiter = std::move(limiter),
 			selector = std::decay_t<KeySelector>(std::forward<KeySelector>(selector)),
-			opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) mutable -> HttpResponse {
+			opts = std::move(opts)](RequestView const &req, Router::Handler const &next) mutable -> Response {
 		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
 		if (!key) {
 			return next(req);
@@ -620,7 +620,7 @@ Router::Middleware basic_auth_middleware(
 	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
 			opts = std::move(opts),
-			state](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+			state](RequestView const &req, Router::Handler const &next) -> Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
@@ -663,8 +663,8 @@ Router::Middleware basic_auth_middleware(
 export template<typename Validator>
 Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
-	return [v = std::decay_t<Validator>(std::forward<Validator>(
-				validator))](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [v = std::decay_t<Validator>(
+				std::forward<Validator>(validator))](RequestView const &req, Router::Handler const &next) -> Response {
 		auto auth = req.headers["authorization"];
 		auto credentials = auth_detail::credentials_for_scheme(auth, "Bearer");
 		if (!credentials) {

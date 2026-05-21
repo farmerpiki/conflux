@@ -18,14 +18,14 @@ export namespace conflux::http {
 class ExtractorFailure final : public std::exception {
 public:
 	explicit ExtractorFailure(
-		HttpResponse response)
+		Response response)
 		: response_(std::move(response)) {}
 
 	[[nodiscard]] char const *what() const noexcept override { return "HTTP extractor failure"; }
-	[[nodiscard]] HttpResponse response() && { return std::move(response_); }
+	[[nodiscard]] Response response() && { return std::move(response_); }
 
 private:
-	HttpResponse response_;
+	Response response_;
 };
 
 struct AppRunOptions {
@@ -41,13 +41,13 @@ struct AppJsonOptions {
 #endif
 
 struct Problem {
-	HttpResponse response;
+	Response response;
 	std::string code;
 	std::string detail;
 };
 
 struct Created {
-	HttpResponse response;
+	Response response;
 
 	[[nodiscard]] Created header(
 		std::string_view name,

@@ -152,7 +152,7 @@ static void append_hex(
 }
 
 [[nodiscard]] static std::size_t response_reserve_hint(
-	HttpResponse const &r,
+	Response const &r,
 	std::string_view alt_svc,
 	bool include_body) {
 	std::size_t n = 128 + r.status_text.size() + r.content_type.size() + alt_svc.size();
@@ -169,7 +169,7 @@ static void append_hex(
 }
 
 export std::string format_response(
-	HttpResponse const &r,
+	Response const &r,
 	std::string_view alt_svc = {},
 	bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {

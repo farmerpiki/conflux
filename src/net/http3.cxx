@@ -83,7 +83,7 @@ struct Http3Stream {
 	std::string body;
 	bool request_complete{false};
 	bool response_submitted{false};
-	HttpResponse response{};
+	Response response{};
 	std::string response_body_buf;
 	std::string status_str;
 	std::string content_length_str;
@@ -523,15 +523,14 @@ void dispatch_stream(
 		hdrs_view.emplace_back(k, v);
 	}
 	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
-	HttpRequestView const
-		req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
+	RequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
-		s.response = HttpResponse::internal_error("no router");
+		s.response = Response::internal_error("no router");
 	} else {
 		try {
 			s.response = c->router->dispatch(req);
-		} catch (std::exception const &ex) { s.response = HttpResponse::internal_error(ex.what()); } catch (...) {
-			s.response = HttpResponse::internal_error();
+		} catch (std::exception const &ex) { s.response = Response::internal_error(ex.what()); } catch (...) {
+			s.response = Response::internal_error();
 		}
 	}
 	if (s.response.is_text()) {

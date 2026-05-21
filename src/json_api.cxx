@@ -2,6 +2,7 @@ module;
 #include <cassert>
 #include <cstdint>
 #include <locale.h>
+#include <map>
 // stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
 // std module BMI under GCC -freflection; forward-declare what we need instead
 extern "C" {

@@ -45,9 +45,9 @@ struct JsonMembers<http_snapshot::Payload> {
 
 namespace http_snapshot {
 
-static_assert(std::same_as<http::RequestView, HttpRequestView>);
-static_assert(std::same_as<http::Request, HttpRequest>);
-static_assert(std::same_as<http::Response, HttpResponse>);
+static_assert(std::same_as<http::RequestView, RequestView>);
+static_assert(std::same_as<http::Request, Request>);
+static_assert(std::same_as<http::Response, Response>);
 static_assert(std::same_as<http::RequestContext, RequestContext>);
 
 void route_forms_compile() {

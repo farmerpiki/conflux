@@ -207,7 +207,7 @@ TEST_CASE(
 	CHECK(report.issues[0].message == "missing app state");
 	CHECK(report.issues[0].method == "GET");
 	CHECK(report.issues[0].path == "/needs-state");
-	CHECK(report.summary() == "GET /needs-state: missing app state");
+	CHECK(report.summary() == "GET /needs-state [app.state.missing]: missing app state");
 }
 
 TEST_CASE(
@@ -220,7 +220,9 @@ TEST_CASE(
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
 	CHECK(report.issues[0].message == "missing path parameter for Path<slug>. Available path parameters: id.");
-	CHECK(report.summary() == "GET /users/{id}: missing path parameter for Path<slug>. Available path parameters: id.");
+	CHECK(
+		report.summary()
+		== "GET /users/{id} [app.validation]: missing path parameter for Path<slug>. Available path parameters: id.");
 }
 
 TEST_CASE(
@@ -269,7 +271,7 @@ TEST_CASE(
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
 	CHECK(report.issues[0].message == "body extractor used on GET route");
-	CHECK(report.summary() == "GET /body: body extractor used on GET route");
+	CHECK(report.summary() == "GET /body [app.validation]: body extractor used on GET route");
 }
 
 TEST_CASE(
@@ -298,7 +300,7 @@ TEST_CASE(
 	REQUIRE_FALSE(report.ok());
 	REQUIRE(report.issues.size() == 1);
 	CHECK(report.issues[0].message == "body extractor used without body limit");
-	CHECK(report.summary() == "POST /body: body extractor used without body limit");
+	CHECK(report.summary() == "POST /body [app.validation]: body extractor used without body limit");
 }
 
 TEST_CASE(
@@ -523,7 +525,7 @@ TEST_CASE(
 		return response;
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/items/42?debug=true";
 	req.headers.set("Authorization", "Bearer secret");
@@ -542,7 +544,7 @@ TEST_CASE(
 	CHECK(logs[0].contains(R"("X-Secret":"<redacted>")"));
 	CHECK_FALSE(logs[0].contains("Bearer secret"));
 
-	HttpRequest metrics_req;
+	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = app.router().dispatch(metrics_req);
@@ -583,7 +585,7 @@ TEST_CASE(
 			.access_log_sink = [&](std::string const &line) { logs.push_back(line); },
 		}));
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/missing?token=secret";
 	auto missing = app.router().dispatch(req);
@@ -592,7 +594,7 @@ TEST_CASE(
 	CHECK(logs[0].contains(R"("route":"<unmatched>")"));
 	CHECK_FALSE(logs[0].contains("token=secret"));
 
-	HttpRequest metrics_req;
+	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = app.router().dispatch(metrics_req);
@@ -634,7 +636,7 @@ TEST_CASE(
 					},
 			}));
 
-	HttpRequest metrics_req;
+	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = app.router().dispatch(metrics_req);
@@ -666,7 +668,7 @@ TEST_CASE(
 					},
 			}));
 
-	HttpRequest metrics_req;
+	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = app.router().dispatch(metrics_req);
@@ -689,7 +691,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.use(middleware);
 
-	HttpRequest metrics_req;
+	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = app.router().dispatch(metrics_req);
@@ -733,7 +735,7 @@ TEST_CASE(
 	});
 	app.get("/events", [channel] { return http::sse(channel); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/events";
 
@@ -836,7 +838,7 @@ TEST_CASE(
 	CHECK(routes[0].path == "/api/items/{id}");
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/api/items/42";
 
@@ -865,7 +867,7 @@ TEST_CASE(
 	CHECK(routes[0].middleware_count == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/api/items/42";
 
@@ -1029,7 +1031,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/private", [] { return http::text("secret"); }).auth_policy("user");
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/private";
 
@@ -1052,7 +1054,7 @@ TEST_CASE(
 	app.get("/private-state", [](http::State<std::string> state) { return http::text(state.get()); })
 		.auth_policy("user");
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/private-state";
 
@@ -1072,7 +1074,7 @@ TEST_CASE(
 	app.get("/limited", [] { return http::text("ok"); })
 		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/limited";
 	req.remote_addr = "203.0.113.10";
@@ -1091,10 +1093,9 @@ TEST_CASE(
 	"[http.facade]") {
 	auto deferred = std::make_shared<DeferredResponse>(std::chrono::hours{1});
 	auto app = http::app();
-	app.get("/deferred", [deferred] { return HttpResponse::deferred(deferred); })
-		.timeout(std::chrono::milliseconds{25});
+	app.get("/deferred", [deferred] { return Response::deferred(deferred); }).timeout(std::chrono::milliseconds{25});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/deferred";
 
@@ -1167,7 +1168,7 @@ TEST_CASE(
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
 	app.get("/openapi.json", app.openapi_handler("Facade API", "1.2.3"));
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/openapi.json";
 
@@ -1186,7 +1187,7 @@ TEST_CASE(
 
 	auto server = std::move(app).try_server();
 	REQUIRE_FALSE(server.has_value());
-	CHECK(server.error() == "GET /needs-state: missing app state");
+	CHECK(server.error() == "GET /needs-state [app.state.missing]: missing app state");
 }
 
 TEST_CASE(
@@ -1197,7 +1198,7 @@ TEST_CASE(
 
 	auto server = std::move(app).listen();
 	REQUIRE_FALSE(server.has_value());
-	CHECK(server.error() == "GET /needs-state: missing app state");
+	CHECK(server.error() == "GET /needs-state [app.state.missing]: missing app state");
 }
 
 TEST_CASE(
@@ -1237,7 +1238,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/answer", [] { return http::Json{FacadeAnswer{.value = "ok"}}; });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/answer";
 
@@ -1256,7 +1257,7 @@ TEST_CASE(
 
 	app.get("/state", [](http::State<std::string> state) { return http::text(state.get()); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/state";
 
@@ -1271,7 +1272,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get<"/hello/{name}">([](http::Path<"name"> name) { return http::text(name.get()); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/hello/Ada";
 
@@ -1318,7 +1319,7 @@ TEST_CASE(
     });
 	CHECK(app.validate().ok());
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/typed/42";
 
@@ -1343,7 +1344,7 @@ TEST_CASE(
 	CHECK(routes[0].extractors[0] == "PathAt<0>");
 	CHECK(routes[0].extractors[1] == "PathAt<1>");
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/teams/core/users/42";
 
@@ -1388,7 +1389,7 @@ TEST_CASE(
 			return http::text(std::format("{}:{}:{}", q.get(), request_id.get(), session.get()));
 		});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/fields";
 	req.query["q"] = "search";
@@ -1406,7 +1407,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/request-id", [](http::RequestId request_id) { return http::text(request_id.get()); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/request-id";
 	req.headers["x-request-id"] = "req-123";
@@ -1429,7 +1430,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", conn.remote_addr, conn.is_tls ? "tls" : "plain"));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/conn";
 	req.remote_addr = "203.0.113.10";
@@ -1451,7 +1452,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/trace", [](http::TraceContext trace) { return http::text(trace.traceparent); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/trace";
 	req.headers["traceparent"] = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
@@ -1472,7 +1473,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/bearer", [](http::Bearer bearer) { return http::text(bearer.get()); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/bearer";
 	req.headers["authorization"] = "bearer  token-123 \t";
@@ -1495,7 +1496,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", auth.username, auth.password));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/basic";
 	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
@@ -1518,7 +1519,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", id.get(), page.get()));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/items/42";
 	req.params["id"] = "42";
@@ -1542,7 +1543,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", name.get(), age.get()));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/submit";
 	req.form["name"] = "Ada";
@@ -1566,7 +1567,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/search";
 	req.query["q"] = "conflux";
@@ -1593,7 +1594,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/search";
 	req.form["q"] = "conflux";
@@ -1618,7 +1619,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/json";
 	req.body = R"({"value":"ok"})";
@@ -1659,7 +1660,7 @@ TEST_CASE(
 		return http::text(*dumped);
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/json-doc";
 	req.body = R"({"value":"ok"})";
@@ -1694,7 +1695,7 @@ TEST_CASE(
 	app.json_options(http::AppJsonOptions{.max_body_size = 8});
 	app.post("/json-doc", [](http::JsonDocument) { return http::no_content(); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/json-doc";
 	req.headers["content-type"] = "application/json";
@@ -1716,7 +1717,7 @@ TEST_CASE(
 		return http::no_content();
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "PATCH";
 	req.path = "/patch";
 	req.body = R"([{"op":"add","path":"/name","value":"Ada"}])";
@@ -1755,7 +1756,7 @@ TEST_CASE(
 		   })
 		.max_body_size(8);
 
-	HttpRequest req;
+	Request req;
 	req.method = "PATCH";
 	req.path = "/merge";
 	req.body = R"({"a":1})";
@@ -1788,7 +1789,7 @@ TEST_CASE(
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].max_body_size == 8);
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/json";
 	req.headers["content-type"] = "application/json";
@@ -1812,7 +1813,7 @@ TEST_CASE(
 			.max_body_size = 64});
 	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/json";
 	req.headers["content-type"] = "application/json";
@@ -1836,7 +1837,7 @@ TEST_CASE(
 	app.post("/echo-bytes", [](http::BodyBytes body) { return http::text(body.get()); });
 	app.post("/echo-owned", [](http::OwnedBodyBytes body) { return http::text(body.get()); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/echo-text";
 	req.body = "hello";
@@ -1865,7 +1866,7 @@ TEST_CASE(
 				file == nullptr ? std::string_view{} : file->data));
 	});
 
-	HttpRequest req;
+	Request req;
 	req.method = "POST";
 	req.path = "/upload";
 	req.form["title"] = "Report";

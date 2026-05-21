@@ -246,7 +246,7 @@ public:
 	SseBroadcaster &operator =(SseBroadcaster const &) = delete;
 	SseBroadcaster(SseBroadcaster &&) = delete;
 	SseBroadcaster &operator =(SseBroadcaster &&) = delete;
-	// Register a new subscriber.  Returns the SP to pass to HttpResponse::sse().
+	// Register a new subscriber.  Returns the SP to pass to Response::sse().
 	std::shared_ptr<SseChannel> subscribe() {
 		auto ch = std::make_shared<SseChannel>();
 		std::scoped_lock const lk{mtx_};
@@ -314,7 +314,7 @@ bool is_valid_client_key(
 	return decoded.size() == 16 && base64_encode(to_unsigned_span(decoded)) == key;
 }
 export bool is_valid_handshake(
-	HttpRequestView const &req) {
+	RequestView const &req) {
 	return conflux::http::header_token_contains(req.headers["upgrade"], "websocket")
 		&& conflux::http::header_token_contains(req.headers["connection"], "upgrade")
 		&& trim(req.headers["sec-websocket-version"]) == "13"
@@ -906,8 +906,8 @@ private:
 		return ws_detail::ws_send_frame(fd_, opcode, payload);
 	}
 };
-// Token carried in HttpResponse.ws_upgrade to signal a 101 WebSocket upgrade.
+// Token carried in Response.ws_upgrade to signal a 101 WebSocket upgrade.
 export struct WsUpgrade {
 	std::string accept_key;
-	CloneableFunction<void(HttpRequestView const &, WsConn &)> handler;
+	CloneableFunction<void(RequestView const &, WsConn &)> handler;
 };

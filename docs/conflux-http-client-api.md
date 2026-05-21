@@ -408,7 +408,7 @@ Error kinds, `ClientResult`, and `ClientResponse` shapes are identical to `block
 
 ### Server context-route dispatch and client calls
 
-Context routes are server-side. They use `HttpRequest` / `HttpResponse` and live
+Context routes are server-side. They use `Request` / `Response` and live
 on the server import surface. Use this shape when a route needs the ring context
 to call `async_send` without blocking the HTTP ring thread.
 
@@ -417,11 +417,11 @@ import conflux.http;
 import conflux.net.async_client;
 
 using ContextHandler =
-    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&)>;
+    CloneableFunction<root::Task<Response>(Request const&, RequestContext const&)>;
 
 Router& Router::get_context(std::string_view path, F&& handler);
-std::optional<HttpResponse>
-Router::dispatch_context(HttpRequest const&, RequestContext const&);
+std::optional<Response>
+Router::dispatch_context(Request const&, RequestContext const&);
 ```
 
 Use `dispatch_context(...)` because the function returns an optional response immediately and

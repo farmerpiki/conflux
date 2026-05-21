@@ -258,21 +258,17 @@ not print this report by default.
 
 ---
 
-## Server request and response aliases
+## Server request and response types
 
-The first-contact server namespace exposes canonical aliases:
+The first-contact server namespace exposes the canonical request and response vocabulary:
 
 - `http::Request` / `http::RequestView`: zero-copy request view for synchronous handlers;
 - `http::OwnedRequest`: owned request for coroutine handlers or escaped request data;
 - `http::Response`: server response builder/factory type;
 - `http::RunStatus` / `http::ServerMetrics`: server run result and metric snapshot types.
 
-The underlying exported structs remain `HttpRequestView`, `HttpRequest`, and
-`HttpResponse` while the pre-v1 cleanup is still in progress. Prefer the
-`http::*` names in new docs and examples.
-
 ```cpp
-struct HttpRequest {
+struct Request {
     std::string method;
     std::string path;
     std::string version;
@@ -287,7 +283,7 @@ struct HttpRequest {
     std::string body;
 };
 
-struct HttpRequestView {
+struct RequestView {
     std::string_view method;
     std::string_view path;
     std::string_view version;
@@ -301,7 +297,7 @@ struct HttpRequestView {
     std::span<UploadedFile const> files;
     std::string_view body;
 
-    HttpRequest to_owned() const;
+    Request to_owned() const;
 };
 ```
 
@@ -373,20 +369,20 @@ and floating-point types. Missing required fields produce
 ## Router
 
 ```cpp
-using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const&)>;
-using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const&, NextHandler const&)>;
+using NextHandler = CloneableFunction<Response(RequestView const&)>;
+using MiddlewareFunction = CloneableFunction<Response(RequestView const&, NextHandler const&)>;
 
 template<class R>
-concept HandlerResult = std::same_as<R, HttpResponse>
-                     || std::same_as<R, root::Task<HttpResponse>>;
+concept HandlerResult = std::same_as<R, Response>
+                     || std::same_as<R, root::Task<Response>>;
 
 template<class F>
-concept ViewHandler = requires(std::decay_t<F>& fn, HttpRequestView const& req) {
-    { std::invoke(fn, req) } -> std::same_as<HttpResponse>;
+concept ViewHandler = requires(std::decay_t<F>& fn, RequestView const& req) {
+    { std::invoke(fn, req) } -> std::same_as<Response>;
 };
 
 template<class F>
-concept RequestHandler = requires(std::decay_t<F>& fn, HttpRequest const& req) {
+concept RequestHandler = requires(std::decay_t<F>& fn, Request const& req) {
     { std::invoke(fn, req) } -> HandlerResult;
 };
 
@@ -394,23 +390,23 @@ template<class F> concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
 template<class F>
 concept ContextHandlerFunction = requires(std::decay_t<F>& fn,
-                                          HttpRequest const& req,
+                                          Request const& req,
                                           RequestContext const& ctx) {
-    { std::invoke(fn, req, ctx) } -> std::same_as<root::Task<HttpResponse>>;
+    { std::invoke(fn, req, ctx) } -> std::same_as<root::Task<Response>>;
 };
 
 template<class F>
 concept ViewMiddleware = requires(std::decay_t<F>& fn,
-                                  HttpRequestView const& req,
+                                  RequestView const& req,
                                   NextHandler const& next) {
-    { std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+    { std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 template<class F>
 concept RequestMiddleware = requires(std::decay_t<F>& fn,
-                                     HttpRequest const& req,
+                                     Request const& req,
                                      NextHandler const& next) {
-    { std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+    { std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 template<class F> concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
@@ -563,37 +559,37 @@ or QUIC drain correctness should be treated as separate protocol work.
 ## `http::Response`
 
 ```cpp
-class HttpResponse {
+class Response {
 public:
     static std::string_view status_text_for(int status) noexcept;
-    static HttpResponse with_body(std::string body, std::string content_type);
-    static HttpResponse with_body(std::string body, std::string content_type, int status);
-    static HttpResponse with_body(std::string body, std::string content_type, int status, std::string status_text);
-    static HttpResponse text(std::string body);
-    static HttpResponse text(std::string body, int status);
-    static HttpResponse text(std::string body, int status, std::string status_text);
-    static HttpResponse html(std::string body);
-    static HttpResponse html(std::string body, int status);
-    static HttpResponse html(std::string body, int status, std::string status_text);
-    static HttpResponse json(std::string already_serialized_body);
-    static HttpResponse json(std::string already_serialized_body, int status);
-    static HttpResponse json(std::string already_serialized_body, int status, std::string status_text);
-    static HttpResponse redirect(std::string_view location, int status = 302);
-    static HttpResponse not_found(std::string_view path = {});
-    static HttpResponse bad_request(std::string_view detail = {});
-    static HttpResponse unauthorized(std::string_view www_authenticate = {});
-    static HttpResponse forbidden(std::string_view detail = {});
-    static HttpResponse method_not_allowed(std::initializer_list<std::string_view> allowed = {});
-    static HttpResponse unprocessable_entity(std::string_view detail = {});
-    static HttpResponse uri_too_long();
-    static HttpResponse header_fields_too_large();
-    static HttpResponse content_too_large();
-    static HttpResponse bad_gateway(std::string_view detail = {});
-    static HttpResponse gateway_timeout();
-    static HttpResponse no_content();
-    static HttpResponse sse(std::shared_ptr<SseChannel>);
-    static HttpResponse deferred(std::shared_ptr<DeferredResponse>);
-    static HttpResponse internal_error(std::string_view detail = {});
+    static Response with_body(std::string body, std::string content_type);
+    static Response with_body(std::string body, std::string content_type, int status);
+    static Response with_body(std::string body, std::string content_type, int status, std::string status_text);
+    static Response text(std::string body);
+    static Response text(std::string body, int status);
+    static Response text(std::string body, int status, std::string status_text);
+    static Response html(std::string body);
+    static Response html(std::string body, int status);
+    static Response html(std::string body, int status, std::string status_text);
+    static Response json(std::string already_serialized_body);
+    static Response json(std::string already_serialized_body, int status);
+    static Response json(std::string already_serialized_body, int status, std::string status_text);
+    static Response redirect(std::string_view location, int status = 302);
+    static Response not_found(std::string_view path = {});
+    static Response bad_request(std::string_view detail = {});
+    static Response unauthorized(std::string_view www_authenticate = {});
+    static Response forbidden(std::string_view detail = {});
+    static Response method_not_allowed(std::initializer_list<std::string_view> allowed = {});
+    static Response unprocessable_entity(std::string_view detail = {});
+    static Response uri_too_long();
+    static Response header_fields_too_large();
+    static Response content_too_large();
+    static Response bad_gateway(std::string_view detail = {});
+    static Response gateway_timeout();
+    static Response no_content();
+    static Response sse(std::shared_ptr<SseChannel>);
+    static Response deferred(std::shared_ptr<DeferredResponse>);
+    static Response internal_error(std::string_view detail = {});
 };
 ```
 
@@ -613,7 +609,7 @@ helpers.
 
 ```cpp
 // SSE handlers are registered with router.sse(), not router.get().
-router.sse("/events", [](HttpRequestView const& req, std::shared_ptr<SseChannel> const& ch) {
+router.sse("/events", [](RequestView const& req, std::shared_ptr<SseChannel> const& ch) {
     ch->send("data: hello\n\n");
     ch->close();
 });
@@ -664,7 +660,7 @@ app.use([](http::RequestView const& req, http::Next const& next) {
 ## WebSocket
 
 ```cpp
-app.ws("/ws", [](HttpRequestView const& req, WsConn& ws) {
+app.ws("/ws", [](RequestView const& req, WsConn& ws) {
     while (auto frame = ws.recv()) {
         if (frame->opcode == WsConn::Opcode::Text) {
             ws.send_text(frame->payload);
@@ -704,12 +700,12 @@ blocking-fd transition before the handler owns the connection.
 ## Static/realtime component modules
 
 `StaticOptions` is exported by `conflux.net.http.static_files` / `conflux::http_static`.
-Server request vocabulary (`UploadedFile`, `HttpRequest`, `HttpRequestView`,
+Server request vocabulary (`UploadedFile`, `Request`, `RequestView`,
 `CloneableFunction`) is exported by `conflux.net.http.server_types`, which is
 part of `conflux::http_core`. SSE and WebSocket types/helpers (`SseOverflowPolicy`,
 `SseChannel`, `SseBroadcaster`, `WsConn`, `WsUpgrade`) are exported by
 `conflux.net.http.realtime` / `conflux::http_realtime`. HTTP response
-vocabulary (`HttpResponse`, `DeferredResponse`, mapped/streamed body carriers)
+vocabulary (`Response`, `DeferredResponse`, mapped/streamed body carriers)
 is exported by `conflux.net.http.response` / `conflux::http_response`. Static
 path/cache helpers live in `conflux.net.http.static_core` /
 `conflux::http_static_core`. Static root-dir ownership, contained `openat2`
@@ -758,7 +754,7 @@ Password storage uses the dedicated `conflux.net.password_hash` boundary; see `d
 Middleware wraps every matched route. Applied outermost-first in registration order.
 
 ```cpp
-router.use([](HttpRequestView req, NextHandler next) -> HttpResponse {
+router.use([](RequestView req, NextHandler next) -> Response {
     // pre-processing
     auto resp = next(req);
     // post-processing
@@ -884,7 +880,7 @@ app.get("/api/count", [] {
 });
 ```
 
-Raw serialized JSON can still use `HttpResponse::json(std::string)` in lower-level
+Raw serialized JSON can still use `Response::json(std::string)` in lower-level
 router code. Framework/reusable code that needs provider control should use
 `http::codec::json`, which keeps the JSON boundary explicit instead of binding
 route code to one concrete DOM:
@@ -892,16 +888,16 @@ route code to one concrete DOM:
 ```cpp
 import conflux.net.http.response_json;
 
-router.get("/api/count", [](HttpRequestView const &) {
+router.get("/api/count", [](RequestView const &) {
     return conflux::http::codec::json::response_or_internal_error_with<MyProvider>(
         static_cast<i64>(42));
 });
 
-router.post("/api/items", [](HttpRequestView const &) {
+router.post("/api/items", [](RequestView const &) {
     auto resp = conflux::http::codec::json::try_response_with<MyProvider>(
         ItemCreated{.id = 7},
         {.status = kHttpCreated, .status_text = "Created"});
-    return resp ? std::move(*resp) : HttpResponse::internal_error();
+    return resp ? std::move(*resp) : Response::internal_error();
 });
 ```
 
@@ -928,15 +924,15 @@ Application code that intentionally uses the current native provider can import
 ```cpp
 import conflux.net.http.native_json;
 
-router.get("/api/count", [](HttpRequestView const &) {
+router.get("/api/count", [](RequestView const &) {
     return conflux::http::codec::json::response_or_internal_error(static_cast<i64>(42));
 });
 ```
 
 `try_response_with` returns
-`std::expected<HttpResponse, json::boundary::Error>` and preserves
+`std::expected<Response, json::boundary::Error>` and preserves
 provider-neutral serialization failures. `response_or_internal_error_with` is
-the route helper for handlers that must return `HttpResponse`; it returns a
+the route helper for handlers that must return `Response`; it returns a
 fixed JSON 500 body when serialization fails.
 
 ---

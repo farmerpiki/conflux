@@ -452,9 +452,9 @@ export std::string jwt_sign(
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
 export Router::Middleware jwt_middleware(
 	JwtOptions opts) {
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto unauthorized = [](std::string_view www_auth) {
-			HttpResponse r;
+			Response r;
 			r.status = kHttpUnauthorized;
 			r.status_text = "Unauthorized";
 			r.content_type = "text/plain; charset=utf-8";

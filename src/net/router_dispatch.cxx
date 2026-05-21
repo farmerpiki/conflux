@@ -15,10 +15,10 @@ export template<typename Pool, typename Handler>
 void router_launch_sse_handler(
 	Pool const &pool,
 	Handler handler,
-	HttpRequest matched,
+	Request matched,
 	std::shared_ptr<SseChannel> const &channel) {
 	if (!pool->enqueue([h = std::move(handler), matched = std::move(matched), channel]() mutable {
-			HttpRequestView const matched_view{matched};
+			RequestView const matched_view{matched};
 			h(matched_view, channel);
 			channel->close();
 		})) {
@@ -26,10 +26,10 @@ void router_launch_sse_handler(
 	}
 }
 
-export HttpResponse router_defer_http_task(
-	conflux::work::root::Task<HttpResponse> task) {
+export Response router_defer_http_task(
+	conflux::work::root::Task<Response> task) {
 	auto deferred = std::make_shared<DeferredResponse>();
-	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
+	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<Response>>(
 		conflux::work::root::into_join_handle(std::move(task)));
 	deferred->attach_cancel(jh->control());
 	jh->control().set_on_ready_or_run([deferred, jh]() noexcept {
@@ -38,23 +38,23 @@ export HttpResponse router_defer_http_task(
 			if (outcome.is_success()) {
 				deferred->complete(std::move(outcome).success().value);
 			} else {
-				deferred->complete(HttpResponse::internal_error());
+				deferred->complete(Response::internal_error());
 			}
-		} catch (std::exception const &ex) {
-			deferred->complete(HttpResponse::internal_error(ex.what()));
-		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
+		} catch (std::exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
+			deferred->complete(Response::internal_error());
+		}
 	});
-	return HttpResponse::deferred(std::move(deferred));
+	return Response::deferred(std::move(deferred));
 }
 
-export HttpResponse router_run_async_http_task(
-	conflux::work::root::Task<HttpResponse> task) {
+export Response router_run_async_http_task(
+	conflux::work::root::Task<Response> task) {
 	return router_defer_http_task(std::move(task));
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] HttpResponse dispatch_immediate_routes(
-	HttpRequestView const &req,
+[[nodiscard]] Response dispatch_immediate_routes(
+	RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
@@ -84,7 +84,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
 				std::string_view const effective_method =
 					(is_head && route.method == "GET") ? std::string_view{"GET"} : req.method;
-				HttpRequestView const matched_view{
+				RequestView const matched_view{
 					effective_method,
 					req.path,
 					req.version,
@@ -107,10 +107,10 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 					return resp;
 				} catch (std::exception const &ex) {
-					return error_handler ? error_handler(matched_view, ex) : HttpResponse::internal_error(ex.what());
+					return error_handler ? error_handler(matched_view, ex) : Response::internal_error(ex.what());
 				} catch (...) {
 					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown std::exception"}) :
-										   HttpResponse::internal_error();
+										   Response::internal_error();
 				}
 			}
 		}
@@ -123,13 +123,13 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 															match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
 					auto channel = std::make_shared<SseChannel>();
-					HttpRequest matched = req.to_owned();
+					Request matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
 						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
 					matched.params.emplace_back("__conflux_route_pattern", segments_to_pattern(route.pattern));
 					router_launch_sse_handler(work_pool, route.handler, std::move(matched), channel);
-					auto resp = HttpResponse::sse(std::move(channel));
+					auto resp = Response::sse(std::move(channel));
 					if (observe_route) {
 						resp.headers.set("__conflux-route-pattern", segments_to_pattern(route.pattern));
 					}
@@ -141,13 +141,13 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		if (not_found_handler) {
 			return not_found_handler(req);
 		}
-		return HttpResponse::not_found(path_sv);
-	} catch (...) { return HttpResponse::internal_error(); }
+		return Response::not_found(path_sv);
+	} catch (...) { return Response::internal_error(); }
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] HttpResponse dispatch_sync_routes(
-	HttpRequestView const &req,
+[[nodiscard]] Response dispatch_sync_routes(
+	RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
@@ -167,8 +167,8 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<conflux::work::root::Task<HttpResponse>> dispatch_context_route_tasks(
-	HttpRequest const &req,
+[[nodiscard]] std::optional<conflux::work::root::Task<Response>> dispatch_context_route_tasks(
+	Request const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
@@ -182,7 +182,7 @@ export template<typename ContextRouteRange, typename Ctx>
 		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
 													match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
-			HttpRequest call_req = req;
+			Request call_req = req;
 			for (auto const &[k, v]: matched_params) {
 				if (!call_req.params.get(k)) {
 					call_req.params.emplace_back(std::string{k}, std::string{v});
@@ -190,23 +190,22 @@ export template<typename ContextRouteRange, typename Ctx>
 			}
 			auto pattern = segments_to_pattern(route.pattern);
 			call_req.params.emplace_back("__conflux_route_pattern", pattern);
-			return [](auto task,
-					  std::string route_pattern,
-					  bool should_annotate) -> conflux::work::root::Task<HttpResponse> {
-				auto resp = co_await std::move(task);
-				if (should_annotate) {
-					resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
-				}
-				co_return resp;
-			}(route.handler(call_req, ctx), std::move(pattern), observe_route);
+			return
+				[](auto task, std::string route_pattern, bool should_annotate) -> conflux::work::root::Task<Response> {
+					auto resp = co_await std::move(task);
+					if (should_annotate) {
+						resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+					}
+					co_return resp;
+				}(route.handler(call_req, ctx), std::move(pattern), observe_route);
 		}
 	}
 	return std::nullopt;
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<HttpResponse> dispatch_context_routes(
-	HttpRequest const &req,
+[[nodiscard]] std::optional<Response> dispatch_context_routes(
+	Request const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {

@@ -75,7 +75,7 @@ TEST_CASE(
 TEST_CASE(
 	"http3 listener binds and stops cleanly") {
 	Router router;
-	router.get("/", [](HttpRequestView const &) { return HttpResponse::text("hi"); });
+	router.get("/", [](RequestView const &) { return Response::text("hi"); });
 	Http3Config cfg{};
 	cfg.enabled = true;
 	UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
@@ -91,7 +91,7 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	Router router;
-	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
+	router.get("/ping", [](RequestView const &) { return Response::json(R"({"ok":true})"); });
 	conflux::tests::ScopedTestServer const srv{cfg, std::move(router)};
 
 	conflux::http::HttpClientOptions opts1{};
@@ -110,7 +110,7 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	Router def;
-	def.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
+	def.get("/ping", [](RequestView const &) { return Response::json(R"({"ok":true})"); });
 	VHostRouter vhosts;
 	vhosts.set_default(std::move(def));
 

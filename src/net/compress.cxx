@@ -488,7 +488,7 @@ export bool set_gzip_backend(
 // Skips small responses, SSE streams, and non-compressible MIME types.
 export Router::Middleware compress_middleware(
 	CompressOptions opts = {}) {
-	return [opts](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		if (!resp.is_text()) {

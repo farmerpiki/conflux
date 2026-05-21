@@ -48,7 +48,7 @@ void emit_rejection(
 	Ring &ring,
 	HttpRejectReason reason,
 	std::string_view alt_svc) {
-	HttpResponse r;
+	Response r;
 	r.status = reject_reason_status(reason);
 	switch (r.status) {
 	case 400: r.status_text = "Bad Request"; break;
@@ -190,7 +190,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = HttpResponse{};
+			auto r = Response{};
 			r.status = kHttpBadRequest;
 			r.status_text = "Bad Request";
 			r.content_type = "text/plain; charset=utf-8";
@@ -202,7 +202,7 @@ void dispatch_request(
 			return;
 		}
 		conn.own_response = format_response(
-			HttpResponse::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
+			Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
 			ring.alt_svc_header,
 			true);
 		conn.has_response = true;
@@ -317,18 +317,18 @@ void dispatch_request(
 
 	conn.request_bytes = header_end + 4 + body_stream_bytes;
 
-	HttpRequestView const
+	RequestView const
 		req{method, path, version, conn.remote_addr, conn.is_tls, params, headers, query, form, cookies, files, body};
 	auto const handler_started = std::chrono::steady_clock::now();
-	HttpResponse resp;
+	Response resp;
 	try {
 		if (auto async = ring.try_dispatch_context(req)) {
 			resp = std::move(*async);
 		} else {
 			resp = ring.dispatch(req);
 		}
-	} catch (std::exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
-		resp = HttpResponse::internal_error();
+	} catch (std::exception const &e) { resp = Response::internal_error(e.what()); } catch (...) {
+		resp = Response::internal_error();
 	}
 	if (ring.slow_handler_diagnostics) {
 		auto const elapsed_ms =
@@ -347,7 +347,7 @@ void dispatch_request(
 #if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
 			conn.own_response = format_response(
-				HttpResponse::internal_error("deferred responses unsupported over HTTP/2"),
+				Response::internal_error("deferred responses unsupported over HTTP/2"),
 				ring.alt_svc_header,
 				true);
 			conn.has_response = true;

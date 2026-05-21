@@ -14,11 +14,11 @@ import std;
 static Router make_api_router() {
 	Router api;
 	api.use(request_id_middleware());
-	api.get("/status", [](HttpRequest const &req) {
-		return HttpResponse::json(std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));
+	api.get("/status", [](Request const &req) {
+		return Response::json(std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));
 	});
-	api.get("/users/{id}", [](HttpRequest const &req) {
-		return HttpResponse::json(std::format(R"({{"id":"{}","name":"example"}})", req.params["id"]));
+	api.get("/users/{id}", [](Request const &req) {
+		return Response::json(std::format(R"({{"id":"{}","name":"example"}})", req.params["id"]));
 	});
 	api.get("/openapi.json", openapi_handler(api, "api.local.test", "0.1.0"));
 	return api;
@@ -26,9 +26,9 @@ static Router make_api_router() {
 
 static Router make_web_router() {
 	Router web;
-	web.get("/status", [](HttpRequest const &) { return HttpResponse::html("<h1>web ok</h1>"); });
-	web.get("/", [](HttpRequest const &) {
-		return HttpResponse::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
+	web.get("/status", [](Request const &) { return Response::html("<h1>web ok</h1>"); });
+	web.get("/", [](Request const &) {
+		return Response::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
 	});
 	return web;
 }
@@ -39,8 +39,8 @@ int main() {
 	hosts.add("web.local.test", make_web_router());
 
 	Router fallback;
-	fallback.get("/status", [](HttpRequest const &req) {
-		return HttpResponse::text(std::format("default host handler: {}\n", req.headers["host"]));
+	fallback.get("/status", [](Request const &req) {
+		return Response::text(std::format("default host handler: {}\n", req.headers["host"]));
 	});
 	hosts.set_default(std::move(fallback));
 

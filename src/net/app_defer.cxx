@@ -9,31 +9,31 @@ import conflux.work;
 export namespace conflux::http {
 
 template<typename Fn>
-	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, HttpResponse>)
-[[nodiscard]] HttpResponse defer(
+	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, Response>)
+[[nodiscard]] Response defer(
 	std::shared_ptr<WorkPool> const &pool,
 	Fn &&fn,
 	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
 	if (!pool) {
-		return HttpResponse::internal_error("defer: null pool");
+		return Response::internal_error("defer: null pool");
 	}
 	auto deferred = std::make_shared<DeferredResponse>(timeout);
 	bool const enqueued = pool->enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (std::exception const &ex) {
-			deferred->complete(HttpResponse::internal_error(ex.what()));
-		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
+		} catch (std::exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
+			deferred->complete(Response::internal_error());
+		}
 	});
 	if (!enqueued) {
-		return HttpResponse::internal_error("offload queue full");
+		return Response::internal_error("offload queue full");
 	}
-	return HttpResponse::deferred(std::move(deferred));
+	return Response::deferred(std::move(deferred));
 }
 
 template<typename Fn>
-	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, HttpResponse>)
-[[nodiscard]] HttpResponse defer(
+	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, Response>)
+[[nodiscard]] Response defer(
 	WorkPool &pool,
 	Fn &&fn,
 	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
@@ -41,14 +41,14 @@ template<typename Fn>
 	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (std::exception const &ex) {
-			deferred->complete(HttpResponse::internal_error(ex.what()));
-		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
+		} catch (std::exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
+			deferred->complete(Response::internal_error());
+		}
 	});
 	if (!enqueued) {
-		return HttpResponse::internal_error("offload queue full");
+		return Response::internal_error("offload queue full");
 	}
-	return HttpResponse::deferred(std::move(deferred));
+	return Response::deferred(std::move(deferred));
 }
 
 } // namespace conflux::http

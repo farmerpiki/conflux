@@ -34,7 +34,7 @@ export struct SecurityOptions {
 // Middleware factory: inject security headers into every response.
 export Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {

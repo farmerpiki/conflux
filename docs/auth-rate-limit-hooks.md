@@ -61,7 +61,7 @@ AuthFailureLimiter login_limiter{AuthThrottleOptions{
 
 router.use(auth_throttle_middleware(
     login_limiter,
-    [](HttpRequestView const& req) {
+    [](RequestView const& req) {
         return auth_throttle_form_key(req, "username");
     }));
 ```
@@ -71,7 +71,7 @@ For account+IP policies, compose the subject in the selector:
 ```cpp
 router.use(auth_throttle_middleware(
     login_limiter,
-    [](HttpRequestView const& req) -> std::optional<std::string> {
+    [](RequestView const& req) -> std::optional<std::string> {
         auto account = auth_throttle_form_key(req, "username");
         if (!account) {
             return std::nullopt;

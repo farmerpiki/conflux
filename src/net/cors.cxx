@@ -75,7 +75,7 @@ std::string_view resolve_origin(
 void inject_cors_headers(
 	PreparedCorsOptions const &policy,
 	std::string_view request_origin,
-	HttpResponse &resp) {
+	Response &resp) {
 	auto origin = resolve_origin(policy, request_origin);
 	if (origin.empty()) {
 		return;
@@ -97,14 +97,14 @@ void inject_cors_headers(
 export Router::Middleware cors_middleware(
 	CorsOptions opts = {}) {
 	auto policy = cors_detail::PreparedCorsOptions{std::move(opts)};
-	return [policy = std::move(policy)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [policy = std::move(policy)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto request_origin = req.headers["origin"];
 
 		// Preflight: OPTIONS + Origin + Access-Control-Request-Method
 		if (req.method == "OPTIONS"
 			&& !request_origin.empty()
 			&& !req.headers["access-control-request-method"].empty()) {
-			HttpResponse preflight{.status = kHttpNoContent, .status_text = "No Content", .content_type = "text/plain"};
+			Response preflight{.status = kHttpNoContent, .status_text = "No Content", .content_type = "text/plain"};
 			auto origin = cors_detail::resolve_origin(policy, request_origin);
 			if (!origin.empty()) {
 				preflight.headers["Access-Control-Allow-Origin"] = origin;

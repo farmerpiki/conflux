@@ -272,7 +272,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_request_view_task
-                "Async handlers must take HttpRequest const&, not HttpRequestView const&"
+                "Async handlers must take Request const&, not RequestView const&"
                 "the view can dangle after coroutine suspension")
     set_tests_properties(http-facade/compile-fail-request-view-task PROPERTIES
         LABELS "http;compile-fail"

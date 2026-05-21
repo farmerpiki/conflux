@@ -63,8 +63,8 @@ public:
 		}
 		return default_ != nullptr ? default_->work_pool() : nullptr;
 	}
-	[[nodiscard]] HttpResponse dispatch(
-		HttpRequestView const &req) const {
+	[[nodiscard]] Response dispatch(
+		RequestView const &req) const {
 		auto host = ascii_lower(normalized_host(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
@@ -73,11 +73,11 @@ public:
 		if (default_) {
 			return default_->dispatch(req);
 		}
-		return HttpResponse::not_found(req.path);
+		return Response::not_found(req.path);
 	}
-	[[nodiscard]] HttpResponse dispatch(
-		HttpRequest const &req) const {
-		return dispatch(HttpRequestView{req});
+	[[nodiscard]] Response dispatch(
+		Request const &req) const {
+		return dispatch(RequestView{req});
 	}
 	[[nodiscard]] bool has_context_routes() const noexcept {
 		for (auto const &[h, r]: vhosts_) {
@@ -87,8 +87,8 @@ public:
 		}
 		return default_ && default_->has_context_routes();
 	}
-	[[nodiscard]] std::optional<HttpResponse> dispatch_context(
-		HttpRequest const &req,
+	[[nodiscard]] std::optional<Response> dispatch_context(
+		Request const &req,
 		RequestContext const &ctx) const {
 		auto host = ascii_lower(normalized_host(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});

@@ -19,6 +19,6 @@ export struct ProxyOptions {
 	int timeout_sec{10};
 };
 
-export HttpResponse blocking_proxy(HttpRequestView const &req, ProxyOptions const &opts);
+export Response blocking_proxy(RequestView const &req, ProxyOptions const &opts);
 
-export wroot::Task<HttpResponse> async_proxy(HttpRequest const &req, ProxyOptions const &opts, SocketTaskRing &ring);
+export wroot::Task<Response> async_proxy(Request const &req, ProxyOptions const &opts, SocketTaskRing &ring);

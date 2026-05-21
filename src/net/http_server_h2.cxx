@@ -324,7 +324,7 @@ ssize_t Ring::h2_read_cb(
 void Ring::h2_submit_response(
 	Conn &conn,
 	std::int32_t stream_id,
-	HttpResponse resp) {
+	Response resp) {
 	auto it = conn.h2_streams.find(stream_id);
 	if (it == conn.h2_streams.end()) {
 		return;
@@ -332,13 +332,13 @@ void Ring::h2_submit_response(
 	auto &stream = it->second;
 
 	if (resp.is_deferred()) {
-		resp = HttpResponse::internal_error("nested deferred responses unsupported over HTTP/2");
+		resp = Response::internal_error("nested deferred responses unsupported over HTTP/2");
 	}
 	if (resp.is_ws_upgrade()) {
-		resp = HttpResponse::internal_error("websocket upgrades unsupported over HTTP/2");
+		resp = Response::internal_error("websocket upgrades unsupported over HTTP/2");
 	}
 	if (resp.is_mapped_file()) {
-		resp = HttpResponse::internal_error("mapped files unsupported over HTTP/2");
+		resp = Response::internal_error("mapped files unsupported over HTTP/2");
 	}
 
 	bool const is_sse_resp = resp.is_sse();
@@ -465,14 +465,14 @@ int Ring::h2_on_frame_recv_cb(
 		parse_cookies(cookie, cookies);
 	}
 
-	HttpRequestView const
+	RequestView const
 		req{method, path, version, conn.remote_addr, true, params, stream.headers, query, form, cookies, files, body};
 
-	HttpResponse resp;
+	Response resp;
 	try {
 		resp = ctx->ring->dispatch(req);
-	} catch (std::exception const &e) { resp = HttpResponse::internal_error(e.what()); } catch (...) {
-		resp = HttpResponse::internal_error();
+	} catch (std::exception const &e) { resp = Response::internal_error(e.what()); } catch (...) {
+		resp = Response::internal_error();
 	}
 
 	if (resp.is_deferred()) {

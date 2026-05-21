@@ -82,7 +82,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 }
 
 [[nodiscard]] std::string path_without_query(
-	HttpRequestView const &req,
+	RequestView const &req,
 	bool include_query) {
 	std::string_view path{req.path};
 	if (!include_query) {
@@ -94,8 +94,8 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 }
 
 [[nodiscard]] std::string route_label(
-	HttpRequestView const &req,
-	HttpResponse const &resp) {
+	RequestView const &req,
+	Response const &resp) {
 	if (auto route = resp.headers.get("__conflux-route-pattern"); route && !route->empty()) {
 		return std::string{*route};
 	}
@@ -183,8 +183,8 @@ void append_headers_json(
 [[nodiscard]] std::string access_log_line(
 	ObservabilityOptions const &opts,
 	std::vector<std::string> const &sensitive,
-	HttpRequestView const &req,
-	HttpResponse const &resp,
+	RequestView const &req,
+	Response const &resp,
 	std::chrono::steady_clock::duration elapsed) {
 	auto const route = route_label(req, resp);
 	auto const request_id = req.header("x-request-id");
@@ -411,8 +411,8 @@ struct ObservabilityRegistry {
 
 	void observe(
 		ObservabilityOptions const &opts,
-		HttpRequestView const &req,
-		HttpResponse const &resp,
+		RequestView const &req,
+		Response const &resp,
 		std::chrono::steady_clock::duration elapsed) {
 		auto const route = route_label(req, resp);
 		auto const method = upper_method(req.method);
@@ -563,12 +563,12 @@ struct ObservabilityMiddleware {
 	ObservabilityOptions options;
 	std::shared_ptr<observability_detail::ObservabilityState> state;
 
-	[[nodiscard]] HttpResponse operator ()(
-		HttpRequestView const &req,
+	[[nodiscard]] Response operator ()(
+		RequestView const &req,
 		Router::Handler const &next) const {
 		auto observed_req = req.to_owned();
 		observed_req.params.set("__conflux_observe_route", "1");
-		HttpRequestView const observed_view{observed_req};
+		RequestView const observed_view{observed_req};
 		auto start = std::chrono::steady_clock::now();
 		auto resp = next(observed_view);
 		auto elapsed = std::chrono::steady_clock::now() - start;
@@ -638,8 +638,8 @@ struct ObservabilityMiddleware {
 #if CONFLUX_HAS_METRICS
 [[nodiscard]] Router::Handler observability_metrics_handler(
 	ObservabilityMiddleware const &middleware) {
-	return [state = middleware.state](HttpRequestView const &) -> HttpResponse {
-		HttpResponse r;
+	return [state = middleware.state](RequestView const &) -> Response {
+		Response r;
 		r.status = kHttpOk;
 		r.status_text = "OK";
 		r.content_type = "text/plain; version=0.0.4; charset=utf-8";

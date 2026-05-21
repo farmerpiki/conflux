@@ -74,7 +74,7 @@ inline std::string build_query(
 // unreserved set) and appended to the Location header.
 export Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
-	return [opts](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
 		auto const &path = req.path;
 
 		// Never touch the root.
@@ -96,7 +96,7 @@ export Router::Middleware trailing_slash_middleware(
 			case 308: status_text = "Permanent Redirect"; break;
 			default : break;
 			}
-			HttpResponse r{
+			Response r{
 				.status = opts.redirect_status,
 				.status_text = status_text,
 				.content_type = "text/plain; charset=utf-8"};

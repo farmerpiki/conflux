@@ -90,8 +90,8 @@ int main() {
 	}));
 	app.use(structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
 
-	app.get("/", [](HttpRequest const &) {
-		return HttpResponse::html(
+	app.get("/", [](Request const &) {
+		return Response::html(
 			"<html><body><h1>policy stack</h1>"
 			"<ul>"
 			"<li><a href='/dashboard'>/dashboard</a></li>"
@@ -102,21 +102,21 @@ int main() {
 			"</ul></body></html>");
 	});
 
-	app.get("/dashboard", [](HttpRequest const &req) {
-		return HttpResponse::text(
+	app.get("/dashboard", [](Request const &req) {
+		return Response::text(
 			format("dashboard request_id={} trace={}\n", req.headers["x-request-id"], req.headers["traceparent"]));
 	});
 
-	app.get("/v2/users", [](HttpRequest const &req) {
-		return HttpResponse::json(
+	app.get("/v2/users", [](Request const &req) {
+		return Response::json(
 			std::format(
 				R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
 				req.remote_addr,
 				req.headers["x-request-id"]));
 	});
 
-	app.get("/form", [](HttpRequest const &req) {
-		return HttpResponse::html(
+	app.get("/form", [](Request const &req) {
+		return Response::html(
 			std::format(
 				"<html><body><h1>CSRF form</h1>"
 				"<form method='post' action='/submit'>"
@@ -127,20 +127,20 @@ int main() {
 				req.cookies["csrf_token"]));
 	});
 
-	app.get("/login", [](HttpRequest const &) {
-		auto resp = HttpResponse::text("signed session cookie set; try /me\n");
+	app.get("/login", [](Request const &) {
+		auto resp = Response::text("signed session cookie set; try /me\n");
 		resp.set_cookie("session", sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 
-	app.get("/me", [](HttpRequest const &req) {
+	app.get("/me", [](Request const &req) {
 		auto user = req.cookies["session"];
-		return user.empty() ? HttpResponse::unauthorized("Session") :
-							  HttpResponse::text(std::format("session user={}\n", user));
+		return user.empty() ? Response::unauthorized("Session") :
+							  Response::text(std::format("session user={}\n", user));
 	});
 
-	app.post("/submit", [](HttpRequest const &req) {
-		return HttpResponse::text(std::format("accepted value={}\n", req.form["value"]));
+	app.post("/submit", [](Request const &req) {
+		return Response::text(std::format("accepted value={}\n", req.form["value"]));
 	});
 
 	std::vector<Router::Middleware> openapi_auth;

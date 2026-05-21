@@ -15,8 +15,8 @@ export struct IpFilterOptions {
 };
 namespace ip_filter_detail {
 
-HttpResponse forbidden() {
-	HttpResponse r;
+Response forbidden() {
+	Response r;
 	r.status = 403;
 	r.status_text = "Forbidden";
 	r.content_type = "text/plain; charset=utf-8";
@@ -33,7 +33,7 @@ export Router::Middleware ip_filter_middleware(
 	auto parsed = parse_cidr_list(opts.cidrs);
 
 	return [opts = std::move(opts),
-			parsed = std::move(parsed)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+			parsed = std::move(parsed)](RequestView const &req, Router::Handler const &next) -> Response {
 		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
 		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
 

@@ -16,36 +16,36 @@ TEST_CASE(
 	Router router;
 
 	// Two logging middlewares — verify execution order (A then B, outermost first).
-	router.use([](HttpRequest const &req, Router::Handler const &next) {
+	router.use([](Request const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "A";
 		return resp;
 	});
-	router.use([](HttpRequest const &req, Router::Handler const &next) {
+	router.use([](Request const &req, Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "B";
 		return resp;
 	});
 
 	// Auth guard: requires X-Api-Key: secret.
-	router.use([](HttpRequest const &req, Router::Handler const &next) {
+	router.use([](Request const &req, Router::Handler const &next) {
 		if (req.path == "/protected" && req.headers["x-api-key"] != "secret") {
-			return HttpResponse::html("Forbidden", 403, "Forbidden");
+			return Response::html("Forbidden", 403, "Forbidden");
 		}
 		return next(req);
 	});
 
 	// Middleware that enriches the request before passing downstream.
-	router.use([](HttpRequest const &req, Router::Handler const &next) {
-		HttpRequest enriched = req;
+	router.use([](Request const &req, Router::Handler const &next) {
+		Request enriched = req;
 		enriched.headers["x-injected"] = "injected-value";
 		return next(enriched);
 	});
 
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-	router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-	router.get("/injected", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.headers["x-injected"]});
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
+	router.get("/protected", [](Request const &) { return Response::text("secret"); });
+	router.get("/injected", [](Request const &req) {
+		return Response::text(std::string{req.headers["x-injected"]});
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -114,7 +114,7 @@ TEST_CASE(
 	cfg.max_body_size = 64; // tiny limit for testing
 
 	Router router;
-	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
+	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const limit_port = srv.port();
@@ -160,7 +160,7 @@ TEST_CASE(
 	std::string path = "/";
 	path.append(50, 'a');
 	Router router;
-	router.post(path, [](HttpRequest const &req) { return HttpResponse::text(req.body); });
+	router.post(path, [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -323,19 +323,19 @@ TEST_CASE(
 
 	Router router;
 
-	router.on_not_found([](HttpRequest const &req) {
-		return HttpResponse::json(std::format(R"({{"error":"not_found","path":"{}"}})", req.path));
+	router.on_not_found([](Request const &req) {
+		return Response::json(std::format(R"({{"error":"not_found","path":"{}"}})", req.path));
 	});
 
-	router.on_error([](HttpRequest const &, std::exception const &ex) {
-		return HttpResponse::json(
+	router.on_error([](Request const &, std::exception const &ex) {
+		return Response::json(
 			std::format(R"({{"error":"internal","detail":"{}"}})", ex.what()),
 			500,
 			"Internal Server Error");
 	});
 
-	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("all good"); });
-	router.get("/boom", [](HttpRequest const &) -> HttpResponse { throw std::runtime_error{"something exploded"}; });
+	router.get("/ok", [](Request const &) { return Response::text("all good"); });
+	router.get("/boom", [](Request const &) -> Response { throw std::runtime_error{"something exploded"}; });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const err_port = srv.port();
@@ -383,10 +383,10 @@ TEST_CASE(
 	"throwing middleware returns per-request 500") {
 	Config cfg = Config::test();
 	Router router;
-	router.use([](HttpRequest const &, Router::Handler const &) -> HttpResponse {
+	router.use([](Request const &, Router::Handler const &) -> Response {
 		throw std::runtime_error{"middleware crash"};
 	});
-	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	router.get("/ok", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -504,7 +504,7 @@ TEST_CASE(
 	cfg.max_body_size = 16U * 1024U;
 	cfg.parser_limits.max_chunks = 20000;
 	Router router;
-	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
+	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	std::string chunks;
@@ -1308,7 +1308,7 @@ TEST_CASE(
 	cfg.request_timeout_ms = 1500; // 1.5 s — shorter than the 1s timer tick + margin
 
 	Router router;
-	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	router.get("/ok", [](Request const &) { return Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const timeout_port = srv.port();
@@ -1356,9 +1356,9 @@ TEST_CASE(
 	cfg.slow_handler_warn_ms = 1;
 
 	Router router;
-	router.get("/slow", [](HttpRequest const &) {
+	router.get("/slow", [](Request const &) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(20));
-		return HttpResponse::text("slow-ok");
+		return Response::text("slow-ok");
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -1397,8 +1397,8 @@ TEST_CASE(
 		std::scoped_lock lk{lines_mtx};
 		lines.push_back(line);
 	}));
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-	router.get("/missing", [](HttpRequest const &req) { return HttpResponse::not_found(req.path); });
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
+	router.get("/missing", [](Request const &req) { return Response::not_found(req.path); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const log_port = srv.port();
@@ -1447,7 +1447,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, WsConn &ws) {
 		// Echo all text frames until connection closes.
 		while (auto frame = ws.recv()) {
 			if (frame->opcode == WsConn::Opcode::Text) {
@@ -1630,7 +1630,7 @@ TEST_CASE(
 
 	Router router;
 	router.use(security_headers_middleware(sopts));
-	router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	router.get("/", [](Request const &) { return Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
@@ -1653,7 +1653,7 @@ TEST_CASE(
 
 	Router router;
 	router.use(security_headers_middleware(sopts));
-	router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	router.get("/", [](Request const &) { return Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
@@ -1667,7 +1667,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(security_headers_middleware({.hsts_max_age = 0}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -1680,7 +1680,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(security_headers_middleware({.frame_options = ""}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -1821,7 +1821,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
+		router.get("/", [](Request const &) { return Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -1845,9 +1845,9 @@ TEST_CASE(
 			.failed_window = std::chrono::seconds{60},
 			.max_failed_clients = 0,
 		}));
-	router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
+	router.get("/", [](Request const &) { return Response::text("x"); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/";
 	req.remote_addr = "127.0.0.1";
@@ -1881,7 +1881,7 @@ TEST_CASE(
 				.failed_window = std::chrono::seconds{60},
 				.max_failed_clients = 8,
 			}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
+		router.get("/", [](Request const &) { return Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 
@@ -1974,7 +1974,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{10}}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	http_get_on(port, "/"); // consume the one allowed request
@@ -2032,17 +2032,17 @@ void ensure_tls_server() {
 		cfg.key_file = key_tmp;
 
 		Router router;
-		router.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"tls":true})"); });
-		router.get("/hello/{name}", [](HttpRequest const &req) {
-			return HttpResponse::text(std::format("hello {}", req.params["name"]));
+		router.get("/ping", [](Request const &) { return Response::json(R"({"tls":true})"); });
+		router.get("/hello/{name}", [](Request const &req) {
+			return Response::text(std::format("hello {}", req.params["name"]));
 		});
-		router.post("/echo", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-		router.put("/put/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
+		router.post("/echo", [](Request const &req) { return Response::text(req.body); });
+		router.put("/put/{id}", [](Request const &req) {
+			return Response::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 		});
-		router.get("/notfound-test", [](HttpRequest const &) -> HttpResponse {
+		router.get("/notfound-test", [](Request const &) -> Response {
 			// deliberately absent — router returns 404
-			return HttpResponse::not_found("notfound-test");
+			return Response::not_found("notfound-test");
 		});
 
 		g_tls_port = start_mw_server(cfg, std::move(router));
@@ -2304,7 +2304,7 @@ TEST_CASE(
 	cfg.key_file = key_tmp;
 
 	Router router;
-	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, WsConn &ws) {
 		while (auto f = ws.recv()) {
 			if (f->opcode == WsConn::Opcode::Text) {
 				if (!ws.send_text(f->payload)) {
@@ -2484,7 +2484,7 @@ TEST_CASE(
 			.use_x_forwarded_for = false,
 			.use_x_real_ip = true,
 		}));
-		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.remote_addr}); });
+		router.get("/addr", [](Request const &req) { return Response::text(std::string{req.remote_addr}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// X-Forwarded-For is set but should be ignored; X-Real-IP wins.
@@ -2502,8 +2502,8 @@ TEST_CASE(
 							 Router r;
 							 r.use(forwarded_middleware({})); // strict: no trusted proxies
 							 // Echo the header as-seen by the downstream handler.
-							 r.get("/xff", [](HttpRequest const &req) {
-								 return HttpResponse::text(std::string{req.headers["x-forwarded-for"]});
+							 r.get("/xff", [](Request const &req) {
+								 return Response::text(std::string{req.headers["x-forwarded-for"]});
 							 });
 							 return r;
 						 }()};
@@ -2563,8 +2563,8 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-request-id"]});
+		router.get("/", [](Request const &req) {
+			return Response::text(std::string{req.headers["x-request-id"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2584,8 +2584,8 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-trace-id"]});
+		router.get("/", [](Request const &req) {
+			return Response::text(std::string{req.headers["x-trace-id"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2629,7 +2629,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(ip_filter_middleware({.mode = IpFilterMode::allowlist, .cidrs = {}}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -2679,8 +2679,8 @@ TEST_CASE(
 		router.use(cache_control_middleware({
 			.rules = {{"text/html", "max-age=60"}},
 		}));
-		router.get("/", [](HttpRequest const &) {
-			HttpResponse r;
+		router.get("/", [](Request const &) {
+			Response r;
 			r.content_type = "text/html; charset=utf-8";
 			r.set_text_body("<p/>");
 			return r;
@@ -2699,7 +2699,7 @@ TEST_CASE(
 		router.use(cache_control_middleware({
 			.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
 		}));
-		router.get("/any", [](HttpRequest const &) { return HttpResponse::text("x"); });
+		router.get("/any", [](Request const &) { return Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/any");
@@ -2798,9 +2798,9 @@ void ensure_jwt_server() {
 		Config const cfg{.port = 0, .rings = 1};
 		Router router;
 		router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
-		router.get("/api/protected", [](HttpRequest const &req) {
+		router.get("/api/protected", [](Request const &req) {
 			auto sub = req.params["jwt_sub"];
-			return HttpResponse::json(std::format(R"({{"sub":"{}"}})", sub));
+			return Response::json(std::format(R"({{"sub":"{}"}})", sub));
 		});
 		g_jwt_port = test_servers().start(cfg, std::move(router));
 	});
@@ -2880,8 +2880,8 @@ TEST_CASE(
 	Config const cfg{.port = 0, .rings = 1};
 	Router router;
 	router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
-	router.get("/api/protected/{jwt_sub}", [](HttpRequest const &req) {
-		return HttpResponse::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
+	router.get("/api/protected/{jwt_sub}", [](Request const &req) {
+		return Response::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
 	});
 	auto port = test_servers().start(cfg, std::move(router));
 	auto token = jwt_sign(R"({"sub":"victim"})", "sec");

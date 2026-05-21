@@ -27,7 +27,7 @@ export struct RedirectOptions {
 // Rules are evaluated in order; first match wins.
 export Router::Middleware redirect_middleware(
 	RedirectOptions opts = {}) {
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		for (auto const &rule: opts.rules) {
 			bool matched = false;
 			std::string target = rule.to;
@@ -35,7 +35,7 @@ export Router::Middleware redirect_middleware(
 				if (req.path.starts_with(rule.from)) {
 					auto const suffix = req.path.substr(rule.from.size());
 					if (!is_safe_redirect_suffix(suffix)) {
-						return HttpResponse::not_found(req.path);
+						return Response::not_found(req.path);
 					}
 					matched = true;
 					target += suffix;
@@ -44,7 +44,7 @@ export Router::Middleware redirect_middleware(
 				matched = (req.path == rule.from);
 			}
 			if (matched) {
-				return HttpResponse::redirect(std::move(target), rule.status);
+				return Response::redirect(std::move(target), rule.status);
 			}
 		}
 		return next(req);

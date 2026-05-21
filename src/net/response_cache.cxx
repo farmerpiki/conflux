@@ -23,7 +23,7 @@ export struct ResponseCacheOptions {
 };
 // Internal cache entry type (not exported; module-scope to avoid GCC TU-local error).
 struct RespCacheEntry {
-	HttpResponse resp;
+	Response resp;
 	std::chrono::steady_clock::time_point expires;
 };
 
@@ -267,7 +267,7 @@ export Router::Middleware response_cache_middleware(
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
 	auto mtx = std::make_shared<std::mutex>();
 
-	return [opts, cache, mtx](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts, cache, mtx](RequestView const &req, Router::Handler const &next) -> Response {
 		bool const is_head = req.method == "HEAD";
 		if (req.method != "GET" && !is_head) {
 			return next(req);

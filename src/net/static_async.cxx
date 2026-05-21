@@ -230,16 +230,16 @@ conflux::work::root::Task<void> do_delete_static_file(
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
-HttpResponse handle_static_get_request(
+Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return HttpResponse::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
 		}
 
 		StaticRequest const sreq{
@@ -259,28 +259,28 @@ HttpResponse handle_static_get_request(
 				[rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
-					} catch (...) { dr->complete(HttpResponse::internal_error()); }
+					} catch (...) { dr->complete(Response::internal_error()); }
 				});
 			if (!ok) {
-				return HttpResponse::internal_error("offload queue full");
+				return Response::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		return handle_static_get(rd, root_fd, sopts, sreq, static_cache);
-	} catch (...) { return HttpResponse::internal_error(); }
+	} catch (...) { return Response::internal_error(); }
 }
 
-HttpResponse handle_static_put(
+Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return HttpResponse::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
 		}
 		auto full_path = rd + *norm;
 		std::string_view rel_sv = std::string_view{*norm};
@@ -300,7 +300,7 @@ HttpResponse handle_static_put(
 			auto dr = std::make_shared<DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
 			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, std::string{rel}).detach();
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
@@ -316,42 +316,42 @@ HttpResponse handle_static_put(
 												   dr]() mutable {
 				auto r = blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
 				if (!r) {
-					dr->complete(HttpResponse::internal_error());
+					dr->complete(Response::internal_error());
 					return;
 				}
 				static_cache.evict_all_encodings(full_path);
-				HttpResponse resp;
+				Response resp;
 				resp.status = existed ? kHttpNoContent : kHttpCreated;
 				resp.status_text = existed ? "No Content" : "Created";
 				dr->complete(std::move(resp));
 			});
 			if (!ok) {
-				return HttpResponse::internal_error("offload queue full");
+				return Response::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
-			return HttpResponse::internal_error();
+			return Response::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
-		HttpResponse resp;
+		Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
 		return resp;
-	} catch (...) { return HttpResponse::internal_error(); }
+	} catch (...) { return Response::internal_error(); }
 }
 
-HttpResponse handle_static_delete(
+Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	HttpRequestView const &req,
+	RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return HttpResponse::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
 		}
 		auto full_path = rd + *norm;
 		std::string_view rel_sv = std::string_view{*norm};
@@ -362,7 +362,7 @@ HttpResponse handle_static_delete(
 
 		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
 		if (probe < 0) {
-			return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::forbidden();
+			return errno == ENOENT ? Response::not_found(*norm) : Response::forbidden();
 		}
 		::close(probe);
 
@@ -370,7 +370,7 @@ HttpResponse handle_static_delete(
 			auto dr = std::make_shared<DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
 			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
@@ -380,29 +380,28 @@ HttpResponse handle_static_delete(
 				[full_path = std::move(full_path), rel = std::move(rel), rfd, &static_cache, dr]() mutable {
 					try {
 						if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
-							dr->complete(
-								errno == ENOENT ? HttpResponse::not_found(full_path) : HttpResponse::internal_error());
+							dr->complete(errno == ENOENT ? Response::not_found(full_path) : Response::internal_error());
 							return;
 						}
 						static_cache.evict_all_encodings(full_path);
-						dr->complete(HttpResponse::no_content());
-					} catch (...) { dr->complete(HttpResponse::internal_error()); }
+						dr->complete(Response::no_content());
+					} catch (...) { dr->complete(Response::internal_error()); }
 				});
 			if (!ok) {
-				return HttpResponse::internal_error("offload queue full");
+				return Response::internal_error("offload queue full");
 			}
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		if (::unlinkat(root_fd, rel.c_str(), 0) != 0) {
-			return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::internal_error();
+			return errno == ENOENT ? Response::not_found(*norm) : Response::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
-		return HttpResponse::no_content();
-	} catch (...) { return HttpResponse::internal_error(); }
+		return Response::no_content();
+	} catch (...) { return Response::internal_error(); }
 }
 
-HttpResponse handle_static_get(
+Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &static_options,
@@ -421,11 +420,11 @@ HttpResponse handle_static_get(
 		int const probe_fd = rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
 											   contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
 		if (probe_fd < 0) {
-			return HttpResponse::not_found(file_param);
+			return Response::not_found(file_param);
 		}
 		if (::fstat(probe_fd, &st) != 0) {
 			::close(probe_fd);
-			return HttpResponse::not_found(file_param);
+			return Response::not_found(file_param);
 		}
 		::close(probe_fd);
 
@@ -443,7 +442,7 @@ HttpResponse handle_static_get(
 									contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
 									contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 				if (dfd < 0) {
-					return HttpResponse::html(
+					return Response::html(
 						"<html><body><h1>403 Forbidden</h1></body></html>",
 						kHttpForbidden,
 						"Forbidden");
@@ -451,7 +450,7 @@ HttpResponse handle_static_get(
 				auto *dir = ::fdopendir(dfd);
 				if (dir == nullptr) {
 					::close(dfd);
-					return HttpResponse::html(
+					return Response::html(
 						"<html><body><h1>403 Forbidden</h1></body></html>",
 						kHttpForbidden,
 						"Forbidden");
@@ -486,12 +485,9 @@ HttpResponse handle_static_get(
 					html += "</a></li>";
 				}
 				html += "</ul></body></html>";
-				return HttpResponse::html(std::move(html));
+				return Response::html(std::move(html));
 			} else {
-				return HttpResponse::html(
-					"<html><body><h1>403 Forbidden</h1></body></html>",
-					kHttpForbidden,
-					"Forbidden");
+				return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
 			}
 		}
 
@@ -553,7 +549,7 @@ HttpResponse handle_static_get(
 
 		// 304 Not Modified checks.
 		if (auto const &inm = r.if_none_match; !inm.empty() && inm == etag) {
-			HttpResponse resp;
+			Response resp;
 			resp.status = kHttpNotModified;
 			resp.status_text = "Not Modified";
 			resp.content_type.clear();
@@ -567,7 +563,7 @@ HttpResponse handle_static_get(
 			if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
 				req_tm.tm_isdst = 0;
 				if (st.st_mtime <= ::timegm(&req_tm)) {
-					HttpResponse resp;
+					Response resp;
 					resp.status = kHttpNotModified;
 					resp.status_text = "Not Modified";
 					resp.content_type.clear();
@@ -628,10 +624,7 @@ HttpResponse handle_static_get(
 		auto file_size = static_cast<std::size_t>(st.st_size);
 
 		auto base_response = [&](int status, std::string_view status_text) {
-			HttpResponse resp{
-				.status = status,
-				.status_text = std::string{status_text},
-				.content_type = std::string{mime}};
+			Response resp{.status = status, .status_text = std::string{status_text}, .content_type = std::string{mime}};
 			resp.headers["ETag"] = etag;
 			resp.headers["Last-Modified"] = last_modified;
 			resp.headers["Accept-Ranges"] = "bytes";
@@ -708,7 +701,7 @@ HttpResponse handle_static_get(
 						is_range_request = true;
 					} else if (ok) {
 						// Range not satisfiable
-						auto resp = HttpResponse{};
+						auto resp = Response{};
 						resp.status = kHttpRangeNotSatisfiable;
 						resp.status_text = "Range Not Satisfiable";
 						resp.content_type = "text/plain; charset=utf-8";
@@ -723,7 +716,7 @@ HttpResponse handle_static_get(
 			auto make_cached_response = [&](StaticCacheEntry const &entry) {
 				if (is_range_request) {
 					auto send_sz = range_end - range_start + 1;
-					auto resp = HttpResponse{
+					auto resp = Response{
 						.status = kHttpPartialContent,
 						.status_text = "Partial Content",
 						.content_type = entry.mime};
@@ -740,7 +733,7 @@ HttpResponse handle_static_get(
 					resp.set_text_body(entry.body.substr(range_start, send_sz));
 					return resp;
 				}
-				auto resp = HttpResponse{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+				auto resp = Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
 				resp.headers["ETag"] = entry.etag;
 				resp.headers["Last-Modified"] = entry.last_modified;
 				resp.headers["Accept-Ranges"] = "bytes";
@@ -756,8 +749,7 @@ HttpResponse handle_static_get(
 			if (auto cached =
 					static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
 						if (!is_range_request) {
-							auto resp =
-								HttpResponse{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+							auto resp = Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
 							resp.headers["ETag"] = entry.etag;
 							resp.headers["Last-Modified"] = entry.last_modified;
 							resp.headers["Accept-Ranges"] = "bytes";
@@ -776,7 +768,7 @@ HttpResponse handle_static_get(
 			}
 			int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
 			if (fd < 0) {
-				return HttpResponse::not_found(file_param);
+				return Response::not_found(file_param);
 			}
 			std::string body(file_size, '\0');
 			std::size_t off = 0;
@@ -787,7 +779,7 @@ HttpResponse handle_static_get(
 						continue;
 					}
 					::close(fd);
-					return HttpResponse::internal_error();
+					return Response::internal_error();
 				}
 				if (n == 0) {
 					break;
@@ -846,12 +838,12 @@ HttpResponse handle_static_get(
 						.mode = 0,
 						.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
 				.detach();
-			return HttpResponse::deferred(std::move(dr));
+			return Response::deferred(std::move(dr));
 		}
 
 		auto lease = blocking_map_file_readonly(root_fd, std::string_view{rel_str});
 		if (!lease) {
-			return HttpResponse::internal_error();
+			return Response::internal_error();
 		}
 
 		if (is_range_request) {
@@ -868,12 +860,12 @@ HttpResponse handle_static_get(
 		resp.set_mapped_file(
 			std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
 		return resp;
-	} catch (...) { return HttpResponse::internal_error(); }
+	} catch (...) { return Response::internal_error(); }
 }
 
 conflux::work::root::Task<void> do_serve_static_file(
 	std::shared_ptr<DeferredResponse> dr,
-	HttpResponse base,
+	Response base,
 	std::size_t send_off,
 	std::size_t send_sz,
 	std::size_t total_size,
@@ -887,7 +879,7 @@ conflux::work::root::Task<void> do_serve_static_file(
 		streamed->total_size = total_size;
 		base.set_streamed_file(std::move(streamed));
 		dr->complete(std::move(base));
-	} catch (...) { dr->complete(HttpResponse::not_found("async open failed")); }
+	} catch (...) { dr->complete(Response::not_found("async open failed")); }
 }
 conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
@@ -901,11 +893,11 @@ conflux::work::root::Task<void> do_save_static_file(
 	try {
 		co_await fr->async_atomic_write(dir_fd, std::move(rel_path), std::as_bytes(std::span{*body_owned}));
 		static_cache.evict_all_encodings(*fp);
-		HttpResponse resp;
+		Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
 		dr->complete(std::move(resp));
-	} catch (...) { dr->complete(HttpResponse::internal_error()); }
+	} catch (...) { dr->complete(Response::internal_error()); }
 }
 conflux::work::root::Task<void> do_delete_static_file(
 	std::shared_ptr<DeferredResponse> dr,
@@ -915,8 +907,8 @@ conflux::work::root::Task<void> do_delete_static_file(
 	try {
 		co_await std::move(unlink_task);
 		static_cache.evict_all_encodings(*fp);
-		dr->complete(HttpResponse::no_content());
+		dr->complete(Response::no_content());
 	} catch (FileIoError const &e) {
-		dr->complete(e.code().value() == ENOENT ? HttpResponse::not_found(*fp) : HttpResponse::internal_error());
-	} catch (...) { dr->complete(HttpResponse::internal_error()); }
+		dr->complete(e.code().value() == ENOENT ? Response::not_found(*fp) : Response::internal_error());
+	} catch (...) { dr->complete(Response::internal_error()); }
 }

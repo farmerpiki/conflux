@@ -435,9 +435,9 @@ int main(
 
 	auto make_router = [&] {
 		Router r;
-		r.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
-		r.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-		r.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
+		r.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
+		r.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
+		r.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
 		return r;
 	};
 

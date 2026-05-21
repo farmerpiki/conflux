@@ -39,7 +39,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<Response, conflux::json::boundary::Error> try_response(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::
@@ -49,7 +49,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
+[[nodiscard]] std::expected<Response, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
 	std::string_view status_text,
@@ -61,7 +61,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] HttpResponse response_or_internal_error(
+[[nodiscard]] Response response_or_internal_error(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::
@@ -71,7 +71,7 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] HttpResponse response_or_internal_error(
+[[nodiscard]] Response response_or_internal_error(
 	T const &value,
 	int status,
 	std::string_view status_text,

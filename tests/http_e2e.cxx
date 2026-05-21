@@ -56,7 +56,7 @@ TEST_CASE(
 	app.config().rings = 1;
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
-	app.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	app.get("/", [](Request const &) { return Response::text("ok"); });
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 }
@@ -65,7 +65,7 @@ TEST_CASE(
 	"http app: facade forwards websocket and static route registration",
 	"[http][app]") {
 	auto app = chttp::App::default_server();
-	auto &ws_app = app.ws("/ws", [](HttpRequestView const &, WsConn &) {});
+	auto &ws_app = app.ws("/ws", [](RequestView const &, WsConn &) {});
 	CHECK(&ws_app == &app);
 	auto &static_app = app.serve_static("/assets", std::filesystem::temp_directory_path().string());
 	CHECK(&static_app == &app);
@@ -75,17 +75,17 @@ TEST_CASE(
 	"http app: generic route registration and introspection stay on facade",
 	"[http][app]") {
 	auto app = chttp::App::default_server();
-	auto &added = app.add("REPORT", "/reports/{id}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["id"]});
+	auto &added = app.add("REPORT", "/reports/{id}", [](Request const &req) {
+		return Response::text(std::string{req.params["id"]});
 	});
 	CHECK(&added == &app);
 
 	auto &ctx_added = app.add_context(
 		"POST",
 		"/jobs/{id}",
-		[](HttpRequest const &, RequestContext const &) -> conflux::work::root::Task<HttpResponse> {
-			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-			(void)source.try_set_value(conflux::work::root::Success<HttpResponse>{HttpResponse::text("queued")});
+		[](Request const &, RequestContext const &) -> conflux::work::root::Task<Response> {
+			auto [task, source] = conflux::work::root::make_task_source<Response>();
+			(void)source.try_set_value(conflux::work::root::Success<Response>{Response::text("queued")});
 			return std::move(task);
 		});
 	CHECK(&ctx_added == &app);
@@ -112,13 +112,13 @@ void ensure_server() {
 		cfg.taskrun_flag = true;
 
 		Router router;
-		router.get("/", [](HttpRequest const &) {
-			return HttpResponse::html("<html><body><h1>Hello from conflux!</h1></body></html>");
+		router.get("/", [](Request const &) {
+			return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 		});
-		router.get("/hello/{name}", [](HttpRequest const &req) {
-			return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		router.get("/hello/{name}", [](Request const &req) {
+			return Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 		});
-		router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
+		router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
 		// Pools captured by value so their lifetime ties to the router/server.
 		// Avoids atexit race: a function-local static here would destruct
 		// before the test server registry destructs (LIFO), while the ring
@@ -126,56 +126,53 @@ void ensure_server() {
 		auto defer_ok_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
 		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
 		defer_full_pool->stop();
-		router.get("/api/defer-ok", [defer_ok_pool](HttpRequest const &) {
-			return conflux::http::defer(defer_ok_pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
+		router.get("/api/defer-ok", [defer_ok_pool](Request const &) {
+			return conflux::http::defer(defer_ok_pool, [] { return Response::json(R"({"defer":"ok"})"); });
 		});
-		router.get("/api/defer-full", [defer_full_pool](HttpRequest const &) {
-			return conflux::http::defer(defer_full_pool, [] {
-				return HttpResponse::json(R"({"defer":"unreachable"})");
-			});
+		router.get("/api/defer-full", [defer_full_pool](Request const &) {
+			return conflux::http::defer(defer_full_pool, [] { return Response::json(R"({"defer":"unreachable"})"); });
 		});
-		router.get("/api/task-ping", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
-			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-			(void)source.try_set_value(
-				conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
+		router.get("/api/task-ping", [](Request const &) -> conflux::work::root::Task<Response> {
+			auto [task, source] = conflux::work::root::make_task_source<Response>();
+			(void)source.try_set_value(conflux::work::root::Success<Response>{Response::json(R"({"task":"ok"})")});
 			return std::move(task);
 		});
-		router.get("/api/echo-header", [](HttpRequest const &req) {
+		router.get("/api/echo-header", [](Request const &req) {
 			auto v = req.headers["x-test-header"];
 			if (v.empty()) {
-				return HttpResponse::not_found("x-test-header");
+				return Response::not_found("x-test-header");
 			}
-			return HttpResponse::text(std::string{v});
+			return Response::text(std::string{v});
 		});
-		router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
-		router.post("/api/echo-json", [](HttpRequest const &req) { return HttpResponse::json(req.body); });
-		router.get("/api/echo-query", [](HttpRequest const &req) {
+		router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
+		router.post("/api/echo-json", [](Request const &req) { return Response::json(req.body); });
+		router.get("/api/echo-query", [](Request const &req) {
 			auto v = req.query["key"];
 			if (v.empty()) {
-				return HttpResponse::not_found("key");
+				return Response::not_found("key");
 			}
-			return HttpResponse::text(std::string{v});
+			return Response::text(std::string{v});
 		});
-		router.post("/api/echo-form", [](HttpRequest const &req) {
+		router.post("/api/echo-form", [](Request const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
-				return HttpResponse::not_found("field");
+				return Response::not_found("field");
 			}
-			return HttpResponse::text(std::string{v});
+			return Response::text(std::string{v});
 		});
-		router.post("/api/multipart-field", [](HttpRequest const &req) {
+		router.post("/api/multipart-field", [](Request const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
-				return HttpResponse::not_found("field");
+				return Response::not_found("field");
 			}
-			return HttpResponse::text(std::string{v});
+			return Response::text(std::string{v});
 		});
-		router.post("/api/multipart-file", [](HttpRequestView const &req) {
+		router.post("/api/multipart-file", [](RequestView const &req) {
 			if (req.files.empty()) {
-				return HttpResponse::not_found("file");
+				return Response::not_found("file");
 			}
 			auto const &f = req.files[0];
-			return HttpResponse::json(
+			return Response::json(
 				std::format(
 					R"({{"name":"{}","filename":"{}","content_type":"{}","size":{}}})",
 					f.name,
@@ -183,30 +180,30 @@ void ensure_server() {
 					f.content_type,
 					f.data.size()));
 		});
-		router.post("/api/multipart-counts", [](HttpRequestView const &req) {
-			return HttpResponse::json(
+		router.post("/api/multipart-counts", [](RequestView const &req) {
+			return Response::json(
 				std::format(R"({{"fields":{},"files":{}}})", req.form.values("field").size(), req.files.size()));
 		});
-		router.get("/api/with-header", [](HttpRequest const &) {
-			auto r = HttpResponse::text("ok");
+		router.get("/api/with-header", [](Request const &) {
+			auto r = Response::text("ok");
 			r.headers["X-Custom"] = "hello";
 			r.headers["X-Another"] = "world";
 			return r;
 		});
-		router.get("/api/redirect-302", [](HttpRequest const &) { return HttpResponse::redirect("/api/ping"); });
-		router.get("/api/redirect-301", [](HttpRequest const &) { return HttpResponse::redirect("/api/ping", 301); });
+		router.get("/api/redirect-302", [](Request const &) { return Response::redirect("/api/ping"); });
+		router.get("/api/redirect-301", [](Request const &) { return Response::redirect("/api/ping", 301); });
 		// PUT / PATCH / DELETE / OPTIONS routes.
-		router.put("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
+		router.put("/api/resource/{id}", [](Request const &req) {
+			return Response::json(std::format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
 		});
-		router.patch("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(R"({{"method":"PATCH","id":"{}"}})", req.params["id"]));
+		router.patch("/api/resource/{id}", [](Request const &req) {
+			return Response::json(std::format(R"({{"method":"PATCH","id":"{}"}})", req.params["id"]));
 		});
-		router.del("/api/resource/{id}", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(R"({{"method":"DELETE","id":"{}"}})", req.params["id"]));
+		router.del("/api/resource/{id}", [](Request const &req) {
+			return Response::json(std::format(R"({{"method":"DELETE","id":"{}"}})", req.params["id"]));
 		});
-		router.options("/api/resource", [](HttpRequest const &) {
-			auto r = HttpResponse::text("");
+		router.options("/api/resource", [](Request const &) {
+			auto r = Response::text("");
 			r.status = 204;
 			r.status_text = "No Content";
 			r.headers["Allow"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
@@ -214,44 +211,42 @@ void ensure_server() {
 		});
 		// Route group: /api/v2/* with a version header middleware.
 		router.group("/api/v2", [](Router::Group &g) {
-			g.use([](HttpRequest const &req, Router::Handler const &next) {
+			g.use([](Request const &req, Router::Handler const &next) {
 				auto resp = next(req);
 				resp.headers["X-Api-Version"] = "2";
 				return resp;
 			});
-			g.get("/status", [](HttpRequest const &) { return HttpResponse::json(R"({"v":"2","status":"ok"})"); });
-			g.get("/item/{id}", [](HttpRequest const &req) {
-				return HttpResponse::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
+			g.get("/status", [](Request const &) { return Response::json(R"({"v":"2","status":"ok"})"); });
+			g.get("/item/{id}", [](Request const &req) {
+				return Response::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 			});
 		});
 		// Route outside the group — must NOT have X-Api-Version header.
-		router.get("/api/v1/status", [](HttpRequest const &) {
-			return HttpResponse::json(R"({"v":"1","status":"ok"})");
-		});
+		router.get("/api/v1/status", [](Request const &) { return Response::json(R"({"v":"1","status":"ok"})"); });
 		// Cookie echo: returns value of named cookie.
-		router.get("/api/echo-cookie", [](HttpRequest const &req) {
+		router.get("/api/echo-cookie", [](Request const &req) {
 			auto v = req.cookies["name"];
 			if (v.empty()) {
-				return HttpResponse::not_found("name");
+				return Response::not_found("name");
 			}
-			return HttpResponse::text(std::string{v});
+			return Response::text(std::string{v});
 		});
 		// Set-cookie: sets two cookies on the response.
-		router.get("/api/set-cookie", [](HttpRequest const &) {
-			auto r = HttpResponse::text("ok");
+		router.get("/api/set-cookie", [](Request const &) {
+			auto r = Response::text("ok");
 			r.set_cookie("session", "abc123", "Path=/; HttpOnly");
 			r.set_cookie("theme", "dark");
 			return r;
 		});
 		// SSE endpoint: streams 3 events then closes.
-		router.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
 			auto _ = ch->send("data: event1\n\n");
 			CONFLUX_DISCARD(ch->send("data: event2\n\n"));
 			CONFLUX_DISCARD(ch->send("data: event3\n\n"));
 			ch->close();
 		});
 		// Named-param SSE endpoint.
-		router.sse("/events/{name}", [](HttpRequest const &req, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events/{name}", [](Request const &req, std::shared_ptr<SseChannel> const &ch) {
 			auto _ = ch->send(std::format("data: hello {}\n\n", req.params["name"]));
 			ch->close();
 		});
@@ -267,8 +262,8 @@ void ensure_redirect_follow_servers() {
 		Config cfg = mw_config();
 
 		Router target;
-		target.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(
+		target.get("/echo-headers", [](Request const &req) {
+			return Response::text(
 				std::format(
 					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
 					std::string{req.headers["authorization"]},
@@ -279,8 +274,8 @@ void ensure_redirect_follow_servers() {
 		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
 
 		Router source;
-		source.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(
+		source.get("/echo-headers", [](Request const &req) {
+			return Response::text(
 				std::format(
 					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
 					std::string{req.headers["authorization"]},
@@ -288,14 +283,13 @@ void ensure_redirect_follow_servers() {
 					std::string{req.headers["proxy-authorization"]},
 					std::string{req.headers["host"]}));
 		});
-		source.get("/same", [](HttpRequest const &) { return HttpResponse::redirect("/echo-headers"); });
-		source.get("/cross", [](HttpRequest const &) {
-			return HttpResponse::redirect(
-				std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
+		source.get("/same", [](Request const &) { return Response::redirect("/echo-headers"); });
+		source.get("/cross", [](Request const &) {
+			return Response::redirect(std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
-		source.get("/loop", [](HttpRequest const &) { return HttpResponse::redirect("/loop"); });
-		source.get("/async-start", [](HttpRequest const &) { return HttpResponse::redirect("/async-final"); });
-		source.get("/async-final", [](HttpRequest const &) { return HttpResponse::text("async-ok"); });
+		source.get("/loop", [](Request const &) { return Response::redirect("/loop"); });
+		source.get("/async-start", [](Request const &) { return Response::redirect("/async-final"); });
+		source.get("/async-final", [](Request const &) { return Response::text("async-ok"); });
 		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
 
 		Router front;
@@ -305,7 +299,7 @@ void ensure_redirect_follow_servers() {
 		};
 		front.get_context(
 			"/async-follow",
-			[popts](HttpRequest const &, RequestContext const &ctx) -> conflux::work::root::Task<HttpResponse> {
+			[popts](Request const &, RequestContext const &ctx) -> conflux::work::root::Task<Response> {
 				HttpClient client{};
 				auto result = co_await async_send(
 					client,
@@ -313,13 +307,13 @@ void ensure_redirect_follow_servers() {
 					chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/async-start", popts.upstream_port))
 						.follow_redirects(2));
 				if (!result) {
-					co_return HttpResponse::bad_gateway(
+					co_return Response::bad_gateway(
 						std::format(
 							"redirect follow failed: {} ({})",
 							result.error().message,
 							static_cast<int>(result.error().kind)));
 				}
-				co_return HttpResponse::text(std::move(result->body));
+				co_return Response::text(std::move(result->body));
 			});
 		g_redirect_follow_async_port = test_servers().start(cfg, std::move(front));
 	});
@@ -444,12 +438,12 @@ void ensure_compress_server() {
 		Router router;
 		router.use(compress_middleware());
 		// Large body (>256 bytes) so min_body_size is exceeded.
-		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
+		router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
 		// Small body (<256 bytes).
-		router.get("/small", [](HttpRequest const &) { return HttpResponse::html("hi"); });
+		router.get("/small", [](Request const &) { return Response::html("hi"); });
 		// Non-compressible MIME type.
-		router.get("/bin", [](HttpRequest const &) {
-			HttpResponse r;
+		router.get("/bin", [](Request const &) {
+			Response r;
 			r.status = 200;
 			r.status_text = "OK";
 			r.content_type = "application/octet-stream";
@@ -466,7 +460,7 @@ void ensure_cors_compress_server() {
 		Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
-		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
+		router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
 		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -482,7 +476,7 @@ void ensure_security_server() {
 		sopts.hsts_only_on_tls = false;
 		Router router;
 		router.use(security_headers_middleware(sopts));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_security_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -496,9 +490,9 @@ void ensure_cors_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
-		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-		router.get("/vary", [](HttpRequest const &) {
-			auto r = HttpResponse::text("vary");
+		router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
+		router.get("/vary", [](Request const &) {
+			auto r = Response::text("vary");
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
 		});
@@ -515,7 +509,7 @@ void ensure_cors_cred_server() {
 			.expose_headers = {"X-Custom-Header", "X-Request-Id"},
 			.allow_credentials = true,
 		}));
-		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
+		router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
 		g_cors_cred_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -525,7 +519,7 @@ void ensure_cors_wildcard_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cors_middleware()); // default: allowed_origins={"*"}, no credentials
-		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
+		router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
 		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -540,7 +534,7 @@ void ensure_auth_server() {
 		Router router;
 		router.use(basic_auth_middleware(
 			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
-		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
+		router.get("/protected", [](Request const &) { return Response::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -550,7 +544,7 @@ void ensure_bearer_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
-		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
+		router.get("/protected", [](Request const &) { return Response::text("secret"); });
 		g_bearer_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -565,7 +559,7 @@ void ensure_rate_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_rate_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -576,7 +570,7 @@ void ensure_rate_burst_server() {
 		Router router;
 		// 1 base + 2 burst = 3 total capacity
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_rate_burst_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -585,7 +579,7 @@ void ensure_rate_zero_clients_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -603,7 +597,7 @@ void ensure_forwarded_server() {
 		// Trust only 127.0.0.1/32.
 		router.use(forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
 		// Echo the remote_addr so tests can inspect it.
-		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
+		router.get("/addr", [](Request const &req) { return Response::text(req.remote_addr); });
 		g_fwd_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -613,7 +607,7 @@ void ensure_forwarded_strict_empty_server() {
 		Router router;
 		// Default strict_mode=true, empty trusted_proxies → no peer is trusted.
 		router.use(forwarded_middleware({}));
-		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
+		router.get("/addr", [](Request const &req) { return Response::text(req.remote_addr); });
 		g_fwd_strict_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -623,7 +617,7 @@ void ensure_forwarded_lax_empty_server() {
 		Router router;
 		// Legacy trust-all-on-empty behaviour.
 		router.use(forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
-		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(req.remote_addr); });
+		router.get("/addr", [](Request const &req) { return Response::text(req.remote_addr); });
 		g_fwd_lax_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -638,9 +632,7 @@ void ensure_rid_server() {
 		Router router;
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-request-id"]});
-		});
+		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-request-id"]}); });
 		g_rid_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -659,7 +651,7 @@ void ensure_ipallow_server() {
 			.mode = IpFilterMode::allowlist,
 			.cidrs = {"127.0.0.0/8"},
 		}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_ipallow_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -672,7 +664,7 @@ void ensure_ipblock_server() {
 			.mode = IpFilterMode::blocklist,
 			.cidrs = {"127.0.0.1/32"},
 		}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_ipblock_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -686,7 +678,7 @@ void ensure_ipallow_block_server() {
 			.mode = IpFilterMode::allowlist,
 			.cidrs = {"192.168.0.0/24"},
 		}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_ipallow_block_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -700,7 +692,7 @@ void ensure_ipblock_pass_server() {
 			.mode = IpFilterMode::blocklist,
 			.cidrs = {"10.0.0.0/8"},
 		}));
-		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_ipblock_pass_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -722,22 +714,22 @@ void ensure_cache_server() {
 						},
 			.default_directive = "no-cache",
 		}));
-		router.get("/image", [](HttpRequest const &) {
-			HttpResponse r;
+		router.get("/image", [](Request const &) {
+			Response r;
 			r.content_type = "image/png";
 			r.set_text_body("img");
 			return r;
 		});
-		router.get("/css", [](HttpRequest const &) {
-			HttpResponse r;
+		router.get("/css", [](Request const &) {
+			Response r;
 			r.content_type = "text/css";
 			r.set_text_body("body{}");
 			return r;
 		});
-		router.get("/api", [](HttpRequest const &) { return HttpResponse::json(R"({})"); });
-		router.get("/html", [](HttpRequest const &) { return HttpResponse::html("<p>hi</p>"); });
-		router.get("/custom", [](HttpRequest const &) {
-			auto r = HttpResponse::text("x");
+		router.get("/api", [](Request const &) { return Response::json(R"({})"); });
+		router.get("/html", [](Request const &) { return Response::html("<p>hi</p>"); });
+		router.get("/custom", [](Request const &) {
+			auto r = Response::text("x");
 			r.headers["Cache-Control"] = "max-age=999";
 			return r;
 		});
@@ -755,7 +747,7 @@ void ensure_ts_remove_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(trailing_slash_middleware()); // default: remove
-		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
+		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_remove_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -764,7 +756,7 @@ void ensure_ts_add_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(trailing_slash_middleware({.mode = TrailingSlashMode::add}));
-		router.get("/bar/", [](HttpRequest const &) { return HttpResponse::text("bar"); });
+		router.get("/bar/", [](Request const &) { return Response::text("bar"); });
 		g_ts_add_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -774,7 +766,7 @@ void ensure_ts_308_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 308}));
-		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
+		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_308_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -784,7 +776,7 @@ void ensure_ts_307_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 307}));
-		router.get("/foo", [](HttpRequest const &) { return HttpResponse::text("foo"); });
+		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -853,8 +845,8 @@ void ensure_redirect_server() {
 					  {.from = "/api/v1/", .to = "/api/v2/", .status = 302, .prefix_match = true},
 					  }
         }));
-		router.get("/new", [](HttpRequest const &) { return HttpResponse::text("new"); });
-		router.get("/api/v2/users", [](HttpRequest const &) { return HttpResponse::text("v2-users"); });
+		router.get("/new", [](Request const &) { return Response::text("new"); });
+		router.get("/api/v2/users", [](Request const &) { return Response::text("v2-users"); });
 		g_redirect_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -868,8 +860,8 @@ void ensure_csrf_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(csrf_middleware());
-		router.get("/page", [](HttpRequest const &) { return HttpResponse::html("<form>"); });
-		router.post("/submit", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+		router.get("/page", [](Request const &) { return Response::html("<form>"); });
+		router.post("/submit", [](Request const &) { return Response::text("ok"); });
 		g_csrf_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -883,8 +875,8 @@ void ensure_etag_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(etag_middleware());
-		router.get("/content", [](HttpRequest const &) { return HttpResponse::text("hello world"); });
-		router.get("/empty", [](HttpRequest const &) { return HttpResponse::text(""); });
+		router.get("/content", [](Request const &) { return Response::text("hello world"); });
+		router.get("/empty", [](Request const &) { return Response::text(""); });
 		g_etag_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -902,68 +894,68 @@ void ensure_resp_cache_server() {
 			.max_entries = 16,
 			.default_ttl = std::chrono::seconds{60},
 		}));
-		router.get("/counted", [](HttpRequest const &) {
+		router.get("/counted", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(std::format("visit {}", n));
+			return Response::text(std::format("visit {}", n));
 		});
-		router.post("/counted", [](HttpRequest const &) {
+		router.post("/counted", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(std::format("post {}", n));
+			return Response::text(std::format("post {}", n));
 		});
-		router.get("/no-store", [](HttpRequest const &) {
-			auto r = HttpResponse::text("uncacheable");
+		router.get("/no-store", [](Request const &) {
+			auto r = Response::text("uncacheable");
 			r.headers["Cache-Control"] = "no-store";
 			return r;
 		});
-		router.get("/vary", [](HttpRequest const &req) {
+		router.get("/vary", [](Request const &req) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("{} enc={}", n, req.headers["accept-encoding"]));
+			auto r = Response::text(std::format("{} enc={}", n, req.headers["accept-encoding"]));
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
 		});
-		router.get("/vary-star", [](HttpRequest const &) {
+		router.get("/vary-star", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("star {}", n));
+			auto r = Response::text(std::format("star {}", n));
 			r.headers["Vary"] = "*";
 			return r;
 		});
-		router.get("/private", [](HttpRequest const &) {
+		router.get("/private", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("priv {}", n));
+			auto r = Response::text(std::format("priv {}", n));
 			r.headers["Cache-Control"] = "private";
 			return r;
 		});
-		router.get("/max-age-zero", [](HttpRequest const &) {
+		router.get("/max-age-zero", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("zero {}", n));
+			auto r = Response::text(std::format("zero {}", n));
 			r.headers["Cache-Control"] = "max-age=0";
 			return r;
 		});
-		router.get("/no-cache", [](HttpRequest const &) {
+		router.get("/no-cache", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("nocache {}", n));
+			auto r = Response::text(std::format("nocache {}", n));
 			r.headers["Cache-Control"] = "no-cache";
 			return r;
 		});
-		router.get("/cache-control-substrings", [](HttpRequest const &) {
+		router.get("/cache-control-substrings", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("substrings {}", n));
+			auto r = Response::text(std::format("substrings {}", n));
 			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
 			return r;
 		});
-		router.get("/set-cookie-resp", [](HttpRequest const &) {
+		router.get("/set-cookie-resp", [](Request const &) {
 			int n = ++g_resp_cache_count;
-			auto r = HttpResponse::text(std::format("cookie {}", n));
+			auto r = Response::text(std::format("cookie {}", n));
 			r.set_cookie("sid", "abc");
 			return r;
 		});
-		router.get("/not-found-resp", [](HttpRequest const &) {
+		router.get("/not-found-resp", [](Request const &) {
 			++g_resp_cache_count;
-			return HttpResponse::not_found("/not-found-resp");
+			return Response::not_found("/not-found-resp");
 		});
-		router.get("/query", [](HttpRequest const &req) {
+		router.get("/query", [](Request const &req) {
 			int n = ++g_resp_cache_count;
-			return HttpResponse::text(std::format("{} value={}", n, req.query["value"]));
+			return Response::text(std::format("{} value={}", n, req.query["value"]));
 		});
 		g_resp_cache_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -983,7 +975,7 @@ void ensure_slog_server() {
 
 		Router router;
 		router.use(structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
-		router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+		router.get("/ping", [](Request const &) { return Response::text("pong"); });
 		g_slog_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -998,9 +990,7 @@ void ensure_trace_server() {
 		Router router;
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["traceparent"]});
-		});
+		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["traceparent"]}); });
 		g_trace_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1017,13 +1007,13 @@ void ensure_vhost_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router api_router;
-		api_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("api"); });
+		api_router.get("/status", [](Request const &) { return Response::text("api"); });
 
 		Router web_router;
-		web_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("web"); });
+		web_router.get("/status", [](Request const &) { return Response::text("web"); });
 
 		Router def_router;
-		def_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("default"); });
+		def_router.get("/status", [](Request const &) { return Response::text("default"); });
 
 		auto vhr = std::make_shared<VHostRouter>();
 		vhr->add("api.example.com", std::move(api_router));
@@ -1031,7 +1021,7 @@ void ensure_vhost_server() {
 		vhr->set_default(std::move(def_router));
 
 		Router main;
-		main.use([vhr](HttpRequest const &req, Router::Handler const &) { return vhr->dispatch(req); });
+		main.use([vhr](Request const &req, Router::Handler const &) { return vhr->dispatch(req); });
 		g_vhost_port = start_mw_server(mw_config(), std::move(main));
 	});
 }
@@ -1039,10 +1029,10 @@ void ensure_vhost_direct_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router api_router;
-		api_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("api-direct"); });
+		api_router.get("/status", [](Request const &) { return Response::text("api-direct"); });
 
 		Router def_router;
-		def_router.get("/status", [](HttpRequest const &) { return HttpResponse::text("default-direct"); });
+		def_router.get("/status", [](Request const &) { return Response::text("default-direct"); });
 
 		VHostRouter vhost_router;
 		vhost_router.add("api.example.com", std::move(api_router));
@@ -1057,9 +1047,9 @@ void ensure_proxy_server() {
 		auto cfg = mw_config();
 
 		Router upstream;
-		upstream.get("/ping", [](HttpRequest const &) {
+		upstream.get("/ping", [](Request const &) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
-			auto resp = HttpResponse::text("proxied-ok");
+			auto resp = Response::text("proxied-ok");
 			resp.headers["X-Upstream"] = "yes";
 			return resp;
 		});
@@ -1074,8 +1064,8 @@ void ensure_proxy_server() {
 		front.add_context(
 			"GET",
 			"/proxy/ping",
-			[popts = std::move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
+			[popts = std::move(popts)](Request const &req, RequestContext const &ctx)
+				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 		g_proxy_port = g_proxy_front->port();
 	});
@@ -1111,12 +1101,12 @@ TEST_CASE(
 TEST_CASE(
 	"router dispatch preserves generic route priority before literal index hits") {
 	Router router;
-	router.get("/{id}", [](HttpRequestView const &req) {
-		return HttpResponse::text(std::string{"generic:"} + std::string{req.params["id"]});
+	router.get("/{id}", [](RequestView const &req) {
+		return Response::text(std::string{"generic:"} + std::string{req.params["id"]});
 	});
-	router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("literal"); });
+	router.get("/health", [](RequestView const &) { return Response::text("literal"); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/health";
 	req.version = "HTTP/1.1";
@@ -1127,10 +1117,10 @@ TEST_CASE(
 TEST_CASE(
 	"router dispatch uses method-scoped literal lookup") {
 	Router router;
-	router.post("/health", [](HttpRequestView const &) { return HttpResponse::text("post"); });
-	router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("get"); });
+	router.post("/health", [](RequestView const &) { return Response::text("post"); });
+	router.get("/health", [](RequestView const &) { return Response::text("get"); });
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/health";
 	req.version = "HTTP/1.1";
@@ -1545,7 +1535,7 @@ TEST_CASE(
 	Config cfg = Config::test();
 	cfg.request_timeout_ms = 1500;
 	Router router;
-	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
+	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1874,8 +1864,8 @@ TEST_CASE(
 	"response status_text with CRLF is sanitized") {
 	Config cfg = mw_config();
 	Router router;
-	router.get("/bad-status", [](HttpRequest const &) {
-		HttpResponse r = HttpResponse::text("ok");
+	router.get("/bad-status", [](Request const &) {
+		Response r = Response::text("ok");
 		r.status = 299;
 		r.status_text = "Fine\r\nX-Injected: yes";
 		return r;
@@ -1903,7 +1893,7 @@ TEST_CASE(
 	cfg.http_redirect_to_https = true;
 	cfg.https_redirect_hosts = {"example.com"};
 	Router router;
-	router.get("/path", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	router.get("/path", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	LocalTcpClient client{srv.port()};
@@ -1969,7 +1959,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
@@ -2025,7 +2015,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	Router router;
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};
@@ -2050,7 +2040,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	Router router;
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto const port = srv.port();
@@ -2085,7 +2075,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	Router router;
-	router.get("/large", [](HttpRequest const &) { return HttpResponse::text(std::string(512 * 1024, 'x')); });
+	router.get("/large", [](Request const &) { return Response::text(std::string(512 * 1024, 'x')); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};
@@ -2107,7 +2097,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	Router router;
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
+	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};

@@ -23,7 +23,7 @@ the first suspension.
 | `http::BodyText` | No for view form | Request body buffer | End of synchronous handler call, unless copied | No when borrowed | No when borrowed | Only if copied/owned | No for view form | No for view form |
 | `http::Json<T>` | Depends on `T` and provider options | Request body and/or provider-owned document | Borrowed values follow input/document lifetime; owned values follow object lifetime | Only after owning decode/document materialization | Only when decoded value is thread-safe and no borrowed input escapes | Only if decoded value owns its referenced data | Provider and `T` dependent | Provider and `T` dependent |
 | `http::State<T>` | No; reference/shared access to app state | Application-owned state | State object lifetime | Yes if the state access remains valid | Yes if `T` is safe for that use | Store handles only when their ownership semantics allow it | No by default | No by default |
-| `UploadedFile` | No for `HttpRequestView`; yes after `to_owned()` | Multipart request body and header storage | End of synchronous handler call, unless converted with `to_owned()` | No when borrowed | No when borrowed | Only after `to_owned()` or manual copy | `to_owned()` copies fields and bytes | `to_owned()` allocates |
+| `UploadedFile` | No for `RequestView`; yes after `to_owned()` | Multipart request body and header storage | End of synchronous handler call, unless converted with `to_owned()` | No when borrowed | No when borrowed | Only after `to_owned()` or manual copy | `to_owned()` copies fields and bytes | `to_owned()` allocates |
 
 View extractors are for immediate inspection inside the handler call. If data
 must survive a return, a coroutine suspension, or a handoff to another thread,

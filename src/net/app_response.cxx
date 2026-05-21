@@ -22,27 +22,27 @@ concept ExpectedHttpProblem = requires(T value) {
 template<class>
 inline constexpr bool kDependentFalse = false;
 
-[[nodiscard]] inline HttpResponse into_response(
-	HttpResponse response) {
+[[nodiscard]] inline Response into_response(
+	Response response) {
 	return response;
 }
 
-[[nodiscard]] inline HttpResponse into_response(
+[[nodiscard]] inline Response into_response(
 	Problem problem) {
 	return std::move(problem.response);
 }
 
-[[nodiscard]] inline HttpResponse into_response(
+[[nodiscard]] inline Response into_response(
 	Created created) {
 	return std::move(created.response);
 }
 
 template<class T>
-[[nodiscard]] HttpResponse into_response(
+[[nodiscard]] Response into_response(
 	Json<T> const &body) {
 #if CONFLUX_HAS_JSON
 	if constexpr (requires(T const &value) {
-					  { codec::json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+					  { codec::json::response_or_internal_error(value) } -> std::same_as<Response>;
 				  }) {
 		return codec::json::response_or_internal_error(body.value);
 	} else {
@@ -53,16 +53,16 @@ template<class T>
 	}
 #else
 	(void)body;
-	return HttpResponse::internal_error("JSON support is not enabled");
+	return Response::internal_error("JSON support is not enabled");
 #endif
 }
 
 template<class T>
-[[nodiscard]] HttpResponse into_response(
+[[nodiscard]] Response into_response(
 	Json<T> &&body) {
 #if CONFLUX_HAS_JSON
 	if constexpr (requires(T const &value) {
-					  { codec::json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
+					  { codec::json::response_or_internal_error(value) } -> std::same_as<Response>;
 				  }) {
 		return codec::json::response_or_internal_error(body.value);
 	} else {
@@ -73,12 +73,12 @@ template<class T>
 	}
 #else
 	(void)body;
-	return HttpResponse::internal_error("JSON support is not enabled");
+	return Response::internal_error("JSON support is not enabled");
 #endif
 }
 
 template<class T>
-[[nodiscard]] HttpResponse into_response(
+[[nodiscard]] Response into_response(
 	T &&result)
 	requires ExpectedHttpProblem<std::remove_cvref_t<T>>
 {
@@ -90,7 +90,7 @@ template<class T>
 
 template<class T>
 concept IntoResponse = requires(T &&value) {
-	{ into_response(std::forward<T>(value)) } -> std::same_as<HttpResponse>;
+	{ into_response(std::forward<T>(value)) } -> std::same_as<Response>;
 };
 
 template<class T>

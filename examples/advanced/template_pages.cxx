@@ -59,17 +59,17 @@ int main() {
 
 	namespace http = conflux::http;
 	auto app = http::App::default_server();
-	app.get("/", [env](HttpRequest const &) {
-		return HttpResponse::html(
+	app.get("/", [env](Request const &) {
+		return Response::html(
 			env->render("home.html", R"({"title":"conflux templates","message":"Rendered from a JSON context."})"));
 	});
-	app.get("/users", [env](HttpRequest const &) {
-		return HttpResponse::html(env->render(
+	app.get("/users", [env](Request const &) {
+		return Response::html(env->render(
 			"users.html",
 			R"({"users":[{"name":"Ada","role":"admin"},{"name":"Linus"},{"name":"Grace","role":"operator"}]})"));
 	});
-	app.get("/inline", [env](HttpRequest const &) {
-		return HttpResponse::text(env->render_string(
+	app.get("/inline", [env](Request const &) {
+		return Response::text(env->render_string(
 			"{% for x in items %}{{ x | capitalize }}{% if loop.index != loop.length %}, {% endif %}{% endfor %}",
 			R"({"items":["alpha","beta","gamma"]})"));
 	});

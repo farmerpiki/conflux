@@ -15,9 +15,9 @@ using Clock = AuthThrottleClock;
 	return Clock::time_point{std::chrono::seconds{seconds}};
 }
 
-[[nodiscard]] HttpRequestView make_auth_request() {
-	static HttpRequest req;
-	req = HttpRequest{};
+[[nodiscard]] RequestView make_auth_request() {
+	static Request req;
+	req = Request{};
 	req.method = "POST";
 	req.path = "/login";
 	req.version = "HTTP/1.1";
@@ -25,7 +25,7 @@ using Clock = AuthThrottleClock;
 	req.form["username"] = "alice";
 	req.query["user"] = "bob";
 	req.headers["Authorization"] = "Bearer secret-token";
-	return HttpRequestView{req};
+	return RequestView{req};
 }
 
 } // namespace
@@ -154,12 +154,12 @@ TEST_CASE(
 							.max_subjects = 4,
 							}
     };
-	auto middleware = auth_throttle_middleware(limiter, [](HttpRequestView const &req) {
+	auto middleware = auth_throttle_middleware(limiter, [](RequestView const &req) {
 		return auth_throttle_form_key(req, "username");
 	});
 	auto req = make_auth_request();
-	Router::Handler fail = [](HttpRequestView const &) {
-		HttpResponse r;
+	Router::Handler fail = [](RequestView const &) {
+		Response r;
 		r.status = 401;
 		r.status_text = "Unauthorized";
 		return r;

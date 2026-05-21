@@ -31,7 +31,7 @@ import conflux.net.http.realtime;
 	return out;
 }
 
-export class DeferredResponse; // defined after HttpResponse
+export class DeferredResponse; // defined after Response
 export enum class StreamedFileResult : std::uint8_t {
 	completed,
 	failed,
@@ -92,7 +92,7 @@ export struct StreamedFile {
 	std::vector<std::function<void(StreamedFileResult)>> callbacks_;
 };
 
-export struct HttpResponse {
+export struct Response {
 	enum class BodyKind : std::uint8_t {
 		text,
 		sse,
@@ -280,75 +280,75 @@ export struct HttpResponse {
 		default                              : return {};
 		}
 	}
-	[[nodiscard]] static HttpResponse with_body(
+	[[nodiscard]] static Response with_body(
 		std::string body,
 		std::string content_type) {
 		return with_body(std::move(body), std::move(content_type), kHttpOk);
 	}
-	[[nodiscard]] static HttpResponse with_body(
+	[[nodiscard]] static Response with_body(
 		std::string body,
 		std::string content_type,
 		int status) {
 		return with_body(std::move(body), std::move(content_type), status, std::string{status_text_for(status)});
 	}
-	[[nodiscard]] static HttpResponse with_body(
+	[[nodiscard]] static Response with_body(
 		std::string body,
 		std::string content_type,
 		int status,
 		std::string status_text) {
-		HttpResponse r;
+		Response r;
 		r.status = status;
 		r.status_text = std::move(status_text);
 		r.content_type = std::move(content_type);
 		r.set_text_body(std::move(body));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse html(
+	[[nodiscard]] static Response html(
 		std::string body) {
 		return html(std::move(body), kHttpOk);
 	}
-	[[nodiscard]] static HttpResponse html(
+	[[nodiscard]] static Response html(
 		std::string body,
 		int status) {
 		return html(std::move(body), status, std::string{status_text_for(status)});
 	}
-	[[nodiscard]] static HttpResponse html(
+	[[nodiscard]] static Response html(
 		std::string body,
 		int status,
 		std::string status_text) {
 		return with_body(std::move(body), "text/html; charset=utf-8", status, std::move(status_text));
 	}
-	[[nodiscard]] static HttpResponse json(
+	[[nodiscard]] static Response json(
 		std::string body) {
 		return json(std::move(body), kHttpOk);
 	}
-	[[nodiscard]] static HttpResponse json(
+	[[nodiscard]] static Response json(
 		std::string body,
 		int status) {
 		return json(std::move(body), status, std::string{status_text_for(status)});
 	}
-	[[nodiscard]] static HttpResponse json(
+	[[nodiscard]] static Response json(
 		std::string body,
 		int status,
 		std::string status_text) {
 		return with_body(std::move(body), "application/json", status, std::move(status_text));
 	}
-	[[nodiscard]] static HttpResponse text(
+	[[nodiscard]] static Response text(
 		std::string body) {
 		return text(std::move(body), kHttpOk);
 	}
-	[[nodiscard]] static HttpResponse text(
+	[[nodiscard]] static Response text(
 		std::string body,
 		int status) {
 		return text(std::move(body), status, std::string{status_text_for(status)});
 	}
-	[[nodiscard]] static HttpResponse text(
+	[[nodiscard]] static Response text(
 		std::string body,
 		int status,
 		std::string status_text) {
 		return with_body(std::move(body), "text/plain; charset=utf-8", status, std::move(status_text));
 	}
-	[[nodiscard]] static HttpResponse redirect(
+	[[nodiscard]] static Response redirect(
 		std::string_view location,
 		int code = kHttpFound) {
 		char const *status_text = "Found";
@@ -358,13 +358,13 @@ export struct HttpResponse {
 		case kHttpPermanentRedirect: status_text = "Permanent Redirect"; break;
 		default                    : break;
 		}
-		HttpResponse r{.status = code, .status_text = status_text, .content_type = "text/html; charset=utf-8"};
+		Response r{.status = code, .status_text = status_text, .content_type = "text/html; charset=utf-8"};
 		r.headers["Location"] = std::string{location};
 		return r;
 	}
-	[[nodiscard]] static HttpResponse not_found(
+	[[nodiscard]] static Response not_found(
 		std::string_view path) {
-		HttpResponse r;
+		Response r;
 		r.status = kHttpNotFound;
 		r.status_text = "Not Found";
 		r.content_type = "text/html; charset=utf-8";
@@ -372,22 +372,22 @@ export struct HttpResponse {
 			std::format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse bad_request(
+	[[nodiscard]] static Response bad_request(
 		std::string_view detail = {}) {
 		auto body = detail.empty() ? std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
 									 std::format(
 										 "<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
-		HttpResponse r;
+		Response r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(std::move(body));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse unauthorized(
+	[[nodiscard]] static Response unauthorized(
 		std::string_view www_authenticate = {}) {
-		HttpResponse r;
+		Response r;
 		r.status = kHttpUnauthorized;
 		r.status_text = "Unauthorized";
 		r.content_type = "text/html; charset=utf-8";
@@ -397,22 +397,22 @@ export struct HttpResponse {
 		}
 		return r;
 	}
-	[[nodiscard]] static HttpResponse forbidden(
+	[[nodiscard]] static Response forbidden(
 		std::string_view detail = {}) {
 		auto body =
 			detail.empty() ?
 				std::string{"<html><body><h1>403 Forbidden</h1></body></html>"} :
 				std::format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
-		HttpResponse r;
+		Response r;
 		r.status = kHttpForbidden;
 		r.status_text = "Forbidden";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(std::move(body));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse method_not_allowed(
+	[[nodiscard]] static Response method_not_allowed(
 		std::initializer_list<std::string_view> allowed = {}) {
-		HttpResponse r;
+		Response r;
 		r.status = kHttpMethodNotAllowed;
 		r.status_text = "Method Not Allowed";
 		r.content_type = "text/html; charset=utf-8";
@@ -429,80 +429,80 @@ export struct HttpResponse {
 		}
 		return r;
 	}
-	[[nodiscard]] static HttpResponse unprocessable_entity(
+	[[nodiscard]] static Response unprocessable_entity(
 		std::string_view detail = {}) {
 		auto body = detail.empty() ? std::string{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
 									 std::format(
 										 "<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
-		HttpResponse r;
+		Response r;
 		r.status = kHttpUnprocessableEntity;
 		r.status_text = "Unprocessable Entity";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(std::move(body));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse uri_too_long() {
-		HttpResponse r;
+	[[nodiscard]] static Response uri_too_long() {
+		Response r;
 		r.status = kHttpUriTooLong;
 		r.status_text = "URI Too Long";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body("<html><body><h1>414 URI Too Long</h1></body></html>");
 		return r;
 	}
-	[[nodiscard]] static HttpResponse header_fields_too_large() {
-		HttpResponse r;
+	[[nodiscard]] static Response header_fields_too_large() {
+		Response r;
 		r.status = kHttpRequestHeaderFieldsTooLarge;
 		r.status_text = "Request Header Fields Too Large";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body("<html><body><h1>431 Request Header Fields Too Large</h1></body></html>");
 		return r;
 	}
-	[[nodiscard]] static HttpResponse bad_gateway(
+	[[nodiscard]] static Response bad_gateway(
 		std::string_view detail = {}) {
-		HttpResponse r;
+		Response r;
 		r.status = kHttpBadGateway;
 		r.status_text = "Bad Gateway";
 		r.content_type = "text/plain; charset=utf-8";
 		r.set_text_body(detail.empty() ? "Bad Gateway" : std::string{detail});
 		return r;
 	}
-	[[nodiscard]] static HttpResponse gateway_timeout() {
-		HttpResponse r;
+	[[nodiscard]] static Response gateway_timeout() {
+		Response r;
 		r.status = kHttpGatewayTimeout;
 		r.status_text = "Gateway Timeout";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body("<html><body><h1>504 Gateway Timeout</h1></body></html>");
 		return r;
 	}
-	[[nodiscard]] static HttpResponse sse(
+	[[nodiscard]] static Response sse(
 		std::shared_ptr<SseChannel> ch) {
-		HttpResponse r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
+		Response r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
 		r.set_sse_channel(std::move(ch));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse deferred(
+	[[nodiscard]] static Response deferred(
 		std::shared_ptr<DeferredResponse> response) {
-		HttpResponse r;
+		Response r;
 		r.set_deferred_response(std::move(response));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse internal_error(
+	[[nodiscard]] static Response internal_error(
 		std::string_view detail = {}) {
 		auto body = detail.empty() ? std::string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
 									 std::format(
 										 "<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
-		HttpResponse r;
+		Response r;
 		r.status = kHttpInternalServerError;
 		r.status_text = "Internal Server Error";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(std::move(body));
 		return r;
 	}
-	[[nodiscard]] static HttpResponse no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
-	[[nodiscard]] static HttpResponse content_too_large() {
-		HttpResponse r;
+	[[nodiscard]] static Response no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
+	[[nodiscard]] static Response content_too_large() {
+		Response r;
 		r.status = kHttpRequestEntityTooLarge;
 		r.status_text = "Content Too Large";
 		r.content_type = "text/html; charset=utf-8";
@@ -511,7 +511,7 @@ export struct HttpResponse {
 	}
 	// Append a Set-Cookie header. Attributes are Opt; pass empty strings to omit.
 	// Example: resp.set_cookie("session", "abc123", "Path=/; HttpOnly; SameSite=Lax")
-	HttpResponse &set_cookie(
+	Response &set_cookie(
 		std::string_view name,
 		std::string_view cookie_value,
 		std::string_view attributes = {}) {
@@ -560,14 +560,14 @@ export struct HttpResponse {
 
 export namespace conflux::http {
 
-using Response = ::HttpResponse;
+using Response = ::Response;
 
 } // namespace conflux::http
 
 export class DeferredResponse {
 	int efd_{-1};
 	mutable std::mutex mtx_{};
-	std::unique_ptr<HttpResponse> ready_{};
+	std::unique_ptr<Response> ready_{};
 	std::chrono::steady_clock::time_point deadline_{};
 	conflux::work::root::TaskControl cancel_ctl_{};
 
@@ -582,9 +582,9 @@ public:
 	DeferredResponse &operator =(DeferredResponse &&) = delete;
 
 	[[nodiscard]] int eventfd_fd() const noexcept;
-	void complete(HttpResponse response);
+	void complete(Response response);
 	[[nodiscard]] bool is_ready() const;
-	[[nodiscard]] std::optional<HttpResponse> take_ready();
+	[[nodiscard]] std::optional<Response> take_ready();
 	[[nodiscard]] std::chrono::steady_clock::time_point deadline() const;
 	void set_deadline(std::chrono::steady_clock::time_point deadline);
 	void attach_cancel(conflux::work::root::TaskControl ctl) noexcept;
@@ -610,13 +610,13 @@ int DeferredResponse::eventfd_fd() const noexcept {
 	return efd_;
 }
 void DeferredResponse::complete(
-	HttpResponse response) {
+	Response response) {
 	{
 		std::scoped_lock const lk{mtx_};
 		if (ready_) {
 			return;
 		}
-		ready_ = std::make_unique<HttpResponse>(std::move(response));
+		ready_ = std::make_unique<Response>(std::move(response));
 	}
 	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
@@ -627,7 +627,7 @@ bool DeferredResponse::is_ready() const {
 	std::scoped_lock const lk{mtx_};
 	return ready_ != nullptr;
 }
-std::optional<HttpResponse> DeferredResponse::take_ready() {
+std::optional<Response> DeferredResponse::take_ready() {
 	std::scoped_lock const lk{mtx_};
 	if (!ready_) {
 		return std::nullopt;
@@ -661,7 +661,7 @@ bool DeferredResponse::expire_if_past_deadline(
 		if (now < deadline_) {
 			return false;
 		}
-		ready_ = std::make_unique<HttpResponse>(HttpResponse::gateway_timeout());
+		ready_ = std::make_unique<Response>(Response::gateway_timeout());
 		to_cancel = std::move(cancel_ctl_);
 	}
 	auto _ = to_cancel.request_cancel();

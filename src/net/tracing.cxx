@@ -70,9 +70,9 @@ export struct TraceContext {
 };
 export struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
-	TraceCallback<void(HttpRequest &, TraceContext const &)> on_start{};
+	TraceCallback<void(Request &, TraceContext const &)> on_start{};
 	// Called after the downstream handler. May modify the response (e.g. add trace headers).
-	TraceCallback<void(HttpRequest const &, HttpResponse &, TraceContext const &)> on_end{};
+	TraceCallback<void(Request const &, Response &, TraceContext const &)> on_end{};
 	// Forward the traceparent header in the response.
 	bool propagate_in_response{true};
 };
@@ -115,7 +115,7 @@ std::pair<std::string, std::string> parse_traceparent(
 } // namespace tracing_detail
 export Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
-	return [opts = std::move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
 		TraceContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];

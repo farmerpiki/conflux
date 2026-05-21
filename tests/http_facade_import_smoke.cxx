@@ -16,7 +16,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
 
-	HttpRequest req;
+	Request req;
 	req.method = "GET";
 	req.path = "/health";
 

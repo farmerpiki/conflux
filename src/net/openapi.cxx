@@ -117,8 +117,8 @@ export Router::Handler openapi_handler(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
-	return [spec = std::move(spec)](HttpRequestView const &) -> HttpResponse {
-		HttpResponse r;
+	return [spec = std::move(spec)](RequestView const &) -> Response {
+		Response r;
 		r.status = 200;
 		r.status_text = "OK";
 		r.content_type = "application/json";
@@ -137,7 +137,7 @@ export Router::Handler openapi_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		Router::Middleware mw = std::move(*it);
 		Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](HttpRequestView const &req) -> HttpResponse {
+		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
 			return mw(req, next);
 		};
 	}

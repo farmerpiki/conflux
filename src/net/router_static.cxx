@@ -8,7 +8,7 @@ import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.config;
 
-export using StaticRouteHandler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
+export using StaticRouteHandler = CloneableFunction<Response(RequestView const &)>;
 
 export struct StaticRouteRegistration {
 	std::string pattern{};

@@ -778,9 +778,7 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) {
-				return HttpResponse::text(*body_ptr);
-			});
+			r.get(std::format("/body/{}", label), [body_ptr](Request const &) { return Response::text(*body_ptr); });
 		}
 		return r;
 	};
@@ -803,9 +801,7 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) {
-				return HttpResponse::text(*body_ptr);
-			});
+			r.get(std::format("/body/{}", label), [body_ptr](Request const &) { return Response::text(*body_ptr); });
 		}
 		r.serve_static("/", std::string{static_dir.string()});
 		return r;

@@ -100,7 +100,7 @@ class App {
 		return std::make_shared<ScopedContextMiddlewareList>(*group_context_middlewares_);
 	}
 
-	[[nodiscard]] static HttpResponse run_scoped_middlewares(
+	[[nodiscard]] static Response run_scoped_middlewares(
 		std::shared_ptr<ScopedMiddlewareList const> const &middlewares,
 		RequestView const &req,
 		Router::Handler inner) {
@@ -115,7 +115,7 @@ class App {
 		return inner(req);
 	}
 
-	[[nodiscard]] static conflux::work::root::Task<HttpResponse> run_scoped_context_middlewares(
+	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_middlewares(
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
 		Request const &req,
 		RequestContext const &ctx,
@@ -131,11 +131,12 @@ class App {
 
 			void bind(
 				std::shared_ptr<Step> self) {
-				next = [self = std::move(self)](Request const &r, RequestContext const &c)
-					-> conflux::work::root::Task<HttpResponse> { return self->call(r, c); };
+				next = [self = std::move(self)](
+						   Request const &r,
+						   RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
 			}
 
-			conflux::work::root::Task<HttpResponse> call(
+			conflux::work::root::Task<Response> call(
 				Request const &r,
 				RequestContext const &c) {
 				if (index == middlewares->size()) {
@@ -244,7 +245,7 @@ public:
 				"HTTP app handlers must not return raw strings; use http::text(...), http::html(...), or "
 				"http::Json{...}");
 		} else if constexpr (requires(Fn &fn) {
-								 { into_response(fn()) } -> std::same_as<HttpResponse>;
+								 { into_response(fn()) } -> std::same_as<Response>;
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
@@ -290,7 +291,7 @@ public:
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (requires(Fn &fn, RequestView const &req) {
-								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
+								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
 			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
@@ -336,7 +337,7 @@ public:
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
-								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
+								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
 			record_route_metadata<std::tuple<Request>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
@@ -384,7 +385,7 @@ public:
 				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
 			record_route_metadata<std::tuple<Request>>(method, path, "context", loc);
-			record_return_metadata<conflux::work::root::Task<HttpResponse>>();
+			record_return_metadata<conflux::work::root::Task<Response>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto scoped_context_middlewares = current_group_context_middlewares();
@@ -393,11 +394,11 @@ public:
 				path,
 				[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
 					Request const &req,
-					RequestContext const &ctx) mutable -> conflux::work::root::Task<HttpResponse> {
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					Router::ContextHandler inner =
 						[auth_policy, rate_limit, &fn](
 							Request const &inner_req,
-							RequestContext const &inner_ctx) -> conflux::work::root::Task<HttpResponse> {
+							RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
 						RequestView const view{inner_req};
 						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
 							co_return *std::move(denied);
@@ -1014,8 +1015,8 @@ public:
 		std::string_view title = "API",
 		std::string_view version = "1.0.0") const {
 		auto spec = openapi_spec(title, version);
-		return [spec = std::move(spec)](RequestView const &) -> HttpResponse {
-			auto response = HttpResponse::json(spec);
+		return [spec = std::move(spec)](RequestView const &) -> Response {
+			auto response = Response::json(spec);
 			return response;
 		};
 	}
@@ -1304,7 +1305,7 @@ public:
 
 #if CONFLUX_HAS_JSON
 	template<class T>
-	[[nodiscard]] static HttpResponse into_app_response(
+	[[nodiscard]] static Response into_app_response(
 		T &&result,
 		AppJsonOptions const &json_options) {
 		using Clean = std::remove_cvref_t<T>;
@@ -1316,7 +1317,7 @@ public:
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using Body = typename detail::JsonType<Clean>::type;
 			if constexpr (requires(Body const &value, codec::json::ResponseOptions const &opts) {
-							  { codec::json::response_or_internal_error(value, opts) } -> std::same_as<HttpResponse>;
+							  { codec::json::response_or_internal_error(value, opts) } -> std::same_as<Response>;
 						  }) {
 				return codec::json::response_or_internal_error(
 					result.value,
@@ -1333,7 +1334,7 @@ public:
 	}
 #else
 	template<class T>
-	[[nodiscard]] static HttpResponse into_app_response(
+	[[nodiscard]] static Response into_app_response(
 		T &&result) {
 		return into_response(std::forward<T>(result));
 	}
@@ -1636,7 +1637,7 @@ public:
 	}
 
 	template<class Args, class Fn, std::size_t... Is>
-	[[nodiscard]] static HttpResponse invoke_extracted(
+	[[nodiscard]] static Response invoke_extracted(
 		StateMap const &states,
 		Fn &fn,
 		RequestView const &req,
@@ -1667,7 +1668,7 @@ public:
 	}
 
 	template<class Args, class Fn, std::size_t... Is>
-	[[nodiscard]] static conflux::work::root::Task<HttpResponse> invoke_extracted_async(
+	[[nodiscard]] static conflux::work::root::Task<Response> invoke_extracted_async(
 		StateMap const &states,
 		Fn &fn,
 		RequestView const &req,
@@ -1687,7 +1688,7 @@ public:
 			 &json_options,
 			 max_body_size
 #endif
-		]() mutable -> conflux::work::root::Task<HttpResponse> {
+		]() mutable -> conflux::work::root::Task<Response> {
 				try {
 					auto result =
 						fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
@@ -1769,19 +1770,17 @@ public:
 				 max_body_size,
 				 json_options
 #endif
-			](Request const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<HttpResponse> {
-					Router::ContextHandler inner =
-						[states,
-						 auth_policy,
-						 rate_limit,
-						 &fn
+			](Request const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					Router::ContextHandler inner = [states,
+													auth_policy,
+													rate_limit,
+													&fn
 #if CONFLUX_HAS_JSON
-						 ,
-						 max_body_size,
-						 json_options
+													,
+													max_body_size,
+													json_options
 #endif
-					](Request const &inner_req,
-						RequestContext const &) mutable -> conflux::work::root::Task<HttpResponse> {
+					](Request const &inner_req, RequestContext const &) mutable -> conflux::work::root::Task<Response> {
 						RequestView const view{inner_req};
 						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
 							co_return *std::move(denied);
@@ -1877,7 +1876,7 @@ public:
 	}
 
 	template<class Args, class Body, class Fn, std::size_t... Is>
-	[[nodiscard]] static HttpResponse invoke_json_extracted(
+	[[nodiscard]] static Response invoke_json_extracted(
 		StateMap const &states,
 		Fn &fn,
 		RequestView const &req,
@@ -1920,7 +1919,7 @@ public:
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = std::move(decode_opts),
 			 max_body_size,
-			 json_options](RequestView const &req) mutable -> HttpResponse {
+			 json_options](RequestView const &req) mutable -> Response {
 				if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
 					return *std::move(denied);
 				}

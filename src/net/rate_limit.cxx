@@ -95,7 +95,7 @@ export Router::Middleware rate_limit_middleware(
 	auto state = std::make_shared<State>(std::max<std::size_t>(opts.max_clients, 1));
 	unsigned const capacity = opts.requests + opts.burst;
 
-	return [opts, capacity, state](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts, capacity, state](RequestView const &req, Router::Handler const &next) -> Response {
 		auto const now = Clock::now();
 		auto const key = req.remote_addr.empty() ?
 							 std::string{"unknown"} :
@@ -127,7 +127,7 @@ export Router::Middleware rate_limit_middleware(
 		}
 
 		if (!allowed) {
-			HttpResponse r;
+			Response r;
 			r.status = 429;
 			r.status_text = "Too Many Requests";
 			r.content_type = "text/plain; charset=utf-8";

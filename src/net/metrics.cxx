@@ -184,7 +184,7 @@ private:
 // Middleware: intercept every request, record method + status + latency.
 export Router::Middleware metrics_middleware(
 	MetricsRegistry &registry) {
-	return [&registry](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [&registry](RequestView const &req, Router::Handler const &next) -> Response {
 		auto const start = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		registry.record(req.method, resp.status, std::chrono::steady_clock::now() - start);
@@ -197,8 +197,8 @@ export Router::Middleware metrics_middleware(
 // listener; prefer metrics_handler_protected or a network-level ACL.
 export Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
-	return [&registry](HttpRequestView const &) -> HttpResponse {
-		HttpResponse r;
+	return [&registry](RequestView const &) -> Response {
+		Response r;
 		r.status = 200;
 		r.status_text = "OK";
 		r.content_type = "text/plain; version=0.0.4; charset=utf-8";
@@ -215,7 +215,7 @@ export Router::Handler metrics_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		Router::Middleware mw = std::move(*it);
 		Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](HttpRequestView const &req) -> HttpResponse {
+		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
 			return mw(req, next);
 		};
 	}

@@ -70,10 +70,10 @@ int main() {
 	cfg.http3.enabled = true;
 
 	Router router;
-	router.get("/", [](HttpRequestView const &) {
-		return HttpResponse::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
+	router.get("/", [](RequestView const &) {
+		return Response::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
 	});
-	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"transport":"h3-ready"})"); });
+	router.get("/ping", [](RequestView const &) { return Response::json(R"({"transport":"h3-ready"})"); });
 
 	HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_files.cert.c_str());

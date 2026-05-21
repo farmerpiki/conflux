@@ -52,7 +52,7 @@ TEST_CASE(
 	std::size_t const kSize = 128 * 1024;
 	std::string big(kSize, 'Q');
 	Router r;
-	r.get("/big", [&](HttpRequest const &) { return HttpResponse::text(big); });
+	r.get("/big", [&](Request const &) { return Response::text(big); });
 	conflux::tests::Http3ServerFixture const fx{std::move(r)};
 	auto [code, out] = fx.curl_h3("/big");
 	REQUIRE(code == 0);

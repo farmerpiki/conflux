@@ -31,9 +31,9 @@ bool weak_match(
 	std::string_view rhs) noexcept {
 	return weak_value(lhs) == weak_value(rhs);
 }
-HttpResponse not_modified(
+Response not_modified(
 	std::string_view etag) {
-	HttpResponse r{.status = 304, .status_text = "Not Modified"};
+	Response r{.status = 304, .status_text = "Not Modified"};
 	r.headers["ETag"] = std::string{etag};
 	return r;
 }
@@ -41,7 +41,7 @@ HttpResponse not_modified(
 } // namespace etag_detail
 export Router::Middleware etag_middleware(
 	ETagOptions opts = {}) {
-	return [opts](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		// Skip: already has ETag, empty body, SSE/WS, or mmap response.

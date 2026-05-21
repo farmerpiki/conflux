@@ -355,11 +355,11 @@ public:
 };
 [[nodiscard]] Router make_external_test_router() {
 	Router r;
-	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.get("/hello/{name}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::format("hello {}", req.params["name"]));
+	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	r.get("/hello/{name}", [](Request const &req) {
+		return Response::text(std::format("hello {}", req.params["name"]));
 	});
-	r.post("/echo", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
+	r.post("/echo", [](Request const &req) { return Response::text(req.body); });
 	return r;
 }
 

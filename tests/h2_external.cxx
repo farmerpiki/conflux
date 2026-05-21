@@ -581,17 +581,17 @@ TEST_CASE(
 	"h2: deferred response completes over HTTP/2") {
 	auto pool = std::make_shared<WorkPool>();
 	Router router;
-	router.get("/deferred", [pool](HttpRequest const &) {
+	router.get("/deferred", [pool](Request const &) {
 		auto deferred = std::make_shared<DeferredResponse>();
 		auto queued = pool->enqueue([deferred] {
-			auto resp = HttpResponse::text("deferred h2 ok");
+			auto resp = Response::text("deferred h2 ok");
 			resp.headers["x-deferred"] = "yes";
 			deferred->complete(std::move(resp));
 		});
 		if (!queued) {
-			return HttpResponse::internal_error("pool enqueue failed");
+			return Response::internal_error("pool enqueue failed");
 		}
-		return HttpResponse::deferred(std::move(deferred));
+		return Response::deferred(std::move(deferred));
 	});
 	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	H2Client client{fx.port()};
@@ -602,8 +602,8 @@ TEST_CASE(
 TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	Router r;
-	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	r.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		CONFLUX_DISCARD(ch->send("data: gamma\n\n"));
@@ -621,8 +621,8 @@ TEST_CASE(
 TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
 	Router r;
-	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/typed", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	r.sse("/typed", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -637,9 +637,9 @@ TEST_CASE(
 TEST_CASE(
 	"h2: response trailers arrive after body") {
 	Router router;
-	router.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	router.get("/with-trailers", [](HttpRequest const &) {
-		HttpResponse resp;
+	router.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	router.get("/with-trailers", [](Request const &) {
+		Response resp;
 		resp.status = 200;
 		resp.status_text = "OK";
 		resp.content_type = "text/plain; charset=utf-8";
@@ -668,8 +668,8 @@ TEST_CASE(
 	static constexpr std::size_t kBodySize = 128 * 1024;
 	std::string large_body(kBodySize, 'X');
 	Router r;
-	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.get("/big", [&large_body](HttpRequest const &) { return HttpResponse::text(large_body); });
+	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	r.get("/big", [&large_body](Request const &) { return Response::text(large_body); });
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/big");

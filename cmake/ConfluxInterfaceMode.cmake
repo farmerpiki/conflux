@@ -761,7 +761,7 @@ function(conflux_add_header_compile_fail_tests)
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-request-view-task
         tests/http_facade_compile_fail_request_view_task
-        "Async handlers must take HttpRequest const&, not HttpRequestView const&"
+        "Async handlers must take Request const&, not RequestView const&"
         "the view can dangle after coroutine suspension")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-request-view-task-extractor

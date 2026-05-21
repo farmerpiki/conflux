@@ -43,7 +43,7 @@ namespace proxy_detail {
 
 [[nodiscard]] static http::ClientRequest::Builder apply_headers(
 	http::ClientRequest::Builder builder,
-	HttpRequestView const &req,
+	RequestView const &req,
 	ProxyOptions const &opts) {
 	for (auto const &[name, value]: req.headers) {
 		if (name == "host") {
@@ -69,9 +69,9 @@ namespace proxy_detail {
 	return builder;
 }
 
-[[nodiscard]] static HttpResponse build_response(
+[[nodiscard]] static Response build_response(
 	http::ClientResponse &&r) {
-	HttpResponse out;
+	Response out;
 	out.status = r.head.status;
 	out.status_text = std::move(r.head.status_text);
 	out.headers = std::move(r.head.headers);
@@ -83,8 +83,8 @@ namespace proxy_detail {
 	return out;
 }
 
-[[nodiscard]] HttpResponse perform_proxy_request(
-	HttpRequestView const &req,
+[[nodiscard]] Response perform_proxy_request(
+	RequestView const &req,
 	ProxyOptions const &opts) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
@@ -94,14 +94,14 @@ namespace proxy_detail {
 	builder.timeouts(client.options().default_timeouts);
 	auto result = client.blocking_send(std::move(builder).build());
 	if (!result) {
-		return HttpResponse::bad_gateway(
+		return Response::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
 	return build_response(std::move(*result));
 }
 
-[[nodiscard]] wroot::Task<HttpResponse> perform_proxy_request_async(
-	HttpRequest const &req,
+[[nodiscard]] wroot::Task<Response> perform_proxy_request_async(
+	Request const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	auto co = make_client_opts(opts);
@@ -109,12 +109,12 @@ namespace proxy_detail {
 	HttpClient client{std::move(co)};
 	auto builder = apply_headers(
 		http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)),
-		HttpRequestView{req},
+		RequestView{req},
 		opts);
 	builder.timeouts(client.options().default_timeouts);
 	auto result = co_await http::async_send(client, ring, std::move(builder).build());
 	if (!result) {
-		co_return HttpResponse::bad_gateway(
+		co_return Response::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
 	co_return build_response(std::move(*result));
@@ -122,14 +122,14 @@ namespace proxy_detail {
 
 } // namespace proxy_detail
 
-HttpResponse blocking_proxy(
-	HttpRequestView const &req,
+Response blocking_proxy(
+	RequestView const &req,
 	ProxyOptions const &opts) {
 	return proxy_detail::perform_proxy_request(req, opts);
 }
 
-wroot::Task<HttpResponse> async_proxy(
-	HttpRequest const &req,
+wroot::Task<Response> async_proxy(
+	Request const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	co_return co_await proxy_detail::perform_proxy_request_async(req, opts, ring);

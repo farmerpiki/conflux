@@ -48,8 +48,7 @@ export Router::Middleware request_id_middleware(
 	std::string lower_header = ascii_lower(opts.header);
 
 	return [opts = std::move(opts),
-			lower_header =
-				std::move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+			lower_header = std::move(lower_header)](RequestView const &req, Router::Handler const &next) -> Response {
 		std::string id;
 		if (opts.trust_incoming) {
 			auto existing = req.headers[lower_header];

@@ -115,7 +115,7 @@ template<class T>
 	}
 }
 
-[[nodiscard]] HttpResponse json_decode_problem(
+[[nodiscard]] Response json_decode_problem(
 	conflux::json::boundary::Error const &err) {
 	std::string body = std::format(
 		R"({{"code":"json.decode.type_mismatch","stage":"{}","kind":"{}","detail":"{}")",
@@ -133,12 +133,12 @@ template<class T>
 			err.source->column);
 	}
 	body += "}";
-	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
 	response.content_type = "application/problem+json";
 	return response;
 }
 
-[[nodiscard]] HttpResponse json_patch_problem(
+[[nodiscard]] Response json_patch_problem(
 	JsonError const &err) {
 	std::string body = std::format(
 		R"({{"code":"{}","stage":"json_patch","detail":"{}")",
@@ -157,13 +157,13 @@ template<class T>
 		body += std::format(R"(,"from":"{}")", json_escape(*err.from_pointer));
 	}
 	body += "}";
-	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
 	response.content_type = "application/problem+json";
 	return response;
 }
 
-[[nodiscard]] HttpResponse unsupported_json_content_type_problem() {
-	auto response = HttpResponse::json(
+[[nodiscard]] Response unsupported_json_content_type_problem() {
+	auto response = Response::json(
 		R"({"code":"unsupported_content_type","detail":"expected application/json","expected":"application/json"})",
 		kHttpBadRequest,
 		"Bad Request");
@@ -171,8 +171,8 @@ template<class T>
 	return response;
 }
 
-[[nodiscard]] HttpResponse json_body_too_large_problem() {
-	auto response = HttpResponse::json(
+[[nodiscard]] Response json_body_too_large_problem() {
+	auto response = Response::json(
 		R"({"code":"content_too_large","detail":"request body is larger than the configured limit"})",
 		kHttpRequestEntityTooLarge,
 		"Content Too Large");

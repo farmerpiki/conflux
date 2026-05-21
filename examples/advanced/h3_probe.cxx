@@ -43,7 +43,7 @@ int main() {
 	cfg.http3.enabled = true;
 
 	Router router;
-	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
+	router.get("/ping", [](RequestView const &) { return Response::json(R"({"ok":true})"); });
 
 	HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_path.c_str());
