@@ -1555,6 +1555,19 @@ target_sources(conflux_template
         FILES
         ${CONFLUX_SRC_ROOT}/template.cxx
 )
+target_sources(conflux_template
+    PRIVATE
+        ${CONFLUX_SRC_ROOT}/template_env.cxx
+        ${CONFLUX_SRC_ROOT}/template_impl.cxx
+        ${CONFLUX_SRC_ROOT}/template_parse.cxx
+        ${CONFLUX_SRC_ROOT}/template_render.cxx
+)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC 15 currently ICEs in the ealias pass on this C++ module implementation
+    # unit at release optimization levels. Function-level optimize attributes are
+    # ignored for modules, so keep the workaround scoped to this source file.
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/template_impl.cxx PROPERTIES COMPILE_OPTIONS "-O0")
+endif()
 target_link_libraries(conflux_template
     PRIVATE conflux_options
     PUBLIC  conflux_json
