@@ -58,10 +58,9 @@ int main() {
 	});
 
 	app.get<"/todos/{id:i64}">(
-		[](http::Path<"id", std::int64_t> id,
-		   http::State<TodoStore> store) -> std::expected<http::Json<Todo>, http::Problem> {
+		[](std::int64_t id, http::State<TodoStore> store) -> std::expected<http::Json<Todo>, http::Problem> {
 			std::lock_guard lock{store->mu};
-			auto it = std::ranges::find(store->todos, id.get(), &Todo::id);
+			auto it = std::ranges::find(store->todos, id, &Todo::id);
 			if (it == store->todos.end()) {
 				return std::unexpected{http::problem::not_found("todo_not_found", "todo not found")};
 			}

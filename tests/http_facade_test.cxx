@@ -1329,6 +1329,39 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: fixed typed routes pass path params as plain handler arguments",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/todos/{id:i64}">([](std::int64_t id) { return http::text(std::format("todo={}", id)); });
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/todos/{id:i64}");
+	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
+	CHECK(
+		routes[0].path_param_types
+		== std::map<std::string, std::string>{
+			{"id", "i64"}
+    });
+	CHECK(app.validate().ok());
+
+	Request req;
+	req.method = "GET";
+	req.path = "/todos/-42";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "todo=-42");
+
+	req.path = "/todos/nope";
+	auto bad = app.router().dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.content_type == "application/problem+json");
+	CHECK(bad.text_body().contains(R"("extractor":"Path")"));
+	CHECK(bad.text_body().contains(R"("name":"id")"));
+}
+
+TEST_CASE(
 	"http facade: positional path extractors dispatch by capture order",
 	"[http.facade]") {
 	auto app = http::app();

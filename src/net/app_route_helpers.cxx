@@ -1,6 +1,7 @@
 export module conflux.net.app.route_helpers;
 
 import std;
+import conflux.net.app.types;
 import conflux.net.http.types;
 
 export namespace conflux::http::detail {
@@ -118,6 +119,35 @@ export namespace conflux::http::detail {
 		pos = close + 1;
 	}
 	return out;
+}
+
+template<FixedString Path, std::size_t Index>
+[[nodiscard]] consteval std::string_view fixed_path_param_name() {
+	auto const path = Path.view();
+	std::size_t count = 0;
+	for (std::size_t pos = 0; pos < path.size();) {
+		auto open = path.find('{', pos);
+		if (open == std::string_view::npos) {
+			break;
+		}
+		auto close = path.find('}', open + 1);
+		if (close == std::string_view::npos) {
+			break;
+		}
+		if (count == Index) {
+			auto name = path.substr(open + 1, close - open - 1);
+			if (name.starts_with('*')) {
+				name.remove_prefix(1);
+			}
+			if (auto colon = name.find(':'); colon != std::string_view::npos) {
+				name = name.substr(0, colon);
+			}
+			return name;
+		}
+		++count;
+		pos = close + 1;
+	}
+	return {};
 }
 
 [[nodiscard]] std::string available_path_params_message(

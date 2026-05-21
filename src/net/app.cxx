@@ -451,7 +451,7 @@ public:
 	RouteRef get(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return get(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("GET", std::forward<F>(handler), loc);
 	}
 	template<typename F>
 	RouteRef post(
@@ -464,7 +464,7 @@ public:
 	RouteRef post(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return post(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("POST", std::forward<F>(handler), loc);
 	}
 #if CONFLUX_HAS_JSON
 	App &json_options(
@@ -500,7 +500,7 @@ public:
 	RouteRef put(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return put(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("PUT", std::forward<F>(handler), loc);
 	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
@@ -530,7 +530,7 @@ public:
 	RouteRef patch(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return patch(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("PATCH", std::forward<F>(handler), loc);
 	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
@@ -560,7 +560,7 @@ public:
 	RouteRef del(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return del(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("DELETE", std::forward<F>(handler), loc);
 	}
 	template<typename F>
 	RouteRef options(
@@ -573,7 +573,7 @@ public:
 	RouteRef options(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return options(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>("OPTIONS", std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
@@ -1634,6 +1634,167 @@ public:
 				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, "
 				"http::BasicAuth, or http::State<T>");
 		}
+	}
+
+	template<class Arg, std::size_t Index>
+	[[nodiscard]] static auto make_inline_path_arg(
+		RequestView const &req) {
+		using Clean = std::remove_cvref_t<Arg>;
+		if constexpr (std::same_as<Clean, std::string_view>) {
+			auto param = detail::path_param_at(req, Index);
+			return param ? param->second : std::string_view{};
+		} else if constexpr (std::same_as<Clean, std::string>) {
+			auto param = detail::path_param_at(req, Index);
+			return param ? std::string{param->second} : std::string{};
+		} else {
+			return detail::extract_or_throw(detail::path_param_as_at<Clean>(req, Index), "Path");
+		}
+	}
+
+	template<class Args, std::size_t Index>
+	[[nodiscard]] static auto make_fixed_route_arg(
+		StateMap const &states,
+		RequestView const &req
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
+		using Arg = std::tuple_element_t<Index, Args>;
+		using Clean = std::remove_cvref_t<Arg>;
+		if constexpr (detail::InlinePathArg<Clean>) {
+			return make_inline_path_arg<Clean, detail::inline_path_arg_index<Args, Index>()>(req);
+		} else {
+			return make_handler_arg<Arg>(
+				states,
+				req
+#if CONFLUX_HAS_JSON
+				,
+				json_options,
+				max_body_size
+#endif
+			);
+		}
+	}
+
+	template<class Args, class Fn, std::size_t... Is>
+	[[nodiscard]] static Response invoke_fixed_route(
+		StateMap const &states,
+		Fn &fn,
+		RequestView const &req,
+		std::index_sequence<Is...>
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
+		try {
+			return into_app_response(
+				fn(make_fixed_route_arg<Args, Is>(
+					states,
+					req
+#if CONFLUX_HAS_JSON
+					,
+					json_options,
+					max_body_size
+#endif
+					)...)
+#if CONFLUX_HAS_JSON
+					,
+				json_options
+#endif
+			);
+		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
+	}
+
+	template<FixedString Path, class Args, std::size_t... Is>
+	static void record_inline_path_extractors(
+		AppRouteMetadata &meta,
+		std::index_sequence<Is...>) {
+		(
+			[&] {
+				using Arg = std::tuple_element_t<Is, Args>;
+				if constexpr (detail::InlinePathArg<Arg>) {
+					constexpr auto path_index = detail::inline_path_arg_index<Args, Is>();
+					meta.extractors[Is] = std::format("Path<{}>", detail::fixed_path_param_name<Path, path_index>());
+					meta.path_index_extractor_types.emplace_back(
+						path_index,
+						std::string{detail::route_type_tag<Arg>()});
+				}
+			}(),
+			...);
+	}
+
+	template<FixedString Path, typename F>
+	[[nodiscard]] RouteRef add_fixed_route(
+		std::string_view method,
+		F &&handler,
+		std::source_location loc) {
+		using Fn = std::decay_t<F>;
+		using Args = typename detail::CallableArgs<Fn>::type;
+		record_route_metadata<Args>(method, Path.view(), "app", loc);
+		auto &meta = route_metadata_.back();
+		record_inline_path_extractors<Path, Args>(meta, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		record_extracted_return_metadata<Fn, Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
+#if CONFLUX_HAS_JSON
+		auto max_body_size = route_metadata_.back().max_body_size;
+		auto json_options = json_options_;
+#endif
+		auto auth_policy = route_metadata_.back().auth_policy;
+		auto rate_limit = route_metadata_.back().rate_limit;
+		auto timeout = route_metadata_.back().timeout;
+		auto scoped_middlewares = current_group_middlewares();
+		router_.add(
+			method,
+			Path.view(),
+			[states = states_,
+			 auth_policy,
+			 rate_limit,
+			 timeout,
+			 scoped_middlewares,
+			 fn = Fn(std::forward<F>(handler))
+#if CONFLUX_HAS_JSON
+				 ,
+			 max_body_size,
+			 json_options
+#endif
+		](RequestView const &req) mutable {
+				Router::Handler inner = [states,
+										 auth_policy,
+										 rate_limit,
+										 timeout,
+										 &fn
+#if CONFLUX_HAS_JSON
+										 ,
+										 max_body_size,
+										 json_options
+#endif
+				](RequestView const &inner_req) mutable {
+					if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+						return *std::move(limited);
+					}
+					return detail::apply_route_timeout(
+						invoke_fixed_route<Args>(
+							*states,
+							fn,
+							inner_req,
+							std::make_index_sequence<std::tuple_size_v<Args>>{}
+#if CONFLUX_HAS_JSON
+							,
+							*json_options,
+							*max_body_size
+#endif
+							),
+						*timeout);
+				};
+				return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
+			});
+		return RouteRef{*this, route_metadata_.size() - 1};
 	}
 
 	template<class Args, class Fn, std::size_t... Is>

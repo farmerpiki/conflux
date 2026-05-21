@@ -462,6 +462,15 @@ public:
 Path patterns support `{param}` segment captures and `*` wildcards. Captures are
 accessible through `req.params["param"]`.
 
+Fixed-string app routes can tag path parameter types and pass them directly as
+plain handler arguments by capture order:
+
+```cpp
+app.get<"/todos/{id:i64}">([](std::int64_t id) {
+    return http::text(std::format("todo={}", id));
+});
+```
+
 The public concepts are intended for user helpers and diagnostics. `http::Request` / `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept `http::OwnedRequest`. A synchronous handler may also accept `http::OwnedRequest const&`; that deliberately materializes an owned request before the call, so prefer `http::Request const&` unless ownership is needed.
 
 Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`

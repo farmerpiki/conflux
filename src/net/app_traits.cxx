@@ -199,6 +199,14 @@ concept BearerArg = std::same_as<std::remove_cvref_t<Arg>, Bearer>;
 template<class Arg>
 concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;
 
+template<class Arg>
+concept InlinePathArg = (std::signed_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 8)
+					 || (std::unsigned_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 8)
+					 || (std::signed_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 4)
+					 || (std::unsigned_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 4)
+					 || std::same_as<std::remove_cvref_t<Arg>, std::string_view>
+					 || std::same_as<std::remove_cvref_t<Arg>, std::string>;
+
 template<class Arg, class Body>
 concept RawJsonBodyArg = std::same_as<std::remove_cvref_t<Arg>, std::remove_cvref_t<Body>>;
 
@@ -280,6 +288,20 @@ consteval bool has_request_view_arg_impl(
 template<class Args>
 consteval bool has_request_view_arg() {
 	return has_request_view_arg_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
+}
+
+template<class Args, std::size_t Index, std::size_t... Is>
+consteval std::size_t inline_path_arg_index_impl(
+	std::index_sequence<Is...>) {
+	return (
+		std::size_t{0}
+		+ ...
+		+ ((Is < Index && InlinePathArg<std::tuple_element_t<Is, Args>>) ? std::size_t{1} : std::size_t{0}));
+}
+
+template<class Args, std::size_t Index>
+consteval std::size_t inline_path_arg_index() {
+	return inline_path_arg_index_impl<Args, Index>(std::make_index_sequence<Index>{});
 }
 
 }} // namespace conflux::http::detail
