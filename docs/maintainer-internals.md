@@ -15,6 +15,11 @@ component boundary before code is edited.
   zero-copy notification closes the lifetime.
 - Cancellation is best-effort. Public cancellation APIs request closure and
   unblock waiters; CQEs may still arrive and must pass generation checks.
+- `conflux::detail::small_move_only_function` stores its heap/inline state in a
+  low-bit tag on the type-erased manager function pointer. This is intended as a
+  GCC/Clang/Linux implementation detail: mainstream AArch64 and RISC-V ABIs
+  should have sufficient function-pointer alignment, but unusual ARM32,
+  sanitizer, or capability-pointer targets may need a non-tagged fallback.
 - Buffer ownership is explicit: borrowed request views cannot outlive dispatch,
   registered buffers return through their pool lease, and mapped/file buffers
   remain pinned until the final send completion.
