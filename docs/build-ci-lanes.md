@@ -266,5 +266,12 @@ hash providers, web-server compression with automatic gzip selection and
 auth with the Argon2 runtime provider. `CONFLUX_GZIP_PROVIDER=AUTO` benchmarks
 all discovered gzip backends during configure when more than one backend is
 available, skips the benchmark when only one backend exists, and compiles only
-the selected backend by default. Use `CONFLUX_GZIP_PROVIDER=ALL` or a specific
-provider to build multiple or pinned backends.
+the selected backend by default.
+
+The AUTO result is cached in `CONFLUX_RESOLVED_GZIP_PROVIDER`, with an internal
+fingerprint covering the discovered candidate set, compiler, build type, and
+C++ flags. Reconfiguring the same build tree reuses the cached selection instead
+of rerunning the probes. Changing those inputs invalidates the fingerprint and
+reruns selection. Use `CONFLUX_GZIP_PROVIDER=ALL` to build every discovered
+backend, or set `CONFLUX_GZIP_PROVIDER=LIBDEFLATE`, `ZLIB_NG`, `ZLIB`, or `ISAL`
+to pin a backend and avoid configure-time benchmarking entirely.
