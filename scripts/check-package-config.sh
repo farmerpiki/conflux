@@ -140,6 +140,10 @@ grep -q 'visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}' cmake/packa
     || fail "package smoke summary must report visible support targets"
 grep -q 'resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report resolved external deps"
+grep -q 'CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must support negative external dependency assertions"
+grep -q -- '--forbid-external-deps' scripts/run-package-config-smoke.sh \
+    || fail "package smoke runner must expose negative external dependency assertions"
 grep -q 'found unrequested visible target' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke must reject unrequested visible targets"
 grep -q 'runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}' cmake/package-smoke/CMakeLists.txt \

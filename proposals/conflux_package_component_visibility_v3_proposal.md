@@ -1,25 +1,24 @@
 # Proposal v3: Low-maintenance package component visibility
 
-Status: open
+Status: implemented
 Branch: `modules-first-release-artifacts`
-State note: implementation proposal. This supersedes
+State note: implemented package visibility design. This supersedes
 `conflux_package_component_visibility_proposal.md` and
 `conflux_package_component_visibility_counterproposal.md`.
 
-Verified baseline in the current worktree:
+Implemented state:
 
-- split `confluxTargets-<component>.cmake` exports are already present and
-  should be kept;
-- `dns_bridge` is already exported as `conflux::dns_bridge`;
-- `cmake/conflux-config.cmake.in` now contains a temporary hand-written
-  `_conflux_component_deps_*` table and `_conflux_component_order`;
-- install-wide `CONFLUX_INSTALL_NEEDS_*` booleans still drive unconditional
-  external dependency resolution;
-- support targets still flow through the same flat registration path as
-  requestable components;
-- package smoke no longer pre-expands requested components, but it still needs
-  stronger negative target and external-dependency checks;
-- header mode still lets `conflux_headers` carry `PkgConfig::LIBURING`.
+- split `confluxTargets-<component>.cmake` exports are the import boundary;
+- `dns_bridge` is exported as `conflux::dns_bridge`;
+- `cmake/conflux-config.cmake.in` uses generated metadata and generic DFS
+  import logic, with no hand-written dependency table or component order;
+- external dependencies are resolved from the requested closure rather than
+  install-wide `CONFLUX_INSTALL_NEEDS_*` booleans;
+- support targets are registered separately from requestable components;
+- package smoke keeps requested components unchanged and includes negative
+  visible-target/external-dependency checks;
+- header mode treats `conflux_headers` as support metadata and keeps liburing on
+  reached runtime/http components instead of the universal header target.
 
 ## Summary
 

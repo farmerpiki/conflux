@@ -20,6 +20,10 @@ set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
     "Expected installed interface mode, or empty to accept the package mode")
 set(CONFLUX_PACKAGE_SMOKE_ENABLE_DB OFF CACHE BOOL
     "Enable DB component smoke lanes when the installed package exposes DB targets")
+set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS "" CACHE STRING
+    "Semicolon-separated conflux components that must not be visible")
+set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS "" CACHE STRING
+    "Semicolon-separated external dependency tokens that must not be resolved")
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
 
@@ -74,6 +78,29 @@ foreach(_component IN LISTS conflux_AVAILABLE_COMPONENTS)
     endif()
 endforeach()
 
+foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS)
+    if(_component IN_LIST conflux_VISIBLE_COMPONENTS)
+        message(FATAL_ERROR
+            "conflux package smoke found forbidden visible component '${_component}'")
+    endif()
+    if(_component STREQUAL "conflux")
+        set(_target conflux::conflux)
+    else()
+        set(_target "conflux::${_component}")
+    endif()
+    if(TARGET ${_target})
+        message(FATAL_ERROR
+            "conflux package smoke found forbidden imported target '${_target}'")
+    endif()
+endforeach()
+
+foreach(_external_dep IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS)
+    if(_external_dep IN_LIST conflux_RESOLVED_EXTERNAL_DEPS)
+        message(FATAL_ERROR
+            "conflux package smoke resolved forbidden external dependency '${_external_dep}'")
+    endif()
+endforeach()
+
 set(_conflux_smoke_summary "${CMAKE_CURRENT_BINARY_DIR}/conflux-package-smoke-summary.txt")
 file(WRITE "${_conflux_smoke_summary}"
     "components=${_conflux_find_components}\n"
@@ -92,6 +119,8 @@ file(WRITE "${_conflux_smoke_summary}"
     "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
     "cmake=${CMAKE_VERSION}\n"
     "enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"
+    "forbidden_components=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS}\n"
+    "forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
 )
 
 set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
