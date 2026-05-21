@@ -4,24 +4,21 @@ import std;
 
 export namespace conflux::detail {
 
-template<typename Signature, std::size_t InlineBytes = 32>
+template<typename Signature, std::size_t InlineBytes = 31>
 class small_move_only_function;
 
 template<typename R, typename... Args, std::size_t InlineBytes>
 class small_move_only_function<R(Args...), InlineBytes> {
-	struct storage_t {
-		alignas(std::max_align_t) std::byte bytes[InlineBytes];
-	};
 	using invoke_fn = R (*)(void *, Args &&...);
 	using destroy_fn = void (*)(void *) noexcept;
 	using move_fn = void (*)(void *, void *) noexcept;
 
-	storage_t inline_storage_{};
+	alignas(std::max_align_t) std::byte inline_storage_[InlineBytes]{};
+	bool inlined_ = false;
 	void *object_ = nullptr;
 	invoke_fn invoke_ = nullptr;
 	destroy_fn destroy_ = nullptr;
 	move_fn move_ = nullptr;
-	bool inlined_ = false;
 
 	template<typename F>
 	static R invoke_inline(
@@ -77,7 +74,7 @@ class small_move_only_function<R(Args...), InlineBytes> {
 		}
 
 		if (other.inlined_) {
-			object_ = &inline_storage_;
+			object_ = inline_storage_;
 			move_(object_, other.object_);
 			other.object_ = nullptr;
 			other.invoke_ = nullptr;
@@ -112,6 +109,21 @@ public:
 		}
 		return *this;
 	}
+	small_move_only_function &operator =(
+		std::nullptr_t) noexcept {
+		reset();
+		return *this;
+	}
+	template<typename F>
+		requires(
+			!std::same_as<std::remove_cvref_t<F>, small_move_only_function>
+			&& !std::same_as<std::remove_cvref_t<F>, std::nullptr_t>)
+	small_move_only_function &operator =(
+		F &&fn) {
+		auto next = small_move_only_function{std::forward<F>(fn)};
+		swap(next);
+		return *this;
+	}
 	template<typename F>
 		requires(!std::same_as<std::remove_cvref_t<F>, small_move_only_function>)
 	small_move_only_function(
@@ -121,9 +133,9 @@ public:
 
 		if constexpr (
 			sizeof(fn_t) <= InlineBytes
-			&& alignof(fn_t) <= alignof(storage_t)
+			&& alignof(fn_t) <= alignof(std::max_align_t)
 			&& std::is_nothrow_move_constructible_v<fn_t>) {
-			object_ = &inline_storage_;
+			object_ = inline_storage_;
 			new (object_) fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_inline<fn_t>;
 			destroy_ = &destroy_inline<fn_t>;
@@ -139,10 +151,42 @@ public:
 	}
 	~small_move_only_function() noexcept { reset(); }
 	[[nodiscard]] explicit operator bool() const noexcept { return invoke_ != nullptr; }
+	void swap(
+		small_move_only_function &other) noexcept {
+		if (this == &other) {
+			return;
+		}
+		auto tmp = std::move(other);
+		other = std::move(*this);
+		*this = std::move(tmp);
+	}
 	R operator ()(
 		Args... args) const { // NOLINT(performance-unnecessary-value-param): pack must be forwarded
 		return invoke_(object_, std::forward<Args>(args)...);
 	}
 };
+
+static_assert(sizeof(small_move_only_function<void()>) == 64);
+
+template<typename Signature, std::size_t InlineBytes>
+void swap(
+	small_move_only_function<Signature, InlineBytes> &lhs,
+	small_move_only_function<Signature, InlineBytes> &rhs) noexcept {
+	lhs.swap(rhs);
+}
+
+template<typename Signature, std::size_t InlineBytes>
+[[nodiscard]] bool operator ==(
+	small_move_only_function<Signature, InlineBytes> const &fn,
+	std::nullptr_t) noexcept {
+	return !fn;
+}
+
+template<typename Signature, std::size_t InlineBytes>
+[[nodiscard]] bool operator ==(
+	std::nullptr_t,
+	small_move_only_function<Signature, InlineBytes> const &fn) noexcept {
+	return !fn;
+}
 
 } // namespace conflux::detail
