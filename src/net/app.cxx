@@ -1394,12 +1394,12 @@ public:
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
 		if constexpr (detail::has_body_extractor<Args>()) {
-			if (std::ranges::contains(meta.extractors, "JsonDocument")) {
+			if (std::ranges::contains(meta.extractors, std::string_view{"JsonDocument"})) {
 				meta.consumes = {"application/json", "application/problem+json"};
-			} else if (std::ranges::contains(meta.extractors, "JsonPatch")) {
+			} else if (std::ranges::contains(meta.extractors, std::string_view{"JsonPatch"})) {
 				meta.consumes = {"application/json-patch+json"};
 				meta.request_body_schema = R"({"type":"array","items":{"type":"object","required":["op","path"]}})";
-			} else if (std::ranges::contains(meta.extractors, "MergePatch")) {
+			} else if (std::ranges::contains(meta.extractors, std::string_view{"MergePatch"})) {
 				meta.consumes = {"application/merge-patch+json"};
 				meta.request_body_schema = "{}";
 			}
