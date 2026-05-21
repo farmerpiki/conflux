@@ -28,6 +28,7 @@ export module conflux.work.root;
 
 import std;
 import conflux.types;
+import conflux.small_function;
 
 #ifndef CONFLUX_WORK_ALLOC_STATS
 	#define CONFLUX_WORK_ALLOC_STATS 0
@@ -755,151 +756,9 @@ enum class AbandonStatus : std::uint8_t {
 };
 namespace detail {
 
-// Benchmark coverage lives in benchmarks/work_bench.cxx
-// (`root/callable_erasure_custom` plus compile-gated std comparator). Keep
-// the lower-overhead option as toolchain support matures. Do not regress to
-// Fn.
-template<typename Signature, std::size_t InlineBytes = 32>
-class small_move_only_function;
-template<typename R, typename... Args, std::size_t InlineBytes>
-class small_move_only_function<R(Args...), InlineBytes> {
-	struct storage_t {
-		alignas(std::max_align_t) std::byte bytes[InlineBytes];
-	};
-	using invoke_fn = R (*)(void *, Args &&...);
-	using destroy_fn = void (*)(void *) noexcept;
-	using move_fn = void (*)(void *, void *) noexcept;
-
-	storage_t inline_storage_{};
-	void *object_ = nullptr;
-	invoke_fn invoke_ = nullptr;
-	destroy_fn destroy_ = nullptr;
-	move_fn move_ = nullptr;
-	bool inlined_ = false;
-	template<typename F>
-	static R invoke_inline(
-		void *obj,
-		Args &&...args) {
-		return std::invoke(*reinterpret_cast<F *>(obj), std::forward<Args>(args)...);
-	}
-	template<typename F>
-	static void destroy_inline(
-		void *obj) noexcept {
-		reinterpret_cast<F *>(obj)->~F();
-	}
-	template<typename F>
-	static void move_inline(
-		void *dst,
-		void *src) noexcept {
-		auto *src_fn = reinterpret_cast<F *>(src);
-		new (dst) F(std::move(*src_fn));
-		src_fn->~F();
-	}
-	template<typename F>
-	static R invoke_heap(
-		void *obj,
-		Args &&...args) {
-		return std::invoke(*reinterpret_cast<F *>(obj), std::forward<Args>(args)...);
-	}
-	template<typename F>
-	static void destroy_heap(
-		void *obj) noexcept {
-		delete reinterpret_cast<F *>(obj);
-	}
-	void reset() noexcept {
-		if (invoke_ == nullptr) {
-			return;
-		}
-		destroy_(object_);
-		object_ = nullptr;
-		invoke_ = nullptr;
-		destroy_ = nullptr;
-		move_ = nullptr;
-		inlined_ = false;
-	}
-	void move_from(
-		small_move_only_function &&other) noexcept {
-		invoke_ = other.invoke_;
-		destroy_ = other.destroy_;
-		move_ = other.move_;
-		inlined_ = other.inlined_;
-
-		if (invoke_ == nullptr) {
-			object_ = nullptr;
-			return;
-		}
-
-		if (other.inlined_) {
-			object_ = &inline_storage_;
-			move_(object_, other.object_);
-			other.object_ = nullptr;
-			other.invoke_ = nullptr;
-			other.destroy_ = nullptr;
-			other.move_ = nullptr;
-			other.inlined_ = false;
-			return;
-		}
-
-		object_ = std::exchange(other.object_, nullptr);
-		other.invoke_ = nullptr;
-		other.destroy_ = nullptr;
-		other.move_ = nullptr;
-		other.inlined_ = false;
-	}
-
-public:
-	small_move_only_function() noexcept = default;
-	small_move_only_function(
-		std::nullptr_t) noexcept {}
-	small_move_only_function(small_move_only_function const &) = delete;
-	small_move_only_function &operator =(small_move_only_function const &) = delete;
-	small_move_only_function(
-		small_move_only_function &&other) noexcept {
-		move_from(std::move(other));
-	}
-	small_move_only_function &operator =(
-		small_move_only_function &&other) noexcept {
-		if (this != &other) {
-			reset();
-			move_from(std::move(other));
-		}
-		return *this;
-	}
-	template<typename F>
-		requires(!std::same_as<std::remove_cvref_t<F>, small_move_only_function>)
-	small_move_only_function(
-		F &&fn) {
-		using fn_t = std::remove_cvref_t<F>;
-		static_assert(std::is_move_constructible_v<fn_t>);
-
-		if constexpr (
-			sizeof(fn_t) <= InlineBytes
-			&& alignof(fn_t) <= alignof(storage_t)
-			&& std::is_nothrow_move_constructible_v<fn_t>) {
-			object_ = &inline_storage_;
-			new (object_) fn_t(std::forward<F>(fn));
-			invoke_ = &invoke_inline<fn_t>;
-			destroy_ = &destroy_inline<fn_t>;
-			move_ = &move_inline<fn_t>;
-			inlined_ = true;
-		} else {
-			object_ = new fn_t(std::forward<F>(fn));
-			invoke_ = &invoke_heap<fn_t>;
-			destroy_ = &destroy_heap<fn_t>;
-			move_ = nullptr;
-			inlined_ = false;
-		}
-	}
-	~small_move_only_function() noexcept { reset(); }
-	[[nodiscard]] explicit operator bool() const noexcept { return invoke_ != nullptr; }
-	R operator ()(
-		Args... args) const { // NOLINT(performance-unnecessary-value-param): pack must be forwarded
-		return invoke_(object_, std::forward<Args>(args)...);
-	}
-};
 struct ReadyRegistrationResult {
 	ReadyRegistration status;
-	small_move_only_function<void()> rejected_fn;
+	::conflux::detail::small_move_only_function<void()> rejected_fn;
 };
 
 enum class TerminalState : std::uint8_t {
@@ -920,7 +779,7 @@ enum class ReadyHookState : std::uint8_t {
 // skip the mutex on the hot path.
 struct DroppedOutcomeSinkStore {
 	std::mutex mtx;
-	small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)> fn;
+	::conflux::detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)> fn;
 	std::atomic<bool> installed{false};
 };
 inline DroppedOutcomeSinkStore &dropped_outcome_sink_store() noexcept {
@@ -982,8 +841,9 @@ public:
 	[[nodiscard]] virtual WorkState state() const noexcept = 0;
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
 	[[nodiscard]] virtual std::optional<CapabilityId> required_capability() const noexcept = 0;
-	virtual bool install_cancel_hook(small_move_only_function<void(CancelReason)> fn) noexcept = 0;
-	[[nodiscard]] virtual ReadyRegistrationResult try_set_on_ready(small_move_only_function<void()> fn) noexcept = 0;
+	virtual bool install_cancel_hook(::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept = 0;
+	[[nodiscard]] virtual ReadyRegistrationResult
+	try_set_on_ready(::conflux::detail::small_move_only_function<void()> fn) noexcept = 0;
 	[[nodiscard]] virtual ClearOnReadyStatus clear_on_ready() noexcept = 0;
 };
 template<work_value T>
@@ -1006,9 +866,10 @@ public:
 	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
 	[[nodiscard]] virtual Outcome<T> compatibility_blocking_take_outcome() = 0;
 	[[nodiscard]] virtual std::optional<Outcome<T>> try_take_ready_outcome() = 0;
-	virtual void install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
+	virtual void
+	install_abandon_sink(::conflux::detail::small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 	[[nodiscard]] virtual AbandonStatus
-	try_install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
+	try_install_abandon_sink(::conflux::detail::small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 };
 template<work_value T, bool EnableCancellation>
 class ControlBlockModel final : public ControlBlockInterface<T> {
@@ -1021,15 +882,16 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	std::optional<Outcome<T>> outcome_{};
-	small_move_only_function<void()> on_ready_fn_{};
-	small_move_only_function<void(CancelReason)> hook_fn_{};
-	small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
+	::conflux::detail::small_move_only_function<void()> on_ready_fn_{};
+	::conflux::detail::small_move_only_function<void(CancelReason)> hook_fn_{};
+	::conflux::detail::small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
 	std::atomic<void const *> required_capability_type_tag_{nullptr};
-	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
+	[[nodiscard]] ::conflux::detail::small_move_only_function<void(CancelReason)>
+	claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
@@ -1063,7 +925,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
-			small_move_only_function<void()> fn{};
+			::conflux::detail::small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
 				fn = std::move(on_ready_fn_);
@@ -1093,7 +955,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		std::unreachable();
 	}
 	void run_abandon_path_if_present() noexcept {
-		small_move_only_function<void(Outcome<T> const &)> sink{};
+		::conflux::detail::small_move_only_function<void(Outcome<T> const &)> sink{};
 		std::optional<Outcome<T>> local{};
 		{
 			std::unique_lock lk{mtx_};
@@ -1178,11 +1040,11 @@ public:
 		return WorkState::pending;
 	}
 	bool install_cancel_hook(
-		small_move_only_function<void(CancelReason)> fn) noexcept override {
+		::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept override {
 		if (!fn) {
 			return false;
 		}
-		small_move_only_function<void(CancelReason)> invoke_now{};
+		::conflux::detail::small_move_only_function<void(CancelReason)> invoke_now{};
 		{
 			std::scoped_lock const lk{mtx_};
 			if (hook_installed_) {
@@ -1257,7 +1119,7 @@ public:
 		return true;
 	}
 	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
-		small_move_only_function<void()> fn) noexcept override {
+		::conflux::detail::small_move_only_function<void()> fn) noexcept override {
 		if (!fn) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
@@ -1353,7 +1215,7 @@ public:
 		return std::optional<Outcome<T>>{std::move(out)};
 	}
 	void install_abandon_sink(
-		small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
+		::conflux::detail::small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
 		if (!sink) {
 			std::terminate();
 		}
@@ -1368,7 +1230,7 @@ public:
 		run_abandon_path_if_present();
 	}
 	[[nodiscard]] AbandonStatus try_install_abandon_sink(
-		small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
+		::conflux::detail::small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
 		if (!sink) {
 			return AbandonStatus::empty;
 		}
@@ -1395,15 +1257,16 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	std::optional<Outcome<void>> outcome_{};
-	small_move_only_function<void()> on_ready_fn_{};
-	small_move_only_function<void(CancelReason)> hook_fn_{};
-	small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
+	::conflux::detail::small_move_only_function<void()> on_ready_fn_{};
+	::conflux::detail::small_move_only_function<void(CancelReason)> hook_fn_{};
+	::conflux::detail::small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
 	std::atomic<void const *> required_capability_type_tag_{nullptr};
-	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
+	[[nodiscard]] ::conflux::detail::small_move_only_function<void(CancelReason)>
+	claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
@@ -1452,7 +1315,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
-			small_move_only_function<void()> fn{};
+			::conflux::detail::small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
 				fn = std::move(on_ready_fn_);
@@ -1467,7 +1330,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		}
 	}
 	void run_abandon_path_if_present() noexcept {
-		small_move_only_function<void(Outcome<void> const &)> sink{};
+		::conflux::detail::small_move_only_function<void(Outcome<void> const &)> sink{};
 		std::optional<Outcome<void>> local{};
 		{
 			std::unique_lock lk{mtx_};
@@ -1552,11 +1415,11 @@ public:
 		return WorkState::pending;
 	}
 	bool install_cancel_hook(
-		small_move_only_function<void(CancelReason)> fn) noexcept override {
+		::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept override {
 		if (!fn) {
 			return false;
 		}
-		small_move_only_function<void(CancelReason)> invoke_now{};
+		::conflux::detail::small_move_only_function<void(CancelReason)> invoke_now{};
 		{
 			std::scoped_lock const lk{mtx_};
 			if (hook_installed_) {
@@ -1631,7 +1494,7 @@ public:
 		return true;
 	}
 	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
-		small_move_only_function<void()> fn) noexcept override {
+		::conflux::detail::small_move_only_function<void()> fn) noexcept override {
 		if (!fn) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
@@ -1727,7 +1590,7 @@ public:
 		return std::optional<Outcome<void>>{std::move(out)};
 	}
 	void install_abandon_sink(
-		small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
+		::conflux::detail::small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
 		if (!sink) {
 			std::terminate();
 		}
@@ -1742,7 +1605,7 @@ public:
 		run_abandon_path_if_present();
 	}
 	[[nodiscard]] AbandonStatus try_install_abandon_sink(
-		small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
+		::conflux::detail::small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
 		if (!sink) {
 			return AbandonStatus::empty;
 		}
@@ -1935,7 +1798,7 @@ public:
 	}
 	[[nodiscard]] static constexpr ControlCategory category() noexcept { return Category; }
 	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
-		small_move_only_function<void()> fn) noexcept {
+		::conflux::detail::small_move_only_function<void()> fn) noexcept {
 		if (!core_) {
 			return {ReadyRegistration::empty, std::move(fn)};
 		}
@@ -1951,7 +1814,7 @@ public:
 		requires std::invocable<F> && std::is_nothrow_invocable_v<F>
 	void set_on_ready_or_run(
 		F &&fn) noexcept {
-		auto materialised = small_move_only_function<void()>{std::forward<F>(fn)};
+		auto materialised = ::conflux::detail::small_move_only_function<void()>{std::forward<F>(fn)};
 		auto result = try_set_on_ready(std::move(materialised));
 		switch (result.status) {
 		case ReadyRegistration::installed: return;
@@ -2040,7 +1903,7 @@ public:
 		return state_ ? state_->try_set_error(ec, msg) : false;
 	}
 	[[nodiscard]] bool install_cancel_hook(
-		detail::small_move_only_function<void(CancelReason)> fn) noexcept {
+		::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept {
 		return state_ ? state_->install_cancel_hook(std::move(fn)) : false;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
@@ -2114,7 +1977,7 @@ public:
 		return state_ ? state_->try_set_error(ec, msg) : false;
 	}
 	[[nodiscard]] bool install_cancel_hook(
-		detail::small_move_only_function<void(CancelReason)> fn) noexcept {
+		::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept {
 		return state_ ? state_->install_cancel_hook(std::move(fn)) : false;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept {

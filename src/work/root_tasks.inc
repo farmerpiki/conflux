@@ -27,7 +27,8 @@ struct TaskAwaiter {
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 	[[nodiscard]] bool await_suspend(
 		std::coroutine_handle<> h) noexcept {
-		auto result = state_->try_set_on_ready(small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
+		auto result = state_->try_set_on_ready(
+			::conflux::detail::small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
 		switch (result.status) {
 		case ReadyRegistration::installed        : return true;
 		case ReadyRegistration::already_ready    :
@@ -71,7 +72,8 @@ struct OutcomeAwaiter {
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 	[[nodiscard]] bool await_suspend(
 		std::coroutine_handle<> h) noexcept {
-		auto result = state_->try_set_on_ready(small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
+		auto result = state_->try_set_on_ready(
+			::conflux::detail::small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
 		switch (result.status) {
 		case ReadyRegistration::installed        : return true;
 		case ReadyRegistration::already_ready    :
@@ -433,13 +435,13 @@ concept work_handle = work_value<typename H::value_type> && requires(H h, H cons
 	requires detail::awaits_outcome<decltype(std::move(h).outcome()), typename H::value_type>;
 };
 template<class Sink, work_value T>
-[[nodiscard]] detail::small_move_only_function<void(Outcome<T> const &)> make_abandon_dispatch_sink(
+[[nodiscard]] ::conflux::detail::small_move_only_function<void(Outcome<T> const &)> make_abandon_dispatch_sink(
 	Sink &&sink) noexcept {
 	using sink_t = std::remove_cvref_t<Sink>;
 	if constexpr (std::is_nothrow_invocable_v<sink_t &, Outcome<T> const &>) {
-		return detail::small_move_only_function<void(Outcome<T> const &)>{std::forward<Sink>(sink)};
+		return ::conflux::detail::small_move_only_function<void(Outcome<T> const &)>{std::forward<Sink>(sink)};
 	} else {
-		return detail::small_move_only_function<void(Outcome<T> const &)>{
+		return ::conflux::detail::small_move_only_function<void(Outcome<T> const &)>{
 			[sink = std::forward<Sink>(sink)](Outcome<T> const &outcome) mutable noexcept {
 				if (outcome.is_failure()) {
 					sink(outcome.failure());
@@ -582,7 +584,7 @@ inline void set_dropped_outcome_sink(
 	Fn &&fn) {
 	auto &s = detail::dropped_outcome_sink_store();
 	std::lock_guard const lk{s.mtx};
-	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{
+	s.fn = ::conflux::detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{
 		std::forward<Fn>(fn)};
 	s.installed.store(true, std::memory_order_release);
 }

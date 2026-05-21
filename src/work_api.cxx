@@ -14,6 +14,7 @@ export module conflux.work:api;
 
 import std;
 import conflux.types;
+import conflux.small_function;
 export import conflux.work.root;
 export struct Cancelled final : std::runtime_error {
 	Cancelled()
@@ -64,7 +65,7 @@ namespace work_detail {
 
 constexpr std::size_t kNoWorker = std::numeric_limits<std::size_t>::max();
 
-using Fn = conflux::work::root::detail::small_move_only_function<void()>;
+using Fn = ::conflux::detail::small_move_only_function<void()>;
 inline int futex_wait_private(
 	std::atomic<std::uint32_t> &word,
 	std::uint32_t expected) noexcept {
@@ -80,7 +81,7 @@ inline int futex_wake_private(
 class QueueTarget {
 public:
 	virtual ~QueueTarget() = default;
-	virtual bool enqueue(conflux::work::root::detail::small_move_only_function<void()> job) = 0;
+	virtual bool enqueue(::conflux::detail::small_move_only_function<void()> job) = 0;
 };
 // Vyukov-style MPMC bounded ring buffer, lock-free. Capacity rounded up to
 // next power-of-2 at construction. try_push/try_pop are noexcept because item
@@ -458,7 +459,7 @@ public:
 	RingLane &operator =(RingLane const &) = delete;
 	RingLane(RingLane &&) = delete;
 	RingLane &operator =(RingLane &&) = delete;
-	[[nodiscard]] bool enqueue(conflux::work::root::detail::small_move_only_function<void()> job) override;
+	[[nodiscard]] bool enqueue(::conflux::detail::small_move_only_function<void()> job) override;
 	void adopt_current_thread() noexcept;
 	[[nodiscard]] std::size_t drain();
 	void stop() noexcept;

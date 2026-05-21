@@ -424,7 +424,7 @@ struct WorkPoolState {
 struct RingLaneState {
 	RingLaneOptions options{};
 	std::mutex mtx{};
-	std::deque<conflux::work::root::detail::small_move_only_function<void()>> queue{};
+	std::deque<work_detail::Fn> queue{};
 	std::atomic_flag stopped{};
 	std::atomic_flag wake_pending{};
 	std::thread::id owner{std::this_thread::get_id()};
@@ -442,7 +442,7 @@ struct RingLaneState {
 		return io_uring_register_sync_msg(&sqe) == 0;
 	}
 	static void run_inline(
-		conflux::work::root::detail::small_move_only_function<void()> job) {
+		work_detail::Fn job) {
 		try {
 			job();
 		} catch (...) {} // NOLINT(bugprone-empty-catch)
@@ -505,7 +505,7 @@ RingLane::~RingLane() {
 }
 
 bool RingLane::enqueue(
-	conflux::work::root::detail::small_move_only_function<void()> job) {
+	work_detail::Fn job) {
 	auto *state = ring_lane_state(state_);
 	if (state->stopped.test(std::memory_order_acquire)) {
 		return false;
@@ -543,7 +543,7 @@ std::size_t RingLane::drain() {
 	std::size_t const budget =
 		state->options.drain_budget == 0 ? std::numeric_limits<std::size_t>::max() : state->options.drain_budget;
 	while (ran < budget) {
-		conflux::work::root::detail::small_move_only_function<void()> job;
+		work_detail::Fn job;
 		{
 			std::scoped_lock const lk{state->mtx};
 			if (state->queue.empty()) {

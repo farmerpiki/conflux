@@ -1118,6 +1118,7 @@ target_sources(conflux_types
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
+        ${CONFLUX_SRC_ROOT}/small_function.cxx
         ${CONFLUX_SRC_ROOT}/types.cppm
         ${CONFLUX_SRC_ROOT}/types_api.cxx
 )
