@@ -55,6 +55,24 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
             "Use CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to generate the header consumer surface.")
     endif()
     set(CMAKE_CXX_MODULE_STD ON)
+    if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON)
+        cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
+        file(READ "${CMAKE_CXX_STDLIB_MODULES_JSON}" _conflux_std_modules_json)
+        string(JSON _conflux_std_modules_count LENGTH "${_conflux_std_modules_json}" modules)
+        if(_conflux_std_modules_count GREATER 0)
+            math(EXPR _conflux_std_modules_last "${_conflux_std_modules_count} - 1")
+            foreach(_conflux_std_module_index RANGE 0 ${_conflux_std_modules_last})
+                string(JSON _conflux_std_module_source
+                    GET "${_conflux_std_modules_json}" modules ${_conflux_std_module_index} source-path)
+                cmake_path(ABSOLUTE_PATH _conflux_std_module_source
+                    BASE_DIRECTORY "${_conflux_std_modules_dir}"
+                    OUTPUT_VARIABLE _conflux_std_module_source_abs)
+                set_source_files_properties(
+                    "${_conflux_std_module_source_abs}"
+                    PROPERTIES COMPILE_OPTIONS -freflection)
+            endforeach()
+        endif()
+    endif()
 else()
     set(CMAKE_CXX_MODULE_STD OFF)
 endif()
@@ -2003,6 +2021,16 @@ endif() # CONFLUX_HAS_TLS && HTTP/TLS consumer
 
 
 if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
+    foreach(_conflux_json_reflect_dep IN ITEMS
+            conflux_types
+            conflux_json
+            conflux_json_boundary
+            conflux_json_native_provider)
+        if(TARGET ${_conflux_json_reflect_dep})
+            target_compile_options(${_conflux_json_reflect_dep} PUBLIC -freflection)
+        endif()
+    endforeach()
+
     add_library(conflux_json_reflect STATIC)
     target_compile_features(conflux_json_reflect PUBLIC cxx_std_26)
     target_sources(conflux_json_reflect

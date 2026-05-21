@@ -1,12 +1,13 @@
 module;
 #include <cassert>
 #include <cstdint>
-#include <locale.h>
-#include <map>
 // stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
 // std module BMI under GCC -freflection; forward-declare what we need instead
 extern "C" {
-double strtod_l(char const *, char **, ::locale_t) noexcept;
+struct __locale_struct;
+using locale_t = __locale_struct *;
+locale_t newlocale(int, char const *, locale_t) noexcept;
+double strtod_l(char const *, char **, locale_t) noexcept;
 long getrandom(void *, unsigned long, unsigned int);
 }
 #if defined(CONFLUX_JSON_HASH_PROVIDER_XXHASH)
@@ -714,6 +715,8 @@ constexpr std::size_t kDefaultMaxInput = 128ULL * 1024 * 1024;
 constexpr std::size_t kDefaultMaxString = 64ULL * 1024 * 1024;
 namespace detail {
 
+constexpr int kLcAllMask = 8127;
+
 struct CLocaleHolder {
 	::locale_t loc;
 	bool ok;
@@ -721,7 +724,7 @@ struct CLocaleHolder {
 [[nodiscard]] inline CLocaleHolder const &c_locale_holder() noexcept {
 	// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 	static CLocaleHolder const h = [] {
-		::locale_t l = ::newlocale(LC_ALL_MASK, "C", static_cast<::locale_t>(0)); // NOLINT(modernize-use-nullptr)
+		::locale_t l = ::newlocale(kLcAllMask, "C", static_cast<::locale_t>(0)); // NOLINT(modernize-use-nullptr)
 		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
 	}();
 	// Intentional: process-lifetime singleton, never freelocale'd.
