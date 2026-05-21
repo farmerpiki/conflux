@@ -38,7 +38,7 @@ The weaker areas are:
 ## Goals
 
 - Prove any claimed speedup with before/after binaries.
-- Use Clang and GCC release binaries as the acceptance gate.
+- Use Clang, GCC 15, and GCC 16 release binaries as the acceptance gate.
 - Use perf-profile binaries for profiling, symbolized diagnostics, and
   corroboration, not as a substitute for release results.
 - Prefer small, measurable hot-path changes over broad rewrites.
@@ -58,9 +58,12 @@ Minimum release acceptance matrix for any performance-sensitive patch:
 
 - `release-clang-libcxx`
 - `release-gcc-stdcxx`
+- `release-gcc16-stdcxx`
 
-Use the matching GCC 16 release preset when the change depends on GCC 16, C++26,
-or P2996-specific behavior.
+GCC 15 and GCC 16 release results are not interchangeable. The current
+`release-gcc-stdcxx` lane is the no-LTO GCC baseline because GCC 15 ICEs with
+LTO; `release-gcc16-stdcxx` enables LTO and must be measured as its own
+before/after pair.
 
 Minimum profiling/corroboration matrix when the mechanism is not already proven:
 
@@ -90,153 +93,67 @@ recording its path. Use separate source worktrees so source-relative benchmark
 fixtures, CMake generated files, and git metadata cannot be contaminated by
 checking out the other revision.
 
+Build only the benchmark target needed for the logical benchmark under test. Do
+not build every benchmark binary by default; `/tmp` is often tmpfs, and GCC 16
+release LTO artifacts are large enough to crowd out later pairs.
+
+Never pass `-j`, `--parallel`, or an explicit job count. Let CMake/Ninja choose
+the build parallelism. Do not run independent builds concurrently. Do not run a
+build while any benchmark is running. Do not run two benchmark comparisons in
+parallel; `compare-bins` already controls candidate order inside one comparison.
+
+Target map:
+
+- `file_copy_coro`: `conflux_file_copy_coro_bench`
+- `work`: `conflux_work_benchmarks`
+- `task_creation`: `conflux_task_creation_bench`
+- `task_chain_composition`: `conflux_task_chain_composition_bench`
+- `workpool_enqueue_dequeue`: `conflux_workpool_enqueue_dequeue_bench`
+- `workpool_queue_mode_compare`: `conflux_workpool_queue_mode_compare_bench`
+- `json`: `conflux_json_bench`
+- `http_server`: `conflux_http_server_bench`
+- `http_server_concurrency`: `conflux_http_server_concurrency_bench`
+
+Run one compiler/preset pair end-to-end, capture the run IDs and budget output,
+then remove that pair's build directories before moving to the next pair. A
+typical release order is `release-clang-libcxx`, `release-gcc-stdcxx`, then
+`release-gcc16-stdcxx`; run perf pairs afterward only when profiling or
+corroboration is needed.
+
 ```sh
 # Baseline tree checked out at the chosen baseline commit:
 #   /tmp/conflux-src-base
 # Candidate tree checked out at the candidate patch:
 #   /tmp/conflux-src-cand
 
-cmake --preset release-clang-libcxx \
+BENCH=file_copy_coro
+TARGET=conflux_file_copy_coro_bench
+PRESET=release-clang-libcxx
+
+cmake --preset "$PRESET" \
   -S /tmp/conflux-src-base \
-  -B /tmp/conflux-base/release-clang-libcxx
-cmake --build /tmp/conflux-base/release-clang-libcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
+  -B "/tmp/conflux-base/$PRESET"
+cmake --build "/tmp/conflux-base/$PRESET" --target "$TARGET"
 
-cmake --preset release-gcc-stdcxx \
-  -S /tmp/conflux-src-base \
-  -B /tmp/conflux-base/release-gcc-stdcxx
-cmake --build /tmp/conflux-base/release-gcc-stdcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset perf-clang-libcxx \
-  -S /tmp/conflux-src-base \
-  -B /tmp/conflux-base/perf-clang-libcxx
-cmake --build /tmp/conflux-base/perf-clang-libcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset perf-gcc-stdcxx \
-  -S /tmp/conflux-src-base \
-  -B /tmp/conflux-base/perf-gcc-stdcxx
-cmake --build /tmp/conflux-base/perf-gcc-stdcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset release-clang-libcxx \
+cmake --preset "$PRESET" \
   -S /tmp/conflux-src-cand \
-  -B /tmp/conflux-cand/release-clang-libcxx
-cmake --build /tmp/conflux-cand/release-clang-libcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset release-gcc-stdcxx \
-  -S /tmp/conflux-src-cand \
-  -B /tmp/conflux-cand/release-gcc-stdcxx
-cmake --build /tmp/conflux-cand/release-gcc-stdcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset perf-clang-libcxx \
-  -S /tmp/conflux-src-cand \
-  -B /tmp/conflux-cand/perf-clang-libcxx
-cmake --build /tmp/conflux-cand/perf-clang-libcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
-
-cmake --preset perf-gcc-stdcxx \
-  -S /tmp/conflux-src-cand \
-  -B /tmp/conflux-cand/perf-gcc-stdcxx
-cmake --build /tmp/conflux-cand/perf-gcc-stdcxx --target \
-  conflux_file_copy_coro_bench \
-  conflux_work_benchmarks \
-  conflux_task_creation_bench \
-  conflux_task_chain_composition_bench \
-  conflux_workpool_enqueue_dequeue_bench \
-  conflux_workpool_queue_mode_compare_bench \
-  conflux_json_bench \
-  conflux_http_server_bench \
-  conflux_http_server_concurrency_bench
+  -B "/tmp/conflux-cand/$PRESET"
+cmake --build "/tmp/conflux-cand/$PRESET" --target "$TARGET"
 ```
 
 Compare each logical benchmark independently:
 
 ```sh
 BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
-  --dir base-clang:/tmp/conflux-base/release-clang-libcxx \
-  --dir cand-clang:/tmp/conflux-cand/release-clang-libcxx \
-  file_copy_coro
-
-BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
-  --dir base-gcc:/tmp/conflux-base/release-gcc-stdcxx \
-  --dir cand-gcc:/tmp/conflux-cand/release-gcc-stdcxx \
-  file_copy_coro
-
-BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
-  --dir base-clang-perf:/tmp/conflux-base/perf-clang-libcxx \
-  --dir cand-clang-perf:/tmp/conflux-cand/perf-clang-libcxx \
-  file_copy_coro
-
-BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
-  --dir base-gcc-perf:/tmp/conflux-base/perf-gcc-stdcxx \
-  --dir cand-gcc-perf:/tmp/conflux-cand/perf-gcc-stdcxx \
-  file_copy_coro
+  --dir "base-$PRESET:/tmp/conflux-base/$PRESET" \
+  --dir "cand-$PRESET:/tmp/conflux-cand/$PRESET" \
+  "$BENCH"
 ```
 
-Repeat for `work`, `task_creation`, `task_chain_composition`,
-`workpool_enqueue_dequeue`, `workpool_queue_mode_compare`, `json`,
-`http_server`, and `http_server_concurrency`. If a prior stable run is
-available, pass
+Repeat only for logical benchmarks affected by the patch, such as `work`,
+`task_creation`, `task_chain_composition`, `workpool_enqueue_dequeue`,
+`workpool_queue_mode_compare`, `json`, `http_server`, and
+`http_server_concurrency`. If a prior stable run is available, pass
 `--baseline-run-id` to reuse iteration counts.
 
 Capture the full compare-bins output for each run because the current wrapper
@@ -261,6 +178,14 @@ scripts/bench_check_budget.py \
   --baseline-run-id BASE_RUN_ID \
   --candidate-run-id CAND_RUN_ID \
   --json-out /tmp/conflux-bench/budget-BASE_RUN_ID-CAND_RUN_ID.json
+```
+
+After recording the run IDs, budget JSON, raw artifact path, and log path for
+that compiler/preset pair, clean up its build roots before starting the next
+pair:
+
+```sh
+rm -rf "/tmp/conflux-base/$PRESET" "/tmp/conflux-cand/$PRESET"
 ```
 
 Acceptance rule:
@@ -651,7 +576,8 @@ Proposed design:
 Minimum evidence for the async I/O allocation work:
 
 - Clang release compare-bins: baseline and candidate run IDs.
-- GCC release compare-bins: baseline and candidate run IDs.
+- GCC 15 release compare-bins: baseline and candidate run IDs.
+- GCC 16 release compare-bins: baseline and candidate run IDs.
 - Clang perf compare-bins: baseline and candidate run IDs.
 - GCC perf compare-bins: baseline and candidate run IDs.
 - `bench_check_budget.py` JSON outputs.
@@ -665,9 +591,9 @@ Minimum evidence for the async I/O allocation work:
 1. Add measurement notes or benchmark rows if current benches cannot expose
    allocation count or completion dispatch cost clearly.
 2. Implement the narrow async I/O completion-record slice.
-3. Run Clang and GCC release compare-bins for `file_copy_coro`, `json`, and
-   relevant work/task benches, with perf compare-bins for attribution where
-   needed.
+3. Run Clang, GCC 15, and GCC 16 release compare-bins for `file_copy_coro`,
+   `json`, and relevant work/task benches, with perf compare-bins for
+   attribution where needed.
 4. If the I/O slice wins, extend to path/stat/iovec/fixed-buffer payloads using
    ring-local storage.
 5. Run the frame-pool attribution comparison before starting intrusive task
