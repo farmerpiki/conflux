@@ -552,6 +552,10 @@ Specialise `JsonMembers<T>` to decode structs. Unknown members and missing
 required members are errors. `optional<T>` fields are optional; all others
 are required.
 
+For GCC 16+ P2996 builds, `conflux.json.reflect` provides a zero-boilerplate
+aggregate path instead. See `json-reflect.md` and
+`examples/quickstart/json_reflect_crud.cxx`.
+
 ```cpp
 struct Point { int64_t x{}; int64_t y{}; };
 

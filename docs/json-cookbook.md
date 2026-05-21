@@ -82,6 +82,10 @@ are accessed many times per parse.
 Define a `JsonMembers<T>` specialization. The library generates encode/decode
 automatically from the member map.
 
+In GCC 16+ P2996 reflection builds, plain aggregates can skip this boilerplate
+by importing `conflux.json.reflect`; see `json-reflect.md` and
+`examples/quickstart/json_reflect_crud.cxx`.
+
 ```cpp
 struct Config {
     std::string host;
