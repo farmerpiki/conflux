@@ -388,7 +388,12 @@ elseif(CONFLUX_WANT_JSON)
         "Resolved JSON hash provider" FORCE)
 endif()
 if(CONFLUX_WANT_JSON)
+    set(CONFLUX_RESOLVED_JSON_HASH_PROVIDER "${CONFLUX_JSON_HASH_PROVIDER_UPPER}" CACHE STRING
+        "Resolved JSON object-name hash provider" FORCE)
     message(STATUS "conflux: JSON hash provider ${CONFLUX_JSON_HASH_PROVIDER_UPPER}")
+else()
+    set(CONFLUX_RESOLVED_JSON_HASH_PROVIDER "INTERNAL" CACHE STRING
+        "Resolved JSON object-name hash provider" FORCE)
 endif()
 
 string(TOUPPER "${CONFLUX_GZIP_PROVIDER}" CONFLUX_GZIP_PROVIDER_UPPER)

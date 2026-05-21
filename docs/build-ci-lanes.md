@@ -275,3 +275,14 @@ of rerunning the probes. Changing those inputs invalidates the fingerprint and
 reruns selection. Use `CONFLUX_GZIP_PROVIDER=ALL` to build every discovered
 backend, or set `CONFLUX_GZIP_PROVIDER=LIBDEFLATE`, `ZLIB_NG`, `ZLIB`, or `ISAL`
 to pin a backend and avoid configure-time benchmarking entirely.
+
+Other provider knobs expose their resolved result in cache variables as well:
+`CONFLUX_RESOLVED_JSON_HASH_PROVIDER`, `CONFLUX_RESOLVED_BROTLI_PROVIDER`,
+`CONFLUX_RESOLVED_ZSTD_PROVIDER`, `CONFLUX_RESOLVED_TLS_PROVIDER`,
+`CONFLUX_RESOLVED_HTTP2_PROVIDER`, `CONFLUX_RESOLVED_HTTP3_PROVIDER`,
+`CONFLUX_RESOLVED_POSTGRES_PROVIDER`, and `CONFLUX_RESOLVED_ARGON2_PROVIDER`.
+Those providers do not run configure-time performance probes; AUTO resolves from
+dependency availability and the explicit `*_PROVIDER` setting. Pin the matching
+provider option, for example `CONFLUX_TLS_PROVIDER=OPENSSL` or
+`CONFLUX_POSTGRES_PROVIDER=LIBPQ`, when packaging requires a hard failure instead
+of AUTO fallback.
