@@ -122,14 +122,12 @@ public:
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		io_uring_prep_read_fixed(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			sqe_fd_value(fh),
 			holder->view().data(),
 			static_cast<unsigned>(aligned_bytes),
 			offset,
 			static_cast<int>(slot_idx));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {

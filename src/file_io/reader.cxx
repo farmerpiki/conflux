@@ -113,16 +113,16 @@ export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
 	UserDataFn encode_ud_;
+	template<RingFdLike Fd>
 	[[nodiscard]] static int fd_for_io(
-		FileHandle const &fh) noexcept {
-		return fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		Fd const &fd) noexcept {
+		return sqe_fd_value(fd);
 	}
+	template<RingFdLike Fd>
 	static void set_fixed_file_if_direct(
 		io_uring_sqe *sqe,
-		FileHandle const &fh) noexcept {
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		Fd const &fd) noexcept {
+		apply_sqe_fd_flags(sqe, fd);
 	}
 	template<typename T>
 	struct PreparedSqe {
