@@ -29,7 +29,8 @@ void make_eventfd_nonblocking(
 	int fd) {
 	auto const flags = ::fcntl(fd, F_GETFL, 0);
 	REQUIRE(flags >= 0);
-	REQUIRE(::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);
+	REQUIRE(
+		::fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(O_NONBLOCK))) == 0);
 }
 
 [[nodiscard]] bool eventfd_would_block(

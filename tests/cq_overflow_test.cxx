@@ -85,7 +85,7 @@ TEST_CASE(
 		ptr.reset();
 	});
 
-	completions.dispatch(slot, gen, 1, 0);
+	completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 
 	CHECK(observed == 42);
 	CHECK(completions.pending() == 0u);

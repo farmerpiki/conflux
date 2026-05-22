@@ -362,10 +362,11 @@ export std::expected<Process, std::error_code> spawn_clone(
 	}
 
 	// Fork.
-	// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise,google-runtime-int)
-	auto const pid = static_cast<pid_t>(
-		::syscall(SYS_clone, static_cast<long>(SIGCHLD | clone_flags), nullptr, nullptr, nullptr, 0L));
-	// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise,google-runtime-int)
+	auto const clone_bits = static_cast<unsigned long>(SIGCHLD) | static_cast<unsigned long>(clone_flags);
+	// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg,google-runtime-int)
+	auto const pid =
+		static_cast<pid_t>(::syscall(SYS_clone, static_cast<long>(clone_bits), nullptr, nullptr, nullptr, 0L));
+	// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg,google-runtime-int)
 	if (pid < 0) {
 		int const err = errno;
 		close_stdio_pipes();

@@ -7,21 +7,21 @@ import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
 
-static constexpr std::uint32_t kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
+static constexpr auto kSockNonempty = conflux::uring::cqe_flags::sock_nonempty;
 TEST_CASE(
 	"resolve_recv_arm_policy: no prior flags → default_",
 	"[poll_first_auto]") {
-	CHECK(resolve_recv_arm_policy(true, true, false, 0) == RecvArmPolicy::default_);
+	CHECK(resolve_recv_arm_policy(true, true, false, conflux::uring::CqeFlags{}) == RecvArmPolicy::default_);
 }
 TEST_CASE(
 	"resolve_recv_arm_policy: cap disabled → default_",
 	"[poll_first_auto]") {
-	CHECK(resolve_recv_arm_policy(true, false, true, 0) == RecvArmPolicy::default_);
+	CHECK(resolve_recv_arm_policy(true, false, true, conflux::uring::CqeFlags{}) == RecvArmPolicy::default_);
 }
 TEST_CASE(
 	"resolve_recv_arm_policy: auto disabled → default_",
 	"[poll_first_auto]") {
-	CHECK(resolve_recv_arm_policy(false, true, true, 0) == RecvArmPolicy::default_);
+	CHECK(resolve_recv_arm_policy(false, true, true, conflux::uring::CqeFlags{}) == RecvArmPolicy::default_);
 }
 TEST_CASE(
 	"resolve_recv_arm_policy: SOCK_NONEMPTY set → default_",
@@ -31,5 +31,5 @@ TEST_CASE(
 TEST_CASE(
 	"resolve_recv_arm_policy: no SOCK_NONEMPTY → poll_first",
 	"[poll_first_auto]") {
-	CHECK(resolve_recv_arm_policy(true, true, true, 0) == RecvArmPolicy::poll_first);
+	CHECK(resolve_recv_arm_policy(true, true, true, conflux::uring::CqeFlags{}) == RecvArmPolicy::poll_first);
 }

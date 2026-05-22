@@ -61,12 +61,12 @@ import :state;
 
 void Ring::discard_recv_bufs(
 	int res,
-	std::uint32_t flags) noexcept {
+	conflux::uring::CqeFlags flags) noexcept {
 	HTTP_TRACE(
 		std::format(
 			"discard_recv_bufs res={} flags=0x{:x} has_buf={} mode={}",
 			res,
-			flags,
+			flags.raw(),
 			cqe_has_buffer(flags),
 			buffer_ring_mode_name(buf_ring_->mode())));
 	if (!cqe_has_buffer(flags)) {
@@ -89,7 +89,7 @@ void Ring::discard_recv_bufs(
 void Ring::discard_recv_bufs(
 	RecvComp &rc) noexcept {
 	discard_recv_bufs(rc.res, rc.flags);
-	rc.flags = 0;
+	rc.flags = {};
 }
 
 void Ring::retire_incremental_partial(
@@ -122,7 +122,7 @@ void Ring::reclaim_retired_incremental_recv(
 void Ring::clear_retired_incremental_if_final(
 	int fd,
 	std::uint32_t gen,
-	std::uint32_t flags) noexcept {
+	conflux::uring::CqeFlags flags) noexcept {
 	if (buf_ring_->mode() != BufferRingMode::incremental) {
 		return;
 	}
@@ -144,14 +144,14 @@ void Ring::clear_retired_incremental_if_final(
 void Ring::handle_recv_cqe(
 	int fd,
 	int res,
-	std::uint32_t flg,
+	conflux::uring::CqeFlags flg,
 	std::uint32_t gen) {
 	HTTP_TRACE(
 		std::format(
 			"recv_cqe fd={} res={} flg=0x{:x} gen={} mode={} direct={}",
 			fd,
 			res,
-			flg,
+			flg.raw(),
 			gen,
 			buffer_ring_mode_name(buf_ring_->mode()),
 			accepted_sockets_direct));
@@ -200,7 +200,7 @@ bool Ring::append_recv_buf_to(
 	Buf &dst,
 	RecvComp &rc) {
 	auto payload = try_recv_payload_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
-	rc.flags = 0;
+	rc.flags = {};
 	if (!payload) [[unlikely]] {
 		return false;
 	}
@@ -226,7 +226,7 @@ void Ring::phase1_copy_recv_bufs() {
 		if (rc.res <= 0
 			|| ufd >= fd_table.size()
 			|| (!ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0))) {
-			std::uint32_t const orig_flags = rc.flags;
+			auto const orig_flags = rc.flags;
 			discard_recv_bufs(rc);
 			if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
 				reclaim_retired_incremental_recv(rc.fd, rc.gen);
@@ -236,7 +236,7 @@ void Ring::phase1_copy_recv_bufs() {
 			continue;
 		}
 		if (ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0)) {
-			std::uint32_t const orig_flags = rc.flags;
+			auto const orig_flags = rc.flags;
 			if (!append_recv_buf_to(ws_it->second.initial_buf, rc)) {
 				continue;
 			}
@@ -245,7 +245,7 @@ void Ring::phase1_copy_recv_bufs() {
 		}
 		auto &conn = fd_table[ufd];
 		if (conn.close_after_send) [[unlikely]] {
-			std::uint32_t const orig_flags = rc.flags;
+			auto const orig_flags = rc.flags;
 			discard_recv_bufs(rc);
 			if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
 				reclaim_retired_incremental_recv(rc.fd, rc.gen);
@@ -254,7 +254,7 @@ void Ring::phase1_copy_recv_bufs() {
 			}
 			continue;
 		}
-		std::uint32_t const orig_flags = rc.flags;
+		auto const orig_flags = rc.flags;
 		bool appended = false;
 		std::size_t recv_buffered = 0;
 #if CONFLUX_HAS_TLS

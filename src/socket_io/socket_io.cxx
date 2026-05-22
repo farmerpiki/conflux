@@ -172,11 +172,11 @@ export class BufferRing {
 	BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
 	std::vector<std::size_t> incremental_offsets_{};
 	friend class IncrementalRecvSlice;
-	IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing &, int, std::uint32_t) noexcept;
+	IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing &, int, conflux::uring::CqeFlags) noexcept;
 	std::expected<IncrementalRecvSlice, RecvDecodeError> friend try_buffer_slice_from_incremental_cqe(
 		BufferRing &,
 		int,
-		std::uint32_t) noexcept;
+		conflux::uring::CqeFlags) noexcept;
 	[[nodiscard]] std::size_t &incremental_offset_ref(
 		std::uint16_t id) noexcept {
 		assert(mode_ == BufferRingMode::incremental);
@@ -984,25 +984,30 @@ public:
 // ─── CQE helpers ─────────────────────────────────────────────────────────────
 
 export [[nodiscard]] inline std::uint16_t cqe_buffer_id(
-	std::uint32_t cqe_flags) noexcept {
-	return conflux::uring::cqe_flags::buf_id(conflux::uring::CqeFlags{cqe_flags}).v;
+	conflux::uring::CqeFlags cqe_flags) noexcept {
+	return conflux::uring::cqe_flags::buf_id(cqe_flags).v;
 }
 export [[nodiscard]] inline bool cqe_has_more(
-	std::uint32_t cqe_flags) noexcept {
-	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::more);
+	conflux::uring::CqeFlags cqe_flags) noexcept {
+	return cqe_flags.any(conflux::uring::cqe_flags::more);
 }
 export [[nodiscard]] inline bool cqe_has_buffer(
-	std::uint32_t cqe_flags) noexcept {
-	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buffer);
+	conflux::uring::CqeFlags cqe_flags) noexcept {
+	return cqe_flags.any(conflux::uring::cqe_flags::buffer);
 }
 export [[nodiscard]] inline bool cqe_has_buf_more(
-	std::uint32_t cqe_flags) noexcept {
-	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buf_more);
+	conflux::uring::CqeFlags cqe_flags) noexcept {
+	return cqe_flags.any(conflux::uring::cqe_flags::buf_more);
+}
+export [[nodiscard]] inline conflux::uring::CqeFlags cqe_buffer_flags(
+	conflux::uring::BufId id,
+	bool more = false) noexcept {
+	return conflux::uring::cqe_flags::selected_buffer(id, more);
 }
 export [[nodiscard]] IncrementalRecvSlice buffer_slice_from_incremental_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags) noexcept {
+	conflux::uring::CqeFlags flags) noexcept {
 	assert(res > 0);
 	assert(cqe_has_buffer(flags));
 	assert(ring.mode() == BufferRingMode::incremental);
@@ -1023,7 +1028,7 @@ export [[nodiscard]] IncrementalRecvSlice buffer_slice_from_incremental_cqe(
 export [[nodiscard]] std::expected<IncrementalRecvSlice, RecvDecodeError> try_buffer_slice_from_incremental_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags) noexcept {
+	conflux::uring::CqeFlags flags) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags) || ring.mode() != BufferRingMode::incremental) {
 		return std::unexpected(RecvDecodeError::bad_cqe);
 	}
@@ -1048,7 +1053,7 @@ export [[nodiscard]] std::expected<IncrementalRecvSlice, RecvDecodeError> try_bu
 export [[nodiscard]] std::expected<RecvSlices, RecvDecodeError> try_buffer_slices_from_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags,
+	conflux::uring::CqeFlags flags,
 	bool bundle) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags)) {
 		return std::unexpected(RecvDecodeError::bad_cqe);
@@ -1069,7 +1074,7 @@ export [[nodiscard]] std::expected<RecvSlices, RecvDecodeError> try_buffer_slice
 export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags,
+	conflux::uring::CqeFlags flags,
 	bool bundle) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags)) {
 		assert(!cqe_has_buffer(flags));
@@ -1085,7 +1090,7 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 export [[nodiscard]] std::expected<RecvPayload, RecvDecodeError> try_recv_payload_from_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags,
+	conflux::uring::CqeFlags flags,
 	bool bundle) noexcept {
 	auto descriptor = recv_payload_descriptor(ring.mode(), bundle);
 	if (ring.mode() == BufferRingMode::incremental) {
@@ -1104,7 +1109,7 @@ export [[nodiscard]] std::expected<RecvPayload, RecvDecodeError> try_recv_payloa
 export [[nodiscard]] RecvPayload recv_payload_from_cqe(
 	BufferRing &ring,
 	int res,
-	std::uint32_t flags,
+	conflux::uring::CqeFlags flags,
 	bool bundle) noexcept {
 	auto payload = try_recv_payload_from_cqe(ring, res, flags, bundle);
 	if (!payload) [[unlikely]] {
@@ -1230,11 +1235,11 @@ export [[nodiscard]] RecvArmPolicy resolve_recv_arm_policy(
 	bool auto_enabled,
 	bool recv_poll_first,
 	bool have_last_flags,
-	std::uint32_t last_flags) noexcept {
+	conflux::uring::CqeFlags last_flags) noexcept {
 	if (!auto_enabled || !recv_poll_first || !have_last_flags) {
 		return RecvArmPolicy::default_;
 	}
-	bool const nonempty = conflux::uring::CqeFlags{last_flags}.any(conflux::uring::cqe_flags::sock_nonempty);
+	bool const nonempty = last_flags.any(conflux::uring::cqe_flags::sock_nonempty);
 	return nonempty ? RecvArmPolicy::default_ : RecvArmPolicy::poll_first;
 }
 export bool submit_recv_multishot(

@@ -7,11 +7,12 @@ export module conflux.uring.completion;
 import std;
 import conflux.types;
 import conflux.small_function;
+export import conflux_uring_sqe;
 
 export using UserDataFn = std::function<std::uint64_t(std::uint32_t slot, std::uint32_t gen)>;
 export struct IoResult {
 	std::int32_t res{};
-	std::uint32_t flags{};
+	conflux::uring::CqeFlags flags{};
 };
 export using CompletionFn = conflux::detail::small_move_only_function<void(IoResult)>;
 export class CompletionTable {
@@ -76,7 +77,7 @@ public:
 		std::uint32_t slot,
 		std::uint32_t gen,
 		int res,
-		std::uint32_t flags) noexcept {
+		conflux::uring::CqeFlags flags) noexcept {
 		if (slot >= slots_.size()) {
 			return;
 		}
@@ -84,15 +85,15 @@ public:
 		if (!s.in_use || s.gen != gen) {
 			return;
 		}
-		if (s.mode == SlotMode::multishot && res >= 0 && (flags & IORING_CQE_F_MORE) != 0U) {
+		if (s.mode == SlotMode::multishot && res >= 0 && flags.any(conflux::uring::cqe_flags::more)) {
 			if (s.fn) {
 				s.fn(IoResult{.res = res, .flags = flags});
 			}
 			return;
 		}
 		if (s.mode == SlotMode::zc_send) {
-			if ((flags & IORING_CQE_F_NOTIF) == 0U) {
-				if (res >= 0 && (flags & IORING_CQE_F_MORE) != 0U) {
+			if (!flags.any(conflux::uring::cqe_flags::notif)) {
+				if (res >= 0 && flags.any(conflux::uring::cqe_flags::more)) {
 					s.zc_bytes = res;
 					s.zc_seen_send = true;
 					return;
@@ -142,7 +143,7 @@ public:
 			++s.gen;
 			free_.push_back(slot);
 			if (fn) {
-				fn(IoResult{.res = -ECANCELED, .flags = 0});
+				fn(IoResult{.res = -ECANCELED, .flags = {}});
 			}
 		}
 		return true;

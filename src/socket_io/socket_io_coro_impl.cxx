@@ -117,7 +117,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_send_borrowed(st.ring->raw(), h, data, len, ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 		return task;
 	}
 	auto ring_ptr = st.ring;
@@ -128,7 +128,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
 					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
-						ring.completions().dispatch(cs, cg, -EBUSY, 0);
+						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 						if (auto src = weak_src.lock()) {
 							auto _ = src->try_set_cancelled();
 						}
@@ -176,7 +176,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_async_recv_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 		return task;
 	}
 	auto ring_ptr = st.ring;
@@ -187,7 +187,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
 					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
-						ring.completions().dispatch(cs, cg, -EBUSY, 0);
+						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 						if (auto src = weak_src2.lock()) {
 							auto _ = src->try_set_cancelled();
 						}
@@ -242,7 +242,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_shutdown(st.ring->raw(), h, how, ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 	co_await std::move(task);
 }
@@ -276,9 +276,9 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		if (h.is_os_fd()) {
 			auto _ = st.handle.release();
 			::close(static_cast<int>(h.fd()));
-			st.ring->completions().dispatch(slot, gen, 0, 0);
+			st.ring->completions().dispatch(slot, gen, 0, conflux::uring::CqeFlags{});
 		} else {
-			st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
+			st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 		}
 		co_await std::move(task);
 		co_return;
@@ -352,8 +352,8 @@ template<class T>
 	});
 	std::uint64_t const timeout_ud = st.ring->encode(tslot, tgen);
 	if (!submit_send_timeout_borrowed(st.ring->raw(), h, src.data(), src.size(), ts.get(), send_ud, timeout_ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
-		st.ring->completions().dispatch(tslot, tgen, -EBUSY, 0);
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
+		st.ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
 		return task;
 	}
 	auto ring_ptr = st.ring;
@@ -364,7 +364,7 @@ template<class T>
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), send_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, 0);
+					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto lsrc = weak_src.lock()) {
 						auto _ = lsrc->try_set_cancelled();
 					}
@@ -499,8 +499,8 @@ template<class T>
 	});
 	std::uint64_t const timeout_ud = st.ring->encode(tslot, tgen);
 	if (!submit_recv_timeout_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ts.get(), recv_ud, timeout_ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
-		st.ring->completions().dispatch(tslot, tgen, -EBUSY, 0);
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
+		st.ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
 		return task;
 	}
 	auto ring_ptr = st.ring;
@@ -511,7 +511,7 @@ template<class T>
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, 0);
+					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto src = weak_src.lock()) {
 						auto _ = src->try_set_cancelled();
 					}
@@ -577,7 +577,7 @@ struct ConnectOp {
 		std::shared_ptr<ConnectOp> self) noexcept {
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_by_ud(r.raw(), target_ud, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, 0);
+			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 			complete_cancelled();
 			return;
 		}
@@ -589,7 +589,7 @@ struct ConnectOp {
 		std::shared_ptr<ConnectOp> self) noexcept {
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_fd(r.raw(), fd, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, 0);
+			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 			complete_cancelled();
 			return;
 		}
@@ -697,9 +697,9 @@ struct ConnectOp {
 		sockaddr const *saddr = reinterpret_cast<sockaddr const *>(&addr);
 		if (!submit_connect_borrowed(ring->raw(), h, saddr, addr_len, connect_ud, use_timeout)) {
 			if (use_timeout) {
-				ring->completions().dispatch(tslot, tgen, -EBUSY, 0);
+				ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
 			}
-			ring->completions().dispatch(cslot, cgen, -ENOSPC, 0);
+			ring->completions().dispatch(cslot, cgen, -ENOSPC, conflux::uring::CqeFlags{});
 			return;
 		}
 		if (use_timeout) {
@@ -707,7 +707,7 @@ struct ConnectOp {
 			timeout_ts.tv_sec = sec.count();
 			timeout_ts.tv_nsec = (opts.timeout - sec).count() * 1000000LL;
 			if (!submit_link_timeout_borrowed(ring->raw(), &timeout_ts, ring->encode(tslot, tgen))) {
-				ring->completions().dispatch(tslot, tgen, -EBUSY, 0);
+				ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
 				complete_exception(IoError{EBUSY, "tcp_connect: link timeout SQE unavailable"});
 				return;
 			}
@@ -742,7 +742,7 @@ struct ConnectOp {
 	op->socket_ud = ring.encode(slot, gen);
 
 	if (!submit_socket(ring.raw(), family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP, op->socket_ud)) {
-		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring.completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 
 	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<ConnectOp>{op}](wroot::CancelReason cr) noexcept {
@@ -792,7 +792,7 @@ struct AcceptOp {
 		}
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_by_ud(r.raw(), accept_ud, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, 0);
+			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 			// Flush pending SQEs to kernel to free SQ capacity, then retry.
 			// ≤0: negative = ring error; 0 = nothing submitted (SQPOLL or race) → SQ still full.
 			// Either way: do not retry inline or we risk unbounded recursion.
@@ -870,7 +870,7 @@ struct AcceptOp {
 	op->accept_ud = ring.encode(slot, gen);
 
 	if (!submit_accept_borrowed(ring.raw(), listener.handle(), nullptr, nullptr, op->accept_ud, op->accept_flags)) {
-		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring.completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 
 	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<AcceptOp>{op}](wroot::CancelReason cr) noexcept {
@@ -915,7 +915,7 @@ struct MultishotAcceptOp {
 		}
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_fd(r.raw(), listen_fd, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, 0);
+			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 			// Flush pending SQEs to kernel to free SQ capacity, then retry.
 			// ≤0: negative = ring error; 0 = nothing submitted (SQPOLL or race) → SQ still full.
 			// Either way: do not retry inline or we risk unbounded recursion.
@@ -937,7 +937,7 @@ struct MultishotAcceptOp {
 	void on_accept_cqe(
 		IoResult r,
 		std::shared_ptr<MultishotAcceptOp> self) noexcept {
-		bool const more = (r.flags & IORING_CQE_F_MORE) != 0;
+		bool const more = r.flags.any(conflux::uring::cqe_flags::more);
 		if (r.res < 0) {
 			if (cancel_requested.load(std::memory_order_acquire) || r.res == -ECANCELED) {
 				complete_cancelled();
@@ -970,7 +970,7 @@ struct MultishotAcceptOp {
 				try {
 					auto [cs, cg] = ring->completions().reserve([](IoResult) noexcept {});
 					if (!submit_cancel_fd(ring->raw(), listen_fd, ring->encode(cs, cg))) {
-						ring->completions().dispatch(cs, cg, -EBUSY, 0);
+						ring->completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					} else {
 						auto _ = ring->raw().submit();
 					}
@@ -984,7 +984,7 @@ struct MultishotAcceptOp {
 				try {
 					auto [cs, cg] = ring->completions().reserve([](IoResult) noexcept {});
 					if (!submit_cancel_fd(ring->raw(), listen_fd, ring->encode(cs, cg))) {
-						ring->completions().dispatch(cs, cg, -EBUSY, 0);
+						ring->completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					} else {
 						auto _ = ring->raw().submit();
 					}
@@ -1008,7 +1008,7 @@ struct MultishotAcceptOp {
 					accept_ud,
 					accept_flags,
 					false)) {
-				ring->completions().dispatch(slot, gen, -ENOSPC, 0);
+				ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 			}
 		}
 	}
@@ -1056,7 +1056,7 @@ struct MultishotAcceptOp {
 			op->accept_ud,
 			op->accept_flags,
 			false)) {
-		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring.completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 
 	auto _ =
@@ -1184,7 +1184,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_sendmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
-		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 	co_return co_await std::move(task);
 }
@@ -1222,7 +1222,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_sendmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
-		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 	co_return co_await std::move(task);
 }
@@ -1254,7 +1254,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	std::uint64_t const ud = ring_->encode(slot, gen);
 	if (!submit_recvmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
-		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
 	co_return co_await std::move(task);
 }
@@ -1312,8 +1312,8 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	std::uint64_t const timeout_ud = ring_->encode(tslot, tgen);
 	if (!submit_recvmsg_timeout_borrowed(ring_->raw(), h, &holder->msg, ts.get(), recv_ud, timeout_ud)) {
-		ring_->completions().dispatch(slot, gen, -ENOSPC, 0);
-		ring_->completions().dispatch(tslot, tgen, -EBUSY, 0);
+		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
+		ring_->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
 		return task;
 	}
 	auto ring_ptr = ring_;
@@ -1324,7 +1324,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, 0);
+					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto src = weak_src.lock()) {
 						auto _ = src->try_set_cancelled();
 					}
@@ -1362,7 +1362,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	std::uint64_t const ud = ring.encode(slot, gen);
 	if (!submit_timeout_borrowed(ring.raw(), ts.get(), ud)) {
-		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
+		ring.completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 		co_await std::move(task);
 		co_return;
 	}
@@ -1373,7 +1373,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 				auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cud = r.encode(cs, cg);
 				if (!submit_cancel_by_ud(r.raw(), ud, cud)) {
-					r.completions().dispatch(cs, cg, -EBUSY, 0);
+					r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto src = weak_src.lock()) {
 						auto _ = src->try_set_cancelled();
 					}

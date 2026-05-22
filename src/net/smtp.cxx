@@ -42,7 +42,7 @@ inline int try_connect_addr(
 	}
 	int const flags = ::fcntl(fd, F_GETFL, 0);
 	if (flags >= 0) {
-		::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+		::fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(O_NONBLOCK)));
 	}
 	int const rc = ::connect(fd, sa, sa_len);
 	bool ok = rc == 0;

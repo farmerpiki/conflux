@@ -217,7 +217,7 @@ TEST_CASE(
 	auto [slot, gen] = table.reserve([&](IoResult r) { observed = r.res; });
 	CHECK(slot == 0);
 	CHECK(gen == 0);
-	table.dispatch(slot, gen, 42, 0);
+	table.dispatch(slot, gen, 42, conflux::uring::CqeFlags{});
 	CHECK(observed == 42);
 	CHECK(table.pending() == 0);
 }
@@ -227,9 +227,9 @@ TEST_CASE(
 	CompletionTable table;
 	int fired = 0;
 	auto [slot, gen] = table.reserve([&](IoResult) { ++fired; });
-	table.dispatch(slot, gen, 0, 0);
+	table.dispatch(slot, gen, 0, conflux::uring::CqeFlags{});
 	CHECK(fired == 1);
-	table.dispatch(slot, gen, 0, 0); // stale — slot gen bumped
+	table.dispatch(slot, gen, 0, conflux::uring::CqeFlags{}); // stale — slot gen bumped
 	CHECK(fired == 1);
 }
 TEST_CASE(
@@ -257,10 +257,10 @@ TEST_CASE(
 		fired = true;
 		got_res = r.res;
 	});
-	table.dispatch(slot, gen, 17, IORING_CQE_F_MORE);
+	table.dispatch(slot, gen, 17, conflux::uring::cqe_flags::more);
 	CHECK(!fired);
 	CHECK(table.has_pending_zc_notifications());
-	table.dispatch(slot, gen, 0, IORING_CQE_F_NOTIF);
+	table.dispatch(slot, gen, 0, conflux::uring::cqe_flags::notif);
 	CHECK(fired);
 	CHECK(got_res == 17);
 	CHECK(!table.has_pending_zc_notifications());
@@ -276,7 +276,7 @@ TEST_CASE(
 		fired = true;
 		got_res = r.res;
 	});
-	table.dispatch(slot, gen, -EPERM, 0);
+	table.dispatch(slot, gen, -EPERM, conflux::uring::CqeFlags{});
 	CHECK(fired);
 	CHECK(got_res == -EPERM);
 	CHECK(table.pending() == 0);
@@ -291,7 +291,7 @@ TEST_CASE(
 		fired = true;
 		got_res = r.res;
 	});
-	table.dispatch(slot, gen, 17, 0);
+	table.dispatch(slot, gen, 17, conflux::uring::CqeFlags{});
 	CHECK(fired);
 	CHECK(got_res == 17);
 	CHECK(table.pending() == 0);
@@ -302,10 +302,10 @@ TEST_CASE(
 	CompletionTable table;
 	int fire_count = 0;
 	auto [slot, gen] = table.reserve_zc([&](IoResult) noexcept { ++fire_count; });
-	table.dispatch(slot, gen, 5, IORING_CQE_F_MORE);
-	table.dispatch(slot, gen, 0, IORING_CQE_F_NOTIF);
+	table.dispatch(slot, gen, 5, conflux::uring::cqe_flags::more);
+	table.dispatch(slot, gen, 0, conflux::uring::cqe_flags::notif);
 	CHECK(fire_count == 1);
-	table.dispatch(slot, gen, 0, IORING_CQE_F_NOTIF); // stale gen
+	table.dispatch(slot, gen, 0, conflux::uring::cqe_flags::notif); // stale gen
 	CHECK(fire_count == 1);
 }
 TEST_CASE(
@@ -314,9 +314,9 @@ TEST_CASE(
 	CompletionTable table;
 	auto [slot, gen] = table.reserve_zc([](IoResult) noexcept {});
 	CHECK(!table.has_pending_zc_notifications());
-	table.dispatch(slot, gen, 8, IORING_CQE_F_MORE);
+	table.dispatch(slot, gen, 8, conflux::uring::cqe_flags::more);
 	CHECK(table.has_pending_zc_notifications());
-	table.dispatch(slot, gen, 0, IORING_CQE_F_NOTIF);
+	table.dispatch(slot, gen, 0, conflux::uring::cqe_flags::notif);
 	CHECK(!table.has_pending_zc_notifications());
 }
 TEST_CASE(
@@ -325,12 +325,12 @@ TEST_CASE(
 	CompletionTable table;
 	bool fired = false;
 	auto [slot, gen] = table.reserve_zc([&](IoResult) noexcept { fired = true; });
-	table.dispatch(slot, gen, 17, IORING_CQE_F_MORE);
+	table.dispatch(slot, gen, 17, conflux::uring::cqe_flags::more);
 	CHECK(table.has_pending_zc_notifications());
 	CHECK_FALSE(table.cancel_all());
 	CHECK(!fired);
 	CHECK(table.pending() == 1);
-	table.dispatch(slot, gen, 0, IORING_CQE_F_NOTIF);
+	table.dispatch(slot, gen, 0, conflux::uring::cqe_flags::notif);
 	CHECK(fired);
 	CHECK(table.cancel_all());
 }

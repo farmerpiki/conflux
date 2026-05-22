@@ -789,7 +789,7 @@ void Ring::handle_send(
 void Ring::handle_send_zc(
 	int fd,
 	int res,
-	std::uint32_t flags,
+	conflux::uring::CqeFlags flags,
 	std::uint32_t gen) {
 	auto const ufd = static_cast<std::size_t>(fd);
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
@@ -803,8 +803,8 @@ void Ring::handle_send_zc(
 		zc_counters_,
 		SendZcCqeInput{
 			.result = res,
-			.notification = (flags & IORING_CQE_F_NOTIF) != 0,
-			.more = (flags & IORING_CQE_F_MORE) != 0,
+			.notification = flags.any(conflux::uring::cqe_flags::notif),
+			.more = flags.any(conflux::uring::cqe_flags::more),
 			.copied = (static_cast<std::uint32_t>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0,
 			.enomem_error = res == -ENOMEM,
 			.written_before = conn.written,

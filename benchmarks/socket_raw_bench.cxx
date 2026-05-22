@@ -414,9 +414,9 @@ void run_multishot_recv_1conn(
 			[&] {
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
-				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
+				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
+				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
@@ -494,10 +494,10 @@ void run_multishot_recv_Nconn(
 			[&] {
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
-				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
+				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
 				std::uint64_t const ud = io_uring_cqe_get_data64(cqe);
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
+				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more && ud >= 100 && ud < 100 + kConns) {
@@ -578,9 +578,9 @@ void run_recv_fixed_fd(
 			[&] {
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
-				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
+				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
+				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
@@ -1135,8 +1135,8 @@ void run_buf_ring_exhaustion_recover(
 					(void)::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL);
 					io_uring_cqe *cqe{};
 					wait_cqe(rg.get(), &cqe);
-					if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
-						drained.push_back(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
+					if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+						drained.push_back(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 					}
 					io_uring_cqe_seen(rg.get(), cqe);
 				}
@@ -1255,10 +1255,10 @@ void run_recv_arm_policy_resolve(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	static constexpr std::uint32_t kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
-	static constexpr std::array<std::uint32_t, 256> kIdleFlags{};
-	static constexpr std::array<std::uint32_t, 256> kBulkFlags = [] {
-		std::array<std::uint32_t, 256> flags{};
+	static constexpr auto kSockNonempty = ur::cqe_flags::sock_nonempty;
+	static constexpr std::array<ur::CqeFlags, 256> kIdleFlags{};
+	static constexpr std::array<ur::CqeFlags, 256> kBulkFlags = [] {
+		std::array<ur::CqeFlags, 256> flags{};
 		flags.fill(kSockNonempty);
 		return flags;
 	}();
@@ -1268,13 +1268,13 @@ void run_recv_arm_policy_resolve(
 		poll_first,
 		adaptive,
 	};
-	auto run_case = [&](std::string_view variant_name, std::span<std::uint32_t const> flags, PolicyMode mode) {
+	auto run_case = [&](std::string_view variant_name, std::span<ur::CqeFlags const> flags, PolicyMode mode) {
 		volatile std::uint64_t sink = 0;
 		auto v = Variant{
 			.name = variant_name,
 			.run =
 				[&] {
-					for (std::uint32_t flg: flags) {
+					for (ur::CqeFlags flg: flags) {
 						RecvArmPolicy arm = RecvArmPolicy::default_;
 						switch (mode) {
 						case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
@@ -1441,8 +1441,7 @@ void run_buf_slices_from_cqe_classic(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				std::uint32_t const flags =
-					IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
+				auto const flags = cqe_buffer_flags(ur::BufId{id});
 				auto slices = buffer_slices_from_cqe(bufs, 64, flags, false);
 				slices.recycle_all();
 			},
@@ -1473,8 +1472,7 @@ void run_buf_slices_from_cqe_bundle(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				std::uint32_t const flags =
-					IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
+				auto const flags = cqe_buffer_flags(ur::BufId{id});
 				auto slices = buffer_slices_from_cqe(bufs, res, flags, true);
 				volatile std::size_t acc = 0;
 				for (auto s: slices) {
@@ -1520,11 +1518,7 @@ void run_buf_slice_from_incremental_cqe(
 				for (int i = 0; i < n; ++i) {
 					bool const is_last = (i == n - 1);
 					std::size_t const res = is_last ? kBufSz - chunk * static_cast<std::size_t>(i) : chunk;
-					std::uint32_t flags =
-						IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
-					if (!is_last) {
-						flags |= IORING_CQE_F_BUF_MORE;
-					}
+					auto const flags = cqe_buffer_flags(ur::BufId{id}, !is_last);
 					auto slice = buffer_slice_from_incremental_cqe(bufs, static_cast<int>(res), flags);
 					acc += slice.size();
 					slice.recycle_if_final();

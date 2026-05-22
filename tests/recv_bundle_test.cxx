@@ -14,11 +14,11 @@ import conflux.socket_io;
 #endif
 namespace {
 
-std::uint32_t recv_flags_for(
+conflux::uring::CqeFlags recv_flags_for(
 	std::uint16_t buf_id) noexcept {
-	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
+	return cqe_buffer_flags(conflux::uring::BufId{buf_id});
 }
-std::uint32_t head_flags(
+conflux::uring::CqeFlags head_flags(
 	BufferRing &ring) noexcept {
 	return recv_flags_for(ring.ring_id_at(ring.debug_head_pos()));
 }
@@ -42,7 +42,7 @@ TEST_CASE(
 	Rig rig{8, 64};
 	for (std::uint32_t i = 0; i < 8; ++i) {
 		std::uint16_t const expected_id = rig.ring.ring_id_at(i);
-		std::uint32_t const f = head_flags(rig.ring);
+		auto const f = head_flags(rig.ring);
 		auto slices = buffer_slices_from_cqe(rig.ring, 64, f, false);
 		REQUIRE(slices.valid());
 		REQUIRE(rig.ring.debug_head_pos() == i + 1);
@@ -318,7 +318,7 @@ TEST_CASE(
 	};
 	auto non_recv = [&] {
 		// res=0 and no buffer flag — typical for send-complete or timer CQE.
-		auto s = buffer_slices_from_cqe(rig.ring, 0, 0u, false);
+		auto s = buffer_slices_from_cqe(rig.ring, 0, conflux::uring::CqeFlags{}, false);
 		CHECK(!s.valid());
 	};
 	recv();
@@ -336,7 +336,7 @@ TEST_CASE(
 	"[recv_bundle]") {
 	Rig rig{8, 64};
 	std::uint32_t const before = rig.ring.debug_head_pos();
-	auto slices = buffer_slices_from_cqe(rig.ring, 100, 0u, false);
+	auto slices = buffer_slices_from_cqe(rig.ring, 100, conflux::uring::CqeFlags{}, false);
 	CHECK(!slices.valid());
 	CHECK(slices.count() == 0u);
 	CHECK(rig.ring.debug_head_pos() == before);
@@ -346,7 +346,7 @@ TEST_CASE(
 	"recv_bundle.scope_exit: recycles on exception",
 	"[recv_bundle]") {
 	Rig rig{4, 64};
-	std::uint32_t rc_flags = head_flags(rig.ring);
+	auto rc_flags = head_flags(rig.ring);
 	bool scope_exit_ran = false;
 	try {
 		auto slices = buffer_slices_from_cqe(rig.ring, 2 * 64, rc_flags, true);
@@ -355,14 +355,14 @@ TEST_CASE(
 		// Guard owns both recycle_all() and rc_flags=0 — mirrors append_recv_buf_to.
 		conflux::tests::ScopeExit guard{[&]() noexcept {
 			slices.recycle_all();
-			rc_flags = 0;
+			rc_flags = conflux::uring::CqeFlags{};
 			scope_exit_ran = true;
 		}};
 		throw std::runtime_error{"simulated append failure"};
 	} catch (std::runtime_error const &) {}
 	// Stack unwinding ran the guard before catch.
 	CHECK(scope_exit_ran);
-	CHECK(rc_flags == 0u);
+	CHECK(rc_flags == conflux::uring::CqeFlags{});
 	// head advanced (consume happened before throw); ring still operational.
 	CHECK(rig.ring.debug_head_pos() == 2u);
 	// Recycled positions 0,1 back to tail → can consume 2,3 then the recycled pair.

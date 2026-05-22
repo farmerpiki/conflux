@@ -163,7 +163,7 @@ void pump_until_count(
 				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto const slot = static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU);
 				auto const gen = static_cast<std::uint32_t>(c->user_data >> 32U);
-				completions->dispatch(slot, gen, c->res, c->flags);
+				completions->dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
 			}
 			::io_uring_cq_advance(ring, n);
 			if (done.load(std::memory_order_acquire) >= target) {

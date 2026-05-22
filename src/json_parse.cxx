@@ -168,7 +168,7 @@ next_ws:;
 	static void append_utf8(
 		std::uint32_t cp,
 		Str &out) {
-		// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
+		// NOLINTBEGIN(readability-magic-numbers)
 		if (cp < 0x80U) {
 			out += static_cast<char>(cp);
 		} else if (cp < 0x800U) {
@@ -184,7 +184,7 @@ next_ws:;
 			out += static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
 			out += static_cast<char>(0x80U | (cp & 0x3FU));
 		}
-		// NOLINTEND(readability-magic-numbers,hicpp-signed-bitwise)
+		// NOLINTEND(readability-magic-numbers)
 	}
 	[[nodiscard]] bool hex4(
 		std::uint32_t &out) noexcept {
@@ -205,7 +205,6 @@ next_ws:;
 			} else {
 				return false;
 			}
-			// NOLINTNEXTLINE(hicpp-signed-bitwise)
 			out = (out << 4U) | d;
 		}
 		pos += 4;

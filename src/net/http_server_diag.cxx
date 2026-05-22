@@ -175,18 +175,19 @@ void Ring::recycle_recv_buffer_direct(
 			std::get<2>(unpack(cqe->user_data)),
 			cqe->res,
 			cqe->flags,
-			(cqe->flags & IORING_CQE_F_BUFFER) != 0u,
+			conflux::uring::CqeFlags{cqe->flags}.any(conflux::uring::cqe_flags::buffer),
 			buffer_ring_mode_name(buf_ring_->mode())));
-	if ((cqe->flags & IORING_CQE_F_BUFFER) == 0u) {
+	auto const flags = conflux::uring::CqeFlags{cqe->flags};
+	if (!flags.any(conflux::uring::cqe_flags::buffer)) {
 		return;
 	}
 	if (cqe->res <= 0) {
 		if (buf_ring_->mode() != BufferRingMode::incremental) {
-			(void)buf_ring_->recycle_selected_buffer(cqe_buffer_id(cqe->flags));
+			(void)buf_ring_->recycle_selected_buffer(cqe_buffer_id(flags));
 		}
 		return;
 	}
-	auto payload = try_recv_payload_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
+	auto payload = try_recv_payload_from_cqe(*buf_ring_, cqe->res, flags, use_recv_bundle);
 	if (!payload) [[unlikely]] {
 		return;
 	}

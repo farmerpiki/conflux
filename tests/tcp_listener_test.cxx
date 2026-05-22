@@ -185,7 +185,7 @@ TEST_CASE(
 	while (!terminal) {
 		REQUIRE(ring.wait_cqe(&cqe) == 0);
 		REQUIRE(cqe);
-		if (cqe->user_data == UD1 && ((cqe->flags & IORING_CQE_F_MORE) == 0u)) {
+		if (cqe->user_data == UD1 && !conflux::uring::CqeFlags{cqe->flags}.any(conflux::uring::cqe_flags::more)) {
 			terminal = true;
 		} else if (cqe->user_data == UD1 && cqe->res >= 0) {
 			::close(cqe->res); // accepted fd before cancel landed

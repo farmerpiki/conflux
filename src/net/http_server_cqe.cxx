@@ -244,7 +244,7 @@ void Ring::dispatch_cqe(
 	Op op,
 	int fd,
 	int res,
-	std::uint32_t flg,
+	conflux::uring::CqeFlags flg,
 	std::uint32_t gen) {
 	switch (op) {
 	case Op::Accept      : handle_accept(res, flg); break;

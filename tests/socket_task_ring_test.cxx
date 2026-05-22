@@ -80,7 +80,7 @@ T block_on_ring(
 					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
 					static_cast<std::uint32_t>(ud >> 32U),
 					c->res,
-					c->flags);
+					conflux::uring::CqeFlags{c->flags});
 			}
 			::io_uring_cq_advance(ring, n);
 			if (slot->done.test(std::memory_order_acquire)) {
@@ -236,12 +236,12 @@ TEST_CASE(
 		res_seen = r.res;
 	});
 	CHECK(ct.pending() == 1);
-	ct.dispatch(slot, gen, 42, 0);
+	ct.dispatch(slot, gen, 42, conflux::uring::CqeFlags{});
 	CHECK(calls == 1);
 	CHECK(res_seen == 42);
 	CHECK(ct.pending() == 0);
 	// second dispatch with same slot+gen is stale (gen bumped)
-	ct.dispatch(slot, gen, 99, 0);
+	ct.dispatch(slot, gen, 99, conflux::uring::CqeFlags{});
 	CHECK(calls == 1);
 }
 TEST_CASE(
@@ -250,17 +250,17 @@ TEST_CASE(
 	CompletionTable ct;
 	int calls = 0;
 	auto [slot, gen] = ct.reserve([&calls](IoResult) noexcept { ++calls; });
-	ct.dispatch(slot, gen + 1, 0, 0); // wrong gen
+	ct.dispatch(slot, gen + 1, 0, conflux::uring::CqeFlags{}); // wrong gen
 	CHECK(calls == 0);
 	CHECK(ct.pending() == 1);
-	ct.dispatch(slot, gen, 0, 0); // correct
+	ct.dispatch(slot, gen, 0, conflux::uring::CqeFlags{}); // correct
 	CHECK(calls == 1);
 }
 TEST_CASE(
 	"completion_table: out-of-range slot is ignored",
 	"[completion_table]") {
 	CompletionTable ct;
-	ct.dispatch(9999, 0, 0, 0); // no crash, no effect
+	ct.dispatch(9999, 0, 0, conflux::uring::CqeFlags{}); // no crash, no effect
 	CHECK(ct.pending() == 0);
 }
 TEST_CASE(
@@ -281,7 +281,7 @@ TEST_CASE(
 	// After cancel, can reserve again cleanly.
 	int d = 0;
 	auto [s3, g3] = ct.reserve([&d](IoResult r) noexcept { d = r.res; });
-	ct.dispatch(s3, g3, 7, 0);
+	ct.dispatch(s3, g3, 7, conflux::uring::CqeFlags{});
 	CHECK(d == 7);
 }
 TEST_CASE(
@@ -315,12 +315,12 @@ TEST_CASE(
 		}
 	});
 	// Fire with MORE flag set twice, then terminate
-	ct.dispatch(slot, gen, 1, IORING_CQE_F_MORE);
-	ct.dispatch(slot, gen, 2, IORING_CQE_F_MORE);
+	ct.dispatch(slot, gen, 1, conflux::uring::cqe_flags::more);
+	ct.dispatch(slot, gen, 2, conflux::uring::cqe_flags::more);
 	CHECK(calls == 2);
 	CHECK(ct.pending() == 1); // still alive
 	// Final delivery (no MORE)
-	ct.dispatch(slot, gen, 3, 0);
+	ct.dispatch(slot, gen, 3, conflux::uring::CqeFlags{});
 	CHECK(calls == 3);
 	CHECK(ct.pending() == 0);
 }
@@ -842,7 +842,7 @@ TEST_CASE(
 				static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU),
 				static_cast<std::uint32_t>(c->user_data >> 32U),
 				c->res,
-				c->flags);
+				conflux::uring::CqeFlags{c->flags});
 			::io_uring_cq_advance(&fx->ring, 1);
 		}
 	}

@@ -490,7 +490,7 @@ void run_async_server(
 					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
 					static_cast<std::uint32_t>(ud >> 32U),
 					batch[i]->res,
-					batch[i]->flags);
+					conflux::uring::CqeFlags{batch[i]->flags});
 			}
 			::io_uring_cq_advance(&raw, n);
 		}

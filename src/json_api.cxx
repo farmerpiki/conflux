@@ -968,7 +968,6 @@ namespace detail {
 		} else {
 			return std::nullopt;
 		}
-		// NOLINTNEXTLINE(hicpp-signed-bitwise)
 		out = (out << 4U) | d;
 	}
 	return out;
@@ -976,7 +975,7 @@ namespace detail {
 inline void append_utf8_to_sv(
 	std::uint32_t cp,
 	auto &&writer) {
-	// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
+	// NOLINTBEGIN(readability-magic-numbers)
 	char buf[4];
 	std::size_t len = 0;
 	if (cp < 0x80U) {
@@ -998,7 +997,7 @@ inline void append_utf8_to_sv(
 		buf[3] = static_cast<char>(0x80U | (cp & 0x3FU));
 		len = 4;
 	}
-	// NOLINTEND(readability-magic-numbers,hicpp-signed-bitwise)
+	// NOLINTEND(readability-magic-numbers)
 	writer(std::string_view{buf, len});
 }
 template<class Writer>

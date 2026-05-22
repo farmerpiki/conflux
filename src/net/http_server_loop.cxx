@@ -353,7 +353,7 @@ void Ring::conn_erase(
 	++conn.gen; // prevent a second Close CQE from erasing the next tenant
 	conn.fd = -1;
 	conn.recv_armed = false;
-	conn.last_recv_cqe_flags = 0;
+	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
 	conn.closing = false;
 	conn.close_after_send = false;
@@ -920,7 +920,7 @@ void Ring::handle_shutdown() {
 
 void Ring::handle_accept(
 	int res,
-	std::uint32_t flg) {
+	conflux::uring::CqeFlags flg) {
 	if (res < 0) {
 		HTTP_TRACE(
 			std::format(
@@ -985,7 +985,7 @@ void Ring::handle_accept(
 	++conn.gen;
 	conn.fd = res;
 	conn.recv_armed = false;
-	conn.last_recv_cqe_flags = 0;
+	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
 	conn.have_incremental_buf_id = false;
 	conn.send_queued = false;
@@ -1161,7 +1161,7 @@ RunStatus Ring::run_loop() {
 			auto [op, cqe_gen, fd] =
 				unpack(io_uring_cqe_get_data64(cqes[i])); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			auto *cqe = cqes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-			dispatch_cqe(op, fd, cqe->res, cqe->flags, cqe_gen);
+			dispatch_cqe(op, fd, cqe->res, conflux::uring::CqeFlags{cqe->flags}, cqe_gen);
 		}
 		io_uring_cq_advance(&ring, count);
 

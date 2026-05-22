@@ -31,7 +31,7 @@ void run_warmup(
 	for (std::size_t i = 0; i < warmup; ++i) {
 		auto [slot, gen] =
 			completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
-		completions.dispatch(slot, gen, 1, 0);
+		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 	}
 	if (sink == 0) {
 		std::println(std::cerr, "unexpected zero warmup sink");
@@ -46,7 +46,7 @@ BenchStats bench_small_callback(
 	for (std::size_t i = 0; i < iters; ++i) {
 		auto [slot, gen] =
 			completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
-		completions.dispatch(slot, gen, 1, 0);
+		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 	}
 	auto const elapsed = bench_now_ns() - t0;
 	if (sink != iters) {
@@ -64,7 +64,7 @@ BenchStats bench_shared_callback(
 	for (std::size_t i = 0; i < iters; ++i) {
 		auto [slot, gen] =
 			completions.reserve([sink](IoResult r) noexcept { *sink += static_cast<std::uint64_t>(r.res); });
-		completions.dispatch(slot, gen, 1, 0);
+		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 	}
 	auto const elapsed = bench_now_ns() - t0;
 	if (*sink != iters) {
@@ -85,7 +85,7 @@ BenchStats bench_large_callback(
 	auto const t0 = bench_now_ns();
 	for (std::size_t i = 0; i < iters; ++i) {
 		auto [slot, gen] = completions.reserve(base);
-		completions.dispatch(slot, gen, static_cast<int>(i), 0);
+		completions.dispatch(slot, gen, static_cast<int>(i), conflux::uring::CqeFlags{});
 	}
 	auto const elapsed = bench_now_ns() - t0;
 	if (sink == 0) {

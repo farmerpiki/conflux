@@ -422,7 +422,7 @@ T block_on_str(
 					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
 					static_cast<std::uint32_t>(ud >> 32U),
 					c->res,
-					c->flags);
+					conflux::uring::CqeFlags{c->flags});
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(std::memory_order_acquire)) {

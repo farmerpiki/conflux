@@ -111,7 +111,7 @@ void pump_until(
 			for (unsigned i = 0; i < n; ++i) {
 				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto [slot, gen] = decode(c->user_data);
-				completions->dispatch(slot, gen, c->res, c->flags);
+				completions->dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
 			}
 			::io_uring_cq_advance(ring, n);
 			if (done.test(std::memory_order_acquire)) {

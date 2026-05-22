@@ -13,14 +13,10 @@ import conflux.socket_io;
 #endif
 namespace {
 
-std::uint32_t inc_flags(
+conflux::uring::CqeFlags inc_flags(
 	std::uint16_t buf_id,
 	bool buf_more) noexcept {
-	std::uint32_t f = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
-	if (buf_more) {
-		f |= IORING_CQE_F_BUF_MORE;
-	}
-	return f;
+	return cqe_buffer_flags(conflux::uring::BufId{buf_id}, buf_more);
 }
 struct Rig {
 	conflux::uring::Ring uring;
@@ -188,14 +184,14 @@ TEST_CASE(
 		conflux::tests::ScopeExit guard{[&]() noexcept {
 			slice.recycle_if_final();
 			if (!slice.more()) {
-				rc_flags = 0;
+				rc_flags = conflux::uring::CqeFlags{};
 			}
 			scope_ran = true;
 		}};
 		throw std::runtime_error{"simulated failure"};
 	} catch (std::runtime_error const &) {}
 	CHECK(scope_ran);
-	CHECK(rc_flags == 0u);
+	CHECK(rc_flags == conflux::uring::CqeFlags{});
 	// Ring still operational: next CQE works.
 	auto next = buffer_slice_from_incremental_cqe(rig.ring, 8, inc_flags(1, false));
 	CHECK(next.valid());
@@ -307,7 +303,7 @@ TEST_CASE(
 	CHECK(r1->size() == std::size_t{4});
 	CHECK(rig.ring.debug_head_pos() == h0); // BUF_MORE: head not advanced
 	// Simulate rc.flags=0 (cleared by append_recv_buf_to): phase3 re-decode blocked.
-	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, 0u);
+	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, conflux::uring::CqeFlags{});
 	CHECK(!r2.has_value());
 	CHECK(r2.error() == RecvDecodeError::bad_cqe);
 	// Offset must not have advanced a second time.
@@ -328,7 +324,7 @@ TEST_CASE(
 	REQUIRE(r1.has_value());
 	CHECK(r1->offset() == std::size_t{0});
 	// Cleared-flags re-call: decoder rejects (no BUFFER bit), offset unchanged.
-	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 10, 0u);
+	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 10, conflux::uring::CqeFlags{});
 	CHECK(!r2.has_value());
 	CHECK(r2.error() == RecvDecodeError::bad_cqe);
 	// Confirm offset still at 10 (only advanced once).

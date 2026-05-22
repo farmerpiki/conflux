@@ -275,6 +275,15 @@ inline constexpr CqeFlags f32{IORING_CQE_F_32};
 	CqeFlags f) noexcept {
 	return BufId{static_cast<std::uint16_t>(f.raw() >> IORING_CQE_BUFFER_SHIFT)};
 }
+[[nodiscard]] constexpr CqeFlags selected_buffer(
+	BufId id,
+	bool more = false) noexcept {
+	auto flags = CqeFlags{IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id.v) << IORING_CQE_BUFFER_SHIFT)};
+	if (more) {
+		flags |= buf_more;
+	}
+	return flags;
+}
 
 } // namespace cqe_flags
 // ── IoPrio flag constants ─────────────────────────────────────────────────────

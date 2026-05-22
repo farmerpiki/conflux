@@ -9,6 +9,7 @@ export module conflux.socket_io.blocking;
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.work;
@@ -92,7 +93,7 @@ T sync_wait_socket_task(
 					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
 					static_cast<std::uint32_t>(ud >> 32U),
 					c->res,
-					c->flags);
+					conflux::uring::CqeFlags{c->flags});
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(std::memory_order_acquire)) {

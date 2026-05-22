@@ -144,7 +144,7 @@ struct RecvComp {
 	int fd;
 	int res;
 	std::uint32_t gen;
-	std::uint32_t flags;
+	conflux::uring::CqeFlags flags;
 };
 inline constexpr std::size_t FD_TABLE_RESERVE = 4096;
 inline constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
@@ -202,7 +202,7 @@ struct alignas(
 	bool recv_armed = false;
 	std::uint16_t incremental_buf_id{};
 	bool have_incremental_buf_id{};
-	std::uint32_t last_recv_cqe_flags{};
+	conflux::uring::CqeFlags last_recv_cqe_flags{};
 	bool have_last_recv_cqe_flags{};
 	bool send_queued = false;
 	bool is_sse = false;
@@ -616,13 +616,13 @@ struct Ring {
 	void arm_timer();
 	void handle_timer();
 	void handle_shutdown();
-	void handle_accept(int res, std::uint32_t flg);
-	void discard_recv_bufs(int res, std::uint32_t flags) noexcept;
+	void handle_accept(int res, conflux::uring::CqeFlags flg);
+	void discard_recv_bufs(int res, conflux::uring::CqeFlags flags) noexcept;
 	void discard_recv_bufs(RecvComp &rc) noexcept;
 	void retire_incremental_partial(int fd, std::uint32_t gen, Conn &conn) noexcept;
 	void reclaim_retired_incremental_recv(int fd, std::uint32_t gen) noexcept;
-	void clear_retired_incremental_if_final(int fd, std::uint32_t gen, std::uint32_t flags) noexcept;
-	void handle_recv_cqe(int fd, int res, std::uint32_t flg, std::uint32_t gen);
+	void clear_retired_incremental_if_final(int fd, std::uint32_t gen, conflux::uring::CqeFlags flags) noexcept;
+	void handle_recv_cqe(int fd, int res, conflux::uring::CqeFlags flg, std::uint32_t gen);
 	bool handle_sse_send_complete(int fd, Conn &conn);
 	void handle_http_response_send_complete(int fd, Conn &conn);
 	[[nodiscard]] static bool make_blocking_fd(int fd);
@@ -661,13 +661,13 @@ struct Ring {
 	void finish_mapped_send(int fd, Conn &conn);
 	void fail_send(int fd, Conn &conn);
 	void handle_send(int fd, int res, std::uint32_t gen);
-	void handle_send_zc(int fd, int res, std::uint32_t flags, std::uint32_t gen);
+	void handle_send_zc(int fd, int res, conflux::uring::CqeFlags flags, std::uint32_t gen);
 
 	void handle_sse_poll(int fd, int res, std::uint32_t gen);
 	void handle_deferred_poll(int deferred_efd, int res, std::uint32_t gen);
 	void handle_conn_close(int fd, int res, std::uint32_t gen);
 	void handle_direct_slot_close(int fd, int res);
-	void dispatch_cqe(Op op, int fd, int res, std::uint32_t flg, std::uint32_t gen);
+	void dispatch_cqe(Op op, int fd, int res, conflux::uring::CqeFlags flg, std::uint32_t gen);
 	// Phase 1: copy recv data out of provided/pinned recv buffers, return
 	// ownership immediately.  RecvPayload keeps the HTTP path independent of the
 	// concrete buffer backend so a later RECV_ZC backend can preserve this flow.

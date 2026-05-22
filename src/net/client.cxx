@@ -105,7 +105,7 @@ bool connect_with_timeout(
 	if (flags < 0) {
 		return false;
 	}
-	if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+	if (::fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(O_NONBLOCK))) < 0) {
 		return false;
 	}
 	int const rc = ::connect(fd, addr, addrlen);

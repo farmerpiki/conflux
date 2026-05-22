@@ -29,14 +29,10 @@ return std::move(*r);
 }()},
 ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=1,.huge_pages=false,.mode=BufferRingMode::incremental},conflux::uring::detect_caps(uring.ref())}{}
 };
-std::uint32_t inc_flags(
+conflux::uring::CqeFlags inc_flags(
 	std::uint16_t buf_id,
 	bool buf_more) noexcept {
-	std::uint32_t f = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
-	if (buf_more) {
-		f |= IORING_CQE_F_BUF_MORE;
-	}
-	return f;
+	return cqe_buffer_flags(conflux::uring::BufId{buf_id}, buf_more);
 }
 
 } // namespace
@@ -85,7 +81,7 @@ int main(
 	}
 	if (probe == "inc_no_buf_flag") {
 		Rig rig{};
-		auto _ = buffer_slice_from_incremental_cqe(rig.ring, 8, 0u);
+		auto _ = buffer_slice_from_incremental_cqe(rig.ring, 8, conflux::uring::CqeFlags{});
 		return 0;
 	}
 	if (probe == "inc_bad_id") {
