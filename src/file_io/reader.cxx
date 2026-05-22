@@ -113,22 +113,6 @@ export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
 	UserDataFn encode_ud_;
-	[[nodiscard]] static int fd_for_io(
-		RingFdLike auto const &fd) noexcept {
-		return ::sqe_fd_value(fd);
-	}
-	static void set_fixed_file_if_direct(
-		io_uring_sqe *sqe,
-		RingFdLike auto const &fd) noexcept {
-		::apply_sqe_fd_flags(sqe, fd);
-	}
-	static void prep_fd_sqe(
-		io_uring_sqe *sqe,
-		RingFdLike auto const &fd,
-		auto &&prep) {
-		std::forward<decltype(prep)>(prep)(::sqe_fd_value(fd));
-		::apply_sqe_fd_flags(sqe, fd);
-	}
 	template<typename T>
 	struct PreparedSqe {
 		root::Task<T> task;
@@ -431,9 +415,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_read(sqe, fd, dst.data(), static_cast<unsigned>(dst.size()), offset);
-		});
+		io_uring_prep_read(sqe, fh.sqe_fd_value(), dst.data(), static_cast<unsigned>(dst.size()), offset);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
@@ -452,9 +435,13 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_readv(sqe, fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		});
+		io_uring_prep_readv(
+			sqe,
+			fh.sqe_fd_value(),
+			iov_owner->data(),
+			static_cast<unsigned>(iov_owner->size()),
+			offset);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -482,15 +469,14 @@ public:
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_read_fixed(
-				sqe,
-				fd,
-				holder->view().data(),
-				static_cast<unsigned>(bytes),
-				offset,
-				static_cast<int>(slot_idx));
-		});
+		io_uring_prep_read_fixed(
+			sqe,
+			fh.sqe_fd_value(),
+			holder->view().data(),
+			static_cast<unsigned>(bytes),
+			offset,
+			static_cast<int>(slot_idx));
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -532,15 +518,14 @@ public:
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_read_fixed(
-				sqe,
-				fd,
-				holder->view().data(),
-				static_cast<unsigned>(aligned_bytes),
-				offset,
-				static_cast<int>(slot_idx));
-		});
+		io_uring_prep_read_fixed(
+			sqe,
+			fh.sqe_fd_value(),
+			holder->view().data(),
+			static_cast<unsigned>(aligned_bytes),
+			offset,
+			static_cast<int>(slot_idx));
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -576,15 +561,14 @@ public:
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_write_fixed(
-				sqe,
-				fd,
-				holder->view().data(),
-				static_cast<unsigned>(bytes),
-				offset,
-				static_cast<int>(slot_idx));
-		});
+		io_uring_prep_write_fixed(
+			sqe,
+			fh.sqe_fd_value(),
+			holder->view().data(),
+			static_cast<unsigned>(bytes),
+			offset,
+			static_cast<int>(slot_idx));
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -608,9 +592,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_write(sqe, fd, src_view.data(), static_cast<unsigned>(src_view.size()), offset);
-		});
+		io_uring_prep_write(sqe, fh.sqe_fd_value(), src_view.data(), static_cast<unsigned>(src_view.size()), offset);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
@@ -629,9 +612,13 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_writev(sqe, fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		});
+		io_uring_prep_writev(
+			sqe,
+			fh.sqe_fd_value(),
+			iov_owner->data(),
+			static_cast<unsigned>(iov_owner->size()),
+			offset);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -650,15 +637,14 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_readv2(
-				sqe,
-				fd,
-				iov_owner->data(),
-				static_cast<unsigned>(iov_owner->size()),
-				offset,
-				rwf_flags);
-		});
+		io_uring_prep_readv2(
+			sqe,
+			fh.sqe_fd_value(),
+			iov_owner->data(),
+			static_cast<unsigned>(iov_owner->size()),
+			offset,
+			rwf_flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
@@ -677,15 +663,14 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		prep_fd_sqe(sqe, fh, [&](int fd) {
-			io_uring_prep_writev2(
-				sqe,
-				fd,
-				iov_owner->data(),
-				static_cast<unsigned>(iov_owner->size()),
-				offset,
-				rwf_flags);
-		});
+		io_uring_prep_writev2(
+			sqe,
+			fh.sqe_fd_value(),
+			iov_owner->data(),
+			static_cast<unsigned>(iov_owner->size()),
+			offset,
+			rwf_flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
@@ -740,9 +725,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_fadvise(sqe, fd, offset, len, advice);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_fadvise(sqe, fh.sqe_fd_value(), offset, len, advice);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -825,9 +809,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_ftruncate(sqe, fd, static_cast<loff_t>(length));
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_ftruncate(sqe, fh.sqe_fd_value(), static_cast<loff_t>(length));
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -857,9 +840,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_sync_file_range(sqe, fd, len, offset, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_sync_file_range(sqe, fh.sqe_fd_value(), len, offset, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -929,10 +911,9 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
 		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
-		io_uring_prep_bind(sqe, fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_bind(sqe, fh.sqe_fd_value(), reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -945,9 +926,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_listen(sqe, fd, backlog);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_listen(sqe, fh.sqe_fd_value(), backlog);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -959,9 +939,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_shutdown(sqe, fd, how);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_shutdown(sqe, fh.sqe_fd_value(), how);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -1016,10 +995,14 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
 		auto name_owner = std::make_shared<std::string>(std::move(name));
-		io_uring_prep_fgetxattr(sqe, fd, name_owner->c_str(), buf.data(), static_cast<unsigned>(buf.size()));
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_fgetxattr(
+			sqe,
+			fh.sqe_fd_value(),
+			name_owner->c_str(),
+			buf.data(),
+			static_cast<unsigned>(buf.size()));
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [name_owner](IoResult r) mutable {
 			auto _ = name_owner;
 			return static_cast<std::size_t>(r.res);
@@ -1037,16 +1020,15 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
 		auto kv = std::make_shared<std::pair<std::string, std::string>>(std::move(name), std::move(data));
 		io_uring_prep_fsetxattr(
 			sqe,
-			fd,
+			fh.sqe_fd_value(),
 			kv->first.c_str(),
 			kv->second.c_str(),
 			flags,
 			static_cast<unsigned>(kv->second.size()));
-		set_fixed_file_if_direct(sqe, fh);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable { auto _ = kv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -1289,9 +1271,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_accept(sqe, fh.sqe_fd_value(), addr, addrlen, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1309,9 +1290,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_accept_direct(sqe, fd, addr, addrlen, flags, file_index);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_accept_direct(sqe, fh.sqe_fd_value(), addr, addrlen, flags, file_index);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
@@ -1406,10 +1386,9 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
 		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
-		io_uring_prep_connect(sqe, fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_connect(sqe, fh.sqe_fd_value(), reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
@@ -1485,9 +1464,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_send(sqe, fd, buf, len, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_send(sqe, fh.sqe_fd_value(), buf, len, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1503,9 +1481,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_recv(sqe, fd, buf, len, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_recv(sqe, fh.sqe_fd_value(), buf, len, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1520,9 +1497,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_sendmsg(sqe, fd, msg, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_sendmsg(sqe, fh.sqe_fd_value(), msg, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1537,9 +1513,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_recvmsg(sqe, fd, msg, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_recvmsg(sqe, fh.sqe_fd_value(), msg, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1669,9 +1644,8 @@ public:
 			return std::move(task);
 		}
 		auto sa = std::make_shared<sockaddr_storage>(addr);
-		int const fd = fd_for_io(fh);
-		io_uring_prep_sendto(sqe, fd, buf, len, flags, reinterpret_cast<sockaddr *>(sa.get()), addrlen);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_sendto(sqe, fh.sqe_fd_value(), buf, len, flags, reinterpret_cast<sockaddr *>(sa.get()), addrlen);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [sa](IoResult r) mutable {
 			auto _ = sa;
 			return static_cast<std::size_t>(r.res);
@@ -1694,9 +1668,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_send_zc(sqe, fd, buf, len, flags, zc_flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_send_zc(sqe, fh.sqe_fd_value(), buf, len, flags, zc_flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1715,9 +1688,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_send_zc(sqe, fd, buf, len, flags, zc_flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_send_zc(sqe, fh.sqe_fd_value(), buf, len, flags, zc_flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1735,9 +1707,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_write_fixed(sqe, fd, buf, nbytes, offset, buf_index);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_write_fixed(sqe, fh.sqe_fd_value(), buf, nbytes, offset, buf_index);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1919,9 +1890,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_sendmsg_zc(sqe, fd, msg, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_sendmsg_zc(sqe, fh.sqe_fd_value(), msg, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1936,9 +1906,8 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		int const fd = fd_for_io(fh);
-		io_uring_prep_sendmsg_zc(sqe, fd, msg, flags);
-		set_fixed_file_if_direct(sqe, fh);
+		io_uring_prep_sendmsg_zc(sqe, fh.sqe_fd_value(), msg, flags);
+		apply_sqe_fd_flags(sqe, fh);
 		auto [slot, gen] =
 			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
