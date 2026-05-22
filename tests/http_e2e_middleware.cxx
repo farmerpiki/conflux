@@ -44,9 +44,7 @@ TEST_CASE(
 
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 	router.get("/protected", [](Request const &) { return Response::text("secret"); });
-	router.get("/injected", [](Request const &req) {
-		return Response::text(std::string{req.headers["x-injected"]});
-	});
+	router.get("/injected", [](Request const &req) { return Response::text(std::string{req.headers["x-injected"]}); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const mw_port = srv.port();
@@ -383,9 +381,8 @@ TEST_CASE(
 	"throwing middleware returns per-request 500") {
 	Config cfg = Config::test();
 	Router router;
-	router.use([](Request const &, Router::Handler const &) -> Response {
-		throw std::runtime_error{"middleware crash"};
-	});
+	router.use(
+		[](Request const &, Router::Handler const &) -> Response { throw std::runtime_error{"middleware crash"}; });
 	router.get("/ok", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -2563,9 +2560,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
-		router.get("/", [](Request const &req) {
-			return Response::text(std::string{req.headers["x-request-id"]});
-		});
+		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-request-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Client sends a specific ID; middleware must ignore it and generate its own.
@@ -2584,9 +2579,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
-		router.get("/", [](Request const &req) {
-			return Response::text(std::string{req.headers["x-trace-id"]});
-		});
+		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-trace-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");

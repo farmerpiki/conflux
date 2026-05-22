@@ -302,7 +302,7 @@ Rollback:
 
 Problem:
 
-- `src/work/root_tasks.inc` and `src/work/root.cxx` use
+- `src/work/root_tasks.cxx` and `src/work/root_core.cxx` use
   `std::shared_ptr<ControlBlockInterface<T>>` heavily.
 - Coroutine frame pooling exists behind `CONFLUX_WORK_CORO_FRAME_POOL` and
   `*-p5` release presets, but it is not the default path. The task control block

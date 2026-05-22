@@ -1,3 +1,12 @@
+export module conflux.work.root:tasks;
+
+import std;
+import conflux.types;
+import conflux.small_function;
+import :core;
+
+export namespace conflux::work::root {
+
 namespace detail {
 
 template<work_value T, bool EnableCancellation>

@@ -435,9 +435,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.headers["host"]});
-		});
+		upstream.get("/echo", [](Request const &req) { return Response::text(std::string{req.headers["host"]}); });
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
@@ -465,9 +463,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.headers["host"]});
-		});
+		upstream.get("/echo", [](Request const &req) { return Response::text(std::string{req.headers["host"]}); });
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
@@ -579,9 +575,7 @@ TEST_CASE(
 		Router router;
 		router.use(
 			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
-		router.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.cookies["session"]});
-		});
+		router.get("/echo", [](Request const &req) { return Response::text(std::string{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto signed_val = sign_cookie("user42", kCookieMiddlewareSecret);
@@ -597,9 +591,7 @@ TEST_CASE(
 		Router router;
 		router.use(cookie_signing_middleware(
 			{.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret}), .strip_invalid = true}));
-		router.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.cookies["session"]});
-		});
+		router.get("/echo", [](Request const &req) { return Response::text(std::string{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Forge a signed value with the wrong secret.
@@ -617,9 +609,7 @@ TEST_CASE(
 		Router router;
 		router.use(
 			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
-		router.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.cookies["plain"]});
-		});
+		router.get("/echo", [](Request const &req) { return Response::text(std::string{req.cookies["plain"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/echo", "Cookie: plain=nodot\r\n");
@@ -634,9 +624,7 @@ TEST_CASE(
 		Router router;
 		router.use(cookie_signing_middleware(
 			{.secrets = single_secret_rotation("srv-secret-key-1234"), .strip_invalid = false}));
-		router.get("/echo", [](Request const &req) {
-			return Response::text(std::string{req.cookies["session"]});
-		});
+		router.get("/echo", [](Request const &req) { return Response::text(std::string{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Cookie with bad signature — handler receives the raw signed value unchanged.
@@ -1328,9 +1316,7 @@ TEST_CASE(
 			.propagate_in_response = false,
 		}));
 		// Echo the injected span id from the request.
-		router.get("/", [](Request const &req) {
-			return Response::text(std::string{req.headers["x-injected-span"]});
-		});
+		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-injected-span"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -2746,9 +2732,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
 	Router router;
-	router.get("/files/{*path}", [](Request const &req) {
-		return Response::text(std::string{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](Request const &req) { return Response::text(std::string{req.params["path"]}); });
 	Request req;
 	req.method = "GET";
 	req.path = "/files/docs/readme.txt";
@@ -2759,9 +2743,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures empty tail when path ends at prefix") {
 	Router router;
-	router.get("/files/{*path}", [](Request const &req) {
-		return Response::text(std::string{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](Request const &req) { return Response::text(std::string{req.params["path"]}); });
 	Request req;
 	req.method = "GET";
 	req.path = "/files/";
@@ -2785,9 +2767,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: non-matching path returns 404") {
 	Router router;
-	router.get("/files/{*path}", [](Request const &req) {
-		return Response::text(std::string{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](Request const &req) { return Response::text(std::string{req.params["path"]}); });
 	Request req;
 	req.method = "GET";
 	req.path = "/other/stuff";
@@ -2797,9 +2777,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: percent-encoded path param is URL-decoded") {
 	Router router;
-	router.get("/hello/{name}", [](Request const &req) {
-		return Response::text(std::string{req.params["name"]});
-	});
+	router.get("/hello/{name}", [](Request const &req) { return Response::text(std::string{req.params["name"]}); });
 	Request req;
 	req.method = "GET";
 	req.path = "/hello/hello%20world";
@@ -2821,9 +2799,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard tail with percent-encoded segment is URL-decoded") {
 	Router router;
-	router.get("/files/{*path}", [](Request const &req) {
-		return Response::text(std::string{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](Request const &req) { return Response::text(std::string{req.params["path"]}); });
 	Request req;
 	req.method = "GET";
 	req.path = "/files/dir/my%20file.txt";

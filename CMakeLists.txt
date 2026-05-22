@@ -1566,6 +1566,8 @@ target_sources(conflux_work
         ${CONFLUX_SRC_ROOT}/work/carrier_coro.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_streams.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_timer.cxx
+        ${CONFLUX_SRC_ROOT}/work/root_core.cxx
+        ${CONFLUX_SRC_ROOT}/work/root_tasks.cxx
         ${CONFLUX_SRC_ROOT}/work/root.cxx
         ${CONFLUX_SRC_ROOT}/work.cppm
         ${CONFLUX_SRC_ROOT}/work_api.cxx

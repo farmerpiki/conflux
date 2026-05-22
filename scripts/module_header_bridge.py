@@ -1714,16 +1714,6 @@ def unit_has_public_body(unit: ModuleUnit) -> bool:
 
 
 def public_header_source_unit(unit: ModuleUnit, units_by_name: dict[str, ModuleUnit]) -> ModuleUnit:
-    if unit.is_partition:
-        return unit
-    if unit_has_public_body(unit):
-        return unit
-    for imported in unit.export_imports:
-        if not imported.startswith(":"):
-            continue
-        partition = units_by_name.get(f"{unit.module_name}{imported}")
-        if partition is not None and partition.is_interface:
-            return partition
     return unit
 
 

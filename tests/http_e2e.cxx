@@ -2111,5 +2111,5 @@ TEST_CASE(
 	CHECK(metrics.pressure.drain_started >= 1);
 }
 
-#include "http_e2e_middleware.inc"
-#include "http_e2e_observability.inc"
+#include "http_e2e_middleware.cxx"
+#include "http_e2e_observability.cxx"
