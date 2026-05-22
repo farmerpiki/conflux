@@ -471,6 +471,7 @@ def module_overlay_source_line(line: str) -> str:
 
 def header_impl_source_line(line: str) -> str:
     line = rebase_local_include_line(line)
+    line = EXPORT_PREFIX_RE.sub(lambda match: match.group("indent"), line, count=1)
     return BARE_NULLPTR_T_RE.sub("std::nullptr_t", line)
 
 
