@@ -2245,6 +2245,7 @@ target_sources(conflux_http_router_static
 target_link_libraries(conflux_http_router_static
     PRIVATE conflux_options
     PRIVATE conflux_http_static_async
+    PRIVATE conflux_file_io_sync
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_response
@@ -2778,6 +2779,7 @@ target_sources(conflux_http_app
 )
 target_link_libraries(conflux_http_app
     PRIVATE conflux_options
+    PRIVATE conflux_file_io_sync
     PUBLIC  conflux_types
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core

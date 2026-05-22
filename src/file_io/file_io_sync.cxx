@@ -321,6 +321,24 @@ export std::expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
 	}
 	return UniqueFd{fd};
 }
+
+export std::expected<UniqueFd, FileIoSyncError> blocking_open_directory(
+	std::string_view path) noexcept {
+	if (path.empty() || path.contains('\0')) {
+		return std::unexpected{
+			FileIoSyncError{EINVAL, "file_io_sync: invalid directory path"}
+        };
+	}
+	std::string native{path};
+	int const fd = ::open(native.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (fd < 0) {
+		return std::unexpected{
+			FileIoSyncError{errno, "file_io_sync: open directory"}
+        };
+	}
+	return UniqueFd{fd};
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Low-level: blocking_open_tmpfile
 // ───────────────────────────────────────────────────────────────────────
@@ -475,6 +493,29 @@ export std::expected<void, FileIoSyncError> blocking_write_file_atomic_at(
 
 	return blocking_publish_tmpfile(std::move(*tmp), parent->fd(), parts->basename, mode, durability);
 }
+
+export std::expected<void, FileIoSyncError> blocking_unlink_file_at(
+	int root_fd,
+	std::string_view contained_relative_path) noexcept {
+	auto parts = split_contained_path(contained_relative_path);
+	if (!parts) {
+		return std::unexpected{parts.error()};
+	}
+
+	auto parent = open_parent_dir_contained(root_fd, parts->parent_dir);
+	if (!parent) {
+		return std::unexpected{parent.error()};
+	}
+
+	std::string basename{parts->basename};
+	if (::unlinkat(parent->fd(), basename.c_str(), 0) != 0) {
+		return std::unexpected{
+			FileIoSyncError{errno, "file_io_sync: unlink contained file"}
+        };
+	}
+	return {};
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // High-level: blocking_write_text_file_atomic_at
 // ───────────────────────────────────────────────────────────────────────

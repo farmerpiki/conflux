@@ -1,5 +1,5 @@
 module;
-#include <cstdio>
+#include <cerrno>
 
 export module conflux.http;
 
@@ -26,6 +26,7 @@ export import conflux.net.security;
 export import conflux.net.tracing;
 export import conflux.net.observability;
 import conflux.work;
+import conflux.file_io_sync;
 #if CONFLUX_HAS_METRICS
 export import conflux.net.metrics;
 #endif
@@ -89,26 +90,15 @@ template<typename F>
 	std::filesystem::path const &path,
 	std::string content_type = "application/octet-stream") {
 	auto path_string = path.string();
-	auto *input = std::fopen(path_string.c_str(), "rb");
-	if (input == nullptr) {
-		return Response::not_found(path.string());
-	}
-	struct FileCloser {
-		void operator ()(
-			std::FILE *file) const noexcept {
-			(void)std::fclose(file);
+	auto body = blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
+	if (!body) {
+		auto const err = body.error().code().value();
+		if (err == ENOENT || err == ENOTDIR) {
+			return Response::not_found(path.string());
 		}
-	};
-	std::unique_ptr<std::FILE, FileCloser> file{input};
-	std::string body;
-	std::array<char, 8192> buffer{};
-	while (auto const n = std::fread(buffer.data(), 1, buffer.size(), file.get())) {
-		body.append(buffer.data(), n);
-	}
-	if (std::ferror(file.get()) != 0) {
 		return Response::internal_error("failed to read file");
 	}
-	return Response::with_body(std::move(body), std::move(content_type));
+	return Response::with_body(std::move(*body), std::move(content_type));
 }
 
 struct StreamSink {

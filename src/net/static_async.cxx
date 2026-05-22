@@ -15,6 +15,7 @@ import conflux.utils;
 import conflux.work;
 import conflux.uring.handle;
 import conflux.file_io;
+import conflux.file_io_sync;
 import conflux.file_map;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
@@ -29,11 +30,21 @@ int contained_static_open(
 	char const *relative,
 	int flags,
 	mode_t mode = 0) noexcept {
+	std::string_view rel{relative == nullptr ? "" : relative};
+	if (!rel.empty() && rel != ".") {
+		auto opened = blocking_openat_contained(root_fd, rel, flags, mode);
+		if (opened) {
+			return opened->release();
+		}
+		errno = opened.error().code().value();
+		return -1;
+	}
+
 	open_how how{};
-	how.flags = static_cast<__u64>(flags);
+	how.flags = static_cast<__u64>(flags | O_CLOEXEC);
 	how.mode = static_cast<__u64>(mode);
 	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-	return static_cast<int>(::syscall(SYS_openat2, root_fd, relative, &how, sizeof(how)));
+	return static_cast<int>(::syscall(SYS_openat2, root_fd, ".", &how, sizeof(how)));
 }
 
 void append_static_html_escape(
@@ -379,8 +390,10 @@ Response handle_static_delete(
 			auto ok = sopts.offload_pool->enqueue(
 				[full_path = std::move(full_path), rel = std::move(rel), rfd, &static_cache, dr]() mutable {
 					try {
-						if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
-							dr->complete(errno == ENOENT ? Response::not_found(full_path) : Response::internal_error());
+						auto unlinked = blocking_unlink_file_at(rfd, rel);
+						if (!unlinked) {
+							auto const err = unlinked.error().code().value();
+							dr->complete(err == ENOENT ? Response::not_found(full_path) : Response::internal_error());
 							return;
 						}
 						static_cache.evict_all_encodings(full_path);
@@ -393,8 +406,10 @@ Response handle_static_delete(
 			return Response::deferred(std::move(dr));
 		}
 
-		if (::unlinkat(root_fd, rel.c_str(), 0) != 0) {
-			return errno == ENOENT ? Response::not_found(*norm) : Response::internal_error();
+		auto unlinked = blocking_unlink_file_at(root_fd, rel);
+		if (!unlinked) {
+			auto const err = unlinked.error().code().value();
+			return err == ENOENT ? Response::not_found(*norm) : Response::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
 		return Response::no_content();
