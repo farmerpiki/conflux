@@ -43,9 +43,7 @@ template<class Arg>
 		field_problem_json_string(err.name),
 		field_problem_json_string(kind),
 		field_problem_json_string(err.message));
-	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
-	response.content_type = "application/problem+json";
-	return response;
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 template<class T>

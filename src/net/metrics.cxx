@@ -257,12 +257,7 @@ export Router::Middleware metrics_middleware(
 export Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
 	return [&registry](RequestView const &) -> Response {
-		Response r;
-		r.status = 200;
-		r.status_text = "OK";
-		r.content_type = "text/plain; version=0.0.4; charset=utf-8";
-		r.set_text_body(registry.format_prometheus());
-		return r;
+		return Response::prometheus(registry.format_prometheus());
 	};
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).

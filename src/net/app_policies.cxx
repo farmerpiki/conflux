@@ -55,11 +55,7 @@ namespace detail {
 	}
 	auto const capacity = policy.options.requests + policy.options.burst;
 	if (capacity == 0) {
-		Response response;
-		response.status = 429;
-		response.status_text = "Too Many Requests";
-		response.content_type = "text/plain; charset=utf-8";
-		response.set_text_body("Too Many Requests");
+		auto response = Response::text("Too Many Requests", kHttpTooManyRequests);
 		response.headers["Retry-After"] = std::format("{}", policy.options.window.count());
 		return response;
 	}
@@ -96,11 +92,7 @@ namespace detail {
 		retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
 	}
 
-	Response response;
-	response.status = 429;
-	response.status_text = "Too Many Requests";
-	response.content_type = "text/plain; charset=utf-8";
-	response.set_text_body("Too Many Requests");
+	auto response = Response::text("Too Many Requests", kHttpTooManyRequests);
 	response.headers["Retry-After"] = std::format("{}", retry_after);
 	return response;
 }

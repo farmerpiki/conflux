@@ -126,9 +126,7 @@ template<class T>
 			err.source->column);
 	}
 	body += "}";
-	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
-	response.content_type = "application/problem+json";
-	return response;
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response json_patch_problem(
@@ -150,27 +148,21 @@ template<class T>
 		body += std::format(R"(,"from":{})", json_problem_string(*err.from_pointer));
 	}
 	body += "}";
-	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
-	response.content_type = "application/problem+json";
-	return response;
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response unsupported_json_content_type_problem() {
-	auto response = Response::json(
+	return Response::problem_json(
 		R"({"code":"unsupported_content_type","detail":"expected application/json","expected":"application/json"})",
 		kHttpBadRequest,
 		"Bad Request");
-	response.content_type = "application/problem+json";
-	return response;
 }
 
 [[nodiscard]] Response json_body_too_large_problem() {
-	auto response = Response::json(
+	return Response::problem_json(
 		R"({"code":"content_too_large","detail":"request body is larger than the configured limit"})",
 		kHttpRequestEntityTooLarge,
 		"Content Too Large");
-	response.content_type = "application/problem+json";
-	return response;
 }
 #endif
 

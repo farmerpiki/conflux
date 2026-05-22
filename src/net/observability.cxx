@@ -594,14 +594,9 @@ struct ObservabilityMiddleware {
 [[nodiscard]] Router::Handler observability_metrics_handler(
 	ObservabilityMiddleware const &middleware) {
 	return [state = middleware.state](RequestView const &) -> Response {
-		Response r;
-		r.status = kHttpOk;
-		r.status_text = "OK";
-		r.content_type = "text/plain; version=0.0.4; charset=utf-8";
-		r.set_text_body(
+		return Response::prometheus(
 			state && state->registry ? state->registry->format_prometheus(state->options, state->sinks) :
-									   std::string{});
-		return r;
+								   std::string{});
 	};
 }
 #endif

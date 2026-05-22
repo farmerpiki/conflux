@@ -84,22 +84,14 @@ std::optional<std::string_view> credentials_for_scheme(
 
 Response unauthorized(
 	std::string_view www_auth) {
-	Response r;
-	r.status = kHttpUnauthorized;
-	r.status_text = "Unauthorized";
-	r.content_type = "text/plain; charset=utf-8";
-	r.set_text_body("Unauthorized");
+	auto r = Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 	r.headers["WWW-Authenticate"] = std::string{www_auth};
 	return r;
 }
 
 Response too_many_auth_attempts(
 	std::chrono::seconds retry_after) {
-	Response r;
-	r.status = 429;
-	r.status_text = "Too Many Requests";
-	r.content_type = "text/plain; charset=utf-8";
-	r.set_text_body("Too Many Requests");
+	auto r = Response::text("Too Many Requests", kHttpTooManyRequests);
 	r.headers["Retry-After"] =
 		std::format("{}", std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
 	return r;

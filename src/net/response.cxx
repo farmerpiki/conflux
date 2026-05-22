@@ -93,6 +93,13 @@ export struct StreamedFile {
 };
 
 export struct Response {
+	static constexpr std::string_view kContentTypeHtmlUtf8 = "text/html; charset=utf-8";
+	static constexpr std::string_view kContentTypeTextUtf8 = "text/plain; charset=utf-8";
+	static constexpr std::string_view kContentTypeJson = "application/json";
+	static constexpr std::string_view kContentTypeProblemJson = "application/problem+json";
+	static constexpr std::string_view kContentTypePrometheus = "text/plain; version=0.0.4; charset=utf-8";
+	static constexpr std::string_view kContentTypeEventStream = "text/event-stream";
+
 	enum class BodyKind : std::uint8_t {
 		text,
 		sse,
@@ -112,7 +119,7 @@ export struct Response {
 
 	int status = kHttpOk;
 	std::string status_text = "OK";
-	std::string content_type = "text/html; charset=utf-8";
+	std::string content_type = std::string{kContentTypeHtmlUtf8};
 	HttpFields headers = HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
 	std::vector<std::string> set_cookies{}; // Set-Cookie headers (one per entry)
 	HttpFields trailers = HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
@@ -274,6 +281,7 @@ export struct Response {
 		case kHttpRangeNotSatisfiable        : return "Range Not Satisfiable";
 		case kHttpUnprocessableEntity        : return "Unprocessable Entity";
 		case kHttpRequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
+		case kHttpTooManyRequests             : return "Too Many Requests";
 		case kHttpInternalServerError        : return "Internal Server Error";
 		case kHttpBadGateway                 : return "Bad Gateway";
 		case kHttpGatewayTimeout             : return "Gateway Timeout";
@@ -316,7 +324,7 @@ export struct Response {
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(std::move(body), "text/html; charset=utf-8", status, std::move(status_text));
+		return with_body(std::move(body), std::string{kContentTypeHtmlUtf8}, status, std::move(status_text));
 	}
 	[[nodiscard]] static Response json(
 		std::string body) {
@@ -331,7 +339,26 @@ export struct Response {
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(std::move(body), "application/json", status, std::move(status_text));
+		return with_body(std::move(body), std::string{kContentTypeJson}, status, std::move(status_text));
+	}
+	[[nodiscard]] static Response problem_json(
+		std::string body) {
+		return problem_json(std::move(body), kHttpBadRequest);
+	}
+	[[nodiscard]] static Response problem_json(
+		std::string body,
+		int status) {
+		return problem_json(std::move(body), status, std::string{status_text_for(status)});
+	}
+	[[nodiscard]] static Response problem_json(
+		std::string body,
+		int status,
+		std::string status_text) {
+		return with_body(std::move(body), std::string{kContentTypeProblemJson}, status, std::move(status_text));
+	}
+	[[nodiscard]] static Response prometheus(
+		std::string body) {
+		return with_body(std::move(body), std::string{kContentTypePrometheus}, kHttpOk, "OK");
 	}
 	[[nodiscard]] static Response text(
 		std::string body) {
@@ -346,7 +373,7 @@ export struct Response {
 		std::string body,
 		int status,
 		std::string status_text) {
-		return with_body(std::move(body), "text/plain; charset=utf-8", status, std::move(status_text));
+		return with_body(std::move(body), std::string{kContentTypeTextUtf8}, status, std::move(status_text));
 	}
 	[[nodiscard]] static Response redirect(
 		std::string_view location,
@@ -358,7 +385,7 @@ export struct Response {
 		case kHttpPermanentRedirect: status_text = "Permanent Redirect"; break;
 		default                    : break;
 		}
-		Response r{.status = code, .status_text = status_text, .content_type = "text/html; charset=utf-8"};
+		Response r{.status = code, .status_text = status_text, .content_type = std::string{kContentTypeHtmlUtf8}};
 		r.headers["Location"] = std::string{location};
 		return r;
 	}
@@ -367,7 +394,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpNotFound;
 		r.status_text = "Not Found";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(
 			std::format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
 		return r;
@@ -381,7 +408,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(std::move(body));
 		return r;
 	}
@@ -390,7 +417,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpUnauthorized;
 		r.status_text = "Unauthorized";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>401 Unauthorized</h1></body></html>");
 		if (!www_authenticate.empty()) {
 			r.headers["WWW-Authenticate"] = std::string{www_authenticate};
@@ -406,7 +433,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpForbidden;
 		r.status_text = "Forbidden";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(std::move(body));
 		return r;
 	}
@@ -415,7 +442,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpMethodNotAllowed;
 		r.status_text = "Method Not Allowed";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>405 Method Not Allowed</h1></body></html>");
 		if (allowed.size() > 0) {
 			std::string allow;
@@ -438,7 +465,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpUnprocessableEntity;
 		r.status_text = "Unprocessable Entity";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(std::move(body));
 		return r;
 	}
@@ -446,7 +473,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpUriTooLong;
 		r.status_text = "URI Too Long";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>414 URI Too Long</h1></body></html>");
 		return r;
 	}
@@ -454,7 +481,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpRequestHeaderFieldsTooLarge;
 		r.status_text = "Request Header Fields Too Large";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>431 Request Header Fields Too Large</h1></body></html>");
 		return r;
 	}
@@ -463,7 +490,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpBadGateway;
 		r.status_text = "Bad Gateway";
-		r.content_type = "text/plain; charset=utf-8";
+		r.content_type = std::string{kContentTypeTextUtf8};
 		r.set_text_body(detail.empty() ? "Bad Gateway" : std::string{detail});
 		return r;
 	}
@@ -471,13 +498,13 @@ export struct Response {
 		Response r;
 		r.status = kHttpGatewayTimeout;
 		r.status_text = "Gateway Timeout";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>504 Gateway Timeout</h1></body></html>");
 		return r;
 	}
 	[[nodiscard]] static Response sse(
 		std::shared_ptr<SseChannel> ch) {
-		Response r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
+		Response r{.status = kHttpOk, .status_text = "OK", .content_type = std::string{kContentTypeEventStream}};
 		r.set_sse_channel(std::move(ch));
 		return r;
 	}
@@ -496,7 +523,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpInternalServerError;
 		r.status_text = "Internal Server Error";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(std::move(body));
 		return r;
 	}
@@ -505,7 +532,7 @@ export struct Response {
 		Response r;
 		r.status = kHttpRequestEntityTooLarge;
 		r.status_text = "Content Too Large";
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body("<html><body><h1>413 Content Too Large</h1></body></html>");
 		return r;
 	}
