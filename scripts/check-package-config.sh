@@ -130,8 +130,8 @@ grep -q 'add_test(NAME package-smoke/run' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must run the downstream executable"
 grep -q 'import conflux.types;' cmake/package-smoke/CMakeLists.txt \
     || fail "module package smoke source must import an installed conflux module"
-grep -q '#include <conflux/types.hxx>' cmake/package-smoke/CMakeLists.txt \
-    || fail "header package smoke source must include an installed conflux header"
+grep -q '#include <conflux/conflux.hpp>' cmake/package-smoke/CMakeLists.txt \
+    || fail "header package smoke source must include the installed conflux umbrella header"
 grep -q 'available_components=${conflux_AVAILABLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report available components"
 grep -q 'visible_components=${conflux_VISIBLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \

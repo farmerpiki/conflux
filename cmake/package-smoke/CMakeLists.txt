@@ -144,7 +144,7 @@ int main() {
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     file(WRITE "${_conflux_package_smoke_source}" [[
-#include <conflux/types.hxx>
+#include <conflux/conflux.hpp>
 
 #include <cstddef>
 #include <optional>
@@ -180,6 +180,11 @@ endif()
 if(TARGET conflux::types)
     target_link_libraries(conflux_package_smoke PRIVATE conflux::types)
 endif()
+foreach(_component IN LISTS _conflux_find_components)
+    if(TARGET "conflux::${_component}")
+        target_link_libraries(conflux_package_smoke PRIVATE "conflux::${_component}")
+    endif()
+endforeach()
 
 add_test(NAME package-smoke/run COMMAND conflux_package_smoke)
 

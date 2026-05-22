@@ -452,14 +452,22 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 
     set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
     file(MAKE_DIRECTORY "${CONFLUX_PUBLIC_HPP_DIR}")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#pragma once\n#include <conflux.hxx>\n")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp"
+        "#pragma once\n"
+        "#include <conflux/config.hpp>\n"
+        "#include <conflux/types.hpp>\n"
+        "#include <conflux/file_io_sync.hpp>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once\n#include <conflux/config.hxx>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once\n#include <conflux/types.hxx>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once\n#include <conflux/file_io_sync.hxx>\n")
     if(CONFLUX_WANT_JSON)
+        file(APPEND "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#include <conflux/json.hpp>\n")
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
     endif()
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
+        file(APPEND "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp"
+            "#include <conflux/http.hpp>\n"
+            "#include <conflux/runtime.hpp>\n")
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/http.hpp" "#pragma once\n#include <conflux/http.hxx>\n")
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/runtime.hpp" "#pragma once\n#include <conflux/work.hxx>\n")
     endif()
@@ -517,9 +525,6 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail
     )
     if(CONFLUX_USE_MOCK_LIBURING)
-        install(FILES
-            "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux.hxx"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
         install(FILES
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/config.hxx"
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/features.hxx"
