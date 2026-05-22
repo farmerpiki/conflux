@@ -1833,6 +1833,13 @@ namespace detail::simd {
 }
 
 } // namespace detail::simd
+
+extern "C" std::size_t conflux_json_scan_str_until_special_auto(
+	char const *p,
+	std::size_t n) noexcept {
+	return detail::simd::scan_str_until_special(p, n);
+}
+
 // Phase 3 — parser implementation lives in src/json_parse.cxx. The primary
 // module keeps only the exported overload set so importers see the same
 // `conflux.json` surface while parser edits avoid rebuilding unrelated BMI text.

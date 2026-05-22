@@ -6,6 +6,11 @@ import conflux.types;
 import conflux.utils;
 import bench_common;
 
+extern "C" {
+std::size_t conflux_json_scan_str_until_special_auto(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_auto(char const *, std::size_t, int) noexcept;
+}
+
 #if defined(CONFLUX_BENCH_HAS_STDSIMD)
 extern "C" {
 void conflux_ascii_lower_inplace_stdsimd(char *, std::size_t) noexcept;
@@ -244,6 +249,16 @@ void bench_json_scan(
 		auto const iters = std::max(cfg.iterations / batch / 8UZ, 1UZ);
 
 		emit(measure(
+			std::format("json_scan_str/auto-selected/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_str_until_special_auto(s.data(), s.size());
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		emit(measure(
 			std::format("json_scan_str/scalar/{}", sz),
 			[&] {
 				auto r = scalar_json_scan_str_until_special(s.data(), s.size());
@@ -339,6 +354,16 @@ void bench_json_scan(
 				sz));
 		}
 #endif
+		emit(measure(
+			std::format("json_dump_scan/auto-selected_ascii/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_dump_safe_run_auto(s.data(), s.size(), 1);
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
 		emit(measure(
 			std::format("json_dump_scan/scalar_ascii/{}", sz),
 			[&] {

@@ -118,6 +118,14 @@ inline void append_u_escape(
 	}
 	return n;
 }
+
+extern "C" std::size_t conflux_json_scan_dump_safe_run_auto(
+	char const *p,
+	std::size_t n,
+	int ascii_only) noexcept {
+	return scan_dump_safe_run(p, n, ascii_only != 0);
+}
+
 void dump_str(
 	std::string_view sv,
 	std::string &out,
