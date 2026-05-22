@@ -429,10 +429,20 @@ def headerize_source_line(line: str, force_inline: bool = False) -> str:
     if force_inline or line_needs_header_inline(line):
         match = PROBABLE_FUNCTION_LINE_RE.match(line)
         if match is not None:
-            body_prefix = match.group("body").split("(", 1)[0]
+            body = match.group("body")
+            body_prefix = body.split("(", 1)[0]
             if " inline " in f" {body_prefix} ":
                 return line
-            return f"{match.group('indent')}{match.group('prefix')}inline {match.group('body')}{match.group('tail')}\n"
+            body_stripped = body.lstrip()
+            body_indent = body[: len(body) - len(body_stripped)]
+            extern_c_prefix = 'extern "C" '
+            if body_stripped.startswith(extern_c_prefix):
+                return (
+                    f"{match.group('indent')}{match.group('prefix')}"
+                    f"{body_indent}{extern_c_prefix}inline "
+                    f"{body_stripped.removeprefix(extern_c_prefix)}{match.group('tail')}\n"
+                )
+            return f"{match.group('indent')}{match.group('prefix')}inline {body}{match.group('tail')}\n"
     return line
 
 
