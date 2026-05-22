@@ -228,9 +228,9 @@ void scalar_ws_unmask(
 void bench_json_scan(
 	BenchArgs const &cfg) {
 #if defined(CONFLUX_BENCH_HAS_JSON_STDSIMD)
-	bool const has_avx2 = conflux_cpu_supports_avx2();
+	[[maybe_unused]] bool const has_avx2 = conflux_cpu_supports_avx2();
 #else
-	bool const has_avx2 = false;
+	[[maybe_unused]] bool const has_avx2 = false;
 #endif
 	for (std::size_t sz: {64UZ, 256UZ, 4096UZ, 65536UZ}) {
 		std::string s(sz, 'a');
@@ -388,9 +388,9 @@ void bench_json_scan(
 void bench_utils(
 	BenchArgs const &cfg) {
 #if defined(CONFLUX_BENCH_HAS_STDSIMD)
-	bool const has_avx2 = conflux_cpu_supports_avx2();
+	[[maybe_unused]] bool const has_avx2 = conflux_cpu_supports_avx2();
 #else
-	bool const has_avx2 = false;
+	[[maybe_unused]] bool const has_avx2 = false;
 #endif
 	std::array<unsigned char, 4> const ws_key{0x12U, 0x34U, 0x56U, 0x78U};
 	for (std::size_t sz: {64UZ, 256UZ, 4096UZ, 65536UZ}) {
