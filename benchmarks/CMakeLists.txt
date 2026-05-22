@@ -74,7 +74,8 @@ if(CONFLUX_HAS_DB STREQUAL "true")
 endif()
 
 add_executable(conflux_json_bench json_bench.cxx)
-target_link_libraries(conflux_json_bench PRIVATE bench_common conflux conflux_options)
+target_link_libraries(conflux_json_bench
+    PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_json conflux_options)
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
 endif()
