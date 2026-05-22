@@ -55,6 +55,8 @@ export struct IoError final : std::system_error {
 		int err,
 		std::string const &what)
 		: std::system_error{err, std::generic_category(), what} {}
+
+	[[nodiscard]] int error_value() const noexcept { return code().value(); }
 };
 
 export namespace conflux {
