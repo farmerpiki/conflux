@@ -2858,6 +2858,7 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_server
     PUBLIC  conflux_work
+    PUBLIC  conflux_utils
 )
 if(TARGET conflux_http_native_json)
     target_link_libraries(conflux_http_app PUBLIC conflux_http_native_json)

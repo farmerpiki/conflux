@@ -142,6 +142,90 @@ export std::string percent_encode(
 	return out;
 }
 // ---------------------------------------------------------------------------
+// JSON string fallback escaping
+// ---------------------------------------------------------------------------
+
+namespace {
+
+inline constexpr std::array<char, 16> kJsonHex_ =
+	{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
+void append_json_u_escape_(
+	std::string &out,
+	unsigned char c) {
+	out += "\\u00";
+	out += kJsonHex_[c >> 4U];
+	out += kJsonHex_[c & 0x0FU];
+}
+
+[[nodiscard]] constexpr std::size_t json_string_content_escaped_size_(
+	std::string_view value) noexcept {
+	std::size_t out = 0;
+	for (char const raw: value) {
+		auto const c = static_cast<unsigned char>(raw);
+		if (raw == '"' || raw == '\\' || raw == '\b' || raw == '\f' || raw == '\n' || raw == '\r'
+			|| raw == '\t') {
+			out += 2;
+		} else if (c < 0x20U) {
+			out += 6;
+		} else {
+			++out;
+		}
+	}
+	return out;
+}
+
+} // namespace
+
+export void append_json_string_content_fallback(
+	std::string &out,
+	std::string_view value) {
+	for (char const raw: value) {
+		auto const c = static_cast<unsigned char>(raw);
+		switch (raw) {
+		case '"' : out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\b': out += "\\b"; break;
+		case '\f': out += "\\f"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default:
+			if (c < 0x20U) {
+				append_json_u_escape_(out, c);
+			} else {
+				out += raw;
+			}
+			break;
+		}
+	}
+}
+
+export [[nodiscard]] std::string json_string_content_fallback(
+	std::string_view value) {
+	std::string out;
+	out.reserve(json_string_content_escaped_size_(value));
+	append_json_string_content_fallback(out, value);
+	return out;
+}
+
+export void append_json_string_fallback(
+	std::string &out,
+	std::string_view value) {
+	out += '"';
+	append_json_string_content_fallback(out, value);
+	out += '"';
+}
+
+export [[nodiscard]] std::string json_string_fallback(
+	std::string_view value) {
+	std::string out;
+	out.reserve(json_string_content_escaped_size_(value) + 2);
+	append_json_string_fallback(out, value);
+	return out;
+}
+
+// ---------------------------------------------------------------------------
 // Hex encode / decode
 // ---------------------------------------------------------------------------
 

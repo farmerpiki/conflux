@@ -117,37 +117,18 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 		return std::move(*dumped);
 	}
 #endif
-	std::string out = "\"";
-	out.reserve(s.size() + 6);
-	for (char const raw: s) {
-		auto c = static_cast<unsigned char>(raw);
-		if (c == '"') {
-			out += "\\\"";
-		} else if (c == '\\') {
-			out += "\\\\";
-		} else if (c == '\n') {
-			out += "\\n";
-		} else if (c == '\r') {
-			out += "\\r";
-		} else if (c == '\t') {
-			out += "\\t";
-		} else if (c < 0x20) {
-			out += std::format("\\u{:04x}", c);
-		} else {
-			out += static_cast<char>(c);
-		}
-	}
-	out += '"';
-	return out;
+	return json_string_fallback(s);
 }
 
 [[nodiscard]] std::string json_string_contents(
 	std::string_view value) {
-	auto quoted = json_string(value);
-	if (quoted.size() < 2) {
-		return {};
+#if CONFLUX_HAS_JSON
+	auto quoted = dump_direct(value);
+	if (quoted && quoted->size() >= 2) {
+		return quoted->substr(1, quoted->size() - 2);
 	}
-	return quoted.substr(1, quoted.size() - 2);
+#endif
+	return json_string_content_fallback(value);
 }
 
 [[nodiscard]] std::vector<std::string> sensitive_headers(

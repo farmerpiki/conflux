@@ -3,6 +3,7 @@ export module conflux.http:problem;
 import std;
 import conflux.net.http.response;
 import conflux.net.app;
+import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
 #endif
@@ -17,28 +18,7 @@ export namespace conflux::http::problem {
 		return std::move(*dumped);
 	}
 #endif
-	std::string out = "\"";
-	for (char ch: value) {
-		auto const c = static_cast<unsigned char>(ch);
-		switch (ch) {
-		case '"' : out += "\\\""; break;
-		case '\\': out += "\\\\"; break;
-		case '\b': out += "\\b"; break;
-		case '\f': out += "\\f"; break;
-		case '\n': out += "\\n"; break;
-		case '\r': out += "\\r"; break;
-		case '\t': out += "\\t"; break;
-		default:
-			if (c < 0x20U) {
-				out += std::format("\\u{:04x}", c);
-			} else {
-				out += ch;
-			}
-			break;
-		}
-	}
-	out += "\"";
-	return out;
+	return json_string_fallback(value);
 }
 
 [[nodiscard]] Problem make(

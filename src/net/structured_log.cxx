@@ -13,6 +13,7 @@ import conflux.types;
 import conflux.file_io_sync;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
 #endif
@@ -35,28 +36,7 @@ std::string json_string(
 		return std::move(*dumped);
 	}
 #endif
-	std::string out = "\"";
-	out.reserve(s.size() + 6);
-	for (char const raw: s) {
-		auto c = static_cast<unsigned char>(raw);
-		if (c == '"') {
-			out += "\\\"";
-		} else if (c == '\\') {
-			out += "\\\\";
-		} else if (c == '\n') {
-			out += "\\n";
-		} else if (c == '\r') {
-			out += "\\r";
-		} else if (c == '\t') {
-			out += "\\t";
-		} else if (c < 0x20) {
-			out += std::format("\\u{:04x}", c);
-		} else {
-			out += static_cast<char>(c);
-		}
-	}
-	out += '"';
-	return out;
+	return json_string_fallback(s);
 }
 
 } // namespace structured_log_detail

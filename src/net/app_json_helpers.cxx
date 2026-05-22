@@ -4,6 +4,7 @@ export module conflux.net.app.json_helpers;
 
 import std;
 import conflux.net.http.response;
+import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
 import conflux.net.http.native_json;
@@ -35,7 +36,7 @@ template<class T>
 	if (dumped) {
 		return std::move(*dumped);
 	}
-	return R"("")";
+	return json_string_fallback(value);
 }
 
 [[nodiscard]] std::string_view json_error_stage_name(

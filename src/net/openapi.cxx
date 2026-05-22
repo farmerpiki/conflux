@@ -39,31 +39,7 @@ export std::string openapi_spec(
 			return std::move(*dumped);
 		}
 #endif
-		std::string out = "\"";
-		for (auto const ch: value) {
-			auto const c = static_cast<unsigned char>(ch);
-			if (c == '"') {
-				out += "\\\"";
-			} else if (c == '\\') {
-				out += "\\\\";
-			} else if (c == '\n') {
-				out += "\\n";
-			} else if (c == '\r') {
-				out += "\\r";
-			} else if (c == '\t') {
-				out += "\\t";
-			} else if (c == '\b') {
-				out += "\\b";
-			} else if (c == '\f') {
-				out += "\\f";
-			} else if (c < 0x20) {
-				out += std::format("\\u{:04x}", c);
-			} else {
-				out += static_cast<char>(c);
-			}
-		}
-		out += '"';
-		return out;
+		return json_string_fallback(value);
 	};
 
 	std::string out;
