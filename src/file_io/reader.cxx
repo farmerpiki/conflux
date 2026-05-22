@@ -113,16 +113,21 @@ export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
 	UserDataFn encode_ud_;
-	template<RingFdLike Fd>
 	[[nodiscard]] static int fd_for_io(
-		Fd const &fd) noexcept {
-		return sqe_fd_value(fd);
+		RingFdLike auto const &fd) noexcept {
+		return ::sqe_fd_value(fd);
 	}
-	template<RingFdLike Fd>
 	static void set_fixed_file_if_direct(
 		io_uring_sqe *sqe,
-		Fd const &fd) noexcept {
-		apply_sqe_fd_flags(sqe, fd);
+		RingFdLike auto const &fd) noexcept {
+		::apply_sqe_fd_flags(sqe, fd);
+	}
+	static void prep_fd_sqe(
+		io_uring_sqe *sqe,
+		RingFdLike auto const &fd,
+		auto &&prep) {
+		std::forward<decltype(prep)>(prep)(::sqe_fd_value(fd));
+		::apply_sqe_fd_flags(sqe, fd);
 	}
 	template<typename T>
 	struct PreparedSqe {
@@ -426,8 +431,9 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		io_uring_prep_read(sqe, fd_for_io(fh), dst.data(), static_cast<unsigned>(dst.size()), offset);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_read(sqe, fd, dst.data(), static_cast<unsigned>(dst.size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
@@ -446,8 +452,9 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_readv(sqe, fd_for_io(fh), iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_readv(sqe, fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -475,14 +482,15 @@ public:
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		io_uring_prep_read_fixed(
-			sqe,
-			fd_for_io(fh),
-			holder->view().data(),
-			static_cast<unsigned>(bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_read_fixed(
+				sqe,
+				fd,
+				holder->view().data(),
+				static_cast<unsigned>(bytes),
+				offset,
+				static_cast<int>(slot_idx));
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -524,14 +532,15 @@ public:
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		io_uring_prep_read_fixed(
-			sqe,
-			fd_for_io(fh),
-			holder->view().data(),
-			static_cast<unsigned>(aligned_bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_read_fixed(
+				sqe,
+				fd,
+				holder->view().data(),
+				static_cast<unsigned>(aligned_bytes),
+				offset,
+				static_cast<int>(slot_idx));
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -567,14 +576,15 @@ public:
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		io_uring_prep_write_fixed(
-			sqe,
-			fd_for_io(fh),
-			holder->view().data(),
-			static_cast<unsigned>(bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_write_fixed(
+				sqe,
+				fd,
+				holder->view().data(),
+				static_cast<unsigned>(bytes),
+				offset,
+				static_cast<int>(slot_idx));
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -598,8 +608,9 @@ public:
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
-		io_uring_prep_write(sqe, fd_for_io(fh), src_view.data(), static_cast<unsigned>(src_view.size()), offset);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_write(sqe, fd, src_view.data(), static_cast<unsigned>(src_view.size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
@@ -618,8 +629,9 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_writev(sqe, fd_for_io(fh), iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_writev(sqe, fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -638,14 +650,15 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_readv2(
-			sqe,
-			fd_for_io(fh),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset,
-			rwf_flags);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_readv2(
+				sqe,
+				fd,
+				iov_owner->data(),
+				static_cast<unsigned>(iov_owner->size()),
+				offset,
+				rwf_flags);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
@@ -664,14 +677,15 @@ public:
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_writev2(
-			sqe,
-			fd_for_io(fh),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset,
-			rwf_flags);
-		set_fixed_file_if_direct(sqe, fh);
+		prep_fd_sqe(sqe, fh, [&](int fd) {
+			io_uring_prep_writev2(
+				sqe,
+				fd,
+				iov_owner->data(),
+				static_cast<unsigned>(iov_owner->size()),
+				offset,
+				rwf_flags);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
