@@ -529,30 +529,19 @@ export struct Response {
 			headers["Vary"] = std::string{token};
 			return;
 		}
-		auto is_ws = [](char c) noexcept { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
-		auto trim_sv = [&](std::string_view s) noexcept -> std::string_view {
-			while (!s.empty() && is_ws(s.front())) {
-				s.remove_prefix(1);
-			}
-			while (!s.empty() && is_ws(s.back())) {
-				s.remove_suffix(1);
-			}
-			return s;
-		};
-		if (trim_sv(current) == "*") {
+		if (conflux::http::trim_http_whitespace(current) == "*") {
 			return;
 		}
-		auto vary = current;
-		while (!vary.empty()) {
-			auto const comma = vary.find(',');
-			auto const part = trim_sv((comma == std::string_view::npos) ? vary : vary.substr(0, comma));
+		bool already_present = false;
+		conflux::http::for_each_comma_token(current, [&](std::string_view part) {
 			if (conflux::http::ascii_iequals(part, token)) {
-				return;
+				already_present = true;
+				return false;
 			}
-			if (comma == std::string_view::npos) {
-				break;
-			}
-			vary.remove_prefix(comma + 1);
+			return true;
+		});
+		if (already_present) {
+			return;
 		}
 		headers["Vary"] = std::format("{}, {}", current, token);
 	}

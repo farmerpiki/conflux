@@ -96,70 +96,52 @@ namespace response_cache_detail {
 bool cache_control_directive_contains(
 	std::string_view cc,
 	std::string_view directive) {
-	while (!cc.empty()) {
-		auto comma = cc.find(',');
-		auto part = trim((comma == std::string_view::npos) ? cc : cc.substr(0, comma));
-		auto eq = part.find('=');
-		auto name = trim((eq == std::string_view::npos) ? part : part.substr(0, eq));
+	bool found = false;
+	conflux::http::for_each_comma_token(cc, [&](std::string_view part) {
+		auto const eq = part.find('=');
+		auto const name = conflux::http::trim_http_whitespace(eq == std::string_view::npos ? part : part.substr(0, eq));
 		if (conflux::http::ascii_iequals(name, directive)) {
-			return true;
-		}
-		if (comma == std::string_view::npos) {
+			found = true;
 			return false;
 		}
-		cc.remove_prefix(comma + 1);
-	}
-	return false;
+		return true;
+	});
+	return found;
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
 std::chrono::seconds parse_max_age(
 	std::string_view cc) {
-	while (!cc.empty()) {
-		auto comma = cc.find(',');
-		auto part = trim((comma == std::string_view::npos) ? cc : cc.substr(0, comma));
-		auto eq = part.find('=');
-		if (eq != std::string_view::npos) {
-			auto name = trim(part.substr(0, eq));
-			if (conflux::http::ascii_iequals(name, "max-age")) {
-				auto val = trim(part.substr(eq + 1));
-				long v = 0;
-				auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
-				if (ec != std::errc{} || ptr != val.data() + val.size()) {
-					return std::chrono::seconds{0};
-				}
-				return std::chrono::seconds{v};
-			}
+	std::chrono::seconds result{0};
+	conflux::http::for_each_comma_token(cc, [&](std::string_view part) {
+		auto const eq = part.find('=');
+		if (eq == std::string_view::npos) {
+			return true;
 		}
-		if (comma == std::string_view::npos) {
-			return std::chrono::seconds{0};
+		auto const name = conflux::http::trim_http_whitespace(part.substr(0, eq));
+		if (!conflux::http::ascii_iequals(name, "max-age")) {
+			return true;
 		}
-		cc.remove_prefix(comma + 1);
-	}
-	return std::chrono::seconds{0};
+		auto const val = conflux::http::trim_http_whitespace(part.substr(eq + 1));
+		long v = 0;
+		auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
+		if (ec == std::errc{} && ptr == val.data() + val.size()) {
+			result = std::chrono::seconds{v};
+		}
+		return false;
+	});
+	return result;
 }
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
 // Returns empty vector for empty input or "*".
 std::vector<std::string> parse_vary(
 	std::string_view vary) {
 	std::vector<std::string> out;
-	std::size_t i = 0;
-	while (i < vary.size()) {
-		while (i < vary.size() && (vary[i] == ' ' || vary[i] == '\t' || vary[i] == ',')) {
-			++i;
+	conflux::http::for_each_comma_token(vary, [&](std::string_view token) {
+		if (!token.empty() && token != "*") {
+			out.push_back(ascii_lower(token));
 		}
-		std::size_t const start = i;
-		while (i < vary.size() && vary[i] != ',') {
-			++i;
-		}
-		auto token = vary.substr(start, i - start);
-		while (!token.empty() && (token.back() == ' ' || token.back() == '\t')) {
-			token.remove_suffix(1);
-		}
-		if (token.empty() || token == "*") {
-			continue;
-		}
-		out.push_back(ascii_lower(token));
-	}
+		return true;
+	});
 	std::ranges::sort(out);
 	auto dup = std::ranges::unique(out);
 	out.erase(dup.begin(), dup.end());

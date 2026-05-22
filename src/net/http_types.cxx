@@ -15,16 +15,6 @@ import conflux.types;
 			   return ascii_ci_fold(x) == ascii_ci_fold(y);
 		   });
 }
-[[nodiscard]] static std::string_view http_trim(
-	std::string_view s) noexcept {
-	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
-		s.remove_prefix(1);
-	}
-	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
-		s.remove_suffix(1);
-	}
-	return s;
-}
 export struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};
@@ -363,6 +353,36 @@ public:
 };
 export namespace conflux::http {
 
+[[nodiscard]] constexpr std::string_view trim_http_whitespace(
+	std::string_view s) noexcept {
+	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
+		s.remove_prefix(1);
+	}
+	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+		s.remove_suffix(1);
+	}
+	return s;
+}
+
+template<class Fn>
+bool for_each_comma_token(
+	std::string_view header_value,
+	Fn &&fn) {
+	for (std::size_t pos = 0; pos <= header_value.size();) {
+		auto const comma = header_value.find(',', pos);
+		auto const token = trim_http_whitespace(
+			comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+		if (!std::invoke(fn, token)) {
+			return false;
+		}
+		if (comma == std::string_view::npos) {
+			return true;
+		}
+		pos = comma + 1;
+	}
+	return true;
+}
+
 // ─── errors ──────────────────────────────────────────────────────────────────
 
 enum class HttpErrorKind : std::uint8_t {
@@ -669,18 +689,18 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 [[nodiscard]] bool header_token_contains(
 	std::string_view header,
 	std::string_view token) noexcept {
-	while (!header.empty()) {
-		auto const comma = header.find(',');
-		auto const part = http_trim((comma == std::string_view::npos) ? header : header.substr(0, comma));
+	if (header.empty()) {
+		return false;
+	}
+	bool found = false;
+	for_each_comma_token(header, [&](std::string_view part) {
 		if (ascii_iequals(part, token)) {
-			return true;
-		}
-		if (comma == std::string_view::npos) {
+			found = true;
 			return false;
 		}
-		header.remove_prefix(comma + 1);
-	}
-	return false;
+		return true;
+	});
+	return found;
 }
 
 } // namespace conflux::http

@@ -37,10 +37,7 @@ export Router::Middleware cache_control_middleware(
 		// Strip parameters (e.g. "; charset=utf-8") for matching.
 		auto semi = ct.find(';');
 		auto mime = (semi == std::string_view::npos) ? ct : ct.substr(0, semi);
-		// Trim trailing whitespace.
-		while (!mime.empty() && mime.back() == ' ') {
-			mime.remove_suffix(1);
-		}
+		mime = conflux::http::trim_http_whitespace(mime);
 
 		for (auto const &rule: opts.rules) {
 			if (rule.mime_prefix.empty() || mime.starts_with(rule.mime_prefix)) {

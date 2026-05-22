@@ -132,22 +132,6 @@ void append_static_decimal(
 	}
 }
 
-[[nodiscard]] bool static_ascii_iequals(
-	std::string_view a,
-	std::string_view b) {
-	if (a.size() != b.size()) {
-		return false;
-	}
-	for (std::size_t i = 0; i < a.size(); ++i) {
-		auto const ca = static_cast<unsigned char>(a[i]);
-		auto const cb = static_cast<unsigned char>(b[i]);
-		if ((ca | 0x20U) != (cb | 0x20U)) {
-			return false;
-		}
-	}
-	return true;
-}
-
 [[nodiscard]] bool static_accept_encoding_q_allows(
 	std::string_view entry,
 	std::size_t semi) {
@@ -180,33 +164,18 @@ struct StaticAcceptedEncodings {
 	StaticAcceptedEncodings out{};
 	bool seen_br = false;
 	bool seen_gzip = false;
-	std::size_t pos = 0;
-	while (pos < ae.size()) {
-		auto comma = ae.find(',', pos);
-		std::string_view entry = ae.substr(pos, comma == std::string_view::npos ? std::string_view::npos : comma - pos);
-		pos = comma == std::string_view::npos ? ae.size() : comma + 1;
-		while (!entry.empty() && entry.front() == ' ') {
-			entry.remove_prefix(1);
-		}
-		while (!entry.empty() && entry.back() == ' ') {
-			entry.remove_suffix(1);
-		}
+	conflux::http::for_each_comma_token(ae, [&](std::string_view entry) {
 		auto const semi = entry.find(';');
-		std::string_view coding = entry.substr(0, semi);
-		while (!coding.empty() && coding.back() == ' ') {
-			coding.remove_suffix(1);
-		}
-		if (!seen_br && static_ascii_iequals(coding, "br")) {
+		auto const coding = conflux::http::trim_http_whitespace(entry.substr(0, semi));
+		if (!seen_br && conflux::http::ascii_iequals(coding, "br")) {
 			out.br = static_accept_encoding_q_allows(entry, semi);
 			seen_br = true;
-		} else if (!seen_gzip && static_ascii_iequals(coding, "gzip")) {
+		} else if (!seen_gzip && conflux::http::ascii_iequals(coding, "gzip")) {
 			out.gzip = static_accept_encoding_q_allows(entry, semi);
 			seen_gzip = true;
 		}
-		if (seen_br && seen_gzip) {
-			break;
-		}
-	}
+		return !(seen_br && seen_gzip);
+	});
 	return out;
 }
 

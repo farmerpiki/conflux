@@ -334,21 +334,9 @@ export [[nodiscard]] bool has_connection_token(
 	HttpFieldsView const &headers,
 	std::string_view wanted) {
 	for (auto const &[name, header_value]: headers) {
-		if (!conflux::http::ascii_iequals(name, "connection")) {
-			continue;
-		}
-		std::size_t pos = 0;
-		while (pos <= header_value.size()) {
-			auto const comma = header_value.find(',', pos);
-			auto token = trim(
-				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
-			if (!token.empty() && conflux::http::ascii_iequals(token, wanted)) {
-				return true;
-			}
-			if (comma == std::string_view::npos) {
-				break;
-			}
-			pos = comma + 1;
+		if (conflux::http::ascii_iequals(name, "connection")
+			&& conflux::http::header_token_contains(header_value, wanted)) {
+			return true;
 		}
 	}
 	return false;
@@ -367,21 +355,20 @@ export [[nodiscard]] ExpectState parse_expect_header(
 		if (!conflux::http::ascii_iequals(name, "expect")) {
 			continue;
 		}
-		std::size_t pos = 0;
-		while (pos <= header_value.size()) {
-			auto const comma = header_value.find(',', pos);
-			auto token = trim(
-				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
-			if (!token.empty()) {
-				if (!conflux::http::ascii_iequals(token, "100-continue")) {
-					return ExpectState::unsupported;
-				}
-				saw_continue = true;
+		bool unsupported = false;
+		conflux::http::for_each_comma_token(header_value, [&](std::string_view token) {
+			if (token.empty()) {
+				return true;
 			}
-			if (comma == std::string_view::npos) {
-				break;
+			if (!conflux::http::ascii_iequals(token, "100-continue")) {
+				unsupported = true;
+				return false;
 			}
-			pos = comma + 1;
+			saw_continue = true;
+			return true;
+		});
+		if (unsupported) {
+			return ExpectState::unsupported;
 		}
 	}
 	return saw_continue ? ExpectState::continue_100 : ExpectState::none;
@@ -390,26 +377,21 @@ export [[nodiscard]] ExpectState parse_expect_header(
 export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
 	HttpFieldsView const &headers) {
 	std::size_t token_count = 0;
+	bool valid = true;
 	for (auto const &[name, header_value]: headers) {
 		if (!conflux::http::ascii_iequals(name, "transfer-encoding")) {
 			continue;
 		}
-		std::size_t pos = 0;
-		while (pos <= header_value.size()) {
-			auto const comma = header_value.find(',', pos);
-			auto token = trim(
-				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
-			if (token.empty()) {
+		conflux::http::for_each_comma_token(header_value, [&](std::string_view token) {
+			if (token.empty() || !conflux::http::ascii_iequals(token, "chunked")) {
+				valid = false;
 				return false;
 			}
 			++token_count;
-			if (!conflux::http::ascii_iequals(token, "chunked")) {
-				return false;
-			}
-			if (comma == std::string_view::npos) {
-				break;
-			}
-			pos = comma + 1;
+			return true;
+		});
+		if (!valid) {
+			return false;
 		}
 	}
 	return token_count == 1;

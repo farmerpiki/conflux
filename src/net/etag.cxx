@@ -68,27 +68,16 @@ export Router::Middleware etag_middleware(
 		// Check If-None-Match (comma-separated list of ETags).
 		auto inm = req.headers["if-none-match"];
 		if (!inm.empty()) {
-			// Handle "*" wildcard.
-			if (inm == "*") {
+			bool matched = false;
+			conflux::http::for_each_comma_token(inm, [&](std::string_view token) {
+				if (token == "*" || etag_detail::weak_match(token, etag)) {
+					matched = true;
+					return false;
+				}
+				return true;
+			});
+			if (matched) {
 				return etag_detail::not_modified(etag);
-			}
-			// Scan comma-separated values.
-			std::size_t pos = 0;
-			while (pos < inm.size()) {
-				// skip whitespace
-				while (pos < inm.size() && (inm[pos] == ' ' || inm[pos] == ',')) {
-					++pos;
-				}
-				auto end = inm.find(',', pos);
-				auto token = (end == std::string_view::npos) ? inm.substr(pos) : inm.substr(pos, end - pos);
-				// trim trailing whitespace
-				while (!token.empty() && token.back() == ' ') {
-					token.remove_suffix(1);
-				}
-				if (etag_detail::weak_match(token, etag)) {
-					return etag_detail::not_modified(etag);
-				}
-				pos = (end == std::string_view::npos) ? inm.size() : end + 1;
 			}
 		}
 		return resp;

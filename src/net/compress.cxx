@@ -141,18 +141,16 @@ DynamicEncodingQs header_encoding_q_values(
 	float q_star = -1.0F;
 	DynamicEncodingQs qs{};
 
-	for (std::size_t pos = 0; pos <= hdr.size();) {
-		auto comma = hdr.find(',', pos);
-		auto token = (comma == std::string_view::npos) ? hdr.substr(pos) : hdr.substr(pos, comma - pos);
-		auto semi = token.find(';');
-		auto name = trim(token.substr(0, semi));
+	conflux::http::for_each_comma_token(hdr, [&](std::string_view token) {
+		auto const semi = token.find(';');
+		auto const name = conflux::http::trim_http_whitespace(token.substr(0, semi));
 
 		float q = 1.0F;
 		if (semi != std::string_view::npos) {
-			if (auto eq = token.find('=', semi); eq != std::string_view::npos) {
-				auto key = trim(token.substr(semi + 1, eq - semi - 1));
+			if (auto const eq = token.find('=', semi); eq != std::string_view::npos) {
+				auto const key = conflux::http::trim_http_whitespace(token.substr(semi + 1, eq - semi - 1));
 				if (conflux::http::ascii_iequals(key, "q")) {
-					auto val = trim(token.substr(eq + 1));
+					auto const val = conflux::http::trim_http_whitespace(token.substr(eq + 1));
 					std::from_chars(val.data(), val.data() + val.size(), q);
 				}
 			}
@@ -165,12 +163,8 @@ DynamicEncodingQs header_encoding_q_values(
 		} else if (conflux::http::ascii_iequals(name, "zstd")) {
 			qs.zstd = std::max(qs.zstd, q);
 		}
-
-		if (comma == std::string_view::npos) {
-			break;
-		}
-		pos = comma + 1;
-	}
+		return true;
+	});
 
 	if (qs.gzip < 0.0F) {
 		qs.gzip = q_star;
