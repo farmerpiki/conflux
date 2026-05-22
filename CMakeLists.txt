@@ -2027,7 +2027,7 @@ target_sources(conflux_net_config
 )
 target_link_libraries(conflux_net_config
     PRIVATE conflux_options
-    PRIVATE conflux_file_io_sync
+    PUBLIC  conflux_file_io_sync
     PUBLIC  conflux_types
     PUBLIC  conflux_utils
 )

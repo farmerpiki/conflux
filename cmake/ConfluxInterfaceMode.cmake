@@ -652,7 +652,11 @@ function(conflux_add_header_consumer_compile_target aggregate target_prefix enab
     foreach(_source_id IN LISTS ARGN)
         conflux_source_id_to_target_suffix(_target_suffix "${_source_id}")
         set(_target "${target_prefix}_${_target_suffix}")
-        conflux_add_object_from_id(${_target} "${_source_id}")
+        if(aggregate STREQUAL "conflux_header_benchmarks" AND CONFLUX_HEADER_INTERFACE_WITH_SOURCES)
+            conflux_add_executable_from_id(${_target} "${_source_id}")
+        else()
+            conflux_add_object_from_id(${_target} "${_source_id}")
+        endif()
         target_link_libraries(${_target} PRIVATE conflux_headers)
         if(aggregate STREQUAL "conflux_header_tests")
             target_compile_definitions(${_target} PRIVATE
