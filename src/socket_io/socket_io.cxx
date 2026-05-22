@@ -1471,7 +1471,7 @@ export bool submit_setsockopt_borrowed(
 		optname,
 		const_cast<void *>(optval),
 		static_cast<int>(optlen));
-	sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1520,7 +1520,7 @@ void prepare_direct_accept_sockopt_sqe(
 		optname,
 		const_cast<void *>(optval),
 		optlen);
-	sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+	apply_sqe_fd_flags(sqe, direct_socket);
 	sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 	if (skip_success_cqe) {
 		sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
@@ -1622,7 +1622,7 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 		recv_sqe.ioprio(recv_ioprio);
 	}
 	recv_sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
-	recv_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+	apply_sqe_fd_flags(recv_sqe, direct_socket);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	return true;
 }

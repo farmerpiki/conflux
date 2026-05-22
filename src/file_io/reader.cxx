@@ -363,18 +363,22 @@ public:
 		int dir_fd,
 		std::string path,
 		int flags = 0,
-		unsigned mask = STATX_BASIC_STATS,
-		bool fixed_file = false) {
+		unsigned mask = STATX_BASIC_STATS) {
+		return async_statx(RingFd::from_os(dir_fd), std::move(path), flags, mask);
+	}
+	[[nodiscard]] root::Task<FileStat> async_statx(
+		RingFdLike auto const &dir_fd,
+		std::string path,
+		int flags = 0,
+		unsigned mask = STATX_BASIC_STATS) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileStat>();
 		if (sqe == nullptr) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		auto stx_owner = std::make_shared<struct statx>();
-		io_uring_prep_statx(sqe, dir_fd, path_owner->c_str(), flags, mask, stx_owner.get());
-		if (fixed_file) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		io_uring_prep_statx(sqe, dir_fd.sqe_fd_value(), path_owner->c_str(), flags, mask, stx_owner.get());
+		apply_sqe_fd_flags(sqe, dir_fd);
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner, stx_owner](IoResult r) mutable {
 			auto _ = path_owner;
 			try {
@@ -400,10 +404,7 @@ public:
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
 	[[nodiscard]] root::Task<FileStat> async_stat(
 		FileHandle const &fh) {
-		if (fh.is_direct()) {
-			return async_statx(fh.direct_slot(), std::string{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
-		}
-		return async_statx(fh.raw_fd(), std::string{}, AT_EMPTY_PATH);
+		return async_statx(fh, std::string{}, AT_EMPTY_PATH);
 	}
 	// Read into a caller-owned std::span. The caller must keep `dst` alive until the
 	// Flow resolves.

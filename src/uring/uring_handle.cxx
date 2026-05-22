@@ -27,7 +27,6 @@ export struct RingFd {
 	[[nodiscard]] constexpr conflux::uring::DirectSlot direct_slot() const noexcept {
 		return conflux::uring::DirectSlot{id};
 	}
-	[[nodiscard]] constexpr int as_fd() const noexcept { return sqe_fd_value(); }
 };
 export template<typename T>
 concept RingFdLike = requires(T const &fd) {

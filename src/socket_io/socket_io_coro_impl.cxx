@@ -275,7 +275,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!submit_close(st.ring->raw(), h, close_ud)) {
 		if (h.is_os_fd()) {
 			auto _ = st.handle.release();
-			::close(h.as_fd());
+			::close(h.sqe_fd_value());
 			st.ring->completions().dispatch(slot, gen, 0, 0);
 		} else {
 			st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
@@ -666,14 +666,14 @@ struct ConnectOp {
 		SocketHandle const h = owned.get();
 		if (opts.tcp_nodelay && h.is_os_fd()) {
 			int const one = 1;
-			if (::setsockopt(h.as_fd(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+			if (::setsockopt(h.sqe_fd_value(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
 				complete_exception(IoError{errno, "tcp_connect: TCP_NODELAY"});
 				return;
 			}
 		}
 		if (opts.tcp_quickack && h.is_os_fd()) {
 			int const one = 1;
-			if (::setsockopt(h.as_fd(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one)) < 0) {
+			if (::setsockopt(h.sqe_fd_value(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one)) < 0) {
 				complete_exception(IoError{errno, "tcp_connect: TCP_QUICKACK"});
 				return;
 			}
@@ -829,14 +829,14 @@ struct AcceptOp {
 		SocketHandle const h = owned.get();
 		if (opts.tcp_nodelay && h.is_os_fd()) {
 			int const one = 1;
-			if (::setsockopt(h.as_fd(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+			if (::setsockopt(h.sqe_fd_value(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
 				complete_exception(IoError{errno, "tcp_accept: TCP_NODELAY"});
 				return;
 			}
 		}
 		if (opts.tcp_quickack && h.is_os_fd()) {
 			int const one = 1;
-			if (::setsockopt(h.as_fd(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one)) < 0) {
+			if (::setsockopt(h.sqe_fd_value(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one)) < 0) {
 				complete_exception(IoError{errno, "tcp_accept: TCP_QUICKACK"});
 				return;
 			}
@@ -955,11 +955,11 @@ struct MultishotAcceptOp {
 		}
 		if (opts.tcp_nodelay && owned.get().is_os_fd()) {
 			int const one = 1;
-			::setsockopt(owned.get().as_fd(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+			::setsockopt(owned.get().sqe_fd_value(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 		}
 		if (opts.tcp_quickack && owned.get().is_os_fd()) {
 			int const one = 1;
-			::setsockopt(owned.get().as_fd(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
+			::setsockopt(owned.get().sqe_fd_value(), IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
 		}
 		try {
 			handler(TcpStream{std::make_shared<TcpStreamState>(ring, std::move(owned))}).detach();

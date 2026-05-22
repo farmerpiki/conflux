@@ -222,7 +222,7 @@ void Ring::queue_ws_cancel(
 	ws_cancel_handoffs.emplace(fd, std::move(entry));
 	auto handle =
 		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	io_uring_prep_cancel_fd(sqe, handle.as_fd(), handle.fixed ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
+	io_uring_prep_cancel_fd(sqe, handle.sqe_fd_value(), handle.fixed ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
 	io_uring_sqe_set_data64(sqe, pack(Op::WsCancel, 0, fd));
 }
 
