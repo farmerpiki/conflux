@@ -4,6 +4,7 @@ module;
 export module conflux.net.http.types;
 import std;
 import conflux.types;
+import conflux.utils;
 [[nodiscard]] constexpr unsigned char ascii_ci_fold(
 	unsigned char c) noexcept {
 	return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
@@ -593,48 +594,18 @@ struct Url {
 	void set_query_param(
 		std::string_view name,
 		std::string_view value) {
-		auto is_query_unreserved = [](unsigned char c) noexcept {
-			return (c >= 'A' && c <= 'Z')
-				|| (c >= 'a' && c <= 'z')
-				|| (c >= '0' && c <= '9')
-				|| c == '-'
-				|| c == '_'
-				|| c == '.'
-				|| c == '~';
-		};
-		auto encoded_size = [&](std::string_view s) noexcept {
-			std::size_t out = 0;
-			for (auto const raw_c: s) {
-				out += is_query_unreserved(static_cast<unsigned char>(raw_c)) ? std::size_t{1} : std::size_t{3};
-			}
-			return out;
-		};
-		auto append_encoded = [&](std::string_view s) {
-			static constexpr std::array<char, 16> kHex =
-				{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-			for (auto const raw_c: s) {
-				unsigned char const c = static_cast<unsigned char>(raw_c);
-				if (is_query_unreserved(c)) {
-					query += static_cast<char>(c);
-				} else {
-					query += '%';
-					query += kHex[c >> 4U];
-					query += kHex[c & 0x0FU];
-				}
-			}
-		};
 		query.reserve(
 			query.size()
 			+ (query.empty() ? std::size_t{0} : std::size_t{1})
-			+ encoded_size(name)
+			+ url_percent_encoded_size(name)
 			+ 1
-			+ encoded_size(value));
+			+ url_percent_encoded_size(value));
 		if (!query.empty()) {
 			query += '&';
 		}
-		append_encoded(name);
+		append_url_percent_encoded(query, name);
 		query += '=';
-		append_encoded(value);
+		append_url_percent_encoded(query, value);
 	}
 };
 std::expected<Url, UrlError> Url::parse(

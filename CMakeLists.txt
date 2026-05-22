@@ -1452,6 +1452,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     target_link_libraries(conflux_http_core
         PRIVATE conflux_options
         PUBLIC  conflux_types
+        PUBLIC  conflux_utils
     )
 endif()
 

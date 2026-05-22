@@ -52,7 +52,7 @@ void add_path_param(
 	HttpFieldsView &params,
 	std::string_view name,
 	std::string_view raw_value) {
-	if (raw_value.find('%') == std::string_view::npos) {
+	if (!url_needs_path_decode(raw_value)) {
 		params.emplace_back(name, raw_value);
 		return;
 	}

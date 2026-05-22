@@ -13,11 +13,6 @@ export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
 export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
-[[gnu::pure]] [[nodiscard]] static bool needs_url_decode(
-	std::string_view s) noexcept {
-	return s.find_first_of(std::string_view{"%+"}) != std::string_view::npos;
-}
-
 export void parse_urlencoded(
 	std::string_view data,
 	HttpFieldsView &out) {
@@ -37,13 +32,13 @@ export void parse_urlencoded(
 		if (auto eq = P.find('='); eq != std::string_view::npos) {
 			auto key = P.substr(0, eq);
 			auto field_value = P.substr(eq + 1);
-			if (!needs_url_decode(key) && !needs_url_decode(field_value)) {
+			if (!url_needs_component_decode(key) && !url_needs_component_decode(field_value)) {
 				out.emplace_back(key, field_value);
 			} else {
 				out.emplace_back_owned(url_decode(key), url_decode(field_value));
 			}
 		} else if (!P.empty()) {
-			if (!needs_url_decode(P)) {
+			if (!url_needs_component_decode(P)) {
 				out.emplace_back(P, {});
 			} else {
 				out.emplace_back_owned(url_decode(P), std::string{});

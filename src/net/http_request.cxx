@@ -5,6 +5,7 @@ module;
 export module conflux.net.http.request;
 import std;
 import conflux.types;
+import conflux.utils;
 import conflux.net.http.types;
 export namespace conflux::http {
 
@@ -293,41 +294,19 @@ public:
 	Builder &body_form(
 		HttpFields const &fields) & {
 		assert_single_body();
-		static constexpr std::array<char, 16> kHex =
-			{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 		std::size_t reserve_n = fields.empty() ? 0 : fields.size() - 1;
 		for (auto const &[k, v]: fields) {
-			reserve_n += k.size() * 3 + 1 + v.size() * 3;
+			reserve_n += url_form_encoded_size(k) + 1 + url_form_encoded_size(v);
 		}
 		std::string encoded;
 		encoded.reserve(reserve_n);
-		auto append_encoded = [&](std::string_view s) {
-			for (auto const raw_c: s) {
-				unsigned char const c = static_cast<unsigned char>(raw_c);
-				if ((c >= 'A' && c <= 'Z')
-					|| (c >= 'a' && c <= 'z')
-					|| (c >= '0' && c <= '9')
-					|| c == '-'
-					|| c == '_'
-					|| c == '.'
-					|| c == '~') {
-					encoded += static_cast<char>(c);
-				} else if (c == ' ') {
-					encoded += '+';
-				} else {
-					encoded += '%';
-					encoded += kHex[c >> 4U];
-					encoded += kHex[c & 0x0FU];
-				}
-			}
-		};
 		for (auto const &[k, v]: fields) {
 			if (!encoded.empty()) {
 				encoded += '&';
 			}
-			append_encoded(k);
+			append_url_form_encoded(encoded, k);
 			encoded += '=';
-			append_encoded(v);
+			append_url_form_encoded(encoded, v);
 		}
 		req_.body_ = std::move(encoded);
 		return content_type("application/x-www-form-urlencoded");

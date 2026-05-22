@@ -236,10 +236,97 @@ export constexpr int hex_char_to_int(
 	return -1;
 }
 // ---------------------------------------------------------------------------
-// URL percent-decoding
+// URL percent-encoding / decoding
 // ---------------------------------------------------------------------------
 
-// Decode a percent-encoded URL component ('+' → space, %XX → std::byte).
+export [[nodiscard]] constexpr bool is_url_unreserved(
+	unsigned char c) noexcept {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
+		|| c == '_' || c == '.' || c == '~';
+}
+
+export [[nodiscard]] constexpr bool url_needs_component_decode(
+	std::string_view s) noexcept {
+	return s.find_first_of(std::string_view{"%+"}) != std::string_view::npos;
+}
+
+export [[nodiscard]] constexpr bool url_needs_path_decode(
+	std::string_view s) noexcept {
+	return s.find('%') != std::string_view::npos;
+}
+
+namespace {
+
+inline constexpr std::array<char, 16> kUrlHex_ =
+	{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+
+void append_url_encoded_impl_(
+	std::string &out,
+	std::string_view s,
+	bool space_as_plus) {
+	for (auto const raw_c: s) {
+		unsigned char const c = static_cast<unsigned char>(raw_c);
+		if (is_url_unreserved(c)) {
+			out += static_cast<char>(c);
+		} else if (space_as_plus && c == ' ') {
+			out += '+';
+		} else {
+			out += '%';
+			out += kUrlHex_[c >> 4U];
+			out += kUrlHex_[c & 0x0FU];
+		}
+	}
+}
+
+} // namespace
+
+export [[nodiscard]] constexpr std::size_t url_percent_encoded_size(
+	std::string_view s) noexcept {
+	std::size_t out = 0;
+	for (auto const raw_c: s) {
+		out += is_url_unreserved(static_cast<unsigned char>(raw_c)) ? std::size_t{1} : std::size_t{3};
+	}
+	return out;
+}
+
+export void append_url_percent_encoded(
+	std::string &out,
+	std::string_view s) {
+	append_url_encoded_impl_(out, s, false);
+}
+
+export [[nodiscard]] std::string url_percent_encode(
+	std::string_view s) {
+	std::string out;
+	out.reserve(url_percent_encoded_size(s));
+	append_url_percent_encoded(out, s);
+	return out;
+}
+
+export [[nodiscard]] constexpr std::size_t url_form_encoded_size(
+	std::string_view s) noexcept {
+	std::size_t out = 0;
+	for (auto const raw_c: s) {
+		auto const c = static_cast<unsigned char>(raw_c);
+		out += (is_url_unreserved(c) || c == ' ') ? std::size_t{1} : std::size_t{3};
+	}
+	return out;
+}
+
+export void append_url_form_encoded(
+	std::string &out,
+	std::string_view s) {
+	append_url_encoded_impl_(out, s, true);
+}
+
+export [[nodiscard]] std::string url_form_encode(
+	std::string_view s) {
+	std::string out;
+	out.reserve(url_form_encoded_size(s));
+	append_url_form_encoded(out, s);
+	return out;
+}
+
 namespace {
 
 std::size_t scan_url_plain_run_(
@@ -260,20 +347,20 @@ std::size_t scan_url_plain_run_(
 	return n;
 }
 
-} // namespace
-export std::string url_decode(
-	std::string_view s) {
+[[nodiscard]] std::string url_decode_impl_(
+	std::string_view s,
+	bool plus_is_space) {
 	std::string out;
 	out.reserve(s.size());
 	std::size_t i = 0;
 	while (i < s.size()) {
-		std::size_t const run = scan_url_plain_run_(s.data() + i, s.size() - i, true);
+		std::size_t const run = scan_url_plain_run_(s.data() + i, s.size() - i, plus_is_space);
 		out.append(s.data() + i, run);
 		i += run;
 		if (i >= s.size()) {
 			break;
 		}
-		if (s[i] == '+') {
+		if (plus_is_space && s[i] == '+') {
 			out += ' ';
 			++i;
 		} else if (s[i] == '%' && i + 2 < s.size()) {
@@ -291,32 +378,19 @@ export std::string url_decode(
 	}
 	return out;
 }
+
+} // namespace
+
+// Decode a percent-encoded URL component ('+' -> space, %XX -> byte).
+export std::string url_decode(
+	std::string_view s) {
+	return url_decode_impl_(s, true);
+}
+
+// Decode a path component (%XX -> byte, '+' is literal).
 export std::string url_decode_path(
 	std::string_view s) {
-	std::string out;
-	out.reserve(s.size());
-	std::size_t i = 0;
-	while (i < s.size()) {
-		std::size_t const run = scan_url_plain_run_(s.data() + i, s.size() - i, false);
-		out.append(s.data() + i, run);
-		i += run;
-		if (i >= s.size()) {
-			break;
-		}
-		if (s[i] == '%' && i + 2 < s.size()) {
-			int const hi = hex_char_to_int(s[i + 1]);
-			int const lo = hex_char_to_int(s[i + 2]);
-			if (hi >= 0 && lo >= 0) {
-				out += static_cast<char>(static_cast<unsigned>(hi) << 4U | static_cast<unsigned>(lo));
-				i += 3;
-			} else {
-				out += s[i++];
-			}
-		} else {
-			out += s[i++];
-		}
-	}
-	return out;
+	return url_decode_impl_(s, false);
 }
 // ---------------------------------------------------------------------------
 // IP address / CIDR utilities (IPv4 + IPv6)
