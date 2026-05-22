@@ -4,6 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base="${TMPDIR:-/tmp}/$(basename "$root")-provider-policy-$$"
 empty_pc_dir="$base/empty-pkgconfig"
+no_argon2_bin="$base/no-argon2-bin"
 mkdir -p "$empty_pc_dir"
 trap 'rm -rf "$base"' EXIT
 
@@ -25,6 +26,47 @@ run_configure_no_system_pc() {
 		cmake -S "$root" -B "$build_dir" -G Ninja "$@" >&2
 	printf '%s\n' "$build_dir"
 }
+
+run_configure_no_argon2_pc() {
+	local name="$1"
+	shift
+	local build_dir="$base/$name"
+	mkdir -p "$no_argon2_bin"
+	local wrapper="$no_argon2_bin/pkg-config"
+	if [[ ! -x "$wrapper" ]]; then
+		printf '%s\n' \
+			'#!/usr/bin/env bash' \
+			'for arg in "$@"; do' \
+			'	if [[ "$arg" == "libargon2" ]]; then' \
+			'		exit 1' \
+			'	fi' \
+			'done' \
+			'exec "${CONFLUX_REAL_PKG_CONFIG:?}" "$@"' >"$wrapper"
+		chmod +x "$wrapper"
+	fi
+	printf 'provider-policy: configure %s (pkg-config without libargon2)\n' "$name" >&2
+	CONFLUX_REAL_PKG_CONFIG="$(command -v pkg-config)" PATH="$no_argon2_bin:$PATH" \
+		cmake -S "$root" -B "$build_dir" -G Ninja "$@" >&2
+	printf '%s\n' "$build_dir"
+}
+
+module_probe_dir="$base/module-interface-probe"
+module_probe_log="$base/module-interface-probe.log"
+if ! cmake -S "$root" -B "$module_probe_dir" -G Ninja \
+	-DCONFLUX_FEATURE_SET=core \
+	-DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
+	-DCONFLUX_BUILD_TESTS=OFF \
+	-DCONFLUX_BUILD_EXAMPLES=OFF \
+	-DCONFLUX_BUILD_BENCHMARKS=OFF \
+	-DCONFLUX_FETCH_TEST_DEPS=OFF >"$module_probe_log" 2>&1; then
+	if grep -q "requires CMake-discoverable C++23 import std support" "$module_probe_log"; then
+		printf 'provider-policy: skip; MODULE_INTERFACE import std unsupported by this toolchain\n'
+		exit 0
+	fi
+	cat "$module_probe_log" >&2
+	exit 1
+fi
+rm -rf "$module_probe_dir" "$module_probe_log"
 
 run_build() {
 	local build_dir="$1"
@@ -147,7 +189,7 @@ auth_runtime_dir="$(run_configure auth-runtime \
 run_build "$auth_runtime_dir" --target conflux_http_auth
 cleanup_build "$auth_runtime_dir"
 
-auth_auto_no_argon2_dir="$(run_configure_no_system_pc auth-auto-no-argon2 \
+auth_auto_no_argon2_dir="$(run_configure_no_argon2_pc auth-auto-no-argon2 \
 	-DCONFLUX_FEATURE_SET=http-api \
 	-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=AUTO \
 	-DCONFLUX_BUILD_TESTS=OFF \

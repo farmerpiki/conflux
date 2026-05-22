@@ -1,4 +1,5 @@
 module;
+#include <cerrno>
 #include <cstdlib>
 
 export module conflux.net.config;
@@ -6,7 +7,6 @@ export module conflux.net.config;
 import std;
 import conflux.types;
 import std.compat;
-import conflux.file_io_sync;
 import conflux.utils;
 
 export constexpr std::uint16_t kConfigDefaultPort = 9090;
@@ -366,11 +366,27 @@ namespace {
 std::expected<std::string, int> read_text_file_local(
 	std::string_view path,
 	std::size_t max_bytes) {
-	auto bytes = blocking_read_text_file(path, max_bytes);
-	if (!bytes) {
-		return std::unexpected{bytes.error().errnum()};
+	auto in = std::ifstream{std::string{path}, std::ios::binary};
+	if (!in) {
+		return std::unexpected{errno == 0 ? ENOENT : errno};
 	}
-	return std::move(*bytes);
+	std::string out;
+	std::array<char, 4096> chunk{};
+	while (in) {
+		in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+		auto const read_count = in.gcount();
+		if (read_count <= 0) {
+			break;
+		}
+		if (out.size() + static_cast<std::size_t>(read_count) > max_bytes) {
+			return std::unexpected{EFBIG};
+		}
+		out.append(chunk.data(), static_cast<std::size_t>(read_count));
+	}
+	if (in.bad()) {
+		return std::unexpected{EIO};
+	}
+	return out;
 }
 
 std::string_view strip_inline_comment(
