@@ -43,6 +43,14 @@ template<class T>
 using Task = conflux::work::Task<T>;
 using Next = Router::Handler;
 using AsyncNext = Router::AsyncNext;
+template<class F>
+concept ViewMiddleware = ::ViewMiddleware<F>;
+template<class F>
+concept RequestMiddleware = ::RequestMiddleware<F>;
+template<class F>
+concept AsyncMiddleware = ::AsyncMiddleware<F>;
+template<class F>
+concept Middleware = ::Middleware<F>;
 
 template<typename F>
 	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)

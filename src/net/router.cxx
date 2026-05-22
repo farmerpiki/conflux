@@ -60,6 +60,9 @@ concept ContextMiddlewareFunction =
 	};
 
 export template<class F>
+concept AsyncMiddleware = ContextMiddlewareFunction<F>;
+
+export template<class F>
 concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, NextHandler const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
@@ -70,7 +73,7 @@ concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, Ne
 };
 
 export template<class F>
-concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
+concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
 
 struct RouteVerbAccessors {
 	template<typename Self, typename F>
@@ -254,7 +257,17 @@ public:
 		template<typename F>
 		Group &use(
 			F &&mw) {
-			middlewares_.push_back(Router::make_middleware(std::forward<F>(mw)));
+			if constexpr (ContextMiddlewareFunction<F>) {
+				context_middlewares_.push_back(Router::make_context_middleware(std::forward<F>(mw)));
+			} else {
+				middlewares_.push_back(Router::make_middleware(std::forward<F>(mw)));
+			}
+			return *this;
+		}
+		template<typename F>
+		Group &use_async(
+			F &&mw) {
+			context_middlewares_.push_back(Router::make_context_middleware(std::forward<F>(mw)));
 			return *this;
 		}
 		template<typename F>
@@ -268,6 +281,61 @@ public:
 			full_path.append(path.data(), path.size());
 			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
 			return *this;
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &add_context(
+			std::string_view method,
+			std::string_view path,
+			F &&handler) {
+			std::string full_path;
+			full_path.reserve(prefix_.size() + path.size());
+			full_path += prefix_;
+			full_path.append(path.data(), path.size());
+			router_.add_context(method, full_path, wrap_context(Router::ContextHandler{std::forward<F>(handler)}));
+			return *this;
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &get_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("GET", path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &post_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("POST", path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &put_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("PUT", path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &patch_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("PATCH", path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &del_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("DELETE", path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
+		Group &options_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context("OPTIONS", path, std::forward<F>(handler));
 		}
 
 	private:
@@ -289,9 +357,11 @@ public:
 			}
 			return h;
 		}
+		[[nodiscard]] ContextHandler wrap_context(ContextHandler h) const;
 		Router &router_;
 		std::string prefix_;
 		std::vector<Middleware> middlewares_;
+		std::vector<ContextMiddleware> context_middlewares_;
 	};
 	template<typename F>
 	Router &group(
@@ -401,7 +471,8 @@ private:
 							 }) {
 			static_assert(
 				kDependentFalse<Fn>,
-				"Async middleware must use Router::use_async so it can run through the context dispatch path");
+				"Async middleware must be registered with Router::use or Router::use_async so it can run through "
+				"the context dispatch path");
 		} else if constexpr (std::invocable<Fn &, RequestView const &, Handler const &>) {
 			return Middleware{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, Request const &, Handler const &>) {

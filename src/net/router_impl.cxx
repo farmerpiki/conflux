@@ -284,6 +284,18 @@ template<typename ImplT>
 	return s;
 }
 
+Router::ContextHandler Router::Group::wrap_context(
+	ContextHandler h) const {
+	for (int i = static_cast<int>(context_middlewares_.size()) - 1; i >= 0; --i) {
+		auto mw = context_middlewares_[static_cast<std::size_t>(i)];
+		h = [mw = std::move(mw),
+			 n = std::move(h)](Request const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {
+			co_return co_await mw(r, c, n);
+		};
+	}
+	return h;
+}
+
 Router::Router()
 	: impl_(std::make_unique<Impl>()) {}
 

@@ -49,6 +49,11 @@ static_assert(std::same_as<http::RequestView, RequestView>);
 static_assert(std::same_as<http::Request, Request>);
 static_assert(std::same_as<http::Response, Response>);
 static_assert(std::same_as<http::RequestContext, RequestContext>);
+static_assert(
+	http::AsyncMiddleware<
+		decltype([](http::Request const &req, http::RequestContext const &ctx, http::AsyncNext const &next) -> http::Task<http::Response> {
+			co_return co_await next(req, ctx);
+		})>);
 
 void route_forms_compile() {
 	auto app = http::app();
@@ -81,6 +86,36 @@ void route_forms_compile() {
 	(void)app.route_table();
 	(void)app.openapi_spec();
 	(void)app.validate().detailed_summary();
+}
+
+void middleware_forms_compile() {
+	auto app = http::app();
+	app.use([](http::RequestView const &req, http::Next const &next) {
+		auto response = next(req);
+		response.headers.set("x-sync-middleware", "1");
+		return response;
+	});
+	app.use(
+		[](http::Request const &req,
+		   http::RequestContext const &ctx,
+		   http::AsyncNext const &next) -> http::Task<http::Response> {
+			auto response = co_await next(req, ctx);
+			response.headers.set("x-async-middleware", "1");
+			co_return response;
+		});
+	app.group("/scoped", [](auto &group) {
+		group.use(
+			[](http::Request const &req,
+			   http::RequestContext const &ctx,
+			   http::AsyncNext const &next) -> http::Task<http::Response> {
+				auto response = co_await next(req, ctx);
+				response.headers.set("x-group-async-middleware", "1");
+				co_return response;
+			});
+		(void)group.get("/", [](http::Request const &, http::RequestContext const &) -> http::Task<http::Response> {
+			co_return http::text("ok");
+		});
+	});
 }
 
 void offload_spelling_compiles(

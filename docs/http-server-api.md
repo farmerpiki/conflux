@@ -396,6 +396,16 @@ concept ContextHandlerFunction = requires(std::decay_t<F>& fn,
 };
 
 template<class F>
+concept ContextMiddlewareFunction = requires(std::decay_t<F>& fn,
+                                             Request const& req,
+                                             RequestContext const& ctx,
+                                             ContextNextHandler const& next) {
+    { std::invoke(fn, req, ctx, next) } -> std::same_as<root::Task<Response>>;
+};
+
+template<class F> concept AsyncMiddleware = ContextMiddlewareFunction<F>;
+
+template<class F>
 concept ViewMiddleware = requires(std::decay_t<F>& fn,
                                   RequestView const& req,
                                   NextHandler const& next) {
@@ -409,7 +419,8 @@ concept RequestMiddleware = requires(std::decay_t<F>& fn,
     { std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
-template<class F> concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
+template<class F>
+concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
 
 class Router {
 public:
@@ -446,6 +457,8 @@ public:
     // Middleware (applied in registration order, outermost first).
     template<class F> requires ::Middleware<F>
     Router& use(F&&);
+    template<AsyncMiddleware F>
+    Router& use_async(F&&);
 
     // Route groups.
     template<typename F> Router& group(std::string_view prefix, F&& fn);
@@ -471,7 +484,7 @@ app.get<"/todos/{id:i64}">([](std::int64_t id) {
 });
 ```
 
-The public concepts are intended for user helpers and diagnostics. `http::Request` / `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept `http::OwnedRequest`. A synchronous handler may also accept `http::OwnedRequest const&`; that deliberately materializes an owned request before the call, so prefer `http::Request const&` unless ownership is needed.
+The public concepts are intended for user helpers and diagnostics. `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers and async middleware must accept owned `http::Request`. A synchronous handler may also accept `http::Request const&`; that deliberately materializes an owned request before the call, so prefer `http::RequestView const&` unless ownership is needed.
 
 Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`
 requires `Content-Type: application/json-patch+json`, parses the body, and
@@ -661,6 +674,14 @@ app.use([](http::RequestView const& req, http::Next const& next) {
         });
     }
     return response;
+});
+
+app.use([](http::Request const& req,
+           http::RequestContext const& ctx,
+           http::AsyncNext const& next) -> http::Task<http::Response> {
+    auto response = co_await next(req, ctx);
+    response.headers["x-async-middleware"] = "1";
+    co_return response;
 });
 ```
 

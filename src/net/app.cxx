@@ -747,7 +747,11 @@ public:
 		template<typename F>
 		Group &use(
 			F &&middleware) {
-			middlewares_.emplace_back(std::forward<F>(middleware));
+			if constexpr (ContextMiddlewareFunction<F>) {
+				context_middlewares_.emplace_back(std::forward<F>(middleware));
+			} else {
+				middlewares_.emplace_back(std::forward<F>(middleware));
+			}
 			return *this;
 		}
 		template<typename F>
