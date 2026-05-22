@@ -13,5 +13,5 @@ int main() {
 		channel->close();
 	});
 
-	return http::run(std::move(app), {.port = 9091}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9091}));
 }

@@ -10,5 +10,5 @@ int main() {
 	app.get<"/hello/{name}">(
 		[](http::Path<"name"> name) { return http::html(std::format("<h1>Hello, {}!</h1>", name.get())); });
 
-	return http::run(std::move(app), {.port = 9090}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9090}));
 }

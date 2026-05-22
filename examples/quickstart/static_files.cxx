@@ -40,5 +40,5 @@ int main() {
 	app.get("/", [] { return http::redirect("/assets/"); });
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	return http::run(std::move(app), {.port = 9095}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9095}));
 }

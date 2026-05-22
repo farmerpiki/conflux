@@ -16,5 +16,5 @@ int main() {
 		}
 	});
 
-	return http::run(std::move(app), {.port = 9096}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9096}));
 }

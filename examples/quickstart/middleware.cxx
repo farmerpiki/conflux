@@ -12,5 +12,5 @@ int main() {
 		return http::text(std::format("request_id={}\n", request_id.get()));
 	});
 
-	return http::run(std::move(app), {.port = 9094}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9094}));
 }

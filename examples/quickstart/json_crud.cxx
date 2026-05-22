@@ -80,5 +80,5 @@ int main() {
 			return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
 		});
 
-	return http::run(std::move(app), {.port = 9110}) == http::RunStatus::stopped_normally ? 0 : 1;
+	return static_cast<int>(std::move(app).run({.port = 9110}));
 }

@@ -19,7 +19,7 @@ int main() {
         return http::text("hello world");
     });
 
-    return http::run(std::move(app), {.port = 8080});
+    return static_cast<int>(std::move(app).run({.port = 8080}));
 }
 ```
 
