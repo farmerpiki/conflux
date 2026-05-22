@@ -5,8 +5,21 @@ namespace stdx = std::experimental::parallelism_v2;
 using vec_t = stdx::native_simd<unsigned char>;
 static constexpr std::size_t W = vec_t::size();
 
+#ifndef CONFLUX_ASCII_LOWER_INPLACE_STDSIMD
+	#define CONFLUX_ASCII_LOWER_INPLACE_STDSIMD conflux_ascii_lower_inplace_stdsimd
+#endif
+#ifndef CONFLUX_CONSTANT_TIME_EQ_STDSIMD
+	#define CONFLUX_CONSTANT_TIME_EQ_STDSIMD conflux_constant_time_eq_stdsimd
+#endif
+#ifndef CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD
+	#define CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD conflux_url_scan_plain_run_stdsimd
+#endif
+#ifndef CONFLUX_WS_UNMASK_STDSIMD
+	#define CONFLUX_WS_UNMASK_STDSIMD conflux_ws_unmask_stdsimd
+#endif
+
 extern "C" {
-void conflux_ascii_lower_inplace_stdsimd(
+void CONFLUX_ASCII_LOWER_INPLACE_STDSIMD(
 	char *p,
 	std::size_t n) noexcept {
 	auto *u = reinterpret_cast<unsigned char *>(p);
@@ -27,7 +40,7 @@ void conflux_ascii_lower_inplace_stdsimd(
 		}
 	}
 }
-int conflux_constant_time_eq_stdsimd(
+int CONFLUX_CONSTANT_TIME_EQ_STDSIMD(
 	unsigned char const *a,
 	unsigned char const *b,
 	std::size_t n) noexcept {
@@ -44,7 +57,7 @@ int conflux_constant_time_eq_stdsimd(
 	}
 	return stdx::all_of(acc == vec_t(static_cast<unsigned char>(0))) && tail == 0 ? 1 : 0;
 }
-std::size_t conflux_url_scan_plain_run_stdsimd(
+std::size_t CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD(
 	char const *p,
 	std::size_t n,
 	int plus_is_special) noexcept {
@@ -70,7 +83,7 @@ std::size_t conflux_url_scan_plain_run_stdsimd(
 	}
 	return n;
 }
-void conflux_ws_unmask_stdsimd(
+void CONFLUX_WS_UNMASK_STDSIMD(
 	unsigned char *data,
 	std::size_t n,
 	unsigned char const *mask4) noexcept {

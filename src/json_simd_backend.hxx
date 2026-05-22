@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "cpu_features.hxx"
+
 #if defined(CONFLUX_JSON_USE_STDSIMD)
 	#define CONFLUX_JSON_HAS_STDSIMD 1
 extern "C" {

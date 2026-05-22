@@ -5,8 +5,15 @@ namespace stdx = std::experimental::parallelism_v2;
 using vec_t = stdx::native_simd<signed char>;
 static constexpr std::size_t W = vec_t::size();
 
+#ifndef CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD
+	#define CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD conflux_json_scan_str_until_special_stdsimd
+#endif
+#ifndef CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD
+	#define CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD conflux_json_scan_dump_safe_run_stdsimd
+#endif
+
 extern "C" {
-std::size_t conflux_json_scan_str_until_special_stdsimd(
+std::size_t CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD(
 	char const *p,
 	std::size_t n) noexcept {
 	std::size_t i = 0;
@@ -29,7 +36,7 @@ std::size_t conflux_json_scan_str_until_special_stdsimd(
 	}
 	return n;
 }
-std::size_t conflux_json_scan_dump_safe_run_stdsimd(
+std::size_t CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD(
 	char const *p,
 	std::size_t n,
 	int ascii_only) noexcept {

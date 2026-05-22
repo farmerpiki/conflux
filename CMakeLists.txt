@@ -185,6 +185,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     endif()
 endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
+option(CONFLUX_ENABLE_CPU_DISPATCH
+    "Guard compiled ISA-specific fast paths with runtime CPU feature checks for portable distribution builds" OFF)
 set(CONFLUX_USE_STDSIMD "AUTO" CACHE STRING
     "Use standard/experimental SIMD for library scan paths (AUTO|STD26|STDX|ON|OFF)")
 set_property(CACHE CONFLUX_USE_STDSIMD PROPERTY STRINGS AUTO STD26 STDX ON OFF)
@@ -1068,6 +1070,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_MODULE_USE_IMPORTS=0
     CONFLUX_MODULE_REEXPORT_IMPORTS=0
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
+    CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
     CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
     CONFLUX_ENABLE_RECV_INCREMENTAL_BUF=$<BOOL:${CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF}>
     CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
@@ -1089,6 +1092,11 @@ if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")
 else()
     message(STATUS "conflux: experimental features disabled")
+endif()
+if(CONFLUX_ENABLE_CPU_DISPATCH)
+    message(STATUS "conflux: CPU dispatch guards enabled for ISA-specific fast paths")
+else()
+    message(STATUS "conflux: CPU dispatch guards disabled")
 endif()
 if(CONFLUX_ENABLE_RECV_BUNDLE)
     message(STATUS "conflux: recv bundle enabled")
@@ -1147,6 +1155,9 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     target_compile_definitions(conflux_core INTERFACE CONFLUX_INTERFACE_MODULE=1)
 endif()
 
+add_library(conflux_cpu_features STATIC ${CONFLUX_SRC_ROOT}/cpu_features.cxx)
+target_link_libraries(conflux_cpu_features PRIVATE conflux_options)
+
 if(CONFLUX_WANT_CRYPTO)
 add_library(conflux_crypto STATIC)
 target_sources(conflux_crypto
@@ -1157,6 +1168,7 @@ target_sources(conflux_crypto
 )
 target_link_libraries(conflux_crypto
     PRIVATE conflux_options
+    PRIVATE conflux_cpu_features
     PUBLIC  conflux_types
 )
 if(CONFLUX_HAS_AESNI)
@@ -1208,6 +1220,7 @@ target_sources(conflux_json
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
     PRIVATE conflux_options
+    PRIVATE conflux_cpu_features
 )
 if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
     target_link_libraries(conflux_json PRIVATE PkgConfig::XXHASH)
@@ -1941,15 +1954,11 @@ if(_conflux_simd_backend STREQUAL "STDX")
     add_library(conflux_simd_stdx OBJECT ${CONFLUX_SRC_ROOT}/simd_stdx.cxx)
     target_compile_features(conflux_simd_stdx PRIVATE cxx_std_23)
     target_link_libraries(conflux_simd_stdx PRIVATE conflux_options)
-    set_source_files_properties(${CONFLUX_SRC_ROOT}/simd_stdx.cxx PROPERTIES
-        COMPILE_OPTIONS "-mavx2"
-    )
+    target_compile_options(conflux_simd_stdx PRIVATE "-mavx2")
     add_library(conflux_json_simd_stdx OBJECT ${CONFLUX_SRC_ROOT}/json_simd_stdx.cxx)
     target_compile_features(conflux_json_simd_stdx PRIVATE cxx_std_23)
     target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options)
-    set_source_files_properties(${CONFLUX_SRC_ROOT}/json_simd_stdx.cxx PROPERTIES
-        COMPILE_OPTIONS "-mavx2"
-    )
+    target_compile_options(conflux_json_simd_stdx PRIVATE "-mavx2")
 endif()
 
 if(NOT _conflux_simd_backend STREQUAL "OFF")
@@ -1978,6 +1987,7 @@ target_sources(conflux_utils
 )
 target_link_libraries(conflux_utils
     PRIVATE conflux_options
+    PRIVATE conflux_cpu_features
     PUBLIC  conflux_types
 )
 if(NOT _conflux_simd_backend STREQUAL "OFF")
@@ -2111,6 +2121,7 @@ target_sources(conflux_http_realtime
 )
 target_link_libraries(conflux_http_realtime
     PRIVATE conflux_options
+    PRIVATE conflux_cpu_features
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
     PUBLIC  conflux_crypto
@@ -3386,6 +3397,7 @@ conflux_component(conflux_options _options KIND SUPPORT)
 conflux_component(conflux_direct_slot_pool _direct_slot_pool KIND SUPPORT)
 conflux_component(conflux_uring_primitives _uring_primitives KIND SUPPORT)
 conflux_component(conflux_simd_runtime _simd_runtime KIND SUPPORT)
+conflux_component(conflux_cpu_features _cpu_features KIND SUPPORT)
 
 if(TARGET conflux AND NOT TARGET conflux::conflux)
     add_library(conflux::conflux ALIAS conflux)
@@ -3399,6 +3411,7 @@ set(CONFLUX_INSTALL_INTERFACE_TARGETS)
 foreach(_target IN ITEMS
         conflux_options
         conflux_core
+        conflux_cpu_features
         conflux_simd_runtime)
     if(TARGET ${_target})
         list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})

@@ -842,6 +842,10 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/work_bench
         benchmarks/work_compile_bench
         benchmarks/workpool_enqueue_dequeue_bench)
+    if(CONFLUX_ENABLE_CPU_DISPATCH AND CONFLUX_WANT_CRYPTO)
+        list(APPEND _conflux_header_benchmark_source_ids
+            benchmarks/cpu_dispatch_impl_bench)
+    endif()
     if(CONFLUX_HAS_TLS STREQUAL "true")
         list(APPEND _conflux_header_benchmark_source_ids
             benchmarks/tls_tcp_increment_coro_bench)

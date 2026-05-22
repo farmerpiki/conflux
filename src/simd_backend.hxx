@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "cpu_features.hxx"
+
 #if defined(CONFLUX_STDSIMD)
 extern "C" {
 void conflux_ascii_lower_inplace_stdsimd(char *, std::size_t) noexcept;

@@ -34,6 +34,17 @@ P2996 reflection benchmarks use the dedicated release lane:
 cmake --preset release-p2996-gcc
 cmake --build --preset release-p2996-gcc --target conflux_json_reflect_bench
 ```
+When `CONFLUX_ENABLE_CPU_DISPATCH=ON`, the optional
+`conflux_cpu_dispatch_impl_bench` target compares the scalar fallback,
+compiled ISA fastpath, and public dispatch wrapper for the small kernels used by
+runtime dispatch. It is not created when CPU dispatch is disabled, so non-dispatch
+builds keep the same benchmark target set.
+
+```sh
+cmake --build --preset perf-clang-libcxx --target conflux_cpu_dispatch_impl_bench
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_cpu_dispatch_impl_bench --json
+```
+
 
 Build all perf-lane benchmark binaries with:
 

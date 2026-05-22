@@ -45,7 +45,7 @@ inline void append_u_escape(
 	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD)
 	constexpr std::size_t kStdsimdThreshold = 32;
-	if (n >= kStdsimdThreshold) {
+	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
 	}
 #elif defined(CONFLUX_JSON_HAS_AVX2)

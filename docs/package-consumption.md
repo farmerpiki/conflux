@@ -52,6 +52,21 @@ find_package(conflux REQUIRED COMPONENTS core json file_io_sync)
 target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io_sync)
 ```
 
+
+## CPU / ISA Dispatch for Distribution Packages
+
+Distribution packages should build with a portable compiler baseline and enable
+`CONFLUX_ENABLE_CPU_DISPATCH=ON`. This allows Conflux to compile
+optional ISA-specific objects such as AES-NI/PCLMUL or AVX2 SIMD scan helpers,
+while guarding each call site with runtime CPU feature checks. The generated
+binary remains runnable on machines that lack those features and falls back to
+scalar code.
+
+Do not ship packages built with `-march=native` or unconditional deployment ISA
+flags unless the package metadata declares that CPU baseline. `CONFLUX_ENABLE_CPU_DISPATCH=OFF`
+is the default for local appliance and benchmark builds where every deployment
+target is known to support the selected ISA-specific objects.
+
 ## Package Contract
 
 - `find_package(conflux REQUIRED COMPONENTS ...)` imports only the requested

@@ -1775,7 +1775,7 @@ namespace detail::simd {
 	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD)
 	constexpr std::size_t kStdsimdThreshold = 32;
-	if (n >= kStdsimdThreshold) {
+	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);
 	}
 #elif defined(CONFLUX_JSON_HAS_AVX2)

@@ -85,6 +85,73 @@ endif()
 add_executable(conflux_crypto_bench crypto_bench.cxx)
 target_link_libraries(conflux_crypto_bench PRIVATE bench_common conflux conflux_options)
 
+if(CONFLUX_ENABLE_CPU_DISPATCH AND TARGET conflux_crypto)
+    add_executable(conflux_cpu_dispatch_impl_bench cpu_dispatch_impl_bench.cxx)
+    target_link_libraries(
+        conflux_cpu_dispatch_impl_bench
+        PRIVATE bench_common conflux_crypto conflux_utils conflux_cpu_features conflux_options)
+    if(NOT _conflux_simd_backend STREQUAL "OFF")
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_STDSIMD=1)
+        target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_simd_runtime)
+    endif()
+    if(_conflux_simd_backend STREQUAL "STDX")
+        add_library(conflux_bench_simd_stdx_sse2 OBJECT ../src/simd_stdx.cxx)
+        target_compile_features(conflux_bench_simd_stdx_sse2 PRIVATE cxx_std_23)
+        target_link_libraries(conflux_bench_simd_stdx_sse2 PRIVATE conflux_options)
+        target_compile_options(conflux_bench_simd_stdx_sse2 PRIVATE "-msse2")
+        target_compile_definitions(conflux_bench_simd_stdx_sse2 PRIVATE
+            CONFLUX_ASCII_LOWER_INPLACE_STDSIMD=conflux_ascii_lower_inplace_stdx_sse2
+            CONFLUX_CONSTANT_TIME_EQ_STDSIMD=conflux_constant_time_eq_stdx_sse2
+            CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD=conflux_url_scan_plain_run_stdx_sse2
+            CONFLUX_WS_UNMASK_STDSIMD=conflux_ws_unmask_stdx_sse2)
+
+        add_library(conflux_bench_simd_stdx_avx2 OBJECT ../src/simd_stdx.cxx)
+        target_compile_features(conflux_bench_simd_stdx_avx2 PRIVATE cxx_std_23)
+        target_link_libraries(conflux_bench_simd_stdx_avx2 PRIVATE conflux_options)
+        target_compile_options(conflux_bench_simd_stdx_avx2 PRIVATE "-mavx2")
+        target_compile_definitions(conflux_bench_simd_stdx_avx2 PRIVATE
+            CONFLUX_ASCII_LOWER_INPLACE_STDSIMD=conflux_ascii_lower_inplace_stdx_avx2
+            CONFLUX_CONSTANT_TIME_EQ_STDSIMD=conflux_constant_time_eq_stdx_avx2
+            CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD=conflux_url_scan_plain_run_stdx_avx2
+            CONFLUX_WS_UNMASK_STDSIMD=conflux_ws_unmask_stdx_avx2)
+
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_STDX_VARIANTS=1)
+        target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
+            $<TARGET_OBJECTS:conflux_bench_simd_stdx_sse2>
+            $<TARGET_OBJECTS:conflux_bench_simd_stdx_avx2>)
+    endif()
+    if(NOT _conflux_simd_backend STREQUAL "OFF" AND TARGET conflux_json)
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_STDSIMD=1)
+        target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_json)
+    endif()
+    if(_conflux_simd_backend STREQUAL "STDX" AND TARGET conflux_json)
+        add_library(conflux_bench_json_simd_stdx_sse2 OBJECT ../src/json_simd_stdx.cxx)
+        target_compile_features(conflux_bench_json_simd_stdx_sse2 PRIVATE cxx_std_23)
+        target_link_libraries(conflux_bench_json_simd_stdx_sse2 PRIVATE conflux_options)
+        target_compile_options(conflux_bench_json_simd_stdx_sse2 PRIVATE "-msse2")
+        target_compile_definitions(conflux_bench_json_simd_stdx_sse2 PRIVATE
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_stdx_sse2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdx_sse2)
+
+        add_library(conflux_bench_json_simd_stdx_avx2 OBJECT ../src/json_simd_stdx.cxx)
+        target_compile_features(conflux_bench_json_simd_stdx_avx2 PRIVATE cxx_std_23)
+        target_link_libraries(conflux_bench_json_simd_stdx_avx2 PRIVATE conflux_options)
+        target_compile_options(conflux_bench_json_simd_stdx_avx2 PRIVATE "-mavx2")
+        target_compile_definitions(conflux_bench_json_simd_stdx_avx2 PRIVATE
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_stdx_avx2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdx_avx2)
+
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_STDX_VARIANTS=1)
+        target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
+            $<TARGET_OBJECTS:conflux_bench_json_simd_stdx_sse2>
+            $<TARGET_OBJECTS:conflux_bench_json_simd_stdx_avx2>)
+    endif()
+    if(CONFLUX_HAS_AESNI AND TARGET conflux_crypto)
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_AESNI=1)
+        target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_crypto)
+    endif()
+endif()
+
 add_executable(conflux_template_bench template_bench.cxx)
 target_link_libraries(conflux_template_bench PRIVATE conflux conflux_options)
 
@@ -155,6 +222,9 @@ set(_record_targets
     conflux_http_server_bench
     conflux_http_server_concurrency_bench
 )
+if(TARGET conflux_cpu_dispatch_impl_bench)
+    list(APPEND _record_targets conflux_cpu_dispatch_impl_bench)
+endif()
 if(TARGET conflux_send_zc_bench)
     list(APPEND _record_targets conflux_send_zc_bench)
 endif()

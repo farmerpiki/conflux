@@ -19,6 +19,7 @@ int conflux_aes_gcm_decrypt_aesni(
 	unsigned char *out);
 }
 #endif
+#include "cpu_features.hxx"
 #include "simd_backend.hxx"
 
 export module conflux.crypto;
@@ -352,26 +353,19 @@ export bool constant_time_eq(
 	}
 #if defined(CONFLUX_STDSIMD)
 	constexpr std::size_t kStdsimdThreshold = 64;
-	if (a.size() < kStdsimdThreshold) {
-		unsigned char acc = 0;
-		for (std::size_t i = 0; i < a.size(); ++i) {
-			acc =
-				static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
-		}
-		return acc == 0;
+	if (a.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
+		return conflux_constant_time_eq_stdsimd(
+				   reinterpret_cast<unsigned char const *>(a.data()),
+				   reinterpret_cast<unsigned char const *>(b.data()),
+				   a.size())
+			!= 0;
 	}
-	return conflux_constant_time_eq_stdsimd(
-			   reinterpret_cast<unsigned char const *>(a.data()),
-			   reinterpret_cast<unsigned char const *>(b.data()),
-			   a.size())
-		!= 0;
-#else
+#endif
 	unsigned char acc = 0;
 	for (std::size_t i = 0; i < a.size(); ++i) {
 		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
 	}
 	return acc == 0;
-#endif
 }
 // ---------------------------------------------------------------------------
 // AES-256-GCM (NIST SP 800-38D)
@@ -379,7 +373,7 @@ export bool constant_time_eq(
 
 namespace {
 
-#if !defined(CONFLUX_CRYPTO_USE_AESNI)
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
 
 constexpr std::array<unsigned char, 256> kAesSbox{
 	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9,
@@ -421,7 +415,7 @@ constexpr std::uint32_t aes_rot_word(
 	std::uint32_t w) {
 	return (w << 8) | (w >> 24);
 }
-	#if !defined(CONFLUX_CRYPTO_USE_AESNI)
+	#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
 struct AesKey256 {
 	std::array<std::uint32_t, 60> rk{};
 };
@@ -560,17 +554,24 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
-	std::vector<unsigned char> out(plaintext.size() + 16);
-	conflux_aes_gcm_encrypt_aesni(
-		key.data(),
-		iv.data(),
-		plaintext.data(),
-		plaintext.size(),
-		aad.data(),
-		aad.size(),
-		out.data());
-	return out;
-#else
+	#if CONFLUX_ENABLE_CPU_DISPATCH
+	if (conflux_cpu_supports_aesni_pclmul_sse41())
+	#endif
+	{
+		std::vector<unsigned char> out(plaintext.size() + 16);
+		conflux_aes_gcm_encrypt_aesni(
+			key.data(),
+			iv.data(),
+			plaintext.data(),
+			plaintext.size(),
+			aad.data(),
+			aad.size(),
+			out.data());
+		return out;
+	}
+#endif
+
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
 	auto const ek = aes256_expand_key(key);
 
 	std::array<unsigned char, 16> h_in{};
@@ -624,6 +625,8 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	out.insert(out.end(), ct.begin(), ct.end());
 	out.insert(out.end(), tag.begin(), tag.end());
 	return out;
+#else
+	return std::unexpected(std::string{"aes_gcm_encrypt: AES-NI path selected without CPU dispatch fallback"});
 #endif
 }
 export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
@@ -642,21 +645,28 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
-	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
-	std::vector<unsigned char> pt(ct_len);
-	int const rc = conflux_aes_gcm_decrypt_aesni(
-		key.data(),
-		iv.data(),
-		ciphertext_and_tag.data(),
-		ciphertext_and_tag.size(),
-		aad.data(),
-		aad.size(),
-		pt.data());
-	if (rc != 0) {
-		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+	#if CONFLUX_ENABLE_CPU_DISPATCH
+	if (conflux_cpu_supports_aesni_pclmul_sse41())
+	#endif
+	{
+		std::size_t const ct_len = ciphertext_and_tag.size() - 16;
+		std::vector<unsigned char> pt(ct_len);
+		int const rc = conflux_aes_gcm_decrypt_aesni(
+			key.data(),
+			iv.data(),
+			ciphertext_and_tag.data(),
+			ciphertext_and_tag.size(),
+			aad.data(),
+			aad.size(),
+			pt.data());
+		if (rc != 0) {
+			return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+		}
+		return pt;
 	}
-	return pt;
-#else
+#endif
+
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
 	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
 	auto const ct = ciphertext_and_tag.subspan(0, ct_len);
 	auto const claimed_tag = ciphertext_and_tag.subspan(ct_len, 16);
@@ -720,5 +730,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 		}
 	}
 	return pt;
+#else
+	return std::unexpected(std::string{"aes_gcm_decrypt: AES-NI path selected without CPU dispatch fallback"});
 #endif
 }

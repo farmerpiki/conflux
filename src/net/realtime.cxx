@@ -7,6 +7,7 @@ module;
 #if CONFLUX_HAS_TLS
 	#include <openssl/ssl.h>
 #endif
+#include "cpu_features.hxx"
 #include "simd_backend.hxx"
 
 export module conflux.net.http.realtime;
@@ -650,7 +651,7 @@ public:
 			consume(static_cast<std::size_t>(plen));
 #if defined(CONFLUX_STDSIMD)
 			constexpr std::size_t kStdsimdThreshold = 32;
-			if (payload.size() >= kStdsimdThreshold) {
+			if (payload.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 				conflux_ws_unmask_stdsimd(
 					reinterpret_cast<unsigned char *>(payload.data()),
 					payload.size(),

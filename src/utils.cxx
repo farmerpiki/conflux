@@ -13,6 +13,7 @@ extern "C" {
 void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *out);
 }
 #endif
+#include "cpu_features.hxx"
 #include "simd_backend.hxx"
 export module conflux.utils;
 import std;
@@ -247,7 +248,7 @@ std::size_t scan_url_plain_run_(
 	bool plus_is_special) noexcept {
 #if defined(CONFLUX_STDSIMD)
 	constexpr std::size_t kStdsimdThreshold = 24;
-	if (n >= kStdsimdThreshold) {
+	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
 	}
 #endif
@@ -464,7 +465,7 @@ export void ascii_lower_inplace(
 	std::span<char> s) noexcept {
 #if defined(CONFLUX_STDSIMD)
 	constexpr std::size_t kStdsimdThreshold = 32;
-	if (s.size() >= kStdsimdThreshold) {
+	if (s.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
 		return;
 	}
