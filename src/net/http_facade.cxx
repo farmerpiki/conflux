@@ -92,7 +92,7 @@ template<typename F>
 	auto path_string = path.string();
 	auto body = blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
 	if (!body) {
-		auto const err = body.error().error_value();
+		auto const err = error_number(body);
 		if (err == ENOENT || err == ENOTDIR) {
 			return Response::not_found(path.string());
 		}

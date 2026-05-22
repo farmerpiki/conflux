@@ -56,8 +56,14 @@ export struct IoError final : std::system_error {
 		std::string const &what)
 		: std::system_error{err, std::generic_category(), what} {}
 
-	[[nodiscard]] int error_value() const noexcept { return code().value(); }
+	[[nodiscard]] int error_number() const noexcept { return code().value(); }
 };
+
+export template<typename T>
+[[nodiscard]] int error_number(
+	std::expected<T, IoError> const &result) noexcept {
+	return result.error().error_number();
+}
 
 export namespace conflux {
 

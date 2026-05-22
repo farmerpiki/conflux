@@ -36,7 +36,7 @@ int contained_static_open(
 		if (opened) {
 			return opened->release();
 		}
-		errno = opened.error().error_value();
+		errno = error_number(opened);
 		return -1;
 	}
 
@@ -392,7 +392,7 @@ Response handle_static_delete(
 					try {
 						auto unlinked = blocking_unlink_file_at(rfd, rel);
 						if (!unlinked) {
-							auto const err = unlinked.error().error_value();
+							auto const err = error_number(unlinked);
 							dr->complete(err == ENOENT ? Response::not_found(full_path) : Response::internal_error());
 							return;
 						}
@@ -408,7 +408,7 @@ Response handle_static_delete(
 
 		auto unlinked = blocking_unlink_file_at(root_fd, rel);
 		if (!unlinked) {
-			auto const err = unlinked.error().error_value();
+			auto const err = error_number(unlinked);
 			return err == ENOENT ? Response::not_found(*norm) : Response::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
