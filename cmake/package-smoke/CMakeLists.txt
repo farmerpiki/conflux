@@ -79,6 +79,10 @@ foreach(_component IN LISTS conflux_AVAILABLE_COMPONENTS)
 endforeach()
 
 foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS)
+    if(_component IN_LIST conflux_AVAILABLE_COMPONENTS)
+        message(FATAL_ERROR
+            "conflux package smoke found forbidden available component '${_component}'")
+    endif()
     if(_component IN_LIST conflux_VISIBLE_COMPONENTS)
         message(FATAL_ERROR
             "conflux package smoke found forbidden visible component '${_component}'")
@@ -303,6 +307,7 @@ int main() { return 0; }
 ]])
             else()
                 conflux_add_component_smoke(db db [[
+#include <conflux/db.hpp>
 #include <conflux/pg/types.hxx>
 int main() { return 0; }
 ]])
