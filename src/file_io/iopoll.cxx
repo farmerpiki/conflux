@@ -122,7 +122,7 @@ public:
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		io_uring_prep_read_fixed(
 			sqe,
-			sqe_fd_value(fh),
+			fh.sqe_fd_value(),
 			holder->view().data(),
 			static_cast<unsigned>(aligned_bytes),
 			offset,

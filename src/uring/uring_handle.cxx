@@ -32,30 +32,16 @@ export struct RingFd {
 	}
 	[[nodiscard]] constexpr int as_fd() const noexcept { return sqe_fd_value(); }
 };
-export using FileDescriptor = RingFd;
-export using FixedFileSlot = conflux::uring::DirectSlot;
-export using DirectFd = FixedFileSlot;
-
 export template<typename T>
 concept RingFdLike = requires(T const &fd) {
 	{ fd.sqe_fd_value() } -> std::convertible_to<int>;
 	{ fd.sqe_fd_flags() } -> std::same_as<conflux::uring::SqeFlags>;
 };
 
-export [[nodiscard]] constexpr int sqe_fd_value(
-	RingFdLike auto const &fd) noexcept {
-	return fd.sqe_fd_value();
-}
-
-export [[nodiscard]] constexpr conflux::uring::SqeFlags sqe_fd_flags(
-	RingFdLike auto const &fd) noexcept {
-	return fd.sqe_fd_flags();
-}
-
 export inline void apply_sqe_fd_flags(
 	io_uring_sqe *sqe,
 	RingFdLike auto const &fd) noexcept {
-	sqe->flags = static_cast<decltype(sqe->flags)>(sqe->flags | sqe_fd_flags(fd).raw());
+	sqe->flags = static_cast<decltype(sqe->flags)>(sqe->flags | fd.sqe_fd_flags().raw());
 }
 
 export class IoHandle {
