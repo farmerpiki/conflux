@@ -182,7 +182,75 @@ public:
 		map_.clear();
 	}
 
+	[[nodiscard]] Value *insert_or_assign(
+		std::string_view key,
+		Value value) {
+		auto it = map_.find(key);
+		if (it != map_.end()) {
+			it->second.value = std::move(value);
+			order_.splice(order_.end(), order_, it->second.order_it);
+			return &it->second.value;
+		}
+
+		if (map_.size() >= max_) {
+			(void)evict_lru();
+		}
+
+		auto owned = std::string{key};
+		order_.push_back(owned);
+		auto [inserted, _] = map_.emplace(
+			std::move(owned),
+			Entry{
+				.value = std::move(value),
+				.order_it = std::prev(order_.end()),
+			});
+		return &inserted->second.value;
+	}
+
+	bool evict_lru() {
+		return evict_lru([](std::string_view, Value &) {});
+	}
+
+	template<class OnEvict>
+	bool evict_lru(
+		OnEvict &&on_evict) {
+		if (order_.empty()) {
+			return false;
+		}
+		auto it = map_.find(order_.front());
+		if (it == map_.end()) {
+			order_.pop_front();
+			return true;
+		}
+		std::invoke(std::forward<OnEvict>(on_evict), std::string_view{it->first}, it->second.value);
+		order_.erase(it->second.order_it);
+		map_.erase(it);
+		return true;
+	}
+
+	template<class Predicate>
+	std::size_t erase_if(
+		Predicate &&pred) {
+		std::size_t erased = 0;
+		for (auto it = order_.begin(); it != order_.end();) {
+			auto map_it = map_.find(*it);
+			if (map_it == map_.end()) {
+				it = order_.erase(it);
+				continue;
+			}
+			if (!std::invoke(pred, std::string_view{map_it->first}, map_it->second.value)) {
+				++it;
+				continue;
+			}
+			it = order_.erase(it);
+			map_.erase(map_it);
+			++erased;
+		}
+		return erased;
+	}
+
 	[[nodiscard]] std::size_t size() const noexcept { return map_.size(); }
+	[[nodiscard]] bool empty() const noexcept { return map_.empty(); }
 
 private:
 	std::size_t max_;

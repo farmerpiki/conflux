@@ -425,6 +425,41 @@ struct HttpTelemetry {
 	std::optional<std::string> decoded_encoding{};
 };
 
+// ─── request-target helpers ──────────────────────────────────────────────────
+
+struct PathQueryView {
+	std::string_view path{}; // without '?' and query
+	std::string_view query{}; // without leading '?'
+	std::string_view query_suffix{}; // including leading '?', empty when absent
+};
+
+[[nodiscard]] constexpr PathQueryView split_path_query(
+	std::string_view target) noexcept {
+	auto const qmark = target.find('?');
+	if (qmark == std::string_view::npos) {
+		return {.path = target};
+	}
+	return {.path = target.substr(0, qmark), .query = target.substr(qmark + 1), .query_suffix = target.substr(qmark)};
+}
+
+[[nodiscard]] constexpr std::string_view path_without_query(
+	std::string_view target) noexcept {
+	return split_path_query(target).path;
+}
+
+[[nodiscard]] constexpr std::string_view origin_form_path_from_target(
+	std::string_view target_without_query) noexcept {
+	if (target_without_query.starts_with("https://")) {
+		auto const slash = target_without_query.find('/', 8);
+		return (slash != std::string_view::npos) ? target_without_query.substr(slash) : std::string_view{"/"};
+	}
+	if (target_without_query.starts_with("http://")) {
+		auto const slash = target_without_query.find('/', 7);
+		return (slash != std::string_view::npos) ? target_without_query.substr(slash) : std::string_view{"/"};
+	}
+	return target_without_query;
+}
+
 // ─── URL ─────────────────────────────────────────────────────────────────────
 
 enum class UrlErrorKind : std::uint8_t {
@@ -600,20 +635,12 @@ std::expected<Url, UrlError> Url::parse(
 	if (authority_end == std::string_view::npos) {
 		url.path = "/";
 	} else {
-		auto const path_and_query = rest.substr(authority_end);
-		auto const qmark = path_and_query.find('?');
-		if (qmark == std::string_view::npos) {
-			url.path = std::string{path_and_query};
-			if (url.path.empty()) {
-				url.path = "/";
-			}
-		} else {
-			url.path = std::string{path_and_query.substr(0, qmark)};
-			if (url.path.empty()) {
-				url.path = "/";
-			}
-			url.query = std::string{path_and_query.substr(qmark + 1)};
+		auto const path_query = split_path_query(rest.substr(authority_end));
+		url.path = std::string{path_query.path};
+		if (url.path.empty()) {
+			url.path = "/";
 		}
+		url.query = std::string{path_query.query};
 	}
 
 	return url;

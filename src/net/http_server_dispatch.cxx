@@ -117,8 +117,9 @@ void dispatch_request(
 	auto const header_end = parsed.header_end_offset;
 
 	std::string_view const method = parsed.method;
-	std::string_view path = parsed.target;
-	std::string_view redirect_query;
+	auto const target = conflux::http::split_path_query(parsed.target);
+	std::string_view path = conflux::http::origin_form_path_from_target(target.path);
+	std::string_view const redirect_query = target.query_suffix;
 	std::string_view const version = parsed.version;
 	HttpFieldsView const params;
 	HttpFieldsView headers{true};
@@ -128,10 +129,8 @@ void dispatch_request(
 	std::vector<UploadedFile> files;
 	std::string_view body;
 
-	if (auto q = path.find('?'); q != std::string_view::npos) {
-		redirect_query = path.substr(q);
-		parse_urlencoded(path.substr(q + 1), query);
-		path = path.substr(0, q);
+	if (!target.query_suffix.empty()) {
+		parse_urlencoded(target.query, query);
 	}
 
 	headers.reserve(parsed.headers.size());
@@ -139,13 +138,6 @@ void dispatch_request(
 		headers.emplace_back(name, field_value);
 	}
 
-	if (path.starts_with("https://")) {
-		auto slash = path.find('/', 8);
-		path = (slash != std::string_view::npos) ? path.substr(slash) : std::string_view{"/"};
-	} else if (path.starts_with("http://")) {
-		auto slash = path.find('/', 7);
-		path = (slash != std::string_view::npos) ? path.substr(slash) : std::string_view{"/"};
-	}
 	std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
 	redirect_target += redirect_query;
 

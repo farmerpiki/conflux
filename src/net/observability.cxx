@@ -89,9 +89,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	bool include_query) {
 	std::string_view path{req.path};
 	if (!include_query) {
-		if (auto q = path.find('?'); q != std::string_view::npos) {
-			path = path.substr(0, q);
-		}
+		path = conflux::http::path_without_query(path);
 	}
 	return std::string{path};
 }

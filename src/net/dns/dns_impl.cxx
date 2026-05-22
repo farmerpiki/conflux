@@ -877,71 +877,43 @@ struct DnsCacheEntry {
 	std::chrono::steady_clock::time_point expires;
 };
 class LruDnsCache {
-	using List = std::list<std::pair<std::string, DnsCacheEntry>>;
-	size_t capacity_;
-	List order_;
-	std::unordered_map<std::string, List::iterator> index_;
+	conflux::support::StringLruMap<DnsCacheEntry> entries_;
 	mutable std::mutex mtx_;
 
 public:
 	explicit LruDnsCache(
 		size_t cap)
-		: capacity_{cap} {}
+		: entries_{std::max<size_t>(cap, 1)} {}
 	[[nodiscard]] std::optional<ResolveResult> get(
-		std::string const &key) {
+		std::string_view key) {
 		std::scoped_lock const lk{mtx_};
-		auto it = index_.find(key);
-		if (it == index_.end()) {
+		auto *entry = entries_.find(key);
+		if (entry == nullptr) {
 			return std::nullopt;
 		}
-		if (std::chrono::steady_clock::now() >= it->second->second.expires) {
-			order_.erase(it->second);
-			index_.erase(it);
+		if (std::chrono::steady_clock::now() >= entry->expires) {
+			(void)entries_.erase(key);
 			return std::nullopt;
 		}
-		order_.splice(order_.begin(), order_, it->second);
-		return it->second->second.result;
+		return entry->result;
 	}
 	void put(
-		std::string const &key,
+		std::string_view key,
 		ResolveResult result,
 		std::chrono::seconds ttl) {
 		auto const expires = std::chrono::steady_clock::now() + ttl;
 		std::scoped_lock const lk{mtx_};
-		auto it = index_.find(key);
-		if (it != index_.end()) {
-			it->second->second = {std::move(result), expires};
-			order_.splice(order_.begin(), order_, it->second);
-			return;
-		}
-		if (order_.size() >= capacity_) {
-			auto lru = std::prev(order_.end());
-			index_.erase(lru->first);
-			order_.erase(lru);
-		}
-		order_.push_front({
-			key,
-			{std::move(result), expires}
-        });
-		index_[key] = order_.begin();
+		(void)entries_.insert_or_assign(key, DnsCacheEntry{std::move(result), expires});
 	}
 	void invalidate_by_host(
 		std::string_view host) {
 		std::string const prefix = std::format("{}:", host);
 		std::scoped_lock const lk{mtx_};
-		for (auto it = order_.begin(); it != order_.end();) {
-			if (it->first.starts_with(prefix)) {
-				index_.erase(it->first);
-				it = order_.erase(it);
-			} else {
-				++it;
-			}
-		}
+		(void)entries_.erase_if([&](std::string_view key, DnsCacheEntry const &) { return key.starts_with(prefix); });
 	}
 	void clear() {
 		std::scoped_lock const lk{mtx_};
-		order_.clear();
-		index_.clear();
+		entries_.clear();
 	}
 };
 [[nodiscard]] std::string make_cache_key(

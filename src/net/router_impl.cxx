@@ -561,10 +561,7 @@ Router &Router::serve_static(
 	bool const is_head = (req.method == "HEAD");
 
 	// Strip query std::string before matching.
-	auto path_sv = std::string_view{req.path};
-	if (auto q = path_sv.find('?'); q != std::string_view::npos) {
-		path_sv = path_sv.substr(0, q);
-	}
+	auto const path_sv = conflux::http::path_without_query(std::string_view{req.path});
 
 	if (impl_->middlewares.empty()) {
 		return dispatch_router_sync(*impl_, req, path_sv, is_head);
@@ -582,10 +579,7 @@ Router &Router::serve_static(
 	Request const &req,
 	RequestContext const &ctx) const {
 	bool const is_head = (req.method == "HEAD");
-	std::string_view path_sv{req.path};
-	if (auto q = path_sv.find('?'); q != std::string_view::npos) {
-		path_sv = path_sv.substr(0, q);
-	}
+	std::string_view const path_sv = conflux::http::path_without_query(req.path);
 	if (!impl_->context_middlewares.empty()) {
 		ContextHandler inner =
 			[this, path_sv, is_head](Request const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {

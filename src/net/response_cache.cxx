@@ -34,56 +34,44 @@ public:
 		std::size_t max_entries,
 		std::size_t max_bytes)
 		: max_(max_entries)
-		, max_bytes_(max_bytes) {}
+		, max_bytes_(max_bytes)
+		, entries_(std::max<std::size_t>(max_entries, 1)) {}
 	// Returns pointer to cached entry (nullptr if absent or expired).
 	RespCacheEntry const *get(
-		std::string const &key) {
-		auto it = map_.find(key);
-		if (it == map_.end()) {
+		std::string_view key) {
+		auto *entry = entries_.find(key);
+		if (entry == nullptr) {
 			return nullptr;
 		}
-		if (std::chrono::steady_clock::now() >= it->second.expires) {
-			total_bytes_ -= it->second.resp.text_body().size();
-			order_.erase(iters_.at(key));
-			iters_.erase(key);
-			map_.erase(it);
-			return nullptr;
+		if (std::chrono::steady_clock::now() < entry->expires) {
+			return entry;
 		}
-		// Move to front (MRU) in O(1).
-		order_.erase(iters_.at(key));
-		order_.push_front(key);
-		iters_[key] = order_.begin();
-		return &it->second;
+		total_bytes_ -= entry->resp.text_body().size();
+		(void)entries_.erase(key);
+		return nullptr;
 	}
 	void put(
-		std::string const &key,
+		std::string_view key,
 		RespCacheEntry entry) {
+		if (max_ == 0) {
+			return;
+		}
 		std::size_t const entry_bytes = entry.resp.text_body().size();
 		if (max_bytes_ > 0 && entry_bytes > max_bytes_) {
 			return;
 		}
-		auto it = map_.find(key);
-		if (it != map_.end()) {
-			total_bytes_ -= it->second.resp.text_body().size();
-			map_.erase(it);
-			order_.erase(iters_.at(key));
-			iters_.erase(key);
-			// Fall through to eviction+insertion path below.
+		if (auto *existing = entries_.find(key); existing != nullptr) {
+			total_bytes_ -= existing->resp.text_body().size();
+			(void)entries_.erase(key);
 		}
-		while ((max_bytes_ > 0 && total_bytes_ + entry_bytes > max_bytes_) || map_.size() >= max_) {
-			if (order_.empty()) {
+		while ((max_bytes_ > 0 && total_bytes_ + entry_bytes > max_bytes_) || entries_.size() >= max_) {
+			if (!entries_.evict_lru(
+					[this](std::string_view, RespCacheEntry &old) { total_bytes_ -= old.resp.text_body().size(); })) {
 				return;
 			}
-			auto const &lru = order_.back();
-			total_bytes_ -= map_.at(lru).resp.text_body().size();
-			map_.erase(lru);
-			iters_.erase(lru);
-			order_.pop_back();
 		}
 		total_bytes_ += entry_bytes;
-		order_.push_front(key);
-		iters_.emplace(key, order_.begin());
-		map_.emplace(key, std::move(entry));
+		(void)entries_.insert_or_assign(key, std::move(entry));
 	}
 	[[nodiscard]] std::vector<std::string> const *vary_for(
 		std::string_view path) const {
@@ -100,9 +88,7 @@ private:
 	std::size_t max_;
 	std::size_t max_bytes_;
 	std::size_t total_bytes_{0};
-	std::list<std::string> order_;
-	std::unordered_map<std::string, std::list<std::string>::iterator> iters_;
-	std::unordered_map<std::string, RespCacheEntry> map_;
+	conflux::support::StringLruMap<RespCacheEntry> entries_;
 	conflux::support::TransparentStringMap<std::vector<std::string>> path_vary_;
 };
 namespace response_cache_detail {

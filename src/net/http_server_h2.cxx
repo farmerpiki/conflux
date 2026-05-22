@@ -439,7 +439,8 @@ int Ring::h2_on_frame_recv_cb(
 	}
 
 	std::string_view const method = stream.method;
-	std::string_view path = stream.path;
+	auto const target = conflux::http::split_path_query(stream.path);
+	std::string_view const path = target.path;
 	std::string_view const version = "HTTP/2";
 	std::string_view const body = stream.body;
 	HttpFieldsView const params;
@@ -447,9 +448,8 @@ int Ring::h2_on_frame_recv_cb(
 	HttpFieldsView form;
 	HttpFieldsView cookies;
 	std::vector<UploadedFile> files;
-	if (auto q = path.find('?'); q != std::string_view::npos) {
-		parse_urlencoded(path.substr(q + 1), query);
-		path = path.substr(0, q);
+	if (!target.query_suffix.empty()) {
+		parse_urlencoded(target.query, query);
 	}
 	if (stream.headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
 		parse_urlencoded(body, form);

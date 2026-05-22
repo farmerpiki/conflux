@@ -105,76 +105,10 @@ struct TlsStreamRef {
 	}
 };
 #endif
-[[nodiscard]] bool is_redirect_status(
-	int status) noexcept {
-	return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
-}
-[[nodiscard]] bool same_origin(
-	Url const &a,
-	Url const &b) noexcept {
-	return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
-}
-[[nodiscard]] std::optional<Url> resolve_redirect_target(
-	Url const &base,
-	std::string_view location) {
-	if (location.empty() || location.find_first_of("\r\n") != std::string_view::npos) {
-		return std::nullopt;
-	}
-	std::string loc{location};
-	auto const frag = loc.find('#');
-	if (frag != std::string::npos) {
-		loc.erase(frag);
-	}
-	if (loc.empty()) {
-		return std::nullopt;
-	}
-	if (loc.starts_with("//")) {
-		std::string abs_url;
-		abs_url.reserve(base.scheme.size() + 1 + loc.size());
-		abs_url += base.scheme;
-		abs_url += ':';
-		abs_url += loc;
-		auto abs = Url::parse(abs_url);
-		return abs ? std::optional<Url>{std::move(*abs)} : std::nullopt;
-	}
-	if (auto abs = Url::parse(loc); abs) {
-		return std::move(*abs);
-	}
-	Url next = base;
-	auto const q = loc.find('?');
-	if (q != std::string::npos) {
-		next.query = loc.substr(q + 1);
-		loc.erase(q);
-		if (loc.empty()) {
-			return next;
-		}
-	} else {
-		next.query.clear();
-	}
-	if (loc.starts_with('/')) {
-		next.path = std::move(loc);
-		return next;
-	}
-	std::string_view const base_path = next.path.empty() ? std::string_view{"/"} : std::string_view{next.path};
-	auto const slash = base_path.rfind('/');
-	if (slash == std::string_view::npos) {
-		next.path.clear();
-		next.path.reserve(1 + loc.size());
-		next.path.push_back('/');
-		next.path += loc;
-	} else {
-		std::string new_path;
-		new_path.reserve(slash + 1 + loc.size());
-		new_path.append(base_path.data(), slash + 1);
-		new_path += loc;
-		next.path = std::move(new_path);
-	}
-	return next;
-}
 [[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
-	if (!is_redirect_status(resp.head.status)) {
+	if (!client_wire::is_redirect_status(resp.head.status)) {
 		return std::nullopt;
 	}
 	auto const location = resp.head.headers["location"];
@@ -184,11 +118,11 @@ struct TlsStreamRef {
 	if (req.max_redirects() <= 0) {
 		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
 	}
-	auto next_url = resolve_redirect_target(req.url(), location);
+	auto next_url = client_wire::resolve_redirect_target(req.url(), location);
 	if (!next_url) {
 		return std::nullopt;
 	}
-	bool const cross_origin = !same_origin(req.url(), *next_url);
+	bool const cross_origin = !client_wire::same_origin(req.url(), *next_url);
 	HttpFields next_headers{req.headers().case_insensitive()};
 	next_headers.clear();
 	for (auto const &[k, v]: req.headers()) {
@@ -216,89 +150,7 @@ struct TlsStreamRef {
 	builder.follow_redirects(req.max_redirects() - 1);
 	return std::move(builder).build();
 }
-void accumulate_telemetry(
-	HttpTelemetry &total,
-	HttpTelemetry const &hop) {
-	total.dns += hop.dns;
-	total.connect += hop.connect;
-	total.tls += hop.tls;
-	total.ttfb += hop.ttfb;
-	total.body += hop.body;
-	if (hop.pool_wait) {
-		total.pool_wait = total.pool_wait ? *total.pool_wait + *hop.pool_wait : hop.pool_wait;
-	}
-	total.bytes_sent += hop.bytes_sent;
-	total.bytes_received += hop.bytes_received;
-	total.reused_connection = total.reused_connection || hop.reused_connection;
-	if (!hop.negotiated_protocol.empty()) {
-		total.negotiated_protocol = hop.negotiated_protocol;
-	}
-	if (!hop.tls_cipher.empty()) {
-		total.tls_cipher = hop.tls_cipher;
-	}
-	if (!hop.tls_version.empty()) {
-		total.tls_version = hop.tls_version;
-	}
-	total.tls_verified = total.tls_verified || hop.tls_verified;
-	if (!hop.peer_addr.empty()) {
-		total.peer_addr = hop.peer_addr;
-	}
-	if (hop.decoded_encoding) {
-		total.decoded_encoding = hop.decoded_encoding;
-	}
-}
 
-enum class ChunkedDecodeStatus : std::uint8_t {
-	complete,
-	incomplete,
-	invalid,
-};
-ChunkedDecodeStatus decode_chunked_prefix(
-	std::string_view encoded,
-	std::string &decoded,
-	std::size_t &consumed) {
-	for (;;) {
-		auto const line_end = encoded.find("\r\n", consumed);
-		if (line_end == std::string_view::npos) {
-			return ChunkedDecodeStatus::incomplete;
-		}
-		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
-		if (auto const semi = size_str.find(';'); semi != std::string_view::npos) {
-			size_str = trim(size_str.substr(0, semi));
-		}
-		if (size_str.empty()) {
-			return ChunkedDecodeStatus::invalid;
-		}
-		std::size_t chunk_size = 0;
-		auto const parsed = std::from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
-		if (parsed.ec != std::errc{} || parsed.ptr != size_str.data() + size_str.size()) {
-			return ChunkedDecodeStatus::invalid;
-		}
-		consumed = line_end + 2;
-		if (chunk_size == 0) {
-			for (;;) {
-				auto const eol = encoded.find("\r\n", consumed);
-				if (eol == std::string_view::npos) {
-					return ChunkedDecodeStatus::incomplete;
-				}
-				bool const empty = (eol == consumed);
-				consumed = eol + 2;
-				if (empty) {
-					return ChunkedDecodeStatus::complete;
-				}
-			}
-		}
-		if (encoded.size() < consumed + chunk_size + 2) {
-			return ChunkedDecodeStatus::incomplete;
-		}
-		decoded.append(encoded.substr(consumed, chunk_size));
-		consumed += chunk_size;
-		if (encoded.substr(consumed, 2) != "\r\n") {
-			return ChunkedDecodeStatus::invalid;
-		}
-		consumed += 2;
-	}
-}
 template<typename T>
 wroot::Task<std::string> async_recv_until(
 	T &t,
@@ -399,11 +251,11 @@ wroot::Task<bool> async_recv_chunked(
 	std::size_t consumed = 0;
 	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
-		auto const st = decode_chunked_prefix(encoded, decoded, consumed);
-		if (st == ChunkedDecodeStatus::complete) {
+		auto const st = client_wire::decode_chunked_prefix(encoded, decoded, consumed);
+		if (st == client_wire::ChunkedDecodeStatus::complete) {
 			co_return true;
 		}
-		if (st == ChunkedDecodeStatus::invalid) {
+		if (st == client_wire::ChunkedDecodeStatus::invalid) {
 			co_return false;
 		}
 		if (decoded.size() > cap || encoded.size() > buf_cap) {
@@ -993,7 +845,7 @@ wroot::Task<void> run_async_request_driver(
 				auto _ = src->try_set_value(wroot::Success<ClientResult>{std::move(result)});
 				break;
 			}
-			accumulate_telemetry(total_tel, result->telemetry);
+			client_wire::accumulate_telemetry(total_tel, result->telemetry);
 			auto next = follow_redirect(current, *result);
 			if (!next) {
 				auto _ = src->try_set_value(wroot::Success<ClientResult>{std::unexpected(next.error())});
