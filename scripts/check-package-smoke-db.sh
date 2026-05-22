@@ -13,7 +13,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-db/build" \
     --prefix "${TMPDIR:-/tmp}/conflux-package-smoke-db/prefix" \
     --smoke-build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-db/smoke" \
-    --components 'core;json;db' \
+    --components 'core;json;db;pg' \
     --feature-set complete \
     --interface-mode HEADER_INTERFACE \
     --enable-db-smoke \
