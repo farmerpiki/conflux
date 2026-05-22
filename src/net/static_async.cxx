@@ -31,21 +31,44 @@ int contained_static_open(
 	int flags,
 	mode_t mode = 0) noexcept {
 	std::string_view rel{relative == nullptr ? "" : relative};
-	if (!rel.empty() && rel != ".") {
-		auto opened = blocking_openat_contained(root_fd, rel, flags, mode);
-		if (opened) {
-			return opened->release();
-		}
-		errno = errnum(opened);
-		return -1;
-	}
+	char const *path = rel.empty() ? "." : relative;
 
 	open_how how{};
 	how.flags = static_cast<__u64>(flags | O_CLOEXEC);
 	how.mode = static_cast<__u64>(mode);
 	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-	return static_cast<int>(::syscall(SYS_openat2, root_fd, ".", &how, sizeof(how)));
+	return static_cast<int>(::syscall(SYS_openat2, root_fd, path, &how, sizeof(how)));
 }
+
+struct StaticDir {
+	DIR *dir{};
+	StaticDir() noexcept = default;
+	explicit StaticDir(
+		DIR *d) noexcept
+		: dir{d} {}
+	StaticDir(StaticDir const &) = delete;
+	StaticDir &operator =(StaticDir const &) = delete;
+	StaticDir(
+		StaticDir &&o) noexcept
+		: dir{std::exchange(o.dir, nullptr)} {}
+	StaticDir &operator =(
+		StaticDir &&o) noexcept {
+		if (this != &o) {
+			reset();
+			dir = std::exchange(o.dir, nullptr);
+		}
+		return *this;
+	}
+	~StaticDir() noexcept { reset(); }
+	void reset() noexcept {
+		if (dir != nullptr) {
+			::closedir(dir);
+			dir = nullptr;
+		}
+	}
+	[[nodiscard]] DIR *get() const noexcept { return dir; }
+	[[nodiscard]] explicit operator bool() const noexcept { return dir != nullptr; }
+};
 
 void append_static_html_escape(
 	std::string &out,
@@ -300,11 +323,9 @@ Response handle_static_put(
 		}
 		std::string rel{rel_sv};
 
-		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
-		bool const existed = probe >= 0;
-		if (probe >= 0) {
-			::close(probe);
-		}
+		UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
+		bool const existed = probe.valid();
+		probe.reset();
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto body_owned = std::make_shared<std::string>(req.body);
@@ -371,11 +392,11 @@ Response handle_static_delete(
 		}
 		std::string rel{rel_sv};
 
-		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
-		if (probe < 0) {
+		UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
+		if (!probe) {
 			return errno == ENOENT ? Response::not_found(*norm) : Response::forbidden();
 		}
-		::close(probe);
+		probe.reset();
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto dr = std::make_shared<DeferredResponse>();
@@ -432,44 +453,45 @@ Response handle_static_get(
 		std::string rel_str{rel_path};
 
 		struct ::stat st{};
-		int const probe_fd = rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
-											   contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
-		if (probe_fd < 0) {
+		UniqueFd probe_fd{
+			rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
+							  contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC)};
+		if (!probe_fd) {
 			return Response::not_found(file_param);
 		}
-		if (::fstat(probe_fd, &st) != 0) {
-			::close(probe_fd);
+		if (::fstat(probe_fd.fd(), &st) != 0) {
 			return Response::not_found(file_param);
 		}
-		::close(probe_fd);
+		probe_fd.reset();
 
 		if (S_ISDIR(st.st_mode)) {
 			auto index_rel = rel_str.empty() ? std::string{"index.html"} : rel_str + "/index.html";
-			int const idx_fd = contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC);
-			if (idx_fd >= 0) {
-				::fstat(idx_fd, &st);
-				::close(idx_fd);
+			UniqueFd idx_fd{contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
+			if (idx_fd) {
+				::fstat(idx_fd.fd(), &st);
+				idx_fd.reset();
 				full_path = rd + "/" + index_rel;
 				file_param += "/index.html";
 				rel_str = index_rel;
 			} else if (static_options.directory_listing) {
-				int const dfd = rel_str.empty() ?
-									contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
-									contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-				if (dfd < 0) {
+				UniqueFd dfd{
+					rel_str.empty() ?
+						contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
+						contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
+				if (!dfd) {
 					return Response::html(
 						"<html><body><h1>403 Forbidden</h1></body></html>",
 						kHttpForbidden,
 						"Forbidden");
 				}
-				auto *dir = ::fdopendir(dfd);
-				if (dir == nullptr) {
-					::close(dfd);
+				StaticDir dir{::fdopendir(dfd.fd())};
+				if (!dir) {
 					return Response::html(
 						"<html><body><h1>403 Forbidden</h1></body></html>",
 						kHttpForbidden,
 						"Forbidden");
 				}
+				(void)dfd.release();
 				std::string html;
 				html.reserve(128 + file_param.size() * 2);
 				html += "<html><head><title>Index of ";
@@ -482,7 +504,7 @@ Response handle_static_get(
 				}
 				struct ::dirent *ent{};
 				std::vector<std::string> names;
-				while ((ent = ::readdir(dir)) != nullptr) {
+				while ((ent = ::readdir(dir.get())) != nullptr) {
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 					std::string_view const n{ent->d_name};
 					if (n == "." || n == "..") {
@@ -490,7 +512,6 @@ Response handle_static_get(
 					}
 					names.emplace_back(n);
 				}
-				::closedir(dir);
 				std::ranges::sort(names);
 				for (auto const &name: names) {
 					html += "<li><a href=\"";
@@ -512,30 +533,28 @@ Response handle_static_get(
 			auto const accepted = parse_static_accept_encoding(r.accept_encoding);
 			if (accepted.br) {
 				auto br_rel = rel_str + ".br";
-				int const br_fd = contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
-				if (br_fd >= 0) {
+				UniqueFd br_fd{contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC)};
+				if (br_fd) {
 					struct ::stat br_st{};
-					if (::fstat(br_fd, &br_st) == 0) {
+					if (::fstat(br_fd.fd(), &br_st) == 0) {
 						full_path = rd + "/" + br_rel;
 						st = br_st;
 						content_encoding = "br";
 						rel_str = br_rel;
 					}
-					::close(br_fd);
 				}
 			}
 			if (content_encoding.empty() && accepted.gzip) {
 				auto gz_rel = rel_str + ".gz";
-				int const gz_fd = contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
-				if (gz_fd >= 0) {
+				UniqueFd gz_fd{contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC)};
+				if (gz_fd) {
 					struct ::stat gz_st{};
-					if (::fstat(gz_fd, &gz_st) == 0) {
+					if (::fstat(gz_fd.fd(), &gz_st) == 0) {
 						full_path = rd + "/" + gz_rel;
 						st = gz_st;
 						content_encoding = "gzip";
 						rel_str = gz_rel;
 					}
-					::close(gz_fd);
 				}
 			}
 		}
@@ -781,19 +800,18 @@ Response handle_static_get(
 					})) {
 				return std::move(*cached);
 			}
-			int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
-			if (fd < 0) {
+			UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
+			if (!fd) {
 				return Response::not_found(file_param);
 			}
 			std::string body(file_size, '\0');
 			std::size_t off = 0;
 			while (off < body.size()) {
-				ssize_t const n = ::read(fd, body.data() + off, body.size() - off);
+				ssize_t const n = ::read(fd.fd(), body.data() + off, body.size() - off);
 				if (n < 0) {
 					if (errno == EINTR) {
 						continue;
 					}
-					::close(fd);
 					return Response::internal_error();
 				}
 				if (n == 0) {
@@ -801,7 +819,6 @@ Response handle_static_get(
 				}
 				off += static_cast<std::size_t>(n);
 			}
-			::close(fd);
 			if (off != body.size()) {
 				body.resize(off);
 			}
