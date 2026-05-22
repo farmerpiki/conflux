@@ -198,6 +198,8 @@ STD_SAFETY_NET_HEADERS = {
     "condition_variable",
     "numeric",
     "deque",
+    "map",
+    "unordered_map",
     "unordered_set",
     "source_location",
     "memory",

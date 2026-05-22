@@ -14,6 +14,9 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+#endif
 export struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
 	std::string log_file;
@@ -25,10 +28,16 @@ export struct StructuredLogOptions {
 };
 namespace structured_log_detail {
 
-std::string json_escape(
+std::string json_string(
 	std::string_view s) {
-	std::string out;
-	out.reserve(s.size() + 4);
+#if CONFLUX_HAS_JSON
+	auto dumped = dump_direct(s);
+	if (dumped) {
+		return std::move(*dumped);
+	}
+#endif
+	std::string out = "\"";
+	out.reserve(s.size() + 6);
 	for (char const raw: s) {
 		auto c = static_cast<unsigned char>(raw);
 		if (c == '"') {
@@ -47,6 +56,7 @@ std::string json_escape(
 			out += static_cast<char>(c);
 		}
 	}
+	out += '"';
 	return out;
 }
 
@@ -154,16 +164,16 @@ export Router::Middleware structured_log_middleware(
 			tm_val.tm_sec);
 
 		auto line = std::format(
-			R"({{"ts":"{}","method":"{}","path":"{}","status":{},"bytes":{},"elapsed_ms":{},"remote":"{}"{}}})",
-			ts,
-			structured_log_detail::json_escape(req.method),
-			structured_log_detail::json_escape(req.path),
+			R"({{"ts":{},"method":{},"path":{},"status":{},"bytes":{},"elapsed_ms":{},"remote":{}{}}})",
+			structured_log_detail::json_string(ts),
+			structured_log_detail::json_string(req.method),
+			structured_log_detail::json_string(req.path),
 			resp.status,
 			resp.content_length(),
 			ms,
-			structured_log_detail::json_escape(req.remote_addr),
+			structured_log_detail::json_string(req.remote_addr),
 			app_name.empty() ? std::string{} :
-							   std::format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
+							   std::format(R"(,"app":{})", structured_log_detail::json_string(app_name)));
 		sink->write(line);
 		return resp;
 	};

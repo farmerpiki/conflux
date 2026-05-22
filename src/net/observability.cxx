@@ -11,6 +11,9 @@ import conflux.net.request_id;
 import conflux.net.tracing;
 import conflux.utils;
 import conflux.work;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+#endif
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
 #endif
@@ -108,10 +111,16 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	return std::string{kUnmatchedRoute};
 }
 
-[[nodiscard]] std::string json_escape(
+[[nodiscard]] std::string json_string(
 	std::string_view s) {
-	std::string out;
-	out.reserve(s.size() + 4);
+#if CONFLUX_HAS_JSON
+	auto dumped = dump_direct(s);
+	if (dumped) {
+		return std::move(*dumped);
+	}
+#endif
+	std::string out = "\"";
+	out.reserve(s.size() + 6);
 	for (char const raw: s) {
 		auto c = static_cast<unsigned char>(raw);
 		if (c == '"') {
@@ -130,7 +139,17 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 			out += static_cast<char>(c);
 		}
 	}
+	out += '"';
 	return out;
+}
+
+[[nodiscard]] std::string json_string_contents(
+	std::string_view value) {
+	auto quoted = json_string(value);
+	if (quoted.size() < 2) {
+		return {};
+	}
+	return quoted.substr(1, quoted.size() - 2);
 }
 
 [[nodiscard]] std::vector<std::string> sensitive_headers(
@@ -175,7 +194,7 @@ void append_headers_json(
 		}
 		first = false;
 		auto const logged = (redact && is_sensitive(sensitive, name)) ? kRedacted : value;
-		out += std::format(R"("{}":"{}")", json_escape(name), json_escape(logged));
+		out += std::format(R"({}:{})", json_string(name), json_string(logged));
 	}
 	out += '}';
 }
@@ -191,20 +210,20 @@ void append_headers_json(
 	auto const traceparent = req.header("traceparent");
 	auto const ms = std::chrono::duration<double, std::milli>(elapsed).count();
 	std::string line = std::format(
-		R"({{"event":"http_request","service":"{}","request_id":"{}","trace_id":"{}","method":"{}","path":"{}","route":"{}","status":{},"status_class":"{}","duration_ms":{},"bytes_in":{},"bytes_out":{},"remote_addr":"{}","user_agent":"{}","rejection_reason":null}})",
-		json_escape(opts.service_name),
-		json_escape(request_id),
-		json_escape(traceparent),
-		json_escape(upper_method(req.method)),
-		json_escape(path_without_query(req, opts.log_query_string)),
-		json_escape(route),
+		R"({{"event":"http_request","service":{},"request_id":{},"trace_id":{},"method":{},"path":{},"route":{},"status":{},"status_class":{},"duration_ms":{},"bytes_in":{},"bytes_out":{},"remote_addr":{},"user_agent":{},"rejection_reason":null}})",
+		json_string(opts.service_name),
+		json_string(request_id),
+		json_string(traceparent),
+		json_string(upper_method(req.method)),
+		json_string(path_without_query(req, opts.log_query_string)),
+		json_string(route),
 		resp.status,
-		status_class(resp.status),
+		json_string(status_class(resp.status)),
 		ms,
 		req.body.size(),
 		resp.content_length(),
-		json_escape(req.remote_addr),
-		json_escape(req.header("user-agent")));
+		json_string(req.remote_addr),
+		json_string(req.header("user-agent")));
 	line.pop_back();
 	if (opts.log_request_headers) {
 		append_headers_json(line, "request_headers", req.headers, sensitive, opts.redact_sensitive_headers);
@@ -302,27 +321,27 @@ void append_work_pool_metrics(
 		out += std::format(
 			R"(work_pool_queue_depth{{pool="{}"}} {})"
 			"\n",
-			json_escape(name),
+			json_string_contents(name),
 			pending);
 		out += std::format(
 			R"(work_pool_running{{pool="{}"}} {})"
 			"\n",
-			json_escape(name),
+			json_string_contents(name),
 			0);
 		out += std::format(
 			R"(work_pool_rejected_total{{pool="{}",reason="stopped"}} {})"
 			"\n",
-			json_escape(name),
+			json_string_contents(name),
 			stats.enqueue_stopped_rejections);
 		out += std::format(
 			R"(work_pool_rejected_total{{pool="{}",reason="full"}} {})"
 			"\n",
-			json_escape(name),
+			json_string_contents(name),
 			stats.enqueue_full_rejections);
 		out += std::format(
 			R"(work_pool_completed_total{{pool="{}"}} {})"
 			"\n",
-			json_escape(name),
+			json_string_contents(name),
 			stats.jobs_run);
 	}
 }
@@ -469,11 +488,11 @@ struct ObservabilityRegistry {
 			out += std::format(
 				R"(http_requests_total{{service="{}",route="{}",method="{}",status_class="{}",status="{}"}} {})"
 				"\n",
-				key.service,
-				key.route,
-				key.method,
-				key.status_class,
-				key.status,
+				json_string_contents(key.service),
+				json_string_contents(key.route),
+				json_string_contents(key.method),
+				json_string_contents(key.status_class),
+				json_string_contents(key.status),
 				value);
 		}
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
@@ -483,32 +502,32 @@ struct ObservabilityRegistry {
 				out += std::format(
 					R"(http_request_duration_seconds_bucket{{service="{}",route="{}",method="{}",le="{}"}} {})"
 					"\n",
-					key.service,
-					key.route,
-					key.method,
+					json_string_contents(key.service),
+					json_string_contents(key.route),
+					json_string_contents(key.method),
 					duration.buckets[i],
 					duration.bucket_counts[i]);
 			}
 			out += std::format(
 				R"(http_request_duration_seconds_bucket{{service="{}",route="{}",method="{}",le="+Inf"}} {})"
 				"\n",
-				key.service,
-				key.route,
-				key.method,
+				json_string_contents(key.service),
+				json_string_contents(key.route),
+				json_string_contents(key.method),
 				duration.count);
 			out += std::format(
 				R"(http_request_duration_seconds_sum{{service="{}",route="{}",method="{}"}} {})"
 				"\n",
-				key.service,
-				key.route,
-				key.method,
+				json_string_contents(key.service),
+				json_string_contents(key.route),
+				json_string_contents(key.method),
 				duration.sum);
 			out += std::format(
 				R"(http_request_duration_seconds_count{{service="{}",route="{}",method="{}"}} {})"
 				"\n",
-				key.service,
-				key.route,
-				key.method,
+				json_string_contents(key.service),
+				json_string_contents(key.route),
+				json_string_contents(key.method),
 				duration.count);
 		}
 		out += "# HELP http_rejections_total HTTP rejected/problem responses\n";
@@ -517,9 +536,9 @@ struct ObservabilityRegistry {
 			out += std::format(
 				R"(http_rejections_total{{service="{}",reason="{}",status="{}"}} {})"
 				"\n",
-				opts.service_name,
-				key.first,
-				key.second,
+				json_string_contents(opts.service_name),
+				json_string_contents(key.first),
+				json_string_contents(key.second),
 				value);
 		}
 		if (opts.pressure_metrics) {

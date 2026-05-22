@@ -2375,6 +2375,12 @@ target_link_libraries(conflux_http_observability
     PUBLIC  conflux_utils
     PUBLIC  conflux_work
 )
+if(TARGET conflux_json)
+    target_link_libraries(conflux_http_observability PUBLIC conflux_json)
+    target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_JSON=1)
+else()
+    target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_JSON=0)
+endif()
 if(CONFLUX_HAS_METRICS STREQUAL "true")
     target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_METRICS=1)
 else()
@@ -2394,6 +2400,12 @@ target_link_libraries(conflux_http_openapi
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )
+if(TARGET conflux_json)
+    target_link_libraries(conflux_http_openapi PUBLIC conflux_json)
+    target_compile_definitions(conflux_http_openapi PUBLIC CONFLUX_HAS_JSON=1)
+else()
+    target_compile_definitions(conflux_http_openapi PUBLIC CONFLUX_HAS_JSON=0)
+endif()
 endif() # CONFLUX_WANT_HTTP_OPENAPI || CONFLUX_WANT_HTTP_SERVER
 
 if(CONFLUX_WANT_HTTP_VHOST OR CONFLUX_WANT_HTTP_SERVER)

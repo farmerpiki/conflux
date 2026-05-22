@@ -29,21 +29,13 @@ template<class T>
 	}
 }
 
-[[nodiscard]] std::string json_escape(
+[[nodiscard]] std::string json_problem_string(
 	std::string_view value) {
-	std::string out;
-	out.reserve(value.size());
-	for (char ch: value) {
-		switch (ch) {
-		case '"' : out += "\\\""; break;
-		case '\\': out += "\\\\"; break;
-		case '\n': out += "\\n"; break;
-		case '\r': out += "\\r"; break;
-		case '\t': out += "\\t"; break;
-		default  : out += ch; break;
-		}
+	auto dumped = dump_direct(value);
+	if (dumped) {
+		return std::move(*dumped);
 	}
-	return out;
+	return R"("")";
 }
 
 [[nodiscard]] std::string_view json_error_stage_name(
@@ -118,12 +110,12 @@ template<class T>
 [[nodiscard]] Response json_decode_problem(
 	conflux::json::boundary::Error const &err) {
 	std::string body = std::format(
-		R"({{"code":"json.decode.type_mismatch","stage":"{}","kind":"{}","detail":"{}")",
-		json_error_stage_name(err.stage),
-		json_error_code_name(err.code),
-		json_escape(err.message));
+		R"({{"code":"json.decode.type_mismatch","stage":{},"kind":{},"detail":{})",
+		json_problem_string(json_error_stage_name(err.stage)),
+		json_problem_string(json_error_code_name(err.code)),
+		json_problem_string(err.message));
 	if (err.member_name) {
-		body += std::format(R"(,"member":"{}")", json_escape(*err.member_name));
+		body += std::format(R"(,"member":{})", json_problem_string(*err.member_name));
 	}
 	if (err.source) {
 		body += std::format(
@@ -141,20 +133,20 @@ template<class T>
 [[nodiscard]] Response json_patch_problem(
 	JsonError const &err) {
 	std::string body = std::format(
-		R"({{"code":"{}","stage":"json_patch","detail":"{}")",
-		json_issue_code_name(err.code),
-		json_escape(err.message));
+		R"({{"code":{},"stage":"json_patch","detail":{})",
+		json_problem_string(json_issue_code_name(err.code)),
+		json_problem_string(err.message));
 	if (err.operation_index) {
 		body += std::format(R"(,"operation_index":{})", *err.operation_index);
 	}
 	if (err.operation) {
-		body += std::format(R"(,"operation":"{}")", json_escape(*err.operation));
+		body += std::format(R"(,"operation":{})", json_problem_string(*err.operation));
 	}
 	if (err.pointer) {
-		body += std::format(R"(,"path":"{}")", json_escape(*err.pointer));
+		body += std::format(R"(,"path":{})", json_problem_string(*err.pointer));
 	}
 	if (err.from_pointer) {
-		body += std::format(R"(,"from":"{}")", json_escape(*err.from_pointer));
+		body += std::format(R"(,"from":{})", json_problem_string(*err.from_pointer));
 	}
 	body += "}";
 	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");

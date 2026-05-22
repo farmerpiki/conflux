@@ -3,23 +3,41 @@ export module conflux.http:problem;
 import std;
 import conflux.net.http.response;
 import conflux.net.app;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+#endif
 
 export namespace conflux::http::problem {
 
-[[nodiscard]] std::string json_escape(
+[[nodiscard]] std::string json_string(
 	std::string_view value) {
-	std::string out;
-	out.reserve(value.size());
+#if CONFLUX_HAS_JSON
+	auto dumped = dump_direct(value);
+	if (dumped) {
+		return std::move(*dumped);
+	}
+#endif
+	std::string out = "\"";
 	for (char ch: value) {
+		auto const c = static_cast<unsigned char>(ch);
 		switch (ch) {
 		case '"' : out += "\\\""; break;
 		case '\\': out += "\\\\"; break;
+		case '\b': out += "\\b"; break;
+		case '\f': out += "\\f"; break;
 		case '\n': out += "\\n"; break;
 		case '\r': out += "\\r"; break;
 		case '\t': out += "\\t"; break;
-		default  : out += ch; break;
+		default:
+			if (c < 0x20U) {
+				out += std::format("\\u{:04x}", c);
+			} else {
+				out += ch;
+			}
+			break;
 		}
 	}
+	out += "\"";
 	return out;
 }
 
@@ -28,7 +46,7 @@ export namespace conflux::http::problem {
 	std::string_view status_text,
 	std::string_view code,
 	std::string_view detail) {
-	auto body = std::format(R"({{"code":"{}","detail":"{}"}})", json_escape(code), json_escape(detail));
+	auto body = std::format(R"({{"code":{},"detail":{}}})", json_string(code), json_string(detail));
 	auto response = Response::json(std::move(body), status, std::string{status_text});
 	response.content_type = "application/problem+json";
 	return Problem{.response = std::move(response), .code = std::string{code}, .detail = std::string{detail}};

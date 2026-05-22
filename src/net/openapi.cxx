@@ -8,6 +8,9 @@ import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+#endif
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
 // Returns a JSON string (not pretty-printed).
@@ -29,10 +32,15 @@ export std::string openapi_spec(
 		it->second.push_back(info);
 	}
 
-	// Build JSON std::string manually (no deps).
-	auto json_str = [](std::string_view s) -> std::string {
+	auto json_str = [](std::string_view value) -> std::string {
+#if CONFLUX_HAS_JSON
+		auto dumped = dump_direct(value);
+		if (dumped) {
+			return std::move(*dumped);
+		}
+#endif
 		std::string out = "\"";
-		for (auto const ch: s) {
+		for (auto const ch: value) {
 			auto const c = static_cast<unsigned char>(ch);
 			if (c == '"') {
 				out += "\\\"";

@@ -11,6 +11,38 @@ import conflux.json;
 
 export namespace conflux::http::detail {
 
+[[nodiscard]] std::string field_problem_json_string(
+	std::string_view value) {
+#if CONFLUX_HAS_JSON
+	auto dumped = dump_direct(value);
+	if (dumped) {
+		return std::move(*dumped);
+	}
+#endif
+	std::string out = "\"";
+	for (char ch: value) {
+		auto const c = static_cast<unsigned char>(ch);
+		switch (ch) {
+		case '"' : out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\b': out += "\\b"; break;
+		case '\f': out += "\\f"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default:
+			if (c < 0x20U) {
+				out += std::format("\\u{:04x}", c);
+			} else {
+				out += ch;
+			}
+			break;
+		}
+	}
+	out += "\"";
+	return out;
+}
+
 template<class Arg>
 [[nodiscard]] auto field_problem(
 	std::string_view extractor,
@@ -25,12 +57,12 @@ template<class Arg>
 		return "invalid";
 	}();
 	auto body = std::format(
-		R"({{"code":"invalid_field","extractor":"{}","source":"{}","name":"{}","kind":"{}","detail":"{}"}})",
-		extractor,
-		http_field_source_name(err.source),
-		err.name,
-		kind,
-		err.message);
+		R"({{"code":"invalid_field","extractor":{},"source":{},"name":{},"kind":{},"detail":{}}})",
+		field_problem_json_string(extractor),
+		field_problem_json_string(http_field_source_name(err.source)),
+		field_problem_json_string(err.name),
+		field_problem_json_string(kind),
+		field_problem_json_string(err.message));
 	auto response = Response::json(std::move(body), kHttpBadRequest, "Bad Request");
 	response.content_type = "application/problem+json";
 	return response;

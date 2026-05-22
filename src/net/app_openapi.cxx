@@ -3,6 +3,9 @@ export module conflux.net.app.openapi;
 import std;
 import conflux.net.http.types;
 import conflux.net.http.response;
+#if CONFLUX_HAS_JSON
+import conflux.json;
+#endif
 
 export namespace conflux::http::detail {
 
@@ -28,6 +31,12 @@ struct AppOpenApiRoute {
 
 [[nodiscard]] std::string openapi_json_str(
 	std::string_view value) {
+#if CONFLUX_HAS_JSON
+	auto dumped = dump_direct(value);
+	if (dumped) {
+		return std::move(*dumped);
+	}
+#endif
 	std::string out = "\"";
 	for (auto const ch: value) {
 		auto const c = static_cast<unsigned char>(ch);
