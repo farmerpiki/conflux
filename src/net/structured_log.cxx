@@ -12,6 +12,7 @@ module;
 export module conflux.net.structured_log;
 import std;
 import conflux.types;
+import conflux.file_io_sync;
 import conflux.net.http.types;
 import conflux.net.router;
 #if CONFLUX_HAS_JSON
@@ -70,12 +71,7 @@ public:
 		: path_(std::move(path))
 		, daily_rotate_(daily_rotate) {
 		if (path_.empty()) {
-			fd_ = STDERR_FILENO;
-		}
-	}
-	~LogSink() {
-		if (fd_ >= 0 && fd_ != STDERR_FILENO) {
-			::close(fd_);
+			stderr_ = true;
 		}
 	}
 	LogSink(LogSink const &) = delete;
@@ -84,24 +80,17 @@ public:
 		std::string const &line) {
 		std::scoped_lock const lk{mtx_};
 		maybe_rotate();
-		if (fd_ < 0) {
+		int const fd = current_fd();
+		if (fd < 0) {
 			return;
 		}
 		std::string l = line + '\n';
-		std::size_t written = 0;
-		while (written < l.size()) {
-			ssize_t const n = ::write(fd_, l.data() + written, l.size() - written);
-			if (n < 0) {
-				if (errno == EINTR) {
-					continue;
-				}
-				break;
-			}
-			written += static_cast<std::size_t>(n);
-		}
+		auto bytes = std::as_bytes(std::span{l});
+		[[maybe_unused]] auto _ = blocking_write_all_fd(fd, bytes);
 	}
 
 private:
+	[[nodiscard]] int current_fd() const noexcept { return stderr_ ? STDERR_FILENO : file_.fd(); }
 	void maybe_rotate() {
 		if (path_.empty()) {
 			return;
@@ -111,33 +100,33 @@ private:
 		tm tm_val{};
 		::gmtime_r(&tt, &tm_val);
 		int const today = ((tm_val.tm_year + 1900) * 10000) + ((tm_val.tm_mon + 1) * 100) + tm_val.tm_mday;
-		if (today == current_day_ && fd_ >= 0) {
+		if (today == current_day_ && file_) {
 			return;
 		}
 
-		if (fd_ >= 0 && fd_ != STDERR_FILENO) {
-			::close(fd_);
-			fd_ = -1;
-		}
+		file_.reset();
 
 		std::string fpath = path_;
 		if (daily_rotate_) {
 			fpath += std::format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
-		fd_ = ::open(
+		int const fd = ::open(
 			fpath.c_str(),
 			O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
 			0644); // NOLINT(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-		if (fd_ < 0) {
+		if (fd < 0) {
 			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, strerror(errno));
-			[[maybe_unused]] auto _ = ::write(STDERR_FILENO, msg.data(), msg.size());
+			[[maybe_unused]] auto _ = blocking_write_all_fd(STDERR_FILENO, std::as_bytes(std::span{msg}));
+		} else {
+			file_ = UniqueFd{fd};
 		}
 		current_day_ = today;
 	}
 	std::string path_;
 	bool daily_rotate_;
 	std::mutex mtx_;
-	int fd_{-1};
+	bool stderr_{false};
+	UniqueFd file_{};
 	int current_day_{-1};
 };
 export Router::Middleware structured_log_middleware(

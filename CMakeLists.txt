@@ -1964,6 +1964,7 @@ target_sources(conflux_net_config
 )
 target_link_libraries(conflux_net_config
     PRIVATE conflux_options
+    PRIVATE conflux_file_io_sync
     PUBLIC  conflux_types
     PUBLIC  conflux_utils
 )
@@ -2372,6 +2373,7 @@ target_sources(conflux_http_observability
 )
 target_link_libraries(conflux_http_observability
     PRIVATE conflux_options
+    PRIVATE conflux_file_io_sync
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
     PUBLIC  conflux_work

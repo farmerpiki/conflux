@@ -1,14 +1,12 @@
 module;
-#include <cerrno>
 #include <cstdlib>
-#include <fcntl.h>
-#include <unistd.h>
 
 export module conflux.net.config;
 
 import std;
 import conflux.types;
 import std.compat;
+import conflux.file_io_sync;
 import conflux.utils;
 
 export constexpr std::uint16_t kConfigDefaultPort = 9090;
@@ -365,51 +363,14 @@ export [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_
 
 namespace {
 
-struct LocalFd {
-	int fd{-1};
-	LocalFd() noexcept = default;
-	explicit LocalFd(
-		int f) noexcept
-		: fd{f} {}
-	LocalFd(LocalFd const &) = delete;
-	LocalFd &operator =(LocalFd const &) = delete;
-	LocalFd(
-		LocalFd &&o) noexcept
-		: fd{std::exchange(o.fd, -1)} {}
-	LocalFd &operator =(LocalFd &&) = delete;
-	~LocalFd() {
-		if (fd >= 0) {
-			::close(fd);
-		}
-	}
-};
 std::expected<std::string, int> read_text_file_local(
 	std::string_view path,
 	std::size_t max_bytes) {
-	std::string native{path};
-	LocalFd file{::open(native.c_str(), O_RDONLY | O_CLOEXEC)};
-	if (file.fd < 0) {
-		return std::unexpected{errno};
+	auto bytes = blocking_read_text_file(path, max_bytes);
+	if (!bytes) {
+		return std::unexpected{bytes.error().errnum()};
 	}
-	std::string out;
-	std::array<char, 16 * 1024> buf{};
-	for (;;) {
-		auto const n = ::read(file.fd, buf.data(), buf.size());
-		if (n == 0) {
-			return out;
-		}
-		if (n < 0) {
-			if (errno == EINTR) {
-				continue;
-			}
-			return std::unexpected{errno};
-		}
-		auto const count = static_cast<std::size_t>(n);
-		if (count > max_bytes - out.size()) {
-			return std::unexpected{EFBIG};
-		}
-		out.append(buf.data(), count);
-	}
+	return std::move(*bytes);
 }
 
 std::string_view strip_inline_comment(
