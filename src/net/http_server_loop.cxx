@@ -939,6 +939,11 @@ void Ring::handle_accept(
 		++pressure_counters_.accept_rejected;
 		if (accepted_sockets_direct) {
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
+			if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
+				if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(res))) {
+					eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", res));
+				}
+			}
 			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
 				defer_op([this, res, ud] {
 					submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud);

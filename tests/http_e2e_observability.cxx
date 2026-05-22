@@ -3206,6 +3206,19 @@ std::string drain_fd(
 	}
 	return out;
 }
+bool recv_until_closed(
+	int fd) {
+	std::array<char, 4096> buf{};
+	for (;;) {
+		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n == 0) {
+			return true;
+		}
+		if (n < 0) {
+			return errno == ECONNRESET;
+		}
+	}
+}
 
 } // namespace
 TEST_CASE(
@@ -3354,9 +3367,9 @@ TEST_CASE(
 	// Shutdown immediately — races with the large-body send completing.
 	// The server must not deadlock regardless of which side wins the race.
 	srv.stop();
-	// Connection must be closed by server — recv returns <=0 (FIN or RST).
-	char buf{};
-	CHECK(::recv(fd, &buf, 1, 0) <= 0);
+	// Already queued response bytes may arrive before FIN; the invariant is
+	// that stop() drains to server close before the socket timeout fires.
+	CHECK(recv_until_closed(fd));
 	::close(fd);
 }
 TEST_CASE(
