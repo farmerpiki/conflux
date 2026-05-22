@@ -60,7 +60,7 @@ namespace password_hash_detail {
 
 constexpr std::uint32_t kArgon2Version = 0x13U;
 constexpr std::uint32_t kPbkdf2DefaultIterations = 600'000U;
-constexpr std::uint32_t kMaxPasswordBytes = static_cast<std::uint32_t>(1U << 30U);
+constexpr std::uint32_t kMaxPasswordBytes = 1U << 30U;
 constexpr std::uint32_t kMaxSaltBytes = 1024U;
 constexpr std::uint32_t kMaxHashBytes = 1024U;
 constexpr std::uint32_t kMaxVerifierSecretBytes = 4096U;
@@ -498,7 +498,7 @@ void sha256_compress(
 void sha256_update(
 	Sha256State &state,
 	std::span<unsigned char const> msg) noexcept {
-	state.bytes += static_cast<std::uint64_t>(msg.size());
+	state.bytes += msg.size();
 	if (state.pending_size != 0U) {
 		std::size_t const n = std::min(msg.size(), state.pending.size() - state.pending_size);
 		std::ranges::copy(msg.first(n), state.pending.begin() + static_cast<std::ptrdiff_t>(state.pending_size));

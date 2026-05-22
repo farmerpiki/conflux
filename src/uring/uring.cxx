@@ -82,7 +82,7 @@ public:
 	}
 	[[nodiscard]] bool is_sqpoll() const noexcept {
 		assert(ring_ != nullptr);
-		return (ring_->flags & IORING_SETUP_SQPOLL) != 0u;
+		return SetupFlags{ring_->flags}.any(setup_flags::sqpoll);
 	}
 	[[nodiscard]] std::uint32_t sq_entries() const noexcept {
 		assert(ring_ != nullptr);
@@ -108,14 +108,16 @@ public:
 		}
 // no CQ-ready guard: kernel copies pending CQEs during resize; only CQ overflow is illegal
 #if defined(CONFLUX_HAVE_IO_URING_RESIZE_RINGS) && CONFLUX_HAVE_IO_URING_RESIZE_RINGS
-		if ((ring_->flags & IORING_SETUP_DEFER_TASKRUN) == 0) {
+		auto const setup = SetupFlags{ring_->flags};
+		if (!setup.any(setup_flags::defer_taskrun)) {
 			return std::unexpected{-EINVAL};
 		}
-		if ((ring_->flags & IORING_SETUP_NO_MMAP) != 0) {
+		if (setup.any(setup_flags::no_mmap)) {
 			return std::unexpected{-EOPNOTSUPP};
 		}
 		io_uring_params p{};
-		p.flags = IORING_SETUP_CQSIZE; // required: without it kernel ignores cq_entries and derives from sq_entries
+		p.flags =
+			setup_flags::cqsize.raw(); // required: without it kernel ignores cq_entries and derives from sq_entries
 		p.sq_entries = sz.sq_entries;
 		p.cq_entries = sz.cq_entries;
 		if (int rc = io_uring_resize_rings(ring_, &p); rc < 0) {
@@ -226,7 +228,7 @@ public:
 		std::uint32_t feat) const noexcept {
 		return (ring_.features & feat) != 0u;
 	}
-	[[nodiscard]] bool is_sqpoll() const noexcept { return (ring_.flags & IORING_SETUP_SQPOLL) != 0u; }
+	[[nodiscard]] bool is_sqpoll() const noexcept { return SetupFlags{ring_.flags}.any(setup_flags::sqpoll); }
 	[[nodiscard]] bool cq_has_overflow() const noexcept {
 		return static_cast<int>(io_uring_cq_has_overflow(&ring_)) != 0;
 	}
@@ -459,7 +461,7 @@ public:
 	Linked &operator =(Linked const &) = delete;
 	Sqe then() noexcept {
 		if (pending_ != nullptr) {
-			pending_->flags = static_cast<decltype(pending_->flags)>(pending_->flags | sqe_flags::io_link.raw());
+			Sqe{pending_}.add_flags(sqe_flags::io_link);
 		}
 		auto s = ring_.get_sqe();
 		pending_ = s.raw();
@@ -470,7 +472,7 @@ public:
 	// This is not a true finally.
 	Sqe hard() noexcept {
 		if (pending_ != nullptr) {
-			pending_->flags = static_cast<decltype(pending_->flags)>(pending_->flags | sqe_flags::io_hardlink.raw());
+			Sqe{pending_}.add_flags(sqe_flags::io_hardlink);
 		}
 		auto s = ring_.get_sqe();
 		pending_ = s.raw();

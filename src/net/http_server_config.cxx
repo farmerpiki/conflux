@@ -29,41 +29,37 @@ std::string format_flag_list(
 
 export [[gnu::pure]] std::uint32_t build_uring_flags(
 	Config const &c) {
-	std::uint32_t f = 0;
+	auto f = conflux::uring::SetupFlags{};
 	if (c.single_issuer) {
-		f |= IORING_SETUP_SINGLE_ISSUER;
+		f |= conflux::uring::setup_flags::single_issuer;
 	}
 	if (c.defer_taskrun) {
-		f |= IORING_SETUP_DEFER_TASKRUN;
+		f |= conflux::uring::setup_flags::defer_taskrun;
 	}
 	if (c.sqpoll) {
-		f |= IORING_SETUP_SQPOLL;
+		f |= conflux::uring::setup_flags::sqpoll;
 	}
 	if (c.coop_taskrun) {
-		f |= IORING_SETUP_COOP_TASKRUN;
+		f |= conflux::uring::setup_flags::coop_taskrun;
 	}
 	if (c.taskrun_flag) {
-		f |= IORING_SETUP_TASKRUN_FLAG;
+		f |= conflux::uring::setup_flags::taskrun_flag;
 	}
 	if (c.submit_all) {
-		f |= IORING_SETUP_SUBMIT_ALL;
+		f |= conflux::uring::setup_flags::submit_all;
 	}
 	if (c.no_sqarray) {
-		f |= IORING_SETUP_NO_SQARRAY;
+		f |= conflux::uring::setup_flags::no_sqarray;
 	}
 	if (c.cqe_mixed) {
-		f |= IORING_SETUP_CQE_MIXED;
+		f |= conflux::uring::setup_flags::cqe_mixed;
 	}
-	return f;
+	return f.raw();
 }
 
-export [[nodiscard]] std::optional<std::uint32_t> next_uring_setup_flag_to_strip(
+export [[nodiscard]] std::optional<conflux::uring::SetupFlags> next_uring_setup_flag_to_strip(
 	std::uint32_t flags) {
-	auto const stripped = conflux::uring::next_setup_flag_to_strip(conflux::uring::SetupFlags{flags});
-	if (!stripped) {
-		return std::nullopt;
-	}
-	return stripped->raw();
+	return conflux::uring::next_setup_flag_to_strip(conflux::uring::SetupFlags{flags});
 }
 
 export [[nodiscard]] std::uint32_t wq_fd_for_ring(

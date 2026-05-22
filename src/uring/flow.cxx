@@ -310,16 +310,16 @@ public:
 	FlowOpKind k) noexcept {
 	return k == FlowOpKind::read || k == FlowOpKind::write;
 }
-constexpr unsigned link_mask = IOSQE_IO_LINK | IOSQE_IO_HARDLINK;
-[[nodiscard]] unsigned link_flag_for_boundary(
+constexpr SqeFlags link_flags = sqe_flags::io_link | sqe_flags::io_hardlink;
+[[nodiscard]] SqeFlags link_flag_for_boundary(
 	std::uint8_t /*from*/,
 	std::uint8_t to,
 	DirectFileBuilder const &b,
 	bool mode_b) noexcept {
 	if (mode_b && to == b.op_count) {
-		return (b.op_count == 1) ? IOSQE_IO_LINK : IOSQE_IO_HARDLINK;
+		return (b.op_count == 1) ? sqe_flags::io_link : sqe_flags::io_hardlink;
 	}
-	return (b.ops[to].variant == LinkVariant::hard_) ? IOSQE_IO_HARDLINK : IOSQE_IO_LINK;
+	return (b.ops[to].variant == LinkVariant::hard_) ? sqe_flags::io_hardlink : sqe_flags::io_link;
 }
 // ── mode_b_eligible ───────────────────────────────────────────────────────────
 
@@ -779,10 +779,11 @@ private:
 	void submit_close_sqe(
 		io_uring_sqe *sqe,
 		DirectFileFlowState &st) noexcept {
-		Sqe{sqe}.prep_close_direct(st.slot);
+		auto sqe_view = Sqe{sqe};
+		sqe_view.prep_close_direct(st.slot);
 		// io_uring_prep_close_direct calls io_uring_initialize_sqe which zeroes flags;
 		// explicitly clear link bits anyway — defensive against future prep changes.
-		sqe->flags &= static_cast<std::uint8_t>(~link_mask);
+		sqe_view.clear_flags(link_flags);
 		sqe->user_data = encode_tag(st.flow_index, st.generation, st.initial_op_count, FlowOpKind::close_direct);
 		st.close_submitted = true;
 		st.close_pending = false;
@@ -958,13 +959,12 @@ std::uint32_t FlowBuilder::submit() noexcept {
 			prep_op(sqe, i, b, is_close, i == 0 ? open_path_override : nullptr);
 			// prep_op zeroes sqe->flags; layer our flags on top
 
-			if (uses_fixed_file_fd(kind)) {
-				sqe->flags |= IOSQE_FIXED_FILE;
-			}
+			auto sqe_view = Sqe{sqe};
+			sqe_view.fixed_file(uses_fixed_file_fd(kind));
 
-			sqe->flags &= static_cast<std::uint8_t>(~link_mask);
+			sqe_view.clear_flags(link_flags);
 			if (i + 1 < emitted) {
-				sqe->flags |= static_cast<std::uint8_t>(link_flag_for_boundary(i, std::uint8_t(i + 1), b, mode_b));
+				sqe_view.add_flags(link_flag_for_boundary(i, std::uint8_t(i + 1), b, mode_b));
 			}
 
 			sqe->user_data = encode_tag(state.flow_index, state.generation, i, kind);

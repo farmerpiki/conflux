@@ -1619,22 +1619,23 @@ TEST_CASE(
 	CHECK(tail_after - tail_before == 6); // 3+3 SQEs
 
 	unsigned const mask = ring_raw->sq.ring_mask;
-	constexpr unsigned lmask = IOSQE_IO_LINK | IOSQE_IO_HARDLINK;
+	constexpr auto link_flags = conflux::uring::sqe_flags::io_link | conflux::uring::sqe_flags::io_hardlink;
 
 	// Flow A terminal (write, index 2 from tail_before)
 	auto const &sqe_a_term = ring_raw->sq.sqes[(tail_before + 2) & mask];
-	CHECK((sqe_a_term.flags & lmask) == 0);
+	CHECK_FALSE(conflux::uring::SqeFlags{sqe_a_term.flags}.any(link_flags));
 
 	// Flow B terminal (close, index 5 from tail_before)
 	auto const &sqe_b_term = ring_raw->sq.sqes[(tail_before + 5) & mask];
-	CHECK((sqe_b_term.flags & lmask) == 0);
-	CHECK((sqe_b_term.flags & IOSQE_FIXED_FILE) == 0); // close_direct must not use fixed-file fd
+	auto const sqe_b_term_flags = conflux::uring::SqeFlags{sqe_b_term.flags};
+	CHECK_FALSE(sqe_b_term_flags.any(link_flags));
+	CHECK_FALSE(sqe_b_term_flags.any(conflux::uring::sqe_flags::fixed_file)); // close_direct must not use fixed-file fd
 
 	// Non-terminal SQEs must carry a link flag
 	auto const &sqe_a_open = ring_raw->sq.sqes[(tail_before + 0) & mask];
-	CHECK((sqe_a_open.flags & lmask) != 0); // open → read
+	CHECK(conflux::uring::SqeFlags{sqe_a_open.flags}.any(link_flags)); // open → read
 	auto const &sqe_b_open = ring_raw->sq.sqes[(tail_before + 3) & mask];
-	CHECK((sqe_b_open.flags & lmask) != 0); // open → read
+	CHECK(conflux::uring::SqeFlags{sqe_b_open.flags}.any(link_flags)); // open → read
 }
 // ── Generation wrap: skip-zero discipline ─────────────────────────────────────
 

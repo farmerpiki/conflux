@@ -2020,7 +2020,8 @@ private:
 			return;
 		}
 
-		conflux::uring::Sqe{sqe_in}.prep_splice(
+		auto sqe_in_view = conflux::uring::Sqe{sqe_in};
+		sqe_in_view.prep_splice(
 			conflux::uring::SqeFd{
 				st->file_fd,
 			},
@@ -2031,7 +2032,7 @@ private:
 			-1,
 			static_cast<unsigned>(chunk),
 			conflux::uring::SpliceFlags{SPLICE_F_MOVE | SPLICE_F_MORE});
-		sqe_in->flags |= IOSQE_IO_LINK;
+		sqe_in_view.add_flags(conflux::uring::sqe_flags::io_link);
 		auto [slot_in, gen_in] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0 && r.res != -ECANCELED) {
 				auto _ = st->src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: splice in"}));
@@ -2039,7 +2040,8 @@ private:
 		});
 		io_uring_sqe_set_data64(sqe_in, st->encode_ud(slot_in, gen_in));
 
-		conflux::uring::Sqe{sqe_out}.prep_splice(
+		auto sqe_out_view = conflux::uring::Sqe{sqe_out};
+		sqe_out_view.prep_splice(
 			conflux::uring::SqeFd{
 				st->pipe.read_fd(),
 			},
@@ -2051,7 +2053,7 @@ private:
 			static_cast<unsigned>(chunk),
 			conflux::uring::SpliceFlags{SPLICE_F_MOVE | SPLICE_F_MORE});
 		if (st->dst_fixed) {
-			sqe_out->flags |= IOSQE_FIXED_FILE;
+			sqe_out_view.fixed_file(true);
 		}
 		auto [slot_out, gen_out] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0) {

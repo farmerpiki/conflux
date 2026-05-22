@@ -164,7 +164,7 @@ void Ring::init(
 	io_uring_params params{};
 	params.flags = uring_flags;
 	if (wq_fd != 0) {
-		params.flags |= IORING_SETUP_ATTACH_WQ;
+		params.flags = (conflux::uring::SetupFlags{params.flags} | conflux::uring::setup_flags::attach_wq).raw();
 		params.wq_fd = wq_fd;
 	}
 	requested_setup_flags_ = params.flags;
@@ -199,8 +199,8 @@ void Ring::init(
 			if (!stripped) {
 				throw std::runtime_error{"io_uring_queue_init_params: no supported flag combination"};
 			}
-			params.flags &= ~*stripped;
-			stripped_setup_flags_ |= *stripped;
+			params.flags = (conflux::uring::SetupFlags{params.flags} & ~*stripped).raw();
+			stripped_setup_flags_ = (conflux::uring::SetupFlags{stripped_setup_flags_} | *stripped).raw();
 		}
 	}
 	caps = detect_caps(conflux::uring::RingRef{ring});

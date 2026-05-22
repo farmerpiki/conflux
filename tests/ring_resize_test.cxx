@@ -204,7 +204,7 @@ TEST_CASE(
 
 	static constexpr unsigned sq_sz = 8;
 	io_uring_params p{};
-	p.flags = IORING_SETUP_NO_MMAP | IORING_SETUP_DEFER_TASKRUN | IORING_SETUP_SINGLE_ISSUER;
+	p.flags = (setup_flags::no_mmap | setup_flags::defer_taskrun | setup_flags::single_issuer).raw();
 	ssize_t const needed = io_uring_memory_size_params(sq_sz, &p);
 	if (needed <= 0) {
 		SKIP("io_uring_memory_size_params failed — skipping");

@@ -289,16 +289,16 @@ TEST_CASE(
 	cfg.no_sqarray = true;
 	cfg.cqe_mixed = true;
 
-	auto const flags = build_uring_flags(cfg);
-	CHECK((flags & IORING_SETUP_SINGLE_ISSUER) != 0U);
-	CHECK((flags & IORING_SETUP_DEFER_TASKRUN) != 0U);
-	CHECK((flags & IORING_SETUP_TASKRUN_FLAG) != 0U);
-	CHECK((flags & IORING_SETUP_SUBMIT_ALL) != 0U);
-	CHECK((flags & IORING_SETUP_NO_SQARRAY) != 0U);
-	CHECK((flags & IORING_SETUP_CQE_MIXED) != 0U);
-	CHECK((flags & IORING_SETUP_COOP_TASKRUN) == 0U);
+	auto const flags = conflux::uring::SetupFlags{build_uring_flags(cfg)};
+	CHECK(flags.any(conflux::uring::setup_flags::single_issuer));
+	CHECK(flags.any(conflux::uring::setup_flags::defer_taskrun));
+	CHECK(flags.any(conflux::uring::setup_flags::taskrun_flag));
+	CHECK(flags.any(conflux::uring::setup_flags::submit_all));
+	CHECK(flags.any(conflux::uring::setup_flags::no_sqarray));
+	CHECK(flags.any(conflux::uring::setup_flags::cqe_mixed));
+	CHECK_FALSE(flags.any(conflux::uring::setup_flags::coop_taskrun));
 
-	auto text = setup_flags_str(flags);
+	auto text = setup_flags_str(flags.raw());
 	CHECK(text.find("SINGLE_ISSUER") != std::string::npos);
 	CHECK(text.find("DEFER_TASKRUN") != std::string::npos);
 	CHECK(text.find("TASKRUN_FLAG") != std::string::npos);
@@ -311,18 +311,18 @@ TEST_CASE(
 TEST_CASE(
 	"net.http_server_config: EINVAL fallback strips setup flags in proposal order",
 	"[net.config]") {
-	std::uint32_t flags = IORING_SETUP_CQE_MIXED
-						| IORING_SETUP_NO_SQARRAY
-						| IORING_SETUP_SUBMIT_ALL
-						| IORING_SETUP_TASKRUN_FLAG
-						| IORING_SETUP_DEFER_TASKRUN
-						| IORING_SETUP_SINGLE_ISSUER;
+	auto flags = conflux::uring::setup_flags::cqe_mixed
+			   | conflux::uring::setup_flags::no_sqarray
+			   | conflux::uring::setup_flags::submit_all
+			   | conflux::uring::setup_flags::taskrun_flag
+			   | conflux::uring::setup_flags::defer_taskrun
+			   | conflux::uring::setup_flags::single_issuer;
 	std::vector<std::uint32_t> stripped;
-	while (auto const bit = next_uring_setup_flag_to_strip(flags)) {
-		stripped.push_back(*bit);
+	while (auto const bit = next_uring_setup_flag_to_strip(flags.raw())) {
+		stripped.push_back(bit->raw());
 		flags &= ~*bit;
 	}
-	CHECK(flags == 0U);
+	CHECK(flags.raw() == 0U);
 	CHECK(
 		stripped
 		== std::vector<std::uint32_t>{

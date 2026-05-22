@@ -41,12 +41,13 @@ void check_cmd_setsockopt_sqe(
 	CHECK(sqe.optname == static_cast<__u32>(optname));
 	CHECK(sqe.optlen == sizeof(int));
 	CHECK(sqe.user_data == user_data);
-	CHECK((sqe.flags & IOSQE_FIXED_FILE) != 0);
-	CHECK((sqe.flags & IOSQE_IO_HARDLINK) != 0);
+	auto const flags = SqeFlags{sqe.flags};
+	CHECK(flags.any(sqe_flags::fixed_file));
+	CHECK(flags.any(sqe_flags::io_hardlink));
 	if (expect_skip_cqe) {
-		CHECK((sqe.flags & IOSQE_CQE_SKIP_SUCCESS) != 0);
+		CHECK(flags.any(sqe_flags::cqe_skip_success));
 	} else {
-		CHECK((sqe.flags & IOSQE_CQE_SKIP_SUCCESS) == 0);
+		CHECK_FALSE(flags.any(sqe_flags::cqe_skip_success));
 	}
 }
 
@@ -112,9 +113,10 @@ TEST_CASE(
 	CHECK(recv.len == 0);
 	CHECK(recv.buf_group == target.buf_group);
 	CHECK(recv.user_data == 0x22u);
-	CHECK((recv.flags & IOSQE_FIXED_FILE) != 0);
-	CHECK((recv.flags & IOSQE_BUFFER_SELECT) != 0);
-	CHECK((recv.flags & (IOSQE_IO_LINK | IOSQE_IO_HARDLINK)) == 0);
+	auto const recv_flags = SqeFlags{recv.flags};
+	CHECK(recv_flags.any(sqe_flags::fixed_file));
+	CHECK(recv_flags.any(sqe_flags::buffer_select));
+	CHECK_FALSE(recv_flags.any(sqe_flags::io_link | sqe_flags::io_hardlink));
 	unsigned expected_ioprio = conflux::uring::ioprio_flags::recvsend_poll_first.raw();
 #if CONFLUX_ENABLE_RECV_BUNDLE
 	expected_ioprio |= conflux::uring::ioprio_flags::recvsend_bundle.raw();
@@ -132,26 +134,26 @@ TEST_CASE(
 	"uring.handle: OsFd prep clears stale fixed-file flag",
 	"[uring][handle][sqe]") {
 	io_uring_sqe sqe{};
-	sqe.flags = IOSQE_FIXED_FILE | IOSQE_IO_LINK;
+	conflux::uring::Sqe{&sqe}.set_flags(sqe_flags::fixed_file | sqe_flags::io_link);
 	conflux::uring::Sqe sqe_view{&sqe};
 
 	char buf[8]{};
 	sqe_view.prep_read(OsFd::from_os(3), buf, sizeof(buf), 0);
 
-	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
-	CHECK((sqe.flags & IOSQE_IO_LINK) != 0);
+	CHECK_FALSE(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::io_link));
 	CHECK(sqe.fd == 3);
 
 	sqe_view.prep_read(DirectFd::from_direct(4), buf, sizeof(buf), 0);
-	CHECK((sqe.flags & IOSQE_FIXED_FILE) != 0);
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 	CHECK(sqe.fd == 4);
 
 	sqe_view.prep_close(DirectFd::from_direct(4));
-	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
+	CHECK_FALSE(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 
-	sqe.flags |= IOSQE_FIXED_FILE;
+	sqe_view.add_flags(sqe_flags::fixed_file);
 	sqe_view.prep_cancel_fd(DirectFd::from_direct(4));
-	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
+	CHECK_FALSE(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 }
 
 TEST_CASE(
