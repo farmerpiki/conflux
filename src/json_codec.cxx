@@ -168,40 +168,6 @@ struct ParentSlot {
 	std::vector<std::size_t> *parent_local_children{}; // append_child only: parent's staging V
 	std::vector<MemberEntry> *parent_local_members{}; // insert_member only: parent's staging V
 };
-struct TransparentStringHash {
-	using is_transparent = void;
-	[[nodiscard]] std::size_t operator ()(
-		std::string_view value) const noexcept {
-		return std::hash<std::string_view>{}(value);
-	}
-	[[nodiscard]] std::size_t operator ()(
-		std::string const &value) const noexcept {
-		return operator ()(std::string_view{value});
-	}
-};
-struct TransparentStringEqual {
-	using is_transparent = void;
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string_view rhs) const noexcept {
-		return lhs == rhs;
-	}
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string_view rhs) const noexcept {
-		return std::string_view{lhs} == rhs;
-	}
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == std::string_view{rhs};
-	}
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == rhs;
-	}
-};
 // Holds the active object/A being built:
 struct ChildFrame {
 	// NOLINTNEXTLINE(performance-enum-size)
@@ -219,7 +185,7 @@ struct ChildFrame {
 	std::vector<char const *>
 		local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
-	std::unordered_map<std::string, std::size_t, TransparentStringHash, TransparentStringEqual> dup_check;
+	conflux::support::TransparentStringMap<std::size_t> dup_check;
 };
 export class ObjectBuilder {
 	ChildFrame frame_;

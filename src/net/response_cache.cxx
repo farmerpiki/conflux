@@ -27,41 +27,6 @@ struct RespCacheEntry {
 	std::chrono::steady_clock::time_point expires;
 };
 
-struct TransparentStringHash {
-	using is_transparent = void;
-	[[nodiscard]] std::size_t operator ()(
-		std::string_view value) const noexcept {
-		return std::hash<std::string_view>{}(value);
-	}
-	[[nodiscard]] std::size_t operator ()(
-		std::string const &value) const noexcept {
-		return operator ()(std::string_view{value});
-	}
-};
-
-struct TransparentStringEqual {
-	using is_transparent = void;
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string_view rhs) const noexcept {
-		return lhs == rhs;
-	}
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string_view rhs) const noexcept {
-		return std::string_view{lhs} == rhs;
-	}
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == std::string_view{rhs};
-	}
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == rhs;
-	}
-};
 // LRU cache: module-scope (not exported, not anonymous-namespace).
 class RespLruCache {
 public:
@@ -138,7 +103,7 @@ private:
 	std::list<std::string> order_;
 	std::unordered_map<std::string, std::list<std::string>::iterator> iters_;
 	std::unordered_map<std::string, RespCacheEntry> map_;
-	std::unordered_map<std::string, std::vector<std::string>, TransparentStringHash, TransparentStringEqual> path_vary_;
+	conflux::support::TransparentStringMap<std::vector<std::string>> path_vary_;
 };
 namespace response_cache_detail {
 

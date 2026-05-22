@@ -320,21 +320,9 @@ private:
 	friend class Pipeline;
 };
 export class QueryCache {
-	struct TransparentHash {
-		using is_transparent = void;
-		std::size_t operator ()(
-			std::string_view s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-		std::size_t operator ()(
-			std::string const &s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-	};
 	std::filesystem::path root_{};
 	mutable std::shared_mutex mtx_{};
-	mutable std::unordered_map<std::string, std::shared_ptr<std::string const>, TransparentHash, std::equal_to<>>
-		cache_{};
+	mutable conflux::support::TransparentStringMap<std::shared_ptr<std::string const>> cache_{};
 
 public:
 	explicit QueryCache(

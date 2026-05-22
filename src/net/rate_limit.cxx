@@ -31,7 +31,7 @@ struct Bucket {
 struct RateLimitStore {
 	explicit RateLimitStore(
 		std::size_t max_clients)
-		: max_(max_clients) {}
+		: buckets_(max_clients) {}
 	// Returns a reference to the bucket for `key`, creating it if absent.
 	// Evicts the least-recently-seen entry when the store is full.
 	// Transparent std::hash/equal lets the hot find() path work from SV
@@ -40,46 +40,12 @@ struct RateLimitStore {
 		std::string_view key,
 		unsigned capacity,
 		Clock::time_point now) {
-		if (auto it = map_.find(key); it != map_.end()) {
-			// Move to back (most-recently used).
-			order_.splice(order_.end(), order_, it->second.order_it);
-			return it->second.bucket;
-		}
-		// Evict LRU entry if at capacity.
-		if (map_.size() >= max_) {
-			map_.erase(order_.front());
-			order_.pop_front();
-		}
-		auto owned = std::string{key};
-		order_.push_back(owned);
-		auto [it, _] = map_.emplace(
-			std::move(owned),
-			Entry{
-				.bucket = Bucket{.tokens = capacity, .window_start = now},
-				.order_it = std::prev(order_.end())
-        });
-		return it->second.bucket;
+		return *buckets_.get_or_create(key, [capacity, now] { return Bucket{.tokens = capacity, .window_start = now}; })
+					.value;
 	}
 
 private:
-	struct TransparentHash {
-		using is_transparent = void;
-		std::size_t operator ()(
-			std::string_view s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-		std::size_t operator ()(
-			std::string const &s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-	};
-	struct Entry {
-		Bucket bucket{};
-		std::list<std::string>::iterator order_it;
-	};
-	std::size_t max_;
-	std::list<std::string> order_;
-	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> map_;
+	conflux::support::StringLruMap<Bucket> buckets_;
 };
 // Middleware factory: token-bucket rate limiter keyed on remote_addr.
 // Thread-safe — shared across all rings via captured SP.

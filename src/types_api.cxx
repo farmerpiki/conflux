@@ -65,6 +65,133 @@ export template<typename T>
 	return result.error().errnum();
 }
 
+export namespace conflux::support {
+
+struct TransparentStringHash {
+	using is_transparent = void;
+
+	[[nodiscard]] std::size_t operator ()(
+		std::string_view value) const noexcept {
+		return std::hash<std::string_view>{}(value);
+	}
+
+	[[nodiscard]] std::size_t operator ()(
+		std::string const &value) const noexcept {
+		return operator ()(std::string_view{value});
+	}
+};
+
+struct TransparentStringEqual {
+	using is_transparent = void;
+
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string_view rhs) const noexcept {
+		return lhs == rhs;
+	}
+
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string_view rhs) const noexcept {
+		return std::string_view{lhs} == rhs;
+	}
+
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == std::string_view{rhs};
+	}
+
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == rhs;
+	}
+};
+
+template<class Value>
+using TransparentStringMap = std::unordered_map<std::string, Value, TransparentStringHash, TransparentStringEqual>;
+
+template<class Value>
+class StringLruMap {
+	struct Entry {
+		Value value;
+		std::list<std::string>::iterator order_it;
+	};
+
+public:
+	struct TouchResult {
+		Value *value{};
+		bool inserted{};
+		bool evicted{};
+	};
+
+	explicit StringLruMap(
+		std::size_t max_entries)
+		: max_{std::max<std::size_t>(max_entries, 1)} {}
+
+	[[nodiscard]] Value *find(
+		std::string_view key) noexcept {
+		auto it = map_.find(key);
+		if (it == map_.end()) {
+			return nullptr;
+		}
+		order_.splice(order_.end(), order_, it->second.order_it);
+		return &it->second.value;
+	}
+
+	template<class Factory>
+	[[nodiscard]] TouchResult get_or_create(
+		std::string_view key,
+		Factory &&make_value) {
+		if (auto *value = find(key); value != nullptr) {
+			return {.value = value};
+		}
+
+		bool evicted = false;
+		if (map_.size() >= max_) {
+			map_.erase(order_.front());
+			order_.pop_front();
+			evicted = true;
+		}
+
+		auto owned = std::string{key};
+		order_.push_back(owned);
+		auto [it, _] = map_.emplace(
+			std::move(owned),
+			Entry{
+				.value = std::invoke(std::forward<Factory>(make_value)),
+				.order_it = std::prev(order_.end()),
+			});
+		return {.value = &it->second.value, .inserted = true, .evicted = evicted};
+	}
+
+	bool erase(
+		std::string_view key) noexcept {
+		auto it = map_.find(key);
+		if (it == map_.end()) {
+			return false;
+		}
+		order_.erase(it->second.order_it);
+		map_.erase(it);
+		return true;
+	}
+
+	void clear() noexcept {
+		order_.clear();
+		map_.clear();
+	}
+
+	[[nodiscard]] std::size_t size() const noexcept { return map_.size(); }
+
+private:
+	std::size_t max_;
+	std::list<std::string> order_;
+	TransparentStringMap<Entry> map_;
+};
+
+} // namespace conflux::support
+
 export namespace conflux {
 
 struct BuildInfo {

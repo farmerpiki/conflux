@@ -14,51 +14,9 @@ import conflux.work;
 import conflux.net.config;
 import conflux.socket_io;
 
-struct TransparentSvHash {
-	using is_transparent = void;
-
-	[[nodiscard]] std::size_t operator ()(
-		std::string_view value) const noexcept {
-		return std::hash<std::string_view>{}(value);
-	}
-
-	[[nodiscard]] std::size_t operator ()(
-		std::string const &value) const noexcept {
-		return std::hash<std::string_view>{}(value);
-	}
-};
-
-struct TransparentSvEqual {
-	using is_transparent = void;
-
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string_view rhs) const noexcept {
-		return lhs == rhs;
-	}
-
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string_view rhs) const noexcept {
-		return std::string_view{lhs} == rhs;
-	}
-
-	[[nodiscard]] bool operator ()(
-		std::string_view lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == std::string_view{rhs};
-	}
-
-	[[nodiscard]] bool operator ()(
-		std::string const &lhs,
-		std::string const &rhs) const noexcept {
-		return lhs == rhs;
-	}
-};
-
 struct RouteLookupIndex {
 	std::vector<std::size_t> generic{};
-	std::unordered_map<std::string, std::vector<std::size_t>, TransparentSvHash, TransparentSvEqual> by_first_literal{};
+	conflux::support::TransparentStringMap<std::vector<std::size_t>> by_first_literal{};
 };
 
 struct MethodRouteLookupIndex {

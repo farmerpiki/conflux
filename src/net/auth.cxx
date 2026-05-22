@@ -30,69 +30,27 @@ struct FailedAuthBucket {
 struct FailedAuthStore {
 	explicit FailedAuthStore(
 		std::size_t max_entries)
-		: max_(max_entries) {}
+		: buckets_(max_entries) {}
 
 	[[nodiscard]] FailedAuthBucket *find(
 		std::string_view key) noexcept {
-		auto it = map_.find(key);
-		if (it == map_.end()) {
-			return nullptr;
-		}
-		order_.splice(order_.end(), order_, it->second.order_it);
-		return &it->second.bucket;
+		return buckets_.find(key);
 	}
 
 	[[nodiscard]] FailedAuthBucket &touch(
 		std::string_view key,
 		Clock::time_point now) {
-		if (auto *bucket = find(key); bucket != nullptr) {
-			return *bucket;
-		}
-		if (map_.size() >= max_) {
-			map_.erase(order_.front());
-			order_.pop_front();
-		}
-		auto owned = std::string{key};
-		order_.push_back(owned);
-		auto [it, _] = map_.emplace(
-			std::move(owned),
-			Entry{
-				.bucket = FailedAuthBucket{.failures = 0, .window_start = now},
-				.order_it = std::prev(order_.end()),
-        });
-		return it->second.bucket;
+		return *buckets_.get_or_create(key, [now] { return FailedAuthBucket{.failures = 0, .window_start = now}; })
+					.value;
 	}
 
 	void erase(
 		std::string_view key) noexcept {
-		auto it = map_.find(key);
-		if (it == map_.end()) {
-			return;
-		}
-		order_.erase(it->second.order_it);
-		map_.erase(it);
+		(void)buckets_.erase(key);
 	}
 
 private:
-	struct TransparentHash {
-		using is_transparent = void;
-		std::size_t operator ()(
-			std::string_view s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-		std::size_t operator ()(
-			std::string const &s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-	};
-	struct Entry {
-		FailedAuthBucket bucket{};
-		std::list<std::string>::iterator order_it;
-	};
-
-	std::size_t max_;
-	std::list<std::string> order_;
-	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> map_;
+	conflux::support::StringLruMap<FailedAuthBucket> buckets_;
 };
 
 struct FailedAuthState {
@@ -276,72 +234,33 @@ struct AuthThrottleBucket {
 };
 
 struct AuthThrottleState {
-	struct TransparentHash {
-		using is_transparent = void;
-		std::size_t operator ()(
-			std::string_view s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-		std::size_t operator ()(
-			std::string const &s) const noexcept {
-			return std::hash<std::string_view>{}(s);
-		}
-	};
-	struct Entry {
-		AuthThrottleBucket bucket{};
-		std::list<std::string>::iterator order_it;
-	};
-
 	std::mutex mtx;
-	std::size_t max_subjects{1};
-	std::list<std::string> order;
-	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> buckets;
+	conflux::support::StringLruMap<AuthThrottleBucket> buckets;
 	AuthThrottleMetrics metrics{};
 
 	explicit AuthThrottleState(
 		std::size_t max_subjects_hint)
-		: max_subjects(std::max<std::size_t>(max_subjects_hint, 1)) {}
+		: buckets(max_subjects_hint) {}
 
 	[[nodiscard]] AuthThrottleBucket *find(
 		std::string_view subject) noexcept {
-		auto it = buckets.find(subject);
-		if (it == buckets.end()) {
-			return nullptr;
-		}
-		order.splice(order.end(), order, it->second.order_it);
-		return &it->second.bucket;
+		return buckets.find(subject);
 	}
 
 	[[nodiscard]] AuthThrottleBucket &touch(
 		std::string_view subject,
 		AuthThrottleClock::time_point now) {
-		if (auto *bucket = find(subject); bucket != nullptr) {
-			return *bucket;
-		}
-		if (buckets.size() >= max_subjects) {
-			buckets.erase(order.front());
-			order.pop_front();
+		auto result =
+			buckets.get_or_create(subject, [now] { return AuthThrottleBucket{.failures = 0, .window_start = now}; });
+		if (result.evicted) {
 			++metrics.subjects_evicted;
 		}
-		auto owned = std::string{subject};
-		order.push_back(owned);
-		auto [it, _] = buckets.emplace(
-			std::move(owned),
-			Entry{
-				.bucket = AuthThrottleBucket{.failures = 0, .window_start = now},
-				.order_it = std::prev(order.end()),
-        });
-		return it->second.bucket;
+		return *result.value;
 	}
 
 	void erase(
 		std::string_view subject) noexcept {
-		auto it = buckets.find(subject);
-		if (it == buckets.end()) {
-			return;
-		}
-		order.erase(it->second.order_it);
-		buckets.erase(it);
+		(void)buckets.erase(subject);
 	}
 };
 
