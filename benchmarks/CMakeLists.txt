@@ -161,6 +161,26 @@ if(CONFLUX_ENABLE_CPU_DISPATCH AND TARGET conflux_crypto)
         target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_STDSIMD=1)
         target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_json)
     endif()
+    if((CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64") AND TARGET conflux_json)
+        add_library(conflux_bench_json_intrin_sse2 OBJECT ../src/json_simd_intrinsics.cxx)
+        target_compile_options(conflux_bench_json_intrin_sse2 PRIVATE "-msse2")
+        target_compile_definitions(conflux_bench_json_intrin_sse2 PRIVATE
+            CONFLUX_JSON_INTRIN_AVX2=0
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_INTRIN=conflux_json_scan_str_until_special_intrin_sse2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_INTRIN=conflux_json_scan_dump_safe_run_intrin_sse2)
+
+        add_library(conflux_bench_json_intrin_avx2 OBJECT ../src/json_simd_intrinsics.cxx)
+        target_compile_options(conflux_bench_json_intrin_avx2 PRIVATE "-mavx2")
+        target_compile_definitions(conflux_bench_json_intrin_avx2 PRIVATE
+            CONFLUX_JSON_INTRIN_AVX2=1
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_INTRIN=conflux_json_scan_str_until_special_intrin_avx2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_INTRIN=conflux_json_scan_dump_safe_run_intrin_avx2)
+
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_INTRIN_VARIANTS=1)
+        target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
+            $<TARGET_OBJECTS:conflux_bench_json_intrin_sse2>
+            $<TARGET_OBJECTS:conflux_bench_json_intrin_avx2>)
+    endif()
     if(_conflux_simd_backend STREQUAL "STDX" AND TARGET conflux_json)
         add_library(conflux_bench_json_simd_stdx_sse2 OBJECT ../src/json_simd_stdx.cxx)
         target_compile_features(conflux_bench_json_simd_stdx_sse2 PRIVATE cxx_std_23)

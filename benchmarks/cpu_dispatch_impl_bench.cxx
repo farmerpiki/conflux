@@ -57,6 +57,15 @@ std::size_t conflux_json_scan_dump_safe_run_stdx_avx2(char const *, std::size_t,
 }
 #endif
 
+#if defined(CONFLUX_BENCH_HAS_JSON_INTRIN_VARIANTS)
+extern "C" {
+std::size_t conflux_json_scan_str_until_special_intrin_sse2(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_intrin_sse2(char const *, std::size_t, int) noexcept;
+std::size_t conflux_json_scan_str_until_special_intrin_avx2(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_intrin_avx2(char const *, std::size_t, int) noexcept;
+}
+#endif
+
 #if defined(CONFLUX_BENCH_HAS_JSON_STD26_VARIANTS)
 extern "C" {
 std::size_t conflux_json_scan_str_until_special_std26_sse2(char const *, std::size_t) noexcept;
@@ -227,11 +236,7 @@ void scalar_ws_unmask(
 
 void bench_json_scan(
 	BenchArgs const &cfg) {
-#if defined(CONFLUX_BENCH_HAS_JSON_STDSIMD)
 	[[maybe_unused]] bool const has_avx2 = conflux_cpu_supports_avx2();
-#else
-	[[maybe_unused]] bool const has_avx2 = false;
-#endif
 	for (std::size_t sz: {64UZ, 256UZ, 4096UZ, 65536UZ}) {
 		std::string s(sz, 'a');
 		auto const batch = sz <= 256 ? 200UZ : 20UZ;
@@ -310,6 +315,30 @@ void bench_json_scan(
 				sz));
 		}
 #endif
+#if defined(CONFLUX_BENCH_HAS_JSON_INTRIN_VARIANTS)
+		emit(measure(
+			std::format("json_scan_str/intrin-sse2/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_str_until_special_intrin_sse2(s.data(), s.size());
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("json_scan_str/intrin-avx2/{}", sz),
+				[&] {
+					auto r = conflux_json_scan_str_until_special_intrin_avx2(s.data(), s.size());
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
 		emit(measure(
 			std::format("json_dump_scan/scalar_ascii/{}", sz),
 			[&] {
@@ -374,6 +403,30 @@ void bench_json_scan(
 				std::format("json_dump_scan/std26-avx2_ascii/{}", sz),
 				[&] {
 					auto r = conflux_json_scan_dump_safe_run_std26_avx2(s.data(), s.size(), 1);
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
+#if defined(CONFLUX_BENCH_HAS_JSON_INTRIN_VARIANTS)
+		emit(measure(
+			std::format("json_dump_scan/intrin-sse2_ascii/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_dump_safe_run_intrin_sse2(s.data(), s.size(), 1);
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("json_dump_scan/intrin-avx2_ascii/{}", sz),
+				[&] {
+					auto r = conflux_json_scan_dump_safe_run_intrin_avx2(s.data(), s.size(), 1);
 					bench_keep(r);
 				},
 				warmup,
