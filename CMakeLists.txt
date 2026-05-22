@@ -1424,6 +1424,21 @@ endif()
 
 if(CONFLUX_NEEDS_RUNTIME)
 
+add_library(conflux_uring_primitives STATIC)
+target_sources(conflux_uring_primitives
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES
+        ${CONFLUX_SRC_ROOT}/uring/uring_fd.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring_fd_compat.cxx
+        ${CONFLUX_SRC_ROOT}/uring/uring_sqe.cxx
+)
+target_link_libraries(conflux_uring_primitives
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  PkgConfig::LIBURING
+)
+
 add_library(conflux_uring STATIC)
 target_sources(conflux_uring
     PUBLIC FILE_SET CXX_MODULES
@@ -1437,6 +1452,7 @@ target_sources(conflux_uring
 target_link_libraries(conflux_uring
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_uring_primitives
     PUBLIC  PkgConfig::LIBURING
 )
 
@@ -1586,6 +1602,7 @@ target_compile_definitions(conflux_work
 target_link_libraries(conflux_work
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_uring_primitives
     PUBLIC  PkgConfig::LIBURING
 )
 
@@ -3357,6 +3374,7 @@ conflux_public_component(conflux umbrella)
 # Internal-but-exported support targets needed by static-library link interfaces.
 conflux_component(conflux_options _options KIND SUPPORT)
 conflux_component(conflux_direct_slot_pool _direct_slot_pool KIND SUPPORT)
+conflux_component(conflux_uring_primitives _uring_primitives KIND SUPPORT)
 conflux_component(conflux_simd_runtime _simd_runtime KIND SUPPORT)
 
 if(TARGET conflux AND NOT TARGET conflux::conflux)
@@ -3431,6 +3449,7 @@ foreach(_target IN ITEMS
         conflux_http_server
         conflux_http_app
         conflux_net_http
+        conflux_uring_primitives
         conflux_uring
         conflux_uring_timeout
         conflux_work

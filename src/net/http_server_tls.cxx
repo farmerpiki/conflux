@@ -111,13 +111,17 @@ void Ring::tls_queue_send(
 	}
 
 	auto const view = std::span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
-	auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(conn.fd)) :
-											SocketHandle::from_os(conn.fd);
 	auto const fd = conn.fd;
 	auto const gen = conn.gen;
+	auto submit_tls_send = [&]<RingFd Handle>(Handle handle) {
+		return submit_send_borrowed(raw_, handle, view.data(), view.size(), pack(Op::Send, gen, fd));
+	};
 
 	conn.send_queued = true;
-	if (!submit_send_borrowed(raw_, handle, view.data(), view.size(), pack(Op::Send, gen, fd))) {
+	bool const submitted = accepted_sockets_direct ?
+							   submit_tls_send(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+							   submit_tls_send(OsFd::from_os(fd));
+	if (!submitted) {
 		conn.send_queued = false;
 		defer_op([this, fd, gen] {
 			auto const ufd = static_cast<std::size_t>(fd);

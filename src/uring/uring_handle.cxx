@@ -1,61 +1,36 @@
 module;
-#include <liburing.h>
 #include <unistd.h>
 
 export module conflux.uring.handle;
 
 import std;
-import conflux.types;
 import conflux.uring;
+import conflux_uring_fd;
+import conflux_uring_sqe;
 
-export struct RingFd {
-	std::uint32_t id{std::numeric_limits<std::uint32_t>::max()}; // std::max = invalid sentinel; avoids aliasing fd 0
-	bool fixed{false};
-	[[nodiscard]] constexpr bool valid() const noexcept { return id != std::numeric_limits<std::uint32_t>::max(); }
-	[[nodiscard]] static constexpr RingFd from_os(
-		int fd) noexcept {
-		return {.id = static_cast<std::uint32_t>(fd), .fixed = false};
-	}
-	[[nodiscard]] static constexpr RingFd from_direct(
-		std::uint32_t slot) noexcept {
-		return {.id = slot, .fixed = true};
-	}
-	[[nodiscard]] constexpr bool is_direct() const noexcept { return fixed && valid(); }
-	[[nodiscard]] constexpr bool is_os_fd() const noexcept { return !fixed && valid(); }
-	[[nodiscard]] constexpr int sqe_fd_value() const noexcept { return static_cast<int>(id); }
-	[[nodiscard]] constexpr conflux::uring::Fd sqe_fd() const noexcept { return conflux::uring::Fd{sqe_fd_value()}; }
-	[[nodiscard]] constexpr conflux::uring::DirectSlot direct_slot() const noexcept {
-		return conflux::uring::DirectSlot{id};
-	}
-};
+export using OsFd = conflux::uring::OsFd;
+export using DirectFd = conflux::uring::DirectFd;
 export template<typename T>
-concept RingFdLike = requires(T const &fd) {
-	{ fd.sqe_fd_value() } -> std::convertible_to<int>;
-	{ fd.is_direct() } -> std::convertible_to<bool>;
-};
-
-export inline void apply_sqe_fd_flags(
-	io_uring_sqe *sqe,
-	RingFdLike auto const &fd) noexcept {
-	if (fd.is_direct()) {
-		sqe->flags = static_cast<decltype(sqe->flags)>(sqe->flags | conflux::uring::sqe_flags::fixed_file.raw());
-	}
-}
-
-export inline void apply_sqe_fd_flags(
-	conflux::uring::Sqe &sqe,
-	RingFdLike auto const &fd) noexcept {
-	apply_sqe_fd_flags(sqe.raw(), fd);
-}
+concept ClassicFd = conflux::uring::ClassicFd<T>;
+export template<typename T>
+concept DirectFdLike = conflux::uring::DirectFdLike<T>;
+export template<typename T>
+concept RingFd = conflux::uring::RingFd<T>;
 
 export class IoHandle {
-	RingFd h_{};
+	enum class Kind : std::uint8_t {
+		invalid,
+		os,
+		direct,
+	};
+	std::uint32_t value_{std::numeric_limits<std::uint32_t>::max()};
+	Kind kind_{Kind::invalid};
 	void close_on_drop() noexcept {
-		if (h_.is_os_fd()) {
-			::close(static_cast<int>(h_.id));
+		if (is_os_fd()) {
+			::close(static_cast<int>(value_));
 		}
 #ifndef NDEBUG
-		if (h_.is_direct()) {
+		if (is_direct()) {
 			static constexpr char message[] =
 				"IoHandle dropped with live direct slot - close_async was never called; slot will leak\n";
 			auto remaining = std::string_view{message, sizeof(message) - 1};
@@ -68,7 +43,11 @@ export class IoHandle {
 			}
 		}
 #endif
-		h_ = RingFd{};
+		clear();
+	}
+	void clear() noexcept {
+		value_ = std::numeric_limits<std::uint32_t>::max();
+		kind_ = Kind::invalid;
 	}
 
 public:
@@ -77,12 +56,14 @@ public:
 	IoHandle &operator =(IoHandle const &) = delete;
 	IoHandle(
 		IoHandle &&o) noexcept
-		: h_{std::exchange(o.h_, RingFd{})} {}
+		: value_{std::exchange(o.value_, std::numeric_limits<std::uint32_t>::max())}
+		, kind_{std::exchange(o.kind_, Kind::invalid)} {}
 	IoHandle &operator =(
 		IoHandle &&o) noexcept {
 		if (this != &o) {
 			close_on_drop();
-			h_ = std::exchange(o.h_, RingFd{});
+			value_ = std::exchange(o.value_, std::numeric_limits<std::uint32_t>::max());
+			kind_ = std::exchange(o.kind_, Kind::invalid);
 		}
 		return *this;
 	}
@@ -90,39 +71,75 @@ public:
 	[[nodiscard]] static IoHandle from_fd(
 		int fd) noexcept {
 		IoHandle h;
-		h.h_ = RingFd::from_os(fd);
+		h.value_ = static_cast<std::uint32_t>(fd);
+		h.kind_ = Kind::os;
 		return h;
 	}
 	[[nodiscard]] static IoHandle from_direct_slot(
 		int slot) noexcept {
 		IoHandle h;
-		h.h_ = RingFd::from_direct(static_cast<std::uint32_t>(slot));
+		h.value_ = static_cast<std::uint32_t>(slot);
+		h.kind_ = Kind::direct;
 		return h;
 	}
-	[[nodiscard]] RingFd get() const noexcept { return h_; }
-	[[nodiscard]] int sqe_fd_value() const noexcept { return h_.sqe_fd_value(); }
-	[[nodiscard]] conflux::uring::Fd sqe_fd() const noexcept { return h_.sqe_fd(); }
-	[[nodiscard]] RingFd release() noexcept { return std::exchange(h_, RingFd{}); }
-	[[nodiscard]] bool valid() const noexcept { return h_.valid(); }
-	[[nodiscard]] bool is_direct() const noexcept { return h_.is_direct(); }
-	[[nodiscard]] bool is_os_fd() const noexcept { return h_.is_os_fd(); }
-	[[nodiscard]] int raw_fd() const noexcept { return h_.is_os_fd() ? static_cast<int>(h_.id) : -1; }
-	[[nodiscard]] int direct_slot() const noexcept { return h_.is_direct() ? static_cast<int>(h_.id) : -1; }
+	[[nodiscard]] OsFd os_fd() const noexcept { return is_os_fd() ? OsFd{value_} : OsFd{}; }
+	[[nodiscard]] DirectFd direct_fd() const noexcept { return is_direct() ? DirectFd{value_} : DirectFd{}; }
+	[[nodiscard]] OsFd get() const noexcept { return os_fd(); }
+	[[nodiscard]] bool valid() const noexcept { return kind_ != Kind::invalid; }
+	[[nodiscard]] bool is_direct() const noexcept { return kind_ == Kind::direct; }
+	[[nodiscard]] bool is_os_fd() const noexcept { return kind_ == Kind::os; }
+	[[nodiscard]] int raw_fd() const noexcept { return is_os_fd() ? static_cast<int>(value_) : -1; }
+	[[nodiscard]] int direct_slot() const noexcept { return is_direct() ? static_cast<int>(value_) : -1; }
+	[[nodiscard]] OsFd release() noexcept { return release_os_fd(); }
+	[[nodiscard]] OsFd release_os_fd() noexcept {
+		if (!is_os_fd()) {
+			return {};
+		}
+		OsFd fd{value_};
+		clear();
+		return fd;
+	}
+	[[nodiscard]] DirectFd release_direct_fd() noexcept {
+		if (!is_direct()) {
+			return {};
+		}
+		DirectFd fd{value_};
+		clear();
+		return fd;
+	}
 	[[nodiscard]] int release_fd() noexcept {
-		if (!h_.is_os_fd()) {
+		if (!is_os_fd()) {
 			return -1;
 		}
-		int const fd = static_cast<int>(h_.id);
-		h_ = RingFd{};
+		int const fd = static_cast<int>(value_);
+		clear();
 		return fd;
 	}
 	[[nodiscard]] int release_direct_slot() noexcept {
-		if (!h_.is_direct()) {
+		if (!is_direct()) {
 			return -1;
 		}
-		int const slot = static_cast<int>(h_.id);
-		h_ = RingFd{};
+		int const slot = static_cast<int>(value_);
+		clear();
 		return slot;
 	}
 };
 export using FileHandle = IoHandle;
+
+export decltype(auto) visit_fd(
+	IoHandle const &h,
+	auto &&fn) {
+	if (h.is_direct()) {
+		return std::forward<decltype(fn)>(fn)(h.direct_fd());
+	}
+	return std::forward<decltype(fn)>(fn)(h.os_fd());
+}
+
+export decltype(auto) release_fd_tag(
+	IoHandle &h,
+	auto &&fn) {
+	if (h.is_direct()) {
+		return std::forward<decltype(fn)>(fn)(h.release_direct_fd());
+	}
+	return std::forward<decltype(fn)>(fn)(h.release_os_fd());
+}

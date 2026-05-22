@@ -9,11 +9,13 @@
 import std;
 import conflux.types;
 import conflux.uring;
+import conflux.uring.fd;
 import conflux.socket_io;
 
 namespace {
 
 using conflux::uring::Ring;
+using namespace conflux::uring;
 
 [[nodiscard]] io_uring_sqe const &sqe_at(
 	io_uring const *ring,
@@ -35,8 +37,8 @@ void check_cmd_setsockopt_sqe(
 	CHECK(sqe.opcode == IORING_OP_URING_CMD);
 	CHECK(sqe.cmd_op == static_cast<unsigned>(conflux::uring::uring_cmd_op::setsockopt));
 	CHECK(sqe.fd == direct_slot);
-	CHECK(sqe.level == level);
-	CHECK(sqe.optname == optname);
+	CHECK(sqe.level == static_cast<__u32>(level));
+	CHECK(sqe.optname == static_cast<__u32>(optname));
 	CHECK(sqe.optlen == sizeof(int));
 	CHECK(sqe.user_data == user_data);
 	CHECK((sqe.flags & IOSQE_FIXED_FILE) != 0);
@@ -76,7 +78,7 @@ TEST_CASE(
 	unsigned const tail_before = ring_raw->sq.sqe_tail;
 	REQUIRE(submit_direct_tcp_accept_setup_recv_to_group(
 		raw,
-		SocketHandle::from_direct(static_cast<std::uint32_t>(direct_slot)),
+		DirectFd::from_direct(static_cast<std::uint32_t>(direct_slot)),
 		target,
 		0x11u,
 		0x22u,
@@ -121,21 +123,35 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"socket_io.direct_accept_setup: refuses non-direct sockets without consuming SQEs",
+	"socket_io.direct_accept_setup: accepts only direct sockets",
 	"[socket_io][direct_accept][sqe]") {
-	auto built = Ring::init(4, conflux::uring::SetupFlags{});
-	REQUIRE(built.has_value());
-	auto ring = std::move(*built);
-	auto raw = SocketRawRing{ring.ref()};
-	DirectTcpAcceptSetup opts{};
-	opts.tcp_nodelay_once = true;
-	DirectTcpAcceptRecvTarget target{.buf_group = 3};
+	CHECK_FALSE(DirectFdLike<OsFd>);
+}
 
-	auto *ring_raw = ring.raw();
-	unsigned const tail_before = ring_raw->sq.sqe_tail;
-	CHECK_FALSE(
-		submit_direct_tcp_accept_setup_recv_to_group(raw, SocketHandle::from_os(42), target, 0x11u, 0x22u, opts));
-	CHECK(ring_raw->sq.sqe_tail == tail_before);
+TEST_CASE(
+	"uring.handle: OsFd prep clears stale fixed-file flag",
+	"[uring][handle][sqe]") {
+	io_uring_sqe sqe{};
+	sqe.flags = IOSQE_FIXED_FILE | IOSQE_IO_LINK;
+	conflux::uring::Sqe sqe_view{&sqe};
+
+	char buf[8]{};
+	sqe_view.prep_read(OsFd::from_os(3), buf, sizeof(buf), 0);
+
+	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
+	CHECK((sqe.flags & IOSQE_IO_LINK) != 0);
+	CHECK(sqe.fd == 3);
+
+	sqe_view.prep_read(DirectFd::from_direct(4), buf, sizeof(buf), 0);
+	CHECK((sqe.flags & IOSQE_FIXED_FILE) != 0);
+	CHECK(sqe.fd == 4);
+
+	sqe_view.prep_close(DirectFd::from_direct(4));
+	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
+
+	sqe.flags |= IOSQE_FIXED_FILE;
+	sqe_view.prep_cancel_fd(DirectFd::from_direct(4));
+	CHECK((sqe.flags & IOSQE_FIXED_FILE) == 0);
 }
 
 TEST_CASE(
@@ -153,8 +169,7 @@ TEST_CASE(
 
 	auto *ring_raw = ring.raw();
 	unsigned const tail_before = ring_raw->sq.sqe_tail;
-	REQUIRE(
-		submit_direct_tcp_accept_setup_recv_to_group(raw, SocketHandle::from_direct(2), target, 0x11u, 0x22u, opts));
+	REQUIRE(submit_direct_tcp_accept_setup_recv_to_group(raw, DirectFd::from_direct(2), target, 0x11u, 0x22u, opts));
 	CHECK(ring_raw->sq.sqe_tail - tail_before == 2);
 	check_cmd_setsockopt_sqe(sqe_at(ring_raw, tail_before, 0), 2, IPPROTO_TCP, TCP_NODELAY, 0x11u, true);
 	CHECK(sqe_at(ring_raw, tail_before, 1).opcode == IORING_OP_RECV);

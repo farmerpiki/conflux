@@ -249,13 +249,15 @@ public:
 #endif
 }
 
+#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 [[nodiscard]] bool curl_has_http3() {
-#ifdef CURL_VERSION_HTTP3
+	#ifdef CURL_VERSION_HTTP3
 	return curl_feature(CURL_VERSION_HTTP3);
-#else
+	#else
 	return false;
-#endif
+	#endif
 }
+#endif
 
 [[nodiscard]] std::string http_url(
 	std::uint16_t port,
@@ -269,6 +271,7 @@ public:
 	return std::format("https://127.0.0.1:{}{}", port, path);
 }
 
+#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 [[nodiscard]] std::string h3_url(
 	std::uint16_t port,
 	std::string_view path) {
@@ -279,6 +282,7 @@ public:
 	std::uint16_t port) {
 	return std::format("localhost:{}:127.0.0.1", port);
 }
+#endif
 
 void require_ok(
 	CurlResponse const &resp,
@@ -617,7 +621,7 @@ struct ExpectedCurlRequest {
 	out.request.forbid_reuse = fresh;
 
 	if (version == TortureVersion::Http3) {
-	#ifdef CURL_HTTP_VERSION_3ONLY
+	#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 		out.request.url = h3_url(port, "/ping");
 		out.request.http_version = CURL_HTTP_VERSION_3ONLY;
 		out.request.resolve = localhost_resolve(port);

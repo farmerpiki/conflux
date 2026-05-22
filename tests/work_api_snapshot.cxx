@@ -10,6 +10,7 @@
 
 import std;
 import conflux.types;
+import conflux.small_function;
 import conflux.work;
 import conflux.work.root;
 import conflux.work.carrier;
@@ -97,9 +98,9 @@ using _ClearOnReadyStatus = root::ClearOnReadyStatus;
 using _TerminalState = root::detail::TerminalState;
 using _ReadyHookState = root::detail::ReadyHookState;
 
-// E2a: SBO move-only callable (exported from root::detail for internal reuse)
-using _small_move_only_fn_void = root::detail::small_move_only_function<void()>;
-using _small_move_only_fn_int = root::detail::small_move_only_function<int(int), 64>;
+// E2a: SBO move-only callable (exported from conflux::detail for internal reuse)
+using _small_move_only_fn_void = conflux::detail::small_move_only_function<void()>;
+using _small_move_only_fn_int = conflux::detail::small_move_only_function<int(int), 64>;
 
 // E4: Source setter API (try_set_value / try_set_exception / try_set_cancelled / try_set_error)
 static_assert(

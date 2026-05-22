@@ -10,6 +10,7 @@ export module conflux.work.carrier.timer;
 import std;
 import conflux.types;
 import conflux.work.root;
+import conflux_uring_sqe;
 export namespace conflux::work::carrier {
 
 template<class Clock>
@@ -175,8 +176,9 @@ private:
 			root::emit_carrier_diagnostic("TimerService: io_uring_get_sqe failed — timerfd read not resubmitted");
 			return;
 		}
-		io_uring_prep_read(sqe, tfd_, &read_buf_, sizeof(read_buf_), 0);
-		io_uring_sqe_set_data64(sqe, cqe_tag_);
+		conflux::uring::Sqe{sqe}
+			.prep_read(conflux::uring::SqeFd{tfd_}, &read_buf_, sizeof(read_buf_), 0)
+			.user_data(conflux::uring::UserData{cqe_tag_});
 		io_uring_submit(ring_);
 	}
 	void check_thread_() noexcept {

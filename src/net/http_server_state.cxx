@@ -558,7 +558,8 @@ struct Ring {
 	// Defer an op whose SQE allocation failed. Replayed from run_loop once
 	// the CQE reap frees ring capacity.
 	void defer_op(conflux::detail::small_move_only_function<void()> op);
-	void cancel_multishot_recv_or_defer(SocketHandle handle);
+	void cancel_multishot_recv_or_defer(OsFd handle);
+	void cancel_multishot_recv_or_defer(DirectFd handle);
 	void drain_pending_ops();
 	void defer_queue_send_if_current(int fd, std::uint32_t gen);
 	void defer_handle_send_complete_if_current(int fd, std::uint32_t gen);

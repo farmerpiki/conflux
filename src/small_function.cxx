@@ -4,7 +4,7 @@ import std;
 
 export namespace conflux::detail {
 
-template<typename Signature, std::size_t InlineBytes = 48>
+template<typename Signature, std::size_t InlineBytes = 40>
 class small_move_only_function;
 
 template<typename R, typename... Args, std::size_t InlineBytes>
@@ -15,8 +15,6 @@ class small_move_only_function<R(Args...), InlineBytes> {
 		move,
 	};
 	using manager_fn = void (*)(manager_op, void *, void *) noexcept;
-	static constexpr std::uintptr_t kHeapFlag = 1;
-	static constexpr std::uintptr_t kManagerMask = ~kHeapFlag;
 
 	union storage_t {
 		alignas(void *) std::byte inline_storage[InlineBytes];
@@ -25,23 +23,20 @@ class small_move_only_function<R(Args...), InlineBytes> {
 
 	storage_t storage_{};
 	invoke_fn invoke_ = nullptr;
-	std::uintptr_t manager_bits_ = 0;
+	manager_fn manager_ = nullptr;
+	bool heap_allocated_ = false;
 
-	[[nodiscard]] manager_fn manager() const noexcept {
-		return reinterpret_cast<manager_fn>(manager_bits_ & kManagerMask);
-	}
-	[[nodiscard]] bool heap_allocated() const noexcept { return (manager_bits_ & kHeapFlag) != 0; }
-	[[nodiscard]] void *object() noexcept {
-		return heap_allocated() ? storage_.heap_object : static_cast<void *>(storage_.inline_storage);
-	}
-	[[nodiscard]] void *object() const noexcept {
-		return heap_allocated() ? storage_.heap_object : const_cast<std::byte *>(storage_.inline_storage);
-	}
+	[[nodiscard]] manager_fn manager() const noexcept { return manager_; }
+	[[nodiscard]] bool heap_allocated() const noexcept { return heap_allocated_; }
+	[[nodiscard]] void *inline_object() noexcept { return static_cast<void *>(storage_.inline_storage); }
+	[[nodiscard]] void *inline_object() const noexcept { return const_cast<std::byte *>(storage_.inline_storage); }
+	[[nodiscard]] void *object() noexcept { return heap_allocated() ? storage_.heap_object : inline_object(); }
+	[[nodiscard]] void *object() const noexcept { return heap_allocated() ? storage_.heap_object : inline_object(); }
 	void set_manager(
 		manager_fn fn,
 		bool heap_allocated) noexcept {
-		auto bits = reinterpret_cast<std::uintptr_t>(fn);
-		manager_bits_ = bits | (heap_allocated ? kHeapFlag : 0);
+		manager_ = fn;
+		heap_allocated_ = heap_allocated;
 	}
 
 	template<typename F>
@@ -85,30 +80,34 @@ class small_move_only_function<R(Args...), InlineBytes> {
 		manager()(manager_op::destroy, nullptr, object());
 		storage_.heap_object = nullptr;
 		invoke_ = nullptr;
-		manager_bits_ = 0;
+		manager_ = nullptr;
+		heap_allocated_ = false;
 	}
 	void move_from(
 		small_move_only_function &&other) noexcept {
 		invoke_ = other.invoke_;
-		manager_bits_ = other.manager_bits_;
+		manager_ = other.manager_;
+		heap_allocated_ = other.heap_allocated_;
 
 		if (invoke_ == nullptr) {
 			storage_.heap_object = nullptr;
+			heap_allocated_ = false;
 			return;
 		}
 
 		if (!other.heap_allocated()) {
-			storage_.heap_object = nullptr;
-			manager()(manager_op::move, object(), other.object());
+			manager()(manager_op::move, inline_object(), other.inline_object());
 			other.storage_.heap_object = nullptr;
 			other.invoke_ = nullptr;
-			other.manager_bits_ = 0;
+			other.manager_ = nullptr;
+			other.heap_allocated_ = false;
 			return;
 		}
 
 		storage_.heap_object = std::exchange(other.storage_.heap_object, nullptr);
 		other.invoke_ = nullptr;
-		other.manager_bits_ = 0;
+		other.manager_ = nullptr;
+		other.heap_allocated_ = false;
 	}
 
 public:
@@ -154,10 +153,11 @@ public:
 		if constexpr (
 			sizeof(fn_t) <= InlineBytes
 			&& alignof(fn_t) <= alignof(void *)
+			&& std::is_trivially_move_constructible_v<fn_t>
 			&& std::is_nothrow_move_constructible_v<fn_t>) {
 			invoke_ = &invoke_inline<fn_t>;
 			set_manager(&manage_inline<fn_t>, false);
-			new (object()) fn_t(std::forward<F>(fn));
+			new (inline_object()) fn_t(std::forward<F>(fn));
 		} else {
 			storage_.heap_object = new fn_t(std::forward<F>(fn));
 			invoke_ = &invoke_heap<fn_t>;

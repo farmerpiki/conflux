@@ -11,6 +11,7 @@ import std;
 import conflux.types;
 import conflux.uring;
 import conflux.uring.flow;
+import conflux.uring.handle;
 import conflux.socket_io;
 import bench_common;
 import conflux.net.direct_slot_pool;
@@ -25,6 +26,7 @@ using namespace std::literals;
 namespace {
 namespace ur = conflux::uring;
 namespace uf = conflux::uring::flow;
+using conflux::uring::OsFd;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -224,15 +226,14 @@ void run_accept_close(
 			[&] {
 				int cli = connect_one(ls.port);
 				auto *sqe = raw.get_sqe();
-				io_uring_prep_accept(sqe, ls.fd, nullptr, nullptr, 0);
-				io_uring_sqe_set_data64(sqe, 1);
+				ur::Sqe{sqe}.prep_accept(OsFd::from_os(ls.fd), nullptr, nullptr, 0).user_data(ur::UserData{1});
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				int accepted = cqe->res;
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (accepted >= 0) {
-					submit_close(raw, SocketHandle::from_os(accepted), 2);
+					submit_close(raw, OsFd::from_os(accepted), 2);
 					submit_or_throw(raw);
 					wait_cqe(rg.get(), &cqe);
 					io_uring_cqe_seen(rg.get(), cqe);
@@ -264,15 +265,21 @@ void run_accept_direct_close(
 			[&] {
 				int cli = connect_one(ls.port);
 				auto *sqe = raw.get_sqe();
-				io_uring_prep_accept_direct(sqe, ls.fd, nullptr, nullptr, 0, IORING_FILE_INDEX_ALLOC);
-				io_uring_sqe_set_data64(sqe, 1);
+				ur::Sqe{sqe}
+					.prep_accept_direct(
+						OsFd::from_os(ls.fd),
+						nullptr,
+						nullptr,
+						0,
+						ur::DirectSlot{IORING_FILE_INDEX_ALLOC})
+					.user_data(ur::UserData{1});
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				int slot = cqe->res;
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (slot >= 0) {
-					submit_close(raw, SocketHandle::from_direct(static_cast<std::uint32_t>(slot)), 2);
+					submit_close(raw, DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
 					submit_or_throw(raw);
 					wait_cqe(rg.get(), &cqe);
 					io_uring_cqe_seen(rg.get(), cqe);
@@ -309,15 +316,21 @@ void run_accept_direct_reuse_cycle(
 				for (int c = 0; c < kCyclesPerIter; ++c) {
 					int cli = connect_one(ls.port);
 					auto *sqe = raw.get_sqe();
-					io_uring_prep_accept_direct(sqe, ls.fd, nullptr, nullptr, 0, IORING_FILE_INDEX_ALLOC);
-					io_uring_sqe_set_data64(sqe, 1);
+					ur::Sqe{sqe}
+						.prep_accept_direct(
+							OsFd::from_os(ls.fd),
+							nullptr,
+							nullptr,
+							0,
+							ur::DirectSlot{IORING_FILE_INDEX_ALLOC})
+						.user_data(ur::UserData{1});
 					submit_or_throw(raw);
 					io_uring_cqe *cqe{};
 					wait_cqe(rg.get(), &cqe);
 					int slot = cqe->res;
 					io_uring_cqe_seen(rg.get(), cqe);
 					if (slot >= 0) {
-						submit_close(raw, SocketHandle::from_direct(static_cast<std::uint32_t>(slot)), 2);
+						submit_close(raw, DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
 						submit_or_throw(raw);
 						wait_cqe(rg.get(), &cqe);
 						io_uring_cqe_seen(rg.get(), cqe);
@@ -346,7 +359,7 @@ void run_shutdown_close(
 			[&] {
 				int cli = connect_one(ls.port);
 				int srv = accept_one(ls.fd);
-				auto h = SocketHandle::from_os(srv);
+				auto h = OsFd::from_os(srv);
 				(void)submit_shutdown_close(raw, h, 1, 2);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
@@ -407,18 +420,18 @@ void run_multishot_recv_1conn(
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
-					submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
+					submit_recv_multishot(raw, OsFd::from_os(srv), bufs, 10);
 					submit_or_throw(raw);
 				}
 			},
 		.setup =
 			[&] {
-				submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
+				submit_recv_multishot(raw, OsFd::from_os(srv), bufs, 10);
 				submit_or_throw(raw);
 			},
 		.teardown =
 			[&] {
-				submit_cancel_fd(raw, SocketHandle::from_os(srv), 99);
+				submit_cancel_fd(raw, OsFd::from_os(srv), 99);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -489,21 +502,21 @@ void run_multishot_recv_Nconn(
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more && ud >= 100 && ud < 100 + kConns) {
 					std::size_t const idx = ud - 100;
-					submit_recv_multishot(raw, SocketHandle::from_os(servers[idx].fd), bufs, ud);
+					submit_recv_multishot(raw, OsFd::from_os(servers[idx].fd), bufs, ud);
 					submit_or_throw(raw);
 				}
 			},
 		.setup =
 			[&] {
 				for (std::size_t i = 0; i < kConns; ++i) {
-					submit_recv_multishot(raw, SocketHandle::from_os(servers[i].fd), bufs, 100 + i);
+					submit_recv_multishot(raw, OsFd::from_os(servers[i].fd), bufs, 100 + i);
 				}
 				submit_or_throw(raw);
 			},
 		.teardown =
 			[&] {
 				for (std::size_t i = 0; i < kConns; ++i) {
-					submit_cancel_fd(raw, SocketHandle::from_os(servers[i].fd), 200 + i);
+					submit_cancel_fd(raw, OsFd::from_os(servers[i].fd), 200 + i);
 				}
 				submit_or_throw(raw);
 				drain_cqes(rg.get());
@@ -571,18 +584,18 @@ void run_recv_fixed_fd(
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
-					submit_recv_multishot(raw, SocketHandle::from_direct(0), bufs, 10);
+					submit_recv_multishot(raw, DirectFd::from_direct(0), bufs, 10);
 					submit_or_throw(raw);
 				}
 			},
 		.setup =
 			[&] {
-				submit_recv_multishot(raw, SocketHandle::from_direct(0), bufs, 10);
+				submit_recv_multishot(raw, DirectFd::from_direct(0), bufs, 10);
 				submit_or_throw(raw);
 			},
 		.teardown =
 			[&] {
-				submit_cancel_fd(raw, SocketHandle::from_direct(0), 99);
+				submit_cancel_fd(raw, DirectFd::from_direct(0), 99);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -629,7 +642,7 @@ void run_send_variant(
 		.name = variant_name,
 		.run =
 			[&] {
-				submit_send_borrowed(raw, SocketHandle::from_os(srv), payload.data(), payload.size(), 1);
+				submit_send_borrowed(raw, OsFd::from_os(srv), payload.data(), payload.size(), 1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -680,7 +693,7 @@ void run_send_fixed_fd(
 		.name = "raw_send_fixed_fd",
 		.run =
 			[&] {
-				submit_send_borrowed(raw, SocketHandle::from_direct(0), kSend64.data(), kSend64.size(), 1);
+				submit_send_borrowed(raw, DirectFd::from_direct(0), kSend64.data(), kSend64.size(), 1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -725,12 +738,7 @@ void run_writev_variant(
 		.name = variant_name,
 		.run =
 			[&] {
-				submit_writev_borrowed(
-					raw,
-					SocketHandle::from_os(srv),
-					iov.data(),
-					static_cast<unsigned>(iov.size()),
-					1);
+				submit_writev_borrowed(raw, OsFd::from_os(srv), iov.data(), static_cast<unsigned>(iov.size()), 1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -894,9 +902,9 @@ void run_cancel_recv(
 		.name = "raw_cancel_recv",
 		.run =
 			[&] {
-				submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
+				submit_recv_multishot(raw, OsFd::from_os(srv), bufs, 10);
 				submit_or_throw(raw);
-				submit_cancel_fd(raw, SocketHandle::from_os(srv), 20);
+				submit_cancel_fd(raw, OsFd::from_os(srv), 20);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				// wait for both cancel result and recv cancellation
@@ -936,7 +944,7 @@ void run_cancel_by_user_data(
 		.name = "raw_cancel_by_user_data",
 		.run =
 			[&] {
-				submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
+				submit_recv_multishot(raw, OsFd::from_os(srv), bufs, 10);
 				submit_or_throw(raw);
 				submit_cancel_by_ud(raw, 10, 20);
 				submit_or_throw(raw);
@@ -976,9 +984,10 @@ void run_link_timeout(
 		.run =
 			[&] {
 				auto *sqe = raw.get_sqe();
-				io_uring_prep_recv(sqe, srv, recv_buf.data(), recv_buf.size(), 0);
-				io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-				io_uring_sqe_set_data64(sqe, 10);
+				ur::Sqe{sqe}
+					.prep_recv(OsFd::from_os(srv), recv_buf.data(), recv_buf.size(), ur::MsgFlags{})
+					.add_flags(ur::sqe_flags::io_link)
+					.user_data(ur::UserData{10});
 				submit_link_timeout_borrowed(raw, &ts, 20);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
@@ -1026,14 +1035,7 @@ void run_setsockopt_variant(
 		.name = variant_name,
 		.run =
 			[&] {
-				submit_setsockopt_borrowed(
-					raw,
-					SocketHandle::from_direct(0),
-					level,
-					optname,
-					&optval,
-					sizeof(optval),
-					1);
+				submit_setsockopt_borrowed(raw, DirectFd::from_direct(0), level, optname, &optval, sizeof(optval), 1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -1125,7 +1127,7 @@ void run_buf_ring_exhaustion_recover(
 		.run =
 			[&] {
 				// drain kBufCount buffers
-				submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
+				submit_recv_multishot(raw, OsFd::from_os(srv), bufs, 10);
 				submit_or_throw(raw);
 				std::vector<std::uint16_t> drained;
 				drained.reserve(kBufCount);
@@ -1141,7 +1143,7 @@ void run_buf_ring_exhaustion_recover(
 				// recycle all at once
 				bufs.recycle_batch(drained);
 				// cancel outstanding recv
-				submit_cancel_fd(raw, SocketHandle::from_os(srv), 99);
+				submit_cancel_fd(raw, OsFd::from_os(srv), 99);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -1331,7 +1333,7 @@ void run_batch_send_32(
 				for (int i = 0; i < 32; ++i) {
 					submit_send_borrowed(
 						raw,
-						SocketHandle::from_os(srv),
+						OsFd::from_os(srv),
 						kPayload.data(),
 						kPayload.size(),
 						static_cast<std::uint64_t>(i));
@@ -1394,13 +1396,13 @@ void run_batch_recv_send_16(
 				for (std::size_t i = 0; i < 16; ++i) {
 					submit_async_recv_borrowed(
 						raw,
-						SocketHandle::from_os(srv),
+						OsFd::from_os(srv),
 						recv_bufs[i].data(),
 						recv_bufs[i].size(),
 						static_cast<std::uint64_t>(i));
 				}
 				for (std::size_t i = 0; i < 16; ++i) {
-					submit_send_borrowed(raw, SocketHandle::from_os(srv), kPayload.data(), kPayload.size(), 100 + i);
+					submit_send_borrowed(raw, OsFd::from_os(srv), kPayload.data(), kPayload.size(), 100 + i);
 				}
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};

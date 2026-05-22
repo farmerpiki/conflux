@@ -73,14 +73,18 @@ void Ring::queue_send_mapped(
 	if (skip < conn.own_response.size()) {
 		std::span<char> const hdr_span{conn.own_response};
 		if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
-			auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) :
-													SocketHandle::from_os(fd);
-			if (!submit_send_borrowed(
+			auto submit_header = [&]<RingFd Handle>(Handle handle) {
+				return submit_send_borrowed(
 					raw_,
 					handle,
 					hdr_span.subspan(skip).data(),
 					hdr_span.subspan(skip).size(),
-					pack(Op::Send, conn.gen, fd))) {
+					pack(Op::Send, conn.gen, fd));
+			};
+			bool const submitted = accepted_sockets_direct ?
+									   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+									   submit_header(OsFd::from_os(fd));
+			if (!submitted) {
 				defer_op([this, fd] { queue_send_mapped(fd); });
 			}
 			return;
@@ -105,40 +109,43 @@ void Ring::queue_send_mapped(
 	if (ni == 0) {
 		return;
 	}
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	if (send_zc_enabled_ && ni == 1 && conn.written >= conn.own_response.size()) {
-		auto const body_len = conn.writev_iov[0].iov_len;
-		if (body_len >= send_zc_threshold_) {
-			++zc_counters_.attempts;
-			++zc_counters_.mapped_attempts;
-			zc_counters_.bytes_requested += body_len;
-			if (submit_send_zc_borrowed(
-					raw_,
-					handle,
-					conn.writev_iov[0].iov_base,
-					body_len,
-					pack(Op::SendZc, conn.gen, fd),
-					send_zc_report_usage_)) {
-				return;
-			}
-			++zc_counters_.fallback_regular_send;
-			defer_op([this, fd, g = conn.gen] {
-				if (conn_for(fd).gen == g) {
-					queue_send_mapped(fd);
+	auto submit_tail = [&]<RingFd Handle>(Handle handle) {
+		if (send_zc_enabled_ && ni == 1 && conn.written >= conn.own_response.size()) {
+			auto const body_len = conn.writev_iov[0].iov_len;
+			if (body_len >= send_zc_threshold_) {
+				++zc_counters_.attempts;
+				++zc_counters_.mapped_attempts;
+				zc_counters_.bytes_requested += body_len;
+				if (submit_send_zc_borrowed(
+						raw_,
+						handle,
+						conn.writev_iov[0].iov_base,
+						body_len,
+						pack(Op::SendZc, conn.gen, fd),
+						send_zc_report_usage_)) {
+					return true;
 				}
-			});
-			return;
+				++zc_counters_.fallback_regular_send;
+				defer_op([this, fd, g = conn.gen] {
+					if (conn_for(fd).gen == g) {
+						queue_send_mapped(fd);
+					}
+				});
+				return true;
+			}
 		}
-	}
-	if (!submit_writev_borrowed(
-			raw_,
-			handle,
-			conn.writev_iov.data(),
-			static_cast<unsigned>(ni),
-			pack(Op::Send, conn.gen, fd))) {
-		defer_op([this, fd] { queue_send_mapped(fd); });
-	}
+		if (!submit_writev_borrowed(
+				raw_,
+				handle,
+				conn.writev_iov.data(),
+				static_cast<unsigned>(ni),
+				pack(Op::Send, conn.gen, fd))) {
+			defer_op([this, fd] { queue_send_mapped(fd); });
+		}
+		return true;
+	};
+	(void)(accepted_sockets_direct ? submit_tail(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+									 submit_tail(OsFd::from_os(fd)));
 }
 
 // triggered from handle_send once the header bytes are acked.
@@ -153,9 +160,13 @@ void Ring::queue_send_streamed(
 		return;
 	}
 	auto const hdr_view = std::span{conn.own_response}.subspan(conn.written);
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	if (!submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd))) {
+	auto submit_header = [&]<RingFd Handle>(Handle handle) {
+		return submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd));
+	};
+	bool const submitted = accepted_sockets_direct ?
+							   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+							   submit_header(OsFd::from_os(fd));
+	if (!submitted) {
 		defer_op([this, fd] { queue_send_streamed(fd); });
 	}
 }
@@ -443,69 +454,43 @@ void Ring::queue_send(
 	auto const gen = conn.gen;
 	auto const &resp = conn.own_response;
 	std::size_t const len = resp.size() - conn.written;
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	if (conn.send_buf.valid()) {
-		assert(conn.written >= conn.send_buf_base_written);
-		auto const local_off = conn.written - conn.send_buf_base_written;
-		assert(local_off <= conn.send_buf_len);
-		auto const remaining = conn.send_buf.view().subspan(local_off, conn.send_buf_len - local_off);
-		if (!submit_send_fixed_borrowed(
-				raw_,
-				handle,
-				conn.send_buf.slot(),
-				remaining.data(),
-				remaining.size(),
-				pack(Op::Send, gen, fd))) {
-			defer_op([this, fd, gen] {
-				auto const ufd = static_cast<std::size_t>(fd);
-				if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
-					queue_send(fd);
-				}
-			});
-		}
-		return;
-	}
-	auto const resp_view = std::span{resp}.subspan(conn.written);
-	if (send_zc_enabled_ && resp_view.size() >= send_zc_threshold_) {
-		++zc_counters_.attempts;
-		++zc_counters_.plain_attempts;
-		zc_counters_.bytes_requested += resp_view.size();
-		if (submit_send_zc_borrowed(
-				raw_,
-				handle,
-				resp_view.data(),
-				resp_view.size(),
-				pack(Op::SendZc, gen, fd),
-				send_zc_report_usage_)) {
-			return;
-		}
-		++zc_counters_.fallback_regular_send;
-		defer_op([this, fd, gen] {
-			auto const ufd = static_cast<std::size_t>(fd);
-			if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
-				queue_send(fd);
-			}
-		});
-		return;
-	}
-	if (send_buffers && send_fixed_buffers_supported && len <= send_buffers->slab_bytes()) {
-		auto buf = send_buffers->try_acquire();
-		if (buf) {
-			auto const view = buf->view().subspan(0, len);
-			std::memcpy(view.data(), resp.data() + conn.written, len);
-			if (submit_send_fixed_borrowed(
+	auto submit_response = [&]<RingFd Handle>(Handle handle) {
+		if (conn.send_buf.valid()) {
+			assert(conn.written >= conn.send_buf_base_written);
+			auto const local_off = conn.written - conn.send_buf_base_written;
+			assert(local_off <= conn.send_buf_len);
+			auto const remaining = conn.send_buf.view().subspan(local_off, conn.send_buf_len - local_off);
+			if (!submit_send_fixed_borrowed(
 					raw_,
 					handle,
-					buf->slot(),
-					view.data(),
-					view.size(),
+					conn.send_buf.slot(),
+					remaining.data(),
+					remaining.size(),
 					pack(Op::Send, gen, fd))) {
-				conn.send_buf = std::move(*buf);
-				conn.send_buf_base_written = conn.written;
-				conn.send_buf_len = len;
+				defer_op([this, fd, gen] {
+					auto const ufd = static_cast<std::size_t>(fd);
+					if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
+						queue_send(fd);
+					}
+				});
+			}
+			return;
+		}
+		auto const resp_view = std::span{resp}.subspan(conn.written);
+		if (send_zc_enabled_ && resp_view.size() >= send_zc_threshold_) {
+			++zc_counters_.attempts;
+			++zc_counters_.plain_attempts;
+			zc_counters_.bytes_requested += resp_view.size();
+			if (submit_send_zc_borrowed(
+					raw_,
+					handle,
+					resp_view.data(),
+					resp_view.size(),
+					pack(Op::SendZc, gen, fd),
+					send_zc_report_usage_)) {
 				return;
 			}
+			++zc_counters_.fallback_regular_send;
 			defer_op([this, fd, gen] {
 				auto const ufd = static_cast<std::size_t>(fd);
 				if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
@@ -514,14 +499,45 @@ void Ring::queue_send(
 			});
 			return;
 		}
-	}
-	if (!submit_send_borrowed(raw_, handle, resp_view.data(), resp_view.size(), pack(Op::Send, gen, fd))) {
-		defer_op([this, fd, gen] {
-			auto const ufd = static_cast<std::size_t>(fd);
-			if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
-				queue_send(fd);
+		if (send_buffers && send_fixed_buffers_supported && len <= send_buffers->slab_bytes()) {
+			auto buf = send_buffers->try_acquire();
+			if (buf) {
+				auto const view = buf->view().subspan(0, len);
+				std::memcpy(view.data(), resp.data() + conn.written, len);
+				if (submit_send_fixed_borrowed(
+						raw_,
+						handle,
+						buf->slot(),
+						view.data(),
+						view.size(),
+						pack(Op::Send, gen, fd))) {
+					conn.send_buf = std::move(*buf);
+					conn.send_buf_base_written = conn.written;
+					conn.send_buf_len = len;
+					return;
+				}
+				defer_op([this, fd, gen] {
+					auto const ufd = static_cast<std::size_t>(fd);
+					if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
+						queue_send(fd);
+					}
+				});
+				return;
 			}
-		});
+		}
+		if (!submit_send_borrowed(raw_, handle, resp_view.data(), resp_view.size(), pack(Op::Send, gen, fd))) {
+			defer_op([this, fd, gen] {
+				auto const ufd = static_cast<std::size_t>(fd);
+				if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
+					queue_send(fd);
+				}
+			});
+		}
+	};
+	if (accepted_sockets_direct) {
+		submit_response(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
+	} else {
+		submit_response(OsFd::from_os(fd));
 	}
 }
 

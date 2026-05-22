@@ -349,26 +349,26 @@ void prep_op(
 	DirectFileBuilder const &b,
 	bool is_close,
 	char const *open_path_override = nullptr) noexcept {
+	Sqe sqe_view{sqe};
 	if (is_close) {
-		io_uring_prep_close_direct(sqe, b.slot.value);
+		sqe_view.prep_close_direct(b.slot);
 		return;
 	}
 	auto const &op = b.ops[i];
 	switch (op.kind) {
 	case FlowOpKind::open_direct:
-		io_uring_prep_openat_direct(
-			sqe,
-			op.open.dfd,
+		sqe_view.prep_openat_direct(
+			SqeFd{op.open.dfd},
 			open_path_override != nullptr ? open_path_override : op.open.path,
 			op.open.open_flags,
 			op.open.mode,
-			op.open.slot.value);
+			op.open.slot);
 		break;
 	case FlowOpKind::read:
-		io_uring_prep_read(sqe, static_cast<int>(b.slot.value), op.read.buf, op.read.len, op.read.offset);
+		sqe_view.prep_read(DirectFd::from_direct(b.slot.value), op.read.buf, op.read.len, op.read.offset);
 		break;
 	case FlowOpKind::write:
-		io_uring_prep_write(sqe, static_cast<int>(b.slot.value), op.write.buf, op.write.len, op.write.offset);
+		sqe_view.prep_write(DirectFd::from_direct(b.slot.value), op.write.buf, op.write.len, op.write.offset);
 		break;
 	case FlowOpKind::close_direct: break;
 	}
@@ -779,7 +779,7 @@ private:
 	void submit_close_sqe(
 		io_uring_sqe *sqe,
 		DirectFileFlowState &st) noexcept {
-		io_uring_prep_close_direct(sqe, st.slot.value);
+		Sqe{sqe}.prep_close_direct(st.slot);
 		// io_uring_prep_close_direct calls io_uring_initialize_sqe which zeroes flags;
 		// explicitly clear link bits anyway — defensive against future prep changes.
 		sqe->flags &= static_cast<std::uint8_t>(~link_mask);
@@ -915,8 +915,7 @@ std::uint32_t FlowBuilder::submit() noexcept {
 					// This path is unreachable under correct single-issuer usage.
 					assert(false);
 					for (std::uint8_t j = 0; j < n; ++j) {
-						io_uring_prep_nop(sqes[j]);
-						sqes[j]->user_data = 0; // io_uring_prep_nop does not zero user_data; must be explicit
+						Sqe{sqes[j]}.prep_nop().user_data(UserData{0});
 					}
 					rt_.slab_.release(*state_ptr);
 					reject(-EAGAIN);

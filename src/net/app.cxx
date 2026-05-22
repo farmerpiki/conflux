@@ -627,6 +627,7 @@ public:
 		return add_context("OPTIONS", path, std::forward<F>(handler));
 	}
 	template<typename F>
+		requires(!std::same_as<std::remove_cvref_t<F>, ObservabilityMiddleware>)
 	App &use(
 		F &&middleware) {
 		router_.use(std::forward<F>(middleware));
@@ -634,7 +635,7 @@ public:
 		return *this;
 	}
 	App &use(
-		ObservabilityMiddleware middleware) {
+		ObservabilityMiddleware const &middleware) {
 		if (middleware.options.request_id) {
 			router_.use(::request_id_middleware());
 			++middleware_count_;
@@ -1377,12 +1378,9 @@ public:
 			.handler_kind = std::string{handler_kind},
 			.source_file = loc.file_name(),
 			.source_line = loc.line(),
-			.middleware_count =
-				middleware_count_
-				+ (group_middlewares_ == nullptr ? 0U : static_cast<std::size_t>(group_middlewares_->size()))
-				+ (group_context_middlewares_ == nullptr ?
-					   0U :
-					   static_cast<std::size_t>(group_context_middlewares_->size()))};
+			.middleware_count = middleware_count_
+							  + (group_middlewares_ == nullptr ? 0U : group_middlewares_->size())
+							  + (group_context_middlewares_ == nullptr ? 0U : group_context_middlewares_->size())};
 		detail::append_extractors<Args>(meta.extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractors<Args>(meta.path_extractors, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		detail::append_path_extractor_types<Args>(
@@ -2078,7 +2076,7 @@ public:
 			 rate_limit,
 			 timeout,
 			 fn = Fn(std::forward<F>(handler)),
-			 decode_opts = std::move(decode_opts),
+			 decode_opts = decode_opts,
 			 max_body_size,
 			 json_options](RequestView const &req) mutable -> Response {
 				if (auto denied = detail::route_auth_failure(*auth_policy, req)) {

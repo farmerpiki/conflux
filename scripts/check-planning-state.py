@@ -42,7 +42,7 @@ for path in sorted(PROPOSALS.glob("*.md")):
         fail(f"todo/proposal_state.md does not mention active proposal {rel}")
 
     lowered = first.lower()
-    historical = "historical" in first or "archive" in first or "state note" in first
+    historical = "historical" in lowered or "archive" in lowered or "state note" in lowered
     if (re.search(r"\bimplemented\b", lowered) or re.search(r"\bsuperseded\b", lowered)) and not historical:
         fail(f"{rel} is marked implemented/superseded without a historical/archive state note")
 

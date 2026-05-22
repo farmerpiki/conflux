@@ -120,14 +120,15 @@ public:
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		io_uring_prep_read_fixed(
-			sqe,
-			fh.sqe_fd_value(),
-			holder->view().data(),
-			static_cast<unsigned>(aligned_bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		apply_sqe_fd_flags(sqe, fh);
+		conflux::uring::Sqe sqe_view{sqe};
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe_view.prep_read_fixed(
+				fd,
+				holder->view().data(),
+				aligned_bytes,
+				offset,
+				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {

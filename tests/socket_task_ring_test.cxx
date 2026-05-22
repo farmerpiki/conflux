@@ -10,6 +10,7 @@
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.uring.completion;
 import conflux.work;
 import conflux.socket_io;
@@ -1372,8 +1373,7 @@ TEST_CASE(
 		if (!sqe) {
 			break;
 		}
-		::io_uring_prep_nop(sqe);
-		sqe->user_data = 0xDEADBEEFU;
+		conflux::uring::Sqe{sqe}.prep_nop().user_data(conflux::uring::UserData{0xDEADBEEFU});
 		++nops_added;
 	}
 	REQUIRE(nops_added == 15); // ring must have been exactly 1 slot used (accept)

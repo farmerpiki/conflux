@@ -9,6 +9,7 @@ module;
 module conflux.work;
 
 import std;
+import conflux_uring_sqe;
 
 struct alignas(
 	64) WorkPoolWorker {
@@ -438,7 +439,11 @@ struct RingLaneState {
 			return false;
 		}
 		io_uring_sqe sqe{};
-		io_uring_prep_msg_ring(&sqe, options.ring_fd, 0, options.wake_user_data, 0);
+		conflux::uring::Sqe{&sqe}.prep_msg_ring(
+			conflux::uring::SqeFd{options.ring_fd},
+			0,
+			conflux::uring::UserData{options.wake_user_data},
+			conflux::uring::MsgRingFlags{});
 		return io_uring_register_sync_msg(&sqe) == 0;
 	}
 	static void run_inline(

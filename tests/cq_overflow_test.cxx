@@ -30,8 +30,7 @@ void submit_nops_no_drain(
 			if (!sqe) {
 				break;
 			}
-			io_uring_prep_nop(sqe.raw());
-			io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(submitted + j));
+			sqe.prep_nop().user_data(UserData{static_cast<std::uint64_t>(submitted + j)});
 		}
 		ring.submit();
 		submitted += batch;
@@ -108,8 +107,7 @@ TEST_CASE(
 	for (unsigned i = 0; i < n_ops; ++i) {
 		auto sqe = ring.get_sqe();
 		REQUIRE(sqe);
-		io_uring_prep_nop(sqe.raw());
-		io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(i));
+		sqe.prep_nop().user_data(UserData{static_cast<std::uint64_t>(i)});
 	}
 	ring.submit();
 	for (unsigned d = 0; d < n_ops;) {

@@ -5,6 +5,7 @@ export module conflux.uring.timeout;
 
 import std;
 import conflux.types;
+import conflux_uring_sqe;
 import conflux.work;
 import conflux.uring.completion;
 
@@ -38,10 +39,11 @@ namespace detail {
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(ms);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (ms - sec).count() * 1000000LL;
+	Sqe sqe_view{sqe};
 	if (link_only) {
-		io_uring_prep_link_timeout(sqe, ts.get(), flags);
+		sqe_view.prep_link_timeout(ts.get(), TimeoutFlags{flags});
 	} else {
-		io_uring_prep_timeout(sqe, ts.get(), count, flags);
+		sqe_view.prep_timeout(ts.get(), count, TimeoutFlags{flags});
 	}
 	auto [slot, gen] = completions.reserve([shared_src, ts, link_only](IoResult r) mutable {
 		try {
@@ -101,7 +103,7 @@ export [[nodiscard]] root::Task<void> async_timeout_remove(
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(UringTimeoutError{"uring.timeout: SQ full"}));
 		return std::move(task);
 	}
-	io_uring_prep_timeout_remove(sqe, user_data, flags);
+	Sqe{sqe}.prep_timeout_remove(UserData{user_data}, TimeoutFlags{flags});
 	auto [slot, gen] = completions.reserve([shared_src](IoResult r) mutable {
 		try {
 			if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {

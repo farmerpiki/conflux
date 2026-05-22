@@ -117,32 +117,32 @@ export class FileReader {
 	struct PreparedSqe {
 		root::Task<T> task;
 		std::shared_ptr<root::TaskSource<T>> src;
-		io_uring_sqe *sqe{};
+		conflux::uring::Sqe sqe;
 	};
 	template<typename T>
 	struct PreparedSqeDirect {
 		root::Task<T> task;
 		root::TaskSource<T> src;
-		io_uring_sqe *sqe{};
+		conflux::uring::Sqe sqe;
 	};
 	template<typename T>
 	[[nodiscard]] PreparedSqe<T> prepare_sqe() const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 		}
-		return PreparedSqe<T>{.task = std::move(task), .src = std::move(shared_src), .sqe = sqe};
+		return PreparedSqe<T>{.task = std::move(task), .src = std::move(shared_src), .sqe = conflux::uring::Sqe{sqe}};
 	}
 	template<typename T>
 	[[nodiscard]] PreparedSqeDirect<T> prepare_sqe_direct() const {
 		auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			auto _ = src.try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 		}
-		return PreparedSqeDirect<T>{.task = std::move(task), .src = std::move(src), .sqe = sqe};
+		return PreparedSqeDirect<T>{.task = std::move(task), .src = std::move(src), .sqe = conflux::uring::Sqe{sqe}};
 	}
 	// Reserve a completion slot with a callback that bridges an IoResult into
 	// a root::TaskSource<T>. `decode` turns a non-negative res into a T; negative
@@ -230,10 +230,12 @@ public:
 		short poll_mask,
 		CompletionFn on_event) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return false;
 		}
-		io_uring_prep_poll_multishot(sqe, fd, static_cast<unsigned>(poll_mask));
+		conflux::uring::Sqe{sqe}.prep_poll_multishot(
+			conflux::uring::SqeFd{fd},
+			conflux::uring::PollFlags{static_cast<unsigned>(poll_mask)});
 		auto [slot, gen] = completions_->reserve_multishot(std::move(on_event));
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return true;
@@ -243,10 +245,12 @@ public:
 		short poll_mask,
 		CompletionFn on_event) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return false;
 		}
-		io_uring_prep_poll_add(sqe, fd, static_cast<unsigned>(poll_mask));
+		conflux::uring::Sqe{sqe}.prep_poll_add(
+			conflux::uring::SqeFd{fd},
+			conflux::uring::PollFlags{static_cast<unsigned>(poll_mask)});
 		auto [slot, gen] = completions_->reserve(std::move(on_event));
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return true;
@@ -261,11 +265,11 @@ private:
 		mode_t mode,
 		unsigned file_index) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			auto _ = src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return false;
 		}
-		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
+		conflux::uring::Sqe{sqe}.prep_openat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags, mode);
 		auto [slot, gen] = completions_->reserve([this, src, path_owner, file_index](IoResult r) mutable {
 			auto _ = path_owner; // keep-alive until CQE
 			try {
@@ -303,11 +307,11 @@ public:
 		int flags,
 		mode_t mode = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
+		sqe.prep_openat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags, mode);
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner](IoResult r) mutable {
 			auto _ = path_owner; // keep-alive until CQE
 			try {
@@ -319,7 +323,7 @@ public:
 				auto _ = shared_src->try_set_value({FileHandle::from_fd(r.res)});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Open a path directly into the ring's fixed-file table. The owner must
@@ -331,11 +335,16 @@ public:
 		mode_t mode,
 		unsigned file_index) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_openat_direct(sqe, dir_fd, path_owner->c_str(), flags, mode, file_index);
+		sqe.prep_openat_direct(
+			conflux::uring::SqeFd{dir_fd},
+			path_owner->c_str(),
+			flags,
+			mode,
+			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] =
 			completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
 				auto _ = path_owner; // keep-alive until CQE
@@ -355,7 +364,7 @@ public:
 						{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
 				} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 			});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
@@ -364,21 +373,20 @@ public:
 		std::string path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS) {
-		return async_statx(RingFd::from_os(dir_fd), std::move(path), flags, mask);
+		return async_statx(OsFd::from_os(dir_fd), std::move(path), flags, mask);
 	}
 	[[nodiscard]] root::Task<FileStat> async_statx(
-		RingFdLike auto const &dir_fd,
+		RingFd auto const &dir_fd,
 		std::string path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileStat>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		auto stx_owner = std::make_shared<struct statx>();
-		io_uring_prep_statx(sqe, dir_fd.sqe_fd_value(), path_owner->c_str(), flags, mask, stx_owner.get());
-		apply_sqe_fd_flags(sqe, dir_fd);
+		sqe.prep_statx(dir_fd, path_owner->c_str(), flags, mask, stx_owner.get());
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner, stx_owner](IoResult r) mutable {
 			auto _ = path_owner;
 			try {
@@ -398,13 +406,13 @@ public:
 				auto _ = shared_src->try_set_value({out});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
 	[[nodiscard]] root::Task<FileStat> async_stat(
 		FileHandle const &fh) {
-		return async_statx(fh, std::string{}, AT_EMPTY_PATH);
+		return visit_fd(fh, [this](RingFd auto fd) { return async_statx(fd, std::string{}, AT_EMPTY_PATH); });
 	}
 	// Read into a caller-owned std::span. The caller must keep `dst` alive until the
 	// Flow resolves.
@@ -413,15 +421,14 @@ public:
 		std::uint64_t offset,
 		std::span<std::byte> dst) {
 		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_read(sqe, fh.sqe_fd_value(), dst.data(), static_cast<unsigned>(dst.size()), offset);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_read(fd, dst.data(), dst.size(), offset); });
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
@@ -432,22 +439,18 @@ public:
 		std::uint64_t offset,
 		std::vector<iovec> iovecs) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_readv(
-			sqe,
-			fh.sqe_fd_value(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_readv(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Read into a pre-registered fixed buffer. The pool slot is held by the
@@ -464,20 +467,20 @@ public:
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		io_uring_prep_read_fixed(
-			sqe,
-			fh.sqe_fd_value(),
-			holder->view().data(),
-			static_cast<unsigned>(bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_read_fixed(
+				fd,
+				holder->view().data(),
+				bytes,
+				offset,
+				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -490,7 +493,7 @@ public:
                 });
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Read into a pre-registered fixed buffer, bypassing the kernel page cache.
@@ -514,19 +517,19 @@ public:
 			aligned_bytes = std::min(aligned_bytes, buf.size());
 		}
 		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		io_uring_prep_read_fixed(
-			sqe,
-			fh.sqe_fd_value(),
-			holder->view().data(),
-			static_cast<unsigned>(aligned_bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_read_fixed(
+				fd,
+				holder->view().data(),
+				aligned_bytes,
+				offset,
+				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -540,7 +543,7 @@ public:
                 });
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Write from a pre-registered fixed buffer. Symmetric to read_fixed.
@@ -556,20 +559,20 @@ public:
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 		auto [task, shared_src, sqe] = prepare_sqe<WriteFixedResult>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
-		io_uring_prep_write_fixed(
-			sqe,
-			fh.sqe_fd_value(),
-			holder->view().data(),
-			static_cast<unsigned>(bytes),
-			offset,
-			static_cast<int>(slot_idx));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_write_fixed(
+				fd,
+				holder->view().data(),
+				bytes,
+				offset,
+				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
+		});
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -582,7 +585,7 @@ public:
                 });
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<std::size_t> write_into(
@@ -590,15 +593,14 @@ public:
 		std::uint64_t offset,
 		std::span<std::byte const> src_view) {
 		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_write(sqe, fh.sqe_fd_value(), src_view.data(), static_cast<unsigned>(src_view.size()), offset);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_write(fd, src_view.data(), src_view.size(), offset); });
 		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
@@ -609,22 +611,18 @@ public:
 		std::uint64_t offset,
 		std::vector<iovec> iovecs) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_writev(
-			sqe,
-			fh.sqe_fd_value(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_writev(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// readv2_into: like readv_into but with RWF flags (e.g. RWF_NOWAIT, RWF_DSYNC).
@@ -634,23 +632,18 @@ public:
 		std::vector<iovec> iovecs,
 		int rwf_flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_readv2(
-			sqe,
-			fh.sqe_fd_value(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset,
-			rwf_flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_readv2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// writev2_into: like writev_into but with RWF flags.
@@ -660,46 +653,43 @@ public:
 		std::vector<iovec> iovecs,
 		int rwf_flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		io_uring_prep_writev2(
-			sqe,
-			fh.sqe_fd_value(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset,
-			rwf_flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_writev2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
 	[[nodiscard]] root::Task<void> async_nop() {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_nop(sqe);
+		sqe.prep_nop();
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_fsync(
 		FileHandle const &fh,
 		bool data_only = false) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_fsync(sqe, fh.raw_fd(), data_only ? IORING_FSYNC_DATASYNC : 0U);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_fsync(fd, conflux::uring::FsyncFlags{data_only ? IORING_FSYNC_DATASYNC : 0U});
+		});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_fallocate(
@@ -708,12 +698,12 @@ public:
 		std::uint64_t offset,
 		std::uint64_t len) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_fallocate(sqe, fh.raw_fd(), mode, offset, len);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_fallocate(fd, static_cast<std::uint32_t>(mode), offset, len); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Consumes the handle; the ring closes the fd via io_uring.
@@ -723,13 +713,12 @@ public:
 		std::uint32_t len,
 		int advice) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_fadvise(sqe, fh.sqe_fd_value(), offset, len, advice);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_fadvise(fd, offset, len, static_cast<std::uint32_t>(advice)); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_madvise(
@@ -737,12 +726,12 @@ public:
 		std::uint32_t length,
 		int advice) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_madvise(sqe, addr, length, advice);
+		sqe.prep_madvise(addr, length, static_cast<std::uint32_t>(advice));
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_unlink(
@@ -750,13 +739,13 @@ public:
 		std::string path,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_unlinkat(sqe, dir_fd, path_owner->c_str(), flags);
+		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { auto _ = path_owner; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_rename(
@@ -766,13 +755,18 @@ public:
 		std::string new_path,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
-		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
+		sqe.prep_renameat(
+			conflux::uring::SqeFd{old_dir_fd},
+			paths->first.c_str(),
+			conflux::uring::SqeFd{new_dir_fd},
+			paths->second.c_str(),
+			flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_mkdirat(
@@ -780,13 +774,13 @@ public:
 		std::string path,
 		mode_t mode = 0755) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_mkdirat(sqe, dir_fd, path_owner->c_str(), mode);
+		sqe.prep_mkdirat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), mode);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { auto _ = path_owner; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_symlinkat(
@@ -794,26 +788,25 @@ public:
 		int new_dir_fd,
 		std::string link_path) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(target), std::move(link_path));
-		io_uring_prep_symlinkat(sqe, paths->first.c_str(), new_dir_fd, paths->second.c_str());
+		sqe.prep_symlinkat(paths->first.c_str(), conflux::uring::SqeFd{new_dir_fd}, paths->second.c_str());
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_ftruncate(
 		FileHandle const &fh,
 		std::uint64_t length) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_ftruncate(sqe, fh.sqe_fd_value(), static_cast<loff_t>(length));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_ftruncate(fd, static_cast<std::int64_t>(length)); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_linkat(
@@ -823,13 +816,18 @@ public:
 		std::string new_path,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
-		io_uring_prep_linkat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
+		sqe.prep_linkat(
+			conflux::uring::SqeFd{old_dir_fd},
+			paths->first.c_str(),
+			conflux::uring::SqeFd{new_dir_fd},
+			paths->second.c_str(),
+			flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_sync_file_range(
@@ -838,13 +836,12 @@ public:
 		unsigned len,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_sync_file_range(sqe, fh.sqe_fd_value(), len, offset, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_sync_file_range(fd, len, offset, flags); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
@@ -853,13 +850,13 @@ public:
 		int type,
 		int protocol) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_socket(sqe, domain, type, protocol, 0);
+		sqe.prep_socket(domain, type, protocol, 0);
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[deprecated(
@@ -870,14 +867,14 @@ public:
 		int protocol,
 		unsigned file_index) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_socket_direct(sqe, domain, type, protocol, file_index, 0);
+		sqe.prep_socket_direct(domain, type, protocol, conflux::uring::DirectSlot{file_index}, 0);
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
@@ -885,11 +882,11 @@ public:
 	[[nodiscard]] root::Task<std::pair<int, int>> async_pipe(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::pair<int, int>>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto fds = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
-		io_uring_prep_pipe(sqe, fds->data(), pipe_flags);
+		sqe.prep_pipe(fds->data(), pipe_flags);
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -900,7 +897,7 @@ public:
 				auto _ = shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Async bind. `addr` is copied and kept alive until CQE.
@@ -909,14 +906,15 @@ public:
 		sockaddr_storage addr,
 		socklen_t addrlen) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
-		io_uring_prep_bind(sqe, fh.sqe_fd_value(), reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_bind(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
+		});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Async listen.
@@ -924,26 +922,24 @@ public:
 		FileHandle const &fh,
 		int backlog = SOMAXCONN) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_listen(sqe, fh.sqe_fd_value(), backlog);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_listen(fd, backlog); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_shutdown(
 		FileHandle const &fh,
 		int how) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_shutdown(sqe, fh.sqe_fd_value(), how);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_shutdown(fd, how); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<std::size_t> async_tee(
@@ -952,13 +948,17 @@ public:
 		std::size_t len,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_tee(sqe, fd_in, fd_out, static_cast<unsigned int>(len), flags);
+		sqe.prep_tee(
+			conflux::uring::SqeFd{fd_in},
+			conflux::uring::SqeFd{fd_out},
+			static_cast<std::uint32_t>(len),
+			conflux::uring::SpliceFlags{flags});
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Installs a direct-slot fd into the process fd table. Returns a raw-fd
@@ -975,11 +975,12 @@ public:
 			return std::move(task);
 		}
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
+		if (!sqe) {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return std::move(task);
 		}
-		io_uring_prep_fixed_fd_install(sqe, fh.direct_slot(), flags);
+		conflux::uring::Sqe sqe_view{sqe};
+		sqe_view.prep_fixed_fd_install(fh.direct_fd(), conflux::uring::InstallFdFlags{flags});
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -993,22 +994,18 @@ public:
 		std::string name,
 		std::span<char> buf) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto name_owner = std::make_shared<std::string>(std::move(name));
-		io_uring_prep_fgetxattr(
-			sqe,
-			fh.sqe_fd_value(),
-			name_owner->c_str(),
-			buf.data(),
-			static_cast<unsigned>(buf.size()));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_fgetxattr(fd, name_owner->c_str(), buf.data(), static_cast<unsigned>(buf.size()));
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [name_owner](IoResult r) mutable {
 			auto _ = name_owner;
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Set extended attribute. Both `name` and `data` are moved/kept alive until CQE.
@@ -1018,20 +1015,20 @@ public:
 		std::string data,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto kv = std::make_shared<std::pair<std::string, std::string>>(std::move(name), std::move(data));
-		io_uring_prep_fsetxattr(
-			sqe,
-			fh.sqe_fd_value(),
-			kv->first.c_str(),
-			kv->second.c_str(),
-			flags,
-			static_cast<unsigned>(kv->second.size()));
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_fsetxattr(
+				fd,
+				kv->first.c_str(),
+				kv->second.c_str(),
+				flags,
+				static_cast<unsigned>(kv->second.size()));
+		});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable { auto _ = kv; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Path-based get extended attribute. `name`, `path`, and `buf` must
@@ -1041,21 +1038,16 @@ public:
 		std::string name,
 		std::span<char> buf) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto kp = std::make_shared<std::pair<std::string, std::string>>(std::move(path), std::move(name));
-		io_uring_prep_getxattr(
-			sqe,
-			kp->second.c_str(),
-			buf.data(),
-			kp->first.c_str(),
-			static_cast<unsigned>(buf.size()));
+		sqe.prep_getxattr(kp->second.c_str(), buf.data(), kp->first.c_str(), static_cast<unsigned>(buf.size()));
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [kp](IoResult r) mutable {
 			auto _ = kp;
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Path-based set extended attribute. `name`, `data`, and `path` are moved
@@ -1066,7 +1058,7 @@ public:
 		std::string data,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		struct XattrState {
@@ -1075,15 +1067,14 @@ public:
 			std::string data;
 		};
 		auto st = std::make_shared<XattrState>(std::move(path), std::move(name), std::move(data));
-		io_uring_prep_setxattr(
-			sqe,
+		sqe.prep_setxattr(
 			st->name.c_str(),
 			st->data.c_str(),
 			st->path.c_str(),
 			flags,
 			static_cast<unsigned>(st->data.size()));
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [st](IoResult) mutable { auto _ = st; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Wait for process state change (IORING_OP_WAITID). `infop` must stay valid
@@ -1095,12 +1086,12 @@ public:
 		int options = WEXITED,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_waitid(sqe, idtype, id, infop, options, flags);
+		sqe.prep_waitid(idtype, id, infop, options, flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Futex wait — waits until *futex != val. The futex pointer must remain
@@ -1112,12 +1103,12 @@ public:
 		std::uint32_t futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_futex_wait(sqe, futex, val, mask, futex_flags, flags);
+		sqe.prep_futex_wait(futex, val, mask, futex_flags, flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Futex wake — wakes up to `val` waiters. Returns the number woken.
@@ -1128,13 +1119,13 @@ public:
 		std::uint32_t futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::uint32_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_futex_wake(sqe, futex, val, mask, futex_flags, flags);
+		sqe.prep_futex_wake(futex, val, mask, futex_flags, flags);
 		auto [slot, gen] =
 			reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Send a synthetic CQE to `target_ring_fd` (the target ring's ring_fd).
@@ -1145,12 +1136,16 @@ public:
 		std::uint64_t data,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_msg_ring(sqe, target_ring_fd, len, data, flags);
+		sqe.prep_msg_ring(
+			conflux::uring::SqeFd{target_ring_fd},
+			len,
+			conflux::uring::UserData{data},
+			conflux::uring::MsgRingFlags{flags});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Arm a one-shot timeout. Resolves (with -ETIME mapped to void) when ms
@@ -1186,14 +1181,14 @@ public:
 		std::chrono::milliseconds ms,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto ts = std::make_shared<__kernel_timespec>();
 		auto const sec = std::chrono::duration_cast<std::chrono::seconds>(ms);
 		ts->tv_sec = sec.count();
 		ts->tv_nsec = (ms - sec).count() * 1000000LL;
-		io_uring_prep_timeout_update(sqe, ts.get(), user_data, flags);
+		sqe.prep_timeout_update(ts.get(), conflux::uring::UserData{user_data}, conflux::uring::TimeoutFlags{flags});
 		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
@@ -1205,7 +1200,7 @@ public:
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 			auto _ = ts;
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Register a one-shot poll on `fd` for `events` (POLLIN, POLLOUT, …).
@@ -1215,13 +1210,13 @@ public:
 		int fd,
 		std::uint32_t events) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::uint32_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_poll_add(sqe, fd, events);
+		sqe.prep_poll_add(conflux::uring::SqeFd{fd}, conflux::uring::PollFlags{events});
 		auto [slot, gen] =
 			reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Cancel a pending poll_add identified by `user_data`.
@@ -1229,10 +1224,10 @@ public:
 	[[nodiscard]] root::Task<void> async_poll_remove(
 		std::uint64_t user_data) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_poll_remove(sqe, user_data);
+		sqe.prep_poll_remove(conflux::uring::UserData{user_data});
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
@@ -1243,7 +1238,7 @@ public:
 				auto _ = shared_src->try_set_value(root::Success<void>{});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Update an armed multishot poll's event mask in-place.
@@ -1253,12 +1248,16 @@ public:
 		std::uint32_t new_events,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_poll_update(sqe, user_data, 0, new_events, flags);
+		sqe.prep_poll_update(
+			conflux::uring::UserData{user_data},
+			conflux::uring::UserData{0},
+			conflux::uring::PollFlags{new_events},
+			conflux::uring::PollAddFlags{flags});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Accept one connection on a listening socket. Returns the accepted fd.
@@ -1269,14 +1268,13 @@ public:
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_accept(sqe, fh.sqe_fd_value(), addr, addrlen, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_accept(fd, addr, addrlen, flags); });
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Accept one connection into a registered direct slot.
@@ -1288,15 +1286,16 @@ public:
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_accept_direct(sqe, fh.sqe_fd_value(), addr, addrlen, flags, file_index);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_accept_direct(fd, addr, addrlen, flags, conflux::uring::DirectSlot{file_index});
+		});
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Send an fd to another ring's registered file table. `source_fd` is
@@ -1309,12 +1308,17 @@ public:
 		std::uint64_t data = 0,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_msg_ring_fd(sqe, target_ring_fd, source_fd, target_fd, data, flags);
+		sqe.prep_msg_ring_fd(
+			conflux::uring::SqeFd{target_ring_fd},
+			conflux::uring::SqeFd{source_fd},
+			conflux::uring::SqeFd{target_fd},
+			conflux::uring::UserData{data},
+			conflux::uring::MsgRingFlags{flags});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Wait on multiple futexes simultaneously. Resolves when any waiter
@@ -1323,13 +1327,13 @@ public:
 		std::vector<futex_waitv> waiters,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto wv = std::make_shared<std::vector<futex_waitv>>(std::move(waiters));
-		io_uring_prep_futex_waitv(sqe, wv->data(), static_cast<std::uint32_t>(wv->size()), flags);
+		sqe.prep_futex_waitv(wv->data(), static_cast<std::uint32_t>(wv->size()), flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable { auto _ = wv; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Cancel a pending op by its user_data tag. Resolves when the cancel
@@ -1339,10 +1343,12 @@ public:
 		std::uint64_t user_data,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_cancel64(sqe, user_data, flags);
+		sqe.prep_cancel64(
+			conflux::uring::UserData{user_data},
+			conflux::uring::CancelFlags{static_cast<unsigned>(flags)});
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
@@ -1353,7 +1359,7 @@ public:
 				auto _ = shared_src->try_set_value(root::Success<void>{});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Cancel all pending ops for `fd`. -ENOENT treated as success.
@@ -1361,10 +1367,10 @@ public:
 		int fd,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_cancel_fd(sqe, fd, flags);
+		sqe.prep_cancel_fd(conflux::uring::SqeFd{fd}, conflux::uring::CancelFlags{flags}).fixed_file(false);
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
@@ -1375,7 +1381,7 @@ public:
 				auto _ = shared_src->try_set_value(root::Success<void>{});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Async connect. `addr` is copied into a shared buffer kept alive until CQE.
@@ -1384,29 +1390,26 @@ public:
 		sockaddr_storage addr,
 		socklen_t addrlen) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
-		io_uring_prep_connect(sqe, fh.sqe_fd_value(), reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_connect(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
+		});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<void> async_close(
 		FileHandle fh) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		if (fh.is_direct()) {
-			io_uring_prep_close_direct(sqe, static_cast<unsigned>(fh.release_direct_slot()));
-		} else {
-			io_uring_prep_close(sqe, fh.release_fd());
-		}
+		release_fd_tag(fh, [&](RingFd auto fd) { sqe.prep_close(fd); });
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Splice `len` bytes from `file` at `off` into `dst_fd`, using `pipe` as
@@ -1462,14 +1465,15 @@ public:
 		std::size_t len,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_send(sqe, fh.sqe_fd_value(), buf, len, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_send(fd, buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(flags)});
+		});
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Receive up to `len` bytes into `buf` from `fh`. Returns bytes received.
@@ -1479,14 +1483,15 @@ public:
 		std::size_t len,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_recv(sqe, fh.sqe_fd_value(), buf, len, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_recv(fd, buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(flags)});
+		});
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Vectored send via sendmsg(2). `msg` must remain valid until the Flow resolves.
@@ -1495,14 +1500,13 @@ public:
 		msghdr const *msg,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_sendmsg(sqe, fh.sqe_fd_value(), msg, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_sendmsg(fd, msg, conflux::uring::MsgFlags{flags}); });
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Vectored recv via recvmsg(2). `msg` must remain valid until the Flow resolves.
@@ -1511,14 +1515,13 @@ public:
 		msghdr *msg,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_recvmsg(sqe, fh.sqe_fd_value(), msg, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_recvmsg(fd, msg, conflux::uring::MsgFlags{flags}); });
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Register `nr` buffers of `len` bytes starting at `addr` into buffer group `bgid`.
@@ -1530,12 +1533,12 @@ public:
 		int bgid,
 		int bid = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_provide_buffers(sqe, addr, len, nr, bgid, bid);
+		sqe.prep_provide_buffers(addr, len, nr, conflux::uring::BufGroupId{static_cast<std::uint16_t>(bgid)}, bid);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Remove `nr` buffers from buffer group `bgid`.
@@ -1543,12 +1546,12 @@ public:
 		int nr,
 		int bgid) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_remove_buffers(sqe, nr, bgid);
+		sqe.prep_remove_buffers(nr, conflux::uring::BufGroupId{static_cast<std::uint16_t>(bgid)});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Update the registered file table. `fds` is a std::span of `nr_fds` fds starting
@@ -1559,12 +1562,12 @@ public:
 		unsigned nr_fds,
 		int offset = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_files_update(sqe, fds, nr_fds, offset);
+		sqe.prep_files_update(fds, nr_fds, offset);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Modify an epoll interest list entry. `ev` may be null for EPOLL_CTL_DEL.
@@ -1574,12 +1577,12 @@ public:
 		int op,
 		epoll_event const *ev = nullptr) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
+		sqe.prep_epoll_ctl(conflux::uring::SqeFd{epfd}, conflux::uring::SqeFd{fd}, op, ev);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Wait for epoll events. Resolves with the number of events returned.
@@ -1590,12 +1593,12 @@ public:
 		int maxevents,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<int>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_epoll_wait(sqe, epfd, events, maxevents, flags);
+		sqe.prep_epoll_wait(conflux::uring::SqeFd{epfd}, events, static_cast<std::uint32_t>(maxevents), flags);
 		auto [slot, gen] = reserve_bridge<int>(shared_src, [](IoResult r) { return r.res; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Attach a timeout to the preceding SQE in the ring's submission chain.
@@ -1619,16 +1622,16 @@ public:
 		std::string path,
 		open_how how) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto ctx = std::make_shared<std::pair<std::string, open_how>>(std::move(path), how);
-		io_uring_prep_openat2(sqe, dir_fd, ctx->first.c_str(), &ctx->second);
+		sqe.prep_openat2(conflux::uring::SqeFd{dir_fd}, ctx->first.c_str(), &ctx->second);
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx](IoResult r) mutable {
 			auto _ = ctx;
 			return FileHandle::from_fd(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Send with destination address — for SOCK_DGRAM sockets.
@@ -1641,17 +1644,24 @@ public:
 		sockaddr_storage addr,
 		socklen_t addrlen) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto sa = std::make_shared<sockaddr_storage>(addr);
-		io_uring_prep_sendto(sqe, fh.sqe_fd_value(), buf, len, flags, reinterpret_cast<sockaddr *>(sa.get()), addrlen);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_sendto(
+				fd,
+				buf,
+				len,
+				conflux::uring::MsgFlags{static_cast<unsigned>(flags)},
+				reinterpret_cast<sockaddr *>(sa.get()),
+				addrlen);
+		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [sa](IoResult r) mutable {
 			auto _ = sa;
 			return static_cast<std::size_t>(r.res);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
@@ -1666,14 +1676,15 @@ public:
 		zc_flags &= ~IORING_SEND_ZC_REPORT_USAGE;
 #endif
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_send_zc(sqe, fh.sqe_fd_value(), buf, len, flags, zc_flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_send_zc(fd, buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(flags)}, zc_flags);
+		});
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	[[nodiscard]] root::Task<std::size_t> async_send_zc(
@@ -1686,14 +1697,15 @@ public:
 		zc_flags &= ~IORING_SEND_ZC_REPORT_USAGE;
 #endif
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_send_zc(sqe, fh.sqe_fd_value(), buf, len, flags, zc_flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_send_zc(fd, buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(flags)}, zc_flags);
+		});
 		auto [slot, gen] =
 			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
@@ -1705,14 +1717,15 @@ public:
 		unsigned nbytes,
 		int buf_index) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_write_fixed(sqe, fh.sqe_fd_value(), buf, nbytes, offset, buf_index);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) {
+			sqe.prep_write_fixed(fd, buf, nbytes, offset, conflux::uring::FixedBufIdx{buf_index});
+		});
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Remove a file by name relative to `dir_fd`.
@@ -1722,13 +1735,13 @@ public:
 		std::string path,
 		int flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto p = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_unlinkat(sqe, dir_fd, p->c_str(), flags);
+		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, p->c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Rename with full dirfd control.
@@ -1739,13 +1752,18 @@ public:
 		std::string new_path,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
-		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
+		sqe.prep_renameat(
+			conflux::uring::SqeFd{old_dir_fd},
+			paths->first.c_str(),
+			conflux::uring::SqeFd{new_dir_fd},
+			paths->second.c_str(),
+			flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Create a directory at `path` (relative to AT_FDCWD).
@@ -1753,13 +1771,13 @@ public:
 		std::string path,
 		mode_t mode = 0755) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto p = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_mkdir(sqe, p->c_str(), mode);
+		sqe.prep_mkdir(p->c_str(), mode);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Open directly into the registered file table with full openat2 semantics.
@@ -1770,16 +1788,20 @@ public:
 		open_how how,
 		unsigned file_index) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto ctx = std::make_shared<std::pair<std::string, open_how>>(std::move(path), how);
-		io_uring_prep_openat2_direct(sqe, dir_fd, ctx->first.c_str(), &ctx->second, file_index);
+		sqe.prep_openat2_direct(
+			conflux::uring::SqeFd{dir_fd},
+			ctx->first.c_str(),
+			&ctx->second,
+			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx, file_index](IoResult) mutable {
 			auto _ = ctx;
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Create a socket directly into the registered file table, with the kernel
@@ -1791,13 +1813,13 @@ public:
 		int protocol,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_socket_direct_alloc(sqe, domain, type, protocol, flags);
+		sqe.prep_socket_direct_alloc(domain, type, protocol, flags);
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_direct_slot(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Open a file directly into the fixed file table (openat semantics).
@@ -1809,18 +1831,23 @@ public:
 		mode_t mode = 0,
 		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
 		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto p = std::make_shared<std::string>(std::move(path));
-		io_uring_prep_openat_direct(sqe, dir_fd, p->c_str(), flags, mode, file_index);
+		sqe.prep_openat_direct(
+			conflux::uring::SqeFd{dir_fd},
+			p->c_str(),
+			flags,
+			mode,
+			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [p, file_index](IoResult r) mutable {
 			auto _ = p;
 			// When IORING_FILE_INDEX_ALLOC: res carries the allocated slot.
 			int const s = (file_index == IORING_FILE_INDEX_ALLOC) ? r.res : static_cast<int>(file_index);
 			return FileHandle::from_direct_slot(s);
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Send a source fd to another ring, letting the kernel auto-allocate the slot.
@@ -1831,12 +1858,16 @@ public:
 		std::uint64_t data = 0,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_msg_ring_fd_alloc(sqe, target_ring_fd, source_fd, data, flags);
+		sqe.prep_msg_ring_fd_alloc(
+			conflux::uring::SqeFd{target_ring_fd},
+			conflux::uring::SqeFd{source_fd},
+			conflux::uring::UserData{data},
+			conflux::uring::MsgRingFlags{flags});
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Create a pipe P directly into fixed file table slots.
@@ -1846,11 +1877,11 @@ public:
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::pair<int, int>>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
 		auto fds = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
-		io_uring_prep_pipe_direct(sqe, fds->data(), pipe_flags, file_index);
+		sqe.prep_pipe_direct(fds->data(), pipe_flags, conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -1861,7 +1892,7 @@ public:
 				auto _ = shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Post a message to another ring, forwarding specific CQE flags in the payload.
@@ -1873,12 +1904,17 @@ public:
 		unsigned flags = 0,
 		unsigned cqe_flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_msg_ring_cqe_flags(sqe, target_ring_fd, len, data, flags, cqe_flags);
+		sqe.prep_msg_ring_cqe_flags(
+			conflux::uring::SqeFd{target_ring_fd},
+			len,
+			conflux::uring::UserData{data},
+			conflux::uring::MsgRingFlags{flags},
+			cqe_flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
@@ -1888,14 +1924,13 @@ public:
 		msghdr const *msg,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_sendmsg_zc(sqe, fh.sqe_fd_value(), msg, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_sendmsg_zc(fd, msg, conflux::uring::MsgFlags{flags}); });
 		auto [slot, gen] =
 			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// msg, iovec array, and all pointed buffers must remain live until co_return.
@@ -1904,14 +1939,13 @@ public:
 		msghdr const *msg,
 		unsigned flags = 0) {
 		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (sqe == nullptr) {
+		if (!sqe) {
 			return std::move(task);
 		}
-		io_uring_prep_sendmsg_zc(sqe, fh.sqe_fd_value(), msg, flags);
-		apply_sqe_fd_flags(sqe, fh);
+		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_sendmsg_zc(fd, msg, conflux::uring::MsgFlags{flags}); });
 		auto [slot, gen] =
 			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
+		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 
@@ -1986,14 +2020,17 @@ private:
 			return;
 		}
 
-		io_uring_prep_splice(
-			sqe_in,
-			st->file_fd,
+		conflux::uring::Sqe{sqe_in}.prep_splice(
+			conflux::uring::SqeFd{
+				st->file_fd,
+			},
 			static_cast<std::int64_t>(st->file_off),
-			st->pipe.write_fd(),
+			conflux::uring::SqeFd{
+				st->pipe.write_fd(),
+			},
 			-1,
 			static_cast<unsigned>(chunk),
-			SPLICE_F_MOVE | SPLICE_F_MORE);
+			conflux::uring::SpliceFlags{SPLICE_F_MOVE | SPLICE_F_MORE});
 		sqe_in->flags |= IOSQE_IO_LINK;
 		auto [slot_in, gen_in] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0 && r.res != -ECANCELED) {
@@ -2002,14 +2039,17 @@ private:
 		});
 		io_uring_sqe_set_data64(sqe_in, st->encode_ud(slot_in, gen_in));
 
-		io_uring_prep_splice(
-			sqe_out,
-			st->pipe.read_fd(),
+		conflux::uring::Sqe{sqe_out}.prep_splice(
+			conflux::uring::SqeFd{
+				st->pipe.read_fd(),
+			},
 			-1,
-			st->dst_fd,
+			conflux::uring::SqeFd{
+				st->dst_fd,
+			},
 			-1,
 			static_cast<unsigned>(chunk),
-			SPLICE_F_MOVE | SPLICE_F_MORE);
+			conflux::uring::SpliceFlags{SPLICE_F_MOVE | SPLICE_F_MORE});
 		if (st->dst_fixed) {
 			sqe_out->flags |= IOSQE_FIXED_FILE;
 		}

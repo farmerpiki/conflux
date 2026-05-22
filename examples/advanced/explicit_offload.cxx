@@ -3,7 +3,7 @@
 // Build and run: build/release-clang-libcxx/conflux_http_explicit_offload_example
 // Try:
 //   curl http://localhost:9111/api/status
-//   curl -X POST http://localhost:9111/api/hash \
+//   curl -X POST http://localhost:9111/api/hash
 //        -H 'Content-Type: application/json' -d '{"input":"conflux","rounds":200}'
 import conflux.http;
 import conflux.json;
@@ -11,7 +11,6 @@ import conflux.work;
 import std;
 
 namespace http = conflux::http;
-namespace json = conflux::json;
 
 struct StatusReply {
 	std::string status;

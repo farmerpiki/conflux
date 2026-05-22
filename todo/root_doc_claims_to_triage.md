@@ -1,5 +1,6 @@
 # Root Document Claims to Triage
 
+Status: open triage record
 Date: 2026-05-21
 
 This note replaces the removed root-level scratch docs:

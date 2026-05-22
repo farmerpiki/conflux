@@ -31,8 +31,7 @@ void submit_nops_no_drain(
 			if (!sqe) {
 				break;
 			}
-			io_uring_prep_nop(sqe.raw());
-			io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(done + i));
+			sqe.prep_nop().user_data(UserData{static_cast<std::uint64_t>(done + i)});
 		}
 		ring.submit();
 		done += b;

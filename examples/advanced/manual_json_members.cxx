@@ -2,14 +2,13 @@
 // Build and run: build/release-clang-libcxx/conflux_api_typed_json_example
 // Try:
 //   curl http://localhost:9110/api/todos
-//   curl -i -X POST http://localhost:9110/api/todos \
+//   curl -i -X POST http://localhost:9110/api/todos
 //        -H 'Content-Type: application/json' -d '{"title":"write docs"}'
 import conflux.http;
 import conflux.json;
 import std;
 
 namespace http = conflux::http;
-namespace json = conflux::json;
 
 struct Todo {
 	std::int64_t id{};
@@ -112,7 +111,7 @@ int main() {
 	});
 
 	app.get("/api/todos", [](http::State<TodoStore> store) {
-		std::lock_guard lock{store->mu};
+		std::lock_guard const lock{store->mu};
 		return http::Json{TodoList{.items = store->todos}};
 	});
 
@@ -124,7 +123,7 @@ int main() {
 				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
 			}
 
-			std::lock_guard lock{store->mu};
+			std::lock_guard const lock{store->mu};
 			auto todo = Todo{.id = store->next_id++, .title = body->title, .done = false};
 			store->todos.push_back(todo);
 			return http::Json{

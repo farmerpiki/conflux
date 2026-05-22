@@ -128,10 +128,9 @@ void Ring::handoff_plain_ws(
 				eprintln(std::format("handoff_plain_ws: mark_closing failed slot={}", fd));
 			}
 			auto const ud = pack(Op::DirectSlotClose, 0, fd);
-			if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-				defer_op([this, fd, ud] {
-					submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud);
-				});
+			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+				defer_op(
+					[this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
 			}
 		} else {
 			::close(fd);
@@ -192,10 +191,9 @@ void Ring::handoff_tls_ws(
 				eprintln(std::format("handoff_tls_ws: mark_closing failed slot={}", fd));
 			}
 			auto const ud = pack(Op::DirectSlotClose, 0, fd);
-			if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-				defer_op([this, fd, ud] {
-					submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud);
-				});
+			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+				defer_op(
+					[this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
 			}
 		} else {
 			::close(fd);
@@ -220,9 +218,12 @@ void Ring::queue_ws_cancel(
 		return;
 	}
 	ws_cancel_handoffs.emplace(fd, std::move(entry));
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	io_uring_prep_cancel_fd(sqe, handle.sqe_fd_value(), handle.fixed ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
+	conflux::uring::Sqe sqe_view{sqe};
+	if (accepted_sockets_direct) {
+		sqe_view.prep_cancel_fd(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
+	} else {
+		sqe_view.prep_cancel_fd(OsFd::from_os(fd));
+	}
 	io_uring_sqe_set_data64(sqe, pack(Op::WsCancel, 0, fd));
 }
 
@@ -321,12 +322,12 @@ void Ring::handle_fixed_fd_install(
 		}
 		if (!submit_close(
 				raw_,
-				SocketHandle::from_direct(static_cast<std::uint32_t>(slot_fd)),
+				DirectFd::from_direct(static_cast<std::uint32_t>(slot_fd)),
 				pack(Op::DirectSlotClose, 0, slot_fd))) {
 			defer_op([this, slot_fd] {
 				submit_close(
 					raw_,
-					SocketHandle::from_direct(static_cast<std::uint32_t>(slot_fd)),
+					DirectFd::from_direct(static_cast<std::uint32_t>(slot_fd)),
 					pack(Op::DirectSlotClose, 0, slot_fd));
 			});
 		}

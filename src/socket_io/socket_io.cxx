@@ -23,7 +23,6 @@ import conflux.uring.handle;
 // ─── handle types ────────────────────────────────────────────────────────────
 
 export using OwnedSocketHandle = IoHandle;
-export using SocketHandle = RingFd;
 // ─── SocketRawRing ───────────────────────────────────────────────────────────
 // Non-owning wrapper around io_uring* for raw SQE submission.
 // Does NOT own CompletionTable — raw callers dispatch CQEs themselves.
@@ -1165,7 +1164,7 @@ public:
 
 export bool submit_accept_multishot_borrowed(
 	SocketRawRing &ring,
-	SocketHandle listen,
+	RingFd auto listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
 	std::uint64_t user_data,
@@ -1176,17 +1175,16 @@ export bool submit_accept_multishot_borrowed(
 		return false;
 	}
 	if (direct) {
-		sqe.prep_multishot_accept_direct(listen.sqe_fd(), addr, addrlen, accept_flags);
+		sqe.prep_multishot_accept_direct(listen, addr, addrlen, accept_flags);
 	} else {
-		sqe.prep_multishot_accept(listen.sqe_fd(), addr, addrlen, accept_flags);
+		sqe.prep_multishot_accept(listen, addr, addrlen, accept_flags);
 	}
-	apply_sqe_fd_flags(sqe, listen);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
 export bool submit_accept_multishot_borrowed(
 	SocketRawRing &ring,
-	SocketHandle listen,
+	RingFd auto listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
 	std::uint64_t user_data,
@@ -1205,7 +1203,7 @@ export bool submit_accept_multishot_borrowed(
 // compat wrappers — zero accept_flags
 export bool submit_accept_multishot_borrowed(
 	SocketRawRing &ring,
-	SocketHandle listen,
+	RingFd auto listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
 	std::uint64_t user_data,
@@ -1214,7 +1212,7 @@ export bool submit_accept_multishot_borrowed(
 }
 export bool submit_accept_multishot_borrowed(
 	SocketRawRing &ring,
-	SocketHandle listen,
+	RingFd auto listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
 	std::uint64_t user_data,
@@ -1241,7 +1239,7 @@ export [[nodiscard]] RecvArmPolicy resolve_recv_arm_policy(
 }
 export bool submit_recv_multishot(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	BufferRing &bufs,
 	std::uint64_t user_data,
 	bool bundle = false,
@@ -1251,7 +1249,7 @@ export bool submit_recv_multishot(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_recv_multishot(handle.sqe_fd(), nullptr, 0, conflux::uring::MsgFlags{});
+	sqe.prep_recv_multishot(handle, nullptr, 0, conflux::uring::MsgFlags{});
 	sqe.buf_group(conflux::uring::BufGroupId{bufs.group_id()});
 	conflux::uring::IoPrioFlags ioprio{};
 #if CONFLUX_ENABLE_RECV_BUNDLE
@@ -1268,7 +1266,7 @@ export bool submit_recv_multishot(
 		sqe.ioprio(ioprio);
 	}
 	sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
-	apply_sqe_fd_flags(sqe, handle);
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1276,7 +1274,7 @@ export bool submit_recv_multishot(
 
 export bool submit_send_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	void const *data,
 	std::size_t len,
 	std::uint64_t user_data,
@@ -1285,14 +1283,14 @@ export bool submit_send_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_send(handle, data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
 export bool submit_send_fixed_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint32_t buf_idx,
 	void const *data,
 	std::size_t len,
@@ -1302,8 +1300,8 @@ export bool submit_send_fixed_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_send(handle, data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+
 	sqe.ioprio(conflux::uring::ioprio_flags::recvsend_fixed_buf);
 	sqe.buf_index(conflux::uring::FixedBufIdx{static_cast<std::int32_t>(buf_idx)});
 	sqe.user_data(conflux::uring::UserData{user_data});
@@ -1311,7 +1309,7 @@ export bool submit_send_fixed_borrowed(
 }
 export bool submit_writev_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	iovec const *iov,
 	unsigned nr_vecs,
 	std::uint64_t user_data) {
@@ -1319,14 +1317,14 @@ export bool submit_writev_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_writev(handle.sqe_fd(), iov, nr_vecs, 0);
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_writev(handle, iov, nr_vecs, 0);
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
 export bool submit_send_zc_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	void const *data,
 	std::size_t len,
 	std::uint64_t user_data,
@@ -1336,11 +1334,10 @@ export bool submit_send_zc_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_send_zc(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)}, 0);
+	sqe.prep_send_zc(handle, data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)}, 0);
 	if (report_usage) {
 		sqe.ioprio(conflux::uring::ioprio_flags::send_zc_report_usage);
 	}
-	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1350,7 +1347,7 @@ export bool submit_send_zc_borrowed(
 
 export [[nodiscard]] bool submit_shutdown_close(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint64_t shutdown_ud,
 	std::uint64_t close_ud) {
 	if (ring.sq_space_left() < 2) {
@@ -1364,15 +1361,11 @@ export [[nodiscard]] bool submit_shutdown_close(
 	if (!close_sqe) {
 		return false;
 	}
-	shutdown_sqe.prep_shutdown(handle.sqe_fd(), SHUT_WR);
+	shutdown_sqe.prep_shutdown(handle, SHUT_WR);
 	shutdown_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-	apply_sqe_fd_flags(shutdown_sqe, handle);
+
 	shutdown_sqe.user_data(conflux::uring::UserData{shutdown_ud});
-	if (handle.fixed) {
-		close_sqe.prep_close_direct(handle.direct_slot());
-	} else {
-		close_sqe.prep_close(handle.sqe_fd());
-	}
+	close_sqe.prep_close(handle);
 	close_sqe.user_data(conflux::uring::UserData{close_ud});
 	return true;
 }
@@ -1380,17 +1373,13 @@ export [[nodiscard]] bool submit_shutdown_close(
 
 export bool submit_close(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
 	}
-	if (handle.fixed) {
-		sqe.prep_close_direct(handle.direct_slot());
-	} else {
-		sqe.prep_close(handle.sqe_fd());
-	}
+	sqe.prep_close(handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1401,11 +1390,11 @@ export struct SocketCloseOptions {
 };
 export [[nodiscard]] bool submit_close_fast(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint64_t shutdown_ud,
 	std::uint64_t close_ud,
 	SocketCloseOptions opts) noexcept {
-	bool const needs_shutdown = handle.fixed ? opts.shutdown_write : opts.allow_async_shutdown_for_os_fd;
+	bool const needs_shutdown = handle.is_direct() ? opts.shutdown_write : opts.allow_async_shutdown_for_os_fd;
 	unsigned const needed = 1U + (needs_shutdown ? 1U : 0U);
 	if (ring.sq_space_left() < needed) {
 		return false;
@@ -1419,29 +1408,21 @@ export [[nodiscard]] bool submit_close_fast(
 		if (!close_sqe) {
 			return false;
 		}
-		shut_sqe.prep_shutdown(handle.sqe_fd(), SHUT_WR);
+		shut_sqe.prep_shutdown(handle, SHUT_WR);
 		shut_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		apply_sqe_fd_flags(shut_sqe, handle);
+
 		if (opts.skip_shutdown_success_cqe) {
 			shut_sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
 		}
 		shut_sqe.user_data(conflux::uring::UserData{shutdown_ud});
-		if (handle.fixed) {
-			close_sqe.prep_close_direct(handle.direct_slot());
-		} else {
-			close_sqe.prep_close(handle.sqe_fd());
-		}
+		close_sqe.prep_close(handle);
 		close_sqe.user_data(conflux::uring::UserData{close_ud});
 	} else {
 		auto sqe = ring.try_get_sqe();
 		if (!sqe) {
 			return false;
 		}
-		if (handle.fixed) {
-			sqe.prep_close_direct(handle.direct_slot());
-		} else {
-			sqe.prep_close(handle.sqe_fd());
-		}
+		sqe.prep_close(handle);
 		sqe.user_data(conflux::uring::UserData{close_ud});
 	}
 	return true;
@@ -1451,27 +1432,17 @@ export [[nodiscard]] bool submit_close_fast(
 
 export bool submit_setsockopt_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	DirectFd handle,
 	int level,
 	int optname,
 	void const *optval,
 	socklen_t optlen,
 	std::uint64_t user_data) {
-	if (!handle.fixed) {
-		return false;
-	}
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_cmd_sock(
-		conflux::uring::uring_cmd_op::setsockopt,
-		handle.sqe_fd(),
-		level,
-		optname,
-		const_cast<void *>(optval),
-		static_cast<int>(optlen));
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_cmd_sock_setsockopt(handle, level, optname, optval, static_cast<int>(optlen));
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1502,25 +1473,18 @@ namespace {
 		 + (opts.tcp_nodelay_once ? 1U : 0U)
 		 + (opts.tcp_quickack_once ? 1U : 0U)
 		 + (opts.prefer_busy_poll_once ? 1U : 0U)
-		 + (opts.busy_poll_us_optval && *opts.busy_poll_us_optval > 0 ? 1U : 0U);
+		 + ((opts.busy_poll_us_optval != nullptr) && *opts.busy_poll_us_optval > 0 ? 1U : 0U);
 }
 void prepare_direct_accept_sockopt_sqe(
 	conflux::uring::Sqe sqe,
-	SocketHandle direct_socket,
+	DirectFd direct_socket,
 	int level,
 	int optname,
 	void const *optval,
 	int optlen,
 	std::uint64_t user_data,
 	bool skip_success_cqe) noexcept {
-	sqe.prep_cmd_sock(
-		conflux::uring::uring_cmd_op::setsockopt,
-		direct_socket.sqe_fd(),
-		level,
-		optname,
-		const_cast<void *>(optval),
-		optlen);
-	apply_sqe_fd_flags(sqe, direct_socket);
+	sqe.prep_cmd_sock_setsockopt(direct_socket, level, optname, optval, optlen);
 	sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 	if (skip_success_cqe) {
 		sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
@@ -1532,14 +1496,11 @@ void prepare_direct_accept_sockopt_sqe(
 
 export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 	SocketRawRing &ring,
-	SocketHandle direct_socket,
+	DirectFd direct_socket,
 	DirectTcpAcceptRecvTarget target,
 	std::uint64_t sockopt_ud,
 	std::uint64_t recv_ud,
 	DirectTcpAcceptSetup opts) noexcept {
-	if (!direct_socket.is_direct()) {
-		return false;
-	}
 	if (ring.sq_space_left() < direct_tcp_accept_setup_sqe_count(opts)) {
 		return false;
 	}
@@ -1588,7 +1549,7 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 			sockopt_ud,
 			opts.skip_sockopt_success_cqes);
 	}
-	if (opts.busy_poll_us_optval && *opts.busy_poll_us_optval > 0) {
+	if ((opts.busy_poll_us_optval != nullptr) && *opts.busy_poll_us_optval > 0) {
 		auto sqe = ring.try_get_sqe();
 		if (!sqe) {
 			return false;
@@ -1607,7 +1568,7 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 	if (!recv_sqe) {
 		return false;
 	}
-	recv_sqe.prep_recv_multishot(direct_socket.sqe_fd(), nullptr, 0, conflux::uring::MsgFlags{});
+	recv_sqe.prep_recv_multishot(direct_socket, nullptr, 0, conflux::uring::MsgFlags{});
 	recv_sqe.buf_group(conflux::uring::BufGroupId{target.buf_group});
 	conflux::uring::IoPrioFlags recv_ioprio{};
 #if CONFLUX_ENABLE_RECV_BUNDLE
@@ -1622,13 +1583,12 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 		recv_sqe.ioprio(recv_ioprio);
 	}
 	recv_sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
-	apply_sqe_fd_flags(recv_sqe, direct_socket);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	return true;
 }
 export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 	SocketRawRing &ring,
-	SocketHandle direct_socket,
+	DirectFd direct_socket,
 	BufferRing &buffers,
 	std::uint64_t sockopt_ud,
 	std::uint64_t recv_ud,
@@ -1643,7 +1603,7 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 }
 export bool submit_accept_borrowed(
 	SocketRawRing &ring,
-	SocketHandle listen,
+	RingFd auto listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
 	std::uint64_t user_data,
@@ -1652,8 +1612,26 @@ export bool submit_accept_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_accept(listen.sqe_fd(), addr, addrlen, accept_flags);
-	apply_sqe_fd_flags(sqe, listen);
+	sqe.prep_accept(listen, addr, addrlen, accept_flags);
+
+	sqe.user_data(conflux::uring::UserData{user_data});
+	return true;
+}
+
+export bool submit_accept_direct_borrowed(
+	SocketRawRing &ring,
+	RingFd auto listen,
+	sockaddr *addr,
+	socklen_t *addrlen,
+	std::uint64_t user_data,
+	int accept_flags,
+	std::uint32_t file_index) noexcept {
+	auto sqe = ring.try_get_sqe();
+	if (!sqe) {
+		return false;
+	}
+	sqe.prep_accept_direct(listen, addr, addrlen, accept_flags, conflux::uring::DirectSlot{file_index});
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1661,15 +1639,13 @@ export bool submit_accept_borrowed(
 
 export bool submit_cancel_fd(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_cancel_fd(
-		handle.sqe_fd(),
-		handle.fixed ? conflux::uring::cancel_flags::fd_fixed : conflux::uring::CancelFlags{});
+	sqe.prep_cancel_fd(handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1687,7 +1663,7 @@ export bool submit_cancel_by_ud(
 }
 export bool submit_cancel_multishot_recv(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	std::uint64_t user_data) {
 	return submit_cancel_fd(ring, handle, user_data);
 }
@@ -1770,7 +1746,7 @@ export bool submit_socket_direct(
 
 export bool submit_connect_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	sockaddr const *addr,
 	socklen_t addrlen,
 	std::uint64_t user_data,
@@ -1779,8 +1755,8 @@ export bool submit_connect_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_connect(handle.sqe_fd(), addr, addrlen);
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_connect(handle, addr, addrlen);
+
 	if (link_next) {
 		sqe.add_flags(conflux::uring::sqe_flags::io_link);
 	}
@@ -1791,7 +1767,7 @@ export bool submit_connect_borrowed(
 
 export bool submit_async_recv_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	void *buf,
 	std::size_t len,
 	std::uint64_t user_data,
@@ -1800,8 +1776,8 @@ export bool submit_async_recv_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_recv(handle.sqe_fd(), buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_recv(handle, buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1809,7 +1785,7 @@ export bool submit_async_recv_borrowed(
 
 export bool submit_sendmsg_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	msghdr const *msg,
 	std::uint64_t user_data,
 	unsigned flags = 0) {
@@ -1817,14 +1793,14 @@ export bool submit_sendmsg_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_sendmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{flags});
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_sendmsg(handle, msg, conflux::uring::MsgFlags{flags});
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
 export bool submit_recvmsg_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	msghdr *msg,
 	std::uint64_t user_data,
 	unsigned flags = 0) {
@@ -1832,8 +1808,8 @@ export bool submit_recvmsg_borrowed(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_recvmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{flags});
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_recvmsg(handle, msg, conflux::uring::MsgFlags{flags});
+
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1844,7 +1820,7 @@ export bool submit_recvmsg_borrowed(
 
 export [[nodiscard]] bool submit_recvmsg_timeout_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	msghdr *msg,
 	__kernel_timespec *ts,
 	std::uint64_t recv_ud,
@@ -1861,9 +1837,9 @@ export [[nodiscard]] bool submit_recvmsg_timeout_borrowed(
 	if (!timeout_sqe) {
 		return false;
 	}
-	recv_sqe.prep_recvmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{recv_flags});
+	recv_sqe.prep_recvmsg(handle, msg, conflux::uring::MsgFlags{recv_flags});
 	recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	apply_sqe_fd_flags(recv_sqe, handle);
+
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -1874,7 +1850,7 @@ export [[nodiscard]] bool submit_recvmsg_timeout_borrowed(
 // On timeout: recv CQE res=-ECANCELED.
 export [[nodiscard]] bool submit_recv_timeout_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	void *buf,
 	std::size_t len,
 	__kernel_timespec *ts,
@@ -1891,9 +1867,9 @@ export [[nodiscard]] bool submit_recv_timeout_borrowed(
 	if (!timeout_sqe) {
 		return false;
 	}
-	recv_sqe.prep_recv(handle.sqe_fd(), buf, len, conflux::uring::MsgFlags{});
+	recv_sqe.prep_recv(handle, buf, len, conflux::uring::MsgFlags{});
 	recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	apply_sqe_fd_flags(recv_sqe, handle);
+
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -1905,7 +1881,7 @@ export [[nodiscard]] bool submit_recv_timeout_borrowed(
 
 export [[nodiscard]] bool submit_send_timeout_borrowed(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	void const *data,
 	std::size_t len,
 	__kernel_timespec *ts,
@@ -1923,9 +1899,9 @@ export [[nodiscard]] bool submit_send_timeout_borrowed(
 	if (!timeout_sqe) {
 		return false;
 	}
-	send_sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+	send_sqe.prep_send(handle, data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
 	send_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	apply_sqe_fd_flags(send_sqe, handle);
+
 	send_sqe.user_data(conflux::uring::UserData{send_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -1941,7 +1917,7 @@ export bool submit_fixed_fd_install(
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_fixed_fd_install(conflux::uring::DirectSlot{direct_slot}, conflux::uring::InstallFdFlags{});
+	sqe.prep_fixed_fd_install(DirectFd::from_direct(direct_slot), conflux::uring::InstallFdFlags{});
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -2066,7 +2042,7 @@ public:
 	[[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] int raw_fd() const noexcept { return fd_; }
 	[[nodiscard]] int accept_flags() const noexcept { return accept_flags_; }
-	[[nodiscard]] SocketHandle handle() const noexcept { return SocketHandle::from_os(fd_); }
+	[[nodiscard]] RingFd auto handle() const noexcept { return OsFd::from_os(fd_); }
 	[[nodiscard]] bool arm_accept_multishot_borrowed(
 		SocketRawRing &ring,
 		sockaddr *addr,
@@ -2106,15 +2082,14 @@ public:
 
 export bool submit_shutdown(
 	SocketRawRing &ring,
-	SocketHandle handle,
+	RingFd auto handle,
 	int how,
 	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
 	}
-	sqe.prep_shutdown(handle.sqe_fd(), how);
-	apply_sqe_fd_flags(sqe, handle);
+	sqe.prep_shutdown(handle, how);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }

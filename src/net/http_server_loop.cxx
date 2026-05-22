@@ -146,8 +146,9 @@ void Ring::queue_deferred_wait(
 	auto const conn_gen = conn_for(conn_fd).gen;
 	auto const ud = pack(Op::DeferredPoll, conn_gen, deferred_efd);
 	auto buf = std::make_unique<std::uint64_t>(0);
-	io_uring_prep_read(sqe, deferred_efd, buf.get(), sizeof(std::uint64_t), 0);
-	io_uring_sqe_set_data64(sqe, ud);
+	conflux::uring::Sqe{sqe}
+		.prep_read(conflux::uring::SqeFd{deferred_efd}, buf.get(), sizeof(std::uint64_t), 0)
+		.user_data(conflux::uring::UserData{ud});
 	in_flight_read_bufs[ud] = std::move(buf);
 }
 
@@ -435,7 +436,14 @@ void Ring::defer_op(
 }
 
 void Ring::cancel_multishot_recv_or_defer(
-	SocketHandle handle) {
+	OsFd handle) {
+	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
+		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
+	}
+}
+
+void Ring::cancel_multishot_recv_or_defer(
+	DirectFd handle) {
 	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
 		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
 	}
@@ -485,16 +493,23 @@ void Ring::defer_start_streamed_body_if_current(
 }
 
 void Ring::queue_multishot_accept() {
-	auto listen_handle = listen_fixed ? SocketHandle::from_direct(static_cast<std::uint32_t>(listen_fd)) :
-										SocketHandle::from_os(listen_fd);
-	if (!submit_accept_multishot_borrowed(
-			raw_,
-			listen_handle,
-			reinterpret_cast<sockaddr *>(&client_addr),
-			&client_addr_len,
-			pack(Op::Accept, 0, listen_fd),
-			caps,
-			accepted_sockets_direct)) {
+	bool const submitted = listen_fixed ? submit_accept_multishot_borrowed(
+											  raw_,
+											  DirectFd::from_direct(static_cast<std::uint32_t>(listen_fd)),
+											  reinterpret_cast<sockaddr *>(&client_addr),
+											  &client_addr_len,
+											  pack(Op::Accept, 0, listen_fd),
+											  caps,
+											  accepted_sockets_direct) :
+										  submit_accept_multishot_borrowed(
+											  raw_,
+											  OsFd::from_os(listen_fd),
+											  reinterpret_cast<sockaddr *>(&client_addr),
+											  &client_addr_len,
+											  pack(Op::Accept, 0, listen_fd),
+											  caps,
+											  accepted_sockets_direct);
+	if (!submitted) {
 		defer_op([this] { queue_multishot_accept(); });
 	}
 }
@@ -511,10 +526,22 @@ void Ring::queue_multishot_accept() {
 void Ring::queue_multishot_recv(
 	int fd) {
 	auto &conn = conn_for(fd);
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 	auto const arm = resolve_recv_arm_policy(conn);
-	if (!submit_recv_multishot(raw_, handle, *buf_ring_, pack(Op::Recv, conn.gen, fd), use_recv_bundle, arm)) {
+	bool const submitted = accepted_sockets_direct ? submit_recv_multishot(
+														 raw_,
+														 DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+														 *buf_ring_,
+														 pack(Op::Recv, conn.gen, fd),
+														 use_recv_bundle,
+														 arm) :
+													 submit_recv_multishot(
+														 raw_,
+														 OsFd::from_os(fd),
+														 *buf_ring_,
+														 pack(Op::Recv, conn.gen, fd),
+														 use_recv_bundle,
+														 arm);
+	if (!submitted) {
 		defer_op([this, fd] { queue_multishot_recv(fd); });
 		return;
 	}
@@ -524,7 +551,7 @@ void Ring::queue_multishot_recv(
 void Ring::queue_direct_accept_setup(
 	int fd) {
 	auto &conn = conn_for(fd);
-	auto handle = SocketHandle::from_direct(static_cast<std::uint32_t>(fd));
+	auto handle = DirectFd::from_direct(static_cast<std::uint32_t>(fd));
 	DirectTcpAcceptSetup setup{};
 	bool const cmd_sock_opts = cmd_sock_setsockopt_enabled_ && caps.cmd_sock_setsockopt;
 	setup.tcp_nodelay_once = cmd_sock_opts;
@@ -561,9 +588,11 @@ void Ring::invalidate_recv_if_armed(
 	retire_incremental_partial(fd, old_gen, conn);
 	++conn.gen;
 	conn.recv_armed = false;
-	auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) :
-											SocketHandle::from_os(conn.fd);
-	cancel_multishot_recv_or_defer(handle);
+	if (accepted_sockets_direct) {
+		cancel_multishot_recv_or_defer(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
+	} else {
+		cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
+	}
 }
 
 void Ring::cancel_accept_or_defer() {
@@ -579,11 +608,9 @@ void Ring::submit_conn_close_or_defer(
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
 	}
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 	bool const submitted = accepted_sockets_direct ? submit_close_fast(
 														 raw_,
-														 handle,
+														 DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
 														 pack(Op::Nop, 0, 0),
 														 pack(Op::Close, gen, fd),
 														 SocketCloseOptions{
@@ -591,7 +618,7 @@ void Ring::submit_conn_close_or_defer(
 															 .skip_shutdown_success_cqe = true,
 															 .allow_async_shutdown_for_os_fd = false,
 														 }) :
-													 submit_close(raw_, handle, pack(Op::Close, gen, fd));
+													 submit_close(raw_, OsFd::from_os(fd), pack(Op::Close, gen, fd));
 	if (!submitted) {
 		HTTP_TRACE(std::format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 		defer_op([this, fd, gen] { submit_conn_close_or_defer(fd, gen); });
@@ -613,9 +640,14 @@ void Ring::submit_fd_shutdown_or_defer(
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
 	}
-	auto handle =
-		accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
-	if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, gen, fd))) {
+	bool const submitted = accepted_sockets_direct ?
+							   submit_shutdown(
+								   raw_,
+								   DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+								   SHUT_WR,
+								   pack(Op::FdShutdown, gen, fd)) :
+							   submit_shutdown(raw_, OsFd::from_os(fd), SHUT_WR, pack(Op::FdShutdown, gen, fd));
+	if (!submitted) {
 		HTTP_TRACE(std::format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 		defer_op([this, fd, gen] { submit_fd_shutdown_or_defer(fd, gen); });
 		return;
@@ -705,8 +737,9 @@ void Ring::queue_sse_wait(
 	auto buf = std::make_unique<std::uint64_t>(0);
 	// Blocking read on the eventfd — io_uring uses io-wq when the fd
 	// is not immediately readable.  Offset 0 is ignored for eventfd.
-	io_uring_prep_read(sqe, conn.sse_efd, buf.get(), sizeof(std::uint64_t), 0);
-	io_uring_sqe_set_data64(sqe, ud);
+	conflux::uring::Sqe{sqe}
+		.prep_read(conflux::uring::SqeFd{conn.sse_efd}, buf.get(), sizeof(std::uint64_t), 0)
+		.user_data(conflux::uring::UserData{ud});
 	in_flight_read_bufs[ud] = std::move(buf);
 }
 
@@ -722,8 +755,9 @@ void Ring::arm_shutdown_read() {
 		defer_op([this] { arm_shutdown_read(); });
 		return;
 	}
-	io_uring_prep_read(sqe, shutdown_efd, &shutdown_buf, sizeof(shutdown_buf), 0);
-	io_uring_sqe_set_data64(sqe, pack(Op::Shutdown, 0, 0));
+	conflux::uring::Sqe{sqe}
+		.prep_read(conflux::uring::SqeFd{shutdown_efd}, &shutdown_buf, sizeof(shutdown_buf), 0)
+		.user_data(conflux::uring::UserData{pack(Op::Shutdown, 0, 0)});
 }
 
 // Arm a one-shot periodic timer that fires every ~1 second for connection reaping.
@@ -864,9 +898,11 @@ void Ring::handle_shutdown() {
 			conn.close_after_send_deadline =
 				drain != nullptr ? drain->deadline : now + shutdown_close_after_send_timeout;
 			if (conn.recv_armed) {
-				auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(i)) :
-														SocketHandle::from_os(conn.fd);
-				cancel_multishot_recv_or_defer(handle);
+				if (accepted_sockets_direct) {
+					cancel_multishot_recv_or_defer(DirectFd::from_direct(static_cast<std::uint32_t>(i)));
+				} else {
+					cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
+				}
 			}
 		} else {
 			bool const idle = !conn.request_in_progress && !conn.send_queued;
@@ -903,15 +939,15 @@ void Ring::handle_accept(
 		++pressure_counters_.accept_rejected;
 		if (accepted_sockets_direct) {
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
-			if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud)) {
+			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
 				defer_op([this, res, ud] {
-					submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud);
+					submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud);
 				});
 			}
 		} else {
 			auto const ud = pack(Op::Close, 0, res);
-			if (!submit_close(raw_, SocketHandle::from_os(res), ud)) {
-				defer_op([this, res, ud] { submit_close(raw_, SocketHandle::from_os(res), ud); });
+			if (!submit_close(raw_, OsFd::from_os(res), ud)) {
+				defer_op([this, res, ud] { submit_close(raw_, OsFd::from_os(res), ud); });
 			}
 		}
 		if (!cqe_has_more(flg)
@@ -937,9 +973,9 @@ void Ring::handle_accept(
 			accepted_sockets_direct = false;
 			submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
-			if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud)) {
+			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
 				defer_op([this, res, ud] {
-					submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(res)), ud);
+					submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud);
 				});
 			}
 			return;

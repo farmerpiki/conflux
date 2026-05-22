@@ -25,6 +25,7 @@ export import conflux.net.request_id;
 export import conflux.net.security;
 export import conflux.net.tracing;
 export import conflux.net.observability;
+import conflux.types;
 import conflux.work;
 import conflux.file_io_sync;
 #if CONFLUX_HAS_METRICS
