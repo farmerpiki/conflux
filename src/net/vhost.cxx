@@ -12,19 +12,6 @@ import conflux.work;
 // The Host port (":port") is stripped before matching.
 // A default Router handles requests for unknown hosts.
 export class VHostRouter {
-	[[nodiscard]] static std::string_view normalized_host(
-		std::string_view host_header) {
-		if (host_header.starts_with('[')) {
-			auto bracket = host_header.find(']');
-			if (bracket == std::string_view::npos) {
-				return host_header;
-			}
-			auto colon = host_header.find(':', bracket + 1);
-			return colon != std::string_view::npos ? host_header.substr(0, colon) : host_header;
-		}
-		auto colon = host_header.rfind(':');
-		return colon != std::string_view::npos ? host_header.substr(0, colon) : host_header;
-	}
 
 public:
 	// Register a Router for an exact host name (e.g. "api.example.com").
@@ -56,7 +43,7 @@ public:
 	[[nodiscard]] std::shared_ptr<WorkPool> work_pool() const { return work_pool_; }
 	[[nodiscard]] std::shared_ptr<WorkPool> resolved_work_pool(
 		std::string_view host_header) const {
-		auto host = ascii_lower(normalized_host(host_header));
+		auto host = ascii_lower(conflux::http::host_without_port(host_header));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.work_pool();
@@ -65,7 +52,7 @@ public:
 	}
 	[[nodiscard]] Response dispatch(
 		RequestView const &req) const {
-		auto host = ascii_lower(normalized_host(req.headers["host"]));
+		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.dispatch(req);
@@ -90,7 +77,7 @@ public:
 	[[nodiscard]] std::optional<Response> dispatch_context(
 		Request const &req,
 		RequestContext const &ctx) const {
-		auto host = ascii_lower(normalized_host(req.headers["host"]));
+		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.dispatch_context(req, ctx);

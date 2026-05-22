@@ -11,3 +11,5 @@ db integration tests need PG_TEST_CONNINFO=postgresql:///conflux_test?user=postg
 !mod test/bench: ONLY on func rename; broader api change->new test/bench
 even if identified issue pre-existing fix it
 after significant changes: commit before final response unless user says not to
+benchmarks: report best, p10, p50 and p99, med as percentage diff over base... best + P10 also report +/- ns/iter (for scale)
+

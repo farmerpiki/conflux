@@ -480,6 +480,69 @@ struct PathQueryView {
 	return target_without_query;
 }
 
+// ─── Host/authority helpers ─────────────────────────────────────────────────
+
+struct AuthorityHostPortView {
+	std::string_view host{}; // preserves IPv6 brackets when present
+	std::string_view port{}; // without leading ':', empty when absent
+	bool has_port{false};
+	bool bracketed_ipv6{false};
+	bool invalid_bracket{false};
+	bool invalid_suffix{false};
+};
+
+[[nodiscard]] constexpr AuthorityHostPortView split_authority_host_port(
+	std::string_view authority) noexcept {
+	if (authority.starts_with('[')) {
+		auto const bracket = authority.find(']');
+		if (bracket == std::string_view::npos) {
+			return {.host = authority, .bracketed_ipv6 = true, .invalid_bracket = true};
+		}
+		auto const after = authority.substr(bracket + 1);
+		if (after.empty()) {
+			return {.host = authority, .bracketed_ipv6 = true};
+		}
+		if (!after.starts_with(':')) {
+			return {
+				.host = authority.substr(0, bracket + 1),
+				.bracketed_ipv6 = true,
+				.invalid_suffix = true,
+			};
+		}
+		return {
+			.host = authority.substr(0, bracket + 1),
+			.port = after.substr(1),
+			.has_port = true,
+			.bracketed_ipv6 = true,
+		};
+	}
+	auto const colon = authority.rfind(':');
+	if (colon == std::string_view::npos) {
+		return {.host = authority};
+	}
+	return {.host = authority.substr(0, colon), .port = authority.substr(colon + 1), .has_port = true};
+}
+
+[[nodiscard]] constexpr std::string_view host_without_port(
+	std::string_view authority) noexcept {
+	auto const parts = split_authority_host_port(authority);
+	return (parts.invalid_bracket || parts.invalid_suffix) ? authority : parts.host;
+}
+
+[[nodiscard]] constexpr std::string_view host_without_port_or_ipv6_brackets(
+	std::string_view authority) noexcept {
+	auto parts = split_authority_host_port(authority);
+	if (parts.invalid_bracket || parts.invalid_suffix) {
+		return authority;
+	}
+	auto host = parts.host;
+	if (parts.bracketed_ipv6 && host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+		host.remove_prefix(1);
+		host.remove_suffix(1);
+	}
+	return host;
+}
+
 // ─── URL ─────────────────────────────────────────────────────────────────────
 
 enum class UrlErrorKind : std::uint8_t {
@@ -613,39 +676,22 @@ std::expected<Url, UrlError> Url::parse(
 		return std::unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
 	}
 
-	if (authority.starts_with('[')) {
-		auto const bracket_end = authority.find(']');
-		if (bracket_end == std::string_view::npos) {
-			return std::unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
+	auto const authority_parts = split_authority_host_port(authority);
+	if (authority_parts.invalid_bracket) {
+		return std::unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
+	}
+	if (authority_parts.invalid_suffix) {
+		return std::unexpected(UrlError{UrlErrorKind::invalid_port, "std::unexpected character after ']'"});
+	}
+	url.host = std::string{authority_parts.host};
+	if (authority_parts.has_port) {
+		auto const port_sv = authority_parts.port;
+		std::uint16_t p = 0;
+		auto const [ptr, ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
+		if (ec != std::errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
+			return std::unexpected(UrlError{UrlErrorKind::invalid_port, std::format("invalid port '{}'", port_sv)});
 		}
-		url.host = std::string{authority.substr(0, bracket_end + 1)};
-		auto const after = authority.substr(bracket_end + 1);
-		if (!after.empty()) {
-			if (after[0] != ':') {
-				return std::unexpected(UrlError{UrlErrorKind::invalid_port, "std::unexpected character after ']'"});
-			}
-			auto const port_sv = after.substr(1);
-			std::uint16_t p = 0;
-			auto const [ptr, ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
-			if (ec != std::errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
-				return std::unexpected(UrlError{UrlErrorKind::invalid_port, std::format("invalid port '{}'", port_sv)});
-			}
-			url.port = p;
-		}
-	} else {
-		auto const colon = authority.rfind(':');
-		if (colon == std::string_view::npos) {
-			url.host = std::string{authority};
-		} else {
-			url.host = std::string{authority.substr(0, colon)};
-			auto const port_sv = authority.substr(colon + 1);
-			std::uint16_t p = 0;
-			auto const [ptr, ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
-			if (ec != std::errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
-				return std::unexpected(UrlError{UrlErrorKind::invalid_port, std::format("invalid port '{}'", port_sv)});
-			}
-			url.port = p;
-		}
+		url.port = p;
 	}
 
 	if (url.host.empty()) {

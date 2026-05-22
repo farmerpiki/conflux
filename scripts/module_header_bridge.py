@@ -61,6 +61,21 @@ STD_STREAM_TOKENS = {
     "ifstream", "ofstream", "fstream",
     "istringstream", "ostringstream", "stringstream",
 }
+STREAM_TOKEN_HEADER = {
+    "cin": "iostream",
+    "cout": "iostream",
+    "cerr": "iostream",
+    "clog": "iostream",
+    "istream": "iostream",
+    "ostream": "iostream",
+    "iostream": "iostream",
+    "ifstream": "fstream",
+    "ofstream": "fstream",
+    "fstream": "fstream",
+    "istringstream": "sstream",
+    "ostringstream": "sstream",
+    "stringstream": "sstream",
+}
 
 STD_HEADER_BY_TOKEN: dict[str, set[str]] = {
     "abort": {"cstdlib"},
@@ -336,9 +351,23 @@ def infer_standard_headers(text: str, uses_std_compat: bool) -> list[str]:
     return sorted(headers)
 
 
-def find_std_stream_tokens(text: str) -> list[str]:
+def find_std_stream_tokens(text: str, explicit_headers: set[str] | None = None) -> list[str]:
+    explicit_headers = explicit_headers or set()
     seen_tokens = set(STD_TOKEN_RE.findall(text))
-    return sorted(seen_tokens & STD_STREAM_TOKENS)
+    tokens = seen_tokens & STD_STREAM_TOKENS
+    return sorted(token for token in tokens if STREAM_TOKEN_HEADER.get(token) not in explicit_headers)
+
+
+def explicit_std_headers(lines: Iterable[str]) -> set[str]:
+    headers: set[str] = set()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("#include <"):
+            continue
+        end = stripped.find(">", len("#include <"))
+        if end != -1:
+            headers.add(stripped[len("#include <"):end])
+    return headers
 
 
 def rebase_local_include_line(line: str) -> str:
@@ -576,7 +605,7 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
 
     symbols, symbol_warnings = parse_export_symbols(tuple(after_decl))
     warnings.extend(symbol_warnings)
-    stream_tokens = find_std_stream_tokens(body_text)
+    stream_tokens = find_std_stream_tokens(body_text, explicit_std_headers(before_decl))
     if stream_tokens:
         warnings.append("std stream tokens intentionally not inferred: " + ", ".join(stream_tokens))
     out.extend(render_namespace_aliases(symbols, exported=False))

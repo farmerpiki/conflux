@@ -155,25 +155,7 @@ void dispatch_request(
 
 	if (http_redirect_to_https && !conn.is_tls) {
 		auto host = headers["host"];
-		auto strip_host_port = [](std::string_view h) -> std::string_view {
-			if (h.starts_with('[')) {
-				auto b = h.find(']');
-				if (b != std::string_view::npos) {
-					auto c = h.find(':', b + 1);
-					// strip port if present, then strip surrounding brackets
-					std::string_view inner = c != std::string_view::npos ? h.substr(0, c) : h;
-					if (inner.starts_with('[') && inner.ends_with(']')) {
-						inner.remove_prefix(1);
-						inner.remove_suffix(1);
-					}
-					return inner;
-				}
-				return h;
-			}
-			auto c = h.rfind(':');
-			return c != std::string_view::npos ? h.substr(0, c) : h;
-		};
-		auto const host_bare = strip_host_port(host);
+		auto const host_bare = conflux::http::host_without_port_or_ipv6_brackets(host);
 		std::string_view canonical_host;
 		for (auto const &h: https_redirect_hosts) {
 			if (conflux::http::ascii_iequals(h, host_bare)) {
