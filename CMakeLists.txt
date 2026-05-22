@@ -523,6 +523,10 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json.hxx"
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/file_io_sync.hxx"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
+        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/types/"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/types)
+        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json/"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json)
         install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
     elseif(CONFLUX_HAS_DB STREQUAL "true")
