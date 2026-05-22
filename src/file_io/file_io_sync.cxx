@@ -322,6 +322,25 @@ export std::expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
 	return UniqueFd{fd};
 }
 
+export std::expected<UniqueFd, FileIoSyncError> blocking_open_file(
+	std::string_view path,
+	int flags,
+	mode_t mode = 0) noexcept {
+	if (path.empty() || path.contains('\0')) {
+		return std::unexpected{
+			FileIoSyncError{EINVAL, "file_io_sync: invalid file path"}
+        };
+	}
+	std::string native{path};
+	int const fd = ::open(native.c_str(), flags | O_CLOEXEC, mode);
+	if (fd < 0) {
+		return std::unexpected{
+			FileIoSyncError{errno, "file_io_sync: open file"}
+        };
+	}
+	return UniqueFd{fd};
+}
+
 export std::expected<UniqueFd, FileIoSyncError> blocking_open_directory(
 	std::string_view path) noexcept {
 	if (path.empty() || path.contains('\0')) {
@@ -627,15 +646,11 @@ export std::expected<std::string, FileIoSyncError> read_all_fd(
 export std::expected<std::string, FileIoSyncError> blocking_read_text_file(
 	std::string_view path,
 	std::size_t max_bytes = std::size_t{16} * 1024 * 1024) {
-	std::string native{path};
-	int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
-	if (fd < 0) {
-		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: open text file"}
-        };
+	auto file = blocking_open_file(path, O_RDONLY);
+	if (!file) {
+		return std::unexpected{file.error()};
 	}
-	UniqueFd file{fd};
-	auto bytes = read_all_fd(file.fd(), max_bytes);
+	auto bytes = read_all_fd(file->fd(), max_bytes);
 	if (!bytes) {
 		return std::unexpected{bytes.error()};
 	}

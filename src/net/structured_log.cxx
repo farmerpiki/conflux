@@ -3,8 +3,6 @@
 //          "bytes":1234,"elapsed_ms":12,"remote":""[,"app":"name"]}
 // Optional daily log rotation: the file is reopened whenever the UTC date changes.
 module;
-#include <cerrno>
-#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <unistd.h>
@@ -110,15 +108,12 @@ private:
 		if (daily_rotate_) {
 			fpath += std::format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
-		int const fd = ::open(
-			fpath.c_str(),
-			O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
-			0644); // NOLINT(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-		if (fd < 0) {
-			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, strerror(errno));
+		auto file = blocking_open_file(fpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+		if (!file) {
+			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, file.error().what());
 			[[maybe_unused]] auto _ = blocking_write_all_fd(STDERR_FILENO, std::as_bytes(std::span{msg}));
 		} else {
-			file_ = UniqueFd{fd};
+			file_ = std::move(*file);
 		}
 		current_day_ = today;
 	}

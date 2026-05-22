@@ -453,8 +453,10 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#pragma once\n#include <conflux.hxx>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once\n#include <conflux/config.hxx>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once\n#include <conflux/types.hxx>\n")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once\n#include <conflux/file_io_sync.hxx>\n")
+    if(CONFLUX_WANT_JSON)
+        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
+    endif()
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/http.hpp" "#pragma once\n#include <conflux/http.hxx>\n")
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/runtime.hpp" "#pragma once\n#include <conflux/work.hxx>\n")
@@ -520,13 +522,17 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/config.hxx"
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/features.hxx"
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/types.hxx"
-            "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json.hxx"
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/file_io_sync.hxx"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
         install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/types/"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/types)
-        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json/"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json)
+        if(CONFLUX_WANT_JSON)
+            install(FILES
+                "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json.hxx"
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
+            install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json/"
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json)
+        endif()
         install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
     elseif(CONFLUX_HAS_DB STREQUAL "true")
