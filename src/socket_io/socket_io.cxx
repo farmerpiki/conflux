@@ -1180,7 +1180,7 @@ export bool submit_accept_multishot_borrowed(
 	} else {
 		sqe.prep_multishot_accept(listen.sqe_fd(), addr, addrlen, accept_flags);
 	}
-	sqe.add_flags(listen.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, listen);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1268,7 +1268,7 @@ export bool submit_recv_multishot(
 		sqe.ioprio(ioprio);
 	}
 	sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1286,7 +1286,7 @@ export bool submit_send_borrowed(
 		return false;
 	}
 	sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1303,7 +1303,7 @@ export bool submit_send_fixed_borrowed(
 		return false;
 	}
 	sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.ioprio(conflux::uring::ioprio_flags::recvsend_fixed_buf);
 	sqe.buf_index(conflux::uring::FixedBufIdx{static_cast<std::int32_t>(buf_idx)});
 	sqe.user_data(conflux::uring::UserData{user_data});
@@ -1320,7 +1320,7 @@ export bool submit_writev_borrowed(
 		return false;
 	}
 	sqe.prep_writev(handle.sqe_fd(), iov, nr_vecs, 0);
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1340,7 +1340,7 @@ export bool submit_send_zc_borrowed(
 	if (report_usage) {
 		sqe.ioprio(conflux::uring::ioprio_flags::send_zc_report_usage);
 	}
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1366,7 +1366,7 @@ export [[nodiscard]] bool submit_shutdown_close(
 	}
 	shutdown_sqe.prep_shutdown(handle.sqe_fd(), SHUT_WR);
 	shutdown_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-	shutdown_sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(shutdown_sqe, handle);
 	shutdown_sqe.user_data(conflux::uring::UserData{shutdown_ud});
 	if (handle.fixed) {
 		close_sqe.prep_close_direct(handle.direct_slot());
@@ -1421,7 +1421,7 @@ export [[nodiscard]] bool submit_close_fast(
 		}
 		shut_sqe.prep_shutdown(handle.sqe_fd(), SHUT_WR);
 		shut_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		shut_sqe.add_flags(handle.sqe_fd_flags());
+		apply_sqe_fd_flags(shut_sqe, handle);
 		if (opts.skip_shutdown_success_cqe) {
 			shut_sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
 		}
@@ -1653,7 +1653,7 @@ export bool submit_accept_borrowed(
 		return false;
 	}
 	sqe.prep_accept(listen.sqe_fd(), addr, addrlen, accept_flags);
-	sqe.add_flags(listen.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, listen);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1780,7 +1780,7 @@ export bool submit_connect_borrowed(
 		return false;
 	}
 	sqe.prep_connect(handle.sqe_fd(), addr, addrlen);
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	if (link_next) {
 		sqe.add_flags(conflux::uring::sqe_flags::io_link);
 	}
@@ -1801,7 +1801,7 @@ export bool submit_async_recv_borrowed(
 		return false;
 	}
 	sqe.prep_recv(handle.sqe_fd(), buf, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1818,7 +1818,7 @@ export bool submit_sendmsg_borrowed(
 		return false;
 	}
 	sqe.prep_sendmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{flags});
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1833,7 +1833,7 @@ export bool submit_recvmsg_borrowed(
 		return false;
 	}
 	sqe.prep_recvmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{flags});
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1863,7 +1863,7 @@ export [[nodiscard]] bool submit_recvmsg_timeout_borrowed(
 	}
 	recv_sqe.prep_recvmsg(handle.sqe_fd(), msg, conflux::uring::MsgFlags{recv_flags});
 	recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	recv_sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(recv_sqe, handle);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -1893,7 +1893,7 @@ export [[nodiscard]] bool submit_recv_timeout_borrowed(
 	}
 	recv_sqe.prep_recv(handle.sqe_fd(), buf, len, conflux::uring::MsgFlags{});
 	recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	recv_sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(recv_sqe, handle);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -1925,7 +1925,7 @@ export [[nodiscard]] bool submit_send_timeout_borrowed(
 	}
 	send_sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
 	send_sqe.add_flags(conflux::uring::sqe_flags::io_link);
-	send_sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(send_sqe, handle);
 	send_sqe.user_data(conflux::uring::UserData{send_ud});
 	timeout_sqe.prep_link_timeout(ts, conflux::uring::TimeoutFlags{});
 	timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
@@ -2114,7 +2114,7 @@ export bool submit_shutdown(
 		return false;
 	}
 	sqe.prep_shutdown(handle.sqe_fd(), how);
-	sqe.add_flags(handle.sqe_fd_flags());
+	apply_sqe_fd_flags(sqe, handle);
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }

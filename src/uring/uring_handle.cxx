@@ -27,21 +27,26 @@ export struct RingFd {
 	[[nodiscard]] constexpr conflux::uring::DirectSlot direct_slot() const noexcept {
 		return conflux::uring::DirectSlot{id};
 	}
-	[[nodiscard]] constexpr conflux::uring::SqeFlags sqe_fd_flags() const noexcept {
-		return fixed ? conflux::uring::sqe_flags::fixed_file : conflux::uring::SqeFlags{};
-	}
 	[[nodiscard]] constexpr int as_fd() const noexcept { return sqe_fd_value(); }
 };
 export template<typename T>
 concept RingFdLike = requires(T const &fd) {
 	{ fd.sqe_fd_value() } -> std::convertible_to<int>;
-	{ fd.sqe_fd_flags() } -> std::same_as<conflux::uring::SqeFlags>;
+	{ fd.is_direct() } -> std::convertible_to<bool>;
 };
 
 export inline void apply_sqe_fd_flags(
 	io_uring_sqe *sqe,
 	RingFdLike auto const &fd) noexcept {
-	sqe->flags = static_cast<decltype(sqe->flags)>(sqe->flags | fd.sqe_fd_flags().raw());
+	if (fd.is_direct()) {
+		sqe->flags = static_cast<decltype(sqe->flags)>(sqe->flags | conflux::uring::sqe_flags::fixed_file.raw());
+	}
+}
+
+export inline void apply_sqe_fd_flags(
+	conflux::uring::Sqe &sqe,
+	RingFdLike auto const &fd) noexcept {
+	apply_sqe_fd_flags(sqe.raw(), fd);
 }
 
 export class IoHandle {
@@ -97,7 +102,6 @@ public:
 	}
 	[[nodiscard]] RingFd get() const noexcept { return h_; }
 	[[nodiscard]] int sqe_fd_value() const noexcept { return h_.sqe_fd_value(); }
-	[[nodiscard]] conflux::uring::SqeFlags sqe_fd_flags() const noexcept { return h_.sqe_fd_flags(); }
 	[[nodiscard]] conflux::uring::Fd sqe_fd() const noexcept { return h_.sqe_fd(); }
 	[[nodiscard]] RingFd release() noexcept { return std::exchange(h_, RingFd{}); }
 	[[nodiscard]] bool valid() const noexcept { return h_.valid(); }
