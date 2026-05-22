@@ -455,7 +455,7 @@ public:
 	}
 	// Read into a pre-registered fixed buffer. The pool slot is held by the
 	// buffer and returned on destruction — by placing the buffer inside the
-	// shared-state closure we keep it alive until the CQE fires, then move it
+	// completion callback we keep it alive until the CQE fires, then move it
 	// into the resolved value so the caller decides when to release.
 	struct ReadFixedResult {
 		FixedBuffer buffer;
@@ -466,32 +466,29 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
+		auto [task, src, sqe] = prepare_sqe_direct<ReadFixedResult>();
 		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
-		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
+		std::size_t const bytes = std::min(buf.view().size(), max_bytes);
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_read_fixed(
 				fd,
-				holder->view().data(),
+				buf.view().data(),
 				bytes,
 				offset,
 				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
 		});
-		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([src = std::move(src), buf = std::move(buf)](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(
-						std::make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
+					auto _ = src.try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
 					return;
 				}
-				auto _ = shared_src->try_set_value({
-					ReadFixedResult{.buffer = std::move(*holder), .bytes = static_cast<std::size_t>(r.res)}
-                });
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+				ReadFixedResult result{.buffer = std::move(buf), .bytes = static_cast<std::size_t>(r.res)};
+				auto _ = src.try_set_value(root::Success<ReadFixedResult>{std::move(result)});
+			} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
@@ -516,38 +513,37 @@ public:
 			aligned_bytes = ((actual_cap + block_size - 1) / block_size) * block_size;
 			aligned_bytes = std::min(aligned_bytes, buf.size());
 		}
-		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
+		auto [task, src, sqe] = prepare_sqe_direct<ReadFixedResult>();
 		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
-		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_read_fixed(
 				fd,
-				holder->view().data(),
+				buf.view().data(),
 				aligned_bytes,
 				offset,
 				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
 		});
-		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
-			try {
-				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(
-						std::make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
-					return;
-				}
-				std::size_t const bytes = std::min(static_cast<std::size_t>(r.res), actual_cap);
-				auto _ = shared_src->try_set_value({
-					ReadFixedResult{.buffer = std::move(*holder), .bytes = bytes}
-                });
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-		});
+		auto [slot, gen] =
+			completions_->reserve([src = std::move(src), buf = std::move(buf), actual_cap](IoResult r) mutable {
+				try {
+					if (r.res < 0) {
+						auto _ = src.try_set_exception(
+							std::make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
+						return;
+					}
+					std::size_t const bytes = std::min(static_cast<std::size_t>(r.res), actual_cap);
+					ReadFixedResult result{.buffer = std::move(buf), .bytes = bytes};
+					auto _ = src.try_set_value(root::Success<ReadFixedResult>{std::move(result)});
+				} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
+			});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
 	// Write from a pre-registered fixed buffer. Symmetric to read_fixed.
-	// The buffer is held in shared state until the CQE fires, then returned
+	// The buffer is held by the completion callback until the CQE fires, then returned
 	// to the caller (who decides when to release the slot back to the pool).
 	struct WriteFixedResult {
 		FixedBuffer buffer;
@@ -558,32 +554,30 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, shared_src, sqe] = prepare_sqe<WriteFixedResult>();
+		auto [task, src, sqe] = prepare_sqe_direct<WriteFixedResult>();
 		if (!sqe) {
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
-		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
-		std::size_t const bytes = std::min(holder->view().size(), max_bytes);
+		std::size_t const bytes = std::min(buf.view().size(), max_bytes);
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_write_fixed(
 				fd,
-				holder->view().data(),
+				buf.view().data(),
 				bytes,
 				offset,
 				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
 		});
-		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([src = std::move(src), buf = std::move(buf)](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(
-						std::make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
+					auto _ =
+						src.try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
 					return;
 				}
-				auto _ = shared_src->try_set_value({
-					WriteFixedResult{.buffer = std::move(*holder), .bytes = static_cast<std::size_t>(r.res)}
-                });
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+				WriteFixedResult result{.buffer = std::move(buf), .bytes = static_cast<std::size_t>(r.res)};
+				auto _ = src.try_set_value(root::Success<WriteFixedResult>{std::move(result)});
+			} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
