@@ -39,6 +39,19 @@ inline void store(
 using vec_t = cf::simd_std::byte_vec;
 static constexpr std::size_t W = cf::simd_std::byte_width;
 
+#ifndef CONFLUX_ASCII_LOWER_INPLACE_STDSIMD
+	#define CONFLUX_ASCII_LOWER_INPLACE_STDSIMD conflux_ascii_lower_inplace_stdsimd
+#endif
+#ifndef CONFLUX_CONSTANT_TIME_EQ_STDSIMD
+	#define CONFLUX_CONSTANT_TIME_EQ_STDSIMD conflux_constant_time_eq_stdsimd
+#endif
+#ifndef CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD
+	#define CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD conflux_url_scan_plain_run_stdsimd
+#endif
+#ifndef CONFLUX_WS_UNMASK_STDSIMD
+	#define CONFLUX_WS_UNMASK_STDSIMD conflux_ws_unmask_stdsimd
+#endif
+
 namespace {
 
 template<bool PlusIsSpecial>
@@ -71,7 +84,7 @@ std::size_t url_scan_plain_run_impl(
 } // namespace
 
 extern "C" {
-void conflux_ascii_lower_inplace_stdsimd(
+void CONFLUX_ASCII_LOWER_INPLACE_STDSIMD(
 	char *p,
 	std::size_t n) noexcept {
 	auto *u = reinterpret_cast<unsigned char *>(p);
@@ -92,7 +105,7 @@ void conflux_ascii_lower_inplace_stdsimd(
 		}
 	}
 }
-int conflux_constant_time_eq_stdsimd(
+int CONFLUX_CONSTANT_TIME_EQ_STDSIMD(
 	unsigned char const *a,
 	unsigned char const *b,
 	std::size_t n) noexcept {
@@ -109,13 +122,13 @@ int conflux_constant_time_eq_stdsimd(
 	}
 	return (cf::simd_std::reduce_or(acc) | tail) == 0 ? 1 : 0;
 }
-std::size_t conflux_url_scan_plain_run_stdsimd(
+std::size_t CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD(
 	char const *p,
 	std::size_t n,
 	int plus_is_special) noexcept {
 	return plus_is_special != 0 ? url_scan_plain_run_impl<true>(p, n) : url_scan_plain_run_impl<false>(p, n);
 }
-void conflux_ws_unmask_stdsimd(
+void CONFLUX_WS_UNMASK_STDSIMD(
 	unsigned char *data,
 	std::size_t n,
 	unsigned char const *mask4) noexcept {

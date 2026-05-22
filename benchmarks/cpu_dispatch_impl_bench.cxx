@@ -28,6 +28,19 @@ void conflux_ws_unmask_stdx_avx2(unsigned char *, std::size_t, unsigned char con
 }
 #endif
 
+#if defined(CONFLUX_BENCH_HAS_STD26_VARIANTS)
+extern "C" {
+void conflux_ascii_lower_inplace_std26_sse2(char *, std::size_t) noexcept;
+int conflux_constant_time_eq_std26_sse2(unsigned char const *, unsigned char const *, std::size_t) noexcept;
+std::size_t conflux_url_scan_plain_run_std26_sse2(char const *, std::size_t, int) noexcept;
+void conflux_ws_unmask_std26_sse2(unsigned char *, std::size_t, unsigned char const *) noexcept;
+void conflux_ascii_lower_inplace_std26_avx2(char *, std::size_t) noexcept;
+int conflux_constant_time_eq_std26_avx2(unsigned char const *, unsigned char const *, std::size_t) noexcept;
+std::size_t conflux_url_scan_plain_run_std26_avx2(char const *, std::size_t, int) noexcept;
+void conflux_ws_unmask_std26_avx2(unsigned char *, std::size_t, unsigned char const *) noexcept;
+}
+#endif
+
 #if defined(CONFLUX_BENCH_HAS_JSON_STDSIMD)
 extern "C" {
 std::size_t conflux_json_scan_str_until_special_stdsimd(char const *, std::size_t) noexcept;
@@ -41,6 +54,15 @@ std::size_t conflux_json_scan_str_until_special_stdx_sse2(char const *, std::siz
 std::size_t conflux_json_scan_dump_safe_run_stdx_sse2(char const *, std::size_t, int) noexcept;
 std::size_t conflux_json_scan_str_until_special_stdx_avx2(char const *, std::size_t) noexcept;
 std::size_t conflux_json_scan_dump_safe_run_stdx_avx2(char const *, std::size_t, int) noexcept;
+}
+#endif
+
+#if defined(CONFLUX_BENCH_HAS_JSON_STD26_VARIANTS)
+extern "C" {
+std::size_t conflux_json_scan_str_until_special_std26_sse2(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_std26_sse2(char const *, std::size_t, int) noexcept;
+std::size_t conflux_json_scan_str_until_special_std26_avx2(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_std26_avx2(char const *, std::size_t, int) noexcept;
 }
 #endif
 
@@ -264,6 +286,30 @@ void bench_json_scan(
 				sz));
 		}
 #endif
+#if defined(CONFLUX_BENCH_HAS_JSON_STD26_VARIANTS)
+		emit(measure(
+			std::format("json_scan_str/std26-sse2/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_str_until_special_std26_sse2(s.data(), s.size());
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("json_scan_str/std26-avx2/{}", sz),
+				[&] {
+					auto r = conflux_json_scan_str_until_special_std26_avx2(s.data(), s.size());
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
 		emit(measure(
 			std::format("json_dump_scan/scalar_ascii/{}", sz),
 			[&] {
@@ -304,6 +350,30 @@ void bench_json_scan(
 				std::format("json_dump_scan/stdx-avx2_ascii/{}", sz),
 				[&] {
 					auto r = conflux_json_scan_dump_safe_run_stdx_avx2(s.data(), s.size(), 1);
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
+#if defined(CONFLUX_BENCH_HAS_JSON_STD26_VARIANTS)
+		emit(measure(
+			std::format("json_dump_scan/std26-sse2_ascii/{}", sz),
+			[&] {
+				auto r = conflux_json_scan_dump_safe_run_std26_sse2(s.data(), s.size(), 1);
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("json_dump_scan/std26-avx2_ascii/{}", sz),
+				[&] {
+					auto r = conflux_json_scan_dump_safe_run_std26_avx2(s.data(), s.size(), 1);
 					bench_keep(r);
 				},
 				warmup,
@@ -387,6 +457,32 @@ void bench_utils(
 				sz));
 		}
 #endif
+#if defined(CONFLUX_BENCH_HAS_STD26_VARIANTS)
+		emit(measure(
+			std::format("ascii_lower/std26-sse2/{}", sz),
+			[&] {
+				lower_buf = lower_src;
+				conflux_ascii_lower_inplace_std26_sse2(lower_buf.data(), lower_buf.size());
+				bench_keep_ptr(lower_buf.data());
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("ascii_lower/std26-avx2/{}", sz),
+				[&] {
+					lower_buf = lower_src;
+					conflux_ascii_lower_inplace_std26_avx2(lower_buf.data(), lower_buf.size());
+					bench_keep_ptr(lower_buf.data());
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
 		emit(measure(
 			std::format("ascii_lower/public-dispatch/{}", sz),
 			[&] {
@@ -459,6 +555,36 @@ void bench_utils(
 				sz));
 		}
 #endif
+#if defined(CONFLUX_BENCH_HAS_STD26_VARIANTS)
+		emit(measure(
+			std::format("ct_eq/std26-sse2/{}", sz),
+			[&] {
+				auto r = conflux_constant_time_eq_std26_sse2(
+					reinterpret_cast<unsigned char const *>(eq_a.data()),
+					reinterpret_cast<unsigned char const *>(eq_b.data()),
+					eq_a.size());
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("ct_eq/std26-avx2/{}", sz),
+				[&] {
+					auto r = conflux_constant_time_eq_std26_avx2(
+						reinterpret_cast<unsigned char const *>(eq_a.data()),
+						reinterpret_cast<unsigned char const *>(eq_b.data()),
+						eq_a.size());
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
 		emit(measure(
 			std::format("ct_eq/public-dispatch/{}", sz),
 			[&] {
@@ -518,6 +644,30 @@ void bench_utils(
 				sz));
 		}
 #endif
+#if defined(CONFLUX_BENCH_HAS_STD26_VARIANTS)
+		emit(measure(
+			std::format("url_scan/std26-sse2/{}", sz),
+			[&] {
+				auto r = conflux_url_scan_plain_run_std26_sse2(url.data(), url.size(), 1);
+				bench_keep(r);
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("url_scan/std26-avx2/{}", sz),
+				[&] {
+					auto r = conflux_url_scan_plain_run_std26_avx2(url.data(), url.size(), 1);
+					bench_keep(r);
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
 
 		emit(measure(
 			std::format("ws_unmask/scalar/{}", sz),
@@ -563,6 +713,32 @@ void bench_utils(
 				[&] {
 					std::ranges::copy(ws_src, ws_buf.begin());
 					conflux_ws_unmask_stdx_avx2(ws_buf.data(), ws_buf.size(), ws_key.data());
+					bench_keep_ptr(ws_buf.data());
+				},
+				warmup,
+				iters,
+				batch,
+				sz));
+		}
+#endif
+#if defined(CONFLUX_BENCH_HAS_STD26_VARIANTS)
+		emit(measure(
+			std::format("ws_unmask/std26-sse2/{}", sz),
+			[&] {
+				std::ranges::copy(ws_src, ws_buf.begin());
+				conflux_ws_unmask_std26_sse2(ws_buf.data(), ws_buf.size(), ws_key.data());
+				bench_keep_ptr(ws_buf.data());
+			},
+			warmup,
+			iters,
+			batch,
+			sz));
+		if (has_avx2) {
+			emit(measure(
+				std::format("ws_unmask/std26-avx2/{}", sz),
+				[&] {
+					std::ranges::copy(ws_src, ws_buf.begin());
+					conflux_ws_unmask_std26_avx2(ws_buf.data(), ws_buf.size(), ws_key.data());
 					bench_keep_ptr(ws_buf.data());
 				},
 				warmup,

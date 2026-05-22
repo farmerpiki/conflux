@@ -120,6 +120,43 @@ if(CONFLUX_ENABLE_CPU_DISPATCH AND TARGET conflux_crypto)
             $<TARGET_OBJECTS:conflux_bench_simd_stdx_sse2>
             $<TARGET_OBJECTS:conflux_bench_simd_stdx_avx2>)
     endif()
+    if(CONFLUX_HAS_SIMD_STD26)
+        set(_conflux_bench_std26_options_sse2 "-msse2")
+        set(_conflux_bench_std26_options_avx2 "-mavx2")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+                AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
+                AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            list(APPEND _conflux_bench_std26_options_sse2 "-fno-lto")
+            list(APPEND _conflux_bench_std26_options_avx2 "-fno-lto")
+        endif()
+
+        add_library(conflux_bench_simd_std26_sse2 OBJECT ../src/simd_std26.cxx)
+        set_target_properties(conflux_bench_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        target_compile_features(conflux_bench_simd_std26_sse2 PRIVATE cxx_std_26)
+        target_compile_options(conflux_bench_simd_std26_sse2 PRIVATE ${_conflux_bench_std26_options_sse2})
+        target_compile_definitions(conflux_bench_simd_std26_sse2 PRIVATE
+            CONFLUX_ASCII_LOWER_INPLACE_STDSIMD=conflux_ascii_lower_inplace_std26_sse2
+            CONFLUX_CONSTANT_TIME_EQ_STDSIMD=conflux_constant_time_eq_std26_sse2
+            CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD=conflux_url_scan_plain_run_std26_sse2
+            CONFLUX_WS_UNMASK_STDSIMD=conflux_ws_unmask_std26_sse2)
+
+        add_library(conflux_bench_simd_std26_avx2 OBJECT ../src/simd_std26.cxx)
+        set_target_properties(conflux_bench_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        target_compile_features(conflux_bench_simd_std26_avx2 PRIVATE cxx_std_26)
+        target_compile_options(conflux_bench_simd_std26_avx2 PRIVATE ${_conflux_bench_std26_options_avx2})
+        target_compile_definitions(conflux_bench_simd_std26_avx2 PRIVATE
+            CONFLUX_ASCII_LOWER_INPLACE_STDSIMD=conflux_ascii_lower_inplace_std26_avx2
+            CONFLUX_CONSTANT_TIME_EQ_STDSIMD=conflux_constant_time_eq_std26_avx2
+            CONFLUX_URL_SCAN_PLAIN_RUN_STDSIMD=conflux_url_scan_plain_run_std26_avx2
+            CONFLUX_WS_UNMASK_STDSIMD=conflux_ws_unmask_std26_avx2)
+
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_STD26_VARIANTS=1)
+        target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
+            $<TARGET_OBJECTS:conflux_bench_simd_std26_sse2>
+            $<TARGET_OBJECTS:conflux_bench_simd_std26_avx2>)
+        unset(_conflux_bench_std26_options_sse2)
+        unset(_conflux_bench_std26_options_avx2)
+    endif()
     if(NOT _conflux_simd_backend STREQUAL "OFF" AND TARGET conflux_json)
         target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_STDSIMD=1)
         target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_json)
@@ -145,6 +182,39 @@ if(CONFLUX_ENABLE_CPU_DISPATCH AND TARGET conflux_crypto)
         target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
             $<TARGET_OBJECTS:conflux_bench_json_simd_stdx_sse2>
             $<TARGET_OBJECTS:conflux_bench_json_simd_stdx_avx2>)
+    endif()
+    if(CONFLUX_HAS_SIMD_STD26 AND TARGET conflux_json)
+        set(_conflux_bench_json_std26_options_sse2 "-msse2")
+        set(_conflux_bench_json_std26_options_avx2 "-mavx2")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+                AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
+                AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            list(APPEND _conflux_bench_json_std26_options_sse2 "-fno-lto")
+            list(APPEND _conflux_bench_json_std26_options_avx2 "-fno-lto")
+        endif()
+
+        add_library(conflux_bench_json_simd_std26_sse2 OBJECT ../src/json_simd_std26.cxx)
+        set_target_properties(conflux_bench_json_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        target_compile_features(conflux_bench_json_simd_std26_sse2 PRIVATE cxx_std_26)
+        target_compile_options(conflux_bench_json_simd_std26_sse2 PRIVATE ${_conflux_bench_json_std26_options_sse2})
+        target_compile_definitions(conflux_bench_json_simd_std26_sse2 PRIVATE
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_std26_sse2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_std26_sse2)
+
+        add_library(conflux_bench_json_simd_std26_avx2 OBJECT ../src/json_simd_std26.cxx)
+        set_target_properties(conflux_bench_json_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        target_compile_features(conflux_bench_json_simd_std26_avx2 PRIVATE cxx_std_26)
+        target_compile_options(conflux_bench_json_simd_std26_avx2 PRIVATE ${_conflux_bench_json_std26_options_avx2})
+        target_compile_definitions(conflux_bench_json_simd_std26_avx2 PRIVATE
+            CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_std26_avx2
+            CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_std26_avx2)
+
+        target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_JSON_STD26_VARIANTS=1)
+        target_sources(conflux_cpu_dispatch_impl_bench PRIVATE
+            $<TARGET_OBJECTS:conflux_bench_json_simd_std26_sse2>
+            $<TARGET_OBJECTS:conflux_bench_json_simd_std26_avx2>)
+        unset(_conflux_bench_json_std26_options_sse2)
+        unset(_conflux_bench_json_std26_options_avx2)
     endif()
     if(CONFLUX_HAS_AESNI AND TARGET conflux_crypto)
         target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_AESNI=1)
