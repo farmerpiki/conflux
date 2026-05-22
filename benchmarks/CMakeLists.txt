@@ -35,6 +35,10 @@ add_executable(conflux_uring_completion_bench uring_completion_bench.cxx)
 target_link_libraries(conflux_uring_completion_bench
     PRIVATE bench_common conflux_uring conflux_options)
 
+add_executable(conflux_uring_timeout_bench uring_timeout_bench.cxx)
+target_link_libraries(conflux_uring_timeout_bench
+    PRIVATE bench_common conflux_uring_timeout conflux_uring conflux_work conflux_options)
+
 add_executable(conflux_file_io_sqe_storm_bench file_io_sqe_storm_bench.cxx)
 target_link_libraries(conflux_file_io_sqe_storm_bench
     PRIVATE bench_common conflux_file_io conflux_work conflux_options)
@@ -135,6 +139,7 @@ set(_record_targets
     conflux_work_benchmarks
     conflux_file_copy_coro_bench
     conflux_uring_completion_bench
+    conflux_uring_timeout_bench
     conflux_file_io_sqe_storm_bench
     conflux_tcp_increment_coro_bench
     conflux_json_bench
