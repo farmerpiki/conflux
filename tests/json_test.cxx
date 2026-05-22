@@ -2933,6 +2933,31 @@ TEST_CASE(
 	REQUIRE_FALSE(doc.has_value());
 	CHECK(doc.error().code == JsonIssueCode::duplicate_member);
 }
+TEST_CASE(
+	"json: parse storage stats report arena reserve and duplicate hash activity",
+	"[json][perf]") {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	std::string js = "{";
+	for (int i = 0; i < 10; ++i) {
+		if (i > 0) {
+			js += ',';
+		}
+		js += std::format(R"("k{}": {})", i, i);
+	}
+	js += R"(, "k3": 99})";
+	auto doc = parse(js, opts);
+	REQUIRE(doc.has_value());
+	auto stats = doc->parse_storage_stats();
+	CHECK(stats.input_bytes == js.size());
+	CHECK(stats.string_arena_reserve_bytes == js.size());
+	CHECK(stats.string_arena_capacity >= js.size());
+	CHECK(stats.duplicate_hash_promotions == 1);
+	CHECK(stats.duplicate_hash_inserts >= 10);
+	CHECK(stats.duplicate_member_hits == 1);
+	CHECK(stats.first_wins_rollbacks == 1);
+	CHECK(stats.last_wins_updates == 0);
+}
 // ---------------------------------------------------------------------------
 // Phase 2.1 — JsonDecodeOptions: UnknownMemberPolicy
 // ---------------------------------------------------------------------------

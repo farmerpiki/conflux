@@ -79,6 +79,9 @@ if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
 endif()
 
+add_executable(conflux_json_storage_bench json_storage_bench.cxx)
+target_link_libraries(conflux_json_storage_bench PRIVATE bench_common conflux_json conflux_options)
+
 if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect_provider)
     add_executable(conflux_json_reflect_bench json_reflect_bench.cxx)
     target_link_libraries(conflux_json_reflect_bench
@@ -307,6 +310,7 @@ set(_record_targets
     conflux_file_io_fixed_bench
     conflux_tcp_increment_coro_bench
     conflux_json_bench
+    conflux_json_storage_bench
     conflux_crypto_bench
     conflux_template_bench
     conflux_task_creation_bench

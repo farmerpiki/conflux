@@ -798,6 +798,9 @@ struct TreeBuilder {
 			}
 			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
+			if (is_dup) {
+				++store.parse_stats.duplicate_member_hits;
+			}
 			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
 				staging_members.resize(members_start);
 				return std::unexpected(
@@ -805,6 +808,7 @@ struct TreeBuilder {
 			}
 			if (!is_dup && seen_hash.has_value()) {
 				seen_hash->insert(name_sv);
+				++store.parse_stats.duplicate_hash_inserts;
 			}
 
 			if (auto ok = skip_ws_checked(); !ok) {
@@ -841,6 +845,7 @@ struct TreeBuilder {
 					store.string_arena.resize(mark.string_arena);
 					store.array_children.resize(mark.array_children);
 					store.object_members.resize(mark.object_members);
+					++store.parse_stats.first_wins_rollbacks;
 				} else {
 					// last_wins: update the first occurrence's val_node.
 					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
@@ -848,6 +853,7 @@ struct TreeBuilder {
 						if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags))
 							== name_sv) {
 							m.val_node = static_cast<std::uint32_t>(*val);
+							++store.parse_stats.last_wins_updates;
 							break;
 						}
 					}
@@ -860,6 +866,7 @@ struct TreeBuilder {
 				std::size_t const cur_count = staging_members.size() - members_start;
 				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
 					seen_hash.emplace();
+					++store.parse_stats.duplicate_hash_promotions;
 					std::size_t reserve_count = cur_count;
 					if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
 						reserve_count += cur_count;
@@ -869,6 +876,7 @@ struct TreeBuilder {
 						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 						seen_hash->insert(
 							store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)));
+						++store.parse_stats.duplicate_hash_inserts;
 					}
 				}
 			}
@@ -1010,11 +1018,14 @@ struct TreeBuilder {
 [[nodiscard]] inline std::expected<void, JsonError> parse_inplace(
 	DocumentStorage &store,
 	JsonParseOptions const &opts) {
+	store.parse_stats = {};
 	std::size_t const reserve_n = std::max<std::size_t>(64, store.input_view.size() / 16 + 16);
 	store.nodes.reserve(reserve_n);
 	store.array_children.reserve(reserve_n);
 	store.object_members.reserve(reserve_n);
 	store.string_arena.reserve(store.input_view.size());
+	store.parse_stats.input_bytes = store.input_view.size();
+	store.parse_stats.string_arena_reserve_bytes = store.input_view.size();
 
 	TreeBuilder tb{
 		.tok =
@@ -1070,6 +1081,7 @@ struct TreeBuilder {
 	// (~1 GB/s) cost more than the realloc copies it saved on the
 	// 4 KB / 200 KB corpora in this bench.
 	std::size_t const reserve_n = std::max<std::size_t>(64, storage_ref.input_view.size() / 16 + 16);
+	storage_ref.parse_stats = {};
 	storage->nodes.reserve(reserve_n);
 	storage->array_children.reserve(reserve_n);
 	storage->object_members.reserve(reserve_n);
@@ -1079,6 +1091,8 @@ struct TreeBuilder {
 	// strings are always ≤ input size (escapes only ever shrink), so the
 	// input length is a safe upper bound.
 	storage_ref.string_arena.reserve(storage_ref.input_view.size());
+	storage_ref.parse_stats.input_bytes = storage_ref.input_view.size();
+	storage_ref.parse_stats.string_arena_reserve_bytes = storage_ref.input_view.size();
 
 	TreeBuilder tb{
 		.tok =

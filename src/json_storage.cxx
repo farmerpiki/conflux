@@ -39,6 +39,20 @@ std::string_view DocumentStorage::member_name(
 	return bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags));
 }
 
+JsonParseStorageStats DocumentStorage::storage_stats() const noexcept {
+	JsonParseStorageStats stats = parse_stats;
+	stats.input_bytes = input_view.size();
+	stats.nodes_size = nodes.size();
+	stats.nodes_capacity = nodes.capacity();
+	stats.array_children_size = array_children.size();
+	stats.array_children_capacity = array_children.capacity();
+	stats.object_members_size = object_members.size();
+	stats.object_members_capacity = object_members.capacity();
+	stats.string_arena_size = string_arena.size();
+	stats.string_arena_capacity = string_arena.capacity();
+	return stats;
+}
+
 ObjHashTable *ObjHashTable::create(
 	std::uint32_t capacity,
 	std::uint32_t member_count,

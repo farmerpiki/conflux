@@ -303,6 +303,24 @@ export struct JsonParseOptions {
 	ParseMode mode{ParseMode::strict};
 };
 
+export struct JsonParseStorageStats {
+	std::size_t input_bytes{};
+	std::size_t nodes_size{};
+	std::size_t nodes_capacity{};
+	std::size_t array_children_size{};
+	std::size_t array_children_capacity{};
+	std::size_t object_members_size{};
+	std::size_t object_members_capacity{};
+	std::size_t string_arena_size{};
+	std::size_t string_arena_capacity{};
+	std::size_t string_arena_reserve_bytes{};
+	std::size_t duplicate_hash_promotions{};
+	std::size_t duplicate_hash_inserts{};
+	std::size_t duplicate_member_hits{};
+	std::size_t first_wins_rollbacks{};
+	std::size_t last_wins_updates{};
+};
+
 // NOLINTNEXTLINE(performance-enum-size)
 export enum class UnknownMemberPolicy : std::uint8_t {
 	reject,
@@ -671,6 +689,7 @@ struct DocumentStorage {
 	std::uint32_t bom_prefix_bytes{0};
 	std::uint64_t hash_seed_{detail::make_hash_seed()};
 	std::pmr::memory_resource *hash_mr_{std::pmr::new_delete_resource()};
+	JsonParseStorageStats parse_stats{};
 	DocumentStorage()
 		: nodes(std::pmr::new_delete_resource())
 		, string_arena(std::pmr::new_delete_resource())
@@ -699,6 +718,7 @@ struct DocumentStorage {
 	[[nodiscard]] std::string_view str_at(std::uint32_t off, std::uint32_t len) const noexcept;
 	[[nodiscard]] std::string_view bytes_at(std::uint32_t off, std::uint32_t len, std::uint8_t flags) const noexcept;
 	[[nodiscard]] std::string_view member_name(MemberEntry const &m) const noexcept;
+	[[nodiscard]] JsonParseStorageStats storage_stats() const noexcept;
 };
 // ---------------------------------------------------------------------------
 // Phase 0 — slow-path f64 classifier (v14 AAA–EEE, v15 QQQ)
@@ -1677,6 +1697,10 @@ public:
 	[[nodiscard]] std::expected<void, JsonError> warm_member_index(NodeRef node) const;
 	// Pre-build std::hash indices for every object node in the document.
 	[[nodiscard]] std::expected<void, JsonError> warm_member_indices(WarmIndexOptions const &opts = {}) const;
+	[[nodiscard]] JsonParseStorageStats parse_storage_stats() const noexcept {
+		assert(storage_ && "Document::parse_storage_stats() called on empty Document");
+		return storage_->storage_stats();
+	}
 };
 // Module-private factory: parse and builder use this to construct Documents.
 Document make_document(std::unique_ptr<DocumentStorage> s) noexcept;
@@ -1709,6 +1733,10 @@ public:
 	}
 	[[nodiscard]] std::expected<void, JsonError> warm_member_index(NodeRef node) const;
 	[[nodiscard]] std::expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
+	[[nodiscard]] JsonParseStorageStats parse_storage_stats() const noexcept {
+		check_live();
+		return storage_->storage_stats();
+	}
 };
 export class JsonArena {
 	std::size_t initial_slab_;
