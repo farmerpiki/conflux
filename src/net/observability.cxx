@@ -120,16 +120,6 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	return json_string_fallback(s);
 }
 
-[[nodiscard]] std::string json_string_contents(
-	std::string_view value) {
-#if CONFLUX_HAS_JSON
-	auto quoted = dump_direct(value);
-	if (quoted && quoted->size() >= 2) {
-		return quoted->substr(1, quoted->size() - 2);
-	}
-#endif
-	return json_string_content_fallback(value);
-}
 
 [[nodiscard]] std::vector<std::string> sensitive_headers(
 	ObservabilityOptions const &opts) {
@@ -219,53 +209,48 @@ void append_headers_json(
 }
 
 #if CONFLUX_HAS_METRICS
-void append_pressure_metric(
-	std::string &out,
-	std::string_view name,
-	std::uint64_t value) {
-	out += std::format("{} {}\n", name, value);
-}
-
 void append_pressure_metrics(
 	std::string &out,
 	HttpPressureMetrics const &pressure) {
 	out += "# HELP http_pressure_connections_active Active HTTP connections under pressure accounting\n";
 	out += "# TYPE http_pressure_connections_active gauge\n";
-	append_pressure_metric(out, "http_pressure_connections_active", 0);
+	append_prometheus_sample(out, "http_pressure_connections_active", {}, std::uint64_t{0});
 	out += "# HELP http_pressure_requests_inflight In-flight HTTP requests under pressure accounting\n";
 	out += "# TYPE http_pressure_requests_inflight gauge\n";
-	append_pressure_metric(out, "http_pressure_requests_inflight", 0);
+	append_prometheus_sample(out, "http_pressure_requests_inflight", {}, std::uint64_t{0});
 	out += "# HELP http_pressure_response_backlog Response backlog under pressure accounting\n";
 	out += "# TYPE http_pressure_response_backlog gauge\n";
-	append_pressure_metric(out, "http_pressure_response_backlog", pressure.response_backpressure_events);
+	append_prometheus_sample(out, "http_pressure_response_backlog", {}, pressure.response_backpressure_events);
 	out += "# HELP http_pressure_slow_clients Slow clients under pressure accounting\n";
 	out += "# TYPE http_pressure_slow_clients gauge\n";
-	append_pressure_metric(out, "http_pressure_slow_clients", pressure.drain_forced_close);
+	append_prometheus_sample(out, "http_pressure_slow_clients", {}, pressure.drain_forced_close);
 	out += "# HELP http_pressure_overflow_total HTTP pressure overflow events\n";
 	out += "# TYPE http_pressure_overflow_total counter\n";
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="accept",policy="reject"}} {})"
-		"\n",
-		pressure.accept_rejected);
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="connection",policy="close"}} {})"
-		"\n",
+	append_prometheus_sample(out, "http_pressure_overflow_total", {{"kind", "accept"}, {"policy", "reject"}}, pressure.accept_rejected);
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{{"kind", "connection"}, {"policy", "close"}},
 		pressure.connections_closed_for_pressure);
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="sse",policy="drop_newest"}} {})"
-		"\n",
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{{"kind", "sse"}, {"policy", "drop_newest"}},
 		pressure.sse_dropped_newest);
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="sse",policy="drop_oldest"}} {})"
-		"\n",
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{{"kind", "sse"}, {"policy", "drop_oldest"}},
 		pressure.sse_dropped_oldest);
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="sse",policy="disconnect"}} {})"
-		"\n",
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{{"kind", "sse"}, {"policy", "disconnect"}},
 		pressure.sse_disconnected_for_pressure);
-	out += std::format(
-		R"(http_pressure_overflow_total{{kind="websocket",policy="close"}} {})"
-		"\n",
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{{"kind", "websocket"}, {"policy", "close"}},
 		pressure.websocket_closed_for_pressure);
 }
 
@@ -297,31 +282,19 @@ void append_work_pool_metrics(
 		auto const rejected = stats.enqueue_stopped_rejections + stats.enqueue_full_rejections;
 		auto const accepted = saturating_sub(stats.enqueue_attempts, rejected);
 		auto const pending = saturating_sub(accepted, stats.jobs_run);
-		out += std::format(
-			R"(work_pool_queue_depth{{pool="{}"}} {})"
-			"\n",
-			json_string_contents(name),
-			pending);
-		out += std::format(
-			R"(work_pool_running{{pool="{}"}} {})"
-			"\n",
-			json_string_contents(name),
-			0);
-		out += std::format(
-			R"(work_pool_rejected_total{{pool="{}",reason="stopped"}} {})"
-			"\n",
-			json_string_contents(name),
+		append_prometheus_sample(out, "work_pool_queue_depth", {{"pool", name}}, pending);
+		append_prometheus_sample(out, "work_pool_running", {{"pool", name}}, std::uint64_t{0});
+		append_prometheus_sample(
+			out,
+			"work_pool_rejected_total",
+			{{"pool", name}, {"reason", "stopped"}},
 			stats.enqueue_stopped_rejections);
-		out += std::format(
-			R"(work_pool_rejected_total{{pool="{}",reason="full"}} {})"
-			"\n",
-			json_string_contents(name),
+		append_prometheus_sample(
+			out,
+			"work_pool_rejected_total",
+			{{"pool", name}, {"reason", "full"}},
 			stats.enqueue_full_rejections);
-		out += std::format(
-			R"(work_pool_completed_total{{pool="{}"}} {})"
-			"\n",
-			json_string_contents(name),
-			stats.jobs_run);
+		append_prometheus_sample(out, "work_pool_completed_total", {{"pool", name}}, stats.jobs_run);
 	}
 }
 
@@ -330,13 +303,13 @@ void append_task_allocation_metrics(
 	auto const stats = conflux::work::root::task_allocation_stats();
 	out += "# HELP work_task_frame_allocations_total Task coroutine frame allocation calls\n";
 	out += "# TYPE work_task_frame_allocations_total counter\n";
-	out += std::format("work_task_frame_allocations_total {}\n", stats.coroutine_frame_allocations);
+	append_prometheus_sample(out, "work_task_frame_allocations_total", {}, stats.coroutine_frame_allocations);
 	out += "# HELP work_task_frame_pool_hits_total Task frame pool hits\n";
 	out += "# TYPE work_task_frame_pool_hits_total counter\n";
-	out += "work_task_frame_pool_hits_total 0\n";
+	append_prometheus_sample(out, "work_task_frame_pool_hits_total", {}, std::uint64_t{0});
 	out += "# HELP work_task_frame_pool_misses_total Task frame pool misses\n";
 	out += "# TYPE work_task_frame_pool_misses_total counter\n";
-	out += std::format("work_task_frame_pool_misses_total {}\n", stats.coroutine_frame_allocations);
+	append_prometheus_sample(out, "work_task_frame_pool_misses_total", {}, stats.coroutine_frame_allocations);
 }
 
 void append_json_arena_metrics(
@@ -344,13 +317,13 @@ void append_json_arena_metrics(
 	JsonArenaMetrics const &metrics) {
 	out += "# HELP json_arena_slabs_total JSON arena slabs\n";
 	out += "# TYPE json_arena_slabs_total gauge\n";
-	out += std::format("json_arena_slabs_total {}\n", metrics.slabs_total);
+	append_prometheus_sample(out, "json_arena_slabs_total", {}, metrics.slabs_total);
 	out += "# HELP json_arena_high_water_bytes JSON arena high-water bytes\n";
 	out += "# TYPE json_arena_high_water_bytes gauge\n";
-	out += std::format("json_arena_high_water_bytes {}\n", metrics.high_water_bytes);
+	append_prometheus_sample(out, "json_arena_high_water_bytes", {}, metrics.high_water_bytes);
 	out += "# HELP json_arena_allocated_bytes JSON arena currently allocated bytes\n";
 	out += "# TYPE json_arena_allocated_bytes gauge\n";
-	out += std::format("json_arena_allocated_bytes {}\n", metrics.allocated_bytes);
+	append_prometheus_sample(out, "json_arena_allocated_bytes", {}, metrics.allocated_bytes);
 }
 
 struct ObservabilityRegistry {
@@ -368,13 +341,10 @@ struct ObservabilityRegistry {
 		[[nodiscard]] std::size_t operator ()(
 			RequestKey const &key) const noexcept {
 			auto h = std::hash<std::string>{}(key.service);
-			auto mix = [&h](std::string const &value) {
-				h ^= std::hash<std::string>{}(value) + 0x9e3779b97f4a7c15ULL + (h << 6U) + (h >> 2U);
-			};
-			mix(key.route);
-			mix(key.method);
-			mix(key.status_class);
-			mix(key.status);
+			hash_combine(h, key.route);
+			hash_combine(h, key.method);
+			hash_combine(h, key.status_class);
+			hash_combine(h, key.status);
 			return h;
 		}
 	};
@@ -391,11 +361,8 @@ struct ObservabilityRegistry {
 		[[nodiscard]] std::size_t operator ()(
 			DurationKey const &key) const noexcept {
 			auto h = std::hash<std::string>{}(key.service);
-			auto mix = [&h](std::string const &value) {
-				h ^= std::hash<std::string>{}(value) + 0x9e3779b97f4a7c15ULL + (h << 6U) + (h >> 2U);
-			};
-			mix(key.route);
-			mix(key.method);
+			hash_combine(h, key.route);
+			hash_combine(h, key.method);
 			return h;
 		}
 	};
@@ -464,60 +431,50 @@ struct ObservabilityRegistry {
 		out += "# HELP http_requests_total Total HTTP requests processed\n";
 		out += "# TYPE http_requests_total counter\n";
 		for (auto const &[key, value]: requests) {
-			out += std::format(
-				R"(http_requests_total{{service="{}",route="{}",method="{}",status_class="{}",status="{}"}} {})"
-				"\n",
-				json_string_contents(key.service),
-				json_string_contents(key.route),
-				json_string_contents(key.method),
-				json_string_contents(key.status_class),
-				json_string_contents(key.status),
+			append_prometheus_sample(
+				out,
+				"http_requests_total",
+				{{"service", key.service},
+				 {"route", key.route},
+				 {"method", key.method},
+				 {"status_class", key.status_class},
+				 {"status", key.status}},
 				value);
 		}
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
 		out += "# TYPE http_request_duration_seconds histogram\n";
 		for (auto const &[key, duration]: durations) {
 			for (std::size_t i = 0; i < duration.buckets.size(); ++i) {
-				out += std::format(
-					R"(http_request_duration_seconds_bucket{{service="{}",route="{}",method="{}",le="{}"}} {})"
-					"\n",
-					json_string_contents(key.service),
-					json_string_contents(key.route),
-					json_string_contents(key.method),
-					duration.buckets[i],
+				auto const le = std::format("{}", duration.buckets[i]);
+				append_prometheus_sample(
+					out,
+					"http_request_duration_seconds_bucket",
+					{{"service", key.service}, {"route", key.route}, {"method", key.method}, {"le", le}},
 					duration.bucket_counts[i]);
 			}
-			out += std::format(
-				R"(http_request_duration_seconds_bucket{{service="{}",route="{}",method="{}",le="+Inf"}} {})"
-				"\n",
-				json_string_contents(key.service),
-				json_string_contents(key.route),
-				json_string_contents(key.method),
+			append_prometheus_sample(
+				out,
+				"http_request_duration_seconds_bucket",
+				{{"service", key.service}, {"route", key.route}, {"method", key.method}, {"le", "+Inf"}},
 				duration.count);
-			out += std::format(
-				R"(http_request_duration_seconds_sum{{service="{}",route="{}",method="{}"}} {})"
-				"\n",
-				json_string_contents(key.service),
-				json_string_contents(key.route),
-				json_string_contents(key.method),
+			append_prometheus_sample(
+				out,
+				"http_request_duration_seconds_sum",
+				{{"service", key.service}, {"route", key.route}, {"method", key.method}},
 				duration.sum);
-			out += std::format(
-				R"(http_request_duration_seconds_count{{service="{}",route="{}",method="{}"}} {})"
-				"\n",
-				json_string_contents(key.service),
-				json_string_contents(key.route),
-				json_string_contents(key.method),
+			append_prometheus_sample(
+				out,
+				"http_request_duration_seconds_count",
+				{{"service", key.service}, {"route", key.route}, {"method", key.method}},
 				duration.count);
 		}
 		out += "# HELP http_rejections_total HTTP rejected/problem responses\n";
 		out += "# TYPE http_rejections_total counter\n";
 		for (auto const &[key, value]: rejections) {
-			out += std::format(
-				R"(http_rejections_total{{service="{}",reason="{}",status="{}"}} {})"
-				"\n",
-				json_string_contents(opts.service_name),
-				json_string_contents(key.first),
-				json_string_contents(key.second),
+			append_prometheus_sample(
+				out,
+				"http_rejections_total",
+				{{"service", opts.service_name}, {"reason", key.first}, {"status", key.second}},
 				value);
 		}
 		if (opts.pressure_metrics) {

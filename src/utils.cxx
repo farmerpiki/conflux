@@ -114,6 +114,27 @@ export void random_bytes(
 		memcpy(out.data() + i, &v, out.size() - i);
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Generic hash combining
+// ---------------------------------------------------------------------------
+
+export template<typename T>
+void hash_combine(
+	std::size_t &seed,
+	T const &value) noexcept(noexcept(std::hash<std::remove_cvref_t<T>>{}(value))) {
+	seed ^= std::hash<std::remove_cvref_t<T>>{}(value)
+		+ static_cast<std::size_t>(0x9e3779b97f4a7c15ULL) + (seed << 6U) + (seed >> 2U);
+}
+
+export template<typename... Ts>
+[[nodiscard]] std::size_t hash_values(
+	Ts const &...values) noexcept((noexcept(hash_combine(std::declval<std::size_t &>(), values)) && ...)) {
+	std::size_t seed = 0;
+	(hash_combine(seed, values), ...);
+	return seed;
+}
+
 // ---------------------------------------------------------------------------
 // RFC 3986 percent-encoding
 // ---------------------------------------------------------------------------

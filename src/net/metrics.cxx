@@ -7,6 +7,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.router;
+import conflux.utils;
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -95,6 +96,58 @@ constexpr std::array<std::string_view, N_STATUS> kStatusLabels = {"1xx", "2xx", 
 
 } // namespace
 
+export struct PrometheusLabel {
+	std::string_view name;
+	std::string_view value;
+};
+
+export void append_prometheus_label_set(
+	std::string &out,
+	std::initializer_list<PrometheusLabel> labels) {
+	if (labels.size() == 0) {
+		return;
+	}
+	out += '{';
+	bool first = true;
+	for (auto const &label: labels) {
+		if (!first) {
+			out += ',';
+		}
+		first = false;
+		out += label.name;
+		out += R"(=")";
+		append_json_string_content_fallback(out, label.value);
+		out += '"';
+	}
+	out += '}';
+}
+
+export void append_prometheus_sample_prefix(
+	std::string &out,
+	std::string_view metric,
+	std::initializer_list<PrometheusLabel> labels = {}) {
+	out += metric;
+	append_prometheus_label_set(out, labels);
+}
+
+export void append_prometheus_sample(
+	std::string &out,
+	std::string_view metric,
+	std::initializer_list<PrometheusLabel> labels,
+	std::uint64_t value) {
+	append_prometheus_sample_prefix(out, metric, labels);
+	out += std::format(" {}\n", value);
+}
+
+export void append_prometheus_sample(
+	std::string &out,
+	std::string_view metric,
+	std::initializer_list<PrometheusLabel> labels,
+	double value) {
+	append_prometheus_sample_prefix(out, metric, labels);
+	out += std::format(" {}\n", value);
+}
+
 export std::string format_pressure_metrics_prometheus(
 	HttpPressureMetrics const &pressure) {
 	std::string out;
@@ -102,7 +155,7 @@ export std::string format_pressure_metrics_prometheus(
 	out += "# HELP http_pressure_events_total HTTP lifecycle and backpressure events\n";
 	out += "# TYPE http_pressure_events_total counter\n";
 	auto append = [&out](std::string_view name, std::uint64_t value) {
-		out += std::format("http_pressure_events_total{{event=\"{}\"}} {}\n", name, value);
+		append_prometheus_sample(out, "http_pressure_events_total", {{"event", name}}, value);
 	};
 	append("accept_rejected", pressure.accept_rejected);
 	append("connections_closed_for_pressure", pressure.connections_closed_for_pressure);
@@ -146,10 +199,10 @@ public:
 				if (v == 0) {
 					continue;
 				}
-				out += std::format(
-					"http_requests_total{{method=\"{}\",status=\"{}\"}} {}\n",
-					kMethodNames[mi],
-					kStatusLabels[si],
+				append_prometheus_sample(
+					out,
+					"http_requests_total",
+					{{"method", kMethodNames[mi]}, {"status", kStatusLabels[si]}},
 					v); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 		}
@@ -158,14 +211,20 @@ public:
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
 		out += "# TYPE http_request_duration_seconds histogram\n";
 		for (std::size_t i = 0; i < Histogram::kBuckets.size(); ++i) {
-			out += std::format(
-				"http_request_duration_seconds_bucket{{le=\"{}\"}} {}\n",
-				Histogram::kBuckets[i],
+			auto const le = std::format("{}", Histogram::kBuckets[i]);
+			append_prometheus_sample(
+				out,
+				"http_request_duration_seconds_bucket",
+				{{"le", le}},
 				duration_.bucket(i)); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		}
-		out += std::format("http_request_duration_seconds_bucket{{le=\"+Inf\"}} {}\n", duration_.count());
-		out += std::format("http_request_duration_seconds_sum {}\n", duration_.sum());
-		out += std::format("http_request_duration_seconds_count {}\n", duration_.count());
+		append_prometheus_sample(
+			out,
+			"http_request_duration_seconds_bucket",
+			{{"le", "+Inf"}},
+			duration_.count());
+		append_prometheus_sample(out, "http_request_duration_seconds_sum", {}, duration_.sum());
+		append_prometheus_sample(out, "http_request_duration_seconds_count", {}, duration_.count());
 
 		return out;
 	}
