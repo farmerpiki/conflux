@@ -1,6 +1,7 @@
-# Performance Hot-Path Proposal
+# Performance Hot-Path Evidence and Implementation Plan
 
-Status: draft for review, not yet accepted.
+Status: accepted as a performance-roadmap document; implementation must be
+split into narrow tickets with evidence gates.
 
 This proposal responds to the performance-practices review that rated the
 project at 8.4/10 and called out async I/O allocation, task control-block
@@ -49,12 +50,18 @@ The weaker areas are:
 
 ## Benchmark Discipline
 
+Benchmarking is acceptance evidence, not the first implementation task. Start
+with the smallest measurement or instrumentation surface that can expose the
+target cost, then implement one narrow slice, then run the relevant release
+compare-bins when the host is idle enough for useful results.
+
 Use `scripts/bench_record.sh --compare-bins` or
 `scripts/compare_bins_by_bench.sh` with prebuilt baseline and candidate binaries.
 This keeps the binaries fixed, rotates candidate order, inserts separate run IDs
 per label, and stores raw NDJSON plus summary rows in `conflux_bench`.
 
-Minimum release acceptance matrix for any performance-sensitive patch:
+Minimum release acceptance matrix for a performance-sensitive patch that changes
+hot-path behavior:
 
 - `release-clang-libcxx`
 - `release-gcc-stdcxx`
@@ -104,15 +111,31 @@ parallel; `compare-bins` already controls candidate order inside one comparison.
 
 Target map:
 
+- `uring_completion`: `conflux_uring_completion_bench`
+- `file_io_sqe_storm`: `conflux_file_io_sqe_storm_bench`
 - `file_copy_coro`: `conflux_file_copy_coro_bench`
+- `tcp_increment`: `conflux_tcp_increment_coro_bench`
+- `tls_tcp_increment_coro`: `conflux_tls_tcp_increment_coro_bench` when TLS is enabled
+- `socket_raw`: `conflux_socket_raw_bench`
+- `send_zc`: `conflux_send_zc_bench` when experimental SEND_ZC is enabled
 - `work`: `conflux_work_benchmarks`
+- `work_compile`: `conflux_work_compile_bench`
 - `task_creation`: `conflux_task_creation_bench`
 - `task_chain_composition`: `conflux_task_chain_composition_bench`
+- `task_cancellation`: `conflux_task_cancellation_bench`
 - `workpool_enqueue_dequeue`: `conflux_workpool_enqueue_dequeue_bench`
 - `workpool_queue_mode_compare`: `conflux_workpool_queue_mode_compare_bench`
+- `join_all_N`: `conflux_join_all_N_bench`
 - `json`: `conflux_json_bench`
+- `json_reflect`: `conflux_json_reflect_bench` when P2996 reflection is enabled
+- `router`: `conflux_benchmarks`
+- `template`: `conflux_template_bench`
+- `crypto`: `conflux_crypto_bench`
 - `http_server`: `conflux_http_server_bench`
 - `http_server_concurrency`: `conflux_http_server_concurrency_bench`
+- `db_coro`: `conflux_db_coro_bench` when DB support is enabled
+- `db_params`: `conflux_db_params_bench` when DB support is enabled
+- `db_pipeline`: `conflux_db_pipeline_bench` when DB support is enabled
 
 Run one compiler/preset pair end-to-end, capture the run IDs and budget output,
 then remove that pair's build directories before moving to the next pair. A
@@ -150,11 +173,17 @@ BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
   "$BENCH"
 ```
 
-Repeat only for logical benchmarks affected by the patch, such as `work`,
-`task_creation`, `task_chain_composition`, `workpool_enqueue_dequeue`,
-`workpool_queue_mode_compare`, `json`, `http_server`, and
-`http_server_concurrency`. If a prior stable run is available, pass
-`--baseline-run-id` to reuse iteration counts.
+Repeat only for logical benchmarks affected by the patch. For example, P1 async
+I/O completion work should normally include `uring_completion`,
+`file_io_sqe_storm`, and `file_copy_coro`; add `tcp_increment`,
+`tls_tcp_increment_coro`, `socket_raw`, or `send_zc` only when socket or
+zero-copy paths are changed. P2 task/runtime work should include `work`,
+`task_creation`, `task_chain_composition`, `task_cancellation`, `join_all_N`, and
+the relevant WorkPool benches. P3 JSON work should include `json` and, when
+enabled, `json_reflect`; add `http_server` or `db_*` rows only when the changed
+path affects those integrations. Build only the relevant benchmark targets. If a
+prior stable run is available, pass `--baseline-run-id` to reuse iteration
+counts.
 
 Capture the full compare-bins output for each run because the current wrapper
 prints run IDs but does not write a stable machine-readable run-id mapping:
@@ -194,6 +223,9 @@ Acceptance rule:
 - Noisy rows must be rerun before accepting.
 - A microbenchmark win is not enough if the closest production-like benchmark
   regresses.
+- If kernel round-trip, filesystem, socket, or scheduler overhead dominates a
+  benchmark enough to hide a targeted allocation/layout change, add or extend a
+  focused benchmark before accepting the performance claim.
 - If the target bottleneck was not already isolated, capture profiler or
   hardware-counter evidence before changing code. Use microbenchmarks to compare
   candidate mechanisms, not to discover the whole-system bottleneck.
@@ -215,17 +247,23 @@ Acceptance rule:
 
 Problem:
 
+- Current code evidence:
+  - `src/uring/uring_completion.cxx`: `CompletionFn` has already been converted
+    from `std::function<void(IoResult)>` to
+    `conflux::detail::small_move_only_function<void(IoResult)>`.
+  - `src/file_io/reader.cxx`: `FileReader::prepare_sqe<T>()` still heap-wraps
+    `root::TaskSource<T>` in `std::shared_ptr` for most operations.
+  - `src/uring/uring_timeout.cxx`: timeout submissions still use the
+    `TaskSource` plus heap-holder shape.
 - `src/file_io/reader.cxx` allocates a `std::shared_ptr<root::TaskSource<T>>`
   for most operations via `FileReader::prepare_sqe()`.
 - Many operations allocate additional `shared_ptr` holders for path strings,
   `statx`, vectors of `iovec`, fixed-buffer holders, sockaddr storage, xattr
   state, timespecs, and related payloads.
-- `src/uring/uring_completion.cxx` stores completions as `std::function<void(IoResult)>`.
 - `src/uring/uring_timeout.cxx` follows the same `TaskSource` plus heap holder
   shape for timeout state.
 - `src/work/root.cxx` already has `small_move_only_function`; the uring layer
-  should measure whether a similar move-only small-buffer dispatch removes
-  callback allocations without broadening the completion-table contract.
+  now reuses that move-only small-buffer dispatch for completion callbacks.
 
 The likely cost is one or more heap allocations per submitted operation plus an
 indirect completion call. This is the most concrete gap because it sits directly
@@ -233,16 +271,14 @@ in the io_uring submission/completion path.
 
 Proposed design:
 
-1. Add a ring-owned completion record type inside or adjacent to
-   `CompletionTable`.
-2. Store callback dispatch as a small erased operation:
-   `void (*complete)(void*, IoResult) noexcept` plus inline state storage for
-   small payloads.
-3. Prefer a move-only callback representation over `std::function`; either reuse
-   the root small-function pattern or add an uring-local variant with a measured
-   inline capacity.
-4. Use the existing completion-table slot lifetime as the primary ownership
+1. Treat the callback representation conversion as P1a and keep it behavior-only:
+   no public API, compatibility mode, or scheduler policy change.
+2. Measure whether `small_move_only_function` inline capacity covers the current
+   hot callbacks; keep its fallback heap path for oversized captures.
+3. Use the existing completion-table slot lifetime as the primary ownership
    boundary.
+4. For P1b, update only simple file read/write completions to capture
+   `TaskSource<T>` by move and remove the per-op shared wrapper on those paths.
 5. Keep large or variable payloads behind a fallback allocation at first, but
    allocate them from per-slot storage or a ring-local slab with explicit
    per-slot reclamation. Do not use monotonic/batch reset unless every possible
@@ -254,9 +290,8 @@ Proposed design:
 Initial slice:
 
 - Start with one narrow operation family, preferably `FileReader::read_into`,
-  `FileReader::write_into`, `FileReader::read_fixed`, `FileReader::write_fixed`,
-  or the socket `TcpStream::async_recv_borrowed` /
-  `TcpStream::async_write_borrowed` paths.
+  and `FileReader::write_into`. Fixed-buffer, path/stat/iovec, timeout, and
+  socket paths are later slices.
 - Do not migrate path-based operations in the first patch; they have more
   lifetime payloads and are better as phase 2.
 - Keep the old code path temporarily behind an internal switch only if needed to
@@ -281,9 +316,12 @@ Correctness invariants:
 Measurement:
 
 - Primary: add or extend a focused benchmark for completion-table
-  reserve/dispatch, `std::function` inline/spill behavior, and
+  reserve/dispatch, small-function inline/spill behavior, and
   `FileReader::prepare_sqe()` allocation behavior. This is mandatory before
   accepting the change.
+- Focused target: `uring_completion` for callback reserve/dispatch and
+  `file_io_sqe_storm` for batched simple `FileReader::read_into` /
+  `FileReader::write_into` SQE submission/completion.
 - Production-like corroboration: `file_copy_coro`.
 - Secondary: `json` rows that use `file_reader`.
 - Metrics: median ns/iter, p99, allocation count/bytes, RSS or allocator stats
@@ -302,6 +340,12 @@ Rollback:
 
 Problem:
 
+- Current code evidence:
+  - `src/work/root_tasks.cxx` and `src/work/root_core.cxx` store task state via
+    `std::shared_ptr<ControlBlockInterface<T>>`.
+  - `src/work/root_core.cxx` contains hot atomics, cold mutex/condition-variable
+    state, and `small_move_only_function` callback slots whose layout and
+    synchronization behavior must be preserved.
 - `src/work/root_tasks.cxx` and `src/work/root_core.cxx` use
   `std::shared_ptr<ControlBlockInterface<T>>` heavily.
 - Coroutine frame pooling exists behind `CONFLUX_WORK_CORO_FRAME_POOL` and
@@ -313,16 +357,18 @@ Problem:
 
 Proposed design:
 
-1. Do not rewrite the whole task model first.
-2. Use the async I/O completion work to learn the minimum ownership needed for
+1. Defer implementation until after P1, P3 instrumentation, and queue evidence
+   have sharper attribution. Defer means later phase, not reject.
+2. Add allocation telemetry around task creation/control-block paths first.
+3. Use the async I/O completion work to learn the minimum ownership needed for
    task completion.
-3. Prototype an intrusive refcounted control block for hot internally-owned
+4. Prototype an intrusive refcounted control block for hot internally-owned
    tasks while preserving public `Task<T>` semantics.
-4. Keep `shared_ptr` only for user-visible escape hatches and cross-thread state
+5. Keep `shared_ptr` only for user-visible escape hatches and cross-thread state
    that genuinely needs shared ownership. The optimized path must become the
    default before acceptance; an internal compile option is only a temporary
    development comparison aid.
-5. Before intrusive ownership work, run the existing frame-pool presets against
+6. Before intrusive ownership work, run the existing frame-pool presets against
    the same release matrix to separate coroutine-frame allocation cost from
    control-block ownership cost.
 
@@ -360,6 +406,11 @@ Rollback:
 
 Problem:
 
+- Current code evidence:
+  - `src/json_parse.cxx`: parse paths reserve node, array-child, object-member,
+    and string-arena capacity from input-size heuristics.
+  - Duplicate-key tracking promotes to hash sets containing `std::string_view`
+    values that can point into `string_arena`.
 - The JSON parser is already performance-aware, but borrowed parse paths can
   over-reserve string arena space proportional to input size when only a small
   fraction of strings need copying.
@@ -392,6 +443,8 @@ Proposed design:
 6. Keep full-input reserve only for modes where the measured escape/duplicate
    profile proves it is faster and the memory cost is within budget.
 7. Preserve duplicate-key policy semantics.
+8. Keep this invisible to the public JSON API unless a separately approved,
+   measured storage policy is justified.
 
 Alternative:
 
@@ -420,6 +473,17 @@ Rollback:
 
 Problem:
 
+- Current code evidence:
+  - `CONFLUX_WORK_QUEUE_STATS` and
+    `scripts/work_queue_contention_evidence.sh` already exist.
+  - `benchmarks/CMakeLists.txt` builds
+    `conflux_workpool_queue_mode_compare_bench` from
+    `workpool_enqueue_dequeue_bench.cxx` with
+    `CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE=1`; there is no separate
+    `workpool_queue_mode_compare_bench.cxx` source file.
+  - `src/work_impl.cxx` keeps steal-victim scans behind the
+    `stealable_local_jobs` gate and still uses `admission_mtx_` for admission
+    and shutdown correctness.
 - The research recommends reducing synchronization and contention before moving
   to lower-level hints.
 - The repo already has `CONFLUX_WORK_QUEUE_STATS`,
@@ -442,6 +506,8 @@ Proposed design:
    `admission_mtx_`, and no-stealing admission behavior.
 5. Do not remove `admission_mtx_` unless a reviewed protocol preserves
    `drain_and_stop()` correctness under racing producers.
+6. Keep P4 as "queue contention evidence pass" until a specific bottleneck is
+   proven.
 
 Correctness invariants:
 
@@ -567,11 +633,13 @@ Problem:
 
 Proposed design:
 
-1. For each accepted performance patch, preserve compare-bins artifact dirs,
-   run IDs, and budget JSON.
-2. Record compiler versions, CMake cache, host, CPU governor/load, and benchmark
+1. Tier A, internal perf-sensitive patch: preserve compare-bins run IDs, budget
+   JSON, allocation/counter evidence, and affected-benchmark summaries.
+2. Tier B, public performance claim: preserve raw NDJSON, run IDs, host,
+   compiler, kernel, allocator, CMake cache, CPU governor/load, and benchmark
    inputs.
-3. Publish summary plus raw NDJSON for release-candidate claims.
+3. Tier C, release benchmark page: publish summaries plus raw evidence, external
+   comparisons, methodology, and best/worst honesty.
 
 Minimum evidence for the async I/O allocation work:
 
@@ -586,25 +654,34 @@ Minimum evidence for the async I/O allocation work:
 - RSS or allocator-stat evidence for longer-running I/O corroboration.
 - Short interpretation: variants improved, unchanged, noisy, regressed.
 
-## Proposed Work Order
+## Proposed Ticket Order
 
-1. Add measurement notes or benchmark rows if current benches cannot expose
-   allocation count or completion dispatch cost clearly.
-2. Implement the narrow async I/O completion-record slice.
-3. Run Clang, GCC 15, and GCC 16 release compare-bins for `file_copy_coro`,
-   `json`, and relevant work/task benches, with perf compare-bins for
-   attribution where needed.
-4. If the I/O slice wins, extend to path/stat/iovec/fixed-buffer payloads using
-   ring-local storage.
-5. Run the frame-pool attribution comparison before starting intrusive task
-   control-block ownership.
-6. Add JSON arena capacity instrumentation before changing the reserve strategy.
-7. Separately implement JSON arena over-reservation mitigation because it is
-   lower risk and already has allocation-aware JSON benchmarks.
-8. Use WorkPool queue-stat evidence to decide whether scheduler contention is a
-   real next investment.
-9. Run PGO/toolchain experiments only after the release binaries have stable
-   representative training workloads.
+1. P1a: completion callback representation only; no behavior change. Partially
+   implemented by the current `CompletionFn = small_move_only_function` change.
+2. P1b: simple `FileReader::read_into` and `FileReader::write_into`
+   completions capture `TaskSource` by move.
+3. P1c: timeout path conversion.
+4. P1d: fixed-buffer, iovec, path, and other larger payload storage.
+5. P3a: JSON capacity and duplicate-key instrumentation.
+6. P3b: duplicate-key stable descriptors.
+7. P3c: reduce `string_arena` over-reserve.
+8. P4a: queue contention evidence pass only.
+9. P5a: PGO/toolchain policy and representative workload evidence.
+10. P2a: task allocation attribution.
+11. P2b: intrusive control-block prototype.
+12. P6a: CPU dispatch or SIMD only after scalar, PGO, and generated-code
+    evidence.
+13. P7a: external proof package for public claims.
+
+Implementation priority ranking:
+
+1. P1 async completion allocation.
+2. P3 JSON arena over-reservation.
+3. P4 queue contention evidence.
+4. P5 PGO/toolchain policy.
+5. P2 task control-block ownership.
+6. P6 CPU dispatch.
+7. P7 external proof packaging.
 
 ## Open Questions
 

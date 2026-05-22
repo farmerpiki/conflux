@@ -153,7 +153,6 @@ public:
 		if constexpr (
 			sizeof(fn_t) <= InlineBytes
 			&& alignof(fn_t) <= alignof(void *)
-			&& std::is_trivially_move_constructible_v<fn_t>
 			&& std::is_nothrow_move_constructible_v<fn_t>) {
 			invoke_ = &invoke_inline<fn_t>;
 			set_manager(&manage_inline<fn_t>, false);
