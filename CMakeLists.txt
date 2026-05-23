@@ -30,6 +30,8 @@ set(CONFLUX_USE_IMPORT_STD "AUTO" CACHE STRING
 set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
 option(CONFLUX_USE_MOCK_LIBURING
     "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
+option(CONFLUX_ROUTER_LAZY_ROUTE_METADATA
+    "Benchmark candidate: skip internal route-pattern param injection unless route observation requests it" OFF)
 option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
     "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
 option(CONFLUX_HEADER_FAST_COMPILE
@@ -2473,6 +2475,8 @@ target_sources(conflux_http_router_dispatch
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES ${CONFLUX_SRC_ROOT}/net/router_dispatch.cxx
 )
+target_compile_definitions(conflux_http_router_dispatch PRIVATE
+    $<$<BOOL:${CONFLUX_ROUTER_LAZY_ROUTE_METADATA}>:CONFLUX_ROUTER_LAZY_ROUTE_METADATA=1>)
 target_link_libraries(conflux_http_router_dispatch
     PRIVATE conflux_options
     PUBLIC  conflux_types

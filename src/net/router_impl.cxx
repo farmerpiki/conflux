@@ -28,12 +28,14 @@ struct Router::Impl {
 	struct Route {
 		std::string method{};
 		std::vector<Segment> pattern{};
+		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
 		Handler handler{};
 	};
 	struct SseRoute {
 		std::vector<Segment> pattern{};
+		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
 		SseHandler handler{};
@@ -41,6 +43,7 @@ struct Router::Impl {
 	struct ContextRoute {
 		std::string method{};
 		std::vector<Segment> pattern{};
+		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
 		ContextHandler handler{};
@@ -324,10 +327,12 @@ void Router::add_prepared(
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
+	auto path_pattern = segments_to_pattern(pattern);
 	index_route_pattern(find_or_add_method_index(impl_->route_indexes, method).routes, pattern, route_index);
 	impl_->routes.push_back({
 		.method = std::string{method},
 		.pattern = std::move(pattern),
+		.path_pattern = std::move(path_pattern),
 		.exact_path = has_exact_path ? std::string{path} : std::string{},
 		.has_exact_path = has_exact_path,
 		.handler = std::move(handler),
@@ -341,10 +346,12 @@ void Router::add_context_prepared(
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->context_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
+	auto path_pattern = segments_to_pattern(pattern);
 	index_route_pattern(find_or_add_method_index(impl_->context_route_indexes, method).routes, pattern, route_index);
 	impl_->context_routes.push_back({
 		.method = std::string{method},
 		.pattern = std::move(pattern),
+		.path_pattern = std::move(path_pattern),
 		.exact_path = has_exact_path ? std::string{path} : std::string{},
 		.has_exact_path = has_exact_path,
 		.handler = std::move(handler),
@@ -377,9 +384,11 @@ void Router::sse_prepared(
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->sse_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
+	auto path_pattern = segments_to_pattern(pattern);
 	index_route_pattern(impl_->sse_index, pattern, route_index);
 	impl_->sse_routes.push_back({
 		.pattern = std::move(pattern),
+		.path_pattern = std::move(path_pattern),
 		.exact_path = has_exact_path ? std::string{path} : std::string{},
 		.has_exact_path = has_exact_path,
 		.handler = std::move(handler),
@@ -430,7 +439,7 @@ Router &Router::ws_prepared(
 	for (auto const &route: impl_->routes) {
 		RouteInfo info;
 		info.method = route.method;
-		info.path_pattern = segments_to_pattern(route.pattern);
+		info.path_pattern = route.path_pattern;
 		for (auto const &seg: route.pattern) {
 			if (seg.is_param || seg.is_wildcard) {
 				info.path_params.push_back(seg.value);

@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <new>
+
 import std;
 import conflux.types;
 import conflux.net.config;
@@ -13,7 +16,130 @@ import bench_common;
 
 using namespace std::string_view_literals;
 
+namespace bench_alloc_detail {
+
+thread_local bool count_enabled = false;
+thread_local std::size_t allocation_count = 0;
+thread_local std::size_t allocation_bytes = 0;
+
+struct Snapshot {
+	std::size_t count{};
+	std::size_t bytes{};
+};
+
+void reset() noexcept {
+	allocation_count = 0;
+	allocation_bytes = 0;
+}
+
+[[nodiscard]] Snapshot snapshot() noexcept {
+	return {.count = allocation_count, .bytes = allocation_bytes};
+}
+
+void record(
+	std::size_t size) noexcept {
+	if (count_enabled) {
+		++allocation_count;
+		allocation_bytes += size;
+	}
+}
+
+class Scope {
+	bool previous_;
+
+public:
+	Scope() noexcept
+		: previous_(std::exchange(count_enabled, true)) {}
+	~Scope() { count_enabled = previous_; }
+	Scope(Scope const &) = delete;
+	Scope &operator =(Scope const &) = delete;
+};
+
+} // namespace bench_alloc_detail
+
+void *operator new(
+	std::size_t size) {
+	bench_alloc_detail::record(size);
+	if (void *ptr = std::malloc(size == 0 ? 1 : size)) {
+		return ptr;
+	}
+	throw std::bad_alloc{};
+}
+
+void *operator new[](
+	std::size_t size) {
+	bench_alloc_detail::record(size);
+	if (void *ptr = std::malloc(size == 0 ? 1 : size)) {
+		return ptr;
+	}
+	throw std::bad_alloc{};
+}
+
+void *operator new(
+	std::size_t size,
+	std::align_val_t alignment) {
+	bench_alloc_detail::record(size);
+	void *ptr = nullptr;
+	if (posix_memalign(&ptr, static_cast<std::size_t>(alignment), size == 0 ? 1 : size) == 0) {
+		return ptr;
+	}
+	throw std::bad_alloc{};
+}
+
+void *operator new[](
+	std::size_t size,
+	std::align_val_t alignment) {
+	return ::operator new(size, alignment);
+}
+
+void operator delete(
+	void *ptr) noexcept {
+	std::free(ptr);
+}
+void operator delete[](
+	void *ptr) noexcept {
+	std::free(ptr);
+}
+void operator delete(
+	void *ptr,
+	std::size_t) noexcept {
+	std::free(ptr);
+}
+void operator delete[](
+	void *ptr,
+	std::size_t) noexcept {
+	std::free(ptr);
+}
+void operator delete(
+	void *ptr,
+	std::align_val_t) noexcept {
+	std::free(ptr);
+}
+void operator delete[](
+	void *ptr,
+	std::align_val_t) noexcept {
+	std::free(ptr);
+}
+void operator delete(
+	void *ptr,
+	std::size_t,
+	std::align_val_t) noexcept {
+	std::free(ptr);
+}
+void operator delete[](
+	void *ptr,
+	std::size_t,
+	std::align_val_t) noexcept {
+	std::free(ptr);
+}
+
 namespace {
+
+enum class PathPhase : std::uint8_t {
+	full,
+	parse,
+	route,
+};
 
 struct PathState {
 	std::string name;
@@ -30,6 +156,13 @@ struct PathCase {
 	std::string_view description;
 	std::size_t default_iterations;
 	std::shared_ptr<PathState> state;
+};
+
+struct PathBenchStats {
+	BenchStats timing{};
+	bool has_allocations = false;
+	std::size_t allocations{};
+	std::size_t allocation_bytes{};
 };
 
 std::atomic<std::size_t> g_sink{};
@@ -206,6 +339,41 @@ void append_standard_routes(
 	};
 }
 
+[[nodiscard]] PathPhase parse_phase(
+	std::span<char *> args) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view const arg{args[i]};
+		if (arg == "--phase"sv && i + 1 < args.size()) {
+			std::string_view const value{args[i + 1]};
+			if (value == "full"sv || value == "serialize"sv) {
+				return PathPhase::full;
+			}
+			if (value == "parse"sv) {
+				return PathPhase::parse;
+			}
+			if (value == "route"sv || value == "dispatch"sv) {
+				return PathPhase::route;
+			}
+			throw std::invalid_argument{"--phase must be full, parse, or route"};
+		}
+	}
+	return PathPhase::full;
+}
+
+void apply_phase(
+	PathState &state,
+	PathPhase phase) {
+	if (phase == PathPhase::parse) {
+		state.route_response = false;
+		state.serialize_response = false;
+		return;
+	}
+	if (phase == PathPhase::route) {
+		state.route_response = true;
+		state.serialize_response = false;
+	}
+}
+
 [[nodiscard]] std::string_view parse_case_name(
 	std::span<char *> args) {
 	for (std::size_t i = 1; i < args.size(); ++i) {
@@ -218,18 +386,23 @@ void append_standard_routes(
 }
 
 [[nodiscard]] std::vector<PathCase> selected_cases(
-	std::span<char *> args) {
+	std::span<char *> args,
+	PathPhase phase) {
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const arg{args[i]};
 		if (arg == "--all-cases"sv) {
 			std::vector<PathCase> out;
 			for (auto name: all_case_names()) {
-				out.push_back(make_case(name));
+				auto c = make_case(name);
+				apply_phase(*c.state, phase);
+				out.push_back(std::move(c));
 			}
 			return out;
 		}
 	}
-	return {make_case(parse_case_name(args))};
+	auto c = make_case(parse_case_name(args));
+	apply_phase(*c.state, phase);
+	return {std::move(c)};
 }
 
 [[nodiscard]] RequestView make_request_view(
@@ -309,10 +482,11 @@ void append_standard_routes(
 	return format_response(resp, {}, false).size();
 }
 
-[[nodiscard]] BenchStats bench_case(
+[[nodiscard]] PathBenchStats bench_case(
 	PathCase const &c,
 	std::size_t warmup,
-	std::size_t iterations) {
+	std::size_t iterations,
+	bool count_allocations) {
 	for (std::size_t i = 0; i < warmup; ++i) {
 		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
 	}
@@ -322,13 +496,62 @@ void append_standard_routes(
 		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
 	}
 	auto const elapsed = bench_now_ns() - t0;
-	return {
-		.config = c.name,
-		.variant = c.name,
-		.iterations = iterations,
-		.total_ns = elapsed,
-		.ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations),
-		.throughput = 1e9 / (static_cast<double>(elapsed) / static_cast<double>(iterations))};
+	PathBenchStats stats{
+		.timing = {
+				   .config = c.name,
+				   .variant = c.name,
+				   .iterations = iterations,
+				   .total_ns = elapsed,
+				   .ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations),
+				   .throughput = 1e9 / (static_cast<double>(elapsed) / static_cast<double>(iterations))}
+    };
+
+	if (count_allocations) {
+		bench_alloc_detail::reset();
+		{
+			bench_alloc_detail::Scope const scope;
+			for (std::size_t i = 0; i < iterations; ++i) {
+				g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+			}
+		}
+		auto const allocations = bench_alloc_detail::snapshot();
+		stats.has_allocations = true;
+		stats.allocations = allocations.count;
+		stats.allocation_bytes = allocations.bytes;
+	}
+	return stats;
+}
+
+void print_path_stats(
+	PathBenchStats const &s,
+	bool json_out,
+	bool first) {
+	if (!s.has_allocations) {
+		bench_print(s.timing, json_out, first);
+		return;
+	}
+	if (json_out) {
+		std::println(
+			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"allocations\":{},\"allocation_bytes\":{},\"allocs_per_iter\":{:.4f},\"allocation_bytes_per_iter\":{:.2f}"
+			"}}",
+			s.timing.config,
+			s.timing.variant,
+			s.timing.iterations,
+			s.timing.total_ns,
+			s.timing.ns_per_iter,
+			s.allocations,
+			s.allocation_bytes,
+			static_cast<double>(s.allocations) / static_cast<double>(s.timing.iterations),
+			static_cast<double>(s.allocation_bytes) / static_cast<double>(s.timing.iterations));
+		(void)first;
+		return;
+	}
+	bench_print(s.timing, false, first);
+	std::println(
+		"    allocations: {:.4f}/iter  bytes: {:.2f}/iter",
+		static_cast<double>(s.allocations) / static_cast<double>(s.timing.iterations),
+		static_cast<double>(s.allocation_bytes) / static_cast<double>(s.timing.iterations));
 }
 
 void print_list() {
@@ -340,7 +563,8 @@ void print_list() {
 
 void print_usage() {
 	std::println(
-		"Usage: conflux_http_app_path_bench [--case NAME|--all-cases] [--iterations N] [--warmup N] [--json] [--list]");
+		"Usage: conflux_http_app_path_bench [--case NAME|--all-cases] [--phase full|parse|route] [--count-allocs] "
+		"[--iterations N] [--warmup N] [--json] [--list]");
 }
 
 [[nodiscard]] bool has_flag(
@@ -376,11 +600,13 @@ int main(
 		}
 
 		auto const cfg = bench_parse_args(args);
-		auto cases = selected_cases(args);
+		auto const phase = parse_phase(args);
+		auto const count_allocations = has_flag(args, "--count-allocs"sv) || has_flag(args, "--allocs"sv);
+		auto cases = selected_cases(args, phase);
 		for (auto const &c: cases) {
 			auto const iterations = cfg.iterations == 0 ? c.default_iterations : cfg.iterations;
-			auto const stats = bench_case(c, cfg.warmup, iterations);
-			bench_print(stats, cfg.json_out, c.name == cases.front().name);
+			auto const stats = bench_case(c, cfg.warmup, iterations, count_allocations);
+			print_path_stats(stats, cfg.json_out, c.name == cases.front().name);
 		}
 		std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));
 		return 0;
