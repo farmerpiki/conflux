@@ -61,6 +61,38 @@ import :state;
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
 
+namespace {
+
+[[nodiscard]] bool incomplete_h1_headers(
+	Conn const &conn) {
+	auto const bytes = conn.partial.view();
+	return !bytes.empty() && bytes.find("\r\n\r\n") == std::string_view::npos;
+}
+
+void emit_header_timeout_rejection(
+	Conn &conn,
+	Ring &ring) {
+	Response r;
+	r.status = reject_reason_status(HttpRejectReason::header_timeout);
+	r.status_text = "Request Timeout";
+	r.content_type = "application/problem+json";
+	r.set_text_body(
+		std::format(
+			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
+			reject_reason_code(HttpRejectReason::header_timeout),
+			reject_reason_diagnostic_code(HttpRejectReason::header_timeout),
+			reject_reason_detail(HttpRejectReason::header_timeout)));
+	++ring.rejection_counters_.header_timeout;
+	if (ring.observability_hooks_.rejection) {
+		ring.observability_hooks_.rejection(HttpRejectReason::header_timeout, r.status);
+	}
+	conn.own_response = format_response(r, ring.alt_svc_header, true);
+	conn.has_response = true;
+	conn.close_after_send = true;
+}
+
+} // namespace
+
 std::uint64_t Ring::pack_fd_gen(
 	int fd,
 	std::uint32_t gen) noexcept {
@@ -848,7 +880,14 @@ void Ring::handle_timer() {
 		if (request_timeout_ms != 0) {
 			auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
 			if (now - ref > req_limit) {
-				queue_close(conn.fd);
+				if (conn.request_in_progress && incomplete_h1_headers(conn)) {
+					auto const fd = conn.fd;
+					invalidate_recv_if_armed(fd);
+					emit_header_timeout_rejection(conn, *this);
+					start_response_send(fd, conn);
+				} else {
+					queue_close(conn.fd);
+				}
 			}
 		}
 	}

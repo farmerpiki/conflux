@@ -666,6 +666,21 @@ target_link_libraries(conflux_file_io_http_e2e
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_http_slowloris_e2e)
+target_sources(conflux_http_slowloris_e2e
+    PRIVATE
+        http_slowloris_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_http_slowloris_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_http_slowloris_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_http_overflow_stress_tests)
 target_sources(conflux_http_overflow_stress_tests
     PRIVATE
@@ -759,6 +774,7 @@ conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)
 conflux_discover_tests(conflux_socket_task_ring_tests)
 conflux_discover_tests(conflux_file_io_http_e2e)
+conflux_discover_tests(conflux_http_slowloris_e2e)
 conflux_discover_stress_tests(conflux_http_overflow_stress_tests)
 if(CONFLUX_HAS_TLS STREQUAL "true")
     conflux_discover_tests(conflux_smtp_tests)
