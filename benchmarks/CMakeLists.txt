@@ -47,6 +47,10 @@ add_executable(conflux_file_io_fixed_bench file_io_fixed_bench.cxx)
 target_link_libraries(conflux_file_io_fixed_bench
     PRIVATE bench_common conflux_file_io conflux_work conflux_options)
 
+add_executable(conflux_storage_read_bench storage_read_bench.cxx)
+target_link_libraries(conflux_storage_read_bench
+    PRIVATE bench_common conflux_file_io conflux_work conflux_options)
+
 add_executable(conflux_tcp_increment_coro_bench tcp_increment_coro_bench.cxx)
 target_link_libraries(conflux_tcp_increment_coro_bench
     PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_options)
@@ -315,6 +319,7 @@ set(_record_targets
     conflux_uring_timeout_bench
     conflux_file_io_sqe_storm_bench
     conflux_file_io_fixed_bench
+    conflux_storage_read_bench
     conflux_tcp_increment_coro_bench
     conflux_json_bench
     conflux_json_storage_bench

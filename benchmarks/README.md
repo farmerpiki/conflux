@@ -175,6 +175,8 @@ ONLY_BENCH=send_zc BENCH_PRESET=perf-clang-libcxx \
 # File/runtime path
 ONLY_BENCH=file_copy_coro BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh file-copy-local
+ONLY_BENCH=storage_read BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh storage-read-nvme
 
 # Worker/runtime path
 ONLY_BENCH=work BENCH_PRESET=perf-clang-libcxx \
@@ -184,6 +186,13 @@ ONLY_BENCH=task_chain_composition BENCH_PRESET=perf-clang-libcxx \
 ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-local
 ```
+
+`storage_read` is the NVMe/O_DIRECT gate for storage-read claims. It emits
+`pread`, `io_uring_read`, `read_fixed`, and `iopoll_read_fixed` rows, labels them
+as `live-kernel-sanity`, and skips with a clear stderr reason when the benchmark
+file is not NVMe-backed. Pass `--path /mnt/nvme/conflux-storage-read.bin` to place
+the file on the intended device, or `--allow-non-nvme` only for smoke runs whose
+numbers are not performance evidence.
 
 `send_zc` records threshold sweep configs (`threshold_4k`, `threshold_16k`,
 `threshold_64k`) across plain and mapped response sizes, plus concurrent HTTP
