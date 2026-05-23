@@ -22,6 +22,7 @@
 import std;
 import conflux.types;
 import conflux.net.http;
+import conflux.net.http.client;
 import conflux.work;
 import bench_common;
 
@@ -267,148 +268,36 @@ void write_self_signed_files(
 	}
 }
 
-struct SslCtxDeleter {
-	void operator ()(
-		SSL_CTX *p) const noexcept {
-		SSL_CTX_free(p);
+[[nodiscard]] std::size_t tls_fetch_response(
+	std::uint16_t port,
+	std::string_view raw_request,
+	std::span<char> scratch) {
+	auto const path_begin = raw_request.find(' ');
+	auto const path_end =
+		path_begin == std::string_view::npos ? std::string_view::npos : raw_request.find(' ', path_begin + 1);
+	if (path_begin == std::string_view::npos || path_end == std::string_view::npos) {
+		throw std::runtime_error{"TLS benchmark request is not an HTTP request line"};
 	}
-};
-struct SslDeleter {
-	void operator ()(
-		SSL *p) const noexcept {
-		SSL_free(p);
+	auto const path = raw_request.substr(path_begin + 1, path_end - path_begin - 1);
+	conflux::http::HttpClientOptions opts{};
+	opts.verify_peer = false;
+	opts.max_body_bytes = 2U * 1024U * 1024U;
+	conflux::http::HttpClient client{std::move(opts)};
+	auto response = client.blocking_send(
+		conflux::http::ClientRequest::get(std::format("https://127.0.0.1:{}{}", port, path))
+			.server_name("localhost")
+			.build());
+	if (!response) {
+		throw std::runtime_error{std::format("TLS benchmark client failed: {}", response.error().message)};
 	}
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl = std::unique_ptr<SSL, SslDeleter>;
-
-[[nodiscard]] SSL_CTX *bench_tls_client_ctx() {
-	static UniqueSslCtx ctx{[] {
-		if (OPENSSL_init_ssl(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
-			throw std::runtime_error{"OPENSSL_init_ssl failed"};
-		}
-		UniqueSslCtx out{SSL_CTX_new(TLS_client_method())};
-		if (!out) {
-			throw std::runtime_error{"SSL_CTX_new failed"};
-		}
-		SSL_CTX_set_min_proto_version(out.get(), TLS1_2_VERSION);
-		SSL_CTX_set_verify(out.get(), SSL_VERIFY_NONE, nullptr);
-		return out.release();
-	}()};
-	return ctx.get();
+	if (response->head.status != 200) {
+		throw std::runtime_error{std::format("TLS benchmark client status {}", response->head.status)};
+	}
+	if (!response->body.empty() && !scratch.empty()) {
+		BenchClient::g_sink += static_cast<unsigned char>(response->body.front());
+	}
+	return response->body.size();
 }
-
-struct TlsBenchClient {
-	int fd = -1;
-	UniqueSsl ssl{};
-
-	explicit TlsBenchClient(
-		std::uint16_t port) {
-		connect_to(port);
-	}
-	~TlsBenchClient() { close(); }
-	TlsBenchClient(TlsBenchClient const &) = delete;
-	TlsBenchClient &operator =(TlsBenchClient const &) = delete;
-
-	void close() noexcept {
-		ssl.reset();
-		if (fd >= 0) {
-			::close(fd);
-			fd = -1;
-		}
-	}
-
-	void connect_to(
-		std::uint16_t port) {
-		fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-		if (fd < 0) {
-			throw std::runtime_error{"socket failed"};
-		}
-		static constexpr int one = 1;
-		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-		timeval tv{.tv_sec = 10, .tv_usec = 0};
-		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-		sockaddr_in addr{};
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(port);
-		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-			::close(fd);
-			fd = -1;
-			throw std::runtime_error{"connect failed"};
-		}
-		ssl.reset(SSL_new(bench_tls_client_ctx()));
-		if (!ssl) {
-			throw std::runtime_error{"SSL_new failed"};
-		}
-		SSL_set_fd(ssl.get(), fd);
-		SSL_set_tlsext_host_name(ssl.get(), "localhost");
-		if (SSL_connect(ssl.get()) != 1) {
-			throw std::runtime_error{"SSL_connect failed"};
-		}
-	}
-
-	void send_all(
-		std::string_view data) const {
-		auto const *p = data.data();
-		auto left = data.size();
-		while (left > 0) {
-			int const n = SSL_write(ssl.get(), p, static_cast<int>(std::min<std::size_t>(left, 16U * 1024U)));
-			if (n <= 0) {
-				throw std::runtime_error{"SSL_write failed"};
-			}
-			p += static_cast<std::size_t>(n);
-			left -= static_cast<std::size_t>(n);
-		}
-	}
-
-	[[nodiscard]] std::size_t recv_response(
-		std::span<char> scratch) const {
-		std::string headers;
-		headers.reserve(4096);
-		std::array<char, 4096> small{};
-		std::size_t body_read = 0;
-		std::size_t content_length = 0;
-		bool have_header = false;
-		bool have_cl = false;
-		for (;;) {
-			int const n = SSL_read(ssl.get(), small.data(), static_cast<int>(small.size()));
-			if (n <= 0) {
-				break;
-			}
-			auto chunk = std::string_view{small.data(), static_cast<std::size_t>(n)};
-			if (!have_header) {
-				headers.append(chunk);
-				auto const pos = headers.find("\r\n\r\n");
-				if (pos == std::string::npos) {
-					continue;
-				}
-				have_header = true;
-				auto const header_end = pos + 4;
-				auto const cl = headers.find("Content-Length: ");
-				if (cl != std::string::npos && cl < header_end) {
-					auto const first = cl + 16;
-					auto const last = headers.find("\r\n", first);
-					std::from_chars(headers.data() + first, headers.data() + last, content_length);
-					have_cl = true;
-				}
-				body_read += headers.size() - header_end;
-				if (have_cl && body_read >= content_length) {
-					return header_end + body_read;
-				}
-				continue;
-			}
-			body_read += static_cast<std::size_t>(n);
-			if (!scratch.empty()) {
-				BenchClient::g_sink += static_cast<unsigned char>(chunk.front());
-			}
-			if (have_cl && body_read >= content_length) {
-				return headers.find("\r\n\r\n") + 4 + body_read;
-			}
-		}
-		return headers.size() + body_read;
-	}
-};
 #endif
 
 void wait_for_server(
@@ -594,9 +483,7 @@ struct RowStats {
 		auto req = next_request();
 #if CONFLUX_BENCH_HAS_TLS
 		if (c.tls) {
-			TlsBenchClient client{c.port};
-			client.send_all(req);
-			return client.recv_response(scratch);
+			return tls_fetch_response(c.port, req, scratch);
 		}
 #endif
 		BenchClient client{c.port};
@@ -897,9 +784,7 @@ int main(
 		if (c.churn_files == 0) {
 #if CONFLUX_BENCH_HAS_TLS
 			if (c.tls) {
-				TlsBenchClient warm{c.port};
-				warm.send_all(c.request);
-				(void)warm.recv_response(scratch);
+				(void)tls_fetch_response(c.port, c.request, scratch);
 				continue;
 			}
 #endif
