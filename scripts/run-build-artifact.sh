@@ -3,6 +3,7 @@ set -euo pipefail
 
 usage() {
 	printf 'usage: %s [NAME=VALUE ...] /tmp/%s/<preset>/{tests,benchmarks,examples}/<exe> [args...]\n' "$0" "$(basename "$PWD")" >&2
+	printf '       %s [NAME=VALUE ...] ./build/<preset>/{tests,benchmarks,examples}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] /tmp/%s/<preset>/conflux_<example> [args...]\n' "$0" "$(basename "$PWD")" >&2
 	printf '       defaults: PG_TEST_CONNINFO=postgresql:///postgres?user=postgres, PG_CONNINFO=postgresql:///conflux_bench?user=postgres\n' >&2
 }
@@ -15,7 +16,8 @@ valid_profile() {
 			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\
 			pgo-gen-clang-libcxx|pgo-use-clang-libcxx|pgo-gen-gcc-stdcxx|pgo-use-gcc-stdcxx|\
 			pgo-gen-gcc16-stdcxx|pgo-use-gcc16-stdcxx|\
-			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
+			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx|\
+			cherry-pick-tests)
 			return 0
 			;;
 		*)
@@ -77,6 +79,11 @@ shift
 
 repo_name=$(basename "$PWD")
 preset_root="/tmp/$repo_name"
+build_root="$PWD/build"
+artifact_abs=$artifact
+if [[ $artifact != /* ]]; then
+	artifact_abs="$PWD/${artifact#./}"
+fi
 case "$artifact" in
 	"$preset_root"/*/tests/*|"$preset_root"/*/benchmarks/*|"$preset_root"/*/examples/*) ;;
 	"$preset_root"/*/conflux_*)
@@ -86,12 +93,27 @@ case "$artifact" in
 		fi
 		;;
 	*)
-		printf 'refusing to run non-preset test/benchmark/example artifact: %s\n' "$artifact" >&2
-		exit 126
+		case "$artifact_abs" in
+			"$build_root"/*/tests/*|"$build_root"/*/benchmarks/*|"$build_root"/*/examples/*) ;;
+			"$build_root"/*/conflux_*)
+				if ! valid_root_example "$(basename "$artifact_abs")"; then
+					printf 'refusing to run non-example root build artifact: %s\n' "$artifact" >&2
+					exit 126
+				fi
+				;;
+			*)
+				printf 'refusing to run non-preset test/benchmark/example artifact: %s\n' "$artifact" >&2
+				exit 126
+				;;
+		esac
 		;;
 esac
 
-profile=${artifact#"$preset_root"/}
+if [[ $artifact_abs == "$build_root"/* ]]; then
+	profile=${artifact_abs#"$build_root"/}
+else
+	profile=${artifact#"$preset_root"/}
+fi
 profile=${profile%%/*}
 if ! valid_profile "$profile"; then
 	printf 'refusing artifact from unsupported build profile: %s\n' "$profile" >&2
