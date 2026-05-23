@@ -1171,12 +1171,15 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/bench_common
         benchmarks/crypto_bench
         benchmarks/file_copy_coro_bench
+        benchmarks/http_adversarial_bench
+        benchmarks/http_app_path_bench
         benchmarks/http_server_bench
         benchmarks/http_server_concurrency_bench
         benchmarks/join_all_N_bench
         benchmarks/json_bench
         benchmarks/router_bench
         benchmarks/socket_raw_bench
+        benchmarks/slow_consumer_backpressure_bench
         benchmarks/storage_read_bench
         benchmarks/task_cancellation_bench
         benchmarks/task_chain_composition_bench

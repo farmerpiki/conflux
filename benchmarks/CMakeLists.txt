@@ -284,6 +284,20 @@ if(TARGET conflux_http1)
         PRIVATE bench_common conflux_http1 conflux_net_config conflux_options)
 endif()
 
+if(TARGET conflux_http1 AND TARGET conflux_http_server_helpers)
+    add_executable(conflux_http_app_path_bench http_app_path_bench.cxx)
+    target_link_libraries(conflux_http_app_path_bench
+        PRIVATE bench_common conflux_http1 conflux_http_parse_helpers conflux_http_router
+                conflux_http_response conflux_http_server_helpers conflux_net_config conflux_options)
+endif()
+
+if(TARGET conflux_http1)
+    add_executable(conflux_http_adversarial_bench http_adversarial_bench.cxx)
+    target_link_libraries(conflux_http_adversarial_bench
+        PRIVATE bench_common conflux_http1 conflux_http_parse_helpers conflux_http_core
+                conflux_net_config conflux_options)
+endif()
+
 add_executable(conflux_http_server_bench http_server_bench.cxx)
 target_link_libraries(conflux_http_server_bench
     PRIVATE bench_common conflux conflux_work conflux_options)
@@ -304,6 +318,10 @@ endif()
 
 add_executable(conflux_http_server_concurrency_bench http_server_concurrency_bench.cxx)
 target_link_libraries(conflux_http_server_concurrency_bench
+    PRIVATE bench_common conflux conflux_work conflux_options)
+
+add_executable(conflux_slow_consumer_backpressure_bench slow_consumer_backpressure_bench.cxx)
+target_link_libraries(conflux_slow_consumer_backpressure_bench
     PRIVATE bench_common conflux conflux_work conflux_options)
 
 add_executable(conflux_socket_raw_bench socket_raw_bench.cxx)
@@ -334,9 +352,16 @@ set(_record_targets
     conflux_socket_raw_bench
     conflux_http_server_bench
     conflux_http_server_concurrency_bench
+    conflux_slow_consumer_backpressure_bench
 )
 if(TARGET conflux_http_parser_bench)
     list(APPEND _record_targets conflux_http_parser_bench)
+endif()
+if(TARGET conflux_http_adversarial_bench)
+    list(APPEND _record_targets conflux_http_adversarial_bench)
+endif()
+if(TARGET conflux_http_app_path_bench)
+    list(APPEND _record_targets conflux_http_app_path_bench)
 endif()
 if(TARGET conflux_cpu_dispatch_impl_bench)
     list(APPEND _record_targets conflux_cpu_dispatch_impl_bench)

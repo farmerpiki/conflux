@@ -165,10 +165,19 @@ Focused component commands:
 
 ```sh
 # HTTP/server path
+ONLY_BENCH=http_app_path BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh http-app-path-local
+ONLY_BENCH=http_adversarial BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh http-adversarial-local
 ONLY_BENCH=http_server BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-local
 ONLY_BENCH=http_server_concurrency BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-concurrency-local
+# The descriptor records both smoke and 30s/5s-warmup tail-proof configs.
+ONLY_BENCH=http_server_concurrency BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh http-server-concurrency-tail-local
+ONLY_BENCH=slow_consumer_backpressure BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh slow-consumer-backpressure-local
 ONLY_BENCH=send_zc BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh send-zc-threshold-local
 
@@ -186,6 +195,45 @@ ONLY_BENCH=task_chain_composition BENCH_PRESET=perf-clang-libcxx \
 ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-local
 ```
+
+`http_app_path` is the pure user-space framework-cost-floor benchmark. It runs
+HTTP/1 request parsing, request view construction, router dispatch, middleware
+composition, response construction, and `format_response` serialization without a
+live socket or `io_uring` round trip. Configs cover exact routes, parameter
+routes, 404, middleware depth 1/4/16, small/medium JSON responses, POST body
+parse-only, and POST 4 KiB echo-size. Treat these rows as `micro/user-space`; use
+live HTTP rows only to see how kernel/network costs hide or amplify the floor.
+
+
+`http_adversarial` is the pure user-space HTTP parser/adversarial-load suite.
+It covers many small headers, large headers near the aggregate limit, invalid
+request lines, duplicate `Content-Length`, `Content-Length` plus
+`Transfer-Encoding`, many tiny chunked frames, late malformed chunk framing, late
+body-limit crossing, and slowloris-style incomplete headers. Rows emit parser
+status, structured reject reason, bytes consumed before rejection/completion,
+parsed header count, decoded body bytes, CPU ns/request, and allocation counters.
+Treat these rows as `micro/user-space-adversarial`; they are not socket timeout
+proof, but they expose the parser/security cost floor before live-kernel rows.
+
+`http_server_concurrency` is the live HTTP concurrency/tail-latency suite.
+Short rows default to `--duration 1 --warmup 0` and are labeled
+`live-kernel-sanity`; use `--duration 30 --warmup 5` or longer for
+`end-to-end-proof` rows. Each row emits p50/p90/p99/p999/max latency, errors,
+timeouts, CPU user/sys/total time, CPU utilization, voluntary/involuntary
+context switches, fd/RSS start/end, sampled RSS high-water, pressure-event
+high-water, and SQ/CQ overflow counters. The `queue_depth_high_water` field is
+currently sourced from the cumulative HTTP pressure-event counter because the
+server does not yet expose an instantaneous response-queue gauge.
+
+`slow_consumer_backpressure` is the live overload/backpressure suite. It keeps
+slow clients attached while the server sends large responses, drives SSE channels
+through `drop_newest`, `drop_oldest`, and `disconnect` overflow policies, and
+forces WebSocket handoff pressure with a saturated work pool. Rows emit duration,
+connection count, bytes read versus expected bytes, estimated unread bytes, RSS/FD
+deltas, latency samples where available, HTTP pressure counters, SSE overflow
+counters, work-pool enqueue/full counters, and SQ/CQ overflow counters. Rows are labeled `live-kernel-sanity`; treat the short defaults as smoke-quality
+backpressure-proof scaffolding. Use longer `--duration` and higher `--connections`
+on dedicated hardware for release data.
 
 `storage_read` is the NVMe/O_DIRECT gate for storage-read claims. It emits
 `pread`, `io_uring_read`, `read_fixed`, and `iopoll_read_fixed` rows, labels them
@@ -217,6 +265,21 @@ speedups, copied-notification rates, submit fallback rates, per-threshold
 rollups, candidate-body classification, and SEND_ZC ring capability/enabled
 telemetry when emitted by the benchmark. See
 `benchmarks/notes/send_zc_threshold_evidence.md` for the decision shape.
+
+For a non-loopback SEND_ZC candidate artifact, use a host address that is not
+`127.0.0.0/8` or `0.0.0.0`:
+
+```sh
+SEND_ZC_NIC_HOST=192.0.2.10 SEND_ZC_PRESET=perf-clang-libcxx SEND_ZC_REPS=5 \
+  scripts/send_zc_nic_evidence.sh
+```
+
+This records paired `nic/plain/*/{off,zc_auto}` and
+`nic/mapped/*/{off,zc_auto}` rows with request rate plus server-side SEND_ZC
+counters in the same rows. Treat it as `live-kernel/NIC-candidate` evidence:
+keep route/NIC counter output with the artifact before using the result to make
+public zero-copy throughput claims. For smoke only, set
+`SEND_ZC_ALLOW_LOOPBACK=1`.
 
 For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording the queue benchmarks. The
@@ -361,11 +424,19 @@ Current groups:
 
 - `micro/*`: small hot-path operations.
 - `flow/*`: full in-process request flows through the public router/middleware API.
+- `http_app_path`: user-space HTTP app-path scenarios: parse request bytes,
+  construct request views, dispatch routes/middleware, build responses, and
+  serialize headers/body without live socket/kernel round trips.
 - `http_parser`: user-space HTTP/1 request-parser scenarios, including
   adversarial large/many/malformed/incomplete header cases that avoid live
   socket/kernel round trips.
-- `http_server`, `http_server_concurrency`, `send_zc`, `tcp_increment`, and
-  `socket_raw`: HTTP/socket/io_uring transport measurements.
+- `http_adversarial`: user-space parser/security load scenarios with structured
+  reject reasons, consumed bytes, CPU/request, and allocation counters.
+- `http_server`, `http_server_concurrency`, `slow_consumer_backpressure`,
+  `send_zc`, `tcp_increment`, and `socket_raw`: HTTP/socket/io_uring transport
+  measurements. Short `http_server_concurrency` rows are smoke-quality
+  `live-kernel-sanity`; 30s+ rows with 5s+ warmup are labeled
+  `end-to-end-proof`.
 - `file_copy_coro`: file/runtime measurements.
 - `work`, `task_*`, `workpool_*`, and `join_all_N`: worker/runtime measurements.
 

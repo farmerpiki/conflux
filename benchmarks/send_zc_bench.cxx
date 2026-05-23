@@ -255,6 +255,16 @@ bool has_flag(
 	}
 	return false;
 }
+bool is_loopback_or_unspecified_ipv4(
+	std::string_view host) {
+	auto h = std::string{host};
+	in_addr addr{};
+	if (::inet_pton(AF_INET, h.c_str(), &addr) != 1) {
+		return host == "localhost"sv;
+	}
+	auto const raw = ntohl(addr.s_addr);
+	return (raw >> 24U) == 127U || raw == 0U;
+}
 std::size_t parse_sz_arg(
 	std::span<char *> args,
 	std::string_view name,
@@ -298,6 +308,9 @@ struct SendZcBenchStats {
 	std::size_t duration_s{};
 	double requests_per_sec{};
 	std::uint64_t errors{};
+	std::string transport{};
+	std::string host{};
+	std::uint16_t port{};
 };
 SendZcBenchStats run_variant(
 	Variant const &v,
@@ -359,6 +372,9 @@ void print_variant(
 				s.duration_s,
 				s.requests_per_sec,
 				s.errors);
+		}
+		if (!s.transport.empty()) {
+			extra += std::format(",\"transport\":\"{}\",\"host\":\"{}\",\"port\":{}", s.transport, s.host, s.port);
 		}
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
@@ -484,7 +500,9 @@ SendZcBenchStats run_concurrent_variant(
 	std::size_t response_bytes,
 	std::size_t send_zc_threshold,
 	std::size_t connections,
-	std::size_t duration_s) {
+	std::size_t duration_s,
+	std::string_view client_host = "127.0.0.1"sv,
+	std::string transport = {}) {
 	struct State {
 		ServerHandle server;
 		HttpServerMetrics metrics{};
@@ -503,7 +521,7 @@ SendZcBenchStats run_concurrent_variant(
 		auto const worker_connections = base + (i < rem ? 1 : 0);
 		workers.emplace_back([&, i, worker_connections] {
 			results[static_cast<std::size_t>(i)] = run_concurrent_worker(
-				"127.0.0.1"sv,
+				client_host,
 				st.server.port,
 				std::string_view{request},
 				response_bytes,
@@ -545,6 +563,9 @@ SendZcBenchStats run_concurrent_variant(
 		.duration_s = duration_s,
 		.requests_per_sec = rps,
 		.errors = errors,
+		.transport = std::move(transport),
+		.host = std::string{client_host},
+		.port = st.server.port,
 	};
 }
 
@@ -738,7 +759,10 @@ std::size_t ssl_recv_response(
 int main(
 	int argc,
 	char **argv) {
-	bench_info_if_requested(argc, argv, R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
+	bench_info_if_requested(
+		argc,
+		argv,
+		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","0","--warmup","0"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;
@@ -746,6 +770,8 @@ int main(
 	auto const json_out = args.json_out;
 	auto const raw_args = std::span{argv, static_cast<std::size_t>(argc)};
 	bool const concurrent = has_flag(raw_args, "--concurrent"sv);
+	bool const nic_concurrent = has_flag(raw_args, "--nic-concurrent"sv);
+	bool const allow_loopback_remote = has_flag(raw_args, "--allow-loopback-remote"sv);
 	bool const server_only = has_flag(raw_args, "--server-only"sv);
 	bool const client_only = has_flag(raw_args, "--client-only"sv);
 	std::size_t const concurrent_connections = std::max<std::size_t>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
@@ -809,6 +835,16 @@ int main(
 
 	if (server_only && client_only) {
 		throw std::runtime_error{"--server-only and --client-only are mutually exclusive"};
+	}
+	if (nic_concurrent && concurrent) {
+		throw std::runtime_error{"--nic-concurrent and --concurrent are mutually exclusive"};
+	}
+	if (nic_concurrent && (server_only || client_only)) {
+		throw std::runtime_error{"--nic-concurrent cannot be combined with --server-only or --client-only"};
+	}
+	if (nic_concurrent && !allow_loopback_remote && is_loopback_or_unspecified_ipv4(remote_host)) {
+		throw std::runtime_error{
+			"--nic-concurrent requires --host <non-loopback IPv4>; pass --allow-loopback-remote for smoke only"};
 	}
 	if (server_only) {
 		auto cfg = bench_config_zc(std::string_view{remote_mode}, send_zc_threshold);
@@ -892,6 +928,81 @@ int main(
 			.iters_override = iters_override,
 		};
 	};
+
+	if (nic_concurrent) {
+		if (!json_out) {
+			std::println(
+				"send_zc_bench NIC-candidate: host={}, {} connections, {}s, threshold={} bytes\n",
+				remote_host,
+				concurrent_connections,
+				concurrent_duration_s,
+				send_zc_threshold);
+		}
+		for (auto const &[label, size]: kBodies) {
+			if (size != 65536 && size != 1048576) {
+				continue;
+			}
+			auto const label_s = std::string{label};
+			auto const body_req =
+				std::string{std::format("GET /body/{} HTTP/1.1\r\nHost: {}\r\n\r\n", label, remote_host)};
+			auto const mapped_req =
+				std::string{std::format("GET /{}.bin HTTP/1.1\r\nHost: {}\r\n\r\n", label, remote_host)};
+			auto plain_off = run_concurrent_variant(
+				config_name,
+				std::format("nic/plain/{}/off", label_s),
+				"off"sv,
+				make_body_router,
+				body_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s,
+				remote_host,
+				"non_loopback_nic_candidate");
+			print_variant(plain_off, json_out, 1);
+			auto plain_zc = run_concurrent_variant(
+				config_name,
+				std::format("nic/plain/{}/zc_auto", label_s),
+				"auto"sv,
+				make_body_router,
+				body_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s,
+				remote_host,
+				"non_loopback_nic_candidate");
+			print_variant(plain_zc, json_out, 1);
+			auto mapped_off = run_concurrent_variant(
+				config_name,
+				std::format("nic/mapped/{}/off", label_s),
+				"off"sv,
+				make_static_router,
+				mapped_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s,
+				remote_host,
+				"non_loopback_nic_candidate");
+			print_variant(mapped_off, json_out, 1);
+			auto mapped_zc = run_concurrent_variant(
+				config_name,
+				std::format("nic/mapped/{}/zc_auto", label_s),
+				"auto"sv,
+				make_static_router,
+				mapped_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s,
+				remote_host,
+				"non_loopback_nic_candidate");
+			print_variant(mapped_zc, json_out, 1);
+		}
+		std::filesystem::remove_all(static_dir);
+		return 0;
+	}
 
 	if (concurrent) {
 		if (!json_out) {

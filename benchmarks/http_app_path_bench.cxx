@@ -1,0 +1,392 @@
+import std;
+import conflux.types;
+import conflux.net.config;
+import conflux.net.http.types;
+import conflux.net.http.server_types;
+import conflux.net.http1_parser;
+import conflux.net.http.parse_helpers;
+import conflux.net.http.response;
+import conflux.net.http_server_helpers;
+import conflux.net.router;
+
+import bench_common;
+
+using namespace std::string_view_literals;
+
+namespace {
+
+struct PathState {
+	std::string name;
+	std::string description;
+	std::string raw;
+	ParserLimits limits{};
+	Router router;
+	bool route_response = true;
+	bool serialize_response = true;
+};
+
+struct PathCase {
+	std::string_view name;
+	std::string_view description;
+	std::size_t default_iterations;
+	std::shared_ptr<PathState> state;
+};
+
+std::atomic<std::size_t> g_sink{};
+
+[[nodiscard]] ParserLimits default_limits() {
+	ParserLimits limits{};
+	limits.max_request_line_size = 8192;
+	limits.max_header_line_size = 8192;
+	limits.max_header_block_size = 65536;
+	limits.max_headers = 128;
+	return limits;
+}
+
+[[nodiscard]] std::string make_get_request(
+	std::string_view target,
+	std::string_view extra_headers = {}) {
+	std::string raw;
+	raw.reserve(96 + target.size() + extra_headers.size());
+	raw += "GET ";
+	raw += target;
+	raw += " HTTP/1.1\r\nHost: localhost\r\n";
+	raw += extra_headers;
+	raw += "\r\n";
+	return raw;
+}
+
+[[nodiscard]] std::string make_post_request(
+	std::string_view target,
+	std::string_view body,
+	std::string_view content_type = "text/plain"sv,
+	std::string_view extra_headers = {}) {
+	std::string raw;
+	raw.reserve(160 + target.size() + body.size() + content_type.size() + extra_headers.size());
+	raw += "POST ";
+	raw += target;
+	raw += " HTTP/1.1\r\nHost: localhost\r\nContent-Type: ";
+	raw += content_type;
+	raw += "\r\nContent-Length: ";
+	raw += std::to_string(body.size());
+	raw += "\r\n";
+	raw += extra_headers;
+	raw += "\r\n";
+	raw += body;
+	return raw;
+}
+
+void add_header_middlewares(
+	Router &router,
+	std::size_t count) {
+	for (std::size_t i = 0; i < count; ++i) {
+		router.use([i](RequestView const &req, Router::Handler const &next) {
+			auto resp = next(req);
+			resp.headers.set(std::format("X-Bench-Mw-{}", i), "1");
+			return resp;
+		});
+	}
+}
+
+void append_standard_routes(
+	PathState &state,
+	std::string small_json,
+	std::string medium_json) {
+	state.router.get("/api/ping", [](RequestView const &) { return Response::text("pong"); });
+	state.router.get("/hello/{name}", [](RequestView const &req) {
+		return Response::text(std::format("hello {}", req.params["name"]));
+	});
+	state.router.get("/api/json-small", [body = std::move(small_json)](RequestView const &) {
+		return Response::json(body);
+	});
+	state.router.get("/api/json-medium", [body = std::move(medium_json)](RequestView const &) {
+		return Response::json(body);
+	});
+	state.router.post("/api/echo-size", [](RequestView const &req) {
+		return Response::text(std::to_string(req.body.size()));
+	});
+}
+
+[[nodiscard]] std::string make_medium_json() {
+	std::string body = R"({"items":[)";
+	for (int i = 0; i < 32; ++i) {
+		if (i != 0) {
+			body += ',';
+		}
+		body += std::format(R"({{"id":{},"name":"item-{}","ok":true}})", i, i);
+	}
+	body += R"(],"count":32})";
+	return body;
+}
+
+[[nodiscard]] PathCase make_case(
+	std::string_view name) {
+	auto state = std::make_shared<PathState>();
+	state->name = std::string{name};
+	state->limits = default_limits();
+	auto const small_json = std::string{R"({"ok":true,"value":42})"};
+	auto medium_json = make_medium_json();
+
+	if (name == "get_ping"sv) {
+		state->description = "parse GET /api/ping, exact-route dispatch, text response, serialize";
+		state->raw = make_get_request("/api/ping");
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 400000, state};
+	}
+	if (name == "get_param"sv) {
+		state->description = "parse GET /hello/{name}, parameter route, text response, serialize";
+		state->raw = make_get_request("/hello/alice");
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 300000, state};
+	}
+	if (name == "not_found"sv) {
+		state->description = "parse missing GET route, 404 response build, serialize";
+		state->raw = make_get_request("/api/not-found");
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 300000, state};
+	}
+	if (name == "middleware_x1"sv || name == "middleware_x4"sv || name == "middleware_x16"sv) {
+		std::size_t const count = name == "middleware_x1"sv ? 1 : (name == "middleware_x4"sv ? 4 : 16);
+		state->description =
+			std::format("parse exact GET through {} header middlewares, response build, serialize", count);
+		state->raw = make_get_request("/api/ping");
+		add_header_middlewares(state->router, count);
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, count >= 16 ? std::size_t{100000} : std::size_t{200000}, state};
+	}
+	if (name == "json_small"sv) {
+		state->description = "parse GET JSON-small route, response build, serialize";
+		state->raw = make_get_request("/api/json-small");
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 250000, state};
+	}
+	if (name == "json_medium"sv) {
+		state->description = "parse GET JSON-medium route, response build, serialize";
+		state->raw = make_get_request("/api/json-medium");
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 100000, state};
+	}
+	if (name == "post_body_parse_only"sv) {
+		std::string body;
+		body.reserve(4096);
+		for (int i = 0; i < 256; ++i) {
+			if (i != 0) {
+				body += '&';
+			}
+			body += std::format("k{}={}", i, i);
+		}
+		state->description = "parse POST headers/body and urlencoded form only, no route/serialize";
+		state->raw = make_post_request("/api/echo-size", body, "application/x-www-form-urlencoded");
+		state->route_response = false;
+		state->serialize_response = false;
+		return {state->name, state->description, 120000, state};
+	}
+	if (name == "post_echo"sv) {
+		std::string body(4096, 'x');
+		state->description = "parse POST 4 KiB body, route echo-size response, serialize";
+		state->raw = make_post_request("/api/echo-size", body);
+		append_standard_routes(*state, small_json, std::move(medium_json));
+		return {state->name, state->description, 120000, state};
+	}
+	throw std::invalid_argument{std::format("unknown HTTP app-path case: {}", name)};
+}
+
+[[nodiscard]] std::vector<std::string_view> all_case_names() {
+	return {
+		"get_ping"sv,
+		"get_param"sv,
+		"not_found"sv,
+		"middleware_x1"sv,
+		"middleware_x4"sv,
+		"middleware_x16"sv,
+		"json_small"sv,
+		"json_medium"sv,
+		"post_body_parse_only"sv,
+		"post_echo"sv,
+	};
+}
+
+[[nodiscard]] std::string_view parse_case_name(
+	std::span<char *> args) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view const arg{args[i]};
+		if (arg == "--case"sv && i + 1 < args.size()) {
+			return args[i + 1];
+		}
+	}
+	return "get_ping"sv;
+}
+
+[[nodiscard]] std::vector<PathCase> selected_cases(
+	std::span<char *> args) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view const arg{args[i]};
+		if (arg == "--all-cases"sv) {
+			std::vector<PathCase> out;
+			for (auto name: all_case_names()) {
+				out.push_back(make_case(name));
+			}
+			return out;
+		}
+	}
+	return {make_case(parse_case_name(args))};
+}
+
+[[nodiscard]] RequestView make_request_view(
+	std::string_view raw,
+	ParserLimits const &limits,
+	conflux::http1::ParsedRequest &parsed,
+	HttpFieldsView &headers,
+	HttpFieldsView &query,
+	HttpFieldsView &form,
+	HttpFieldsView &cookies,
+	std::string_view &path,
+	std::string_view &body) {
+	auto const status = conflux::http1::parse_request(raw, limits, parsed);
+	if (status != conflux::http1::ParseStatus::Ok) {
+		throw std::runtime_error{"HTTP app-path parser did not return Ok"};
+	}
+
+	auto const target = conflux::http::split_path_query(parsed.target);
+	path = conflux::http::origin_form_path_from_target(target.path);
+	body = raw.substr(parsed.header_end_offset + 4);
+
+	headers.clear();
+	headers.reserve(parsed.headers.size());
+	for (auto const &[name, field_value]: parsed.headers) {
+		headers.emplace_back(name, field_value);
+	}
+
+	query.clear();
+	if (!target.query.empty()) {
+		parse_urlencoded(target.query, query);
+	}
+
+	cookies.clear();
+	if (auto cookie = headers.get("cookie"); cookie.has_value()) {
+		parse_cookies(*cookie, cookies);
+	}
+
+	form.clear();
+	if (conflux::http::ascii_iequals(headers["content-type"], "application/x-www-form-urlencoded")) {
+		parse_urlencoded(body, form);
+	}
+
+	return RequestView{
+		parsed.method,
+		path,
+		parsed.version,
+		"127.0.0.1"sv,
+		false,
+		HttpFieldsView{},
+		headers,
+		query,
+		form,
+		cookies,
+		std::span<UploadedFile const>{},
+		body};
+}
+
+[[nodiscard]] std::size_t run_one(
+	PathState &state) {
+	conflux::http1::ParsedRequest parsed;
+	HttpFieldsView headers{true};
+	HttpFieldsView query;
+	HttpFieldsView form;
+	HttpFieldsView cookies;
+	std::string_view path;
+	std::string_view body;
+	auto req = make_request_view(state.raw, state.limits, parsed, headers, query, form, cookies, path, body);
+
+	if (!state.route_response) {
+		return req.method.size() + req.path.size() + req.body.size() + req.form.size();
+	}
+
+	auto resp = state.router.dispatch(req);
+	if (!state.serialize_response) {
+		return resp.text_body().size() + static_cast<std::size_t>(resp.status);
+	}
+	return format_response(resp, {}, false).size();
+}
+
+[[nodiscard]] BenchStats bench_case(
+	PathCase const &c,
+	std::size_t warmup,
+	std::size_t iterations) {
+	for (std::size_t i = 0; i < warmup; ++i) {
+		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+	}
+
+	auto const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iterations; ++i) {
+		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+	}
+	auto const elapsed = bench_now_ns() - t0;
+	return {
+		.config = c.name,
+		.variant = c.name,
+		.iterations = iterations,
+		.total_ns = elapsed,
+		.ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations),
+		.throughput = 1e9 / (static_cast<double>(elapsed) / static_cast<double>(iterations))};
+}
+
+void print_list() {
+	for (auto name: all_case_names()) {
+		auto c = make_case(name);
+		std::println("{:<24} {}", c.name, c.description);
+	}
+}
+
+void print_usage() {
+	std::println(
+		"Usage: conflux_http_app_path_bench [--case NAME|--all-cases] [--iterations N] [--warmup N] [--json] [--list]");
+}
+
+[[nodiscard]] bool has_flag(
+	std::span<char *> args,
+	std::string_view wanted) {
+	for (auto const *arg: args.subspan(1)) {
+		if (std::string_view{arg} == wanted) {
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace
+
+int main(
+	int argc,
+	char **argv) {
+	bench_info_if_requested(
+		argc,
+		argv,
+		R"({"name":"http_app_path","parser":"standard","configs":[{"name":"get_ping","extra":{"kind":"micro/user-space","case":"GET /api/ping"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_ping","--config-name","get_ping","--iterations","0","--warmup","0"]},{"name":"get_param","extra":{"kind":"micro/user-space","case":"GET /hello/{name}"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_param","--config-name","get_param","--iterations","0","--warmup","0"]},{"name":"not_found","extra":{"kind":"micro/user-space","case":"404"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","not_found","--config-name","not_found","--iterations","0","--warmup","0"]},{"name":"middleware_x1","extra":{"kind":"micro/user-space","middleware_count":1},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x1","--config-name","middleware_x1","--iterations","0","--warmup","0"]},{"name":"middleware_x4","extra":{"kind":"micro/user-space","middleware_count":4},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x4","--config-name","middleware_x4","--iterations","0","--warmup","0"]},{"name":"middleware_x16","extra":{"kind":"micro/user-space","middleware_count":16},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x16","--config-name","middleware_x16","--iterations","0","--warmup","0"]},{"name":"json_small","extra":{"kind":"micro/user-space","case":"JSON response small"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_small","--config-name","json_small","--iterations","0","--warmup","0"]},{"name":"json_medium","extra":{"kind":"micro/user-space","case":"JSON response medium"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_medium","--config-name","json_medium","--iterations","0","--warmup","0"]},{"name":"post_body_parse_only","extra":{"kind":"micro/user-space","case":"POST body parse only"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_body_parse_only","--config-name","post_body_parse_only","--iterations","0","--warmup","0"]},{"name":"post_echo","extra":{"kind":"micro/user-space","case":"POST echo 4KiB"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_echo","--config-name","post_echo","--iterations","0","--warmup","0"]}]})");
+
+	try {
+		auto const args = std::span{argv, static_cast<std::size_t>(argc)};
+		if (has_flag(args, "--help"sv) || has_flag(args, "-h"sv)) {
+			print_usage();
+			return 0;
+		}
+		if (has_flag(args, "--list"sv)) {
+			print_list();
+			return 0;
+		}
+
+		auto const cfg = bench_parse_args(args);
+		auto cases = selected_cases(args);
+		for (auto const &c: cases) {
+			auto const iterations = cfg.iterations == 0 ? c.default_iterations : cfg.iterations;
+			auto const stats = bench_case(c, cfg.warmup, iterations);
+			bench_print(stats, cfg.json_out, c.name == cases.front().name);
+		}
+		std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));
+		return 0;
+	} catch (std::exception const &ex) {
+		std::println(std::cerr, "conflux_http_app_path_bench: {}", ex.what());
+		print_usage();
+		return 1;
+	}
+}
