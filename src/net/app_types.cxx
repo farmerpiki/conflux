@@ -198,10 +198,16 @@ struct BodyText {
 };
 
 struct BodyBytes {
-	std::string_view value{};
+	std::span<std::byte const> value{};
 
-	[[nodiscard]] constexpr std::string_view get() const noexcept { return value; }
-	[[nodiscard]] constexpr std::string_view operator *() const noexcept { return value; }
+	[[nodiscard]] constexpr std::span<std::byte const> get() const noexcept { return value; }
+	[[nodiscard]] constexpr std::span<std::byte const> operator *() const noexcept { return value; }
+	[[nodiscard]] std::string_view text_view() const noexcept {
+		if (value.empty()) {
+			return {};
+		}
+		return {reinterpret_cast<char const *>(value.data()), value.size()};
+	}
 };
 
 struct OwnedBodyBytes {

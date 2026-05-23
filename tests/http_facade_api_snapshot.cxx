@@ -49,6 +49,8 @@ static_assert(std::same_as<http::RequestView, RequestView>);
 static_assert(std::same_as<http::Request, Request>);
 static_assert(std::same_as<http::Response, Response>);
 static_assert(std::same_as<http::RequestContext, RequestContext>);
+static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
+static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
 static_assert(
 	http::AsyncMiddleware<
 		decltype([](http::Request const &req, http::RequestContext const &ctx, http::AsyncNext const &next) -> http::Task<http::Response> {

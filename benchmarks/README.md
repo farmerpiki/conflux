@@ -28,6 +28,16 @@ cmake --build --preset perf-gcc-stdcxx --target conflux_record_benches
 
 Focused debug builds are still available when you need instrumentation or a
 debugger, but do not use sanitizer/debug presets for performance conclusions.
+
+Import-surface compile probes are intentionally not part of `conflux_record_benches`;
+time their build targets with a cold build directory when evaluating public-surface
+or umbrella-module changes:
+
+```sh
+/usr/bin/time -v cmake --build --preset perf-clang-libcxx --target conflux_import_http_probe
+/usr/bin/time -v cmake --build --preset perf-clang-libcxx --target conflux_import_umbrella_probe
+```
+
 P2996 reflection benchmarks use the dedicated release lane:
 
 ```sh

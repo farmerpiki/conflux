@@ -1535,7 +1535,7 @@ public:
 		} else if constexpr (detail::BodyTextArg<Clean>) {
 			return BodyText{.value = req.body};
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
-			return BodyBytes{.value = req.body};
+			return BodyBytes{.value = std::as_bytes(std::span{req.body.data(), req.body.size()})};
 		} else if constexpr (detail::OwnedBodyBytesArg<Clean>) {
 			return OwnedBodyBytes{.value = std::string{req.body}};
 #if CONFLUX_HAS_JSON

@@ -27,6 +27,16 @@ endif()
 add_executable(conflux_work_compile_bench work_compile_bench.cxx)
 target_link_libraries(conflux_work_compile_bench PRIVATE bench_common conflux_work conflux_options)
 
+if(TARGET conflux_net_http)
+    add_executable(conflux_import_http_probe import_http_probe.cxx)
+    target_link_libraries(conflux_import_http_probe PRIVATE conflux_net_http conflux_options)
+endif()
+
+if(TARGET conflux)
+    add_executable(conflux_import_umbrella_probe import_conflux_probe.cxx)
+    target_link_libraries(conflux_import_umbrella_probe PRIVATE conflux conflux_options)
+endif()
+
 add_executable(conflux_file_copy_coro_bench file_copy_coro_bench.cxx)
 target_link_libraries(conflux_file_copy_coro_bench
     PRIVATE bench_common conflux_file_io conflux_work conflux_options)

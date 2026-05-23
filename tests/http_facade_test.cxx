@@ -18,6 +18,8 @@ static_assert(std::same_as<http::DrainReport, DrainReport>);
 static_assert(std::same_as<http::DrainStreamPolicy, DrainStreamPolicy>);
 static_assert(std::same_as<http::OverflowPolicy, OverflowPolicy>);
 static_assert(std::same_as<http::PressureMetrics, HttpPressureMetrics>);
+static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
+static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
 
 TEST_CASE(
 	"http facade: lifecycle and pressure vocabulary defaults are explicit",
@@ -1867,7 +1869,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.post("/echo-text", [](http::BodyText body) { return http::text(body.get()); });
-	app.post("/echo-bytes", [](http::BodyBytes body) { return http::text(body.get()); });
+	app.post("/echo-bytes", [](http::BodyBytes body) { return http::text(body.text_view()); });
 	app.post("/echo-owned", [](http::OwnedBodyBytes body) { return http::text(body.get()); });
 
 	Request req;

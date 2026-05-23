@@ -3917,6 +3917,12 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "docs;lint"
     )
 
+    add_test(NAME docs/first-contact-public-dialect
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-first-contact-public-dialect.py")
+    set_tests_properties(docs/first-contact-public-dialect PROPERTIES
+        LABELS "docs;lint;public-api"
+    )
+
     add_test(NAME docs/package-docs
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-docs.py")
     set_tests_properties(docs/package-docs PROPERTIES
