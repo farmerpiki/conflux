@@ -126,6 +126,13 @@ void offload_spelling_compiles(
 	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 
+void run_main_spelling_compiles() {
+	auto app = http::app();
+	app.get("/", [] { return http::text("ok"); });
+	(void)http::run_main(std::move(app), {});
+	(void)http::exit_code(http::RunStatus::stopped_normally);
+}
+
 void response_helpers_compile() {
 	(void)http::html("<p>ok</p>");
 	(void)http::no_content();

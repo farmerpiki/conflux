@@ -1,7 +1,7 @@
 import conflux.http;
 import std;
 
-// NOLINTNEXTLINE(bugprone-exception-escape) -- quickstart setup can allocate before the noexcept app.run() boundary.
+// NOLINTNEXTLINE(bugprone-exception-escape) -- quickstart setup can allocate before the noexcept run boundary.
 int main() noexcept {
 	namespace http = conflux::http;
 
@@ -13,5 +13,5 @@ int main() noexcept {
 		return http::text(std::format("request_id={}\n", request_id.get()));
 	});
 
-	return static_cast<int>(std::move(app).run({.port = 9094}));
+	return http::run_main(std::move(app), {.port = 9094});
 }

@@ -2198,4 +2198,25 @@ private:
 	return std::move(app).run(opts);
 }
 
+[[nodiscard]] constexpr int exit_code(
+	RunStatus status) noexcept {
+	return static_cast<int>(status);
+}
+
+[[nodiscard]] int run_main(
+	App app,
+	AppRunOptions opts = {}) noexcept {
+	return exit_code(run(std::move(app), opts));
+}
+
+[[nodiscard]] int run_main(
+	std::expected<RunStatus, std::string> result) noexcept {
+	if (!result) {
+		eprintln("http app run failed:");
+		eprintln(result.error());
+		return exit_code(RunStatus::fatal_internal_exception);
+	}
+	return exit_code(*result);
+}
+
 } // namespace conflux::http
