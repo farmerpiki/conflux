@@ -1181,6 +1181,7 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/socket_raw_bench
         benchmarks/slow_consumer_backpressure_bench
         benchmarks/storage_read_bench
+        benchmarks/static_strategy_matrix_bench
         benchmarks/task_cancellation_bench
         benchmarks/task_chain_composition_bench
         benchmarks/task_creation_bench

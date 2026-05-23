@@ -434,11 +434,16 @@ Current groups:
   reject reasons, consumed bytes, CPU/request, and allocation counters.
 - `slow_consumer_backpressure`: live slow-client/socket pressure rows plus
   local bounded SSE and WorkPool queue-full policy rows.
-- `http_server`, `http_server_concurrency`, `send_zc`, `tcp_increment`, and
-  `socket_raw`: HTTP/socket/io_uring transport measurements. Short
-  `http_server_concurrency` rows are smoke-quality
+- `http_server`, `http_server_concurrency`, `static_strategy_matrix`, `send_zc`,
+  `tcp_increment`, and `socket_raw`: HTTP/socket/io_uring transport measurements.
+  Short `http_server_concurrency` rows are smoke-quality
   `live-kernel-sanity`; 30s+ rows with 5s+ warmup are labeled
   `end-to-end-proof`.
+- `static_strategy_matrix`: live-kernel-sanity static-file rows for hot mmap
+  fallback, splice-capable streamed files, range requests, small-file cache
+  hits, and cache churn. It does not drop the kernel page cache and does not
+  prove TLS read+write; pair it with `storage_read` and a TLS static consumer
+  before making public static-file throughput claims.
 - `file_copy_coro`: file/runtime measurements.
 - `uring_completion` and `synthetic_cqe_coro`: no-kernel io_uring-adjacent
   microbenchmarks for CompletionTable dispatch and coroutine completion plumbing.

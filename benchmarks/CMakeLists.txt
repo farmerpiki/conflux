@@ -305,6 +305,11 @@ endif()
 add_executable(conflux_http_server_bench http_server_bench.cxx)
 target_link_libraries(conflux_http_server_bench
     PRIVATE bench_common conflux conflux_work conflux_options)
+
+add_executable(conflux_static_strategy_matrix_bench static_strategy_matrix_bench.cxx)
+target_link_libraries(conflux_static_strategy_matrix_bench
+    PRIVATE bench_common conflux conflux_work conflux_options)
+
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_link_libraries(conflux_http_server_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     target_compile_definitions(conflux_http_server_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
@@ -356,6 +361,7 @@ set(_record_targets
     conflux_join_all_N_bench
     conflux_socket_raw_bench
     conflux_http_server_bench
+    conflux_static_strategy_matrix_bench
     conflux_http_server_concurrency_bench
     conflux_slow_consumer_backpressure_bench
 )
