@@ -3915,6 +3915,23 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;package"
     )
 
+    add_test(NAME build/header-component-smoke
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-header-component-smoke.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(build/header-component-smoke PROPERTIES
+        LABELS "build;headers;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 600
+    )
+
+    add_test(NAME build/mixed-module-header-smoke
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-smoke-mixed-module-header.sh")
+    set_tests_properties(build/mixed-module-header-smoke PROPERTIES
+        LABELS "build;modules;headers;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 1200
+    )
+
     add_test(NAME docs/planning-state
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-planning-state.py")
     set_tests_properties(docs/planning-state PROPERTIES

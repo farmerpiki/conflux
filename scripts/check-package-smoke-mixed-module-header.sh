@@ -2,6 +2,11 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+generator="${CONFLUX_PACKAGE_SMOKE_GENERATOR:-Ninja}"
+if [[ "$generator" == "Ninja" ]] && ! command -v ninja >/dev/null 2>&1; then
+    printf 'mixed-module-header-smoke: skipped; Ninja generator unavailable\n'
+    exit 0
+fi
 base="${TMPDIR:-/tmp}/conflux-package-smoke-mixed-module-header"
 probe_dir="$base/probe"
 probe_log="$base/probe.log"
@@ -9,7 +14,7 @@ rm -rf "$base"
 mkdir -p "$base"
 trap 'rm -rf "$base"' EXIT
 
-if ! cmake -S "$source_root" -B "$probe_dir" -G Ninja \
+if ! cmake -S "$source_root" -B "$probe_dir" -G "$generator" \
     -DCONFLUX_FEATURE_SET=core \
     -DCONFLUX_INTERFACE_MODE=MODULE_INTERFACE \
     -DCONFLUX_USE_IMPORT_STD=OFF \
@@ -33,6 +38,7 @@ rm -rf "$probe_dir" "$probe_log"
     --smoke-build-dir "$base/smoke" \
     --components core \
     --feature-set core \
+    --generator "$generator" \
     --interface-mode MODULE_INTERFACE \
     --mixed-module-header-smoke \
     -- \
