@@ -78,6 +78,7 @@ public:
 		std::uint16_t id_delta{0};
 		bool wrong_question{false};
 		bool truncated{false};
+		std::vector<std::uint8_t> raw_response;
 	};
 	struct ReceivedQuery {
 		std::string name;
@@ -185,6 +186,16 @@ private:
 				}
 			}
 			if (resp.kind == RespKind::no_response) {
+				continue;
+			}
+			if (!resp.raw_response.empty()) {
+				::sendto(
+					fd_,
+					resp.raw_response.data(),
+					resp.raw_response.size(),
+					0,
+					reinterpret_cast<::sockaddr const *>(&src),
+					src_len);
 				continue;
 			}
 
@@ -436,6 +447,54 @@ T block_on_str(
 	if constexpr (!std::is_void_v<T>) {
 		return std::move(*slot->value);
 	}
+}
+void pump_ring_once(
+	RingGuard &g,
+	std::chrono::milliseconds wait = std::chrono::milliseconds{20}) {
+	::io_uring_cqe *cqe = nullptr;
+	__kernel_timespec ts{};
+	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(wait);
+	ts.tv_sec = sec.count();
+	ts.tv_nsec = (wait - sec).count() * 1000000LL;
+	int const rc = ::io_uring_submit_and_wait_timeout(&g.ring, &cqe, 1, &ts, nullptr);
+	if (rc == -ETIME || rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+		return;
+	}
+	if (rc < 0) {
+		throw std::runtime_error{std::format("io_uring_submit_and_wait_timeout failed: {}", rc)};
+	}
+	std::array<::io_uring_cqe *, 32> batch{};
+	for (;;) {
+		unsigned const n = ::io_uring_peek_batch_cqe(&g.ring, batch.data(), static_cast<unsigned>(batch.size()));
+		if (n == 0) {
+			break;
+		}
+		for (unsigned i = 0; i < n; ++i) {
+			auto const *c = batch[static_cast<std::size_t>(i)];
+			auto const ud = c->user_data;
+			g.ct.dispatch(
+				static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+				static_cast<std::uint32_t>(ud >> 32U),
+				c->res,
+				conflux::uring::CqeFlags{c->flags});
+		}
+		::io_uring_cq_advance(&g.ring, n);
+	}
+}
+[[nodiscard]] bool pump_until_query(
+	RingGuard &g,
+	DnsMockServer const &mock,
+	std::string_view name,
+	std::uint16_t qtype,
+	std::chrono::milliseconds budget = std::chrono::milliseconds{500}) {
+	auto const deadline = std::chrono::steady_clock::now() + budget;
+	while (std::chrono::steady_clock::now() < deadline) {
+		if (mock.query_count(name, qtype) > 0) {
+			return true;
+		}
+		pump_ring_once(g);
+	}
+	return mock.query_count(name, qtype) > 0;
 }
 
 } // namespace
@@ -834,7 +893,7 @@ TEST_CASE(
 	Resolver r{&g->ring, &g->ct, pack_ud};
 
 	DnsMockServer mock;
-	DnsMockServer::Response const sf{DnsMockServer::RespKind::servfail, {}};
+	DnsMockServer::Response const sf{.kind = DnsMockServer::RespKind::servfail};
 	mock.set_response("srv.test", 1, sf);
 	mock.set_response("srv.test", 28, sf);
 
@@ -987,6 +1046,44 @@ TEST_CASE(
 	CHECK(silent.query_count("fallback.test", 1) == 1);
 	CHECK(good.query_count("fallback.test", 1) == 1);
 }
+TEST_CASE(
+	"dns: malformed UDP response falls through to next nameserver",
+	"[dns][resolver][native][nameserver][malformed]") {
+	auto g = RingGuard::make();
+	REQUIRE(g->ok);
+	Resolver r{&g->ring, &g->ct, pack_ud};
+
+	DnsMockServer malformed;
+	malformed.set_response(
+		"malformed-fallback.test",
+		1,
+		{
+			.raw_response = {0x00, 0x01, 0x80},
+		});
+	DnsMockServer good;
+	good.set_response(
+		"malformed-fallback.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 8, 0, 2}, .ttl = 60}},
+		});
+
+	ResolveOptions opts;
+	opts.override_nameservers = {malformed.endpoint(), good.endpoint()};
+	opts.allow_v6 = false;
+	opts.query_timeout = std::chrono::milliseconds{50};
+
+	auto result = r.resolve_blocking("malformed-fallback.test", 8080, opts);
+	REQUIRE(result.has_value());
+	REQUIRE(result->endpoints.size() == 1);
+	CHECK(result->endpoints[0].family == AddressFamily::v4);
+	auto const &sin = *reinterpret_cast<::sockaddr_in const *>(&result->endpoints[0].addr);
+	CHECK(sin.sin_addr.s_addr == htonl(0x0A080002U));
+	CHECK(ntohs(sin.sin_port) == 8080);
+	CHECK(malformed.query_count("malformed-fallback.test", 1) == 1);
+	CHECK(good.query_count("malformed-fallback.test", 1) == 1);
+}
 // decode for block_on — matches pack_ud: gen in upper 32, slot in lower 32.
 struct PackUdDecode {
 	std::pair<std::uint32_t, std::uint32_t> operator ()(
@@ -994,6 +1091,43 @@ struct PackUdDecode {
 		return {static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U)};
 	}
 };
+TEST_CASE(
+	"dns: async resolve cancellation stops pending UDP receive",
+	"[dns][resolver][native][cancel][uring]") {
+	auto g = RingGuard::make();
+	REQUIRE(g);
+	REQUIRE(g->ok);
+	Resolver r{&g->ring, &g->ct, pack_ud};
+
+	DnsMockServer mock;
+	mock.set_response(
+		"cancel.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::no_response,
+		});
+
+	ResolveOptions opts = mock_opts(mock);
+	opts.allow_v6 = false;
+	opts.query_timeout = std::chrono::milliseconds{1000};
+	opts.total_timeout = std::chrono::milliseconds{1000};
+
+	auto task = r.resolve("cancel.test", 80, opts);
+	REQUIRE(pump_until_query(*g, mock, "cancel.test", 1));
+	task.cancel();
+
+	bool cancelled = false;
+	try {
+		(void)block_on<ResolveResult>(
+			*r.file_reader(),
+			std::move(task),
+			std::make_optional(std::chrono::milliseconds{5000}),
+			PackUdDecode{});
+	} catch (DnsError const &e) {
+		cancelled = e.kind == DnsErrorKind::cancelled;
+	} catch (conflux::work::root::CancelledError const &) { cancelled = true; }
+	CHECK(cancelled);
+}
 TEST_CASE(
 	"dns: in-flight coalescing — two concurrent resolves send one query",
 	"[dns][resolver][native][coalesce]") {

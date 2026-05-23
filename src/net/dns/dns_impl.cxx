@@ -1354,9 +1354,25 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return {};
 	};
 
+	auto inner_task = build_native_udp_flow_with_candidates(
+		*task_ring,
+		ns_list,
+		candidates,
+		0,
+		port,
+		do_v4,
+		do_v6,
+		effective_opts.prefer,
+		timeout,
+		edns);
+	auto inner_control = inner_task.control();
 	auto [out_task, out_raw_src] =
-		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = true});
 	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
+	auto _ = out_src->install_cancel_hook([inner_control, out_src](root::CancelReason) mutable noexcept {
+		(void)inner_control.request_cancel();
+		(void)out_src->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+	});
 	[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
 	   root::Task<ResolveResult> inner,
 	   auto cache_insert,
@@ -1394,17 +1410,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			} catch (...) { auto _ = out->try_set_exception(std::current_exception()); }
 		}
 	}(out_src,
-	  build_native_udp_flow_with_candidates(
-		  *task_ring,
-		  ns_list,
-		  candidates,
-		  0,
-		  port,
-		  do_v4,
-		  do_v6,
-		  effective_opts.prefer,
-		  timeout,
-		  edns),
+	  std::move(inner_task),
 	  std::move(cache_insert),
 	  std::move(fanout_success),
 	  std::move(fanout_error),
