@@ -20,6 +20,10 @@ Attach environment metadata:
 - CPU model, microcode when available, kernel version, and libc.
 - Governor, turbo state, CPU pinning, NUMA placement, and background-load notes.
 - Warmup policy and exact benchmark filters.
+- For live-kernel rows, attach `perf stat` events or wrapper output where
+  practical: cycles, instructions, context switches, cache/TLB misses, and
+  relevant syscall counts. `scripts/bench_perf_stat.py` can annotate benchmark
+  NDJSON rows without changing the benchmark binary.
 
 Use a six-run policy for public comparisons: compare the external best run with
 the Conflux worst run, and publish raw min, median, and max for both systems.
