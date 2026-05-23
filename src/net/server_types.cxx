@@ -281,6 +281,13 @@ export struct HttpServerMetrics {
 	std::uint64_t recv_bundle_bytes{};
 	SendZcMetrics send_zc{};
 	HttpRejectionMetrics rejections{};
+	struct StaticFileMetrics {
+		std::uint64_t mapped_responses{};
+		std::uint64_t streamed_responses{};
+		std::uint64_t splice_submits{};
+		std::uint64_t tls_read_fixed_submits{};
+		std::uint64_t tls_mapped_plaintext_chunks{};
+	} static_files{};
 	struct HttpPressureMetrics {
 		std::uint64_t accept_rejected{};
 		std::uint64_t connections_closed_for_pressure{};

@@ -189,6 +189,7 @@ void Ring::start_streamed_body(
 	auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 	auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
 	conn.streamed_splice_in_flight = true;
+	++static_file_counters_.splice_submits;
 	auto const conn_gen = conn.gen;
 	do_streamed_splice(
 		this,
@@ -227,6 +228,7 @@ void Ring::start_streamed_tls_chunk(
 	FixedBuffer b = std::move(*buf);
 	auto const conn_gen = conn.gen;
 	conn.streamed_splice_in_flight = true;
+	++static_file_counters_.tls_read_fixed_submits;
 	auto &fh = *conn.streamed_file->handle;
 	do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, std::move(b), want)).detach();
 }
@@ -287,6 +289,7 @@ void Ring::write_mapped_tls_chunk(
 		return;
 	}
 	static constexpr std::uint64_t kMappedTlsChunk{64UL * 1024U};
+	++static_file_counters_.tls_mapped_plaintext_chunks;
 	auto const want = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, kMappedTlsChunk));
 	auto const *data = reinterpret_cast<char const *>(win.data()) + conn.mapped_delivered;
 	auto const w = SSL_write(conn.ssl.get(), data, static_cast<int>(want));

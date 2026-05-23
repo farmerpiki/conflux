@@ -335,6 +335,8 @@ target_link_libraries(conflux_static_strategy_matrix_bench
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_link_libraries(conflux_http_server_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     target_compile_definitions(conflux_http_server_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
+    target_link_libraries(conflux_static_strategy_matrix_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_compile_definitions(conflux_static_strategy_matrix_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
 endif()
 
 if(CONFLUX_EXPERIMENTAL_SEND_ZC)

@@ -541,9 +541,12 @@ Current groups:
   `end-to-end-proof`.
 - `static_strategy_matrix`: live-kernel-sanity static-file rows for hot mmap
   fallback, splice-capable streamed files, range requests, small-file cache
-  hits, and cache churn. It does not drop the kernel page cache and does not
-  prove TLS read+write; pair it with `storage_read` and a TLS static consumer
-  before making public static-file throughput claims.
+  hits, and cache churn. When TLS is enabled, it also emits no-kTLS
+  `tls_read_fixed_*` rows. Use the static counters to verify which path ran:
+  `static_mapped_responses`, `static_streamed_responses`, `static_splice_submits`,
+  `static_tls_read_fixed_submits`, and `static_tls_mapped_plaintext_chunks`.
+  It does not drop the kernel page cache, so pair it with `storage_read` before
+  making public static-file throughput claims.
 - `file_copy_coro`: file/runtime measurements, including cached/no-fsync rows and `copy_odirect` when supported.
 - `kernel_state_synthetic`: no-kernel fd-slot/generation/deferred-close/CQE-dispatch state-transition baselines.
 - `db_protocol_synthetic`: DB-independent PostgreSQL result/protocol decode rows.

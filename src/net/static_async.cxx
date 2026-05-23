@@ -816,7 +816,7 @@ Response handle_static_get(
 		// file via IORING_OP_OPENAT and return a deferred response that
 		// carries a StreamedFile once the open CQE fires. Otherwise
 		// fall back to the synchronous mmap path below.
-		if (auto *fr = current_file_reader(); fr != nullptr && !r.tls && content_encoding.empty()) {
+		if (auto *fr = current_file_reader(); fr != nullptr && content_encoding.empty()) {
 			auto dr = std::make_shared<DeferredResponse>();
 			auto base =
 				is_range_request ? base_response(kHttpPartialContent, "Partial Content") : base_response(kHttpOk, "OK");

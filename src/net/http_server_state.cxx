@@ -394,6 +394,7 @@ struct Ring {
 	bool send_zc_report_usage_ = true;
 	SendZcCounters zc_counters_{};
 	HttpRejectionMetrics rejection_counters_{};
+	HttpServerMetrics::StaticFileMetrics static_file_counters_{};
 	HttpPressureMetrics pressure_counters_{};
 	std::shared_ptr<std::atomic<std::uint64_t>> ws_pressure_counter_{std::make_shared<std::atomic<std::uint64_t>>(0)};
 	HttpServerObservabilityHooks observability_hooks_{};

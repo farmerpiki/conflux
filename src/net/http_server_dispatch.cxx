@@ -358,6 +358,7 @@ void dispatch_request(
 			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
+			++ring.static_file_counters_.mapped_responses;
 		}
 	} else if (resp.is_streamed_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);
@@ -369,6 +370,7 @@ void dispatch_request(
 			conn.streamed_delivered = 0;
 			conn.streamed_splice_in_flight = false;
 			conn.has_response = true;
+			++ring.static_file_counters_.streamed_responses;
 		}
 	} else {
 		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);

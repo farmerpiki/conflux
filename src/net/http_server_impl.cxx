@@ -99,6 +99,11 @@ void add_metrics(
 	dst.rejections.expectation_failed += src.rejections.expectation_failed;
 	dst.rejections.header_timeout += src.rejections.header_timeout;
 	dst.rejections.body_timeout += src.rejections.body_timeout;
+	dst.static_files.mapped_responses += src.static_files.mapped_responses;
+	dst.static_files.streamed_responses += src.static_files.streamed_responses;
+	dst.static_files.splice_submits += src.static_files.splice_submits;
+	dst.static_files.tls_read_fixed_submits += src.static_files.tls_read_fixed_submits;
+	dst.static_files.tls_mapped_plaintext_chunks += src.static_files.tls_mapped_plaintext_chunks;
 	dst.pressure.accept_rejected += src.pressure.accept_rejected;
 	dst.pressure.connections_closed_for_pressure += src.pressure.connections_closed_for_pressure;
 	dst.pressure.response_backpressure_events += src.pressure.response_backpressure_events;
