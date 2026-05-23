@@ -30,5 +30,7 @@ run_smoke core core conflux_header_smoke_core
 run_smoke json json conflux_header_smoke_json
 run_smoke runtime runtime conflux_header_smoke_runtime
 run_smoke http http-minimal conflux_quickstart_hello
+run_smoke public-include-matrix http-minimal conflux_header_smoke_public_includes
+run_smoke public-hygiene http-minimal conflux_header_smoke_public_hygiene
 
 printf 'header-component-smoke: ok\n'

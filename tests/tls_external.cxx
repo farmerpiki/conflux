@@ -1,13 +1,103 @@
 // External TLS validation tests.
 #include <catch2/catch_test_macros.hpp>
 #include <conflux/detail/discard.hxx>
+#include <arpa/inet.h>
 #include <cstdlib>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 import std;
 import conflux.types;
 import conflux.net.http;
 import conflux.tests.external_support;
+
+namespace {
+
+class TcpFd {
+	int fd_{-1};
+
+public:
+	TcpFd() = default;
+	explicit TcpFd(
+		int fd) noexcept
+		: fd_{fd} {}
+	~TcpFd() {
+		if (fd_ >= 0) {
+			::close(fd_);
+		}
+	}
+	TcpFd(TcpFd const &) = delete;
+	TcpFd &operator =(TcpFd const &) = delete;
+	TcpFd(TcpFd &&other) noexcept
+		: fd_{std::exchange(other.fd_, -1)} {}
+	TcpFd &operator =(
+		TcpFd &&other) noexcept {
+		if (this != &other) {
+			if (fd_ >= 0) {
+				::close(fd_);
+			}
+			fd_ = std::exchange(other.fd_, -1);
+		}
+		return *this;
+	}
+	[[nodiscard]] int get() const noexcept { return fd_; }
+	void reset() noexcept {
+		if (fd_ >= 0) {
+			::close(fd_);
+			fd_ = -1;
+		}
+	}
+};
+
+[[nodiscard]] TcpFd connect_loopback(
+	std::uint16_t port) {
+	TcpFd fd{::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP)};
+	REQUIRE(fd.get() >= 0);
+
+	::sockaddr_in addr{};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	REQUIRE(::connect(fd.get(), reinterpret_cast<::sockaddr *>(&addr), sizeof(addr)) == 0);
+	return fd;
+}
+
+[[nodiscard]] std::string read_available(
+	int fd,
+	std::chrono::milliseconds budget) {
+	std::string out;
+	auto const deadline = std::chrono::steady_clock::now() + budget;
+	std::array<char, 256> buf{};
+	while (std::chrono::steady_clock::now() < deadline) {
+		auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+			deadline - std::chrono::steady_clock::now());
+		pollfd pfd{.fd = fd, .events = POLLIN | POLLHUP | POLLERR, .revents = 0};
+		int const rc = ::poll(&pfd, 1, static_cast<int>(std::max(remaining.count(), 1LL)));
+		if (rc <= 0) {
+			break;
+		}
+		if ((pfd.revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
+			continue;
+		}
+		ssize_t const n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n <= 0) {
+			break;
+		}
+		out.append(buf.data(), static_cast<std::size_t>(n));
+	}
+	return out;
+}
+
+void require_https_ping_ok(
+	conflux::tests::HttpsServerFixture const &fx) {
+	auto [code, body] = fx.curl_https("/ping");
+	REQUIRE(code == 0);
+	REQUIRE(body == R"({"ok":true})");
+}
+
+} // namespace
 TEST_CASE(
 	"ext/curl: HTTPS GET /ping returns 200 with JSON body") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
@@ -149,6 +239,67 @@ TEST_CASE(
 	// curl exits non-zero on handshake failure; body may be empty or an error message.
 	REQUIRE(code != 0);
 	REQUIRE(body.find(R"({"ok":true})") == std::string::npos);
+}
+TEST_CASE(
+	"tls/bad-client: malformed ClientHello is rejected and server stays healthy") {
+	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
+	auto fd = connect_loopback(fx.port());
+	std::array<unsigned char, 27> const garbage{
+		0x16, 0x03, 0x03, 0x00, 0x20,
+		'n', 'o', 't', '-', 'a', '-', 'r', 'e', 'a', 'l', '-',
+		'c', 'l', 'i', 'e', 'n', 't', 'h', 'e', 'l', 'l', 'o'};
+	REQUIRE(::send(fd.get(), garbage.data(), garbage.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(garbage.size()));
+	::shutdown(fd.get(), SHUT_WR);
+	auto const response = read_available(fd.get(), std::chrono::milliseconds{500});
+	CHECK(response.find("HTTP/") == std::string::npos);
+	require_https_ping_ok(fx);
+}
+
+TEST_CASE(
+	"tls/bad-client: early close during handshake does not poison listener") {
+	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
+	for (int i = 0; i < 8; ++i) {
+		auto fd = connect_loopback(fx.port());
+		fd.reset();
+	}
+	require_https_ping_ok(fx);
+}
+
+TEST_CASE(
+	"tls/bad-client: sniff timeout closes idle pre-handshake connection") {
+	Config cfg = Config::test();
+	cfg.tls_sniff_timeout_ms = 50;
+	conflux::tests::HttpsServerFixture const fx{cfg, conflux::tests::make_external_test_router()};
+	auto fd = connect_loopback(fx.port());
+	auto const response = read_available(fd.get(), std::chrono::milliseconds{750});
+	CHECK(response.empty());
+	require_https_ping_ok(fx);
+}
+
+TEST_CASE(
+	"tls/alpn: http/1.1 ALPN is accepted") {
+	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		std::format(
+			"printf 'GET /ping HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | "
+			"openssl s_client -connect 127.0.0.1:{} -alpn http/1.1 -quiet -ign_eof 2>/dev/null",
+			fx.port()));
+	(void)code;
+	REQUIRE(body.find("HTTP/1.") != std::string::npos);
+	REQUIRE(body.find(R"({"ok":true})") != std::string::npos);
+}
+
+TEST_CASE(
+	"tls/alpn: unknown ALPN falls back without breaking h1") {
+	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		std::format(
+			"printf 'GET /ping HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | "
+			"openssl s_client -connect 127.0.0.1:{} -alpn conflux-unknown -quiet -ign_eof 2>/dev/null",
+			fx.port()));
+	(void)code;
+	REQUIRE(body.find("HTTP/1.") != std::string::npos);
+	REQUIRE(body.find(R"({"ok":true})") != std::string::npos);
 }
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {

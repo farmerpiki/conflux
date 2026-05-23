@@ -9,10 +9,11 @@ interface_mode=""
 enable_db="OFF"
 forbidden_components=""
 forbidden_external_deps=""
+mixed_module_header="OFF"
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-package-config-smoke.sh --source <source-root> --prefix <install-prefix> [--build-dir <dir>] [--components <list>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db] [--forbid-components <list>] [--forbid-external-deps <list>]
+usage: run-package-config-smoke.sh --source <source-root> --prefix <install-prefix> [--build-dir <dir>] [--components <list>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header]
 
 Configures and builds the package smoke project against an installed conflux
 prefix. The component list is a semicolon-separated CMake list, for example:
@@ -60,6 +61,10 @@ while (($#)); do
             [[ $# -ge 2 ]] || { usage; exit 2; }
             forbidden_external_deps="$2"
             shift 2
+            ;;
+        --mixed-module-header)
+            mixed_module_header="ON"
+            shift
             ;;
         -h|--help)
             usage
@@ -125,6 +130,7 @@ cmake_configure=(
     -DCONFLUX_PACKAGE_SMOKE_ENABLE_DB="$enable_db"
     -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbidden_components"
     -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbidden_external_deps"
+    -DCONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER="$mixed_module_header"
 )
 if [[ -n "$interface_mode" ]]; then
     cmake_configure+=(-DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE="$interface_mode")

@@ -29,6 +29,8 @@ option(CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS
 	ON)
 option(CONFLUX_PACKAGE_SMOKE_FAST_COMPILE
 	"Compile package smoke targets without optimization; this validates package wiring, not runtime performance" ON)
+option(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER
+	"Build a downstream consumer with one TU importing conflux modules and another including conflux headers" OFF)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
 
@@ -138,6 +140,7 @@ file(WRITE "${_conflux_smoke_summary}"
 	"forbidden_components=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS}\n"
 	"forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
 	"exercise_linked_apis=${_conflux_package_smoke_linked_apis}\n"
+	"mixed_module_header=${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}\n"
 )
 
 function(conflux_apply_package_smoke_build_policy target)
@@ -238,6 +241,78 @@ foreach(_component IN LISTS _conflux_find_components)
 endforeach()
 
 add_test(NAME package-smoke/run COMMAND conflux_package_smoke)
+
+
+if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+    if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+        message(FATAL_ERROR
+            "CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER requires a MODULE_INTERFACE install tree")
+    endif()
+
+    set(_conflux_mixed_import_source "${CMAKE_CURRENT_BINARY_DIR}/mixed_import.cxx")
+    set(_conflux_mixed_include_source "${CMAKE_CURRENT_BINARY_DIR}/mixed_include.cxx")
+    set(_conflux_mixed_main_source "${CMAKE_CURRENT_BINARY_DIR}/mixed_main.cxx")
+
+    if(CONFLUX_USE_IMPORT_STD)
+        file(WRITE "${_conflux_mixed_import_source}" [[
+import std;
+import conflux.types;
+
+int conflux_mixed_imported() {
+    std::optional<int> value{41};
+    return value.value_or(0) + 1;
+}
+]])
+    else()
+        file(WRITE "${_conflux_mixed_import_source}" [[
+#include <optional>
+
+import conflux.types;
+
+int conflux_mixed_imported() {
+    std::optional<int> value{41};
+    return value.value_or(0) + 1;
+}
+]])
+    endif()
+
+    file(WRITE "${_conflux_mixed_include_source}" [[
+#include <conflux/types.hpp>
+
+#include <optional>
+
+int conflux_mixed_included() {
+    std::optional<int> value{57};
+    return value.value_or(0) - 15;
+}
+]])
+
+    file(WRITE "${_conflux_mixed_main_source}" [[
+int conflux_mixed_imported();
+int conflux_mixed_included();
+
+int main() {
+    return (conflux_mixed_imported() == 42 && conflux_mixed_included() == 42) ? 0 : 1;
+}
+]])
+
+    add_executable(conflux_package_smoke_mixed_module_header
+        "${_conflux_mixed_import_source}"
+        "${_conflux_mixed_include_source}"
+        "${_conflux_mixed_main_source}")
+    target_compile_features(conflux_package_smoke_mixed_module_header PRIVATE cxx_std_23)
+    conflux_apply_package_smoke_build_policy(conflux_package_smoke_mixed_module_header)
+    if(TARGET conflux::headers)
+        target_link_libraries(conflux_package_smoke_mixed_module_header PRIVATE conflux::headers)
+    endif()
+    if(TARGET conflux::core)
+        target_link_libraries(conflux_package_smoke_mixed_module_header PRIVATE conflux::core)
+    endif()
+    if(TARGET conflux::types)
+        target_link_libraries(conflux_package_smoke_mixed_module_header PRIVATE conflux::types)
+    endif()
+    add_test(NAME package-smoke/mixed-module-header COMMAND conflux_package_smoke_mixed_module_header)
+endif()
 
 function(conflux_add_component_smoke name component source)
     if(NOT TARGET "conflux::${component}")

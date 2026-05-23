@@ -62,6 +62,27 @@ Build all perf-lane benchmark binaries with:
 scripts/run-perf-matrix.sh
 ```
 
+## Compile-time benchmarks
+
+`testing.md` treats include/import cost, quickstart compile cost, full HTTP app
+compile cost, incremental rebuilds, and binary size as release evidence. Use the
+first-party harness when validating header/module cost claims on a real machine:
+
+```sh
+scripts/compile_time_bench.py \
+  --source . \
+  --build build/compile-time-bench-header \
+  --interface-mode HEADER_INTERFACE \
+  --feature-set http-minimal \
+  --incremental \
+  --pretty
+```
+
+For module-mode evidence, rerun with a separate build directory and
+`--interface-mode MODULE_INTERFACE`. The harness records configure time, per-target
+build time, optional timestamp-only incremental rebuild time, binary sizes where a
+target produces an executable, tool versions, and the exact commands used.
+
 ## Running individual binaries
 
 ```sh

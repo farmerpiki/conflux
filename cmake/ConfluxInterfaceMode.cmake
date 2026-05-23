@@ -716,6 +716,76 @@ function(conflux_add_header_component_smoke_targets)
     set(_smoke_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/header-component-smoke")
     file(MAKE_DIRECTORY "${_smoke_dir}")
 
+    set(_public_smoke_dir "${_smoke_dir}/public-includes")
+    set(_public_smoke_fragment "${_smoke_dir}/public-includes.cmake")
+    set(_public_smoke_skip_args)
+    if(NOT CONFLUX_HAS_DB STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-header conflux/db.hxx
+            --skip-header conflux/pg.hxx
+            --skip-prefix conflux/pg/)
+    endif()
+    if(NOT CONFLUX_HAS_TLS STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/tls.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_HTTP2 STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/http2.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_HTTP3 STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/http3.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_COMPRESS STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/compress/)
+    endif()
+    if(NOT CONFLUX_HAS_ZLIB STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/compress/backend/zlib.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/compress/backend/libdeflate.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/compress/backend/zlibng.hxx)
+    endif()
+    if(NOT CONFLUX_HAS_ISAL STREQUAL "true")
+        list(APPEND _public_smoke_skip_args
+            --skip-prefix conflux/net/compress/backend/isal.hxx)
+    endif()
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-public-header-include-smoke.py"
+                --manifest "${CONFLUX_BRIDGE_MANIFEST}"
+                --out-dir "${_public_smoke_dir}"
+                --cmake-fragment "${_public_smoke_fragment}"
+                ${_public_smoke_skip_args}
+        RESULT_VARIABLE _public_smoke_result)
+    if(NOT _public_smoke_result EQUAL 0)
+        message(FATAL_ERROR "conflux: public header include smoke generation failed")
+    endif()
+    include("${_public_smoke_fragment}")
+    if(CONFLUX_PUBLIC_HEADER_SMOKE_SOURCES)
+        add_library(conflux_header_smoke_public_includes EXCLUDE_FROM_ALL OBJECT
+            ${CONFLUX_PUBLIC_HEADER_SMOKE_SOURCES})
+        conflux_apply_header_generated_build_policy(conflux_header_smoke_public_includes)
+        target_link_libraries(conflux_header_smoke_public_includes PRIVATE conflux_headers)
+        conflux_apply_header_smoke_warnings(conflux_header_smoke_public_includes)
+        message(STATUS "conflux: generated ${CONFLUX_PUBLIC_HEADER_SMOKE_COUNT} public header include smoke TUs")
+    endif()
+
+    add_custom_target(conflux_header_smoke_public_hygiene
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-public-header-hygiene.py"
+                --manifest "${CONFLUX_BRIDGE_MANIFEST}"
+                --include-dir "${CONFLUX_GENERATED_INCLUDE_DIR}"
+                ${_public_smoke_skip_args}
+        COMMENT "Checking generated public header hygiene")
+
     file(WRITE "${_smoke_dir}/core.cxx" "#include <conflux/types.hxx>\nint main() { return 0; }\n")
     add_executable(conflux_header_smoke_core "${_smoke_dir}/core.cxx")
     conflux_apply_header_generated_build_policy(conflux_header_smoke_core)

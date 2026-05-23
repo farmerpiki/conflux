@@ -141,6 +141,8 @@ set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
     "Optional installed conflux prefix to validate with the package smoke project")
 set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
     "Expected installed interface mode for package smoke tests, or empty to accept the package mode")
+option(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER
+    "Enable downstream package smoke with one module-import TU and one header-include TU" OFF)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
 option(CONFLUX_RUN_INSTALL_TREE_SMOKE
@@ -741,6 +743,9 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             list(APPEND _conflux_package_smoke_args
                 --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
         endif()
+        if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+            list(APPEND _conflux_package_smoke_args --mixed-module-header)
+        endif()
         add_test(NAME build/package-config-install-tree
             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
                     ${_conflux_package_smoke_args})
@@ -761,6 +766,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
                     --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
                     --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
                     --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
+                    $<$<BOOL:${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}>:--mixed-module-header-smoke>
                     -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
         set_tests_properties(build/install-tree-smoke PROPERTIES
             LABELS "build;package;install")
@@ -3948,6 +3954,9 @@ if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         list(APPEND _conflux_package_smoke_args
             --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
     endif()
+    if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+        list(APPEND _conflux_package_smoke_args --mixed-module-header)
+    endif()
     add_test(NAME build/package-config-install-tree
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
                 ${_conflux_package_smoke_args})
@@ -3969,6 +3978,7 @@ if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
                 --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
                 --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
                 --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
+                $<$<BOOL:${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}>:--mixed-module-header-smoke>
                 -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
     set_tests_properties(build/install-tree-smoke PROPERTIES
         LABELS "build;package;install"
@@ -4138,5 +4148,28 @@ if(CONFLUX_BUILD_EXAMPLES)
             LABELS "examples;build"
             RUN_SERIAL TRUE
         )
+
+        function(conflux_add_example_e2e CASE_NAME TARGET_NAME)
+            if(TARGET ${TARGET_NAME})
+                add_test(NAME examples/e2e-${CASE_NAME}
+                    COMMAND "${Python3_EXECUTABLE}"
+                            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-example-e2e.py"
+                            --case "${CASE_NAME}"
+                            --exe "$<TARGET_FILE:${TARGET_NAME}>"
+                )
+                set_tests_properties(examples/e2e-${CASE_NAME} PROPERTIES
+                    LABELS "examples;e2e"
+                    RUN_SERIAL TRUE
+                    TIMEOUT 15
+                )
+            endif()
+        endfunction()
+
+        conflux_add_example_e2e(quickstart_hello conflux_quickstart_hello)
+        conflux_add_example_e2e(quickstart_json_crud conflux_quickstart_json_crud)
+        conflux_add_example_e2e(quickstart_static_files conflux_quickstart_static_files)
+        conflux_add_example_e2e(quickstart_sse conflux_quickstart_sse)
+        conflux_add_example_e2e(quickstart_websocket conflux_quickstart_websocket)
+        conflux_add_example_e2e(production_showcase conflux_production_showcase_example)
     endif()
 endif()

@@ -15,7 +15,7 @@ package_smoke_args=()
 
 usage() {
 	cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [--forbid-components <list>] [--forbid-external-deps <list>] [-- <extra cmake configure args>]
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header-smoke] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -83,6 +83,10 @@ while (($#)); do
 			[[ $# -ge 2 ]] || { usage; exit 2; }
 			package_smoke_args+=(--forbid-external-deps "$2")
 			shift 2
+			;;
+		--mixed-module-header-smoke)
+			package_smoke_args+=(--mixed-module-header)
+			shift
 			;;
         --)
             shift
