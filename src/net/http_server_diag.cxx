@@ -102,6 +102,9 @@ void Ring::note_recv_payload(
 	m.send_zc = zc_counters_.snapshot();
 	m.rejections = rejection_counters_;
 	m.pressure = pressure_counters_;
+	if (ws_pressure_counter_) {
+		m.pressure.websocket_closed_for_pressure += ws_pressure_counter_->load(std::memory_order_relaxed);
+	}
 	for (Conn const &conn: fd_table) {
 		if (conn.fd >= 0 && conn.zc_state.waiting_notification) {
 			++m.zc_notifications_pending;

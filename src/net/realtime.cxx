@@ -561,8 +561,10 @@ public:
 	WsConn &operator =(WsConn &&) = delete;
 	explicit WsConn(
 		int fd,
-		std::string initial_buf = {})
+		std::string initial_buf = {},
+		std::shared_ptr<std::atomic<std::uint64_t>> pressure_counter = {})
 		: fd_(fd)
+		, pressure_counter_(std::move(pressure_counter))
 		, buf_(std::move(initial_buf)) {}
 #if CONFLUX_HAS_TLS
 	// TLS std::variant: ssl must already have the handshake complete and be wired to
@@ -571,9 +573,11 @@ public:
 	explicit WsConn(
 		int fd,
 		SSL *ssl,
-		std::string initial_buf)
+		std::string initial_buf,
+		std::shared_ptr<std::atomic<std::uint64_t>> pressure_counter = {})
 		: fd_(fd)
 		, ssl_(ssl)
+		, pressure_counter_(std::move(pressure_counter))
 		, buf_(std::move(initial_buf)) {}
 #endif
 	~WsConn() noexcept {
@@ -853,6 +857,11 @@ private:
 		keepalive_thread_.request_stop();
 		keepalive_cv_.notify_all();
 	}
+	void note_pressure_close_noexcept() noexcept {
+		if (pressure_counter_ && !pressure_counted_.test_and_set()) {
+			pressure_counter_->fetch_add(1, std::memory_order_relaxed);
+		}
+	}
 	static constexpr std::uint64_t kMaxMessageSize = 16ULL * 1024 * 1024;
 
 	int fd_;
@@ -860,6 +869,8 @@ private:
 	UniqueSsl ssl_;
 #endif
 	std::atomic_flag closed_{};
+	std::atomic_flag pressure_counted_{};
+	std::shared_ptr<std::atomic<std::uint64_t>> pressure_counter_;
 	std::mutex send_mtx_;
 	std::mutex close_mtx_;
 	std::mutex keepalive_mtx_;
@@ -899,12 +910,19 @@ private:
 	bool do_send_frame(
 		std::uint8_t opcode,
 		std::span<std::byte const> payload) {
+		bool ok = false;
 #if CONFLUX_HAS_TLS
 		if (ssl_) {
-			return ws_detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
-		}
+			ok = ws_detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
+		} else
 #endif
-		return ws_detail::ws_send_frame(fd_, opcode, payload);
+		{
+			ok = ws_detail::ws_send_frame(fd_, opcode, payload);
+		}
+		if (!ok) {
+			note_pressure_close_noexcept();
+		}
+		return ok;
 	}
 };
 // Token carried in Response.ws_upgrade to signal a 101 WebSocket upgrade.

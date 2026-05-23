@@ -87,8 +87,9 @@ void Ring::launch_plain_ws_handler(
 	Ring::WsHandoffState state,
 	int fd,
 	std::string initial_buf) {
-	if (!pool.enqueue([state = std::move(state), fd, ibuf = std::move(initial_buf)]() mutable {
-			WsConn ws{fd, std::move(ibuf)};
+	auto pressure_counter = ws_pressure_counter_;
+	if (!pool.enqueue([state = std::move(state), fd, ibuf = std::move(initial_buf), pressure_counter]() mutable {
+			WsConn ws{fd, std::move(ibuf), std::move(pressure_counter)};
 			state.upgrade->handler(state.request, ws);
 			::close(fd);
 		})) {
@@ -160,12 +161,16 @@ void Ring::launch_tls_ws_handler(
 	SSL *ssl,
 	std::string initial_buf) {
 	UniqueSsl owned{ssl};
-	if (!pool.enqueue(
-			[state = std::move(state), fd, ssl_owned = std::move(owned), ibuf = std::move(initial_buf)]() mutable {
-				WsConn ws{fd, ssl_owned.release(), std::move(ibuf)};
-				state.upgrade->handler(state.request, ws);
-				::close(fd);
-			})) {
+	auto pressure_counter = ws_pressure_counter_;
+	if (!pool.enqueue([state = std::move(state),
+					   fd,
+					   ssl_owned = std::move(owned),
+					   ibuf = std::move(initial_buf),
+					   pressure_counter]() mutable {
+			WsConn ws{fd, ssl_owned.release(), std::move(ibuf), std::move(pressure_counter)};
+			state.upgrade->handler(state.request, ws);
+			::close(fd);
+		})) {
 		++pressure_counters_.websocket_closed_for_pressure;
 		::close(fd);
 	}

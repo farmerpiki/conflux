@@ -29,6 +29,12 @@ Config backpressure_cfg() {
 	return cfg;
 }
 
+void shrink_recv_buffer(
+	int fd) {
+	int size = 4096;
+	(void)::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
+}
+
 } // namespace
 
 TEST_CASE(
@@ -92,4 +98,47 @@ TEST_CASE(
 	CHECK(metrics.pressure.drain_started >= 1);
 	CHECK(metrics.pressure.connections_closed_for_pressure >= 1);
 	client.close();
+}
+
+TEST_CASE(
+	"websocket outbound send failure records pressure metric",
+	"[http][e2e][backpressure][ws]") {
+	Router router;
+	auto handler_started = std::make_shared<std::atomic_bool>(false);
+	router.ws("/ws", [handler_started](chttp::Request const &, WsConn &ws) {
+		handler_started->store(true, std::memory_order_release);
+		std::string payload(64 * 1024, 'w');
+		for (int i = 0; i < 1024; ++i) {
+			if (!ws.send_text(payload)) {
+				return;
+			}
+		}
+	});
+	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
+
+	LocalTcpClient client{srv.port()};
+	shrink_recv_buffer(client.fd());
+	client.set_recv_timeout(std::chrono::seconds{3});
+	std::string_view const req =
+		"GET /ws HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Upgrade: websocket\r\n"
+		"Connection: Upgrade\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+		"Sec-WebSocket-Version: 13\r\n\r\n";
+	REQUIRE(client.send(req, MSG_NOSIGNAL) == static_cast<ssize_t>(req.size()));
+	auto headers = client.read_headers();
+	REQUIRE(headers.starts_with("HTTP/1.1 101"));
+
+	client.close();
+	for (int i = 0; i < 200; ++i) {
+		if (srv.metrics().pressure.websocket_closed_for_pressure > 0) {
+			break;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+
+	CHECK(handler_started->load(std::memory_order_acquire));
+	CHECK(srv.metrics().pressure.websocket_closed_for_pressure >= 1);
+	srv.stop();
 }
