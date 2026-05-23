@@ -15,16 +15,14 @@ export struct IoBuffer {
 		std::span<std::byte const> view)
 		: bytes{view} {}
 	IoBuffer(
-		std::shared_ptr<std::byte const[]> owned_bytes,
+		std::shared_ptr<std::byte const[]> const &owned_bytes,
 		std::size_t size)
 		: bytes{owned_bytes.get(), size}
 		, owner{owned_bytes, static_cast<void const *>(owned_bytes.get())} {}
 	[[nodiscard]] static IoBuffer from_string(
 		std::string value) {
 		auto owned = std::make_shared<std::string const>(std::move(value));
-		auto view = std::span{
-			reinterpret_cast<std::byte const *>(owned->data()),
-			owned->size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+		auto view = std::as_bytes(std::span{owned->data(), owned->size()});
 		return IoBuffer{view, std::move(owned)};
 	}
 

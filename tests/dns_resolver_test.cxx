@@ -1059,7 +1059,7 @@ TEST_CASE(
 		1,
 		{
 			.raw_response = {0x00, 0x01, 0x80},
-		});
+    });
 	DnsMockServer good;
 	good.set_response(
 		"malformed-fallback.test",

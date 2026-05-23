@@ -45,6 +45,7 @@ constexpr bool is_otmpfile_unsupported_errno_async(
 	int e) noexcept {
 	return e == EOPNOTSUPP || e == EISDIR || e == EINVAL || e == ENOSYS || e == EPERM;
 }
+void ignore_best_effort_cleanup_failure() noexcept {}
 
 } // namespace
 struct AsyncAtomicPathParts {
@@ -230,7 +231,7 @@ public:
 		short poll_mask,
 		CompletionFn on_event) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (!sqe) {
+		if (sqe == nullptr) {
 			return false;
 		}
 		conflux::uring::Sqe{sqe}.prep_poll_multishot(
@@ -245,7 +246,7 @@ public:
 		short poll_mask,
 		CompletionFn on_event) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (!sqe) {
+		if (sqe == nullptr) {
 			return false;
 		}
 		conflux::uring::Sqe{sqe}.prep_poll_add(
@@ -265,13 +266,12 @@ private:
 		mode_t mode,
 		unsigned file_index) {
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (!sqe) {
+		if (sqe == nullptr) {
 			auto _ = src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return false;
 		}
 		conflux::uring::Sqe{sqe}.prep_openat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags, mode);
 		auto [slot, gen] = completions_->reserve([this, src, path_owner, file_index](IoResult r) mutable {
-			auto _ = path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
 					auto _ =
@@ -313,7 +313,6 @@ public:
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		sqe.prep_openat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags, mode);
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner](IoResult r) mutable {
-			auto _ = path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
 					auto _ =
@@ -347,7 +346,6 @@ public:
 			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] =
 			completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
-				auto _ = path_owner; // keep-alive until CQE
 				try {
 					if (r.res < 0) {
 						int const err = -r.res;
@@ -388,7 +386,6 @@ public:
 		auto stx_owner = std::make_shared<struct statx>();
 		sqe.prep_statx(dir_fd, path_owner->c_str(), flags, mask, stx_owner.get());
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner, stx_owner](IoResult r) mutable {
-			auto _ = path_owner;
 			try {
 				if (r.res < 0) {
 					auto _ =
@@ -447,7 +444,6 @@ public:
 			sqe.prep_readv(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -613,7 +609,6 @@ public:
 			sqe.prep_writev(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -634,7 +629,6 @@ public:
 			sqe.prep_readv2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -655,7 +649,6 @@ public:
 			sqe.prep_writev2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -738,7 +731,7 @@ public:
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { auto _ = path_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -759,7 +752,7 @@ public:
 			conflux::uring::SqeFd{new_dir_fd},
 			paths->second.c_str(),
 			flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -773,7 +766,7 @@ public:
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		sqe.prep_mkdirat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), mode);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { auto _ = path_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -787,7 +780,7 @@ public:
 		}
 		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(target), std::move(link_path));
 		sqe.prep_symlinkat(paths->first.c_str(), conflux::uring::SqeFd{new_dir_fd}, paths->second.c_str());
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -820,7 +813,7 @@ public:
 			conflux::uring::SqeFd{new_dir_fd},
 			paths->second.c_str(),
 			flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -907,7 +900,7 @@ public:
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_bind(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
 		});
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -969,7 +962,7 @@ public:
 			return std::move(task);
 		}
 		auto *sqe = io_uring_get_sqe(ring_);
-		if (!sqe) {
+		if (sqe == nullptr) {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return std::move(task);
 		}
@@ -996,7 +989,6 @@ public:
 			sqe.prep_fgetxattr(fd, name_owner->c_str(), buf.data(), static_cast<unsigned>(buf.size()));
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [name_owner](IoResult r) mutable {
-			auto _ = name_owner;
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1021,7 +1013,7 @@ public:
 				flags,
 				static_cast<unsigned>(kv->second.size()));
 		});
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable { auto _ = kv; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1038,7 +1030,6 @@ public:
 		auto kp = std::make_shared<std::pair<std::string, std::string>>(std::move(path), std::move(name));
 		sqe.prep_getxattr(kp->second.c_str(), buf.data(), kp->first.c_str(), static_cast<unsigned>(buf.size()));
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [kp](IoResult r) mutable {
-			auto _ = kp;
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1067,7 +1058,7 @@ public:
 			st->path.c_str(),
 			flags,
 			static_cast<unsigned>(st->data.size()));
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [st](IoResult) mutable { auto _ = st; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [st](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1192,7 +1183,6 @@ public:
 				}
 				auto _ = shared_src->try_set_value(root::Success<void>{});
 			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-			auto _ = ts;
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
@@ -1326,7 +1316,7 @@ public:
 		}
 		auto wv = std::make_shared<std::vector<futex_waitv>>(std::move(waiters));
 		sqe.prep_futex_waitv(wv->data(), static_cast<std::uint32_t>(wv->size()), flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable { auto _ = wv; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1391,7 +1381,7 @@ public:
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_connect(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
 		});
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1621,10 +1611,8 @@ public:
 		}
 		auto ctx = std::make_shared<std::pair<std::string, open_how>>(std::move(path), how);
 		sqe.prep_openat2(conflux::uring::SqeFd{dir_fd}, ctx->first.c_str(), &ctx->second);
-		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx](IoResult r) mutable {
-			auto _ = ctx;
-			return FileHandle::from_fd(r.res);
-		});
+		auto [slot, gen] =
+			reserve_bridge<FileHandle>(shared_src, [ctx](IoResult r) mutable { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1652,7 +1640,6 @@ public:
 				addrlen);
 		});
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [sa](IoResult r) mutable {
-			auto _ = sa;
 			return static_cast<std::size_t>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1734,7 +1721,7 @@ public:
 		}
 		auto p = std::make_shared<std::string>(std::move(path));
 		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, p->c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1756,7 +1743,7 @@ public:
 			conflux::uring::SqeFd{new_dir_fd},
 			paths->second.c_str(),
 			flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1770,7 +1757,7 @@ public:
 		}
 		auto p = std::make_shared<std::string>(std::move(path));
 		sqe.prep_mkdir(p->c_str(), mode);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -1792,7 +1779,6 @@ public:
 			&ctx->second,
 			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx, file_index](IoResult) mutable {
-			auto _ = ctx;
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1836,7 +1822,6 @@ public:
 			mode,
 			conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [p, file_index](IoResult r) mutable {
-			auto _ = p;
 			// When IORING_FILE_INDEX_ALLOC: res carries the allocated slot.
 			int const s = (file_index == IORING_FILE_INDEX_ALLOC) ? r.res : static_cast<int>(file_index);
 			return FileHandle::from_direct_slot(s);
@@ -2079,7 +2064,7 @@ public:
 
 		auto parent_fh = co_await async_open_atomic_parent_dir(dir_fd, std::move(parts->parent_dir));
 		int const parent_fd = parent_fh.raw_fd();
-		std::string staging = make_staging_name_async();
+		std::string const staging = make_staging_name_async();
 		bool staging_entry_exists = false;
 
 		std::exception_ptr cleanup_error;
@@ -2123,7 +2108,7 @@ public:
 		if (staging_entry_exists) {
 			try {
 				co_await async_unlinkat(parent_fd, std::string{staging});
-			} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort staging cleanup; primary failure is rethrown below.
+			} catch (...) { ignore_best_effort_cleanup_failure(); }
 		}
 		if (cleanup_error) {
 			std::rethrow_exception(cleanup_error);

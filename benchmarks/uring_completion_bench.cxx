@@ -20,13 +20,15 @@ struct DepthCase {
 	std::string_view variant;
 };
 
-constexpr std::array<DepthCase, 5> kDepthCases{{
-	{1, "depth_1"sv, "multishot_dispatch_depth_1"sv},
-	{8, "depth_8"sv, "multishot_dispatch_depth_8"sv},
-	{32, "depth_32"sv, "multishot_dispatch_depth_32"sv},
-	{128, "depth_128"sv, "multishot_dispatch_depth_128"sv},
-	{512, "depth_512"sv, "multishot_dispatch_depth_512"sv},
-}};
+constexpr std::array<DepthCase, 5> kDepthCases{
+	{
+     {1, "depth_1"sv, "multishot_dispatch_depth_1"sv},
+     {8, "depth_8"sv, "multishot_dispatch_depth_8"sv},
+     {32, "depth_32"sv, "multishot_dispatch_depth_32"sv},
+     {128, "depth_128"sv, "multishot_dispatch_depth_128"sv},
+     {512, "depth_512"sv, "multishot_dispatch_depth_512"sv},
+	 }
+};
 
 struct LargeCapture {
 	std::array<std::uint64_t, 16> words{};

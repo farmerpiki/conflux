@@ -744,8 +744,8 @@ struct CLocaleHolder {
 [[nodiscard]] inline CLocaleHolder const &c_locale_holder() noexcept {
 	// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 	static CLocaleHolder const h = [] {
-		::locale_t l = ::newlocale(kLcAllMask, "C", static_cast<::locale_t>(0)); // NOLINT(modernize-use-nullptr)
-		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
+		::locale_t l = ::newlocale(kLcAllMask, "C", nullptr);
+		return CLocaleHolder{l, l != nullptr};
 	}();
 	// Intentional: process-lifetime singleton, never freelocale'd.
 	// This is the only permitted hidden process-lifetime state in conflux.json;
@@ -789,13 +789,11 @@ struct ClassifiedDouble {
 					.code = JsonIssueCode::resource_exhausted,
 					.message = "newlocale(C) failed at startup; strtod_l unavailable"});
 		}
-		// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays)
-		char stack_buf[128];
-		// NOLINTEND(cppcoreguidelines-avoid-c-arrays)
+		std::array<char, 128> stack_buf{};
 		std::unique_ptr<char[]> heap_buf;
 		char *cp = nullptr;
-		if (n + 1 <= sizeof(stack_buf)) {
-			cp = stack_buf;
+		if (n + 1 <= stack_buf.size()) {
+			cp = stack_buf.data();
 		} else {
 			heap_buf = std::unique_ptr<char[]>{new (std::nothrow) char[n + 1]};
 			if (!heap_buf) {
@@ -1032,7 +1030,7 @@ template<class Writer>
 	while (i < body.size()) {
 		auto const c = static_cast<unsigned char>(body[i]);
 		if (c != '\\') {
-			std::size_t run_start = i;
+			std::size_t const run_start = i;
 			while (i < body.size() && static_cast<unsigned char>(body[i]) != '\\') {
 				++i;
 			}
@@ -1749,8 +1747,9 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, storage_{
-			  std::make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
+		, storage_{std::make_unique<DocumentStorage>(
+			  &mbr_,
+			  (opts.hash_index_resource != nullptr) ? opts.hash_index_resource : &mbr_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;
 	JsonArena(JsonArena &&) = delete;

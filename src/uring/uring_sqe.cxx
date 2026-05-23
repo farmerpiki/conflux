@@ -277,9 +277,9 @@ inline constexpr CqeFlags f32{IORING_CQE_F_32};
 }
 [[nodiscard]] constexpr CqeFlags selected_buffer(
 	BufId id,
-	bool more = false) noexcept {
+	bool has_more_buffer = false) noexcept {
 	auto flags = CqeFlags{IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id.v) << IORING_CQE_BUFFER_SHIFT)};
-	if (more) {
+	if (has_more_buffer) {
 		flags |= buf_more;
 	}
 	return flags;

@@ -101,9 +101,7 @@ export Router::Handler openapi_handler(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
-	return [spec = std::move(spec)](RequestView const &) -> Response {
-		return Response::json(spec);
-	};
+	return [spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); };
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.

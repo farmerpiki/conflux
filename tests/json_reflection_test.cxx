@@ -159,7 +159,7 @@ void test_reflect_direct_dump_nested() {
 	Nested n{
 		.id = "r",
 		.origin = {5, 6}
-	};
+    };
 	auto body = dump_reflect_direct(n);
 	REQUIRE(body.has_value());
 	CHECK(*body == R"({"id":"r","origin":{"x":5,"y":6}})");

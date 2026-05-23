@@ -37,6 +37,7 @@ using dns_local::UniqueAddrInfo;
 namespace {
 
 thread_local Resolver *tls_current_resolver{nullptr};
+void ignore_best_effort_dns_failure() noexcept {}
 
 } // namespace
 [[nodiscard]] Resolver *current_resolver() noexcept {
@@ -186,7 +187,7 @@ void parse_resolv_options(
 				continue;
 			}
 		}
-	} catch (...) {} // NOLINT(bugprone-empty-catch): resolv.conf parsing is best-effort; caller falls back to defaults.
+	} catch (...) { ignore_best_effort_dns_failure(); }
 	return out;
 }
 [[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
@@ -261,7 +262,7 @@ void parse_resolv_options(
 				out[name].push_back(ep);
 			}
 		}
-	} catch (...) {} // NOLINT(bugprone-empty-catch): hosts-file parsing is best-effort; caller continues with DNS.
+	} catch (...) { ignore_best_effort_dns_failure(); }
 	return out;
 }
 [[nodiscard]] std::string lowercase_ascii(
@@ -338,7 +339,7 @@ struct DnsQueryState {
 		root::TaskControl c) {
 		std::optional<root::TaskControl> to_cancel;
 		{
-			std::scoped_lock lk{m};
+			std::scoped_lock const lk{m};
 			active.emplace(std::move(c));
 			if (cancel_requested.load(std::memory_order_acquire)) {
 				to_cancel = active;
@@ -349,13 +350,13 @@ struct DnsQueryState {
 		}
 	}
 	void clear_active() {
-		std::scoped_lock lk{m};
+		std::scoped_lock const lk{m};
 		active.reset();
 	}
 	void cancel() {
 		std::optional<root::TaskControl> to_cancel;
 		{
-			std::scoped_lock lk{m};
+			std::scoped_lock const lk{m};
 			cancel_requested.store(true, std::memory_order_release);
 			to_cancel = active;
 		}
@@ -415,7 +416,7 @@ struct ActiveTaskGuard {
 			}
 			auto const remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
 			auto recv_task = sock.async_recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, remaining);
-			ActiveTaskGuard g{*state, recv_task.control()};
+			ActiveTaskGuard const g{*state, recv_task.control()};
 			auto const result = co_await std::move(recv_task);
 			auto msg = codec::decode_message(std::span<std::uint8_t const>{rx_buf.data(), result.bytes});
 			if (!same_dns_peer(result.from, result.from_len, ns)) {
@@ -519,7 +520,7 @@ struct ActiveTaskGuard {
 		TcpStream stream{};
 		{
 			auto connect_task = async_tcp_connect(ring, family, ns.addr, ns.addr_len, copts);
-			ActiveTaskGuard g{*state, connect_task.control()};
+			ActiveTaskGuard const g{*state, connect_task.control()};
 			stream = co_await std::move(connect_task);
 		}
 		check_cancelled();
@@ -528,7 +529,7 @@ struct ActiveTaskGuard {
 			while (sent < framed.size()) {
 				auto write_task = stream.async_write_borrowed(
 					std::span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
-				ActiveTaskGuard g{*state, write_task.control()};
+				ActiveTaskGuard const g{*state, write_task.control()};
 				std::size_t const n = co_await std::move(write_task);
 				if (n == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp write failed"};
@@ -544,7 +545,7 @@ struct ActiveTaskGuard {
 				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
 					std::span<std::uint8_t>{len_buf.data() + n, 2 - n},
 					remaining_or_throw());
-				ActiveTaskGuard g{*state, recv_task.control()};
+				ActiveTaskGuard const g{*state, recv_task.control()};
 				std::size_t const got = co_await std::move(recv_task);
 				if (got == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp short length prefix"};
@@ -564,7 +565,7 @@ struct ActiveTaskGuard {
 				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
 					std::span<std::uint8_t>{resp_buf.data() + resp_n, static_cast<std::size_t>(resp_len) - resp_n},
 					remaining_or_throw());
-				ActiveTaskGuard g{*state, recv_task.control()};
+				ActiveTaskGuard const g{*state, recv_task.control()};
 				std::size_t const got = co_await std::move(recv_task);
 				if (got == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp short response"};
@@ -996,8 +997,8 @@ struct InFlightKey {
 struct InFlightKeyHash {
 	size_t operator ()(
 		InFlightKey const &k) const noexcept {
-		size_t h1 = std::hash<std::string>{}(k.cache_key);
-		size_t h2 = std::hash<void const *>{}(k.ring);
+		size_t const h1 = std::hash<std::string>{}(k.cache_key);
+		size_t const h2 = std::hash<void const *>{}(k.ring);
 		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
 	}
 };
@@ -1164,7 +1165,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
 				cache->put(cache_key, r, ttl);
 			}
-		} catch (...) {} // NOLINT(bugprone-empty-catch): DNS cache insertion must not fail resolution delivery.
+		} catch (...) { ignore_best_effort_dns_failure(); }
 		return r;
 	};
 
@@ -1227,9 +1228,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 					cache->put(cache_key, result, ttl);
 				}
 				auto _ = shared_src->try_set_value(root::Success<ResolveResult>{std::move(result)});
-			} catch (...) {
-				auto _ = shared_src->try_set_exception(std::current_exception());
-			} // NOLINT(bugprone-empty-catch)
+			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		});
 		if (!ok) {
 			auto _ = shared_src->try_set_exception(
@@ -1249,7 +1248,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return std::move(task);
 	}
 
-	SocketTaskRing *task_ring = external_ring ? external_ring : impl_->task_ring.get();
+	SocketTaskRing *task_ring = (external_ring != nullptr) ? external_ring : impl_->task_ring.get();
 	if (task_ring == nullptr) {
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 		auto _ = raw_src.try_set_exception(
@@ -1260,7 +1259,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	std::optional<root::Task<ResolveResult>> coalesced_out;
 	bool max_inflight_exceeded = false;
 	{
-		std::lock_guard lock{impl_->in_flight_mutex};
+		std::lock_guard const lock{impl_->in_flight_mutex};
 		if (impl_->in_flight.size() >= impl_->opts.max_in_flight_queries) {
 			max_inflight_exceeded = true;
 		} else if (!inflight_key.cache_key.empty()) {
@@ -1307,10 +1306,10 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	auto fanout_success = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](ResolveResult r) -> ResolveResult {
-		auto impl_keep = impl;
+		auto const &impl_keep = impl;
 		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
-			std::lock_guard lock{impl_keep->in_flight_mutex};
+			std::lock_guard const lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
 				waiters = std::move(it->second.waiters);
 				impl_keep->in_flight.erase(it);
@@ -1326,10 +1325,10 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	auto fanout_error = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](std::exception_ptr const &ep) -> ResolveResult {
-		auto impl_keep = impl;
+		auto const &impl_keep = impl;
 		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
-			std::lock_guard lock{impl_keep->in_flight_mutex};
+			std::lock_guard const lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
 				waiters = std::move(it->second.waiters);
 				impl_keep->in_flight.erase(it);
@@ -1347,7 +1346,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				neg.is_negative = true;
 				try {
 					impl_keep->cache->put(inflight_key.cache_key, neg, impl_keep->opts.cache_negative_ttl);
-				} catch (...) {} // NOLINT(bugprone-empty-catch): negative-cache write is best-effort after NXDOMAIN.
+				} catch (...) { ignore_best_effort_dns_failure(); }
 			}
 			throw;
 		}
@@ -1381,17 +1380,17 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	   std::shared_ptr<Resolver::Impl> impl,
 	   InFlightKey inflight_key) mutable -> root::Task<void> {
 		try {
-			auto out = out_src;
+			auto const &out = out_src;
 			auto r = co_await std::move(inner);
 			r = cache_insert(std::move(r));
 			r = fanout_success(std::move(r));
 			auto _ = out->try_set_value(root::Success<ResolveResult>{std::move(r)});
 		} catch (Cancelled const &) {
-			auto out = out_src;
-			auto key = inflight_key;
+			auto const &out = out_src;
+			auto const &key = inflight_key;
 			std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 			if (!key.cache_key.empty()) {
-				std::lock_guard lock{impl->in_flight_mutex};
+				std::lock_guard const lock{impl->in_flight_mutex};
 				if (auto it = impl->in_flight.find(key); it != impl->in_flight.end()) {
 					waiters = std::move(it->second.waiters);
 					impl->in_flight.erase(it);
@@ -1404,7 +1403,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			auto _ =
 				out->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 		} catch (...) {
-			auto out = out_src;
+			auto const &out = out_src;
 			try {
 				fanout_error(std::current_exception());
 			} catch (...) { auto _ = out->try_set_exception(std::current_exception()); }
@@ -1615,7 +1614,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 						(result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
 					try {
 						impl_->cache->put(cache_key, result, ttl);
-					} catch (...) {} // NOLINT(bugprone-empty-catch): blocking resolver cache insert must not hide a successful answer.
+					} catch (...) { ignore_best_effort_dns_failure(); }
 				}
 				return result;
 			} catch (BlockOnSocketTaskTimeout const &) {
@@ -1630,7 +1629,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 						neg.is_negative = true;
 						try {
 							impl_->cache->put(cache_key, neg, impl_->opts.cache_negative_ttl);
-						} catch (...) {} // NOLINT(bugprone-empty-catch): NXDOMAIN cache insert is best-effort before trying next backend.
+						} catch (...) { ignore_best_effort_dns_failure(); }
 					}
 					continue;
 				}

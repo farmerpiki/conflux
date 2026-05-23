@@ -284,8 +284,7 @@ ssize_t Ring::h2_read_cb(
 			return NGHTTP2_ERR_DEFERRED;
 		}
 		auto to_copy = std::min(stream.h2_sse_buf.size(), length);
-		// NOLINTNEXTLINE(bugprone-not-null-terminated-result): raw std::byte copy, not C-S
-		memcpy(buf, stream.h2_sse_buf.data(), to_copy);
+		std::copy_n(stream.h2_sse_buf.data(), to_copy, buf);
 		stream.h2_sse_buf.erase(0, to_copy);
 		// Don't set EOF — channel may produce more events.
 		return static_cast<ssize_t>(to_copy);

@@ -122,14 +122,20 @@ export void random_bytes(
 export template<typename T>
 void hash_combine(
 	std::size_t &seed,
-	T const &value) noexcept(noexcept(std::hash<std::remove_cvref_t<T>>{}(value))) {
+	T const &value)
+	noexcept(
+		noexcept(std::hash<std::remove_cvref_t<T>>{}(value))) {
 	seed ^= std::hash<std::remove_cvref_t<T>>{}(value)
-		+ static_cast<std::size_t>(0x9e3779b97f4a7c15ULL) + (seed << 6U) + (seed >> 2U);
+		  + static_cast<std::size_t>(0x9e3779b97f4a7c15ULL)
+		  + (seed << 6U)
+		  + (seed >> 2U);
 }
 
 export template<typename... Ts>
 [[nodiscard]] std::size_t hash_values(
-	Ts const &...values) noexcept((noexcept(hash_combine(std::declval<std::size_t &>(), values)) && ...)) {
+	Ts const &...values)
+	noexcept(
+		(noexcept(hash_combine(std::declval<std::size_t &>(), values)) && ...)) {
 	std::size_t seed = 0;
 	(hash_combine(seed, values), ...);
 	return seed;
@@ -184,8 +190,7 @@ void append_json_u_escape_(
 	std::size_t out = 0;
 	for (char const raw: value) {
 		auto const c = static_cast<unsigned char>(raw);
-		if (raw == '"' || raw == '\\' || raw == '\b' || raw == '\f' || raw == '\n' || raw == '\r'
-			|| raw == '\t') {
+		if (raw == '"' || raw == '\\' || raw == '\b' || raw == '\f' || raw == '\n' || raw == '\r' || raw == '\t') {
 			out += 2;
 		} else if (c < 0x20U) {
 			out += 6;
@@ -347,8 +352,13 @@ export constexpr int hex_char_to_int(
 
 export [[nodiscard]] constexpr bool is_url_unreserved(
 	unsigned char c) noexcept {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
-		|| c == '_' || c == '.' || c == '~';
+	return (c >= 'A' && c <= 'Z')
+		|| (c >= 'a' && c <= 'z')
+		|| (c >= '0' && c <= '9')
+		|| c == '-'
+		|| c == '_'
+		|| c == '.'
+		|| c == '~';
 }
 
 export [[nodiscard]] constexpr bool url_needs_component_decode(

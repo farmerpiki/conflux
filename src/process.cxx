@@ -2,10 +2,10 @@
 module;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 #include <cerrno>
+#include <csignal>
 #include <fcntl.h>
 #include <poll.h>
 #include <sched.h>
-#include <signal.h> // NOLINT(modernize-deprecated-headers)
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -219,20 +219,20 @@ std::vector<std::string> build_env(
 	return env_strs;
 }
 // Prepare stdio fd for child: returns the fd to dup3 into 0/1/2, or -1 for inherit, or -2 for /dev/null.
-// pipe_fds[2]: if kind==Piped, filled with pipe2(); returns pipe_fds[read_end] for stdin, [write_end] for out/err.
+// pipe_fds: if kind==Piped, filled with pipe2(); returns pipe_fds[read_end] for stdin, [write_end] for out/err.
 // parent_fd: set to the parent's end of the pipe.
-// NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+using PipeFds = std::array<int, 2>;
 int setup_stdio(
 	Stdio const &s,
 	bool is_stdin,
-	int pipe_fds[2],
+	PipeFds &pipe_fds,
 	int &parent_fd) {
 	switch (s.kind) {
 	case Stdio::Kind::Inherit: return -1;
 	case Stdio::Kind::Null   : return -2;
 	case Stdio::Kind::Fd     : return s.fd;
 	case Stdio::Kind::Piped:
-		if (::pipe2(pipe_fds, O_CLOEXEC) < 0) {
+		if (::pipe2(pipe_fds.data(), O_CLOEXEC) < 0) {
 			return -3;
 		}
 		if (is_stdin) {
@@ -244,7 +244,6 @@ int setup_stdio(
 	}
 	return -1;
 }
-// NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
 // Child-side: set up one stdio fd (called between fork/exec; async-signal-safe only).
 // Returns false on error.
@@ -319,29 +318,24 @@ export std::expected<Process, std::error_code> spawn_clone(
 	envp_ptrs.push_back(nullptr);
 
 	// Set up stdio pipes.
-	int in_pipe[2]{-1, -1}; // NOLINT(modernize-avoid-c-arrays)
-	int out_pipe[2]{-1, -1}; // NOLINT(modernize-avoid-c-arrays)
-	int err_pipe[2]{-1, -1}; // NOLINT(modernize-avoid-c-arrays)
+	PipeFds in_pipe{-1, -1};
+	PipeFds out_pipe{-1, -1};
+	PipeFds err_pipe{-1, -1};
 	int parent_in = -1;
 	int parent_out = -1;
 	int parent_err = -1;
 
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_in = setup_stdio(opts.stdin_, true, in_pipe, parent_in);
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_out = setup_stdio(opts.stdout_, false, out_pipe, parent_out);
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_err = setup_stdio(opts.stderr_, false, err_pipe, parent_err);
 
 	auto close_stdio_pipes = [&] {
-		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-A-index)
 		for (auto *pipe: {&in_pipe, &out_pipe, &err_pipe}) {
-			if ((*pipe)[0] >= 0) {
-				::close((*pipe)[0]);
-				::close((*pipe)[1]);
+			if (pipe->front() >= 0) {
+				::close(pipe->front());
+				::close(pipe->back());
 			}
 		}
-		// NOLINTEND(cppcoreguidelines-pro-bounds-constant-A-index)
 	};
 
 	if (child_in == -3 || child_out == -3 || child_err == -3) {
@@ -352,9 +346,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 	}
 
 	// Error-reporting pipe: child writes errno if exec fails; parent detects success via EOF.
-	int exec_err_pipe[2]{-1, -1}; // NOLINT(modernize-avoid-c-arrays)
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-	if (::pipe2(exec_err_pipe, O_CLOEXEC) < 0) {
+	PipeFds exec_err_pipe{-1, -1};
+	if (::pipe2(exec_err_pipe.data(), O_CLOEXEC) < 0) {
 		close_stdio_pipes();
 		return std::unexpected{
 			std::error_code{errno, std::system_category()}
@@ -553,11 +546,12 @@ export std::expected<RunResult, std::error_code> run(
 	while (pfds[0].fd >= 0 || pfds[1].fd >= 0) {
 		// Build active pollfd A (skip closed fds).
 		std::array<pollfd, 2> active{};
-		int n_active = 0; // NOLINT(misc-const-correctness) — incremented in loop
+		std::size_t n_active = 0;
+		auto active_it = active.begin();
 		for (auto const &pfd: pfds) {
 			if (pfd.fd >= 0) {
-				active[static_cast<std::size_t>(n_active++)] =
-					pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				*active_it++ = pfd;
+				++n_active;
 			}
 		}
 
@@ -580,21 +574,20 @@ export std::expected<RunResult, std::error_code> run(
             };
 		}
 
-		for (auto const &a: active) {
+		for (auto const &a: std::span{active}.first(n_active)) {
 			if (a.revents == 0) {
 				continue;
 			}
 			std::string &buf = (a.fd == out_fd) ? result.stdout_out : result.stderr_out;
 			if ((a.revents & POLLIN) != 0) {
-				char tmp[4096]; // NOLINT(modernize-avoid-c-arrays,readability-magic-numbers)
+				constexpr std::size_t kReadBufferSize = 4096;
+				std::array<char, kReadBufferSize> tmp{};
 				ssize_t nr = 0;
 				do {
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-					nr = ::read(a.fd, tmp, sizeof(tmp));
+					nr = ::read(a.fd, tmp.data(), tmp.size());
 				} while (nr < 0 && errno == EINTR);
 				if (nr > 0) {
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-					buf.append(tmp, static_cast<std::size_t>(nr));
+					buf.append(tmp.data(), static_cast<std::size_t>(nr));
 				}
 			}
 			if ((a.revents & (POLLHUP | POLLERR)) != 0) {

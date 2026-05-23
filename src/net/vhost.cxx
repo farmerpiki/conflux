@@ -12,7 +12,6 @@ import conflux.work;
 // The Host port (":port") is stripped before matching.
 // A default Router handles requests for unknown hosts.
 export class VHostRouter {
-
 public:
 	// Register a Router for an exact host name (e.g. "api.example.com").
 	VHostRouter &add(

@@ -619,14 +619,16 @@ struct SaturatedPool {
 	std::size_t backlog_seed{};
 
 	SaturatedPool()
-		: pool{WorkPoolOptions{
-			  .threads = 1,
-			  .max_inject_queue = 8,
-			  .inject_queue_shards = 1,
-			  .local_queue_capacity = 0,
-			  .queue_mode = WorkPoolQueueMode::no_stealing,
-			  .spin_before_park = 0,
-		  }} {
+		: pool{
+			  WorkPoolOptions{
+							  .threads = 1,
+							  .max_inject_queue = 8,
+							  .inject_queue_shards = 1,
+							  .local_queue_capacity = 0,
+							  .queue_mode = WorkPoolQueueMode::no_stealing,
+							  .spin_before_park = 0,
+							  }
+    } {
 		if (!pool.enqueue([this] {
 				worker_started.store(true, std::memory_order_release);
 				while (!release_worker.load(std::memory_order_acquire)) {

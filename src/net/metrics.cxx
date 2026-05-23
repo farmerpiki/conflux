@@ -155,7 +155,13 @@ export std::string format_pressure_metrics_prometheus(
 	out += "# HELP http_pressure_events_total HTTP lifecycle and backpressure events\n";
 	out += "# TYPE http_pressure_events_total counter\n";
 	auto append = [&out](std::string_view name, std::uint64_t value) {
-		append_prometheus_sample(out, "http_pressure_events_total", {{"event", name}}, value);
+		append_prometheus_sample(
+			out,
+			"http_pressure_events_total",
+			{
+				{"event", name}
+        },
+			value);
 	};
 	append("accept_rejected", pressure.accept_rejected);
 	append("connections_closed_for_pressure", pressure.connections_closed_for_pressure);
@@ -202,7 +208,10 @@ public:
 				append_prometheus_sample(
 					out,
 					"http_requests_total",
-					{{"method", kMethodNames[mi]}, {"status", kStatusLabels[si]}},
+					{
+						{"method",  kMethodNames[mi]},
+						{"status", kStatusLabels[si]}
+                },
 					v); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 		}
@@ -215,13 +224,17 @@ public:
 			append_prometheus_sample(
 				out,
 				"http_request_duration_seconds_bucket",
-				{{"le", le}},
+				{
+					{"le", le}
+            },
 				duration_.bucket(i)); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		}
 		append_prometheus_sample(
 			out,
 			"http_request_duration_seconds_bucket",
-			{{"le", "+Inf"}},
+			{
+				{"le", "+Inf"}
+        },
 			duration_.count());
 		append_prometheus_sample(out, "http_request_duration_seconds_sum", {}, duration_.sum());
 		append_prometheus_sample(out, "http_request_duration_seconds_count", {}, duration_.count());
@@ -256,9 +269,7 @@ export Router::Middleware metrics_middleware(
 // listener; prefer metrics_handler_protected or a network-level ACL.
 export Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
-	return [&registry](RequestView const &) -> Response {
-		return Response::prometheus(registry.format_prometheus());
-	};
+	return [&registry](RequestView const &) -> Response { return Response::prometheus(registry.format_prometheus()); };
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.

@@ -27,13 +27,8 @@ export void http2_configure_alpn(
 		   unsigned int inlen,
 		   void * /*arg*/) -> int {
 			static constexpr unsigned char kServerProtos[] = "\x02h2\x08http/1.1";
-			if (SSL_select_next_proto(
-					const_cast<unsigned char **>(out),
-					outlen, // NOLINT(cppcoreguidelines-pro-type-const-cast)
-					kServerProtos,
-					sizeof(kServerProtos) - 1,
-					in,
-					inlen)
+			auto **selected_out = const_cast<unsigned char **>(out); // NOLINT(cppcoreguidelines-pro-type-const-cast)
+			if (SSL_select_next_proto(selected_out, outlen, kServerProtos, sizeof(kServerProtos) - 1, in, inlen)
 				== OPENSSL_NPN_NEGOTIATED) {
 				return SSL_TLSEXT_ERR_OK;
 			}

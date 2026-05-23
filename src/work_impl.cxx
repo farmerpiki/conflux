@@ -11,6 +11,12 @@ module conflux.work;
 import std;
 import conflux_uring_sqe;
 
+namespace {
+
+void ignore_noexcept_callback_failure() noexcept {}
+
+} // namespace
+
 struct alignas(
 	64) WorkPoolWorker {
 	explicit WorkPoolWorker(
@@ -290,7 +296,7 @@ struct WorkPoolState {
 					if (options.raw_exception_sink) {
 						try {
 							options.raw_exception_sink(std::current_exception());
-						} catch (...) {} // NOLINT(bugprone-empty-catch): exception sink failure cannot be reported recursively.
+						} catch (...) { ignore_noexcept_callback_failure(); }
 					}
 				}
 				pending.fetch_sub(1, std::memory_order_release);
@@ -432,7 +438,7 @@ struct RingLaneState {
 
 	explicit RingLaneState(
 		RingLaneOptions opts)
-		: options{std::move(opts)} {}
+		: options{opts} {}
 	[[nodiscard]] bool is_owner_thread() const noexcept { return std::this_thread::get_id() == owner; }
 	[[nodiscard]] bool wake_ring() noexcept {
 		if (options.ring_fd < 0) {
@@ -450,7 +456,7 @@ struct RingLaneState {
 		work_detail::Fn job) {
 		try {
 			job();
-		} catch (...) {} // NOLINT(bugprone-empty-catch): inline fallback worker cannot propagate user task exceptions.
+		} catch (...) { ignore_noexcept_callback_failure(); }
 	}
 };
 
@@ -503,7 +509,7 @@ void WorkPool::reset_queue_stats() noexcept {
 
 RingLane::RingLane(
 	RingLaneOptions options)
-	: state_{new RingLaneState{std::move(options)}} {}
+	: state_{new RingLaneState{options}} {}
 
 RingLane::~RingLane() {
 	delete ring_lane_state(state_);

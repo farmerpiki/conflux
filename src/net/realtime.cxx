@@ -56,6 +56,12 @@ export constexpr SseOverflowPolicy sse_overflow_policy(
 	return SseOverflowPolicy::DropNewest;
 }
 
+namespace {
+
+void ignore_noexcept_destructor_failure() noexcept {}
+
+} // namespace
+
 export struct SsePressureMetrics {
 	std::uint64_t dropped_newest{};
 	std::uint64_t dropped_oldest{};
@@ -97,7 +103,7 @@ public:
 	~SseChannel() noexcept {
 		try {
 			close();
-		} catch (...) {} // NOLINT(bugprone-empty-catch): dtor must not propagate
+		} catch (...) { ignore_noexcept_destructor_failure(); }
 		::close(efd_);
 	}
 	// Returns true if the frame was enqueued, false if dropped (overflow).
@@ -800,12 +806,12 @@ public:
 	void on_close(
 		std::function<void()> callback) {
 		if (closed_.test()) {
-			invoke_close_callback(std::move(callback));
+			invoke_close_callback(callback);
 			return;
 		}
 		std::scoped_lock const lk{close_mtx_};
 		if (closed_.test()) {
-			invoke_close_callback(std::move(callback));
+			invoke_close_callback(callback);
 			return;
 		}
 		close_callbacks_.push_back(std::move(callback));
@@ -835,7 +841,7 @@ public:
 
 private:
 	static void invoke_close_callback(
-		std::function<void()> callback) noexcept {
+		std::function<void()> const &callback) noexcept {
 		try {
 			callback();
 		} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
@@ -847,7 +853,7 @@ private:
 			callbacks = std::move(close_callbacks_);
 		}
 		for (auto &callback: callbacks) {
-			invoke_close_callback(std::move(callback));
+			invoke_close_callback(callback);
 		}
 	}
 	void stop_keepalive() noexcept {
