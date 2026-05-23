@@ -383,31 +383,31 @@ option(CONFLUX_ENABLE_HTTP_TRACE "Enable debug-only HTTP/server tracing"     OFF
 option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A prototype surface" ON)
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" OFF)
 set(CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER "AUTO" CACHE STRING
-    "Argon2 backend for password hashing: AUTO uses system libargon2 when found, otherwise runtime dlopen; SYSTEM requires libargon2; RUNTIME uses dlopen only; OFF disables Argon2")
+    "Argon2 backend for password hashing: AUTO follows the selected feature preset; SYSTEM requires libargon2; RUNTIME uses dlopen only; OFF disables Argon2")
 set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO SYSTEM RUNTIME OFF)
 set(CONFLUX_JSON_HASH_PROVIDER "AUTO" CACHE STRING
-    "JSON object-name hash provider: AUTO prefers system xxhash and falls back to internal; XXHASH requires libxxhash; INTERNAL avoids external hash deps")
+    "JSON object-name hash provider: AUTO follows the selected feature preset; XXHASH requires libxxhash; INTERNAL avoids external hash deps")
 set_property(CACHE CONFLUX_JSON_HASH_PROVIDER PROPERTY STRINGS AUTO XXHASH INTERNAL)
 set(CONFLUX_GZIP_PROVIDER "AUTO" CACHE STRING
-    "Gzip provider: AUTO prefers libdeflate, then zlib-ng, then zlib; ALL enables every discovered backend; LIBDEFLATE, ZLIB_NG, ZLIB, or ISAL require one backend; OFF disables gzip")
+    "Gzip provider: AUTO follows the selected feature preset; ALL enables every discovered backend; LIBDEFLATE, ZLIB_NG, ZLIB, or ISAL require one backend; OFF disables gzip")
 set_property(CACHE CONFLUX_GZIP_PROVIDER PROPERTY STRINGS AUTO ALL LIBDEFLATE ZLIB_NG ZLIB ISAL OFF)
 set(CONFLUX_BROTLI_PROVIDER "AUTO" CACHE STRING
-    "Brotli provider: AUTO enables system Brotli when found; SYSTEM requires it; OFF disables it")
+    "Brotli provider: AUTO follows the selected feature preset; SYSTEM requires it; OFF disables it")
 set_property(CACHE CONFLUX_BROTLI_PROVIDER PROPERTY STRINGS AUTO SYSTEM OFF)
 set(CONFLUX_ZSTD_PROVIDER "AUTO" CACHE STRING
-    "Zstd provider: AUTO enables system zstd when found; SYSTEM requires it; OFF disables it")
+    "Zstd provider: AUTO follows the selected feature preset; SYSTEM requires it; OFF disables it")
 set_property(CACHE CONFLUX_ZSTD_PROVIDER PROPERTY STRINGS AUTO SYSTEM OFF)
 set(CONFLUX_TLS_PROVIDER "AUTO" CACHE STRING
-    "TLS provider: AUTO enables OpenSSL when found; OPENSSL requires it; OFF disables TLS")
+    "TLS provider: AUTO follows the selected feature preset; OPENSSL requires it; OFF disables TLS")
 set_property(CACHE CONFLUX_TLS_PROVIDER PROPERTY STRINGS AUTO OPENSSL OFF)
 set(CONFLUX_HTTP2_PROVIDER "AUTO" CACHE STRING
-    "HTTP/2 provider: AUTO enables nghttp2 when found with TLS; NGHTTP2 requires it; OFF disables HTTP/2")
+    "HTTP/2 provider: AUTO follows the selected feature preset; NGHTTP2 requires it; OFF disables HTTP/2")
 set_property(CACHE CONFLUX_HTTP2_PROVIDER PROPERTY STRINGS AUTO NGHTTP2 OFF)
 set(CONFLUX_HTTP3_PROVIDER "AUTO" CACHE STRING
-    "HTTP/3 provider: AUTO enables ngtcp2/nghttp3/OpenSSL only with CONFLUX_ENABLE_EXPERIMENTAL=ON; NGTCP2_NGHTTP3_OPENSSL requires it; OFF disables HTTP/3")
+    "HTTP/3 provider: AUTO follows the selected feature preset and still requires CONFLUX_ENABLE_EXPERIMENTAL=ON; NGTCP2_NGHTTP3_OPENSSL requires it; OFF disables HTTP/3")
 set_property(CACHE CONFLUX_HTTP3_PROVIDER PROPERTY STRINGS AUTO NGTCP2_NGHTTP3_OPENSSL OFF)
 set(CONFLUX_POSTGRES_PROVIDER "AUTO" CACHE STRING
-    "PostgreSQL provider: AUTO enables libpq when found; LIBPQ requires it; OFF disables PostgreSQL")
+    "PostgreSQL provider: AUTO follows the selected feature preset; LIBPQ requires it; OFF disables PostgreSQL")
 set_property(CACHE CONFLUX_POSTGRES_PROVIDER PROPERTY STRINGS AUTO LIBPQ OFF)
 set(CONFLUX_RESOLVED_JSON_HASH_PROVIDER "INTERNAL" CACHE STRING "Resolved JSON object-name hash provider")
 set_property(CACHE CONFLUX_RESOLVED_JSON_HASH_PROVIDER PROPERTY STRINGS XXHASH INTERNAL)
@@ -490,6 +490,19 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ConfluxPresets)
 conflux_apply_preset()
+
+# Provider AUTO is preset-owned. Keep cache entries as the user-facing request
+# and resolve local values before any dependency discovery happens.
+set(CONFLUX_JSON_HASH_PROVIDER "${CONFLUX_EFFECTIVE_JSON_HASH_PROVIDER}")
+set(CONFLUX_GZIP_PROVIDER "${CONFLUX_EFFECTIVE_GZIP_PROVIDER}")
+set(CONFLUX_BROTLI_PROVIDER "${CONFLUX_EFFECTIVE_BROTLI_PROVIDER}")
+set(CONFLUX_ZSTD_PROVIDER "${CONFLUX_EFFECTIVE_ZSTD_PROVIDER}")
+set(CONFLUX_TLS_PROVIDER "${CONFLUX_EFFECTIVE_TLS_PROVIDER}")
+set(CONFLUX_HTTP2_PROVIDER "${CONFLUX_EFFECTIVE_HTTP2_PROVIDER}")
+set(CONFLUX_HTTP3_PROVIDER "${CONFLUX_EFFECTIVE_HTTP3_PROVIDER}")
+set(CONFLUX_POSTGRES_PROVIDER "${CONFLUX_EFFECTIVE_POSTGRES_PROVIDER}")
+set(CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER "${CONFLUX_EFFECTIVE_PASSWORD_HASH_ARGON2_PROVIDER}")
+
 include(CompilerOptions)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -510,19 +523,21 @@ conflux_configure_interface_mode()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     include(Dependencies)
-    if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+    string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
+    if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+            AND NOT CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OFF")
         find_package(OpenSSL)
     endif()
     if(CONFLUX_WANT_HTTP_COMPRESSION)
         find_package(ZLIB)
     endif()
-    string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_HTTP2_PROVIDER}" CONFLUX_HTTP2_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_HTTP3_PROVIDER}" CONFLUX_HTTP3_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_GZIP_PROVIDER}" CONFLUX_GZIP_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_BROTLI_PROVIDER}" CONFLUX_BROTLI_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_ZSTD_PROVIDER}" CONFLUX_ZSTD_PROVIDER_UPPER)
     string(TOUPPER "${CONFLUX_POSTGRES_PROVIDER}" CONFLUX_POSTGRES_PROVIDER_UPPER)
+    string(TOUPPER "${CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER}" CONFLUX_ARGON2_PROVIDER_UPPER)
 
     set(_conflux_header_wants_tls FALSE)
     if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
@@ -551,7 +566,8 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         endif()
     endif()
 
-    if(CONFLUX_HTTP3_PROVIDER_UPPER STREQUAL "NGTCP2_NGHTTP3_OPENSSL"
+    if(CONFLUX_WANT_HTTP_SERVER
+            AND CONFLUX_HTTP3_PROVIDER_UPPER STREQUAL "NGTCP2_NGHTTP3_OPENSSL"
             AND NOT CONFLUX_ENABLE_EXPERIMENTAL)
         message(FATAL_ERROR
             "conflux: explicit HTTP/3 provider requires CONFLUX_ENABLE_EXPERIMENTAL=ON")
@@ -696,6 +712,24 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             set(CONFLUX_RESOLVED_POSTGRES_PROVIDER "LIBPQ" CACHE STRING "Resolved PostgreSQL provider" FORCE)
         elseif(CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "LIBPQ")
             message(FATAL_ERROR "conflux: CONFLUX_POSTGRES_PROVIDER=LIBPQ requires libpq")
+        endif()
+    endif()
+
+
+    set(CONFLUX_RESOLVED_ARGON2_PROVIDER "OFF" CACHE STRING
+        "Resolved Argon2 password-hashing provider" FORCE)
+    if((CONFLUX_WANT_HTTP_AUTH OR CONFLUX_WANT_HTTP_SERVER)
+            AND NOT CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "OFF")
+        if(CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "SYSTEM" AND NOT ARGON2_FOUND)
+            message(FATAL_ERROR "conflux: Argon2 provider SYSTEM requires pkg-config module libargon2")
+        elseif((CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "AUTO"
+                OR CONFLUX_ARGON2_PROVIDER_UPPER STREQUAL "SYSTEM")
+                AND ARGON2_FOUND)
+            set(CONFLUX_RESOLVED_ARGON2_PROVIDER "SYSTEM" CACHE STRING
+                "Resolved Argon2 password-hashing provider" FORCE)
+        else()
+            set(CONFLUX_RESOLVED_ARGON2_PROVIDER "RUNTIME" CACHE STRING
+                "Resolved Argon2 password-hashing provider" FORCE)
         endif()
     endif()
 
@@ -1092,7 +1126,9 @@ include(Dependencies)
 # Optional dependencies
 # ---------------------------------------------------------------------------
 
-if(CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
+if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+        AND NOT CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OFF")
     find_package(OpenSSL)
 endif()
 if(CONFLUX_WANT_HTTP_COMPRESSION)
@@ -1100,13 +1136,14 @@ if(CONFLUX_WANT_HTTP_COMPRESSION)
 endif()
 
 # ---- OpenSSL / TLS ---------------------------------------------------------
-string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
 if(NOT CONFLUX_TLS_PROVIDER_UPPER MATCHES "^(AUTO|OPENSSL|OFF)$")
     message(FATAL_ERROR
         "conflux: CONFLUX_TLS_PROVIDER must be AUTO, OPENSSL, or OFF "
         "(got '${CONFLUX_TLS_PROVIDER}')")
 endif()
-if(CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OPENSSL" AND NOT OpenSSL_FOUND)
+if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
+        AND CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OPENSSL"
+        AND NOT OpenSSL_FOUND)
     message(FATAL_ERROR "conflux: CONFLUX_TLS_PROVIDER=OPENSSL requires OpenSSL")
 endif()
 if(NOT (CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
@@ -1344,7 +1381,8 @@ if(NOT CONFLUX_HTTP2_PROVIDER_UPPER MATCHES "^(AUTO|NGHTTP2|OFF)$")
         "conflux: CONFLUX_HTTP2_PROVIDER must be AUTO, NGHTTP2, or OFF "
         "(got '${CONFLUX_HTTP2_PROVIDER}')")
 endif()
-if(CONFLUX_HTTP2_PROVIDER_UPPER STREQUAL "NGHTTP2"
+if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT)
+        AND CONFLUX_HTTP2_PROVIDER_UPPER STREQUAL "NGHTTP2"
         AND (NOT NGHTTP2_FOUND OR NOT CONFLUX_HAS_TLS STREQUAL "true"))
     message(FATAL_ERROR "conflux: CONFLUX_HTTP2_PROVIDER=NGHTTP2 requires libnghttp2 and TLS")
 endif()
@@ -1376,7 +1414,8 @@ if(NOT CONFLUX_HTTP3_PROVIDER_UPPER MATCHES "^(AUTO|NGTCP2_NGHTTP3_OPENSSL|OFF)$
         "conflux: CONFLUX_HTTP3_PROVIDER must be AUTO, NGTCP2_NGHTTP3_OPENSSL, or OFF "
         "(got '${CONFLUX_HTTP3_PROVIDER}')")
 endif()
-if(CONFLUX_HTTP3_PROVIDER_UPPER STREQUAL "NGTCP2_NGHTTP3_OPENSSL"
+if(CONFLUX_WANT_HTTP_SERVER
+        AND CONFLUX_HTTP3_PROVIDER_UPPER STREQUAL "NGTCP2_NGHTTP3_OPENSSL"
         AND NOT CONFLUX_ENABLE_EXPERIMENTAL)
     message(FATAL_ERROR
         "conflux: explicit HTTP/3 provider requires CONFLUX_ENABLE_EXPERIMENTAL=ON")
@@ -1429,7 +1468,9 @@ if(NOT CONFLUX_POSTGRES_PROVIDER_UPPER MATCHES "^(AUTO|LIBPQ|OFF)$")
         "conflux: CONFLUX_POSTGRES_PROVIDER must be AUTO, LIBPQ, or OFF "
         "(got '${CONFLUX_POSTGRES_PROVIDER}')")
 endif()
-if(CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "LIBPQ" AND NOT LIBPQ_FOUND)
+if(CONFLUX_WANT_DB_POSTGRES
+        AND CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "LIBPQ"
+        AND NOT LIBPQ_FOUND)
     message(FATAL_ERROR "conflux: CONFLUX_POSTGRES_PROVIDER=LIBPQ requires libpq")
 endif()
 if(NOT CONFLUX_WANT_DB_POSTGRES OR CONFLUX_POSTGRES_PROVIDER_UPPER STREQUAL "OFF")
