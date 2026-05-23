@@ -1,0 +1,35 @@
+{
+  "reps": 6,
+  "artifact_dir": "/tmp/conflux-http-external",
+  "warmup_seconds": 2,
+  "targets": [
+    {
+      "name": "conflux",
+      "kind": "conflux",
+      "cmd": ["/path/to/conflux_http_bench_server", "--port", "18080"],
+      "base_url": "http://127.0.0.1:18080",
+      "ready_path": "/api/ping"
+    },
+    {
+      "name": "cpp-httplib",
+      "kind": "external",
+      "cmd": ["/path/to/cpp_httplib_bench_server", "--port", "18081"],
+      "base_url": "http://127.0.0.1:18081",
+      "ready_path": "/api/ping"
+    }
+  ],
+  "scenarios": [
+    {"name": "hello_plaintext", "path": "/api/ping", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "json_response", "path": "/json", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "route_param", "path": "/hello/world", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "middleware_chain", "path": "/middleware/chain", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "post_echo_4k", "path": "/echo", "method": "POST", "body_bytes": 4096, "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "post_echo_64k", "path": "/echo", "method": "POST", "body_bytes": 65536, "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "static_64k", "path": "/static/64k.bin", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "static_1m", "path": "/static/1m.bin", "connections": 64, "threads": 4, "duration": "10s"},
+    {"name": "connect_close", "path": "/api/ping", "connections": 64, "threads": 4, "duration": "10s", "headers": ["Connection: close"]},
+    {"name": "keepalive_32", "path": "/api/ping", "connections": 32, "threads": 4, "duration": "10s"},
+    {"name": "keepalive_256", "path": "/api/ping", "connections": 256, "threads": 4, "duration": "10s"},
+    {"name": "keepalive_1k", "path": "/api/ping", "connections": 1024, "threads": 8, "duration": "10s"}
+  ]
+}

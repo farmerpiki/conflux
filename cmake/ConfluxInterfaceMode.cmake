@@ -1177,6 +1177,7 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/http_server_concurrency_bench
         benchmarks/join_all_N_bench
         benchmarks/json_bench
+        benchmarks/kernel_state_synthetic_bench
         benchmarks/router_bench
         benchmarks/socket_raw_bench
         benchmarks/slow_consumer_backpressure_bench
@@ -1199,13 +1200,15 @@ function(conflux_add_header_benchmark_compile_targets)
     endif()
     if(CONFLUX_HAS_TLS STREQUAL "true")
         list(APPEND _conflux_header_benchmark_source_ids
-            benchmarks/tls_tcp_increment_coro_bench)
+            benchmarks/tls_tcp_increment_coro_bench
+            benchmarks/tls_mem_bio_bench)
     endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
         list(APPEND _conflux_header_benchmark_source_ids
             benchmarks/db_coro_bench
             benchmarks/db_params_bench
-            benchmarks/db_pipeline_bench)
+            benchmarks/db_pipeline_bench
+            benchmarks/db_protocol_synthetic_bench)
     endif()
     if(CONFLUX_JSON_REFLECT)
         list(APPEND _conflux_header_benchmark_source_ids
@@ -1220,4 +1223,10 @@ function(conflux_add_header_benchmark_compile_targets)
         conflux_header_benchmark
         "${CONFLUX_BUILD_BENCHMARKS}"
         ${_conflux_header_benchmark_source_ids})
+    if(TARGET conflux_header_benchmark_benchmarks_db_protocol_synthetic_bench
+            AND TARGET PkgConfig::LIBPQ)
+        target_link_libraries(
+            conflux_header_benchmark_benchmarks_db_protocol_synthetic_bench
+            PRIVATE PkgConfig::LIBPQ)
+    endif()
 endfunction()

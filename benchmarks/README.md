@@ -196,6 +196,12 @@ ONLY_BENCH=file_copy_coro BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh file-copy-local
 ONLY_BENCH=storage_read BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh storage-read-nvme
+ONLY_BENCH=kernel_state_synthetic BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh kernel-state-local
+ONLY_BENCH=db_protocol_synthetic BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh db-protocol-local
+ONLY_BENCH=tls_mem_bio BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh tls-mem-bio-local
 
 # Worker/runtime path
 ONLY_BENCH=work BENCH_PRESET=perf-clang-libcxx \
@@ -251,6 +257,34 @@ as `live-kernel-sanity`, and skips with a clear stderr reason when the benchmark
 file is not NVMe-backed. Pass `--path /mnt/nvme/conflux-storage-read.bin` to place
 the file on the intended device, or `--allow-non-nvme` only for smoke runs whose
 numbers are not performance evidence.
+
+For a local storage-read evidence artifact, use:
+
+```sh
+STORAGE_READ_PATH=/mnt/nvme/conflux-storage-read.bin \
+  STORAGE_READ_REPS=5 scripts/storage_read_evidence.sh
+```
+
+The wrapper records configure/build logs, repeated raw NDJSON, a manifest with
+host/build/device metadata, and the exact matrix used for `depth_1_4k`,
+`depth_8_16k`, `depth_32_64k`, and `depth_128_1m`. It rejects non-NVMe files by
+default; set `STORAGE_READ_ALLOW_NON_NVME=1` only for smoke runs.
+
+`kernel_state_synthetic` is the no-kernel state-transition floor for socket and
+file rows that otherwise include fd-table/TCP/io_uring round trips. It covers
+direct-slot lease/release, direct-slot close lifecycle, deferred-close queue,
+generation advance/alive checks, stale-generation rejection, and pure
+`CompletionTable::dispatch` depth slopes. Treat these rows as `micro/user-space`.
+
+`db_protocol_synthetic` is the DB-independent PostgreSQL row decode/protocol
+floor. It builds fake `PGresult` objects and PostgreSQL `DataRow` byte streams in
+memory, then measures text libpq row decode, text wire scanning, and binary wire
+scanning without a PostgreSQL server, TCP, query planner, or socket wakeups.
+
+`tls_mem_bio` is the steady-state TLS encode/decode floor. It creates a warm
+client/server OpenSSL session over memory BIOs and records client-to-server and
+round-trip echo costs for 4 KiB, 64 KiB, and 1 MiB payloads, without sockets or
+handshake-dominated loopback rows.
 
 `send_zc` records threshold sweep configs (`threshold_4k`, `threshold_16k`,
 `threshold_64k`) across plain and mapped response sizes, plus concurrent HTTP
@@ -454,7 +488,10 @@ Current groups:
   hits, and cache churn. It does not drop the kernel page cache and does not
   prove TLS read+write; pair it with `storage_read` and a TLS static consumer
   before making public static-file throughput claims.
-- `file_copy_coro`: file/runtime measurements.
+- `file_copy_coro`: file/runtime measurements, including cached/no-fsync rows and `copy_odirect` when supported.
+- `kernel_state_synthetic`: no-kernel fd-slot/generation/deferred-close/CQE-dispatch state-transition baselines.
+- `db_protocol_synthetic`: DB-independent PostgreSQL result/protocol decode rows.
+- `tls_mem_bio`: no-socket steady-state TLS encode/decode rows.
 - `uring_completion` and `synthetic_cqe_coro`: no-kernel io_uring-adjacent
   microbenchmarks for CompletionTable dispatch, coroutine completion plumbing,
   synthetic file-read/socket-send loops, and cancel-before/after-completion cost.
@@ -473,3 +510,29 @@ alternatives.
 
 Network or io_uring transport benchmarks should remain separate cases rather
 than being mixed into the in-process logic suite.
+
+## External HTTP comparison harness
+
+`scripts/http_external_compare.py` is a host-run evidence harness for public HTTP
+claims against external servers such as Drogon, uWebSockets, cpp-httplib, or a
+minimal Beast server. It keeps external applications out of this source tree: the
+operator supplies commands and base URLs in a JSON spec, and the harness drives
+every target with the same `wrk --latency` scenario matrix.
+
+Start from the editable template:
+
+```sh
+cp benchmarks/external/http_compare.template.json /tmp/conflux-http-compare.json
+$EDITOR /tmp/conflux-http-compare.json
+HTTP_EXTERNAL_PIN_CPUS=0-7 \
+  scripts/http_external_compare.py /tmp/conflux-http-compare.json --shuffle
+```
+
+The default scenario set matches the kernel-round-trip review: hello/plaintext,
+JSON response, route param, middleware chain, POST echo 4 KiB/64 KiB, static
+64 KiB/1 MiB, connect-close, and keepalive 32/256/1k. The artifact directory
+contains `manifest.json`, per-target server logs, `raw.ndjson` with all raw
+repetitions, and `summary.json` with the credibility rule: Conflux uses
+worst-of-N request rate, external targets use best-of-N request rate. Do not
+publish the summary without the raw rows, command lines, target commits/releases,
+compiler flags, CPU/kernel/governor metadata, and pinned CPU settings.

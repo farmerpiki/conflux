@@ -45,6 +45,10 @@ add_executable(conflux_uring_completion_bench uring_completion_bench.cxx)
 target_link_libraries(conflux_uring_completion_bench
     PRIVATE bench_common conflux_uring conflux_options)
 
+add_executable(conflux_kernel_state_synthetic_bench kernel_state_synthetic_bench.cxx)
+target_link_libraries(conflux_kernel_state_synthetic_bench
+    PRIVATE bench_common conflux_uring conflux_socket_io conflux_direct_slot_pool conflux_options)
+
 add_executable(conflux_uring_timeout_bench uring_timeout_bench.cxx)
 target_link_libraries(conflux_uring_timeout_bench
     PRIVATE bench_common conflux_uring_timeout conflux_uring conflux_work conflux_options)
@@ -75,6 +79,10 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
     target_link_libraries(conflux_tls_tcp_increment_coro_bench
         PRIVATE bench_common conflux conflux_file_io conflux_work conflux_options
                 OpenSSL::SSL OpenSSL::Crypto)
+
+    add_executable(conflux_tls_mem_bio_bench tls_mem_bio_bench.cxx)
+    target_link_libraries(conflux_tls_mem_bio_bench
+        PRIVATE bench_common conflux_options OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 if(CONFLUX_HAS_DB STREQUAL "true")
@@ -89,6 +97,10 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_pipeline_bench db_pipeline_bench.cxx)
     target_link_libraries(conflux_db_pipeline_bench
         PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options)
+
+    add_executable(conflux_db_protocol_synthetic_bench db_protocol_synthetic_bench.cxx)
+    target_link_libraries(conflux_db_protocol_synthetic_bench
+        PRIVATE bench_common conflux_db conflux_options)
 endif()
 
 add_executable(conflux_json_bench json_bench.cxx)
@@ -353,6 +365,7 @@ set(_record_targets
     conflux_work_benchmarks
     conflux_file_copy_coro_bench
     conflux_uring_completion_bench
+    conflux_kernel_state_synthetic_bench
     conflux_uring_timeout_bench
     conflux_synthetic_cqe_coro_bench
     conflux_file_io_sqe_storm_bench
@@ -394,9 +407,9 @@ if(TARGET conflux_json_reflect_bench)
     list(APPEND _record_targets conflux_json_reflect_bench)
 endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
-    list(APPEND _record_targets conflux_tls_tcp_increment_coro_bench)
+    list(APPEND _record_targets conflux_tls_tcp_increment_coro_bench conflux_tls_mem_bio_bench)
 endif()
 if(CONFLUX_HAS_DB STREQUAL "true")
-    list(APPEND _record_targets conflux_db_coro_bench conflux_db_params_bench conflux_db_pipeline_bench)
+    list(APPEND _record_targets conflux_db_coro_bench conflux_db_params_bench conflux_db_pipeline_bench conflux_db_protocol_synthetic_bench)
 endif()
 add_custom_target(conflux_record_benches DEPENDS ${_record_targets})
