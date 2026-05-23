@@ -832,6 +832,106 @@ function(conflux_add_header_component_smoke_targets)
     endif()
 endfunction()
 
+
+function(conflux_collect_public_module_smoke_sources out)
+    set(_sources)
+    foreach(_target IN LISTS ARGN)
+        if(NOT TARGET ${_target})
+            continue()
+        endif()
+        get_target_property(_sets ${_target} CXX_MODULE_SETS)
+        if(_sets)
+            foreach(_set IN LISTS _sets)
+                get_target_property(_set_sources ${_target} CXX_MODULE_SET_${_set})
+                if(_set_sources)
+                    list(APPEND _sources ${_set_sources})
+                endif()
+            endforeach()
+        endif()
+        get_target_property(_interface_sets ${_target} INTERFACE_CXX_MODULE_SETS)
+        if(_interface_sets)
+            foreach(_set IN LISTS _interface_sets)
+                get_target_property(_set_sources ${_target} INTERFACE_CXX_MODULE_SET_${_set})
+                if(_set_sources)
+                    list(APPEND _sources ${_set_sources})
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+    if(_sources)
+        list(REMOVE_DUPLICATES _sources)
+    endif()
+    set(${out} "${_sources}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_add_public_module_import_smoke_target)
+    if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+        return()
+    endif()
+
+    set(options)
+    set(one_value_args)
+    set(multi_value_args TARGETS SKIP_MODULE SKIP_PREFIX)
+    cmake_parse_arguments(CONFLUX_MODULE_SMOKE
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    if(NOT CONFLUX_MODULE_SMOKE_TARGETS)
+        return()
+    endif()
+
+    conflux_collect_public_module_smoke_sources(
+        _public_module_sources ${CONFLUX_MODULE_SMOKE_TARGETS})
+    if(NOT _public_module_sources)
+        return()
+    endif()
+
+    if(NOT Python3_EXECUTABLE)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    endif()
+
+    set(_smoke_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/module-import-smoke")
+    set(_source_list "${_smoke_dir}/public-module-sources.txt")
+    set(_cmake_fragment "${_smoke_dir}/public-module-imports.cmake")
+    file(MAKE_DIRECTORY "${_smoke_dir}")
+    file(WRITE "${_source_list}" "")
+    foreach(_source IN LISTS _public_module_sources)
+        file(APPEND "${_source_list}" "${_source}\n")
+    endforeach()
+
+    set(_skip_args)
+    foreach(_module IN LISTS CONFLUX_MODULE_SMOKE_SKIP_MODULE)
+        list(APPEND _skip_args --skip-module "${_module}")
+    endforeach()
+    foreach(_prefix IN LISTS CONFLUX_MODULE_SMOKE_SKIP_PREFIX)
+        list(APPEND _skip_args --skip-prefix "${_prefix}")
+    endforeach()
+
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-public-module-import-smoke.py"
+                --source-list "${_source_list}"
+                --out-dir "${_smoke_dir}/sources"
+                --cmake-fragment "${_cmake_fragment}"
+                ${_skip_args}
+        RESULT_VARIABLE _module_smoke_result)
+    if(NOT _module_smoke_result EQUAL 0)
+        message(FATAL_ERROR "conflux: public module import smoke generation failed")
+    endif()
+    include("${_cmake_fragment}")
+    if(NOT CONFLUX_PUBLIC_MODULE_SMOKE_SOURCES)
+        return()
+    endif()
+
+    add_library(conflux_module_smoke_public_imports EXCLUDE_FROM_ALL OBJECT
+        ${CONFLUX_PUBLIC_MODULE_SMOKE_SOURCES})
+    target_compile_features(conflux_module_smoke_public_imports PRIVATE cxx_std_23)
+    target_link_libraries(conflux_module_smoke_public_imports PRIVATE
+        conflux_options
+        ${CONFLUX_MODULE_SMOKE_TARGETS})
+    message(STATUS
+        "conflux: generated ${CONFLUX_PUBLIC_MODULE_SMOKE_COUNT} public module import smoke TUs")
+endfunction()
+
 function(conflux_apply_header_smoke_warnings target)
     target_compile_options(${target} PRIVATE
         -Wall

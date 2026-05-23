@@ -3745,6 +3745,19 @@ foreach(_target IN LISTS CONFLUX_INSTALL_MODULE_TARGETS)
     endif()
 endforeach()
 
+if(CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+    set(_conflux_public_module_import_smoke_targets ${CONFLUX_INSTALL_MODULE_TARGETS})
+    list(REMOVE_ITEM _conflux_public_module_import_smoke_targets
+        conflux_direct_slot_pool
+        conflux_uring_primitives)
+    if(TARGET conflux)
+        list(APPEND _conflux_public_module_import_smoke_targets conflux)
+    endif()
+    conflux_add_public_module_import_smoke_target(
+        TARGETS ${_conflux_public_module_import_smoke_targets})
+    unset(_conflux_public_module_import_smoke_targets)
+endif()
+
 if(CONFLUX_INSTALL_INTERFACE_TARGETS)
     foreach(_target IN LISTS CONFLUX_INSTALL_INTERFACE_TARGETS)
         get_target_property(_export_name ${_target} EXPORT_NAME)
@@ -3928,6 +3941,15 @@ if(CONFLUX_BUILD_TESTS)
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-smoke-mixed-module-header.sh")
     set_tests_properties(build/mixed-module-header-smoke PROPERTIES
         LABELS "build;modules;headers;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 1200
+    )
+
+    add_test(NAME build/public-module-import-smoke
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-public-module-import-smoke.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(build/public-module-import-smoke PROPERTIES
+        LABELS "build;modules;package"
         RUN_SERIAL TRUE
         TIMEOUT 1200
     )
