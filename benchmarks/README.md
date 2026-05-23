@@ -94,6 +94,24 @@ target produces an executable, tool versions, and the exact commands used.
 /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --csv   # alias for --format csv
 ```
 
+## Live-kernel counter wrapper
+
+`scripts/bench_perf_stat.py` is the optional `perf stat` wrapper for rows where
+wall-clock time alone would hide kernel round trips. It runs one benchmark
+command under `perf stat -x,`, copies child NDJSON through, and annotates JSON
+rows with a parsed `perf_stat` object plus normalized `perf_derived` counters
+such as `cycles_per_op`, `instructions_per_op`, `context_switches_per_op`, and
+selected syscall counts when those events are available.
+
+```sh
+scripts/bench_perf_stat.py -- \
+  /tmp/conflux/benchmarks/conflux_storage_read_bench --json --path /mnt/nvme/x --depth 32 --chunk 65536
+```
+
+Host evidence wrappers can enable this directly with `STORAGE_READ_PERF_STAT=1`
+or `SEND_ZC_PERF_STAT=1`; raw perf stderr and parsed JSON are kept under each
+artifact directory's `perf/` subdirectory.
+
 ## Bench binary contract
 
 All recordable `conflux_*bench*` binaries implement a standard interface:

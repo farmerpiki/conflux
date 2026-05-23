@@ -15,6 +15,9 @@
 #   STORAGE_READ_MATRIX        comma list depth:chunk:label; default documented gate matrix
 #   STORAGE_READ_ALLOW_NON_NVME set 1 for smoke on non-NVMe path; default 0
 #   STORAGE_READ_KEEP_FILE     set 1 to retain seed file; default 1
+#   STORAGE_READ_PERF_STAT     set 1 to wrap each row in perf stat; default 0
+#   STORAGE_READ_PERF_EVENTS   perf event list; default bench_perf_stat.py list
+#   STORAGE_READ_PERF_ALLOW_FAILURE set 1 to keep rows when perf lacks permissions/events; default 0
 #   STORAGE_READ_ARTIFACT_DIR  output dir; default /tmp/<repo>/storage-read-evidence/<stamp>
 set -euo pipefail
 
@@ -81,6 +84,9 @@ MODES="${STORAGE_READ_MODES:-all}"
 MATRIX="${STORAGE_READ_MATRIX:-depth_1_4k:1:4096,depth_8_16k:8:16384,depth_32_64k:32:65536,depth_128_1m:128:1048576}"
 ALLOW_NON_NVME="${STORAGE_READ_ALLOW_NON_NVME:-0}"
 KEEP_FILE="${STORAGE_READ_KEEP_FILE:-1}"
+PERF_STAT="${STORAGE_READ_PERF_STAT:-0}"
+PERF_EVENTS="${STORAGE_READ_PERF_EVENTS:-}"
+PERF_ALLOW_FAILURE="${STORAGE_READ_PERF_ALLOW_FAILURE:-0}"
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT_DIR="${STORAGE_READ_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/storage-read-evidence/$RUN_STAMP}"
 
@@ -93,6 +99,17 @@ if [[ "$KEEP_FILE" != 0 && "$KEEP_FILE" != 1 ]]; then
 	printf 'STORAGE_READ_KEEP_FILE must be 0 or 1: %s\n' "$KEEP_FILE" >&2
 	exit 2
 fi
+if [[ "$PERF_STAT" != 0 && "$PERF_STAT" != 1 ]]; then
+	printf 'STORAGE_READ_PERF_STAT must be 0 or 1: %s\n' "$PERF_STAT" >&2
+	exit 2
+fi
+if [[ "$PERF_ALLOW_FAILURE" != 0 && "$PERF_ALLOW_FAILURE" != 1 ]]; then
+	printf 'STORAGE_READ_PERF_ALLOW_FAILURE must be 0 or 1: %s\n' "$PERF_ALLOW_FAILURE" >&2
+	exit 2
+fi
+if [[ "$PERF_STAT" == 1 ]]; then
+	require_tool perf
+fi
 
 mkdir -p "$ARTIFACT_DIR"
 configure_log="$ARTIFACT_DIR/configure.log"
@@ -100,6 +117,7 @@ build_log="$ARTIFACT_DIR/build.log"
 raw_ndjson="$ARTIFACT_DIR/storage_read.raw.ndjson"
 manifest_json="$ARTIFACT_DIR/manifest.json"
 env_txt="$ARTIFACT_DIR/env.txt"
+perf_dir="$ARTIFACT_DIR/perf"
 
 printf 'configuring preset %s\n' "$PRESET"
 cmake --preset "$PRESET" > "$configure_log" 2>&1
@@ -118,6 +136,9 @@ if ! cmake --build "$BUILD_DIR" --target conflux_storage_read_bench > "$build_lo
 fi
 
 python3 scripts/bench_env_summary.py > "$env_txt" || true
+if [[ "$PERF_STAT" == 1 ]]; then
+	mkdir -p "$perf_dir"
+fi
 bench_bin="$BUILD_DIR/benchmarks/conflux_storage_read_bench"
 : > "$raw_ndjson"
 
@@ -148,7 +169,23 @@ for row in "${matrix_rows[@]}"; do
 		if [[ "$KEEP_FILE" == 1 ]]; then
 			cmd+=(--keep-file)
 		fi
-		"${cmd[@]}" > "$rep_ndjson"
+		if [[ "$PERF_STAT" == 1 ]]; then
+			perf_args=(python3 scripts/bench_perf_stat.py)
+			if [[ -n "$PERF_EVENTS" ]]; then
+				perf_args+=(--events "$PERF_EVENTS")
+			fi
+			if [[ "$PERF_ALLOW_FAILURE" == 1 ]]; then
+				perf_args+=(--allow-perf-failure)
+			fi
+			perf_args+=(
+				--perf-json "$perf_dir/storage_read.${label}.rep${rep}.perf.json"
+				--perf-stderr "$perf_dir/storage_read.${label}.rep${rep}.perf.stderr"
+				--
+			)
+			"${perf_args[@]}" "${cmd[@]}" > "$rep_ndjson"
+		else
+			"${cmd[@]}" > "$rep_ndjson"
+		fi
 		python3 - "$rep_ndjson" "$raw_ndjson" "$rep" "$depth" "$chunk" "$MODES" <<'PY'
 import json
 import pathlib
@@ -189,7 +226,10 @@ python3 - \
 	"$MODES" \
 	"$REPS" \
 	"$ALLOW_NON_NVME" \
-	"$KEEP_FILE" <<'PY'
+	"$KEEP_FILE" \
+	"$PERF_STAT" \
+	"$PERF_EVENTS" \
+	"$PERF_ALLOW_FAILURE" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -207,6 +247,9 @@ import sys
     reps,
     allow_non_nvme,
     keep_file,
+    perf_stat,
+    perf_events,
+    perf_allow_failure,
 ) = sys.argv[1:]
 
 def git_value(*args: str) -> str:
@@ -228,6 +271,9 @@ manifest = {
     "reps": int(reps),
     "allow_non_nvme": allow_non_nvme == "1",
     "keep_file": keep_file == "1",
+    "perf_stat_enabled": perf_stat == "1",
+    "perf_events": perf_events or None,
+    "perf_allow_failure": perf_allow_failure == "1",
     "label": "live-kernel-sanity",
     "requires_external_perf_stat": True,
     "recommended_perf_stat": "cycles,instructions,cache-misses,dTLB-load-misses,cs",

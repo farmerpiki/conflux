@@ -17,6 +17,9 @@
 #   SEND_ZC_DURATION         load duration seconds per rep; default 5
 #   SEND_ZC_NIC_PATH         request path; default generated 64 KiB/1 MiB matrix
 #   SEND_ZC_ALLOW_LOOPBACK   pass --allow-loopback-remote for smoke only; default 0
+#   SEND_ZC_PERF_STAT        set 1 to wrap each row in perf stat; default 0
+#   SEND_ZC_PERF_EVENTS      perf event list; default bench_perf_stat.py list
+#   SEND_ZC_PERF_ALLOW_FAILURE set 1 to keep rows when perf lacks permissions/events; default 0
 #   SEND_ZC_ARTIFACT_DIR     output dir; default /tmp/<repo>/send-zc-nic-evidence/<stamp>
 set -euo pipefail
 
@@ -124,6 +127,9 @@ REPS="${SEND_ZC_REPS:-5}"
 CONNECTIONS="${SEND_ZC_CONNECTIONS:-64}"
 DURATION="${SEND_ZC_DURATION:-5}"
 PATH_ARG="${SEND_ZC_NIC_PATH:-}"
+PERF_STAT="${SEND_ZC_PERF_STAT:-0}"
+PERF_EVENTS="${SEND_ZC_PERF_EVENTS:-}"
+PERF_ALLOW_FAILURE="${SEND_ZC_PERF_ALLOW_FAILURE:-0}"
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT_DIR="${SEND_ZC_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/send-zc-nic-evidence/$RUN_STAMP}"
 
@@ -138,6 +144,17 @@ fi
 for threshold in "${threshold_values[@]}"; do
 	require_positive_int SEND_ZC_THRESHOLDS "$threshold"
 done
+if [[ "$PERF_STAT" != 0 && "$PERF_STAT" != 1 ]]; then
+	printf 'SEND_ZC_PERF_STAT must be 0 or 1: %s\n' "$PERF_STAT" >&2
+	exit 2
+fi
+if [[ "$PERF_ALLOW_FAILURE" != 0 && "$PERF_ALLOW_FAILURE" != 1 ]]; then
+	printf 'SEND_ZC_PERF_ALLOW_FAILURE must be 0 or 1: %s\n' "$PERF_ALLOW_FAILURE" >&2
+	exit 2
+fi
+if [[ "$PERF_STAT" == 1 ]]; then
+	require_tool perf
+fi
 
 mkdir -p "$ARTIFACT_DIR"
 configure_log="$ARTIFACT_DIR/configure.log"
@@ -145,6 +162,7 @@ build_log="$ARTIFACT_DIR/build.log"
 raw_ndjson="$ARTIFACT_DIR/send_zc_nic.raw.ndjson"
 summary_json="$ARTIFACT_DIR/send_zc_nic.summary.json"
 manifest_json="$ARTIFACT_DIR/manifest.json"
+perf_dir="$ARTIFACT_DIR/perf"
 
 printf 'configuring preset %s with CONFLUX_ENABLE_EXPERIMENTAL=ON\n' "$PRESET"
 cmake --preset "$PRESET" -DCONFLUX_ENABLE_EXPERIMENTAL=ON > "$configure_log" 2>&1
@@ -163,6 +181,9 @@ if ! cmake --build "$BUILD_DIR" --target conflux_send_zc_bench > "$build_log" 2>
 fi
 
 bench_bin="$BUILD_DIR/benchmarks/conflux_send_zc_bench"
+if [[ "$PERF_STAT" == 1 ]]; then
+	mkdir -p "$perf_dir"
+fi
 : > "$raw_ndjson"
 summary_args=()
 for threshold in "${threshold_values[@]}"; do
@@ -187,7 +208,23 @@ for threshold in "${threshold_values[@]}"; do
 		if [[ "$ALLOW_LOOPBACK" == 1 ]]; then
 			cmd+=(--allow-loopback-remote)
 		fi
-		"${cmd[@]}" > "$rep_ndjson"
+		if [[ "$PERF_STAT" == 1 ]]; then
+			perf_args=(python3 scripts/bench_perf_stat.py)
+			if [[ -n "$PERF_EVENTS" ]]; then
+				perf_args+=(--events "$PERF_EVENTS")
+			fi
+			if [[ "$PERF_ALLOW_FAILURE" == 1 ]]; then
+				perf_args+=(--allow-perf-failure)
+			fi
+			perf_args+=(
+				--perf-json "$perf_dir/send_zc.${label}.rep${rep}.perf.json"
+				--perf-stderr "$perf_dir/send_zc.${label}.rep${rep}.perf.stderr"
+				--
+			)
+			"${perf_args[@]}" "${cmd[@]}" > "$rep_ndjson"
+		else
+			"${cmd[@]}" > "$rep_ndjson"
+		fi
 		append_with_metadata "$rep_ndjson" "$rep" "$threshold" "$raw_ndjson"
 		rm -f "$rep_ndjson"
 	done
@@ -209,7 +246,10 @@ python3 - \
 	"$REPS" \
 	"$CONNECTIONS" \
 	"$DURATION" \
-	"$ALLOW_LOOPBACK" <<'PY'
+	"$ALLOW_LOOPBACK" \
+	"$PERF_STAT" \
+	"$PERF_EVENTS" \
+	"$PERF_ALLOW_FAILURE" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -228,6 +268,9 @@ import sys
     connections,
     duration,
     allow_loopback,
+    perf_stat,
+    perf_events,
+    perf_allow_failure,
 ) = sys.argv[1:]
 
 
@@ -249,6 +292,9 @@ manifest = {
     "connections": int(connections),
     "duration_s": int(duration),
     "allow_loopback": allow_loopback == "1",
+    "perf_stat_enabled": perf_stat == "1",
+    "perf_events": perf_events or None,
+    "perf_allow_failure": perf_allow_failure == "1",
     "transport": "non_loopback_nic_candidate",
     "requires_external_route_or_nic_counter_proof": True,
     "commit": git_value("rev-parse", "HEAD"),
