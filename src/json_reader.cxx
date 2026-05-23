@@ -67,48 +67,48 @@ void JsonReader::skip_ws() {
 				break;
 			}
 		}
-		if (opts_.mode != ParseMode::json5 || pos_ + 1 >= input_.size() || input_[pos_] != '/') {
-			return;
-		}
-		if (input_[pos_ + 1] == '/') {
-			pos_ += 2;
-			col_ += 2;
-			while (pos_ < input_.size() && input_[pos_] != '\n') {
-				++pos_;
-				++col_;
-			}
-			continue;
-		}
-		if (input_[pos_ + 1] == '*') {
-			std::size_t const comment_offset = pos_;
-			std::size_t const comment_line = line_;
-			std::size_t const comment_col = col_;
-			pos_ += 2;
-			col_ += 2;
-			while (pos_ + 1 < input_.size()) {
-				if (input_[pos_] == '*' && input_[pos_ + 1] == '/') {
-					pos_ += 2;
-					col_ += 2;
-					goto next_reader_ws;
-				}
-				if (input_[pos_] == '\n') {
-					++pos_;
-					++line_;
-					col_ = 1;
-				} else {
+		if (opts_.mode == ParseMode::json5 && pos_ + 1 < input_.size() && input_[pos_] == '/') [[unlikely]] {
+			if (input_[pos_ + 1] == '/') {
+				pos_ += 2;
+				col_ += 2;
+				while (pos_ < input_.size() && input_[pos_] != '\n') {
 					++pos_;
 					++col_;
 				}
+				continue;
 			}
-			pos_ = input_.size();
-			set_error(
-				JsonError{
-					.stage = JsonStage::parse,
-					.code = JsonIssueCode::unexpected_eof,
-					.source = JsonSourceLocation{.offset = comment_offset, .line = comment_line, .column = comment_col},
-					.message = "unterminated block comment"
-            });
-			return;
+			if (input_[pos_ + 1] == '*') {
+				std::size_t const comment_offset = pos_;
+				std::size_t const comment_line = line_;
+				std::size_t const comment_col = col_;
+				pos_ += 2;
+				col_ += 2;
+				while (pos_ + 1 < input_.size()) {
+					if (input_[pos_] == '*' && input_[pos_ + 1] == '/') {
+						pos_ += 2;
+						col_ += 2;
+						goto next_reader_ws;
+					}
+					if (input_[pos_] == '\n') {
+						++pos_;
+						++line_;
+						col_ = 1;
+					} else {
+						++pos_;
+						++col_;
+					}
+				}
+				pos_ = input_.size();
+				set_error(
+					JsonError{
+						.stage = JsonStage::parse,
+						.code = JsonIssueCode::unexpected_eof,
+						.source =
+							JsonSourceLocation{.offset = comment_offset, .line = comment_line, .column = comment_col},
+						.message = "unterminated block comment",
+                });
+				return;
+			}
 		}
 		return;
 next_reader_ws:;
@@ -117,7 +117,7 @@ next_reader_ws:;
 
 std::expected<void, JsonError> JsonReader::skip_ws_checked() {
 	skip_ws();
-	if (has_error_) {
+	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
 	return {};
@@ -147,7 +147,7 @@ std::expected<void, JsonError> JsonReader::parse_str_into_token(
 			adv();
 			std::string_view raw_lex = input_.substr(raw_start, pos_ - raw_start);
 			std::size_t const body_len = raw_lex.size() - 2;
-			if (max_sz.exceeds(body_len, kDefaultMaxString)) {
+			if (max_sz.exceeds(body_len, kDefaultMaxString)) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 			}
 			tok_out = JsonStringToken{raw_lex, has_esc, max_sz};
@@ -329,12 +329,12 @@ std::expected<void, JsonError> JsonReader::parse_number_into_val() {
 	if (neg) {
 		adv();
 	}
-	if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+	if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') [[unlikely]] {
 		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
 	}
 	bool const starts_zero = input_[pos_] == '0';
 	adv();
-	if (starts_zero && pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+	if (starts_zero && pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') [[unlikely]] {
 		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
 	}
 	while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
@@ -342,7 +342,7 @@ std::expected<void, JsonError> JsonReader::parse_number_into_val() {
 	}
 	if (pos_ < input_.size() && input_[pos_] == '.') {
 		adv();
-		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
 		}
 		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
@@ -354,19 +354,19 @@ std::expected<void, JsonError> JsonReader::parse_number_into_val() {
 		if (pos_ < input_.size() && (input_[pos_] == '+' || input_[pos_] == '-')) {
 			adv();
 		}
-		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
 		}
 		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
 			adv();
 		}
 	}
-	if (pos_ - start > kMaxNumberLexemeLen) {
+	if (pos_ - start > kMaxNumberLexemeLen) [[unlikely]] {
 		return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
 	}
 	std::string_view const lex = input_.substr(start, pos_ - start);
 	auto node = detail::build_number_node_from_lexeme(0, static_cast<std::uint32_t>(lex.size()), 0, lex);
-	if (!node) {
+	if (!node) [[unlikely]] {
 		auto err = std::move(node).error();
 		err.stage = JsonStage::parse;
 		return std::unexpected(std::move(err));
@@ -376,10 +376,10 @@ std::expected<void, JsonError> JsonReader::parse_number_into_val() {
 }
 
 std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
-	if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) {
+	if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) [[unlikely]] {
 		return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 	}
-	if (pos_ >= input_.size()) {
+	if (pos_ >= input_.size()) [[unlikely]] {
 		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 	}
 	char const c = input_[pos_];
@@ -410,7 +410,7 @@ std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 		return Event::begin_array;
 	}
 	if (c == 't') {
-		if (input_.substr(pos_, 4) != "true") {
+		if (input_.substr(pos_, 4) != "true") [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(4);
@@ -418,7 +418,7 @@ std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 		return Event::bool_value;
 	}
 	if (c == 'f') {
-		if (input_.substr(pos_, 5) != "false") {
+		if (input_.substr(pos_, 5) != "false") [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(5);
@@ -426,7 +426,7 @@ std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event() {
 		return Event::bool_value;
 	}
 	if (c == 'n') {
-		if (input_.substr(pos_, 4) != "null") {
+		if (input_.substr(pos_, 4) != "null") [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 		}
 		adv(4);
@@ -491,10 +491,10 @@ JsonReader::JsonReader(
 	, opts_{opts} {}
 
 std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
-	if (has_error_) {
+	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
-	if (auto ok = skip_ws_checked(); !ok) {
+	if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
 
@@ -514,7 +514,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	auto &top = stack_.back();
 
 	if (top.kind == StateFrame::Kind::array) {
-		if (auto ok = skip_ws_checked(); !ok) {
+		if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if (pos_ < input_.size() && input_[pos_] == ']') {
@@ -523,13 +523,13 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 			return std::optional<Event>{Event::end_array};
 		}
 		if (!top.first) {
-			if (pos_ >= input_.size() || input_[pos_] != ',') {
+			if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
 				auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'");
 				set_error(e);
 				return std::unexpected(last_error_);
 			}
 			adv();
-			if (auto ok = skip_ws_checked(); !ok) {
+			if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
@@ -551,7 +551,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	// object
 	if (top.awaiting_value) {
 		top.awaiting_value = false;
-		if (auto ok = skip_ws_checked(); !ok) {
+		if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		value_start_ = pos_;
@@ -563,7 +563,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		return std::optional<Event>{*ev};
 	}
 
-	if (auto ok = skip_ws_checked(); !ok) {
+	if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
 	if (pos_ < input_.size() && input_[pos_] == '}') {
@@ -572,13 +572,13 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		return std::optional<Event>{Event::end_object};
 	}
 	if (!top.first) {
-		if (pos_ >= input_.size() || input_[pos_] != ',') {
+		if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
 			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'");
 			set_error(e);
 			return std::unexpected(last_error_);
 		}
 		adv();
-		if (auto ok = skip_ws_checked(); !ok) {
+		if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == '}') {
@@ -588,19 +588,23 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		}
 	}
 	top.first = false;
-	if (pos_ >= input_.size()) {
+	if (pos_ >= input_.size()) [[unlikely]] {
 		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
 		set_error(e);
 		return std::unexpected(last_error_);
 	}
-	std::expected<void, JsonError> str_res =
-		std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 	if (input_[pos_] == '"') {
 		adv();
-		str_res = parse_str_into_token(opts_.max_string_size, key_token_);
+		if (auto str_res = parse_str_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
 	} else if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
 		adv();
-		str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_);
+		if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
 	} else if (opts_.mode == ParseMode::json5) {
 		std::size_t const key_start = pos_;
 		char const fc = input_[pos_];
@@ -621,17 +625,20 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 			std::string_view raw_lex = input_.substr(key_start, pos_ - key_start);
 			key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
 			key_token_.unquoted_ = true;
-			str_res = {};
+		} else [[unlikely]] {
+			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
+			set_error(e);
+			return std::unexpected(last_error_);
 		}
-	}
-	if (!str_res) {
-		set_error(str_res.error());
+	} else [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
+		set_error(e);
 		return std::unexpected(last_error_);
 	}
-	if (auto ok = skip_ws_checked(); !ok) {
+	if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
-	if (pos_ >= input_.size() || input_[pos_] != ':') {
+	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
 		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
 		set_error(e);
 		return std::unexpected(last_error_);

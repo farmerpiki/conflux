@@ -230,7 +230,7 @@ next_ws:;
 			std::size_t const skip = detail::simd::scan_str_until_special(src.data() + pos, remaining);
 			pos += skip;
 			col += skip;
-			if (pos >= src.size()) {
+			if (pos >= src.size()) [[unlikely]] {
 				break;
 			}
 			auto const c = static_cast<unsigned char>(src[pos]);
@@ -239,7 +239,7 @@ next_ws:;
 				adv();
 				return ParsedStr{start_pos, len, static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
 			}
-			if (c < kCtrlEnd) {
+			if (c < kCtrlEnd) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
@@ -249,14 +249,14 @@ next_ws:;
 				return parse_str_decode_tail(arena_off);
 			}
 			std::size_t const seq = utf8_seq_len(c);
-			if (seq == 0) {
+			if (seq == 0) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
-			if (pos + seq > src.size()) {
+			if (pos + seq > src.size()) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
-				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) [[unlikely]] {
 					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
@@ -275,12 +275,12 @@ next_ws:;
 				std::size_t const len = store.string_arena.size() - arena_off;
 				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
-			if (c < kCtrlEnd) {
+			if (c < kCtrlEnd) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				adv();
-				if (pos >= src.size()) {
+				if (pos >= src.size()) [[unlikely]] {
 					return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 				}
 				switch (src[pos]) {
@@ -320,7 +320,7 @@ next_ws:;
 					{
 						adv();
 						std::uint32_t cp = 0;
-						if (!hex4(cp)) {
+						if (!hex4(cp)) [[unlikely]] {
 							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
 						// NOLINTBEGIN(readability-magic-numbers)
@@ -331,12 +331,12 @@ next_ws:;
 							}
 							adv(2);
 							std::uint32_t lo = 0;
-							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
+							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) [[unlikely]] {
 								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 							}
 							cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
-						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) [[unlikely]] {
 							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 						}
 						// NOLINTEND(readability-magic-numbers)
@@ -348,14 +348,14 @@ next_ws:;
 				continue;
 			}
 			std::size_t const seq = utf8_seq_len(c);
-			if (seq == 0) {
+			if (seq == 0) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
-			if (pos + seq > src.size()) {
+			if (pos + seq > src.size()) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
-				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) [[unlikely]] {
 					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
@@ -377,12 +377,12 @@ next_ws:;
 				std::size_t const len = store.string_arena.size() - arena_off;
 				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
-			if (c < kCtrlEnd) {
+			if (c < kCtrlEnd) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				adv();
-				if (pos >= src.size()) {
+				if (pos >= src.size()) [[unlikely]] {
 					return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
 				}
 				switch (src[pos]) {
@@ -426,7 +426,7 @@ next_ws:;
 					{
 						adv();
 						std::uint32_t cp = 0;
-						if (!hex4(cp)) {
+						if (!hex4(cp)) [[unlikely]] {
 							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
 						// NOLINTBEGIN(readability-magic-numbers)
@@ -437,12 +437,12 @@ next_ws:;
 							}
 							adv(2);
 							std::uint32_t lo = 0;
-							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
+							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) [[unlikely]] {
 								return std::unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
 							}
 							cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
-						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) [[unlikely]] {
 							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
 						}
 						// NOLINTEND(readability-magic-numbers)
@@ -454,14 +454,14 @@ next_ws:;
 				continue;
 			}
 			std::size_t const seq = utf8_seq_len(c);
-			if (seq == 0) {
+			if (seq == 0) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
 			}
-			if (pos + seq > src.size()) {
+			if (pos + seq > src.size()) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
 			for (std::size_t k = 1; k < seq; ++k) {
-				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) [[unlikely]] {
 					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
 			}
@@ -507,12 +507,12 @@ next_ws:;
 		if (neg) {
 			adv();
 		}
-		if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
+		if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
 		}
 		bool const starts_zero = src[pos] == '0';
 		adv();
-		if (starts_zero && pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
+		if (starts_zero && pos < src.size() && src[pos] >= '0' && src[pos] <= '9') [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
 		}
 		while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
@@ -520,7 +520,7 @@ next_ws:;
 		}
 		if (pos < src.size() && src[pos] == '.') {
 			adv();
-			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
+			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
 			}
 			while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
@@ -532,14 +532,14 @@ next_ws:;
 			if (pos < src.size() && (src[pos] == '+' || src[pos] == '-')) {
 				adv();
 			}
-			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
+			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
 			}
 			while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 				adv();
 			}
 		}
-		if (pos - start > kMaxNumberLexemeLen) {
+		if (pos - start > kMaxNumberLexemeLen) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
 		}
 		return src.substr(start, pos - start);
@@ -565,7 +565,7 @@ struct TreeBuilder {
 	}
 	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked() {
 		tok.skip_ws();
-		if (tok.unterminated_block_comment) {
+		if (tok.unterminated_block_comment) [[unlikely]] {
 			return std::unexpected(tok.whitespace_error());
 		}
 		return {};
@@ -576,10 +576,10 @@ struct TreeBuilder {
 		if (auto ok = skip_ws_checked(); !ok) {
 			return std::unexpected(std::move(ok).error());
 		}
-		if (tok.pos >= tok.src.size()) {
+		if (tok.pos >= tok.src.size()) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 		}
-		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) {
+		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 		}
 
@@ -599,7 +599,7 @@ struct TreeBuilder {
 			return parse_object(depth);
 		}
 		if (c == 't') {
-			if (tok.src.substr(tok.pos, 4) != "true") {
+			if (tok.src.substr(tok.pos, 4) != "true") [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(4);
@@ -607,7 +607,7 @@ struct TreeBuilder {
 			return store.nodes.size() - 1;
 		}
 		if (c == 'f') {
-			if (tok.src.substr(tok.pos, 5) != "false") {
+			if (tok.src.substr(tok.pos, 5) != "false") [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(5);
@@ -615,7 +615,7 @@ struct TreeBuilder {
 			return store.nodes.size() - 1;
 		}
 		if (c == 'n') {
-			if (tok.src.substr(tok.pos, 4) != "null") {
+			if (tok.src.substr(tok.pos, 4) != "null") [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			tok.adv(4);
@@ -629,10 +629,10 @@ struct TreeBuilder {
 	}
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_str_node() {
 		auto parsed = tok.parse_str_body();
-		if (!parsed) {
+		if (!parsed) [[unlikely]] {
 			return std::unexpected(std::move(parsed).error());
 		}
-		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
@@ -640,10 +640,10 @@ struct TreeBuilder {
 	}
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_str_node_sq() {
 		auto parsed = tok.parse_str_body_sq();
-		if (!parsed) {
+		if (!parsed) [[unlikely]] {
 			return std::unexpected(std::move(parsed).error());
 		}
-		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
@@ -667,14 +667,14 @@ struct TreeBuilder {
 		std::size_t const children_start = staging.size();
 		while (true) {
 			auto child = parse_value(depth + 1);
-			if (!child) {
+			if (!child) [[unlikely]] {
 				return std::unexpected(std::move(child).error());
 			}
 			staging.push_back(static_cast<std::uint32_t>(*child));
 			if (auto ok = skip_ws_checked(); !ok) {
 				return std::unexpected(std::move(ok).error());
 			}
-			if (tok.pos >= tok.src.size()) {
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
 			}
 			if (tok.src[tok.pos] == ']') {
@@ -776,13 +776,12 @@ struct TreeBuilder {
 				staging_members.resize(members_start);
 				return std::unexpected(std::move(ok).error());
 			}
-			if (tok.pos >= tok.src.size()) {
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
 				staging_members.resize(members_start);
 				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
-			std::expected<Tokenizer::ParsedStr, JsonError> parsed_name =
-				std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 			char const key_ch = tok.src[tok.pos];
+			std::expected<Tokenizer::ParsedStr, JsonError> parsed_name;
 			if (key_ch == '"') {
 				tok.adv();
 				parsed_name = tok.parse_str_body();
@@ -791,8 +790,11 @@ struct TreeBuilder {
 				parsed_name = tok.parse_str_body_sq();
 			} else if (opts.mode == ParseMode::json5) {
 				parsed_name = tok.parse_unquoted_key();
+			} else [[unlikely]] {
+				staging_members.resize(members_start);
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 			}
-			if (!parsed_name) {
+			if (!parsed_name) [[unlikely]] {
 				staging_members.resize(members_start);
 				return std::unexpected(std::move(parsed_name).error());
 			}
@@ -885,7 +887,7 @@ struct TreeBuilder {
 				staging_members.resize(members_start);
 				return std::unexpected(std::move(ok).error());
 			}
-			if (tok.pos >= tok.src.size()) {
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
 				staging_members.resize(members_start);
 				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
