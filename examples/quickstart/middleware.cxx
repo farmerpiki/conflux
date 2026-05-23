@@ -1,11 +1,12 @@
 import conflux.http;
 import std;
 
-int main() {
+// NOLINTNEXTLINE(bugprone-exception-escape) -- quickstart setup can allocate before the noexcept app.run() boundary.
+int main() noexcept {
 	namespace http = conflux::http;
 
 	auto app = http::app();
-	app.use(request_id_middleware());
+	app.use(http::request_id());
 
 	app.get("/", [] { return http::text("quickstart middleware\n"); });
 	app.get("/request-id", [](http::RequestId request_id) {

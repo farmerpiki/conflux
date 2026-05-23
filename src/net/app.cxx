@@ -2145,20 +2145,29 @@ public:
 		return (*srv)->run();
 	}
 	[[nodiscard]] RunStatus run(
-		AppRunOptions opts = {}) && {
-		auto report = validate();
-		if (!report) {
-			auto summary = report.summary();
-			eprintln("http app validation failed:");
-			eprintln(summary);
+		AppRunOptions opts = {}) && noexcept {
+		try {
+			auto report = validate();
+			if (!report) {
+				auto summary = report.summary();
+				eprintln("http app validation failed:");
+				eprintln(summary);
+				return RunStatus::fatal_internal_exception;
+			}
+			cfg_.port = opts.port;
+			HttpServer srv{cfg_, std::move(router_)};
+			if (observability_) {
+				srv.set_observability_hooks(observability_server_hooks(*observability_));
+			}
+			return srv.run();
+		} catch (std::exception const &ex) {
+			eprintln("http app run failed:");
+			eprintln(ex.what());
+			return RunStatus::fatal_internal_exception;
+		} catch (...) {
+			eprintln("http app run failed: unknown exception");
 			return RunStatus::fatal_internal_exception;
 		}
-		cfg_.port = opts.port;
-		HttpServer srv{cfg_, std::move(router_)};
-		if (observability_) {
-			srv.set_observability_hooks(observability_server_hooks(*observability_));
-		}
-		return srv.run();
 	}
 
 private:
@@ -2185,7 +2194,7 @@ private:
 
 [[nodiscard]] RunStatus run(
 	App app,
-	AppRunOptions opts = {}) {
+	AppRunOptions opts = {}) noexcept {
 	return std::move(app).run(opts);
 }
 

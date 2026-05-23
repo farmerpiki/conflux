@@ -52,6 +52,21 @@ concept AsyncMiddleware = ::AsyncMiddleware<F>;
 template<class F>
 concept Middleware = ::Middleware<F>;
 
+[[nodiscard]] Router::Middleware request_id(
+	RequestIdOptions opts = {}) {
+	return request_id_middleware(std::move(opts));
+}
+
+[[nodiscard]] Router::Middleware trace_context(
+	TracingOptions opts = {}) {
+	return tracing_middleware(std::move(opts));
+}
+
+[[nodiscard]] Router::Middleware security_headers(
+	SecurityOptions opts = {}) {
+	return security_headers_middleware(std::move(opts));
+}
+
 template<typename F>
 	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
 [[nodiscard]] Response offload(
