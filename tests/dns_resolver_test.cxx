@@ -78,6 +78,7 @@ public:
 		std::uint16_t id_delta{0};
 		bool wrong_question{false};
 		bool truncated{false};
+		std::chrono::milliseconds response_delay{0};
 		std::vector<std::uint8_t> raw_response;
 	};
 	struct ReceivedQuery {
@@ -187,6 +188,9 @@ private:
 			}
 			if (resp.kind == RespKind::no_response) {
 				continue;
+			}
+			if (resp.response_delay.count() > 0) {
+				std::this_thread::sleep_for(resp.response_delay);
 			}
 			if (!resp.raw_response.empty()) {
 				::sendto(
@@ -1127,6 +1131,58 @@ TEST_CASE(
 		cancelled = e.kind == DnsErrorKind::cancelled;
 	} catch (conflux::work::root::CancelledError const &) { cancelled = true; }
 	CHECK(cancelled);
+}
+TEST_CASE(
+	"dns: async resolve cancellation after UDP send ignores late response",
+	"[dns][resolver][native][cancel][uring][transport]") {
+	auto g = RingGuard::make();
+	REQUIRE(g);
+	REQUIRE(g->ok);
+	Resolver r{&g->ring, &g->ct, pack_ud, ResolverOptions{.cache_capacity = 0}};
+
+	DnsMockServer mock;
+	mock.set_response(
+		"cancel-after-send.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 10, 0, 10}, .ttl = 60}},
+			.response_delay = std::chrono::milliseconds{150},
+		});
+	mock.set_response(
+		"after-cancel.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 10, 0, 11}, .ttl = 60}},
+		});
+
+	ResolveOptions opts = mock_opts(mock);
+	opts.allow_v6 = false;
+	opts.query_timeout = std::chrono::milliseconds{1000};
+	opts.total_timeout = std::chrono::milliseconds{1000};
+
+	auto task = r.resolve("cancel-after-send.test", 80, opts);
+	REQUIRE(pump_until_query(*g, mock, "cancel-after-send.test", 1));
+	task.cancel();
+
+	bool cancelled = false;
+	try {
+		(void)block_on<ResolveResult>(
+			*r.file_reader(),
+			std::move(task),
+			std::make_optional(std::chrono::milliseconds{5000}),
+			PackUdDecode{});
+	} catch (DnsError const &e) {
+		cancelled = e.kind == DnsErrorKind::cancelled;
+	} catch (conflux::work::root::CancelledError const &) { cancelled = true; }
+	CHECK(cancelled);
+	CHECK(mock.query_count("cancel-after-send.test", 1) == 1);
+
+	auto result = r.resolve_blocking("after-cancel.test", 80, opts);
+	REQUIRE(result.has_value());
+	REQUIRE(result->endpoints.size() == 1);
+	CHECK(result->endpoints[0].family == AddressFamily::v4);
 }
 TEST_CASE(
 	"dns: in-flight coalescing — two concurrent resolves send one query",

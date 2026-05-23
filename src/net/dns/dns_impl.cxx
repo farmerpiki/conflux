@@ -402,7 +402,6 @@ struct ActiveTaskGuard {
 		check_cancelled();
 		UdpSocket sock = UdpSocket::ephemeral(ring, static_cast<int>(ns.addr.ss_family));
 		std::array<std::uint8_t, kRxSize> rx_buf{};
-		// P1-08: UDP send cancel not covered; cancellation detected on next recv
 		co_await sock.async_send_to_borrowed(
 			std::span<std::uint8_t const>{wire.data(), wire.size()},
 			ns.addr,
