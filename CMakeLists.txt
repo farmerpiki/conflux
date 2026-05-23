@@ -1921,6 +1921,7 @@ target_sources(conflux_socket_io
 )
 target_sources(conflux_socket_io
     PRIVATE
+        ${CONFLUX_SRC_ROOT}/socket_io/tcp_listener.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro_impl.cxx
 )
 
