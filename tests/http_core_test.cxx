@@ -281,6 +281,7 @@ TEST_CASE(
 	CHECK(req.timeouts().connect == std::chrono::milliseconds{1234});
 	CHECK(req.timeouts().first_byte == std::chrono::milliseconds{5678});
 	CHECK(req.max_redirects() == 3);
+	CHECK(req.follows_redirects());
 	CHECK_FALSE(req.verify_peer());
 	CHECK(req.server_name() == "sni.example");
 }

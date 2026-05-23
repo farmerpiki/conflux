@@ -120,7 +120,6 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	return json_string_fallback(s);
 }
 
-
 [[nodiscard]] std::vector<std::string> sensitive_headers(
 	ObservabilityOptions const &opts) {
 	std::vector<std::string> out{
@@ -200,6 +199,9 @@ void append_headers_json(
 	if (opts.log_response_headers) {
 		HttpFieldsView response_headers;
 		for (auto const &[name, value]: resp.headers) {
+			if (ascii_iequals(name, "__conflux-route-pattern")) {
+				continue;
+			}
 			response_headers.emplace_back(name, value);
 		}
 		append_headers_json(line, "response_headers", response_headers, sensitive, opts.redact_sensitive_headers);
@@ -226,31 +228,53 @@ void append_pressure_metrics(
 	append_prometheus_sample(out, "http_pressure_slow_clients", {}, pressure.drain_forced_close);
 	out += "# HELP http_pressure_overflow_total HTTP pressure overflow events\n";
 	out += "# TYPE http_pressure_overflow_total counter\n";
-	append_prometheus_sample(out, "http_pressure_overflow_total", {{"kind", "accept"}, {"policy", "reject"}}, pressure.accept_rejected);
 	append_prometheus_sample(
 		out,
 		"http_pressure_overflow_total",
-		{{"kind", "connection"}, {"policy", "close"}},
+		{
+			{  "kind", "accept"},
+			{"policy", "reject"}
+    },
+		pressure.accept_rejected);
+	append_prometheus_sample(
+		out,
+		"http_pressure_overflow_total",
+		{
+			{  "kind", "connection"},
+			{"policy",      "close"}
+    },
 		pressure.connections_closed_for_pressure);
 	append_prometheus_sample(
 		out,
 		"http_pressure_overflow_total",
-		{{"kind", "sse"}, {"policy", "drop_newest"}},
+		{
+			{  "kind",         "sse"},
+			{"policy", "drop_newest"}
+    },
 		pressure.sse_dropped_newest);
 	append_prometheus_sample(
 		out,
 		"http_pressure_overflow_total",
-		{{"kind", "sse"}, {"policy", "drop_oldest"}},
+		{
+			{  "kind",         "sse"},
+			{"policy", "drop_oldest"}
+    },
 		pressure.sse_dropped_oldest);
 	append_prometheus_sample(
 		out,
 		"http_pressure_overflow_total",
-		{{"kind", "sse"}, {"policy", "disconnect"}},
+		{
+			{  "kind",        "sse"},
+			{"policy", "disconnect"}
+    },
 		pressure.sse_disconnected_for_pressure);
 	append_prometheus_sample(
 		out,
 		"http_pressure_overflow_total",
-		{{"kind", "websocket"}, {"policy", "close"}},
+		{
+			{  "kind", "websocket"},
+			{"policy",     "close"}
+    },
 		pressure.websocket_closed_for_pressure);
 }
 
@@ -282,19 +306,43 @@ void append_work_pool_metrics(
 		auto const rejected = stats.enqueue_stopped_rejections + stats.enqueue_full_rejections;
 		auto const accepted = saturating_sub(stats.enqueue_attempts, rejected);
 		auto const pending = saturating_sub(accepted, stats.jobs_run);
-		append_prometheus_sample(out, "work_pool_queue_depth", {{"pool", name}}, pending);
-		append_prometheus_sample(out, "work_pool_running", {{"pool", name}}, std::uint64_t{0});
+		append_prometheus_sample(
+			out,
+			"work_pool_queue_depth",
+			{
+				{"pool", name}
+        },
+			pending);
+		append_prometheus_sample(
+			out,
+			"work_pool_running",
+			{
+				{"pool", name}
+        },
+			std::uint64_t{0});
 		append_prometheus_sample(
 			out,
 			"work_pool_rejected_total",
-			{{"pool", name}, {"reason", "stopped"}},
+			{
+				{  "pool",      name},
+				{"reason", "stopped"}
+        },
 			stats.enqueue_stopped_rejections);
 		append_prometheus_sample(
 			out,
 			"work_pool_rejected_total",
-			{{"pool", name}, {"reason", "full"}},
+			{
+				{  "pool",   name},
+				{"reason", "full"}
+        },
 			stats.enqueue_full_rejections);
-		append_prometheus_sample(out, "work_pool_completed_total", {{"pool", name}}, stats.jobs_run);
+		append_prometheus_sample(
+			out,
+			"work_pool_completed_total",
+			{
+				{"pool", name}
+        },
+			stats.jobs_run);
 	}
 }
 
@@ -434,11 +482,13 @@ struct ObservabilityRegistry {
 			append_prometheus_sample(
 				out,
 				"http_requests_total",
-				{{"service", key.service},
-				 {"route", key.route},
-				 {"method", key.method},
-				 {"status_class", key.status_class},
-				 {"status", key.status}},
+				{
+					{     "service",      key.service},
+					{       "route",        key.route},
+					{      "method",       key.method},
+					{"status_class", key.status_class},
+					{      "status",       key.status}
+            },
 				value);
 		}
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
@@ -449,23 +499,41 @@ struct ObservabilityRegistry {
 				append_prometheus_sample(
 					out,
 					"http_request_duration_seconds_bucket",
-					{{"service", key.service}, {"route", key.route}, {"method", key.method}, {"le", le}},
+					{
+						{"service", key.service},
+						{  "route",   key.route},
+						{ "method",  key.method},
+						{     "le",          le}
+                },
 					duration.bucket_counts[i]);
 			}
 			append_prometheus_sample(
 				out,
 				"http_request_duration_seconds_bucket",
-				{{"service", key.service}, {"route", key.route}, {"method", key.method}, {"le", "+Inf"}},
+				{
+					{"service", key.service},
+					{  "route",   key.route},
+					{ "method",  key.method},
+					{     "le",      "+Inf"}
+            },
 				duration.count);
 			append_prometheus_sample(
 				out,
 				"http_request_duration_seconds_sum",
-				{{"service", key.service}, {"route", key.route}, {"method", key.method}},
+				{
+					{"service", key.service},
+					{  "route",   key.route},
+					{ "method",  key.method}
+            },
 				duration.sum);
 			append_prometheus_sample(
 				out,
 				"http_request_duration_seconds_count",
-				{{"service", key.service}, {"route", key.route}, {"method", key.method}},
+				{
+					{"service", key.service},
+					{  "route",   key.route},
+					{ "method",  key.method}
+            },
 				duration.count);
 		}
 		out += "# HELP http_rejections_total HTTP rejected/problem responses\n";
@@ -474,7 +542,11 @@ struct ObservabilityRegistry {
 			append_prometheus_sample(
 				out,
 				"http_rejections_total",
-				{{"service", opts.service_name}, {"reason", key.first}, {"status", key.second}},
+				{
+					{"service", opts.service_name},
+					{ "reason",         key.first},
+					{ "status",        key.second}
+            },
 				value);
 		}
 		if (opts.pressure_metrics) {
@@ -596,7 +668,7 @@ struct ObservabilityMiddleware {
 	return [state = middleware.state](RequestView const &) -> Response {
 		return Response::prometheus(
 			state && state->registry ? state->registry->format_prometheus(state->options, state->sinks) :
-								   std::string{});
+									   std::string{});
 	};
 }
 #endif

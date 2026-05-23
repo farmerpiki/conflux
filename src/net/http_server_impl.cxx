@@ -16,6 +16,7 @@ module;
 	#include <nghttp2/nghttp2.h>
 #endif
 #include <sched.h>
+#include <signal.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -335,6 +336,7 @@ void HttpServer::shutdown() {
 
 [[nodiscard]] RunStatus HttpServer::run() noexcept {
 	try {
+		(void)::signal(SIGPIPE, SIG_IGN);
 		impl_->running_.store(true, std::memory_order_release);
 		unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 

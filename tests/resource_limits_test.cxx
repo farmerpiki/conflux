@@ -2,8 +2,10 @@
 #include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
 #include <dirent.h>
+#include <fcntl.h>
 #include <liburing.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -13,6 +15,7 @@ import std;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+import conflux.file_io_sync;
 namespace {
 
 struct RingGuard {
@@ -266,6 +269,37 @@ TEST_CASE(
 		}
 		::io_uring_queue_exit(&ring);
 		// If we reach here without hanging, the test passes.
+	});
+	REQUIRE(rc == 0);
+}
+
+TEST_CASE(
+	"resource: atomic file write reports failure under file-size exhaustion",
+	"[resource][file_io]") {
+	int const rc = fork_run([] {
+		char tmpdir[] = "/tmp/conflux_resource_fsize_XXXXXX";
+		if (::mkdtemp(tmpdir) == nullptr) {
+			::_exit(1);
+		}
+		int const root = ::open(tmpdir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (root < 0) {
+			::rmdir(tmpdir);
+			::_exit(2);
+		}
+		(void)::signal(SIGXFSZ, SIG_IGN);
+		rlimit const rl{.rlim_cur = 1024, .rlim_max = 1024};
+		if (::setrlimit(RLIMIT_FSIZE, &rl) != 0) {
+			::close(root);
+			::rmdir(tmpdir);
+			::_exit(3);
+		}
+		auto result = blocking_write_text_file_atomic_at(root, "too-large.txt", std::string(4096, 'x'));
+		::close(root);
+		(void)::unlink((std::string{tmpdir} + "/too-large.txt").c_str());
+		::rmdir(tmpdir);
+		if (result) {
+			::_exit(4);
+		}
 	});
 	REQUIRE(rc == 0);
 }

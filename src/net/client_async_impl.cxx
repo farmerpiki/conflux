@@ -115,6 +115,9 @@ struct TlsStreamRef {
 	if (location.empty()) {
 		return std::nullopt;
 	}
+	if (!req.follows_redirects()) {
+		return std::nullopt;
+	}
 	if (req.max_redirects() <= 0) {
 		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
 	}
@@ -874,7 +877,13 @@ namespace conflux::http {
 	auto [out, raw_src] = wroot::make_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto src = std::make_shared<wroot::TaskSource<ClientResult>>(std::move(raw_src));
 	auto cancel = std::make_shared<ActiveTaskCancelRelay>();
-	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept { cancel->cancel(); });
+	std::weak_ptr<wroot::TaskSource<ClientResult>> weak_src{src};
+	auto _ = src->install_cancel_hook([cancel, weak_src](wroot::CancelReason) noexcept {
+		cancel->cancel();
+		if (auto src = weak_src.lock()) {
+			auto _ = src->try_set_cancelled();
+		}
+	});
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
 	std::move(driver).detach();
 	return std::move(out);

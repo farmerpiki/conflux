@@ -164,3 +164,148 @@ TEST_CASE(
 	REQUIRE_FALSE(iat.has_value());
 	CHECK(iat.error() == "invalid iat claim");
 }
+
+TEST_CASE(
+	"jwt: adversarial malformed base64url segments are rejected",
+	"[jwt][auth][security]") {
+	std::string const secret = "adversarial-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	SECTION("header") {
+		auto result = jwt_decode("###.eyJzdWIiOiJ1In0.ZmFrZQ", opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "invalid header encoding");
+	}
+	SECTION("payload") {
+		auto result = jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.###.ZmFrZQ", opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "invalid payload encoding");
+	}
+	SECTION("signature") {
+		auto result = jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.###", opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "invalid signature encoding");
+	}
+}
+
+TEST_CASE(
+	"jwt: adversarial algorithm confusion attempts are rejected",
+	"[jwt][auth][security]") {
+	std::string const secret = "adversarial-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	SECTION("alg none with valid HMAC is still rejected") {
+		auto token = jwt_sign(R"({"alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "unsupported algorithm (only HS256 supported)");
+	}
+	SECTION("RS256 header with valid HMAC is still rejected") {
+		auto token = jwt_sign(R"({"alg":"RS256","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "unsupported algorithm (only HS256 supported)");
+	}
+	SECTION("duplicate alg header is rejected before choosing either value") {
+		auto token = jwt_sign(R"({"alg":"HS256","alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "duplicate alg claim");
+	}
+}
+
+TEST_CASE(
+	"jwt: adversarial duplicate registered claims are rejected",
+	"[jwt][auth][security]") {
+	std::string const secret = "adversarial-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	SECTION("duplicate subject") {
+		auto token = jwt_sign(R"({"sub":"victim","sub":"attacker"})", secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "duplicate sub claim");
+	}
+	SECTION("duplicate expiration") {
+		auto const now = jwt_test_now();
+		auto token = jwt_sign(std::format(R"({{"sub":"u","exp":{},"exp":1}})", now + 3600), secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "duplicate exp claim");
+	}
+	SECTION("nested object keys with the same spelling are not treated as duplicate top-level claims") {
+		auto token = jwt_sign(R"({"sub":"u","nested":{"sub":"inner"}})", secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE(result.has_value());
+		CHECK(result->sub == "u");
+	}
+}
+
+TEST_CASE(
+	"jwt: adversarial missing and huge timestamp claims are rejected by strict policy",
+	"[jwt][auth][security]") {
+	std::string const secret = "adversarial-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+	opts.require_exp = true;
+	opts.require_iat = true;
+	opts.max_token_lifetime = std::chrono::minutes{5};
+
+	SECTION("missing exp") {
+		auto result = jwt_decode(jwt_sign(std::format(R"({{"sub":"u","iat":{}}})", jwt_test_now()), secret), opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "missing exp claim");
+	}
+	SECTION("missing iat") {
+		auto result = jwt_decode(jwt_sign(std::format(R"({{"sub":"u","exp":{}}})", jwt_test_now() + 60), secret), opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "missing iat claim");
+	}
+	SECTION("out-of-range exp") {
+		auto result = jwt_decode(jwt_sign(R"({"sub":"u","iat":1,"exp":999999999999999999999999999999})", secret), opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "invalid exp claim");
+	}
+	SECTION("out-of-range iat") {
+		auto result =
+			jwt_decode(jwt_sign(R"({"sub":"u","iat":999999999999999999999999999999,"exp":9999999999})", secret), opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "invalid iat claim");
+	}
+	SECTION("future lifetime exceeds cap") {
+		auto const now = jwt_test_now();
+		auto token = jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{}}})", now, now + 86400), secret);
+		auto result = jwt_decode(token, opts);
+		REQUIRE_FALSE(result.has_value());
+		CHECK(result.error() == "token lifetime too long");
+	}
+}
+
+TEST_CASE(
+	"jwt: oversized bearer tokens are bounded before decode work",
+	"[jwt][auth][security]") {
+	std::string const secret = "adversarial-jwt-secret-32bytes";
+	std::string const payload = std::format(R"({{"sub":"u","blob":"{}"}})", std::string(2048, 'x'));
+	auto token = jwt_sign(payload, secret);
+
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+	opts.max_token_bytes = 512;
+
+	auto result = jwt_decode(token, opts);
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error() == "token too large");
+}

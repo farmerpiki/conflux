@@ -1,0 +1,245 @@
+// Plain TU — not a module unit.
+#include <catch2/catch_test_macros.hpp>
+#include <stdlib.h>
+#include <unistd.h>
+
+import std;
+import conflux.types;
+import conflux.net.http;
+import conflux.net.compress;
+import conflux.tests.support;
+
+using namespace conflux::tests;
+namespace {
+
+class TempDir {
+	std::string path_;
+
+public:
+	explicit TempDir(
+		std::string pattern) {
+		path_ = std::move(pattern);
+		auto *raw = path_.data();
+		if (::mkdtemp(raw) == nullptr) {
+			throw std::runtime_error{"mkdtemp failed"};
+		}
+	}
+	~TempDir() {
+		std::error_code ec;
+		std::filesystem::remove_all(path_, ec);
+	}
+	TempDir(TempDir const &) = delete;
+	TempDir &operator =(TempDir const &) = delete;
+	[[nodiscard]] std::string const &path() const noexcept { return path_; }
+	void write(
+		std::string_view name,
+		std::string_view body) const {
+		auto const full = std::filesystem::path{path_} / std::string{name};
+		std::ofstream out{full, std::ios::binary};
+		if (!out) {
+			throw std::runtime_error{"open temp file failed"};
+		}
+		out.write(body.data(), static_cast<std::streamsize>(body.size()));
+	}
+};
+
+std::string body_of(
+	std::string_view response) {
+	auto const pos = response.find("\r\n\r\n");
+	if (pos == std::string_view::npos) {
+		return {};
+	}
+	return std::string{response.substr(pos + 4)};
+}
+
+std::string header_value(
+	std::string_view response,
+	std::string_view name) {
+	auto const pos = response.find(name);
+	if (pos == std::string_view::npos) {
+		return {};
+	}
+	auto const value_begin = pos + name.size();
+	auto const value_end = response.find("\r\n", value_begin);
+	if (value_end == std::string_view::npos) {
+		return {};
+	}
+	return std::string{response.substr(value_begin, value_end - value_begin)};
+}
+
+std::uint16_t compression_port() {
+	static std::uint16_t port = 0;
+	static std::once_flag flag;
+	std::call_once(flag, [] {
+		Config cfg = mw_config();
+		Router router;
+		router.use(compress_middleware({.min_body_size = 64}));
+		router.get("/large", [](Request const &) { return Response::text(std::string(4096, 'A')); });
+		router.get("/small", [](Request const &) { return Response::text(std::string(32, 's')); });
+		router.get("/binary", [](Request const &) {
+			Response response;
+			response.status = 200;
+			response.status_text = "OK";
+			response.content_type = "application/octet-stream";
+			response.set_text_body(std::string(4096, '\0'));
+			return response;
+		});
+		router.post("/echo", [](Request const &req) { return Response::text(req.body); });
+		router.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &channel) {
+			(void)channel->send("data: hello\n\n");
+			channel->close();
+		});
+		port = test_servers().start(cfg, std::move(router));
+	});
+	return port;
+}
+
+std::string get_sse(
+	std::uint16_t port,
+	std::string_view extra_headers) {
+	LocalTcpClient const client{port};
+	auto request =
+		std::format("GET /events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n{}\r\n", extra_headers);
+	(void)client.send(request);
+	client.set_recv_timeout(std::chrono::seconds{5});
+	return client.read_until_close();
+}
+
+struct CompressionStateGuard {
+	CompressionCalibration calibration{compression_calibration()};
+	GzipBackend backend{current_gzip_backend()};
+	~CompressionStateGuard() {
+		set_compression_calibration(calibration);
+		(void)set_gzip_backend(backend);
+	}
+};
+
+} // namespace
+
+TEST_CASE(
+	"compression matrix: every configured gzip backend can serve dynamic gzip",
+	"[compression][http][e2e]") {
+	CompressionStateGuard const guard;
+	set_compression_calibration(CompressionCalibration::disabled);
+	auto const backends = available_gzip_backends();
+
+	if (backends.empty()) {
+		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == std::string(4096, 'A'));
+		return;
+	}
+
+	for (auto const backend: backends) {
+		CAPTURE(gzip_backend_name(backend));
+		REQUIRE(set_gzip_backend(backend));
+		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
+		CHECK(header_value(resp, "Vary: ") == "Accept-Encoding");
+		auto const body = body_of(resp);
+		CHECK(!body.empty());
+		CHECK(body != std::string(4096, 'A'));
+	}
+}
+
+TEST_CASE(
+	"compression matrix: negotiation, thresholds, MIME, and malformed encoded input",
+	"[compression][http][e2e]") {
+	SECTION("zstd wins when available and preferred; gzip remains fallback") {
+		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: zstd;q=1, gzip;q=0.1\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+#if CONFLUX_HAS_ZSTD
+		CHECK(header_value(resp, "Content-Encoding: ") == "zstd");
+#elif CONFLUX_HAS_COMPRESS
+		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
+#else
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+#endif
+	}
+
+	SECTION("identity-only request is not compressed") {
+		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: identity\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == std::string(4096, 'A'));
+	}
+
+	SECTION("q=0 excludes every supported dynamic coding") {
+		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: gzip;q=0, zstd;q=0, *;q=0\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == std::string(4096, 'A'));
+	}
+
+	SECTION("small body remains below compression threshold") {
+		auto resp = http_get_on(compression_port(), "/small", "Accept-Encoding: gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == std::string(32, 's'));
+	}
+
+	SECTION("non-compressible MIME type is left alone") {
+		auto resp = http_get_on(compression_port(), "/binary", "Accept-Encoding: gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp).size() == 4096);
+	}
+
+	SECTION("malformed gzip request body is treated as opaque input") {
+		auto resp = http_post_on(
+			compression_port(),
+			"/echo",
+			"application/octet-stream",
+			"not-a-gzip-stream",
+			"Content-Encoding: gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(body_of(resp) == "not-a-gzip-stream");
+	}
+}
+
+TEST_CASE(
+	"compression matrix: streaming responses are not dynamically compressed",
+	"[compression][http][e2e]") {
+	auto resp = get_sse(compression_port(), "Accept-Encoding: gzip\r\n");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	CHECK(resp.find("Content-Type: text/event-stream") != std::string::npos);
+	CHECK(header_value(resp, "Content-Encoding: ").empty());
+	CHECK(resp.find("data: hello\n\n") != std::string::npos);
+}
+
+TEST_CASE(
+	"compression matrix: static precompressed sidecars negotiate br, gzip, and identity",
+	"[compression][http][e2e][static]") {
+	TempDir dir{"/tmp/conflux_compression_matrix_XXXXXX"};
+	dir.write("asset.txt", "identity-body");
+	dir.write("asset.txt.gz", "gzip-sidecar");
+	dir.write("asset.txt.br", "brotli-sidecar");
+
+	Config cfg = mw_config();
+	Router router;
+	router.serve_static("/static", dir.path());
+	ScopedTestServer const server{cfg, std::move(router)};
+
+	SECTION("br sidecar wins over gzip when both are accepted") {
+		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br, gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ") == "br");
+		CHECK(body_of(resp) == "brotli-sidecar");
+	}
+
+	SECTION("gzip sidecar is used when br is excluded") {
+		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br;q=0, gzip\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
+		CHECK(body_of(resp) == "gzip-sidecar");
+	}
+
+	SECTION("identity file is used when compressed sidecars are excluded") {
+		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br;q=0, gzip;q=0\r\n");
+		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == "identity-body");
+	}
+}

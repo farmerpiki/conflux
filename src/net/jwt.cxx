@@ -35,6 +35,7 @@ export struct JwtOptions {
 	std::chrono::seconds clock_skew{}; // tolerance for exp/nbf comparisons
 	std::chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
 	std::function<bool(std::string_view)> revoked_jti{}; // optional revocation lookup; true = reject token
+	std::size_t max_token_bytes{16U * 1024U}; // 0 = disabled; bounds bearer-token abuse before decoding
 };
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -171,6 +172,70 @@ bool json_array_contains_string(
 	}
 	return false;
 }
+std::size_t json_top_level_key_count(
+	std::string_view json,
+	std::string_view key) {
+	auto const first = skip_json_ws(json, 0);
+	if (first >= json.size() || json[first] != '{') {
+		return 0;
+	}
+	std::size_t count = 0;
+	std::size_t depth = 0;
+	char previous_sig = 0;
+	for (std::size_t pos = first; pos < json.size(); ++pos) {
+		char const c = json[pos];
+		if (c == '"') {
+			auto const str_start = pos + 1;
+			auto end = str_start;
+			while (end < json.size()) {
+				if (json[end] == '"') {
+					break;
+				}
+				if (json[end] == '\\') {
+					++end;
+				}
+				++end;
+			}
+			if (end >= json.size()) {
+				return count;
+			}
+			auto const after = skip_json_ws(json, end + 1);
+			if (depth == 1
+				&& (previous_sig == '{' || previous_sig == ',')
+				&& after < json.size()
+				&& json[after] == ':'
+				&& json.substr(str_start, end - str_start) == key) {
+				++count;
+			}
+			pos = end;
+			previous_sig = '"';
+			continue;
+		}
+		if (is_json_ws(c)) {
+			continue;
+		}
+		if (c == '{' || c == '[') {
+			++depth;
+		} else if (c == '}' || c == ']') {
+			if (depth == 0) {
+				return count;
+			}
+			--depth;
+		}
+		previous_sig = c;
+	}
+	return count;
+}
+std::optional<std::string_view> first_duplicate_jwt_claim(
+	std::string_view json) {
+	static constexpr std::array<std::string_view, 7> kClaims = {"sub", "iss", "jti", "exp", "nbf", "iat", "aud"};
+	for (auto claim: kClaims) {
+		if (json_top_level_key_count(json, claim) > 1) {
+			return claim;
+		}
+	}
+	return std::nullopt;
+}
 // Constant-time std::byte comparison (avoids timing side-channel on signature).
 bool ct_equal(
 	std::span<unsigned char const> a,
@@ -280,6 +345,9 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return std::unexpected{valid.error()};
 	}
+	if (opts.max_token_bytes > 0 && token.size() > opts.max_token_bytes) {
+		return std::unexpected{"token too large"};
+	}
 	// Split header.payload.signature
 	auto dot1 = token.find('.');
 	if (dot1 == std::string_view::npos) {
@@ -298,6 +366,9 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	auto header = base64url_decode(header_b64);
 	if (header.empty()) {
 		return std::unexpected{"invalid header encoding"};
+	}
+	if (json_top_level_key_count(header, "alg") > 1) {
+		return std::unexpected{"duplicate alg claim"};
 	}
 	if (json_string(header, "alg") != "HS256") {
 		return std::unexpected{"unsupported algorithm (only HS256 supported)"};
@@ -319,6 +390,9 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	std::string_view const signing_input = token.substr(0, static_cast<std::size_t>(dot2));
 	if (!jwt_detail::signature_matches(signing_input, sig_claimed, opts.secrets)) {
 		return std::unexpected{"signature verification failed"};
+	}
+	if (auto dup = first_duplicate_jwt_claim(payload)) {
+		return std::unexpected{std::format("duplicate {} claim", *dup)};
 	}
 
 	// Extract standard claims.

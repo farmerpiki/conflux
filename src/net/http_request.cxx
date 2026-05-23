@@ -30,6 +30,7 @@ public:
 	[[nodiscard]] bool verify_peer() const noexcept { return verify_peer_; }
 	[[nodiscard]] std::string_view server_name() const noexcept { return server_name_; }
 	[[nodiscard]] int max_redirects() const noexcept { return max_redirects_; }
+	[[nodiscard]] bool follows_redirects() const noexcept { return follow_redirects_; }
 
 private:
 	friend class Builder;
@@ -42,6 +43,7 @@ private:
 	bool verify_peer_{true};
 	std::string server_name_{};
 	int max_redirects_{0};
+	bool follow_redirects_{false};
 
 	explicit ClientRequest() = default;
 };
@@ -343,10 +345,12 @@ public:
 	Builder &follow_redirects(
 		int max_redirects = 10) & {
 		req_.max_redirects_ = max_redirects;
+		req_.follow_redirects_ = true;
 		return *this;
 	}
 	Builder &disable_redirects() & {
 		req_.max_redirects_ = 0;
+		req_.follow_redirects_ = false;
 		return *this;
 	}
 	Builder &verify_peer(

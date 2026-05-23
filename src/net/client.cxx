@@ -427,6 +427,9 @@ bool recv_chunked(
 	if (location.empty()) {
 		return std::nullopt;
 	}
+	if (!req.follows_redirects()) {
+		return std::nullopt;
+	}
 	if (req.max_redirects() <= 0) {
 		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
 	}

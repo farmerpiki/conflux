@@ -397,7 +397,7 @@ target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catc
 
 add_executable(conflux_resource_tests resource_limits_test.cxx)
 target_link_libraries(conflux_resource_tests
-    PRIVATE conflux_socket_io conflux_options conflux_direct_slot_pool Catch2::Catch2WithMain)
+    PRIVATE conflux_socket_io conflux_file_io_sync conflux_options conflux_direct_slot_pool Catch2::Catch2WithMain)
 conflux_discover_tests(conflux_resource_tests)
 
 if(CONFLUX_ENABLE_RECV_BUNDLE)
@@ -651,6 +651,14 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     )
 endif()
 
+add_executable(conflux_client_cancellation_e2e client_cancellation_e2e.cxx)
+target_link_libraries(conflux_client_cancellation_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_file_io_http_e2e)
 target_sources(conflux_file_io_http_e2e
     PRIVATE
@@ -660,6 +668,66 @@ target_sources(conflux_file_io_http_e2e
 )
 target_include_directories(conflux_file_io_http_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
 target_link_libraries(conflux_file_io_http_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_proxy_hostile_upstream_e2e)
+target_sources(conflux_proxy_hostile_upstream_e2e
+    PRIVATE
+        proxy_hostile_upstream_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_proxy_hostile_upstream_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_proxy_hostile_upstream_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_compression_matrix_e2e)
+target_sources(conflux_compression_matrix_e2e
+    PRIVATE
+        compression_matrix_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_compression_matrix_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_compression_matrix_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_chaos_resource_e2e)
+target_sources(conflux_chaos_resource_e2e
+    PRIVATE
+        chaos_resource_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_chaos_resource_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_chaos_resource_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_observability_golden_e2e)
+target_sources(conflux_observability_golden_e2e
+    PRIVATE
+        observability_golden_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_observability_golden_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_observability_golden_e2e
     PRIVATE
         conflux
         conflux_options
@@ -788,7 +856,12 @@ conflux_discover_tests(conflux_dns_codec_tests)
 conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)
 conflux_discover_tests(conflux_socket_task_ring_tests)
+conflux_discover_tests(conflux_client_cancellation_e2e)
 conflux_discover_tests(conflux_file_io_http_e2e)
+conflux_discover_tests(conflux_proxy_hostile_upstream_e2e)
+conflux_discover_tests(conflux_compression_matrix_e2e)
+conflux_discover_tests(conflux_chaos_resource_e2e)
+conflux_discover_tests(conflux_observability_golden_e2e)
 conflux_discover_tests(conflux_http_slowloris_e2e)
 conflux_discover_tests(conflux_http_backpressure_e2e)
 conflux_discover_stress_tests(conflux_http_overflow_stress_tests)
