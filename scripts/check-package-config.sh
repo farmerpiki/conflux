@@ -86,7 +86,9 @@ grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfa
 grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
     || fail "missing opt-in install-tree smoke CTest option"
 grep -q 'add_test(NAME build/install-tree-smoke' CMakeLists.txt \
-    || fail "missing install-tree smoke CTest guard"
+	|| fail "missing install-tree smoke CTest guard"
+grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' CMakeLists.txt \
+	|| fail "HEADER_INTERFACE must disable CMake module scanning"
 grep -q '"name": "release-header-artifacts"' CMakePresets.json \
     || fail "missing release-header-artifacts preset"
 grep -q '"configurePreset": "release-clang-libcxx"' CMakePresets.json \
@@ -159,9 +161,23 @@ grep -q 'add_executable(conflux_package_smoke "${_conflux_package_smoke_source}"
 grep -q 'target_link_libraries(conflux_package_smoke PRIVATE' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must link installed namespaced targets"
 grep -q 'add_test(NAME package-smoke/run' cmake/package-smoke/CMakeLists.txt \
-    || fail "package smoke project must run the downstream executable"
+	|| fail "package smoke project must run the downstream executable"
+grep -q 'CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS' cmake/package-smoke/CMakeLists.txt \
+	|| fail "package smoke must distinguish declaration-only and linked API lanes"
+grep -q 'conflux::json::parse' cmake/package-smoke/CMakeLists.txt \
+	|| fail "package smoke must exercise installed JSON implementation symbols when available"
+grep -q 'conflux::build_info_summary' cmake/package-smoke/CMakeLists.txt \
+	|| fail "package smoke must exercise installed core implementation symbols when available"
+grep -q 'read_text_file_nothrow' cmake/package-smoke/CMakeLists.txt \
+	|| fail "package smoke must exercise installed file_io_sync implementation symbols when available"
+grep -q 'CONFLUX_HAS_JSON' cmake/package-smoke/CMakeLists.txt \
+	|| fail "package smoke must assert installed JSON feature macros"
+grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' cmake/package-smoke/CMakeLists.txt \
+	|| fail "header package smoke must disable module scanning"
+grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES ON)' cmake/package-smoke/CMakeLists.txt \
+	|| fail "module package smoke must enable module scanning"
 grep -q 'import conflux.types;' cmake/package-smoke/CMakeLists.txt \
-    || fail "module package smoke source must import an installed conflux module"
+	|| fail "module package smoke source must import an installed conflux module"
 grep -q '#include <conflux/types.hpp>' cmake/package-smoke/CMakeLists.txt \
     || fail "header package smoke source must include only the installed core header"
 grep -q 'available_components=${conflux_AVAILABLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
@@ -207,9 +223,15 @@ grep -q 'extra_cmake_args' scripts/run-install-tree-smoke.sh \
 grep -q 'run-package-config-smoke.sh' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must consume the installed prefix"
 grep -q -- '--enable-db-smoke' scripts/run-install-tree-smoke.sh \
-    || fail "install-tree smoke runner must forward DB-enabled package smoke"
+	|| fail "install-tree smoke runner must forward DB-enabled package smoke"
+grep -q -- '--forbid-components' scripts/run-install-tree-smoke.sh \
+	|| fail "install-tree smoke runner must forward forbidden component assertions"
+grep -q -- '--forbid-external-deps' scripts/run-install-tree-smoke.sh \
+	|| fail "install-tree smoke runner must forward forbidden external dependency assertions"
 grep -q "core;json;file_io_sync" scripts/check-package-smoke-liburing-free.sh \
-    || fail "liburing-free package smoke must request only liburing-free components"
+	|| fail "liburing-free package smoke must request only liburing-free components"
+grep -q "LIBURING;LIBPQ;OPENSSL" scripts/check-package-smoke-liburing-free.sh \
+	|| fail "liburing-free package smoke must explicitly forbid runtime/db/tls external deps"
 grep -q "CONFLUX_JSON_HASH_PROVIDER=XXHASH" scripts/check-package-smoke-core-isolated.sh \
     || fail "core-isolated package smoke must force the external JSON hash provider"
 grep -q -- "--components core" scripts/check-package-smoke-core-isolated.sh \

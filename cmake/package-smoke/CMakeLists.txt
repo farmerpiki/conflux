@@ -23,9 +23,12 @@ set(CONFLUX_PACKAGE_SMOKE_ENABLE_DB OFF CACHE BOOL
 set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS "" CACHE STRING
     "Semicolon-separated conflux components that must not be visible")
 set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS "" CACHE STRING
-    "Semicolon-separated external dependency tokens that must not be resolved")
+	"Semicolon-separated external dependency tokens that must not be resolved")
+option(CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS
+	"Run tiny downstream API calls that require installed implementation symbols when this package mode supports them"
+	ON)
 option(CONFLUX_PACKAGE_SMOKE_FAST_COMPILE
-    "Compile package smoke targets without optimization; this validates package wiring, not runtime performance" ON)
+	"Compile package smoke targets without optimization; this validates package wiring, not runtime performance" ON)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
 
@@ -51,8 +54,13 @@ if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE
 endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-    set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
-    set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+	set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
+	set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+endif()
+
+set(_conflux_package_smoke_linked_apis ${CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS})
+if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE" AND NOT TARGET conflux::header_impl)
+	set(_conflux_package_smoke_linked_apis OFF)
 endif()
 
 foreach(_component IN LISTS _conflux_find_components)
@@ -126,9 +134,10 @@ file(WRITE "${_conflux_smoke_summary}"
     "runtime_mock=${CONFLUX_RUNTIME_MOCK}\n"
     "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
     "cmake=${CMAKE_VERSION}\n"
-    "enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"
-    "forbidden_components=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS}\n"
-    "forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
+	"enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"
+	"forbidden_components=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS}\n"
+	"forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
+	"exercise_linked_apis=${_conflux_package_smoke_linked_apis}\n"
 )
 
 function(conflux_apply_package_smoke_build_policy target)
@@ -253,30 +262,90 @@ function(conflux_add_component_smoke name component source)
 endfunction()
 
 foreach(_component IN LISTS _conflux_smoke_components)
-    if(_component STREQUAL "core")
-        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-            conflux_add_component_smoke(core core [[
+	if(_component STREQUAL "core")
+		if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(core core [[
+import conflux.types;
+int main() {
+    auto summary = conflux::build_info_summary();
+    return summary.empty() ? 1 : 0;
+}
+]])
+			else()
+				conflux_add_component_smoke(core core [[
 import conflux.types;
 int main() { return 0; }
 ]])
-        else()
-            conflux_add_component_smoke(core core [[
+			endif()
+		else()
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(core core [[
+#include <conflux/config.hpp>
+int main() {
+    auto summary = conflux::build_info_summary();
+    return summary.empty() ? 1 : 0;
+}
+]])
+			else()
+				conflux_add_component_smoke(core core [[
 #include <conflux/config.hpp>
 int main() { return 0; }
 ]])
-        endif()
-    elseif(_component STREQUAL "json")
-        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-            conflux_add_component_smoke(json json [[
+			endif()
+		endif()
+	elseif(_component STREQUAL "json")
+		if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(json json [[
+#if !CONFLUX_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
+#endif
+import conflux.features;
 import conflux.json;
+static_assert(conflux::HAS_JSON);
+int main() {
+    auto parsed = conflux::json::parse("{\"x\":1}");
+    return parsed.has_value() ? 0 : 1;
+}
+]])
+			else()
+				conflux_add_component_smoke(json json [[
+#if !CONFLUX_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
+#endif
+import conflux.features;
+import conflux.json;
+static_assert(conflux::HAS_JSON);
 int main() { return 0; }
 ]])
-        else()
-            conflux_add_component_smoke(json json [[
+			endif()
+		else()
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(json json [[
+#include <conflux/features.hxx>
 #include <conflux/json.hpp>
+#if !CONFLUX_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
+#endif
+static_assert(conflux::HAS_JSON);
+int main() {
+    auto parsed = conflux::json::parse("{\"x\":1}");
+    return parsed.has_value() ? 0 : 1;
+}
+]])
+			else()
+				conflux_add_component_smoke(json json [[
+#include <conflux/features.hxx>
+#include <conflux/json.hpp>
+#if !CONFLUX_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
+#endif
+static_assert(conflux::HAS_JSON);
 int main() { return 0; }
 ]])
-        endif()
+			endif()
+		endif()
     elseif(_component STREQUAL "http")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
             conflux_add_component_smoke(http http [[
@@ -289,18 +358,38 @@ int main() { return 0; }
 int main() { return 0; }
 ]])
         endif()
-    elseif(_component STREQUAL "file_io_sync")
-        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-            conflux_add_component_smoke(file_io_sync file_io_sync [[
+	elseif(_component STREQUAL "file_io_sync")
+		if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(file_io_sync file_io_sync [[
+import conflux.file_io_sync;
+int main() {
+    auto text = read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
+    return text.has_value() ? 1 : 0;
+}
+]])
+			else()
+				conflux_add_component_smoke(file_io_sync file_io_sync [[
 import conflux.file_io_sync;
 int main() { return 0; }
 ]])
-        else()
-            conflux_add_component_smoke(file_io_sync file_io_sync [[
+			endif()
+		else()
+			if(_conflux_package_smoke_linked_apis)
+				conflux_add_component_smoke(file_io_sync file_io_sync [[
+#include <conflux/file_io_sync.hpp>
+int main() {
+    auto text = read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
+    return text.has_value() ? 1 : 0;
+}
+]])
+			else()
+				conflux_add_component_smoke(file_io_sync file_io_sync [[
 #include <conflux/file_io_sync.hpp>
 int main() { return 0; }
 ]])
-        endif()
+			endif()
+		endif()
     elseif(_component STREQUAL "template")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
             conflux_add_component_smoke(template template [[

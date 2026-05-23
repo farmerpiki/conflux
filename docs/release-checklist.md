@@ -160,6 +160,13 @@ links to immutable proof runs.
 - Mock-liburing HEADER_INTERFACE installs are internal generated-header artifact
   evidence. They must request `core;types;json;file_io_sync` availability, with
   the smoke compile lane using `core;json;file_io_sync`, not runtime/http.
+- `CONFLUX_HEADER_INTERFACE_WITH_SOURCES=OFF` remains only as migration-era
+  include/declaration smoke scaffolding. Remove it before public preview; the
+  released header interface must always ship implementation sources or stop
+  advertising implementation-backed components.
+- `CONFLUX_USE_MOCK_LIBURING=ON` remains only as build-tree/generated-header
+  compile evidence. Remove it before public preview; released runtime/http lanes
+  must use real liburing or be absent from the package.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
   `core;json;http;file_io_sync;runtime`.

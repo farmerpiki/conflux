@@ -14,8 +14,8 @@ extra_cmake_args=()
 package_smoke_args=()
 
 usage() {
-    cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [-- <extra cmake configure args>]
+	cat >&2 <<'USAGE'
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [--forbid-components <list>] [--forbid-external-deps <list>] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -70,10 +70,20 @@ while (($#)); do
             interface_mode="$2"
             shift 2
             ;;
-        --enable-db-smoke)
-            package_smoke_args+=(--enable-db)
-            shift
-            ;;
+		--enable-db-smoke)
+			package_smoke_args+=(--enable-db)
+			shift
+			;;
+		--forbid-components)
+			[[ $# -ge 2 ]] || { usage; exit 2; }
+			package_smoke_args+=(--forbid-components "$2")
+			shift 2
+			;;
+		--forbid-external-deps)
+			[[ $# -ge 2 ]] || { usage; exit 2; }
+			package_smoke_args+=(--forbid-external-deps "$2")
+			shift 2
+			;;
         --)
             shift
             extra_cmake_args+=("$@")
