@@ -186,7 +186,7 @@ void parse_resolv_options(
 				continue;
 			}
 		}
-	} catch (...) {} // NOLINT(bugprone-empty-catch)
+	} catch (...) {} // NOLINT(bugprone-empty-catch): resolv.conf parsing is best-effort; caller falls back to defaults.
 	return out;
 }
 [[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
@@ -261,7 +261,7 @@ void parse_resolv_options(
 				out[name].push_back(ep);
 			}
 		}
-	} catch (...) {} // NOLINT(bugprone-empty-catch)
+	} catch (...) {} // NOLINT(bugprone-empty-catch): hosts-file parsing is best-effort; caller continues with DNS.
 	return out;
 }
 [[nodiscard]] std::string lowercase_ascii(
@@ -1164,7 +1164,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
 				cache->put(cache_key, r, ttl);
 			}
-		} catch (...) {} // NOLINT(bugprone-empty-catch)
+		} catch (...) {} // NOLINT(bugprone-empty-catch): DNS cache insertion must not fail resolution delivery.
 		return r;
 	};
 
@@ -1347,7 +1347,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				neg.is_negative = true;
 				try {
 					impl_keep->cache->put(inflight_key.cache_key, neg, impl_keep->opts.cache_negative_ttl);
-				} catch (...) {} // NOLINT(bugprone-empty-catch)
+				} catch (...) {} // NOLINT(bugprone-empty-catch): negative-cache write is best-effort after NXDOMAIN.
 			}
 			throw;
 		}
@@ -1609,7 +1609,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 						(result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
 					try {
 						impl_->cache->put(cache_key, result, ttl);
-					} catch (...) {} // NOLINT(bugprone-empty-catch)
+					} catch (...) {} // NOLINT(bugprone-empty-catch): blocking resolver cache insert must not hide a successful answer.
 				}
 				return result;
 			} catch (BlockOnSocketTaskTimeout const &) {
@@ -1624,7 +1624,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 						neg.is_negative = true;
 						try {
 							impl_->cache->put(cache_key, neg, impl_->opts.cache_negative_ttl);
-						} catch (...) {} // NOLINT(bugprone-empty-catch)
+						} catch (...) {} // NOLINT(bugprone-empty-catch): NXDOMAIN cache insert is best-effort before trying next backend.
 					}
 					continue;
 				}

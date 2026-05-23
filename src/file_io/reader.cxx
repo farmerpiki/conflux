@@ -2123,7 +2123,7 @@ public:
 		if (staging_entry_exists) {
 			try {
 				co_await async_unlinkat(parent_fd, std::string{staging});
-			} catch (...) {} // NOLINT(bugprone-empty-catch)
+			} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort staging cleanup; primary failure is rethrown below.
 		}
 		if (cleanup_error) {
 			std::rethrow_exception(cleanup_error);

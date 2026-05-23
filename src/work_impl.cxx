@@ -290,7 +290,7 @@ struct WorkPoolState {
 					if (options.raw_exception_sink) {
 						try {
 							options.raw_exception_sink(std::current_exception());
-						} catch (...) {} // NOLINT(bugprone-empty-catch)
+						} catch (...) {} // NOLINT(bugprone-empty-catch): exception sink failure cannot be reported recursively.
 					}
 				}
 				pending.fetch_sub(1, std::memory_order_release);
@@ -450,7 +450,7 @@ struct RingLaneState {
 		work_detail::Fn job) {
 		try {
 			job();
-		} catch (...) {} // NOLINT(bugprone-empty-catch)
+		} catch (...) {} // NOLINT(bugprone-empty-catch): inline fallback worker cannot propagate user task exceptions.
 	}
 };
 
