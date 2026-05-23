@@ -63,6 +63,26 @@ grep -q 'add_test(NAME build/package-config-install-tree' CMakeLists.txt \
     || fail "missing installed-prefix package smoke CTest guard"
 grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' CMakeLists.txt \
     || fail "missing package-only CTest option"
+grep -q 'CONFLUX_HEADER_FAST_COMPILE' CMakeLists.txt \
+    || fail "missing header fast-compile option"
+grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' CMakeLists.txt \
+    || fail "missing opt-in linked header examples option"
+grep -q 'CONFLUX_HEADER_LINK_SMOKE' CMakeLists.txt \
+    || fail "missing opt-in linked header smoke option"
+grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header generated targets must disable module scanning"
+grep -q 'CONFLUX_HEADER_FAST_COMPILE' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header generated targets must honor fast-compile option"
+grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header examples must keep implementation linking opt-in"
+grep -q 'conflux_add_header_link_smoke_targets' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header mode must expose a linked smoke target"
+grep -q 'header/link-smoke-http' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header linked HTTP smoke must be registered with CTest"
+grep -q 'conflux_header_impl_json' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header implementation sources must be split by component"
+grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfaceMode.cmake \
+    || fail "header generated targets must override release optimization for fast compile"
 grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
     || fail "missing opt-in install-tree smoke CTest option"
 grep -q 'add_test(NAME build/install-tree-smoke' CMakeLists.txt \
@@ -142,8 +162,8 @@ grep -q 'add_test(NAME package-smoke/run' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke project must run the downstream executable"
 grep -q 'import conflux.types;' cmake/package-smoke/CMakeLists.txt \
     || fail "module package smoke source must import an installed conflux module"
-grep -q '#include <conflux/conflux.hpp>' cmake/package-smoke/CMakeLists.txt \
-    || fail "header package smoke source must include the installed conflux umbrella header"
+grep -q '#include <conflux/types.hpp>' cmake/package-smoke/CMakeLists.txt \
+    || fail "header package smoke source must include only the installed core header"
 grep -q 'available_components=${conflux_AVAILABLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report available components"
 grep -q 'visible_components=${conflux_VISIBLE_COMPONENTS}' cmake/package-smoke/CMakeLists.txt \
@@ -154,6 +174,12 @@ grep -q 'resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}' cmake/package
     || fail "package smoke summary must report resolved external deps"
 grep -q 'CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke must support negative external dependency assertions"
+grep -q 'CONFLUX_PACKAGE_SMOKE_FAST_COMPILE' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must expose a fast-compile option"
+grep -q 'conflux_apply_package_smoke_build_policy' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke targets must apply fast-compile policy"
+grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/package-smoke/CMakeLists.txt \
+    || fail "header package smoke must disable module scanning"
 grep -q -- '--forbid-external-deps' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must expose negative external dependency assertions"
 grep -q 'found unrequested visible target' cmake/package-smoke/CMakeLists.txt \

@@ -295,16 +295,282 @@ function(conflux_resolve_source_id out source_id)
     set(${out} "${CMAKE_CURRENT_SOURCE_DIR}/${source_id}.cxx" PARENT_SCOPE)
 endfunction()
 
+function(conflux_apply_header_generated_build_policy target)
+    # Generated header-mode implementation and consumer smoke targets are
+    # build-system artifacts. Keep them out of module scanning and, by
+    # default, avoid release optimization passes over the generated header
+    # graph while validating compile/link correctness.
+    set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    if(CONFLUX_HEADER_FAST_COMPILE)
+        target_compile_options(${target} PRIVATE
+            $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0>
+            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Od>)
+    endif()
+endfunction()
+
+function(conflux_apply_header_impl_common target)
+    conflux_apply_header_generated_build_policy(${target})
+    target_include_directories(${target} PRIVATE
+        "${CONFLUX_GENERATED_INCLUDE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(CONFLUX_USE_MOCK_LIBURING)
+        target_include_directories(${target} PRIVATE
+            "${CONFLUX_MOCK_LIBURING_ROOT}/include")
+    endif()
+    if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)
+        target_compile_features(${target} PUBLIC cxx_std_26)
+    else()
+        target_compile_features(${target} PUBLIC cxx_std_23)
+    endif()
+    target_compile_definitions(${target} PRIVATE
+        CONFLUX_HEADER_USE_IMPORT_STD=0
+        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
+        CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+        CONFLUX_HAS_TLS=$<BOOL:${CONFLUX_HAS_TLS}>
+        CONFLUX_HAS_COMPRESS=$<BOOL:${CONFLUX_HAS_COMPRESS}>
+        CONFLUX_HAS_ZLIB=$<BOOL:${CONFLUX_HAS_ZLIB}>
+        CONFLUX_HAS_LIBDEFLATE=$<BOOL:${CONFLUX_HAS_LIBDEFLATE}>
+        CONFLUX_HAS_ZLIB_NG=$<BOOL:${CONFLUX_HAS_ZLIB_NG}>
+        CONFLUX_HAS_ISAL=$<BOOL:${CONFLUX_HAS_ISAL}>
+        CONFLUX_HAS_BROTLI=$<BOOL:${CONFLUX_HAS_BROTLI}>
+        CONFLUX_HAS_ZSTD=$<BOOL:${CONFLUX_HAS_ZSTD}>
+        CONFLUX_HAS_HTTP2=$<BOOL:${CONFLUX_HAS_HTTP2}>
+        CONFLUX_HAS_HTTP3=$<BOOL:${CONFLUX_HAS_HTTP3}>
+        CONFLUX_HAS_JSON=$<BOOL:${CONFLUX_HAS_JSON}>
+        CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_HAS_FILE_WATCH}>
+        CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_HAS_TEMPLATES}>
+        CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
+        CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
+        CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
+endfunction()
+
+function(conflux_link_header_impl_hash_provider target)
+    if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+        target_compile_definitions(${target} PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+        if(TARGET PkgConfig::XXHASH)
+            target_link_libraries(${target} PUBLIC PkgConfig::XXHASH)
+        endif()
+    elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+        target_compile_definitions(${target} PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+    endif()
+endfunction()
+
+function(conflux_link_header_impl_liburing target)
+    if(NOT CONFLUX_USE_MOCK_LIBURING AND TARGET PkgConfig::LIBURING)
+        target_link_libraries(${target} PUBLIC PkgConfig::LIBURING)
+    endif()
+endfunction()
+
+function(conflux_link_header_impl_tls_deps target)
+    foreach(_target IN ITEMS OpenSSL::SSL OpenSSL::Crypto PkgConfig::NGHTTP2 PkgConfig::NGTCP2 PkgConfig::NGTCP2_CRYPTO_OSSL PkgConfig::NGHTTP3)
+        if(TARGET ${_target})
+            target_link_libraries(${target} PUBLIC ${_target})
+        endif()
+    endforeach()
+endfunction()
+
+function(conflux_link_header_impl_db_deps target)
+    if(TARGET PkgConfig::LIBPQ)
+        target_link_libraries(${target} PUBLIC PkgConfig::LIBPQ)
+    endif()
+endfunction()
+
+function(conflux_link_header_impl_crypto_deps target)
+    foreach(_target IN ITEMS OpenSSL::SSL OpenSSL::Crypto PkgConfig::ARGON2)
+        if(TARGET ${_target})
+            target_link_libraries(${target} PUBLIC ${_target})
+        endif()
+    endforeach()
+endfunction()
+
+function(conflux_register_header_impl_target target export_name)
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
+    set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_IMPL_TARGETS ${target})
+    set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_IMPL_COMPONENTS ${export_name})
+    set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_IMPL_NAMESPACED_TARGETS conflux::${export_name})
+endfunction()
+
+function(conflux_define_header_impl_component target export_name module_regex)
+    set(_sources)
+    conflux_append_header_impl_sources_for_modules(_sources "${module_regex}")
+    if(NOT _sources)
+        return()
+    endif()
+    add_library(${target} STATIC ${_sources})
+    add_library(conflux::${export_name} ALIAS ${target})
+    conflux_apply_header_impl_common(${target})
+    conflux_register_header_impl_target(${target} ${export_name})
+endfunction()
+
+function(conflux_link_existing_header_impls target)
+    foreach(_impl IN LISTS ARGN)
+        if(TARGET ${_impl})
+            target_link_libraries(${target} INTERFACE ${_impl})
+        endif()
+    endforeach()
+endfunction()
+
+function(conflux_link_existing_header_impls_private target)
+    foreach(_impl IN LISTS ARGN)
+        if(TARGET ${_impl})
+            target_link_libraries(${target} PRIVATE ${_impl})
+        endif()
+    endforeach()
+endfunction()
+
+function(conflux_define_header_impl_targets)
+    if(NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES
+            OR NOT DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
+        return()
+    endif()
+
+    set_property(GLOBAL PROPERTY CONFLUX_HEADER_IMPL_TARGETS "")
+    set_property(GLOBAL PROPERTY CONFLUX_HEADER_IMPL_COMPONENTS "")
+    set_property(GLOBAL PROPERTY CONFLUX_HEADER_IMPL_NAMESPACED_TARGETS "")
+
+    conflux_define_header_impl_component(conflux_header_impl_core header_impl_core
+        "^conflux\.(types|utils)($|[.:])")
+
+    if(CONFLUX_WANT_JSON OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_define_header_impl_component(conflux_header_impl_json header_impl_json
+            "^conflux\.json($|[.:])")
+        if(TARGET conflux_header_impl_json)
+            conflux_link_header_impl_hash_provider(conflux_header_impl_json)
+        endif()
+    endif()
+
+    if(CONFLUX_NEEDS_RUNTIME)
+        conflux_define_header_impl_component(conflux_header_impl_runtime header_impl_runtime
+            "^conflux\.(uring($|[.:])|work($|[.:])|net\.io_buffer($|[.:])|net\.cancel($|[.:]))")
+        if(TARGET conflux_header_impl_runtime)
+            conflux_link_header_impl_liburing(conflux_header_impl_runtime)
+        endif()
+    endif()
+
+    if(CONFLUX_WANT_FILE_IO_SYNC)
+        conflux_define_header_impl_component(conflux_header_impl_file_io_sync header_impl_file_io_sync
+            "^conflux\.file_io\.sync$")
+    endif()
+    if(CONFLUX_WANT_FILE_MAP)
+        conflux_define_header_impl_component(conflux_header_impl_file_map header_impl_file_map
+            "^conflux\.file_io\.map$")
+    endif()
+    if(CONFLUX_WANT_FILE_IO)
+        conflux_define_header_impl_component(conflux_header_impl_file_io header_impl_file_io
+            "^conflux\.file_io($|[.:])")
+        if(TARGET conflux_header_impl_file_io)
+            conflux_link_header_impl_liburing(conflux_header_impl_file_io)
+        endif()
+    endif()
+    if(CONFLUX_WANT_SOCKET_IO)
+        conflux_define_header_impl_component(conflux_header_impl_socket_io header_impl_socket_io
+            "^conflux\.socket_io($|[.:])")
+        if(TARGET conflux_header_impl_socket_io)
+            conflux_link_header_impl_liburing(conflux_header_impl_socket_io)
+        endif()
+    endif()
+    if(CONFLUX_WANT_DNS)
+        conflux_define_header_impl_component(conflux_header_impl_dns header_impl_dns
+            "^conflux\.net\.dns($|[.:])")
+        if(TARGET conflux_header_impl_dns)
+            conflux_link_header_impl_liburing(conflux_header_impl_dns)
+        endif()
+    endif()
+    if(CONFLUX_WANT_PROCESS)
+        conflux_define_header_impl_component(conflux_header_impl_process header_impl_process
+            "^conflux\.process($|[.:])")
+        if(TARGET conflux_header_impl_process)
+            conflux_link_header_impl_liburing(conflux_header_impl_process)
+        endif()
+    endif()
+    if(CONFLUX_WANT_CRYPTO)
+        conflux_define_header_impl_component(conflux_header_impl_crypto header_impl_crypto
+            "^conflux\.crypto($|[.:])")
+        if(TARGET conflux_header_impl_crypto)
+            conflux_link_header_impl_crypto_deps(conflux_header_impl_crypto)
+        endif()
+    endif()
+
+    if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_define_header_impl_component(conflux_header_impl_http_core header_impl_http_core
+            "^conflux\.(http($|:problem)|net\.(app($|[.:])|config($|[.:])|http\.types|http\.request|http\.server_types|http\.json|http1|http_parse_helpers|response($|[.:])|router($|[.:])))")
+    endif()
+    if(CONFLUX_WANT_HTTP_SERVER)
+        conflux_define_header_impl_component(conflux_header_impl_http_server header_impl_http_server
+            "^conflux\.net\.http_server($|[.:])")
+        if(TARGET conflux_header_impl_http_server)
+            conflux_link_header_impl_liburing(conflux_header_impl_http_server)
+            conflux_link_header_impl_tls_deps(conflux_header_impl_http_server)
+        endif()
+    endif()
+    if(CONFLUX_WANT_HTTP_STATIC OR CONFLUX_HTTP_ROUTER_STACK_REQUESTED OR CONFLUX_WANT_HTTP_SERVER)
+        conflux_define_header_impl_component(conflux_header_impl_http_static header_impl_http_static
+            "^conflux\.net\.(router_static|http\.static_async)($|[.:])")
+        if(TARGET conflux_header_impl_http_static)
+            conflux_link_header_impl_liburing(conflux_header_impl_http_static)
+        endif()
+    endif()
+    if(CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_HTTP_CLIENT_STACK_REQUESTED)
+        conflux_define_header_impl_component(conflux_header_impl_http_client header_impl_http_client
+            "^conflux\.net\.(async_client|client)($|[.:])")
+        if(TARGET conflux_header_impl_http_client)
+            conflux_link_header_impl_liburing(conflux_header_impl_http_client)
+            conflux_link_header_impl_tls_deps(conflux_header_impl_http_client)
+        endif()
+    endif()
+    if(CONFLUX_WANT_HTTP_PROXY)
+        conflux_define_header_impl_component(conflux_header_impl_http_proxy header_impl_http_proxy
+            "^conflux\.net\.proxy($|[.:])")
+        if(TARGET conflux_header_impl_http_proxy)
+            conflux_link_header_impl_liburing(conflux_header_impl_http_proxy)
+            conflux_link_header_impl_tls_deps(conflux_header_impl_http_proxy)
+        endif()
+    endif()
+    if(CONFLUX_WANT_TEMPLATES)
+        conflux_define_header_impl_component(conflux_header_impl_templates header_impl_templates
+            "^conflux\.templates($|[.:])")
+    endif()
+    if(CONFLUX_HAS_DB STREQUAL "true")
+        conflux_define_header_impl_component(conflux_header_impl_db header_impl_db
+            "^conflux\.db($|[.:])")
+        if(TARGET conflux_header_impl_db)
+            conflux_link_header_impl_liburing(conflux_header_impl_db)
+            conflux_link_header_impl_db_deps(conflux_header_impl_db)
+        endif()
+    endif()
+    if(CONFLUX_WANT_SMTP)
+        conflux_define_header_impl_component(conflux_header_impl_smtp header_impl_smtp
+            "^conflux\.net\.smtp($|[.:])")
+        if(TARGET conflux_header_impl_smtp)
+            conflux_link_header_impl_liburing(conflux_header_impl_smtp)
+            conflux_link_header_impl_tls_deps(conflux_header_impl_smtp)
+        endif()
+    endif()
+
+    get_property(_impl_targets GLOBAL PROPERTY CONFLUX_HEADER_IMPL_TARGETS)
+    if(_impl_targets)
+        add_library(conflux_header_impl INTERFACE)
+        add_library(conflux::header_impl ALIAS conflux_header_impl)
+        set_target_properties(conflux_header_impl PROPERTIES EXPORT_NAME header_impl)
+        target_link_libraries(conflux_header_impl INTERFACE ${_impl_targets})
+    else()
+        message(STATUS
+            "conflux: HEADER_INTERFACE_WITH_SOURCES selected no implementation sources")
+    endif()
+endfunction()
+
 function(conflux_add_executable_from_id target source_id)
     conflux_resolve_source_id(_source "${source_id}")
     add_executable(${target} "${_source}")
     set_property(TARGET ${target} PROPERTY CONFLUX_SOURCE_ID "${source_id}")
+    conflux_apply_header_generated_build_policy(${target})
 endfunction()
 
 function(conflux_add_object_from_id target source_id)
     conflux_resolve_source_id(_source "${source_id}")
     add_library(${target} OBJECT "${_source}")
     set_property(TARGET ${target} PROPERTY CONFLUX_SOURCE_ID "${source_id}")
+    conflux_apply_header_generated_build_policy(${target})
 endfunction()
 
 function(conflux_add_header_interface_target)
@@ -349,70 +615,101 @@ function(conflux_add_header_interface_target)
     # definitions and libraries are attached to requestable component targets
     # so core-only downstream consumers do not resolve JSON-only packages.
 
-    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
-        conflux_select_header_impl_sources(CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
-        if(NOT CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
-            message(STATUS
-                "conflux: HEADER_INTERFACE_WITH_SOURCES selected no implementation sources")
-        endif()
+    conflux_define_header_impl_targets()
+endfunction()
+
+function(conflux_link_header_http_impls target)
+    conflux_link_existing_header_impls_private(${target}
+        conflux_header_impl_core
+        conflux_header_impl_runtime
+        conflux_header_impl_file_io
+        conflux_header_impl_file_map
+        conflux_header_impl_socket_io
+        conflux_header_impl_dns
+        conflux_header_impl_http_core
+        conflux_header_impl_http_server
+        conflux_header_impl_http_static)
+endfunction()
+
+function(conflux_link_header_impl_for_source_id target source_id)
+    if(NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES)
+        return()
     endif()
 
-    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
-        add_library(conflux_header_impl STATIC ${CONFLUX_SELECTED_HEADER_IMPL_SOURCES})
-        add_library(conflux::header_impl ALIAS conflux_header_impl)
-        set_target_properties(conflux_header_impl PROPERTIES EXPORT_NAME header_impl)
-        target_include_directories(conflux_header_impl PRIVATE
-            "${CONFLUX_GENERATED_INCLUDE_DIR}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        if(CONFLUX_USE_MOCK_LIBURING)
-            target_include_directories(conflux_header_impl PRIVATE
-                "${CONFLUX_MOCK_LIBURING_ROOT}/include")
-        elseif(TARGET PkgConfig::LIBURING)
-            target_link_libraries(conflux_header_impl PUBLIC PkgConfig::LIBURING)
-        endif()
-        conflux_bridge_link_header_dependencies(conflux_header_impl PUBLIC)
-        if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)
-            target_compile_features(conflux_header_impl PUBLIC cxx_std_26)
-        else()
-            target_compile_features(conflux_header_impl PUBLIC cxx_std_23)
-        endif()
-        if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
-            target_compile_definitions(conflux_header_impl PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
-        elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
-            target_compile_definitions(conflux_header_impl PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
-        endif()
-        target_compile_definitions(conflux_header_impl PRIVATE
-            CONFLUX_HEADER_USE_IMPORT_STD=0
-            CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
-            CONFLUX_HEADER_USE_MODULE_IMPORTS=0
-            CONFLUX_HAS_TLS=$<BOOL:${CONFLUX_HAS_TLS}>
-            CONFLUX_HAS_COMPRESS=$<BOOL:${CONFLUX_HAS_COMPRESS}>
-            CONFLUX_HAS_ZLIB=$<BOOL:${CONFLUX_HAS_ZLIB}>
-            CONFLUX_HAS_LIBDEFLATE=$<BOOL:${CONFLUX_HAS_LIBDEFLATE}>
-            CONFLUX_HAS_ZLIB_NG=$<BOOL:${CONFLUX_HAS_ZLIB_NG}>
-            CONFLUX_HAS_ISAL=$<BOOL:${CONFLUX_HAS_ISAL}>
-            CONFLUX_HAS_BROTLI=$<BOOL:${CONFLUX_HAS_BROTLI}>
-            CONFLUX_HAS_ZSTD=$<BOOL:${CONFLUX_HAS_ZSTD}>
-            CONFLUX_HAS_HTTP2=$<BOOL:${CONFLUX_HAS_HTTP2}>
-            CONFLUX_HAS_HTTP3=$<BOOL:${CONFLUX_HAS_HTTP3}>
-            CONFLUX_HAS_JSON=$<BOOL:${CONFLUX_HAS_JSON}>
-            CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_HAS_FILE_WATCH}>
-            CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_HAS_TEMPLATES}>
-            CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
-            CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
-            CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
-        target_link_libraries(conflux_headers INTERFACE conflux_header_impl)
+    conflux_link_existing_header_impls_private(${target} conflux_header_impl_core)
+
+    if(source_id MATCHES "json")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_json)
+    endif()
+    if(source_id MATCHES "work|runtime|explicit_offload")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_runtime)
+    endif()
+    if(source_id MATCHES "process")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_process)
+    endif()
+    if(source_id MATCHES "crypto")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_crypto)
+    endif()
+    if(source_id MATCHES "template|production_showcase")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_templates)
+    endif()
+    if(source_id MATCHES "postgres|db_")
+        conflux_link_existing_header_impls_private(${target}
+            conflux_header_impl_runtime
+            conflux_header_impl_socket_io
+            conflux_header_impl_db)
+    endif()
+
+    if(source_id MATCHES "http|hello|middleware|sse|websocket|static|forms|gzip|dual|quickstart|vhost|openapi|production_showcase|manual_json_members|policy_stack|offload")
+        conflux_link_header_http_impls(${target})
+    endif()
+    if(source_id MATCHES "http_client|dual|proxy")
+        conflux_link_existing_header_impls_private(${target}
+            conflux_header_impl_http_client
+            conflux_header_impl_http_proxy)
     endif()
 endfunction()
 
 function(conflux_add_header_example_from_id target source_id)
-    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES)
+    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND CONFLUX_HEADER_LINK_EXAMPLES)
         conflux_add_executable_from_id(${target} "${source_id}")
     else()
         conflux_add_object_from_id(${target} "${source_id}")
     endif()
     target_link_libraries(${target} PRIVATE conflux_headers)
+    if(CONFLUX_HEADER_LINK_EXAMPLES)
+        conflux_link_header_impl_for_source_id(${target} "${source_id}")
+    endif()
     set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS ${target})
+endfunction()
+
+function(conflux_add_header_link_smoke_targets)
+    if(NOT CONFLUX_HEADER_LINK_SMOKE
+            OR NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES
+            OR NOT CONFLUX_WANT_HTTP_SERVER)
+        return()
+    endif()
+
+    set(_smoke_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/header-link-smoke")
+    file(MAKE_DIRECTORY "${_smoke_dir}")
+    file(WRITE "${_smoke_dir}/http.cxx" [[
+#include <conflux/net/http/response.hxx>
+#include <conflux/net/http/types.hxx>
+
+int main() {
+    auto response = Response::text("ok");
+    return response.status == kHttpOk && response.text_body() == "ok" ? 0 : 1;
+}
+]])
+
+    add_executable(conflux_header_link_smoke_http "${_smoke_dir}/http.cxx")
+    conflux_apply_header_generated_build_policy(conflux_header_link_smoke_http)
+    target_link_libraries(conflux_header_link_smoke_http PRIVATE conflux_headers)
+    conflux_link_existing_header_impls_private(conflux_header_link_smoke_http
+        conflux_header_impl_core)
+    if(CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+        add_test(NAME header/link-smoke-http COMMAND conflux_header_link_smoke_http)
+    endif()
 endfunction()
 
 function(conflux_add_header_component_smoke_targets)
@@ -421,12 +718,14 @@ function(conflux_add_header_component_smoke_targets)
 
     file(WRITE "${_smoke_dir}/core.cxx" "#include <conflux/types.hxx>\nint main() { return 0; }\n")
     add_executable(conflux_header_smoke_core "${_smoke_dir}/core.cxx")
+    conflux_apply_header_generated_build_policy(conflux_header_smoke_core)
     target_link_libraries(conflux_header_smoke_core PRIVATE conflux_headers)
     conflux_apply_header_smoke_warnings(conflux_header_smoke_core)
 
     if(CONFLUX_WANT_JSON)
         file(WRITE "${_smoke_dir}/json.cxx" "#include <conflux/json.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_json "${_smoke_dir}/json.cxx")
+        conflux_apply_header_generated_build_policy(conflux_header_smoke_json)
         target_link_libraries(conflux_header_smoke_json PRIVATE conflux_headers)
         if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
             target_compile_definitions(conflux_header_smoke_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
@@ -442,6 +741,7 @@ function(conflux_add_header_component_smoke_targets)
     if(CONFLUX_NEEDS_RUNTIME)
         file(WRITE "${_smoke_dir}/runtime.cxx" "#include <conflux/work.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_runtime "${_smoke_dir}/runtime.cxx")
+        conflux_apply_header_generated_build_policy(conflux_header_smoke_runtime)
         target_link_libraries(conflux_header_smoke_runtime PRIVATE conflux_headers)
         conflux_apply_header_smoke_warnings(conflux_header_smoke_runtime)
     endif()
@@ -449,6 +749,7 @@ function(conflux_add_header_component_smoke_targets)
     if(CONFLUX_HAS_DB STREQUAL "true")
         file(WRITE "${_smoke_dir}/pg.cxx" "#include <conflux/pg/types.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_pg "${_smoke_dir}/pg.cxx")
+        conflux_apply_header_generated_build_policy(conflux_header_smoke_pg)
         if(TARGET conflux_db)
             target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_db)
         else()

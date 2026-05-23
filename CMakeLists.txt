@@ -32,6 +32,12 @@ option(CONFLUX_USE_MOCK_LIBURING
     "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
 option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
     "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
+option(CONFLUX_HEADER_FAST_COMPILE
+    "Compile generated header-mode implementation and smoke targets without optimization or module scanning" ON)
+option(CONFLUX_HEADER_LINK_EXAMPLES
+    "Link generated header-mode example targets against generated implementation archives" OFF)
+option(CONFLUX_HEADER_LINK_SMOKE
+    "Build small linked header-mode smoke targets against generated implementation archives" OFF)
 
 if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
         AND NOT CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
@@ -405,6 +411,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     endif()
     conflux_add_header_interface_target()
     conflux_add_header_component_smoke_targets()
+    conflux_add_header_link_smoke_targets()
     conflux_add_header_examples_from_source_ids()
     conflux_add_header_test_compile_targets()
     conflux_add_header_compile_fail_tests()
@@ -412,11 +419,13 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 
     add_library(conflux_core INTERFACE)
     target_link_libraries(conflux_core INTERFACE conflux_headers)
+    conflux_link_existing_header_impls(conflux_core conflux_header_impl_core)
     target_compile_definitions(conflux_core INTERFACE CONFLUX_INTERFACE_HEADER=1)
     set_target_properties(conflux_core PROPERTIES EXPORT_NAME core)
 
     add_library(conflux_types INTERFACE)
     target_link_libraries(conflux_types INTERFACE conflux_headers)
+    conflux_link_existing_header_impls(conflux_types conflux_header_impl_core)
     set_target_properties(conflux_types PROPERTIES EXPORT_NAME types)
 
     set(CONFLUX_PACKAGE_COMPONENTS core types)
@@ -426,12 +435,22 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     set(CONFLUX_PACKAGE_ALL_COMPONENTS headers core types)
     set(CONFLUX_PACKAGE_ALL_TARGETS conflux::headers conflux::core conflux::types)
     set(CONFLUX_HEADER_INSTALL_TARGETS conflux_headers conflux_core conflux_types)
+    get_property(_conflux_header_impl_targets GLOBAL PROPERTY CONFLUX_HEADER_IMPL_TARGETS)
+    get_property(_conflux_header_impl_components GLOBAL PROPERTY CONFLUX_HEADER_IMPL_COMPONENTS)
+    get_property(_conflux_header_impl_namespaced_targets GLOBAL PROPERTY CONFLUX_HEADER_IMPL_NAMESPACED_TARGETS)
     if(TARGET conflux_header_impl)
         list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_header_impl)
         list(APPEND CONFLUX_PACKAGE_SUPPORT_COMPONENTS header_impl)
         list(APPEND CONFLUX_PACKAGE_SUPPORT_TARGETS conflux::header_impl)
         list(APPEND CONFLUX_PACKAGE_ALL_COMPONENTS header_impl)
         list(APPEND CONFLUX_PACKAGE_ALL_TARGETS conflux::header_impl)
+    endif()
+    if(_conflux_header_impl_targets)
+        list(APPEND CONFLUX_HEADER_INSTALL_TARGETS ${_conflux_header_impl_targets})
+        list(APPEND CONFLUX_PACKAGE_SUPPORT_COMPONENTS ${_conflux_header_impl_components})
+        list(APPEND CONFLUX_PACKAGE_SUPPORT_TARGETS ${_conflux_header_impl_namespaced_targets})
+        list(APPEND CONFLUX_PACKAGE_ALL_COMPONENTS ${_conflux_header_impl_components})
+        list(APPEND CONFLUX_PACKAGE_ALL_TARGETS ${_conflux_header_impl_namespaced_targets})
     endif()
     set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
     if(CONFLUX_USE_MOCK_LIBURING)
@@ -446,6 +465,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     if(CONFLUX_WANT_JSON)
         add_library(conflux_json INTERFACE)
         target_link_libraries(conflux_json INTERFACE conflux_headers)
+        conflux_link_existing_header_impls(conflux_json conflux_header_impl_json)
         if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
             target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
             if(TARGET PkgConfig::XXHASH)
@@ -466,6 +486,21 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             AND (CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER))
         add_library(conflux_net_http INTERFACE)
         target_link_libraries(conflux_net_http INTERFACE conflux_headers)
+        conflux_link_existing_header_impls(conflux_net_http
+            conflux_header_impl_core
+            conflux_header_impl_json
+            conflux_header_impl_runtime
+            conflux_header_impl_file_io_sync
+            conflux_header_impl_file_map
+            conflux_header_impl_file_io
+            conflux_header_impl_socket_io
+            conflux_header_impl_dns
+            conflux_header_impl_http_core
+            conflux_header_impl_http_server
+            conflux_header_impl_http_static
+            conflux_header_impl_http_client
+            conflux_header_impl_http_proxy
+            conflux_header_impl_templates)
         target_link_libraries(conflux_net_http INTERFACE PkgConfig::LIBURING)
         set_target_properties(conflux_net_http PROPERTIES EXPORT_NAME http)
         list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_net_http)
@@ -477,6 +512,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 
     add_library(conflux_file_io_sync INTERFACE)
     target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
+    conflux_link_existing_header_impls(conflux_file_io_sync conflux_header_impl_file_io_sync)
     set_target_properties(conflux_file_io_sync PROPERTIES EXPORT_NAME file_io_sync)
     list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_file_io_sync)
     list(APPEND CONFLUX_PACKAGE_COMPONENTS file_io_sync)
@@ -487,9 +523,10 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         add_library(conflux_work INTERFACE)
         target_link_libraries(conflux_work INTERFACE conflux_headers)
-        if(TARGET conflux_header_impl)
-            target_link_libraries(conflux_work INTERFACE conflux_header_impl)
-        endif()
+        conflux_link_existing_header_impls(conflux_work
+            conflux_header_impl_core
+            conflux_header_impl_runtime
+            conflux_header_impl_socket_io)
         target_link_libraries(conflux_work INTERFACE PkgConfig::LIBURING)
         set_target_properties(conflux_work PROPERTIES EXPORT_NAME runtime)
         list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_work)
@@ -507,6 +544,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
         add_library(conflux_db INTERFACE)
         target_link_libraries(conflux_db INTERFACE conflux_headers)
+        conflux_link_existing_header_impls(conflux_db conflux_header_impl_db)
         target_link_libraries(conflux_db INTERFACE conflux_work)
         if(TARGET PkgConfig::LIBPQ)
             target_link_libraries(conflux_db INTERFACE PkgConfig::LIBPQ)

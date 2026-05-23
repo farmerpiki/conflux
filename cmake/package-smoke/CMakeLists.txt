@@ -24,13 +24,15 @@ set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS "" CACHE STRING
     "Semicolon-separated conflux components that must not be visible")
 set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS "" CACHE STRING
     "Semicolon-separated external dependency tokens that must not be resolved")
+option(CONFLUX_PACKAGE_SMOKE_FAST_COMPILE
+    "Compile package smoke targets without optimization; this validates package wiring, not runtime performance" ON)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_MODULE_STD OFF)
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 enable_testing()
 
@@ -50,6 +52,7 @@ endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
+    set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 endif()
 
 foreach(_component IN LISTS _conflux_find_components)
@@ -128,6 +131,17 @@ file(WRITE "${_conflux_smoke_summary}"
     "forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
 )
 
+function(conflux_apply_package_smoke_build_policy target)
+    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+        set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    endif()
+    if(CONFLUX_PACKAGE_SMOKE_FAST_COMPILE)
+        target_compile_options(${target} PRIVATE
+            $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0>
+            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Od>)
+    endif()
+endfunction()
+
 set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND CONFLUX_USE_IMPORT_STD)
     file(WRITE "${_conflux_package_smoke_source}" [[
@@ -171,7 +185,7 @@ int main() {
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     file(WRITE "${_conflux_package_smoke_source}" [[
-#include <conflux/conflux.hpp>
+#include <conflux/types.hpp>
 
 #include <cstddef>
 #include <optional>
@@ -198,6 +212,7 @@ endif()
 
 add_executable(conflux_package_smoke "${_conflux_package_smoke_source}")
 target_compile_features(conflux_package_smoke PRIVATE cxx_std_23)
+conflux_apply_package_smoke_build_policy(conflux_package_smoke)
 if(TARGET conflux::headers)
     target_link_libraries(conflux_package_smoke PRIVATE conflux::headers)
 endif()
@@ -223,6 +238,7 @@ function(conflux_add_component_smoke name component source)
     file(WRITE "${_source}" "${source}")
     add_executable("conflux_package_smoke_${name}" "${_source}")
     target_compile_features("conflux_package_smoke_${name}" PRIVATE cxx_std_23)
+    conflux_apply_package_smoke_build_policy("conflux_package_smoke_${name}")
     if(TARGET conflux::headers)
         target_link_libraries("conflux_package_smoke_${name}" PRIVATE conflux::headers)
     endif()
