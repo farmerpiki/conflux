@@ -25,8 +25,8 @@ one small service.
 - [ ] Aggregate header bytes/count limits return `431` with
   `header_block_too_large`.
 - [ ] Body limits return `413` with `body_too_large`.
-- [ ] Header timeout / slowloris behavior is covered by the runtime timeout
-  policy for this deployment.
+- [ ] Header timeout / slowloris and incomplete-body timeout behavior are
+  covered by the runtime timeout policy for this deployment.
 - [ ] Static file mounts reject path traversal and symlink policy is intentional.
 - [ ] Trusted proxy headers are enabled only for known proxy source addresses.
 - [ ] Structured logs redact `Authorization`, `Proxy-Authorization`, `Cookie`,

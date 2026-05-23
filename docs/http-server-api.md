@@ -114,6 +114,7 @@ enum class HttpRejectReason : u8 {
     body_too_large,
     expectation_failed,
     header_timeout,
+    body_timeout,
 };
 
 string_view reject_reason_code(HttpRejectReason) noexcept;
@@ -137,6 +138,7 @@ struct HttpRejectionMetrics {
     u64 body_too_large;
     u64 expectation_failed;
     u64 header_timeout;
+    u64 body_timeout;
 };
 
 struct HttpServerMetrics {
@@ -215,6 +217,7 @@ snake-case `code` strings and non-sensitive `detail` text.
 | `body_too_large` | 413 | `rejections.body_too_large` |
 | `expectation_failed` | 417 | `rejections.expectation_failed` |
 | `header_timeout` | 408 | `rejections.header_timeout` |
+| `body_timeout` | 408 | `rejections.body_timeout` |
 
 ---
 

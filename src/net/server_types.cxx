@@ -55,6 +55,7 @@ export enum class HttpRejectReason : std::uint8_t {
 	body_too_large,
 	expectation_failed,
 	header_timeout,
+	body_timeout,
 };
 
 export [[nodiscard]] constexpr std::string_view reject_reason_code(
@@ -77,6 +78,7 @@ export [[nodiscard]] constexpr std::string_view reject_reason_code(
 	case HttpRejectReason::body_too_large                       : return "body_too_large";
 	case HttpRejectReason::expectation_failed                   : return "expectation_failed";
 	case HttpRejectReason::header_timeout                       : return "header_timeout";
+	case HttpRejectReason::body_timeout                         : return "body_timeout";
 	}
 	return "malformed_request";
 }
@@ -100,7 +102,8 @@ export [[nodiscard]] constexpr int reject_reason_status(
 	case HttpRejectReason::too_many_headers      : return 431;
 	case HttpRejectReason::body_too_large        : return 413;
 	case HttpRejectReason::expectation_failed    : return 417;
-	case HttpRejectReason::header_timeout        : return 408;
+	case HttpRejectReason::header_timeout        :
+	case HttpRejectReason::body_timeout          : return 408;
 	case HttpRejectReason::none                  : return 200;
 	default                                      : return 400;
 	}
@@ -126,6 +129,7 @@ export [[nodiscard]] constexpr std::string_view reject_reason_detail(
 	case HttpRejectReason::body_too_large               : return "request body exceeds the configured limit";
 	case HttpRejectReason::expectation_failed           : return "request Expect header cannot be satisfied";
 	case HttpRejectReason::header_timeout               : return "request headers were not received before the timeout";
+	case HttpRejectReason::body_timeout                 : return "request body was not received before the timeout";
 	case HttpRejectReason::none                         : return "";
 	}
 	return "request syntax is invalid";
@@ -152,6 +156,7 @@ export struct HttpRejectionMetrics {
 	std::uint64_t body_too_large{};
 	std::uint64_t expectation_failed{};
 	std::uint64_t header_timeout{};
+	std::uint64_t body_timeout{};
 };
 
 export enum class SendZcPendingAction : std::uint8_t {

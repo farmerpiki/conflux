@@ -56,8 +56,9 @@ server is web-facing and the parser accepts hostile input.
 ### Timeout hardening
 
 - `request_timeout_ms` and `tls_sniff_timeout_ms` are configured defaults and
-  are exercised by the server timeout/reaping path. Add a dedicated slowloris
-  E2E test if this path regresses or becomes configurable per listener.
+  are exercised by the server timeout/reaping path. Dedicated raw-wire E2E
+  coverage verifies incomplete-header `header_timeout` and incomplete-body
+  `body_timeout` rejection responses.
 
 ## Maintenance rule
 

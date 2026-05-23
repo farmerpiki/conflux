@@ -140,6 +140,8 @@ TEST_CASE(
 	CHECK(reject_reason_status(HttpRejectReason::duplicate_content_length) == 400);
 	CHECK(reject_reason_status(HttpRejectReason::header_block_too_large) == 431);
 	CHECK(reject_reason_status(HttpRejectReason::body_too_large) == 413);
+	CHECK(reject_reason_status(HttpRejectReason::body_timeout) == 408);
+	CHECK(reject_reason_code(HttpRejectReason::body_timeout) == "body_timeout");
 	CHECK(
 		reject_reason_detail(HttpRejectReason::content_length_with_transfer_encoding).find("Content-Length")
 		!= std::string_view::npos);

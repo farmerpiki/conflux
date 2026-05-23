@@ -69,22 +69,27 @@ namespace {
 	return !bytes.empty() && bytes.find("\r\n\r\n") == std::string_view::npos;
 }
 
-void emit_header_timeout_rejection(
+void emit_timeout_rejection(
 	Conn &conn,
-	Ring &ring) {
+	Ring &ring,
+	HttpRejectReason reason) {
 	Response r;
-	r.status = reject_reason_status(HttpRejectReason::header_timeout);
+	r.status = reject_reason_status(reason);
 	r.status_text = "Request Timeout";
 	r.content_type = "application/problem+json";
 	r.set_text_body(
 		std::format(
 			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
-			reject_reason_code(HttpRejectReason::header_timeout),
-			reject_reason_diagnostic_code(HttpRejectReason::header_timeout),
-			reject_reason_detail(HttpRejectReason::header_timeout)));
-	++ring.rejection_counters_.header_timeout;
+			reject_reason_code(reason),
+			reject_reason_diagnostic_code(reason),
+			reject_reason_detail(reason)));
+	switch (reason) {
+	case HttpRejectReason::header_timeout: ++ring.rejection_counters_.header_timeout; break;
+	case HttpRejectReason::body_timeout  : ++ring.rejection_counters_.body_timeout; break;
+	default                              : break;
+	}
 	if (ring.observability_hooks_.rejection) {
-		ring.observability_hooks_.rejection(HttpRejectReason::header_timeout, r.status);
+		ring.observability_hooks_.rejection(reason, r.status);
 	}
 	conn.own_response = format_response(r, ring.alt_svc_header, true);
 	conn.has_response = true;
@@ -880,10 +885,14 @@ void Ring::handle_timer() {
 		if (request_timeout_ms != 0) {
 			auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
 			if (now - ref > req_limit) {
-				if (conn.request_in_progress && incomplete_h1_headers(conn)) {
+				if (conn.request_in_progress) {
 					auto const fd = conn.fd;
+					auto reason = HttpRejectReason::body_timeout;
+					if (incomplete_h1_headers(conn)) {
+						reason = HttpRejectReason::header_timeout;
+					}
 					invalidate_recv_if_armed(fd);
-					emit_header_timeout_rejection(conn, *this);
+					emit_timeout_rejection(conn, *this, reason);
 					start_response_send(fd, conn);
 				} else {
 					queue_close(conn.fd);

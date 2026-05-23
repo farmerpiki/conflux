@@ -1544,18 +1544,19 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+	timeval tv{.tv_sec = 5, .tv_usec = 0};
+	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	std::string_view const req =
 		"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 	auto interim = read_one_response(fd);
 	REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
 
-	std::this_thread::sleep_for(std::chrono::milliseconds{2500});
-	char probe{};
-	auto n = ::recv(fd, &probe, 1, MSG_DONTWAIT);
+	auto timeout_response = read_one_response(fd);
 	::close(fd);
-	bool const connection_gone = (n == 0) || (n < 0 && (errno == ECONNRESET || errno == EAGAIN));
-	REQUIRE(connection_gone);
+	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 Request Timeout"));
+	CHECK(timeout_response.find(R"("code":"body_timeout")") != std::string::npos);
+	CHECK(timeout_response.find(R"("diagnostic_code":"body_timeout")") != std::string::npos);
 }
 TEST_CASE(
 	"POST with unsupported Expect returns 417") {

@@ -97,6 +97,7 @@ void add_metrics(
 	dst.rejections.body_too_large += src.rejections.body_too_large;
 	dst.rejections.expectation_failed += src.rejections.expectation_failed;
 	dst.rejections.header_timeout += src.rejections.header_timeout;
+	dst.rejections.body_timeout += src.rejections.body_timeout;
 	dst.pressure.accept_rejected += src.pressure.accept_rejected;
 	dst.pressure.connections_closed_for_pressure += src.pressure.connections_closed_for_pressure;
 	dst.pressure.response_backpressure_events += src.pressure.response_backpressure_events;

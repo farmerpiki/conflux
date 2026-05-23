@@ -38,6 +38,7 @@ void note_rejection(
 	case HttpRejectReason::body_too_large               : ++metrics.body_too_large; break;
 	case HttpRejectReason::expectation_failed           : ++metrics.expectation_failed; break;
 	case HttpRejectReason::header_timeout               : ++metrics.header_timeout; break;
+	case HttpRejectReason::body_timeout                 : ++metrics.body_timeout; break;
 	case HttpRejectReason::none                         : break;
 	}
 }
