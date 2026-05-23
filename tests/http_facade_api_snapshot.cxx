@@ -1,6 +1,7 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
+import conflux.net.router;
 
 namespace http_snapshot {
 
@@ -121,7 +122,6 @@ void middleware_forms_compile() {
 		});
 	});
 }
-
 
 void run_main_spelling_compiles() {
 	auto app = http::app();

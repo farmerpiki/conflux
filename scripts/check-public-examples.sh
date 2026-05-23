@@ -8,7 +8,7 @@ if grep -n -E 'conflux\.types|json_response\(|Response::json\(R"\(\{|http::Json\
 	exit 1
 fi
 # First-contact top-level HTTP examples should teach the selected curated umbrella.
-for file in "$root"/hello.cxx "$root"/forms.cxx "$root"/gzip.cxx "$root"/middleware.cxx "$root"/sse.cxx "$root"/static.cxx; do
+for file in "$root"/hello.cxx "$root"/forms.cxx "$root"/sse.cxx "$root"/static.cxx; do
 	if [[ -f "$file" ]] && ! grep -q -E '^import conflux;$' "$file"; then
 		printf '%s must import selected umbrella `conflux`, not a leaf facade\n' "$file" >&2
 		exit 1

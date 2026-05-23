@@ -7,7 +7,7 @@
 //   curl http://localhost:9094/public/ping
 //   curl -u demo:demo http://localhost:9094/private/profile
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
-import conflux;
+import conflux.extended;
 import std;
 
 struct PingReply {

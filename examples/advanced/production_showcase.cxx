@@ -11,6 +11,7 @@
 #include <cstdio>
 
 import conflux.extended;
+import conflux.net.http.realtime;
 import std;
 
 namespace http = conflux::http;
