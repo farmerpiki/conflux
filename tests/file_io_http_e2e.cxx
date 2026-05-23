@@ -35,9 +35,11 @@ std::string read_exactly(
 	out.resize(off);
 	return out;
 }
-std::pair<std::string, std::string> send_get_split_body(
+std::pair<std::string, std::string> send_request_split_body(
 	std::uint16_t port,
+	std::string_view method,
 	std::string_view path,
+	std::string_view extra_headers,
 	std::size_t expected_body) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -47,7 +49,8 @@ std::pair<std::string, std::string> send_get_split_body(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	auto const req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+	auto const req =
+		std::format("{} {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", method, path, extra_headers);
 	::send(fd, req.data(), req.size(), 0);
 
 	std::string buf;
@@ -68,6 +71,27 @@ std::pair<std::string, std::string> send_get_split_body(
 	}
 	::close(fd);
 	return {std::move(headers), std::move(body)};
+}
+std::pair<std::string, std::string> send_get_split_body(
+	std::uint16_t port,
+	std::string_view path,
+	std::size_t expected_body) {
+	return send_request_split_body(port, "GET", path, "", expected_body);
+}
+std::optional<std::string> header_value(
+	std::string_view headers,
+	std::string_view name) {
+	std::string const needle = std::format("{}: ", name);
+	auto const pos = headers.find(needle);
+	if (pos == std::string_view::npos) {
+		return std::nullopt;
+	}
+	auto const value_start = pos + needle.size();
+	auto const value_end = headers.find("\r\n", value_start);
+	if (value_end == std::string_view::npos) {
+		return std::nullopt;
+	}
+	return std::string{headers.substr(value_start, value_end - value_start)};
 }
 struct StaticDir {
 	std::string path;
@@ -189,4 +213,120 @@ TEST_CASE(
 	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(headers.find(std::format("Content-Length: {}\r\n", content.size())) != std::string::npos);
 	CHECK(body == content);
+}
+
+TEST_CASE(
+	"file_io http e2e: static validators and HEAD semantics",
+	"[file_io][http][e2e][static]") {
+	StaticDir const dir{"/tmp/conflux_file_io_http_conditional_XXXXXX"};
+	std::string const content = "hello-static-cache";
+	dir.write("asset.txt", content);
+
+	Config cfg = mw_config();
+	cfg.fixed_buffer_slabs = 0;
+	cfg.splice_pipe_pairs = 0;
+
+	Router router;
+	router.serve_static("/static", dir.path);
+
+	ScopedTestServer const srv{cfg, std::move(router)};
+	auto [get_headers, get_body] = send_get_split_body(srv.port(), "/static/asset.txt", content.size());
+	REQUIRE(get_headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(get_body == content);
+
+	auto const etag = header_value(get_headers, "ETag");
+	auto const last_modified = header_value(get_headers, "Last-Modified");
+	REQUIRE(etag.has_value());
+	REQUIRE(last_modified.has_value());
+	CHECK(header_value(get_headers, "Accept-Ranges") == std::optional<std::string>{"bytes"});
+
+	auto [head_headers, head_body] = send_request_split_body(srv.port(), "HEAD", "/static/asset.txt", "", 0);
+	REQUIRE(head_headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(head_body.empty());
+	CHECK(head_headers.find(std::format("Content-Length: {}\r\n", content.size())) != std::string::npos);
+	CHECK(header_value(head_headers, "ETag") == etag);
+	CHECK(header_value(head_headers, "Last-Modified") == last_modified);
+
+	auto [etag_headers, etag_body] =
+		send_request_split_body(srv.port(), "GET", "/static/asset.txt", std::format("If-None-Match: {}\r\n", *etag), 0);
+	CHECK(etag_headers.starts_with("HTTP/1.1 304 Not Modified"));
+	CHECK(etag_body.empty());
+
+	auto [mtime_headers, mtime_body] = send_request_split_body(
+		srv.port(),
+		"GET",
+		"/static/asset.txt",
+		std::format("If-Modified-Since: {}\r\n", *last_modified),
+		0);
+	CHECK(mtime_headers.starts_with("HTTP/1.1 304 Not Modified"));
+	CHECK(mtime_body.empty());
+}
+
+TEST_CASE(
+	"file_io http e2e: static range edge semantics",
+	"[file_io][http][e2e][static]") {
+	StaticDir const dir{"/tmp/conflux_file_io_http_range_XXXXXX"};
+	std::string const content = "0123456789abcdef";
+	dir.write("bytes.txt", content);
+
+	Config cfg = mw_config();
+	cfg.fixed_buffer_slabs = 0;
+	cfg.splice_pipe_pairs = 0;
+
+	Router router;
+	router.serve_static("/static", dir.path);
+
+	ScopedTestServer const srv{cfg, std::move(router)};
+	SECTION("suffix ranges return the requested tail") {
+		auto [headers, body] =
+			send_request_split_body(srv.port(), "GET", "/static/bytes.txt", "Range: bytes=-4\r\n", 4);
+		REQUIRE(headers.starts_with("HTTP/1.1 206 Partial Content"));
+		CHECK(headers.find("Content-Range: bytes 12-15/16\r\n") != std::string::npos);
+		CHECK(body == "cdef");
+	}
+
+	SECTION("unsatisfiable range returns 416 with total size") {
+		auto [headers, body] =
+			send_request_split_body(srv.port(), "GET", "/static/bytes.txt", "Range: bytes=64-127\r\n", 0);
+		CHECK(headers.starts_with("HTTP/1.1 416 Range Not Satisfiable"));
+		CHECK(headers.find("Content-Range: bytes */16\r\n") != std::string::npos);
+		CHECK(body.empty());
+	}
+
+	SECTION("unsupported multi-range is ignored instead of mis-serving partial data") {
+		auto [headers, body] =
+			send_request_split_body(srv.port(), "GET", "/static/bytes.txt", "Range: bytes=0-1,4-5\r\n", content.size());
+		REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
+		CHECK(headers.find("Content-Range:") == std::string::npos);
+		CHECK(body == content);
+	}
+
+	SECTION("malformed range is ignored instead of becoming a partial response") {
+		auto [headers, body] =
+			send_request_split_body(srv.port(), "GET", "/static/bytes.txt", "Range: bytes=abc-def\r\n", content.size());
+		REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
+		CHECK(headers.find("Content-Range:") == std::string::npos);
+		CHECK(body == content);
+	}
+}
+
+TEST_CASE(
+	"file_io http e2e: static symlink target is not served",
+	"[file_io][http][e2e][static][security]") {
+	StaticDir const dir{"/tmp/conflux_file_io_http_symlink_XXXXXX"};
+	dir.write("real.txt", "secret-through-symlink");
+	auto const link_path = dir.path + "/link.txt";
+	REQUIRE(::symlink("real.txt", link_path.c_str()) == 0);
+
+	Config cfg = mw_config();
+	cfg.fixed_buffer_slabs = 0;
+	cfg.splice_pipe_pairs = 0;
+
+	Router router;
+	router.serve_static("/static", dir.path);
+
+	ScopedTestServer const srv{cfg, std::move(router)};
+	auto [headers, body] = send_get_split_body(srv.port(), "/static/link.txt", 0);
+	CHECK_FALSE(headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(body.find("secret-through-symlink") == std::string::npos);
 }
