@@ -58,3 +58,38 @@ TEST_CASE(
 	CHECK(metrics.pressure.drain_forced_close >= 1);
 	client.close();
 }
+
+TEST_CASE(
+	"drain closes an open SSE stream and records stream pressure metrics",
+	"[http][e2e][backpressure][sse][lifecycle]") {
+	Router router;
+	router.get("/events/open", [](chttp::Request const &) {
+		auto ch = std::make_shared<SseChannel>();
+		(void)ch->send("data: open\n\n");
+		return chttp::Response::sse(std::move(ch));
+	});
+	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
+
+	LocalTcpClient client{srv.port()};
+	std::string_view const req = "GET /events/open HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n";
+	REQUIRE(client.send(req, MSG_NOSIGNAL) == static_cast<ssize_t>(req.size()));
+
+	auto headers = client.read_headers();
+	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(headers.find("Content-Type: text/event-stream") != std::string::npos);
+
+	auto report = srv.drain(
+		DrainOptions{
+			.deadline = std::chrono::milliseconds{2000},
+			.finish_requests = true,
+			.finish_streams = false,
+			.sse_policy = DrainStreamPolicy::close,
+		});
+	CHECK_FALSE(report.deadline_hit);
+	CHECK(report.streams_closed >= 1);
+
+	auto const metrics = srv.metrics();
+	CHECK(metrics.pressure.drain_started >= 1);
+	CHECK(metrics.pressure.connections_closed_for_pressure >= 1);
+	client.close();
+}
