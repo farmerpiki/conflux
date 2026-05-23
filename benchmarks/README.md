@@ -432,9 +432,11 @@ Current groups:
   socket/kernel round trips.
 - `http_adversarial`: user-space parser/security load scenarios with structured
   reject reasons, consumed bytes, CPU/request, and allocation counters.
-- `http_server`, `http_server_concurrency`, `slow_consumer_backpressure`,
-  `send_zc`, `tcp_increment`, and `socket_raw`: HTTP/socket/io_uring transport
-  measurements. Short `http_server_concurrency` rows are smoke-quality
+- `slow_consumer_backpressure`: live slow-client/socket pressure rows plus
+  local bounded SSE and WorkPool queue-full policy rows.
+- `http_server`, `http_server_concurrency`, `send_zc`, `tcp_increment`, and
+  `socket_raw`: HTTP/socket/io_uring transport measurements. Short
+  `http_server_concurrency` rows are smoke-quality
   `live-kernel-sanity`; 30s+ rows with 5s+ warmup are labeled
   `end-to-end-proof`.
 - `file_copy_coro`: file/runtime measurements.

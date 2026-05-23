@@ -242,6 +242,14 @@ struct LatencyStats {
 	return {.p50 = pct(0.50), .p90 = pct(0.90), .p99 = pct(0.99), .p999 = pct(0.999), .max = latencies.back()};
 }
 
+[[nodiscard]] std::string make_sse_frame(
+	std::size_t payload_bytes) {
+	std::string frame = "event: bench\ndata: ";
+	frame.append(payload_bytes, 'x');
+	frame += "\n\n";
+	return frame;
+}
+
 struct RowStats {
 	std::string config;
 	std::string variant;
@@ -267,6 +275,19 @@ struct RowStats {
 	SsePressureMetrics sse{};
 	WorkPoolQueueStats work{};
 };
+
+[[nodiscard]] RowStats make_local_policy_row(
+	std::string_view config,
+	std::string variant,
+	std::size_t iterations,
+	std::uint64_t total_ns) {
+	return RowStats{
+		.config = std::string{config},
+		.variant = std::move(variant),
+		.total_ns = total_ns,
+		.iterations = iterations,
+	};
+}
 
 void emit(
 	RowStats const &s,
@@ -511,6 +532,186 @@ RowStats run_sse_policy(
 	return row;
 }
 
+[[nodiscard]] std::size_t fill_drop_newest(
+	SseChannel &ch,
+	std::string const &frame) {
+	std::size_t queued = 0;
+	while (ch.send(frame)) {
+		++queued;
+	}
+	return queued;
+}
+
+RowStats run_local_sse_drop_newest(
+	std::string_view config,
+	std::size_t iterations) {
+	auto const frame = make_sse_frame(192);
+	SseChannel ch{1024, SseOverflowPolicy::DropNewest};
+	auto const backlog = fill_drop_newest(ch, frame);
+	auto const before = ch.pressure_metrics();
+	std::uint64_t rejected = 0;
+	auto const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iterations; ++i) {
+		if (!ch.send(frame)) {
+			++rejected;
+		}
+	}
+	auto row = make_local_policy_row(config, "local_sse_overflow_drop_newest", iterations, bench_now_ns() - t0);
+	auto const after = ch.pressure_metrics();
+	row.dropped = rejected;
+	row.queue_depth_high_water = backlog;
+	row.sse.dropped_newest = after.dropped_newest - before.dropped_newest;
+	return row;
+}
+
+RowStats run_local_sse_drop_oldest(
+	std::string_view config,
+	std::size_t iterations) {
+	auto const frame = make_sse_frame(192);
+	SseChannel ch{1024, SseOverflowPolicy::DropOldest};
+	std::uint64_t seeded = 0;
+	for (std::size_t i = 0; i < 8; ++i) {
+		if (ch.send(frame)) {
+			++seeded;
+		}
+	}
+	auto const before = ch.pressure_metrics();
+	auto const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iterations; ++i) {
+		if (ch.send(frame)) {
+			++seeded;
+		}
+	}
+	auto row = make_local_policy_row(config, "local_sse_overflow_drop_oldest", iterations, bench_now_ns() - t0);
+	auto const after = ch.pressure_metrics();
+	row.accepted = iterations;
+	row.queue_depth_high_water = seeded;
+	row.sse.dropped_oldest = after.dropped_oldest - before.dropped_oldest;
+	return row;
+}
+
+RowStats run_local_sse_disconnect(
+	std::string_view config,
+	std::size_t iterations) {
+	auto const frame = make_sse_frame(192);
+	std::uint64_t disconnected = 0;
+	std::uint64_t rejected = 0;
+	auto const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iterations; ++i) {
+		SseChannel ch{256, SseOverflowPolicy::Disconnect};
+		while (ch.send(frame)) {}
+		auto const metrics = ch.pressure_metrics();
+		disconnected += metrics.disconnected_for_pressure;
+		if (!ch.send(frame)) {
+			++rejected;
+		}
+	}
+	auto row = make_local_policy_row(config, "local_sse_overflow_disconnect_cycle", iterations, bench_now_ns() - t0);
+	row.dropped = rejected;
+	row.sse.disconnected_for_pressure = disconnected;
+	return row;
+}
+
+struct SaturatedPool {
+	WorkPool pool;
+	std::atomic<bool> release_worker{false};
+	std::atomic<bool> worker_started{false};
+	std::size_t backlog_seed{};
+
+	SaturatedPool()
+		: pool{WorkPoolOptions{
+			  .threads = 1,
+			  .max_inject_queue = 8,
+			  .inject_queue_shards = 1,
+			  .local_queue_capacity = 0,
+			  .queue_mode = WorkPoolQueueMode::no_stealing,
+			  .spin_before_park = 0,
+		  }} {
+		if (!pool.enqueue([this] {
+				worker_started.store(true, std::memory_order_release);
+				while (!release_worker.load(std::memory_order_acquire)) {
+					std::this_thread::yield();
+				}
+			})) {
+			throw std::runtime_error{"failed to enqueue blocking work item"};
+		}
+		while (!worker_started.load(std::memory_order_acquire)) {
+			std::this_thread::yield();
+		}
+		while (pool.enqueue([] {})) {
+			++backlog_seed;
+		}
+	}
+
+	~SaturatedPool() {
+		release_worker.store(true, std::memory_order_release);
+		pool.drain_and_stop();
+	}
+};
+
+RowStats run_local_workpool_full(
+	std::string_view config,
+	std::size_t iterations) {
+	SaturatedPool saturated;
+	std::uint64_t accepted = 0;
+	std::uint64_t rejected = 0;
+	auto const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iterations; ++i) {
+		if (saturated.pool.enqueue([] {})) {
+			++accepted;
+		} else {
+			++rejected;
+		}
+	}
+	auto row = make_local_policy_row(config, "local_workpool_enqueue_full_reject", iterations, bench_now_ns() - t0);
+	row.accepted = accepted;
+	row.dropped = rejected;
+	row.queue_depth_high_water = saturated.backlog_seed;
+	row.work = saturated.pool.queue_stats();
+	return row;
+}
+
+RowStats run_local_workpool_full_contended(
+	std::string_view config,
+	std::size_t iterations) {
+	static constexpr std::size_t kProducers = 4;
+	SaturatedPool saturated;
+	std::barrier start{static_cast<std::ptrdiff_t>(kProducers + 1)};
+	std::atomic<std::uint64_t> accepted{0};
+	std::atomic<std::uint64_t> rejected{0};
+	std::size_t const per_producer = std::max<std::size_t>(1, iterations / kProducers);
+	std::vector<std::jthread> producers;
+	producers.reserve(kProducers);
+	for (std::size_t p = 0; p < kProducers; ++p) {
+		producers.emplace_back([&] {
+			start.arrive_and_wait();
+			std::uint64_t local_accepted = 0;
+			std::uint64_t local_rejected = 0;
+			for (std::size_t i = 0; i < per_producer; ++i) {
+				if (saturated.pool.enqueue([] {})) {
+					++local_accepted;
+				} else {
+					++local_rejected;
+				}
+			}
+			accepted.fetch_add(local_accepted, std::memory_order_relaxed);
+			rejected.fetch_add(local_rejected, std::memory_order_relaxed);
+		});
+	}
+	start.arrive_and_wait();
+	auto const t0 = bench_now_ns();
+	for (auto &thread: producers) {
+		thread.join();
+	}
+	auto const attempts = per_producer * kProducers;
+	auto row = make_local_policy_row(config, "local_workpool_enqueue_full_contended", attempts, bench_now_ns() - t0);
+	row.accepted = accepted.load(std::memory_order_relaxed);
+	row.dropped = rejected.load(std::memory_order_relaxed);
+	row.queue_depth_high_water = saturated.backlog_seed;
+	row.work = saturated.pool.queue_stats();
+	return row;
+}
+
 std::string websocket_handshake_request() {
 	return std::string{
 		"GET /ws HTTP/1.1\r\n"
@@ -592,6 +793,11 @@ std::vector<std::string_view> all_cases() {
 		"sse_drop_oldest"sv,
 		"sse_disconnect"sv,
 		"ws_workpool_full"sv,
+		"local_sse_drop_newest"sv,
+		"local_sse_drop_oldest"sv,
+		"local_sse_disconnect"sv,
+		"local_workpool_full"sv,
+		"local_workpool_full_contended"sv,
 	};
 }
 
@@ -609,7 +815,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"slow_consumer_backpressure","parser":"standard","configs":[{"name":"large_response_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"large response with client reading 1 KiB/s"},"args":["--case","large_response_slow_1kps","--config-name","large_response_slow_1kps","--duration","1"]},{"name":"ring_pressure_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"small ring + slow response readers"},"args":["--case","ring_pressure_slow_1kps","--config-name","ring_pressure_slow_1kps","--duration","1"]},{"name":"sse_drop_newest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_newest"},"args":["--case","sse_drop_newest","--config-name","sse_drop_newest","--duration","1"]},{"name":"sse_drop_oldest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_oldest"},"args":["--case","sse_drop_oldest","--config-name","sse_drop_oldest","--duration","1"]},{"name":"sse_disconnect","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client disconnect"},"args":["--case","sse_disconnect","--config-name","sse_disconnect","--duration","1"]},{"name":"ws_workpool_full","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"WebSocket handoff while work pool queue is full"},"args":["--case","ws_workpool_full","--config-name","ws_workpool_full","--duration","1"]}]})");
+		R"({"name":"slow_consumer_backpressure","parser":"standard","configs":[{"name":"large_response_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"large response with client reading 1 KiB/s"},"args":["--case","large_response_slow_1kps","--config-name","large_response_slow_1kps","--duration","1"]},{"name":"ring_pressure_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"small ring + slow response readers"},"args":["--case","ring_pressure_slow_1kps","--config-name","ring_pressure_slow_1kps","--duration","1"]},{"name":"sse_drop_newest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_newest"},"args":["--case","sse_drop_newest","--config-name","sse_drop_newest","--duration","1"]},{"name":"sse_drop_oldest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_oldest"},"args":["--case","sse_drop_oldest","--config-name","sse_drop_oldest","--duration","1"]},{"name":"sse_disconnect","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client disconnect"},"args":["--case","sse_disconnect","--config-name","sse_disconnect","--duration","1"]},{"name":"ws_workpool_full","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"WebSocket handoff while work pool queue is full"},"args":["--case","ws_workpool_full","--config-name","ws_workpool_full","--duration","1"]},{"name":"local_sse_drop_newest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropNewest overflow"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_sse_drop_newest","--config-name","local_sse_drop_newest","--iterations","0","--warmup","0"]},{"name":"local_sse_drop_oldest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropOldest overflow"},"target_ms":500,"max_iterations":250000,"calibration_iterations":8,"args":["--case","local_sse_drop_oldest","--config-name","local_sse_drop_oldest","--iterations","0","--warmup","0"]},{"name":"local_sse_disconnect","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue Disconnect overflow"},"target_ms":250,"max_iterations":50000,"calibration_iterations":4,"args":["--case","local_sse_disconnect","--config-name","local_sse_disconnect","--iterations","0","--warmup","0"]},{"name":"local_workpool_full","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"WorkPool bounded queue full"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_workpool_full","--config-name","local_workpool_full","--iterations","0","--warmup","0"]},{"name":"local_workpool_full_contended","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"WorkPool bounded queue full with 4 producers"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":8,"args":["--case","local_workpool_full_contended","--config-name","local_workpool_full_contended","--iterations","0","--warmup","0"]}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::string selected = "large_response_slow_1kps";
@@ -691,6 +897,21 @@ int main(
 					duration_s);
 			} else if (name == "ws_workpool_full"sv) {
 				row = run_ws_workpool_full(config, std::max<std::size_t>(connections, 16), duration_s);
+			} else if (name == "local_sse_drop_newest"sv) {
+				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
+				row = run_local_sse_drop_newest(config, iterations);
+			} else if (name == "local_sse_drop_oldest"sv) {
+				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
+				row = run_local_sse_drop_oldest(config, iterations);
+			} else if (name == "local_sse_disconnect"sv) {
+				auto const iterations = args.iterations == 0 ? std::size_t{10000} : args.iterations;
+				row = run_local_sse_disconnect(config, iterations);
+			} else if (name == "local_workpool_full"sv) {
+				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
+				row = run_local_workpool_full(config, iterations);
+			} else if (name == "local_workpool_full_contended"sv) {
+				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
+				row = run_local_workpool_full_contended(config, iterations);
 			} else {
 				throw std::runtime_error{std::format("unknown case: {}", name)};
 			}
