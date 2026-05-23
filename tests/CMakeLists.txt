@@ -77,6 +77,58 @@ if(TARGET conflux)
             LABELS "build;api-surface;modules"
             RUN_SERIAL TRUE)
     endforeach()
+
+    add_library(conflux_api_surface_curated_compile_fail_workpool EXCLUDE_FROM_ALL
+        OBJECT api_surface_curated_compile_fail_workpool.cxx)
+    target_link_libraries(conflux_api_surface_curated_compile_fail_workpool
+        PRIVATE conflux conflux_options)
+    add_test(NAME api-surface/curated-hides-workpool
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_api_surface_curated_compile_fail_workpool
+                "WorkPool")
+    set_tests_properties(api-surface/curated-hides-workpool PROPERTIES
+        LABELS "build;api-surface;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_library(conflux_api_surface_curated_compile_fail_iouring EXCLUDE_FROM_ALL
+        OBJECT api_surface_curated_compile_fail_iouring.cxx)
+    target_link_libraries(conflux_api_surface_curated_compile_fail_iouring
+        PRIVATE conflux conflux_options)
+    add_test(NAME api-surface/curated-hides-iouring
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_api_surface_curated_compile_fail_iouring
+                "IoUring")
+    set_tests_properties(api-surface/curated-hides-iouring PROPERTIES
+        LABELS "build;api-surface;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_library(conflux_api_surface_extended_compile_fail_iouring EXCLUDE_FROM_ALL
+        OBJECT api_surface_extended_compile_fail_iouring.cxx)
+    target_link_libraries(conflux_api_surface_extended_compile_fail_iouring
+        PRIVATE conflux conflux_options)
+    add_test(NAME api-surface/extended-hides-iouring
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_api_surface_extended_compile_fail_iouring
+                "IoUring")
+    set_tests_properties(api-surface/extended-hides-iouring PROPERTIES
+        LABELS "build;api-surface;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_library(conflux_api_surface_complete_compile_fail_direct_slot_pool EXCLUDE_FROM_ALL
+        OBJECT api_surface_complete_compile_fail_direct_slot_pool.cxx)
+    target_link_libraries(conflux_api_surface_complete_compile_fail_direct_slot_pool
+        PRIVATE conflux conflux_options)
+    add_test(NAME api-surface/complete-hides-direct-slot-pool
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_api_surface_complete_compile_fail_direct_slot_pool
+                "direct_slot_pool")
+    set_tests_properties(api-surface/complete-hides-direct-slot-pool PROPERTIES
+        LABELS "build;api-surface;compile-fail"
+        RUN_SERIAL TRUE)
 endif()
 
 add_executable(conflux_tests)
@@ -251,6 +303,10 @@ if(TARGET conflux_net_http)
 
     add_library(conflux_http_facade_api_snapshot OBJECT http_facade_api_snapshot.cxx)
     target_link_libraries(conflux_http_facade_api_snapshot
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_extended_api_snapshot OBJECT http_facade_extended_api_snapshot.cxx)
+    target_link_libraries(conflux_http_facade_extended_api_snapshot
         PRIVATE conflux_net_http conflux_options)
 
     add_library(conflux_http_facade_compile_fail_request_view_task EXCLUDE_FROM_ALL

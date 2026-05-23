@@ -4,32 +4,25 @@ module;
 export module conflux.http;
 
 export import :problem;
-import std;
-
-export import conflux.net.config;
-export import conflux.net.http.types;
-export import conflux.net.http.server_types;
+export import conflux.net.app;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
-export import conflux.net.http.client;
-export import conflux.net.http.app_json;
-export import conflux.net.http.native_json;
 export import conflux.json;
-export import conflux.net.router;
-export import conflux.net.app;
-export import conflux.net.auth;
-export import conflux.net.cache_control;
-export import conflux.net.compress;
-export import conflux.net.rate_limit;
-export import conflux.net.request_id;
-export import conflux.net.security;
-export import conflux.net.tracing;
-export import conflux.net.observability;
+import std;
+
+import conflux.net.config;
+import conflux.net.http.app_json;
+import conflux.net.http.native_json;
+import conflux.net.router;
+import conflux.net.request_id;
+import conflux.net.security;
+import conflux.net.tracing;
+import conflux.net.observability;
 import conflux.types;
 import conflux.work;
 import conflux.file_io_sync;
 #if CONFLUX_HAS_METRICS
-export import conflux.net.metrics;
+import conflux.net.metrics;
 #endif
 
 export namespace conflux::http {
@@ -65,24 +58,6 @@ concept Middleware = ::Middleware<F>;
 [[nodiscard]] Router::Middleware security_headers(
 	SecurityOptions opts = {}) {
 	return security_headers_middleware(std::move(opts));
-}
-
-template<typename F>
-	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
-[[nodiscard]] Response offload(
-	std::shared_ptr<WorkPool> const &pool,
-	F &&fn,
-	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
-	return defer(pool, std::forward<F>(fn), timeout);
-}
-
-template<typename F>
-	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
-[[nodiscard]] Response offload(
-	WorkPool &pool,
-	F &&fn,
-	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
-	return defer(pool, std::forward<F>(fn), timeout);
 }
 
 [[nodiscard]] Response text(

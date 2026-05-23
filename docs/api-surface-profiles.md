@@ -106,3 +106,13 @@ explicitly until the public alias policy is finalized.
 `conflux::build_info().api_surface` reports the selected CMake value.
 `conflux::API_SURFACE` and `conflux::API_SURFACE_LEVEL` expose the same setting
 from `conflux.features`.
+
+
+## HTTP façade split
+
+`conflux.http` is the curated HTTP application façade. It keeps route registration,
+request/response helpers, typed extractors, JSON response helpers, middleware
+helpers, and coroutine handler spelling. Lower-level WorkPool-based offload helpers
+are intentionally outside the curated façade; use `import conflux.http.extended`,
+`import conflux.extended`, or explicit `conflux.work` + `conflux.net.app.defer`
+for those escape hatches.

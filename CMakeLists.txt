@@ -3201,6 +3201,7 @@ target_sources(conflux_http_app
         FILES
             ${CONFLUX_SRC_ROOT}/net/http_facade_problem.cxx
             ${CONFLUX_SRC_ROOT}/net/http_facade.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_facade_extended.cxx
             ${CONFLUX_SRC_ROOT}/net/http_server_umbrella.cxx
             ${CONFLUX_SRC_ROOT}/net/http.cppm
 )
