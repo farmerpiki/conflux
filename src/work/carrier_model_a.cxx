@@ -217,7 +217,7 @@ public:
 		}
 		try {
 			std::invoke(std::forward<Fn>(fn));
-		} catch (...) {} // ignore cancellation observer failures
+		} catch (...) {} // NOLINT(bugprone-empty-catch): ignore cancellation observer failures
 		return Chain<T>{std::move(outcome_), kind_, bound_cap_};
 	}
 	// cancelled → f() → T or Chain<T> (becomes success); success/failure pass through

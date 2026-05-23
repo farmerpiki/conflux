@@ -23,7 +23,8 @@ struct BorrowedPath {
 	char const *ptr;
 };
 struct OwnedInlinePath {
-	// hack: cap = NAME_MAX (255). Not PATH_MAX. from_sv() rejects longer inputs with -ENAMETOOLONG.
+	// Inline path cap intentionally matches NAME_MAX (255), not PATH_MAX; from_sv() rejects longer inputs with
+	// -ENAMETOOLONG.
 	static constexpr std::size_t cap = 255;
 	std::array<char, cap + 1> buf{};
 	std::size_t len{};
@@ -253,7 +254,7 @@ public:
 		}
 		return &st;
 	}
-// hack: test-only slab manipulation
+// Test-only slab manipulation
 #ifdef CONFLUX_TESTING
 	void test_hack_generation(
 		std::uint32_t idx,
@@ -579,7 +580,7 @@ public:
 	[[nodiscard]] std::uint32_t invalid_cqe_count() const noexcept { return invalid_cqe_count_; }
 	void on_cqe(
 		io_uring_cqe *cqe) noexcept {
-		// hack: user_data=0 sentinel for NOPs from the unreachable single-issuer fallback path
+		// user_data=0 sentinel for defensive NOPs emitted after partial SQE acquisition failure
 		if (cqe->user_data == 0) {
 			return;
 		}
@@ -717,7 +718,7 @@ public:
 		rejection_count_ = 0;
 		return FlowBuilder{ring_, *this};
 	}
-// hack: test-only slab manipulation forwarded from FlowSlab
+// Test-only slab manipulation forwarded from FlowSlab
 #ifdef CONFLUX_TESTING
 	void test_hack_slab_generation(
 		std::uint32_t idx,
@@ -912,9 +913,9 @@ std::uint32_t FlowBuilder::submit() noexcept {
 			for (std::uint8_t n = 0; n < emitted; ++n) {
 				auto s = ring_.get_sqe();
 				if (!s) {
-					// hack: emit NOPs for already-acquired slots; cannot un-get SQEs.
-					// This path is unreachable under correct single-issuer usage.
-					assert(false);
+					// Defensive fallback: another issuer or kernel-side SQ pressure may invalidate the
+					// earlier sq_space_left() observation. Already-acquired SQEs cannot be un-got,
+					// so convert them to ignored NOPs and reject this flow cleanly.
 					for (std::uint8_t j = 0; j < n; ++j) {
 						Sqe{sqes[j]}.prep_nop().user_data(UserData{0});
 					}

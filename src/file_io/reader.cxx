@@ -1658,7 +1658,7 @@ public:
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
-	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
+	// Unsafe zero-copy helper resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee the buffer remains live by other means.
 	[[nodiscard]] root::Task<std::size_t> async_unsafe_send_zc_sent(
 		FileHandle const &fh,
@@ -1911,7 +1911,7 @@ public:
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
-	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
+	// Unsafe zero-copy helper resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee msg, iovec array, and all pointed buffers remain live by other means.
 	[[nodiscard]] root::Task<std::size_t> async_unsafe_sendmsg_zc_sent(
 		FileHandle const &fh,

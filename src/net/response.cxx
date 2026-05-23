@@ -60,7 +60,8 @@ export struct StreamedFile {
 		}
 		try {
 			callback(result);
-		} catch (...) {}
+		} catch (...) {
+		} // NOLINT(bugprone-empty-catch): completion observer exceptions cannot change completed stream state.
 	}
 
 	void notify_complete() { notify(StreamedFileResult::completed); }
@@ -82,7 +83,7 @@ export struct StreamedFile {
 		for (auto &callback: callbacks) {
 			try {
 				callback(result);
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): notify all observers even if one throws.
 		}
 	}
 
@@ -281,7 +282,7 @@ export struct Response {
 		case kHttpRangeNotSatisfiable        : return "Range Not Satisfiable";
 		case kHttpUnprocessableEntity        : return "Unprocessable Entity";
 		case kHttpRequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
-		case kHttpTooManyRequests             : return "Too Many Requests";
+		case kHttpTooManyRequests            : return "Too Many Requests";
 		case kHttpInternalServerError        : return "Internal Server Error";
 		case kHttpBadGateway                 : return "Bad Gateway";
 		case kHttpGatewayTimeout             : return "Gateway Timeout";

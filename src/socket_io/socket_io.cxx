@@ -478,16 +478,19 @@ public:
 		}
 		flush_recycle_ready();
 	}
-	void preserve_bundle_positions_until(
+	[[nodiscard]] bool preserve_bundle_positions_until(
 		std::uint32_t end_pos) noexcept {
 		assert(mode_ == BufferRingMode::recv_bundle);
 		for (; bundle_preserved_pos_ < end_pos; ++bundle_preserved_pos_) {
 			std::uint32_t const pos = bundle_preserved_pos_;
 			std::uint16_t const id = ring_id_at(pos);
-			bundle_saved_insert_or_assign(pos, id);
+			if (!bundle_saved_insert_or_assign(pos, id)) [[unlikely]] {
+				return false;
+			}
 			bundle_saved_pos_[id] = pos;
 			bundle_has_saved_pos_[id] = 1;
 		}
+		return true;
 	}
 	[[nodiscard]] static std::uint32_t bundle_hash(
 		std::uint32_t pos) noexcept {
@@ -510,7 +513,7 @@ public:
 		}
 		return std::nullopt;
 	}
-	void bundle_saved_insert_or_assign(
+	[[nodiscard]] bool bundle_saved_insert_or_assign(
 		std::uint32_t pos,
 		std::uint16_t id) noexcept {
 		assert(!bundle_saved_used_.empty());
@@ -520,12 +523,11 @@ public:
 				bundle_saved_used_[i] = 1;
 				bundle_saved_keys_[i] = pos;
 				bundle_saved_ids_[i] = id;
-				return;
+				return true;
 			}
 			i = (i + 1) & bundle_saved_mask_;
 		}
-		assert(false && "recv-bundle saved-order table exhausted");
-		std::abort();
+		return false;
 	}
 	void bundle_saved_erase(
 		std::uint32_t pos) noexcept {
@@ -544,7 +546,8 @@ public:
 					std::uint32_t const key = bundle_saved_keys_[j];
 					std::uint16_t const val = bundle_saved_ids_[j];
 					bundle_saved_used_[j] = 0;
-					bundle_saved_insert_or_assign(key, val);
+					[[maybe_unused]] bool const inserted = bundle_saved_insert_or_assign(key, val);
+					assert(inserted && "recv-bundle saved-order table lost an entry while rehashing");
 				}
 				return;
 			}
@@ -601,8 +604,8 @@ public:
 		if (mode_ != BufferRingMode::recv_bundle && pos < recycle_head_pos_) {
 			return std::nullopt;
 		}
-		if (mode_ == BufferRingMode::recv_bundle) {
-			preserve_bundle_positions_until(pos + cnt);
+		if (mode_ == BufferRingMode::recv_bundle && !preserve_bundle_positions_until(pos + cnt)) [[unlikely]] {
+			return std::nullopt;
 		}
 		if (ring_id_at(pos) != first_id) {
 			return std::nullopt;

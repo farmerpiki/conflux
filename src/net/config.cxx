@@ -1,7 +1,6 @@
 module;
 #include <cerrno>
 #include <cstdlib>
-#include <fstream>
 
 export module conflux.net.config;
 

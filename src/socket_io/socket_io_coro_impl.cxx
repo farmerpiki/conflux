@@ -974,7 +974,8 @@ struct MultishotAcceptOp {
 					} else {
 						auto _ = ring->raw().submit();
 					}
-				} catch (...) {}
+				} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort cancel after handler allocation failure;
+								 // primary error already stored.
 			}
 			return;
 		} catch (...) {
@@ -988,7 +989,8 @@ struct MultishotAcceptOp {
 					} else {
 						auto _ = ring->raw().submit();
 					}
-				} catch (...) {}
+				} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort cancel after handler exception; primary
+								 // error already stored.
 			}
 			return;
 		}

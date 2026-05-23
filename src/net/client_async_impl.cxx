@@ -823,7 +823,7 @@ wroot::Task<ClientResult> do_async_request(
 	if (tls_stream) {
 		try {
 			co_await tls_stream->close(timeouts.write);
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort TLS close during error/cleanup path.
 	} else
 #endif
 		co_await stream.async_close();

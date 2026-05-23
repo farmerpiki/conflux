@@ -67,7 +67,7 @@ void ActiveTaskCancelRelay::clear_active() noexcept {
 		}
 		std::lock_guard lk{st->m};
 		st->active.reset();
-	} catch (...) {}
+	} catch (...) {} // NOLINT(bugprone-empty-catch): noexcept cleanup; lost relay state is already non-actionable.
 }
 
 void ActiveTaskCancelRelay::cancel() noexcept {
@@ -82,7 +82,9 @@ void ActiveTaskCancelRelay::cancel() noexcept {
 			st->cancelled.store(true, std::memory_order_release);
 			to_cancel = st->active;
 		}
-	} catch (...) { return; }
+	} catch (...) {
+		return;
+	} // NOLINT(bugprone-empty-catch): noexcept cancel relay; failure means no active task can be cancelled safely.
 	if (to_cancel) {
 		auto _ = to_cancel->request_cancel();
 	}

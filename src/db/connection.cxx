@@ -955,11 +955,13 @@ root::Task<Result> Connection::query(
 				[](std::shared_ptr<Connection> s2) -> root::Task<void> {
 					try {
 						co_await s2->cancel_inflight();
-					} catch (...) {}
+					} catch (...) {} // NOLINT(bugprone-empty-catch): secondary cancellation failure must not mask the
+									 // primary query error.
 				}(s)
 														  .detach();
 			}
-		} catch (...) {}
+		} catch (...) {
+		} // NOLINT(bugprone-empty-catch): async cleanup spawn is best-effort after primary error propagation.
 	}(self,
 	  shared_src,
 	  conflux::uring::async_timeout(

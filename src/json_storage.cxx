@@ -62,7 +62,7 @@ ObjHashTable *ObjHashTable::create(
 	void *mem = nullptr;
 	try {
 		mem = mr->allocate(bytes, alignof(ObjHashTable));
-	} catch (...) {}
+	} catch (...) {} // NOLINT(bugprone-empty-catch): allocation failure is reported as nullptr to the caller.
 	if (mem == nullptr) {
 		return nullptr;
 	}

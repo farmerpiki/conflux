@@ -184,7 +184,7 @@ public:
 		for (auto &callback: callbacks) {
 			try {
 				callback();
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): event notification callbacks are best-effort.
 		}
 		std::uint64_t v = 1;
 		if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
@@ -196,14 +196,14 @@ public:
 		if (closed_.test()) {
 			try {
 				callback();
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
 			return;
 		}
 		std::scoped_lock const lk{mtx_};
 		if (closed_.test()) {
 			try {
 				callback();
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
 			return;
 		}
 		close_callbacks_.push_back(std::move(callback));
@@ -834,7 +834,7 @@ private:
 		std::function<void()> callback) noexcept {
 		try {
 			callback();
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
 	}
 	void notify_close_noexcept() noexcept {
 		std::vector<std::function<void()>> callbacks;

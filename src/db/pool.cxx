@@ -167,16 +167,13 @@ auto with_transaction(
 		}
 		try {
 			co_await c.query("ROLLBACK");
-			// NOLINTNEXTLINE(bugprone-empty-catch) — best-effort rollback; secondary errors swallowed.
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort rollback; secondary errors swallowed.
 		bool const retryable = [&] {
 			try {
 				std::rethrow_exception(err);
 			} catch (PgError const &e) {
 				return (e.is_serialization() || e.is_deadlock()) && attempt < opt.max_retries;
-			}
-			// NOLINTNEXTLINE(bugprone-empty-catch) — non-PgError → not retryable; swallow.
-			catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): non-PgError means the transaction error is not retryable.
 			return false;
 		}();
 		if (!retryable) {
@@ -271,7 +268,8 @@ root::Task<Pool::Lease> Pool::acquire() {
 					co_await std::move(to_task);
 					auto _ =
 						shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
-				} catch (...) {}
+				} catch (...) {
+				} // NOLINT(bugprone-empty-catch): timeout completion is best-effort; source may already be satisfied.
 			}(shared_src,
 			  conflux::uring::async_timeout(
 				  reader->ring(),
@@ -298,9 +296,7 @@ void Pool::return_(
 	}
 	try {
 		try_dispatch_waiters_();
-	}
-	// NOLINTNEXTLINE(bugprone-empty-catch) — spawn or container ops may throw; swallow to keep noexcept.
-	catch (...) {}
+	} catch (...) {} // NOLINT(bugprone-empty-catch): spawn/container errors are ignored to keep Lease release noexcept.
 }
 // NOLINTNEXTLINE(misc-no-recursion) — mutual indirect recursion through Lease RAII and async on_acquire boundary; no
 // stack cycle in steady state.

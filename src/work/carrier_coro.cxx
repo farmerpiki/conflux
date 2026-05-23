@@ -84,7 +84,7 @@ struct FrameArena {
 					total,
 					largest_frame_);
 				write_stderr(message);
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): diagnostic emission must not block slab teardown.
 		}
 		munmap(base_, kCap);
 	}

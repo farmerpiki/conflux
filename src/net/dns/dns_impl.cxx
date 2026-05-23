@@ -376,7 +376,7 @@ struct ActiveTaskGuard {
 	~ActiveTaskGuard() {
 		try {
 			state.clear_active();
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): guard destructor must not propagate.
 	}
 	ActiveTaskGuard(ActiveTaskGuard const &) = delete;
 	ActiveTaskGuard &operator =(ActiveTaskGuard const &) = delete;
@@ -462,7 +462,7 @@ struct ActiveTaskGuard {
 	auto _ = src->install_cancel_hook([state](root::CancelReason) noexcept {
 		try {
 			state->cancel();
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): cancellation callback is best-effort.
 	});
 	auto driver = run_udp_query_driver(
 		ring,
@@ -613,7 +613,7 @@ struct ActiveTaskGuard {
 	auto _ = src->install_cancel_hook([state](root::CancelReason) noexcept {
 		try {
 			state->cancel();
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): cancellation callback is best-effort.
 	});
 	auto driver = run_tcp_query_driver(
 		ring,
