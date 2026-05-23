@@ -115,6 +115,7 @@ mkdir -p "$ARTIFACT_DIR"
 configure_log="$ARTIFACT_DIR/configure.log"
 build_log="$ARTIFACT_DIR/build.log"
 raw_ndjson="$ARTIFACT_DIR/storage_read.raw.ndjson"
+summary_json="$ARTIFACT_DIR/storage_read.summary.json"
 manifest_json="$ARTIFACT_DIR/manifest.json"
 env_txt="$ARTIFACT_DIR/env.txt"
 perf_dir="$ARTIFACT_DIR/perf"
@@ -143,6 +144,7 @@ bench_bin="$BUILD_DIR/benchmarks/conflux_storage_read_bench"
 : > "$raw_ndjson"
 
 IFS=',' read -r -a matrix_rows <<< "$MATRIX"
+summary_args=()
 for row in "${matrix_rows[@]}"; do
 	IFS=':' read -r label depth chunk <<< "$row"
 	if [[ -z "${label:-}" || -z "${depth:-}" || -z "${chunk:-}" ]]; then
@@ -151,6 +153,7 @@ for row in "${matrix_rows[@]}"; do
 	fi
 	require_positive_int matrix_depth "$depth"
 	require_positive_int matrix_chunk "$chunk"
+	summary_args+=(--expected-config "$label")
 	for rep in $(seq 1 "$REPS"); do
 		printf 'running storage_read %s rep %s/%s\n' "$label" "$rep" "$REPS"
 		rep_ndjson="$ARTIFACT_DIR/storage_read.${label}.rep${rep}.tmp.ndjson"
@@ -214,12 +217,17 @@ PY
 	done
 done
 
+python3 scripts/storage_read_summary.py "$raw_ndjson" \
+	--output "$summary_json" \
+	"${summary_args[@]}"
+
 python3 - \
 	"$manifest_json" \
 	"$PRESET" \
 	"$BUILD_DIR" \
 	"$ARTIFACT_DIR" \
 	"$raw_ndjson" \
+	"$summary_json" \
 	"$env_txt" \
 	"$PATH_UNDER_TEST" \
 	"$MATRIX" \
@@ -240,6 +248,7 @@ import sys
     build_dir,
     artifact_dir,
     raw_ndjson,
+    summary_json,
     env_txt,
     storage_path,
     matrix,
@@ -264,6 +273,7 @@ manifest = {
     "build_dir": build_dir,
     "artifact_dir": artifact_dir,
     "raw_ndjson": raw_ndjson,
+    "summary_json": summary_json,
     "env_txt": env_txt,
     "storage_path": storage_path,
     "matrix": matrix,
@@ -285,3 +295,4 @@ PY
 
 printf 'storage_read evidence written to %s\n' "$ARTIFACT_DIR"
 printf 'raw rows: %s\n' "$raw_ndjson"
+printf 'summary: %s\n' "$summary_json"

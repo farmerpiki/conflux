@@ -304,6 +304,23 @@ STORAGE_READ_PATH=/mnt/nvme/conflux-storage-read.bin \
   STORAGE_READ_REPS=5 scripts/storage_read_evidence.sh
 ```
 
+The wrapper writes `storage_read.raw.ndjson`, `storage_read.summary.json`,
+`manifest.json`, and build/environment logs. The summary keeps min/median/max
+latency and throughput per mode, computes `iopoll_read_fixed` ratios against
+`pread`, `io_uring_read`, and `read_fixed`, and preserves optional `perf_stat`
+derived counters when `STORAGE_READ_PERF_STAT=1` is enabled. To summarize raw
+rows captured outside the wrapper:
+
+```sh
+python3 scripts/storage_read_summary.py \
+  /tmp/conflux/storage-read-evidence/<stamp>/storage_read.raw.ndjson \
+  --output /tmp/conflux/storage-read-evidence/<stamp>/storage_read.summary.json \
+  --expected-config depth_1_4k \
+  --expected-config depth_8_16k \
+  --expected-config depth_32_64k \
+  --expected-config depth_128_1m
+```
+
 The wrapper records configure/build logs, repeated raw NDJSON, a manifest with
 host/build/device metadata, and the exact matrix used for `depth_1_4k`,
 `depth_8_16k`, `depth_32_64k`, and `depth_128_1m`. It rejects non-NVMe files by
