@@ -16,8 +16,7 @@ valid_profile() {
 			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\
 			pgo-gen-clang-libcxx|pgo-use-clang-libcxx|pgo-gen-gcc-stdcxx|pgo-use-gcc-stdcxx|\
 			pgo-gen-gcc16-stdcxx|pgo-use-gcc16-stdcxx|\
-			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx|\
-			cherry-pick-tests)
+			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
 			return 0
 			;;
 		*)
