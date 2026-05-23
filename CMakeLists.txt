@@ -124,6 +124,36 @@ endif()
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
 option(CONFLUX_BUILD_TESTS    "Build test targets"                           OFF)
+option(CONFLUX_BUILD_PACKAGE_TESTS
+    "Register package/install-tree CTest smoke tests without building the Catch2 test suite" OFF)
+set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
+    "Semicolon-separated installed conflux components to validate with package smoke tests")
+set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
+    "Optional installed conflux prefix to validate with the package smoke project")
+set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
+    "Expected installed interface mode for package smoke tests, or empty to accept the package mode")
+set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
+    "" MODULE_INTERFACE HEADER_INTERFACE)
+option(CONFLUX_RUN_INSTALL_TREE_SMOKE
+    "Add an opt-in CTest that builds, installs, and consumes a fresh conflux install tree" OFF)
+set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-build" CACHE PATH
+    "Build directory used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-prefix" CACHE PATH
+    "Install prefix used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-consumer" CACHE PATH
+    "Downstream consumer build directory used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET "core" CACHE STRING
+    "Feature preset used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE "Release" CACHE STRING
+    "CMake build type used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_GENERATOR "${CMAKE_GENERATOR}" CACHE STRING
+    "CMake generator used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE "${CONFLUX_INTERFACE_MODE}" CACHE STRING
+    "Interface mode used by the opt-in install-tree smoke test")
+set_property(CACHE CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
+    MODULE_INTERFACE HEADER_INTERFACE)
+set(CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS "" CACHE STRING
+    "Semicolon-separated extra CMake configure arguments for the opt-in install-tree smoke test")
 option(CONFLUX_FETCH_TEST_DEPS "Allow FetchContent downloads for test-only dependencies" OFF)
 set(CONFLUX_TEST_CATCH2_PROVIDER "SYSTEM" CACHE STRING
     "Catch2 provider for tests: FETCH builds Catch2 with the active stdlib, SYSTEM uses find_package, AUTO tries SYSTEM then FETCH")
@@ -370,7 +400,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             set(CONFLUX_HAS_DB "false")
         endif()
     endif()
-    if(CONFLUX_BUILD_TESTS)
+    if(CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         enable_testing()
     endif()
     conflux_add_header_interface_target()
@@ -416,6 +446,14 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     if(CONFLUX_WANT_JSON)
         add_library(conflux_json INTERFACE)
         target_link_libraries(conflux_json INTERFACE conflux_headers)
+        if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+            target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+            if(TARGET PkgConfig::XXHASH)
+                target_link_libraries(conflux_json INTERFACE PkgConfig::XXHASH)
+            endif()
+        elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+            target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+        endif()
         set_target_properties(conflux_json PROPERTIES EXPORT_NAME json)
         list(APPEND CONFLUX_HEADER_INSTALL_TARGETS conflux_json)
         list(APPEND CONFLUX_PACKAGE_COMPONENTS json)
@@ -609,6 +647,43 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         )
     endforeach()
     install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")
+
+    if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+            AND CONFLUX_PACKAGE_SMOKE_PREFIX)
+        set(_conflux_package_smoke_args
+            --source "${CMAKE_CURRENT_SOURCE_DIR}"
+            --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
+            --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke"
+            --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+        if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE)
+            list(APPEND _conflux_package_smoke_args
+                --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
+        endif()
+        add_test(NAME build/package-config-install-tree
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
+                    ${_conflux_package_smoke_args})
+        set_tests_properties(build/package-config-install-tree PROPERTIES
+            LABELS "build;package;install")
+    endif()
+
+    if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+            AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
+        add_test(NAME build/install-tree-smoke
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-install-tree-smoke.sh"
+                    --source "${CMAKE_CURRENT_SOURCE_DIR}"
+                    --build-dir "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR}"
+                    --prefix "${CONFLUX_INSTALL_TREE_SMOKE_PREFIX}"
+                    --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
+                    --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
+                    --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
+                    --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
+                    --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
+                    --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
+                    -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
+        set_tests_properties(build/install-tree-smoke PROPERTIES
+            LABELS "build;package;install")
+    endif()
+
     return()
 endif()
 
@@ -3307,7 +3382,9 @@ endif() # CONFLUX_WANT_HTTP_SERVER
 # Tests, benchmarks, and fuzzing
 # ---------------------------------------------------------------------------
 
-if(CONFLUX_BUILD_TESTS OR (CONFLUX_BUILD_FUZZ AND CONFLUX_BUILD_FUZZ_SMOKE_TESTS))
+if(CONFLUX_BUILD_TESTS
+        OR CONFLUX_BUILD_PACKAGE_TESTS
+        OR (CONFLUX_BUILD_FUZZ AND CONFLUX_BUILD_FUZZ_SMOKE_TESTS))
     enable_testing()
 endif()
 
@@ -3771,15 +3848,8 @@ if(CONFLUX_BUILD_TESTS)
 
 endif()
 
-set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
-    "Semicolon-separated installed conflux components to validate with package smoke tests")
-set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
-    "Optional installed conflux prefix to validate with the package smoke project")
-set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
-    "Expected installed interface mode for package smoke tests, or empty to accept the package mode")
-set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
-    "" MODULE_INTERFACE HEADER_INTERFACE)
-if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
+if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+        AND CONFLUX_PACKAGE_SMOKE_PREFIX)
     set(_conflux_package_smoke_args
         --source "${CMAKE_CURRENT_SOURCE_DIR}"
         --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
@@ -3797,19 +3867,8 @@ if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
     )
 endif()
 
-option(CONFLUX_RUN_INSTALL_TREE_SMOKE
-    "Add an opt-in CTest that builds, installs, and consumes a fresh conflux install tree" OFF)
-set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-build" CACHE PATH
-    "Build directory used by the opt-in install-tree smoke test")
-set(CONFLUX_INSTALL_TREE_SMOKE_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-prefix" CACHE PATH
-    "Install prefix used by the opt-in install-tree smoke test")
-set(CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-consumer" CACHE PATH
-    "Downstream consumer build directory used by the opt-in install-tree smoke test")
-set(CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET "core" CACHE STRING
-    "Feature preset used by the opt-in install-tree smoke test")
-set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE "Release" CACHE STRING
-    "CMake build type used by the opt-in install-tree smoke test")
-if(CONFLUX_BUILD_TESTS AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
+if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+        AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
     add_test(NAME build/install-tree-smoke
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-install-tree-smoke.sh"
                 --source "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -3818,7 +3877,10 @@ if(CONFLUX_BUILD_TESTS AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
                 --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
                 --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
                 --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
-                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+                --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
+                --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
+                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
+                -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
     set_tests_properties(build/install-tree-smoke PROPERTIES
         LABELS "build;package;install"
     )

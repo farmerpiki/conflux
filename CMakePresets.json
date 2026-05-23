@@ -317,6 +317,62 @@
       }
     },
     {
+      "name": "release-core-install-smoke",
+      "displayName": "Release smoke · core install tree",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-core",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_USE_MOCK_LIBURING": "ON",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_POSTGRES_PROVIDER": "OFF",
+        "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+        "CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET": "core",
+        "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_USE_MOCK_LIBURING=ON;-DCONFLUX_POSTGRES_PROVIDER=OFF",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "core"
+      }
+    },
+    {
+      "name": "release-json-install-smoke",
+      "displayName": "Release smoke · JSON install tree",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-json",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_USE_MOCK_LIBURING": "ON",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_POSTGRES_PROVIDER": "OFF",
+        "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+        "CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET": "json",
+        "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_USE_MOCK_LIBURING=ON;-DCONFLUX_POSTGRES_PROVIDER=OFF",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "core;json;file_io_sync"
+      }
+    },
+    {
+      "name": "release-header-artifacts-install-smoke",
+      "displayName": "Release smoke · header artifact install tree",
+      "inherits": "release-header-artifacts",
+      "cacheVariables": {
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+        "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+        "CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET": "json",
+        "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_USE_MOCK_LIBURING=ON;-DCONFLUX_POSTGRES_PROVIDER=OFF",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "core;json;file_io_sync"
+      }
+    },
+    {
       "name": "release-p2996-gcc",
       "displayName": "Release · g++-16 · P2996 reflection",
       "inherits": "gcc16-stdcxx",
@@ -564,6 +620,18 @@
       "configurePreset": "release-header-artifacts"
     },
     {
+      "name": "release-core-install-smoke",
+      "configurePreset": "release-core-install-smoke"
+    },
+    {
+      "name": "release-json-install-smoke",
+      "configurePreset": "release-json-install-smoke"
+    },
+    {
+      "name": "release-header-artifacts-install-smoke",
+      "configurePreset": "release-header-artifacts-install-smoke"
+    },
+    {
       "name": "release-p2996-gcc",
       "configurePreset": "release-p2996-gcc"
     },
@@ -633,6 +701,51 @@
       "configurePreset": "release-clang-libcxx",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release-core-install-smoke",
+      "configurePreset": "release-core-install-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "build/install-tree-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "release-json-install-smoke",
+      "configurePreset": "release-json-install-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "build/install-tree-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "release-header-artifacts-install-smoke",
+      "configurePreset": "release-header-artifacts-install-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "build/install-tree-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
       }
     },
     {

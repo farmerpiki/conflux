@@ -345,14 +345,9 @@ function(conflux_add_header_interface_target)
         CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
         CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
         CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
-    if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
-        target_compile_definitions(conflux_headers INTERFACE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
-        if(TARGET PkgConfig::XXHASH)
-            target_link_libraries(conflux_headers INTERFACE PkgConfig::XXHASH)
-        endif()
-    elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
-        target_compile_definitions(conflux_headers INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
-    endif()
+    # Keep conflux::headers dependency-free. Component-specific provider
+    # definitions and libraries are attached to requestable component targets
+    # so core-only downstream consumers do not resolve JSON-only packages.
 
     if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
         conflux_select_header_impl_sources(CONFLUX_SELECTED_HEADER_IMPL_SOURCES)
@@ -380,6 +375,11 @@ function(conflux_add_header_interface_target)
             target_compile_features(conflux_header_impl PUBLIC cxx_std_26)
         else()
             target_compile_features(conflux_header_impl PUBLIC cxx_std_23)
+        endif()
+        if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+            target_compile_definitions(conflux_header_impl PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+        elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+            target_compile_definitions(conflux_header_impl PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
         endif()
         target_compile_definitions(conflux_header_impl PRIVATE
             CONFLUX_HEADER_USE_IMPORT_STD=0
@@ -428,6 +428,14 @@ function(conflux_add_header_component_smoke_targets)
         file(WRITE "${_smoke_dir}/json.cxx" "#include <conflux/json.hxx>\nint main() { return 0; }\n")
         add_executable(conflux_header_smoke_json "${_smoke_dir}/json.cxx")
         target_link_libraries(conflux_header_smoke_json PRIVATE conflux_headers)
+        if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
+            target_compile_definitions(conflux_header_smoke_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+            if(TARGET PkgConfig::XXHASH)
+                target_link_libraries(conflux_header_smoke_json PRIVATE PkgConfig::XXHASH)
+            endif()
+        elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
+            target_compile_definitions(conflux_header_smoke_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+        endif()
         conflux_apply_header_smoke_warnings(conflux_header_smoke_json)
     endif()
 

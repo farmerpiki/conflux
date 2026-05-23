@@ -16,6 +16,7 @@ fail() {
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
 [[ -f scripts/check-package-smoke-liburing-free.sh ]] || fail "missing liburing-free package smoke lane"
+[[ -f scripts/check-package-smoke-core-isolated.sh ]] || fail "missing core-isolated package smoke lane"
 [[ -f scripts/check-package-smoke-runtime.sh ]] || fail "missing runtime package smoke lane"
 [[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
@@ -60,6 +61,8 @@ grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
     || fail "missing package smoke component cache variable"
 grep -q 'add_test(NAME build/package-config-install-tree' CMakeLists.txt \
     || fail "missing installed-prefix package smoke CTest guard"
+grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' CMakeLists.txt \
+    || fail "missing package-only CTest option"
 grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
     || fail "missing opt-in install-tree smoke CTest option"
 grep -q 'add_test(NAME build/install-tree-smoke' CMakeLists.txt \
@@ -68,6 +71,12 @@ grep -q '"name": "release-header-artifacts"' CMakePresets.json \
     || fail "missing release-header-artifacts preset"
 grep -q '"configurePreset": "release-clang-libcxx"' CMakePresets.json \
     || fail "missing release-clang-libcxx test preset"
+grep -q '"name": "release-core-install-smoke"' CMakePresets.json \
+    || fail "missing release-core-install-smoke preset"
+grep -q '"name": "release-json-install-smoke"' CMakePresets.json \
+    || fail "missing release-json-install-smoke preset"
+grep -q '"name": "release-header-artifacts-install-smoke"' CMakePresets.json \
+    || fail "missing release-header-artifacts-install-smoke preset"
 
 grep -q '@PACKAGE_INIT@' cmake/conflux-config.cmake.in \
     || fail "package config must use PACKAGE_INIT"
@@ -106,6 +115,9 @@ if grep -q '@CONFLUX_INSTALL_NEEDS_.*pkg_check_modules\|if(@CONFLUX_INSTALL_NEED
 fi
 if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::LIBURING' cmake/ConfluxInterfaceMode.cmake; then
     fail "header support target must not leak liburing into every header package component"
+fi
+if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::XXHASH' cmake/ConfluxInterfaceMode.cmake; then
+    fail "header support target must not leak xxhash into every header package component"
 fi
 grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
     || fail "package config must expose runtime liburing status"
@@ -160,12 +172,22 @@ grep -q -- '--enable-db' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must expose a DB-enabled smoke option"
 grep -q 'cmake --build "\$build_dir" --target install' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must build and install conflux"
+grep -q -- '--interface-mode' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward interface mode"
+grep -q -- '--generator' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward generator"
+grep -q 'extra_cmake_args' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward extra configure args"
 grep -q 'run-package-config-smoke.sh' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must consume the installed prefix"
 grep -q -- '--enable-db-smoke' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must forward DB-enabled package smoke"
 grep -q "core;json;file_io_sync" scripts/check-package-smoke-liburing-free.sh \
     || fail "liburing-free package smoke must request only liburing-free components"
+grep -q "CONFLUX_JSON_HASH_PROVIDER=XXHASH" scripts/check-package-smoke-core-isolated.sh \
+    || fail "core-isolated package smoke must force the external JSON hash provider"
+grep -q -- "--components core" scripts/check-package-smoke-core-isolated.sh \
+    || fail "core-isolated package smoke must request only core"
 grep -q "core;json;http;file_io_sync;runtime" scripts/check-package-smoke-runtime.sh \
     || fail "runtime package smoke must request runtime/http components"
 grep -q "pkg-config --exists liburing" scripts/check-package-smoke-runtime.sh \
