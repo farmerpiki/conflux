@@ -2,7 +2,7 @@
 #include <csignal>
 #include <cstdio>
 
-import conflux.http;
+import conflux.extended;
 import std;
 
 namespace http = conflux::http;

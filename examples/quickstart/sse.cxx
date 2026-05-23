@@ -1,4 +1,4 @@
-import conflux.http;
+import conflux;
 import std;
 
 int main() {

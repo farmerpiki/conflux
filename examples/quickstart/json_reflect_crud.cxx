@@ -1,6 +1,6 @@
 // Reflection JSON CRUD quickstart: zero-boilerplate struct serde.
 // Requires GCC 16+ with -freflection and CONFLUX_JSON_REFLECT=ON.
-import conflux.http;
+import conflux;
 import conflux.json.reflect;
 import std;
 

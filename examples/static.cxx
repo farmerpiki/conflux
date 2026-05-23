@@ -10,7 +10,7 @@
 #include <fstream>
 #include <unistd.h>
 
-import conflux.http;
+import conflux;
 import std;
 
 struct StaticInfo {

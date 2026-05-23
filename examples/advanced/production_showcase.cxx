@@ -10,8 +10,7 @@
 #include <csignal>
 #include <cstdio>
 
-import conflux.http;
-import conflux.work;
+import conflux.extended;
 import std;
 
 namespace http = conflux::http;

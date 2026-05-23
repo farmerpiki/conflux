@@ -4,7 +4,7 @@
 // Or curl:
 //   curl "http://localhost:9092/search?q=hello+world&lang=en"
 //   curl -X POST http://localhost:9092/submit -d "name=Alice&age=30"
-import conflux.http;
+import conflux;
 import std;
 int main() {
 	namespace http = conflux::http;

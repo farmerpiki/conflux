@@ -63,67 +63,179 @@ elseif(CONFLUX_API_SURFACE STREQUAL "complete")
 endif()
 
 function(conflux_apply_api_surface_definitions target scope)
+    set(_conflux_surface_has_types "$<TARGET_EXISTS:conflux_types>")
+    set(_conflux_surface_has_http_facade "$<TARGET_EXISTS:conflux_net_http>")
+    set(_conflux_surface_has_http_app "$<TARGET_EXISTS:conflux_http_app>")
+    set(_conflux_surface_has_http_config "$<TARGET_EXISTS:conflux_net_config>")
+    set(_conflux_surface_has_http_client "$<TARGET_EXISTS:conflux_net_client>")
+    set(_conflux_surface_has_http_async_client "$<TARGET_EXISTS:conflux_net_async_client>")
+    set(_conflux_surface_has_http_auth "$<TARGET_EXISTS:conflux_http_auth>")
+    set(_conflux_surface_has_http_policy "$<TARGET_EXISTS:conflux_http_policy>")
+    set(_conflux_surface_has_http_observability "$<TARGET_EXISTS:conflux_http_observability>")
+    set(_conflux_surface_has_http_openapi "$<TARGET_EXISTS:conflux_http_openapi>")
+    set(_conflux_surface_has_http_vhost "$<TARGET_EXISTS:conflux_http_vhost>")
+    set(_conflux_surface_has_http_metrics "$<AND:$<TARGET_EXISTS:conflux_http_observability>,$<BOOL:${CONFLUX_HAS_METRICS}>>")
+    set(_conflux_surface_has_http_protocol "$<TARGET_EXISTS:conflux_http_protocol>")
+    set(_conflux_surface_has_http_parse_helpers "$<TARGET_EXISTS:conflux_http_parse_helpers>")
+    set(_conflux_surface_has_http_core "$<TARGET_EXISTS:conflux_http_core>")
+    set(_conflux_surface_has_http_response "$<TARGET_EXISTS:conflux_http_response>")
+    set(_conflux_surface_has_http_json "$<TARGET_EXISTS:conflux_http_json>")
+    set(_conflux_surface_has_http_response_json "$<TARGET_EXISTS:conflux_http_response_json>")
+    set(_conflux_surface_has_http_app_json "$<TARGET_EXISTS:conflux_http_app_json>")
+    set(_conflux_surface_has_http_native_json "$<TARGET_EXISTS:conflux_http_native_json>")
+    set(_conflux_surface_has_http_router "$<TARGET_EXISTS:conflux_http_router>")
+    set(_conflux_surface_has_http_static "$<TARGET_EXISTS:conflux_http_static>")
+    set(_conflux_surface_has_http_realtime "$<TARGET_EXISTS:conflux_http_realtime>")
+    set(_conflux_surface_has_http_server "$<TARGET_EXISTS:conflux_http_server>")
+    set(_conflux_surface_has_http_compression "$<TARGET_EXISTS:conflux_http_compression>")
+    set(_conflux_surface_has_http_proxy "$<TARGET_EXISTS:conflux_http_proxy>")
+    set(_conflux_surface_has_http2 "$<TARGET_EXISTS:conflux_http2>")
+    set(_conflux_surface_has_http3 "$<TARGET_EXISTS:conflux_http3>")
+    set(_conflux_surface_has_json "$<TARGET_EXISTS:conflux_json>")
+    set(_conflux_surface_has_json_boundary "$<TARGET_EXISTS:conflux_json_boundary>")
+    set(_conflux_surface_has_json_native_provider "$<TARGET_EXISTS:conflux_json_native_provider>")
+    set(_conflux_surface_has_json_file "$<TARGET_EXISTS:conflux_json_file>")
+    set(_conflux_surface_has_json_reflect "$<TARGET_EXISTS:conflux_json_reflect>")
+    set(_conflux_surface_has_json_reflect_provider "$<TARGET_EXISTS:conflux_json_reflect_provider>")
+    set(_conflux_surface_has_work "$<TARGET_EXISTS:conflux_work>")
+    set(_conflux_surface_has_uring "$<TARGET_EXISTS:conflux_uring>")
+    set(_conflux_surface_has_uring_timeout "$<TARGET_EXISTS:conflux_uring_timeout>")
+    set(_conflux_surface_has_file_io_sync "$<TARGET_EXISTS:conflux_file_io_sync>")
+    set(_conflux_surface_has_file_map "$<TARGET_EXISTS:conflux_file_map>")
+    set(_conflux_surface_has_file_io "$<TARGET_EXISTS:conflux_file_io>")
+    set(_conflux_surface_has_file_watch "$<TARGET_EXISTS:conflux_file_watch>")
+    set(_conflux_surface_has_socket_io "$<TARGET_EXISTS:conflux_socket_io>")
+    set(_conflux_surface_has_dns "$<TARGET_EXISTS:conflux_dns>")
+    set(_conflux_surface_has_dns_bridge "$<TARGET_EXISTS:conflux_dns_bridge>")
+    set(_conflux_surface_has_net_io_buffer "$<TARGET_EXISTS:conflux_net_io_buffer>")
+    set(_conflux_surface_has_net_cancel "$<TARGET_EXISTS:conflux_net_cancel>")
+    set(_conflux_surface_has_crypto "$<TARGET_EXISTS:conflux_crypto>")
+    set(_conflux_surface_has_tls_jwt "$<AND:$<TARGET_EXISTS:conflux_http_auth>,$<BOOL:${CONFLUX_HAS_TLS}>>")
+    set(_conflux_surface_has_templates "$<TARGET_EXISTS:conflux_template>")
+    set(_conflux_surface_has_templates_watch "$<TARGET_EXISTS:conflux_template_watch>")
+    set(_conflux_surface_has_process "$<TARGET_EXISTS:conflux_process>")
+    set(_conflux_surface_has_db "$<TARGET_EXISTS:conflux_pg>")
+    set(_conflux_surface_has_db_compat "$<TARGET_EXISTS:conflux_db>")
+    set(_conflux_surface_has_smtp "$<TARGET_EXISTS:conflux_net_smtp>")
+
+    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+        set(_conflux_surface_has_types 1)
+        set(_conflux_surface_has_http_facade "$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>")
+        set(_conflux_surface_has_http_app "$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>")
+        set(_conflux_surface_has_http_config "$<BOOL:${CONFLUX_WANT_HTTP_CORE}>")
+        set(_conflux_surface_has_http_client "$<BOOL:${CONFLUX_WANT_HTTP_CLIENT}>")
+        set(_conflux_surface_has_http_async_client "$<BOOL:${CONFLUX_WANT_HTTP_CLIENT}>")
+        set(_conflux_surface_has_http_auth "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_AUTH}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_policy "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_POLICY}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_observability "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_OBSERVABILITY}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_openapi "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_OPENAPI}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_vhost "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_VHOST}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_metrics "$<AND:${_conflux_surface_has_http_observability},$<BOOL:${CONFLUX_HAS_METRICS}>>")
+        set(_conflux_surface_has_http_protocol "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>,$<BOOL:${CONFLUX_WANT_HTTP_CLIENT}>>")
+        set(_conflux_surface_has_http_parse_helpers "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_CORE}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_core "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_CORE}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_response "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_CORE}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_json "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_JSON}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_response_json "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_JSON}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_app_json "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_JSON}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_native_json "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_JSON}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_router "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_ROUTER}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_static "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_STATIC}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_realtime "$<OR:$<BOOL:${CONFLUX_WANT_HTTP_REALTIME}>,$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>>")
+        set(_conflux_surface_has_http_server "$<BOOL:${CONFLUX_WANT_HTTP_SERVER}>")
+        set(_conflux_surface_has_http_compression "$<BOOL:${CONFLUX_WANT_HTTP_COMPRESSION}>")
+        set(_conflux_surface_has_http_proxy "$<BOOL:${CONFLUX_WANT_HTTP_PROXY}>")
+        set(_conflux_surface_has_http2 "$<BOOL:${CONFLUX_HAS_HTTP2}>")
+        set(_conflux_surface_has_http3 "$<BOOL:${CONFLUX_HAS_HTTP3}>")
+        set(_conflux_surface_has_json "$<BOOL:${CONFLUX_WANT_JSON}>")
+        set(_conflux_surface_has_json_boundary "$<BOOL:${CONFLUX_WANT_JSON}>")
+        set(_conflux_surface_has_json_native_provider "$<BOOL:${CONFLUX_WANT_JSON}>")
+        set(_conflux_surface_has_json_file "$<BOOL:${CONFLUX_WANT_JSON_FILE}>")
+        set(_conflux_surface_has_json_reflect "$<BOOL:${CONFLUX_JSON_REFLECT}>")
+        set(_conflux_surface_has_json_reflect_provider "$<BOOL:${CONFLUX_JSON_REFLECT}>")
+        set(_conflux_surface_has_work "$<BOOL:${CONFLUX_WANT_RUNTIME}>")
+        set(_conflux_surface_has_uring "$<BOOL:${CONFLUX_WANT_RUNTIME}>")
+        set(_conflux_surface_has_uring_timeout "$<BOOL:${CONFLUX_WANT_RUNTIME}>")
+        set(_conflux_surface_has_file_io_sync "$<BOOL:${CONFLUX_WANT_FILE_IO_SYNC}>")
+        set(_conflux_surface_has_file_map "$<BOOL:${CONFLUX_WANT_FILE_MAP}>")
+        set(_conflux_surface_has_file_io "$<BOOL:${CONFLUX_WANT_FILE_IO}>")
+        set(_conflux_surface_has_file_watch "$<BOOL:${CONFLUX_WANT_FILE_WATCH}>")
+        set(_conflux_surface_has_socket_io "$<BOOL:${CONFLUX_WANT_SOCKET_IO}>")
+        set(_conflux_surface_has_dns "$<BOOL:${CONFLUX_WANT_DNS}>")
+        set(_conflux_surface_has_dns_bridge "$<BOOL:${CONFLUX_WANT_DNS}>")
+        set(_conflux_surface_has_net_io_buffer "$<BOOL:${CONFLUX_WANT_RUNTIME}>")
+        set(_conflux_surface_has_net_cancel "$<BOOL:${CONFLUX_WANT_RUNTIME}>")
+        set(_conflux_surface_has_crypto "$<BOOL:${CONFLUX_WANT_CRYPTO}>")
+        set(_conflux_surface_has_tls_jwt "$<AND:${_conflux_surface_has_http_auth},$<BOOL:${CONFLUX_HAS_TLS}>>")
+        set(_conflux_surface_has_templates "$<BOOL:${CONFLUX_WANT_TEMPLATES}>")
+        set(_conflux_surface_has_templates_watch "$<BOOL:${CONFLUX_WANT_TEMPLATES_WATCH}>")
+        set(_conflux_surface_has_process "$<BOOL:${CONFLUX_WANT_PROCESS}>")
+        set(_conflux_surface_has_db "$<BOOL:${CONFLUX_HAS_DB}>")
+        set(_conflux_surface_has_db_compat "$<BOOL:${CONFLUX_HAS_DB}>")
+        set(_conflux_surface_has_smtp "$<BOOL:${CONFLUX_WANT_SMTP}>")
+    endif()
+
     target_compile_definitions(${target} ${scope}
         CONFLUX_API_SURFACE_LEVEL=${CONFLUX_API_SURFACE_LEVEL_VALUE}
         CONFLUX_API_SURFACE_CURATED=1
         CONFLUX_API_SURFACE_EXTENDED=2
         CONFLUX_API_SURFACE_COMPLETE=3
         CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
-        CONFLUX_SURFACE_HAS_TYPES=$<TARGET_EXISTS:conflux_types>
+        CONFLUX_SURFACE_HAS_TYPES=${_conflux_surface_has_types}
         CONFLUX_SURFACE_HAS_FEATURES=1
-        CONFLUX_SURFACE_HAS_HTTP_FACADE=$<TARGET_EXISTS:conflux_net_http>
-        CONFLUX_SURFACE_HAS_HTTP_APP=$<TARGET_EXISTS:conflux_http_app>
-        CONFLUX_SURFACE_HAS_HTTP_CONFIG=$<TARGET_EXISTS:conflux_net_config>
-        CONFLUX_SURFACE_HAS_HTTP_CLIENT=$<TARGET_EXISTS:conflux_net_client>
-        CONFLUX_SURFACE_HAS_HTTP_ASYNC_CLIENT=$<TARGET_EXISTS:conflux_net_async_client>
-        CONFLUX_SURFACE_HAS_HTTP_AUTH=$<TARGET_EXISTS:conflux_http_auth>
-        CONFLUX_SURFACE_HAS_HTTP_POLICY=$<TARGET_EXISTS:conflux_http_policy>
-        CONFLUX_SURFACE_HAS_HTTP_OBSERVABILITY=$<TARGET_EXISTS:conflux_http_observability>
-        CONFLUX_SURFACE_HAS_HTTP_OPENAPI=$<TARGET_EXISTS:conflux_http_openapi>
-        CONFLUX_SURFACE_HAS_HTTP_VHOST=$<TARGET_EXISTS:conflux_http_vhost>
-        CONFLUX_SURFACE_HAS_HTTP_METRICS=$<AND:$<TARGET_EXISTS:conflux_http_observability>,$<BOOL:${CONFLUX_HAS_METRICS}>>
-        CONFLUX_SURFACE_HAS_HTTP_PROTOCOL=$<TARGET_EXISTS:conflux_http_protocol>
-        CONFLUX_SURFACE_HAS_HTTP_PARSE_HELPERS=$<TARGET_EXISTS:conflux_http_parse_helpers>
-        CONFLUX_SURFACE_HAS_HTTP_CORE=$<TARGET_EXISTS:conflux_http_core>
-        CONFLUX_SURFACE_HAS_HTTP_RESPONSE=$<TARGET_EXISTS:conflux_http_response>
-        CONFLUX_SURFACE_HAS_HTTP_JSON=$<TARGET_EXISTS:conflux_http_json>
-        CONFLUX_SURFACE_HAS_HTTP_RESPONSE_JSON=$<TARGET_EXISTS:conflux_http_response_json>
-        CONFLUX_SURFACE_HAS_HTTP_APP_JSON=$<TARGET_EXISTS:conflux_http_app_json>
-        CONFLUX_SURFACE_HAS_HTTP_NATIVE_JSON=$<TARGET_EXISTS:conflux_http_native_json>
-        CONFLUX_SURFACE_HAS_HTTP_ROUTER=$<TARGET_EXISTS:conflux_http_router>
-        CONFLUX_SURFACE_HAS_HTTP_STATIC=$<TARGET_EXISTS:conflux_http_static>
-        CONFLUX_SURFACE_HAS_HTTP_REALTIME=$<TARGET_EXISTS:conflux_http_realtime>
-        CONFLUX_SURFACE_HAS_HTTP_SERVER=$<TARGET_EXISTS:conflux_http_server>
-        CONFLUX_SURFACE_HAS_HTTP_COMPRESSION=$<TARGET_EXISTS:conflux_http_compression>
-        CONFLUX_SURFACE_HAS_HTTP_PROXY=$<TARGET_EXISTS:conflux_http_proxy>
-        CONFLUX_SURFACE_HAS_HTTP2=$<TARGET_EXISTS:conflux_http2>
-        CONFLUX_SURFACE_HAS_HTTP3=$<TARGET_EXISTS:conflux_http3>
-        CONFLUX_SURFACE_HAS_JSON=$<TARGET_EXISTS:conflux_json>
-        CONFLUX_SURFACE_HAS_JSON_BOUNDARY=$<TARGET_EXISTS:conflux_json_boundary>
-        CONFLUX_SURFACE_HAS_JSON_NATIVE_PROVIDER=$<TARGET_EXISTS:conflux_json_native_provider>
-        CONFLUX_SURFACE_HAS_JSON_FILE=$<TARGET_EXISTS:conflux_json_file>
-        CONFLUX_SURFACE_HAS_JSON_REFLECT=$<TARGET_EXISTS:conflux_json_reflect>
-        CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER=$<TARGET_EXISTS:conflux_json_reflect_provider>
-        CONFLUX_SURFACE_HAS_WORK=$<TARGET_EXISTS:conflux_work>
-        CONFLUX_SURFACE_HAS_URING=$<TARGET_EXISTS:conflux_uring>
-        CONFLUX_SURFACE_HAS_URING_TIMEOUT=$<TARGET_EXISTS:conflux_uring_timeout>
-        CONFLUX_SURFACE_HAS_FILE_IO_SYNC=$<TARGET_EXISTS:conflux_file_io_sync>
-        CONFLUX_SURFACE_HAS_FILE_MAP=$<TARGET_EXISTS:conflux_file_map>
-        CONFLUX_SURFACE_HAS_FILE_IO=$<TARGET_EXISTS:conflux_file_io>
-        CONFLUX_SURFACE_HAS_FILE_WATCH=$<TARGET_EXISTS:conflux_file_watch>
-        CONFLUX_SURFACE_HAS_SOCKET_IO=$<TARGET_EXISTS:conflux_socket_io>
-        CONFLUX_SURFACE_HAS_DNS=$<TARGET_EXISTS:conflux_dns>
-        CONFLUX_SURFACE_HAS_DNS_BRIDGE=$<TARGET_EXISTS:conflux_dns_bridge>
-        CONFLUX_SURFACE_HAS_NET_IO_BUFFER=$<TARGET_EXISTS:conflux_net_io_buffer>
-        CONFLUX_SURFACE_HAS_NET_CANCEL=$<TARGET_EXISTS:conflux_net_cancel>
-        CONFLUX_SURFACE_HAS_CRYPTO=$<TARGET_EXISTS:conflux_crypto>
-        CONFLUX_SURFACE_HAS_TLS_JWT=$<AND:$<TARGET_EXISTS:conflux_http_auth>,$<BOOL:${CONFLUX_HAS_TLS}>>
-        CONFLUX_SURFACE_HAS_TEMPLATES=$<TARGET_EXISTS:conflux_template>
-        CONFLUX_SURFACE_HAS_TEMPLATES_WATCH=$<TARGET_EXISTS:conflux_template_watch>
-        CONFLUX_SURFACE_HAS_PROCESS=$<TARGET_EXISTS:conflux_process>
-        CONFLUX_SURFACE_HAS_DB=$<TARGET_EXISTS:conflux_pg>
-        CONFLUX_SURFACE_HAS_DB_COMPAT=$<TARGET_EXISTS:conflux_db>
-        CONFLUX_SURFACE_HAS_SMTP=$<TARGET_EXISTS:conflux_net_smtp>)
+        CONFLUX_SURFACE_HAS_HTTP_FACADE=${_conflux_surface_has_http_facade}
+        CONFLUX_SURFACE_HAS_HTTP_APP=${_conflux_surface_has_http_app}
+        CONFLUX_SURFACE_HAS_HTTP_CONFIG=${_conflux_surface_has_http_config}
+        CONFLUX_SURFACE_HAS_HTTP_CLIENT=${_conflux_surface_has_http_client}
+        CONFLUX_SURFACE_HAS_HTTP_ASYNC_CLIENT=${_conflux_surface_has_http_async_client}
+        CONFLUX_SURFACE_HAS_HTTP_AUTH=${_conflux_surface_has_http_auth}
+        CONFLUX_SURFACE_HAS_HTTP_POLICY=${_conflux_surface_has_http_policy}
+        CONFLUX_SURFACE_HAS_HTTP_OBSERVABILITY=${_conflux_surface_has_http_observability}
+        CONFLUX_SURFACE_HAS_HTTP_OPENAPI=${_conflux_surface_has_http_openapi}
+        CONFLUX_SURFACE_HAS_HTTP_VHOST=${_conflux_surface_has_http_vhost}
+        CONFLUX_SURFACE_HAS_HTTP_METRICS=${_conflux_surface_has_http_metrics}
+        CONFLUX_SURFACE_HAS_HTTP_PROTOCOL=${_conflux_surface_has_http_protocol}
+        CONFLUX_SURFACE_HAS_HTTP_PARSE_HELPERS=${_conflux_surface_has_http_parse_helpers}
+        CONFLUX_SURFACE_HAS_HTTP_CORE=${_conflux_surface_has_http_core}
+        CONFLUX_SURFACE_HAS_HTTP_RESPONSE=${_conflux_surface_has_http_response}
+        CONFLUX_SURFACE_HAS_HTTP_JSON=${_conflux_surface_has_http_json}
+        CONFLUX_SURFACE_HAS_HTTP_RESPONSE_JSON=${_conflux_surface_has_http_response_json}
+        CONFLUX_SURFACE_HAS_HTTP_APP_JSON=${_conflux_surface_has_http_app_json}
+        CONFLUX_SURFACE_HAS_HTTP_NATIVE_JSON=${_conflux_surface_has_http_native_json}
+        CONFLUX_SURFACE_HAS_HTTP_ROUTER=${_conflux_surface_has_http_router}
+        CONFLUX_SURFACE_HAS_HTTP_STATIC=${_conflux_surface_has_http_static}
+        CONFLUX_SURFACE_HAS_HTTP_REALTIME=${_conflux_surface_has_http_realtime}
+        CONFLUX_SURFACE_HAS_HTTP_SERVER=${_conflux_surface_has_http_server}
+        CONFLUX_SURFACE_HAS_HTTP_COMPRESSION=${_conflux_surface_has_http_compression}
+        CONFLUX_SURFACE_HAS_HTTP_PROXY=${_conflux_surface_has_http_proxy}
+        CONFLUX_SURFACE_HAS_HTTP2=${_conflux_surface_has_http2}
+        CONFLUX_SURFACE_HAS_HTTP3=${_conflux_surface_has_http3}
+        CONFLUX_SURFACE_HAS_JSON=${_conflux_surface_has_json}
+        CONFLUX_SURFACE_HAS_JSON_BOUNDARY=${_conflux_surface_has_json_boundary}
+        CONFLUX_SURFACE_HAS_JSON_NATIVE_PROVIDER=${_conflux_surface_has_json_native_provider}
+        CONFLUX_SURFACE_HAS_JSON_FILE=${_conflux_surface_has_json_file}
+        CONFLUX_SURFACE_HAS_JSON_REFLECT=${_conflux_surface_has_json_reflect}
+        CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER=${_conflux_surface_has_json_reflect_provider}
+        CONFLUX_SURFACE_HAS_WORK=${_conflux_surface_has_work}
+        CONFLUX_SURFACE_HAS_URING=${_conflux_surface_has_uring}
+        CONFLUX_SURFACE_HAS_URING_TIMEOUT=${_conflux_surface_has_uring_timeout}
+        CONFLUX_SURFACE_HAS_FILE_IO_SYNC=${_conflux_surface_has_file_io_sync}
+        CONFLUX_SURFACE_HAS_FILE_MAP=${_conflux_surface_has_file_map}
+        CONFLUX_SURFACE_HAS_FILE_IO=${_conflux_surface_has_file_io}
+        CONFLUX_SURFACE_HAS_FILE_WATCH=${_conflux_surface_has_file_watch}
+        CONFLUX_SURFACE_HAS_SOCKET_IO=${_conflux_surface_has_socket_io}
+        CONFLUX_SURFACE_HAS_DNS=${_conflux_surface_has_dns}
+        CONFLUX_SURFACE_HAS_DNS_BRIDGE=${_conflux_surface_has_dns_bridge}
+        CONFLUX_SURFACE_HAS_NET_IO_BUFFER=${_conflux_surface_has_net_io_buffer}
+        CONFLUX_SURFACE_HAS_NET_CANCEL=${_conflux_surface_has_net_cancel}
+        CONFLUX_SURFACE_HAS_CRYPTO=${_conflux_surface_has_crypto}
+        CONFLUX_SURFACE_HAS_TLS_JWT=${_conflux_surface_has_tls_jwt}
+        CONFLUX_SURFACE_HAS_TEMPLATES=${_conflux_surface_has_templates}
+        CONFLUX_SURFACE_HAS_TEMPLATES_WATCH=${_conflux_surface_has_templates_watch}
+        CONFLUX_SURFACE_HAS_PROCESS=${_conflux_surface_has_process}
+        CONFLUX_SURFACE_HAS_DB=${_conflux_surface_has_db}
+        CONFLUX_SURFACE_HAS_DB_COMPAT=${_conflux_surface_has_db_compat}
+        CONFLUX_SURFACE_HAS_SMTP=${_conflux_surface_has_smtp})
 endfunction()
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 	set(CMAKE_CXX_SCAN_FOR_MODULES OFF)

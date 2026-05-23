@@ -805,7 +805,7 @@ function(conflux_add_header_component_smoke_targets)
             endif()
             file(WRITE "${_smoke_dir}/api_surface_${_surface}.cxx"
                 "#include <${_surface_header}>\nint main() { return 0; }\n")
-            add_executable(${_surface_target} "${_smoke_dir}/api_surface_${_surface}.cxx")
+            add_library(${_surface_target} OBJECT "${_smoke_dir}/api_surface_${_surface}.cxx")
             conflux_apply_header_generated_build_policy(${_surface_target})
             target_link_libraries(${_surface_target} PRIVATE conflux_headers)
             conflux_apply_header_smoke_warnings(${_surface_target})

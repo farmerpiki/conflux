@@ -1,4 +1,4 @@
-import conflux.http;
+import conflux;
 import std;
 
 // NOLINTNEXTLINE(bugprone-exception-escape) -- quickstart setup can allocate before the noexcept run boundary.

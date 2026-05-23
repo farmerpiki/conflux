@@ -3,7 +3,7 @@
 // Then: curl http://localhost:9090/
 //       curl http://localhost:9090/hello/World
 //       curl http://localhost:9090/api/ping
-import conflux.http;
+import conflux;
 import std;
 
 struct StatusReply {

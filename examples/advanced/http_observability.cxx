@@ -5,7 +5,7 @@
 //   curl -i http://localhost:9095/health
 //   curl -i http://localhost:9095/slow
 //   curl -i http://localhost:9095/metrics
-import conflux.http;
+import conflux.extended;
 import std;
 
 int main() {

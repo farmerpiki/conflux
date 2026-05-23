@@ -2,7 +2,7 @@
 // Build and run: build/debug-clang-libcxx/conflux_sse
 // Then: curl -N http://localhost:9091/events
 //       curl -N http://localhost:9091/events/alice
-import conflux.http;
+import conflux;
 import std;
 int main() {
 	namespace http = conflux::http;

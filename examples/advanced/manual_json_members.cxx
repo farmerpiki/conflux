@@ -4,8 +4,7 @@
 //   curl http://localhost:9110/api/todos
 //   curl -i -X POST http://localhost:9110/api/todos
 //        -H 'Content-Type: application/json' -d '{"title":"write docs"}'
-import conflux.http;
-import conflux.json;
+import conflux.extended;
 import std;
 
 namespace http = conflux::http;
