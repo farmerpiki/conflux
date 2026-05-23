@@ -2,24 +2,19 @@ import std;
 import conflux.types;
 
 import conflux.net.http;
+import bench_common;
 namespace benchmark_detail {
 
 inline std::atomic<std::size_t> sink{};
 struct Config {
 	bool list_only = false;
 	std::string filter;
-	std::optional<std::size_t> iterations_override;
 	enum class Format : std::uint8_t {
 		table,
 		json,
 	};
 	Format format = Format::table;
-};
-struct Stats {
-	std::string_view name;
-	std::size_t iterations{};
-	std::uint64_t total_ns{};
-	double ns_per_iter{};
+	BenchArgs bench_args{};
 };
 using BenchFn = std::function<std::size_t()>;
 struct Case {
@@ -52,6 +47,7 @@ void print_usage() {
 Config parse_args(
 	std::span<char *> args) {
 	Config cfg;
+	cfg.bench_args = bench_parse_args(args);
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view arg = args[i];
 		if (arg == "--list") {
@@ -73,13 +69,14 @@ Config parse_args(
 			if (i + 1 >= args.size()) {
 				throw std::invalid_argument{"--iterations requires a value"};
 			}
-			std::size_t iters = 0;
-			auto const value = std::string_view{args[++i]};
-			auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), iters);
-			if (ec != std::errc{} || ptr != value.data() + value.size() || iters == 0) {
-				throw std::invalid_argument{"--iterations must be a positive integer"};
+			++i;
+			continue;
+		}
+		if (arg == "--warmup" || arg == "--config-name") {
+			if (i + 1 >= args.size()) {
+				throw std::invalid_argument{std::format("{} requires a value", arg)};
 			}
-			cfg.iterations_override = iters;
+			++i;
 			continue;
 		}
 		if (arg == "--format") {
@@ -113,25 +110,26 @@ Config parse_args(
 	std::size_t iterations) {
 	return std::clamp(iterations / 10, std::size_t{1}, std::size_t{1000});
 }
-Stats measure_case(
+BenchStats measure_case(
 	Case const &bench,
+	std::size_t warmup,
 	std::size_t iterations) {
-	for (std::size_t i = 0; i < warmup_iterations(iterations); ++i) {
+	for (std::size_t i = 0; i < warmup; ++i) {
 		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
 
-	auto const start = std::chrono::steady_clock::now();
+	auto const start = bench_now_ns();
 	for (std::size_t i = 0; i < iterations; ++i) {
 		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
-	auto const elapsed = std::chrono::steady_clock::now() - start;
-	auto const total_ns =
-		static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
-	return Stats{
-		.name = bench.name,
+	auto const total_ns = bench_now_ns() - start;
+	return BenchStats{
+		.config = "",
+		.variant = bench.name,
 		.iterations = iterations,
 		.total_ns = total_ns,
-		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(iterations)};
+		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(iterations),
+		.throughput = 1e9 / (static_cast<double>(total_ns) / static_cast<double>(iterations))};
 }
 void print_list(
 	std::vector<Case> const &cases) {
@@ -146,18 +144,13 @@ void print_header(
 	}
 }
 void print_stats(
-	Stats const &stats,
+	BenchStats const &stats,
 	Config::Format format) {
 	if (format == Config::Format::table) {
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
-		std::println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
+		std::println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.variant, stats.iterations, total_ms, stats.ns_per_iter);
 	} else {
-		std::println(
-			"{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
-			stats.name,
-			stats.iterations,
-			stats.total_ns,
-			stats.ns_per_iter);
+		bench_print(stats, true, false);
 	}
 }
 Case make_httpfields_lookup_case() {
@@ -590,8 +583,11 @@ int main(
 
 		benchmark_detail::print_header(cfg.format);
 		for (auto const *bench: selected) {
-			auto const iterations = cfg.iterations_override.value_or(bench->default_iterations);
-			auto const stats = benchmark_detail::measure_case(*bench, iterations);
+			auto const iterations =
+				cfg.bench_args.iterations == 0 ? bench->default_iterations : cfg.bench_args.iterations;
+			auto const warmup = cfg.bench_args.iterations == 0 ? benchmark_detail::warmup_iterations(iterations) :
+																 cfg.bench_args.warmup;
+			auto const stats = benchmark_detail::measure_case(*bench, warmup, iterations);
 			benchmark_detail::print_stats(stats, cfg.format);
 		}
 		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(std::memory_order_relaxed));

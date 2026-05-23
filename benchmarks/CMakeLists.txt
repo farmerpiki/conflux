@@ -14,7 +14,7 @@ target_sources(bench_common
 target_link_libraries(bench_common PUBLIC conflux_types conflux_options)
 
 add_executable(conflux_benchmarks router_bench.cxx)
-target_link_libraries(conflux_benchmarks PRIVATE conflux conflux_options)
+target_link_libraries(conflux_benchmarks PRIVATE bench_common conflux conflux_options)
 
 set(CONFLUX_BENCH_SPIN "" CACHE STRING "Override spin_before_park in work_bench (e.g. 64, 128)")
 
