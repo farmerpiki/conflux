@@ -25,6 +25,9 @@ option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF
 set(CONFLUX_INTERFACE_MODE "MODULE_INTERFACE" CACHE STRING
     "Public consumer interface: MODULE_INTERFACE or HEADER_INTERFACE")
 set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_INTERFACE HEADER_INTERFACE)
+set(CONFLUX_API_SURFACE "curated" CACHE STRING
+    "Aggregate API surface re-exported by import conflux / <conflux.hxx>: curated, extended, or complete")
+set_property(CACHE CONFLUX_API_SURFACE PROPERTY STRINGS curated extended complete)
 set(CONFLUX_USE_IMPORT_STD "AUTO" CACHE STRING
     "Use the standard-library module in MODULE_INTERFACE mode: AUTO, ON, or OFF")
 set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
@@ -46,6 +49,82 @@ if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 	message(FATAL_ERROR
 		"CONFLUX_INTERFACE_MODE must be MODULE_INTERFACE or HEADER_INTERFACE; got '${CONFLUX_INTERFACE_MODE}'")
 endif()
+if(NOT CONFLUX_API_SURFACE STREQUAL "curated"
+        AND NOT CONFLUX_API_SURFACE STREQUAL "extended"
+        AND NOT CONFLUX_API_SURFACE STREQUAL "complete")
+    message(FATAL_ERROR
+        "CONFLUX_API_SURFACE must be curated, extended, or complete; got '${CONFLUX_API_SURFACE}'")
+endif()
+set(CONFLUX_API_SURFACE_LEVEL_VALUE 1)
+if(CONFLUX_API_SURFACE STREQUAL "extended")
+    set(CONFLUX_API_SURFACE_LEVEL_VALUE 2)
+elseif(CONFLUX_API_SURFACE STREQUAL "complete")
+    set(CONFLUX_API_SURFACE_LEVEL_VALUE 3)
+endif()
+
+function(conflux_apply_api_surface_definitions target scope)
+    target_compile_definitions(${target} ${scope}
+        CONFLUX_API_SURFACE_LEVEL=${CONFLUX_API_SURFACE_LEVEL_VALUE}
+        CONFLUX_API_SURFACE_CURATED=1
+        CONFLUX_API_SURFACE_EXTENDED=2
+        CONFLUX_API_SURFACE_COMPLETE=3
+        CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
+        CONFLUX_SURFACE_HAS_TYPES=$<TARGET_EXISTS:conflux_types>
+        CONFLUX_SURFACE_HAS_FEATURES=1
+        CONFLUX_SURFACE_HAS_HTTP_FACADE=$<TARGET_EXISTS:conflux_net_http>
+        CONFLUX_SURFACE_HAS_HTTP_APP=$<TARGET_EXISTS:conflux_http_app>
+        CONFLUX_SURFACE_HAS_HTTP_CONFIG=$<TARGET_EXISTS:conflux_net_config>
+        CONFLUX_SURFACE_HAS_HTTP_CLIENT=$<TARGET_EXISTS:conflux_net_client>
+        CONFLUX_SURFACE_HAS_HTTP_ASYNC_CLIENT=$<TARGET_EXISTS:conflux_net_async_client>
+        CONFLUX_SURFACE_HAS_HTTP_AUTH=$<TARGET_EXISTS:conflux_http_auth>
+        CONFLUX_SURFACE_HAS_HTTP_POLICY=$<TARGET_EXISTS:conflux_http_policy>
+        CONFLUX_SURFACE_HAS_HTTP_OBSERVABILITY=$<TARGET_EXISTS:conflux_http_observability>
+        CONFLUX_SURFACE_HAS_HTTP_OPENAPI=$<TARGET_EXISTS:conflux_http_openapi>
+        CONFLUX_SURFACE_HAS_HTTP_VHOST=$<TARGET_EXISTS:conflux_http_vhost>
+        CONFLUX_SURFACE_HAS_HTTP_METRICS=$<AND:$<TARGET_EXISTS:conflux_http_observability>,$<BOOL:${CONFLUX_HAS_METRICS}>>
+        CONFLUX_SURFACE_HAS_HTTP_PROTOCOL=$<TARGET_EXISTS:conflux_http_protocol>
+        CONFLUX_SURFACE_HAS_HTTP_PARSE_HELPERS=$<TARGET_EXISTS:conflux_http_parse_helpers>
+        CONFLUX_SURFACE_HAS_HTTP_CORE=$<TARGET_EXISTS:conflux_http_core>
+        CONFLUX_SURFACE_HAS_HTTP_RESPONSE=$<TARGET_EXISTS:conflux_http_response>
+        CONFLUX_SURFACE_HAS_HTTP_JSON=$<TARGET_EXISTS:conflux_http_json>
+        CONFLUX_SURFACE_HAS_HTTP_RESPONSE_JSON=$<TARGET_EXISTS:conflux_http_response_json>
+        CONFLUX_SURFACE_HAS_HTTP_APP_JSON=$<TARGET_EXISTS:conflux_http_app_json>
+        CONFLUX_SURFACE_HAS_HTTP_NATIVE_JSON=$<TARGET_EXISTS:conflux_http_native_json>
+        CONFLUX_SURFACE_HAS_HTTP_ROUTER=$<TARGET_EXISTS:conflux_http_router>
+        CONFLUX_SURFACE_HAS_HTTP_STATIC=$<TARGET_EXISTS:conflux_http_static>
+        CONFLUX_SURFACE_HAS_HTTP_REALTIME=$<TARGET_EXISTS:conflux_http_realtime>
+        CONFLUX_SURFACE_HAS_HTTP_SERVER=$<TARGET_EXISTS:conflux_http_server>
+        CONFLUX_SURFACE_HAS_HTTP_COMPRESSION=$<TARGET_EXISTS:conflux_http_compression>
+        CONFLUX_SURFACE_HAS_HTTP_PROXY=$<TARGET_EXISTS:conflux_http_proxy>
+        CONFLUX_SURFACE_HAS_HTTP2=$<TARGET_EXISTS:conflux_http2>
+        CONFLUX_SURFACE_HAS_HTTP3=$<TARGET_EXISTS:conflux_http3>
+        CONFLUX_SURFACE_HAS_JSON=$<TARGET_EXISTS:conflux_json>
+        CONFLUX_SURFACE_HAS_JSON_BOUNDARY=$<TARGET_EXISTS:conflux_json_boundary>
+        CONFLUX_SURFACE_HAS_JSON_NATIVE_PROVIDER=$<TARGET_EXISTS:conflux_json_native_provider>
+        CONFLUX_SURFACE_HAS_JSON_FILE=$<TARGET_EXISTS:conflux_json_file>
+        CONFLUX_SURFACE_HAS_JSON_REFLECT=$<TARGET_EXISTS:conflux_json_reflect>
+        CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER=$<TARGET_EXISTS:conflux_json_reflect_provider>
+        CONFLUX_SURFACE_HAS_WORK=$<TARGET_EXISTS:conflux_work>
+        CONFLUX_SURFACE_HAS_URING=$<TARGET_EXISTS:conflux_uring>
+        CONFLUX_SURFACE_HAS_URING_TIMEOUT=$<TARGET_EXISTS:conflux_uring_timeout>
+        CONFLUX_SURFACE_HAS_FILE_IO_SYNC=$<TARGET_EXISTS:conflux_file_io_sync>
+        CONFLUX_SURFACE_HAS_FILE_MAP=$<TARGET_EXISTS:conflux_file_map>
+        CONFLUX_SURFACE_HAS_FILE_IO=$<TARGET_EXISTS:conflux_file_io>
+        CONFLUX_SURFACE_HAS_FILE_WATCH=$<TARGET_EXISTS:conflux_file_watch>
+        CONFLUX_SURFACE_HAS_SOCKET_IO=$<TARGET_EXISTS:conflux_socket_io>
+        CONFLUX_SURFACE_HAS_DNS=$<TARGET_EXISTS:conflux_dns>
+        CONFLUX_SURFACE_HAS_DNS_BRIDGE=$<TARGET_EXISTS:conflux_dns_bridge>
+        CONFLUX_SURFACE_HAS_NET_IO_BUFFER=$<TARGET_EXISTS:conflux_net_io_buffer>
+        CONFLUX_SURFACE_HAS_NET_CANCEL=$<TARGET_EXISTS:conflux_net_cancel>
+        CONFLUX_SURFACE_HAS_CRYPTO=$<TARGET_EXISTS:conflux_crypto>
+        CONFLUX_SURFACE_HAS_TLS_JWT=$<AND:$<TARGET_EXISTS:conflux_http_auth>,$<BOOL:${CONFLUX_HAS_TLS}>>
+        CONFLUX_SURFACE_HAS_TEMPLATES=$<TARGET_EXISTS:conflux_template>
+        CONFLUX_SURFACE_HAS_TEMPLATES_WATCH=$<TARGET_EXISTS:conflux_template_watch>
+        CONFLUX_SURFACE_HAS_PROCESS=$<TARGET_EXISTS:conflux_process>
+        CONFLUX_SURFACE_HAS_DB=$<TARGET_EXISTS:conflux_pg>
+        CONFLUX_SURFACE_HAS_DB_COMPAT=$<TARGET_EXISTS:conflux_db>
+        CONFLUX_SURFACE_HAS_SMTP=$<TARGET_EXISTS:conflux_net_smtp>)
+endfunction()
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 	set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 endif()
@@ -617,13 +696,28 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
     file(MAKE_DIRECTORY "${CONFLUX_PUBLIC_HPP_DIR}")
     file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp"
-        "#pragma once\n"
-        "#include <conflux/config.hpp>\n"
-        "#include <conflux/types.hpp>\n"
-        "#include <conflux/file_io_sync.hpp>\n")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once\n#include <conflux/config.hxx>\n")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once\n#include <conflux/types.hxx>\n")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once\n#include <conflux/file_io_sync.hxx>\n")
+        "#pragma once
+"
+        "#include <conflux.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once
+#include <conflux/config.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once
+#include <conflux/types.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/curated.hpp" "#pragma once
+#include <conflux/curated.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/extended.hpp" "#pragma once
+#include <conflux/extended.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/complete.hpp" "#pragma once
+#include <conflux/complete.hxx>
+")
+    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once
+#include <conflux/file_io_sync.hxx>
+")
     if(CONFLUX_WANT_JSON)
         file(APPEND "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#include <conflux/json.hpp>\n")
         file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
@@ -1298,7 +1392,9 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_BUILD_TYPE_VALUE="${CMAKE_BUILD_TYPE}"
     CONFLUX_BUILD_INTERFACE_MODE="${CONFLUX_INTERFACE_MODE}"
     CONFLUX_BUILD_FEATURE_SET="${CONFLUX_FEATURE_SET}"
+    CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
 )
+conflux_apply_api_surface_definitions(conflux_options INTERFACE)
 if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")
 else()
@@ -3168,6 +3264,9 @@ target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
+        ${CONFLUX_SRC_ROOT}/facade/conflux_curated.cxx
+        ${CONFLUX_SRC_ROOT}/facade/conflux_extended.cxx
+        ${CONFLUX_SRC_ROOT}/facade/conflux_complete.cxx
         ${CONFLUX_SRC_ROOT}/conflux.cppm
 )
 
@@ -3283,6 +3382,7 @@ endif()
 
 # Template engine / hot-reload surface. The file-watch module is now compiled
 # by conflux_file_watch; the umbrella module only re-exports it when present.
+conflux_apply_api_surface_definitions(conflux PUBLIC)
 target_compile_definitions(conflux
     PUBLIC
         CONFLUX_HAS_JSON=$<BOOL:${CONFLUX_WANT_JSON}>

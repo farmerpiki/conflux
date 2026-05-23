@@ -64,6 +64,21 @@ set_tests_properties(build/optimized-presets PROPERTIES
     LABELS "build;presets"
     RUN_SERIAL TRUE
 )
+
+if(TARGET conflux)
+    foreach(_surface IN ITEMS curated extended complete selected)
+        add_executable(conflux_api_surface_${_surface}_import_smoke
+            api_surface_${_surface}_import_smoke.cxx)
+        target_link_libraries(conflux_api_surface_${_surface}_import_smoke
+            PRIVATE conflux conflux_options)
+        add_test(NAME api-surface/import-${_surface}
+            COMMAND conflux_api_surface_${_surface}_import_smoke)
+        set_tests_properties(api-surface/import-${_surface} PROPERTIES
+            LABELS "build;api-surface;modules"
+            RUN_SERIAL TRUE)
+    endforeach()
+endif()
+
 add_executable(conflux_tests)
 target_sources(conflux_tests
     PRIVATE

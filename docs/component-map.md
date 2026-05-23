@@ -9,12 +9,17 @@ answer three questions:
 
 The CMake source remains authoritative. Keep this file synchronized with
 `cmake/ConfluxPresets.cmake` and the `conflux_public_component(...)` calls in
-`CMakeLists.txt` whenever components are split, renamed, or removed.
+`CMakeLists.txt` whenever components are split, renamed, or removed. API-surface
+classification here is coarse; detailed profile contents live in
+[`api-surface-profiles.md`](api-surface-profiles.md).
 
 ## Feature bundles
 
 `CONFLUX_FEATURE_SET` selects defaults for the `CONFLUX_BUILD_*` component flags.
 Explicit `CONFLUX_BUILD_*=ON/OFF` cache values override the bundle defaults.
+`CONFLUX_API_SURFACE=curated|extended|complete` is separate: it controls only the
+aggregate import/include surface selected by `import conflux;` and
+`<conflux.hxx>`.
 
 | Bundle | Intended use | Notable defaults |
 |---|---|---|
@@ -110,6 +115,9 @@ time and are consumed through the separate runtime smoke lane.
 | `db` | `conflux::db` | compatibility re-export of PostgreSQL API; not advertised for new public code | `docs/db-api.md` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | `README.md` |
+
+
+Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable extension/provider/customization modules are `extended`; raw runtime, protocol, parser, socket/file async I/O, and helper internals are `complete` or explicit-only. Detailed drift checking is deferred to the manifest stage.
 
 ## HTTP component map
 

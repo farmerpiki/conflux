@@ -1206,8 +1206,33 @@ def render_config_header(macros: Iterable[str]) -> str:
         "// Fallback feature/configuration macros for generated header mode.\n",
         "// Build systems may define any of these before including conflux headers.\n",
         "\n",
+        "#ifndef CONFLUX_API_SURFACE_CURATED\n",
+        "#define CONFLUX_API_SURFACE_CURATED 1\n",
+        "#endif\n",
+        "#ifndef CONFLUX_API_SURFACE_EXTENDED\n",
+        "#define CONFLUX_API_SURFACE_EXTENDED 2\n",
+        "#endif\n",
+        "#ifndef CONFLUX_API_SURFACE_COMPLETE\n",
+        "#define CONFLUX_API_SURFACE_COMPLETE 3\n",
+        "#endif\n",
+        "#ifndef CONFLUX_API_SURFACE_LEVEL\n",
+        "#define CONFLUX_API_SURFACE_LEVEL CONFLUX_API_SURFACE_CURATED\n",
+        "#endif\n",
+        "#ifndef CONFLUX_BUILD_API_SURFACE\n",
+        "#define CONFLUX_BUILD_API_SURFACE \"curated\"\n",
+        "#endif\n",
+        "\n",
     ]
+    skip = {
+        "CONFLUX_API_SURFACE_CURATED",
+        "CONFLUX_API_SURFACE_EXTENDED",
+        "CONFLUX_API_SURFACE_COMPLETE",
+        "CONFLUX_API_SURFACE_LEVEL",
+        "CONFLUX_BUILD_API_SURFACE",
+    }
     for macro in macros:
+        if macro in skip:
+            continue
         out.extend([
             f"#ifndef {macro}\n",
             f"#define {macro} 0\n",
@@ -1241,6 +1266,8 @@ def render_features_header() -> str:
         f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
         "\n",
         "namespace conflux {\n",
+        "inline constexpr char const *API_SURFACE = CONFLUX_BUILD_API_SURFACE;\n",
+        "inline constexpr int API_SURFACE_LEVEL = CONFLUX_API_SURFACE_LEVEL;\n",
     ]
     for name, macro in features:
         out.append(f"inline constexpr bool {name} = {macro};\n")

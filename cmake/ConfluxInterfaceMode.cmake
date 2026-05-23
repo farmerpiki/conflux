@@ -208,11 +208,11 @@ function(conflux_select_header_impl_sources out)
     endif()
     if(CONFLUX_WANT_FILE_IO_SYNC)
         conflux_append_header_impl_sources_for_modules(_selected
-            "^conflux\\.file_io\\.sync$")
+            "^conflux\\.file_io_sync$")
     endif()
     if(CONFLUX_WANT_FILE_MAP)
         conflux_append_header_impl_sources_for_modules(_selected
-            "^conflux\\.file_io\\.map$")
+            "^conflux\\.file_map$")
     endif()
     if(CONFLUX_NEEDS_RUNTIME)
         conflux_append_header_impl_sources_for_modules(_selected
@@ -342,6 +342,7 @@ function(conflux_apply_header_impl_common target)
         CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
         CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
         CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
+    conflux_apply_api_surface_definitions(${target} PRIVATE)
 endfunction()
 
 function(conflux_link_header_impl_hash_provider target)
@@ -449,11 +450,11 @@ function(conflux_define_header_impl_targets)
 
     if(CONFLUX_WANT_FILE_IO_SYNC)
         conflux_define_header_impl_component(conflux_header_impl_file_io_sync header_impl_file_io_sync
-            "^conflux\.file_io\.sync$")
+            "^conflux\.file_io_sync$")
     endif()
     if(CONFLUX_WANT_FILE_MAP)
         conflux_define_header_impl_component(conflux_header_impl_file_map header_impl_file_map
-            "^conflux\.file_io\.map$")
+            "^conflux\.file_map$")
     endif()
     if(CONFLUX_WANT_FILE_IO)
         conflux_define_header_impl_component(conflux_header_impl_file_io header_impl_file_io
@@ -611,6 +612,7 @@ function(conflux_add_header_interface_target)
         CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_HAS_TEMPLATES_WATCH}>
         CONFLUX_HAS_METRICS=$<BOOL:${CONFLUX_HAS_METRICS}>
         CONFLUX_HAS_DB=$<BOOL:${CONFLUX_HAS_DB}>)
+    conflux_apply_api_surface_definitions(conflux_headers INTERFACE)
     # Keep conflux::headers dependency-free. Component-specific provider
     # definitions and libraries are attached to requestable component targets
     # so core-only downstream consumers do not resolve JSON-only packages.
@@ -791,6 +793,24 @@ function(conflux_add_header_component_smoke_targets)
     conflux_apply_header_generated_build_policy(conflux_header_smoke_core)
     target_link_libraries(conflux_header_smoke_core PRIVATE conflux_headers)
     conflux_apply_header_smoke_warnings(conflux_header_smoke_core)
+
+    if(CONFLUX_WANT_HTTP_SERVER)
+        foreach(_surface IN ITEMS curated extended complete selected)
+            if(_surface STREQUAL "selected")
+                set(_surface_header "conflux.hxx")
+                set(_surface_target "conflux_header_smoke_api_surface_selected")
+            else()
+                set(_surface_header "conflux/${_surface}.hxx")
+                set(_surface_target "conflux_header_smoke_api_surface_${_surface}")
+            endif()
+            file(WRITE "${_smoke_dir}/api_surface_${_surface}.cxx"
+                "#include <${_surface_header}>\nint main() { return 0; }\n")
+            add_executable(${_surface_target} "${_smoke_dir}/api_surface_${_surface}.cxx")
+            conflux_apply_header_generated_build_policy(${_surface_target})
+            target_link_libraries(${_surface_target} PRIVATE conflux_headers)
+            conflux_apply_header_smoke_warnings(${_surface_target})
+        endforeach()
+    endif()
 
     if(CONFLUX_WANT_JSON)
         file(WRITE "${_smoke_dir}/json.cxx" "#include <conflux/json.hxx>\nint main() { return 0; }\n")

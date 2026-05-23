@@ -3,6 +3,10 @@
 export module conflux.features;
 
 export namespace conflux {
+    // Aggregate API surface selected for import conflux / <conflux.hxx>.
+    inline constexpr char const *API_SURFACE = "@CONFLUX_API_SURFACE@";
+    inline constexpr int API_SURFACE_LEVEL = @CONFLUX_API_SURFACE_LEVEL_VALUE@;
+
     // true when the library was built with OpenSSL (TLS + JWT crypto).
     inline constexpr bool HAS_TLS      = @CONFLUX_HAS_TLS@;
     // true when the library was built with at least one gzip-capable backend.

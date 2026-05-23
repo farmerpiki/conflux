@@ -27,6 +27,9 @@ module;
 #ifndef CONFLUX_BUILD_FEATURE_SET
 	#define CONFLUX_BUILD_FEATURE_SET "full"
 #endif
+#ifndef CONFLUX_BUILD_API_SURFACE
+	#define CONFLUX_BUILD_API_SURFACE "curated"
+#endif
 #ifndef CONFLUX_USE_MOCK_LIBURING
 	#define CONFLUX_USE_MOCK_LIBURING 0
 #endif
@@ -272,6 +275,7 @@ struct BuildInfo {
 	std::string_view build_type;
 	std::string_view interface_mode;
 	std::string_view feature_set;
+	std::string_view api_surface;
 
 	bool mock_liburing;
 	bool tls;
@@ -294,6 +298,7 @@ struct BuildInfo {
 		.build_type = CONFLUX_BUILD_TYPE_VALUE,
 		.interface_mode = CONFLUX_BUILD_INTERFACE_MODE,
 		.feature_set = CONFLUX_BUILD_FEATURE_SET,
+		.api_surface = CONFLUX_BUILD_API_SURFACE,
 		.mock_liburing = CONFLUX_USE_MOCK_LIBURING != 0,
 		.tls = CONFLUX_HAS_TLS != 0,
 		.http2 = CONFLUX_HAS_HTTP2 != 0,
@@ -308,14 +313,15 @@ struct BuildInfo {
 [[nodiscard]] std::string build_info_summary() {
 	auto const info = build_info();
 	return std::format(
-		"conflux {} git={} compiler={} stdlib={} interface={} features={} tls={} http2={} http3={} db={} "
-		"mock_liburing={}",
+		"conflux {} git={} compiler={} stdlib={} interface={} features={} api_surface={} "
+		"tls={} http2={} http3={} db={} mock_liburing={}",
 		info.version,
 		info.git_commit,
 		info.compiler,
 		info.stdlib_name,
 		info.interface_mode,
 		info.feature_set,
+		info.api_surface,
 		info.tls ? "on" : "off",
 		info.http2 ? "on" : "off",
 		info.http3 ? "on" : "off",
