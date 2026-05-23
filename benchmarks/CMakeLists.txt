@@ -274,6 +274,12 @@ target_link_libraries(conflux_workpool_queue_mode_compare_bench PRIVATE bench_co
 add_executable(conflux_join_all_N_bench join_all_N_bench.cxx)
 target_link_libraries(conflux_join_all_N_bench PRIVATE bench_common conflux_work conflux_options)
 
+if(TARGET conflux_http1)
+    add_executable(conflux_http_parser_bench http_parser_bench.cxx)
+    target_link_libraries(conflux_http_parser_bench
+        PRIVATE bench_common conflux_http1 conflux_net_config conflux_options)
+endif()
+
 add_executable(conflux_http_server_bench http_server_bench.cxx)
 target_link_libraries(conflux_http_server_bench
     PRIVATE bench_common conflux conflux_work conflux_options)
@@ -324,6 +330,9 @@ set(_record_targets
     conflux_http_server_bench
     conflux_http_server_concurrency_bench
 )
+if(TARGET conflux_http_parser_bench)
+    list(APPEND _record_targets conflux_http_parser_bench)
+endif()
 if(TARGET conflux_cpu_dispatch_impl_bench)
     list(APPEND _record_targets conflux_cpu_dispatch_impl_bench)
 endif()

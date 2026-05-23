@@ -24,6 +24,17 @@ export struct BenchArgs {
 	bool json_out = false;
 	std::string config_name;
 };
+
+export struct BenchCalibrationDefaults {
+	std::size_t target_ms = 500;
+	std::size_t max_iterations = 0;
+	std::size_t min_iterations = 1;
+	std::size_t calibration_iterations = 16;
+	std::size_t min_sample_ms = 50;
+};
+
+export inline constexpr BenchCalibrationDefaults bench_calibration_defaults{};
+
 // Parses --json, --iterations, --warmup, --config-name.
 // Unknown flags are silently ignored so each bench can do a second pass for
 // its own extra arguments over the same argv.

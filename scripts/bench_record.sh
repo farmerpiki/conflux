@@ -43,8 +43,21 @@
 #   BENCH_ITERATIONS_FROM_RUN_ID
 #                      if set, read per-benchmark/config iteration counts from this
 #                      prior run_id in the database and override launch args.
-#                      If unset, the script falls back to the latest summary rows
-#                      already present in the database.
+#                      If unset, the script falls back to descriptor args, including
+#                      target-runtime calibration when --iterations 0 is present.
+#   BENCH_TARGET_MS   default target measured runtime for calibrated configs
+#                      whose --bench-info config omits target_ms (default: 500).
+#   BENCH_MAX_ITERATIONS
+#                      default cap for calibrated iteration counts; 0 means uncapped
+#                      (default: 0).
+#   BENCH_MIN_ITERATIONS
+#                      default floor for calibrated iteration counts (default: 1).
+#   BENCH_CALIBRATION_ITERATIONS
+#                      default probe iterations for --iterations 0 configs (default: 16).
+#   BENCH_CALIBRATION_MIN_SAMPLE_MS
+#                      rerun calibration when the first probe is shorter than this
+#                      measured time, so nanosecond-scale benches do not derive
+#                      final counts from a tiny sample (default: 50).
 #   ALLOW_NON_PERF_BENCH_PRESET=1
 #                      allow non-perf presets for explicit experiments. The normal
 #                      recording path requires perf-* presets, RelWithDebInfo,
@@ -87,6 +100,11 @@ BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
 BENCH_ITERATIONS_FROM_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
+BENCH_TARGET_MS="${BENCH_TARGET_MS:-500}"
+BENCH_MAX_ITERATIONS="${BENCH_MAX_ITERATIONS:-0}"
+BENCH_MIN_ITERATIONS="${BENCH_MIN_ITERATIONS:-1}"
+BENCH_CALIBRATION_ITERATIONS="${BENCH_CALIBRATION_ITERATIONS:-16}"
+BENCH_CALIBRATION_MIN_SAMPLE_MS="${BENCH_CALIBRATION_MIN_SAMPLE_MS:-50}"
 ALLOW_NON_PERF_BENCH_PRESET="${ALLOW_NON_PERF_BENCH_PRESET:-0}"
 CONFLUX_ALLOW_SANITIZED_BENCHMARKS="${CONFLUX_ALLOW_SANITIZED_BENCHMARKS:-OFF}"
 BENCH_LOAD_FACTOR="${BENCH_LOAD_FACTOR:-1.5}"
@@ -370,6 +388,113 @@ load_iteration_overrides() {
 
 load_iteration_overrides "$BENCH_ITERATIONS_FROM_RUN_ID"
 
+derive_warmup_iters() {
+  local iters="$1"
+  local warmup=$(( iters / 5 ))
+  (( warmup < 1 )) && warmup=1
+  (( warmup > 200000 )) && warmup=200000
+  printf '%s\n' "$warmup"
+}
+
+rewrite_args_set_value() {
+  local flag="$1" value="$2"
+  shift 2
+  local -a args=("$@") out=()
+  local saw=false
+  for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[$i]}" == "$flag" ]]; then
+      out+=("$flag" "$value")
+      saw=true
+      ((i++))
+    else
+      out+=("${args[$i]}")
+    fi
+  done
+  if ! $saw; then
+    out+=("$flag" "$value")
+  fi
+  printf '%s\n' "${out[@]}"
+}
+
+args_value() {
+  local flag="$1"
+  shift
+  local -a args=("$@")
+  for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[$i]}" == "$flag" && $((i + 1)) -lt ${#args[@]} ]]; then
+      printf '%s\n' "${args[$((i + 1))]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+json_number_or_default() {
+  local json="$1" field="$2" default="$3"
+  local value
+  value=$(jq -r --arg field "$field" --arg default "$default" '.[$field] // $default' <<< "$json")
+  printf '%s\n' "$value"
+}
+
+round_iterations_for_target() {
+  local raw="$1" target_ms="$2" min_iters="$3" max_iters="$4"
+  awk -v raw="$raw" -v target_ms="$target_ms" -v min_iters="$min_iters" -v max_iters="$max_iters" 'BEGIN {
+    if (raw <= 0) {
+      n = min_iters
+    } else {
+      digits = int(log(raw) / log(10))
+      scale = 10 ^ (digits - 1)
+      if (scale < 1) {
+        scale = 1
+      }
+      if (target_ms <= 500) {
+        n = int((raw + scale - 1) / scale) * scale
+      } else {
+        n = int(raw / scale) * scale
+      }
+    }
+    if (n < min_iters) n = min_iters
+    if (max_iters > 0 && n > max_iters) n = max_iters
+    printf "%d\n", n
+  }'
+}
+
+calibrate_once() {
+  local binary="$1" iterations="$2"
+  shift 2
+  local -a base_args=("$@") probe_args=()
+  mapfile -t probe_args < <(rewrite_args_set_value --iterations "$iterations" "${base_args[@]}")
+  mapfile -t probe_args < <(rewrite_args_set_value --warmup 0 "${probe_args[@]}")
+
+  local tmpf
+  tmpf=$(mktemp /tmp/bench_calibrate_XXXXXX.ndjson)
+  if ! run_bench "$binary" "${probe_args[@]}" --json 2>/dev/null > "$tmpf"; then
+    rm -f "$tmpf"
+    return 1
+  fi
+  require_result_rows "$tmpf" "$binary"
+  jq -Rsc --argjson iterations "$iterations" '
+    [split("\n")[] | select(length > 0) | try fromjson catch empty | .ns_per_iter? // empty] as $rows
+    | {
+        iterations: $iterations,
+        sum_ns_per_iter: (($rows | add) // 0),
+        sample_ns: ((($rows | add) // 0) * $iterations)
+      }' "$tmpf"
+  rm -f "$tmpf"
+}
+
+CALIBRATION_EXTRA='{}'
+CALIBRATION_EXTRA_FILE=$(mktemp /tmp/bench_calibration_extra_XXXXXX.json)
+printf '{}\n' > "$CALIBRATION_EXTRA_FILE"
+
+set_calibration_extra() {
+  printf '%s\n' "$1" > "$CALIBRATION_EXTRA_FILE"
+}
+
+read_calibration_extra() {
+  CALIBRATION_EXTRA=$(cat "$CALIBRATION_EXTRA_FILE")
+}
+
 rewrite_args_for_iterations() {
   local bench="$1" cfg="$2"
   shift 2
@@ -381,38 +506,84 @@ rewrite_args_for_iterations() {
     return 0
   fi
 
-  local warmup=$(( override / 5 ))
-  (( warmup < 1 )) && warmup=1
+  local warmup
+  warmup=$(derive_warmup_iters "$override")
+  mapfile -t args < <(rewrite_args_set_value --iterations "$override" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --warmup "$warmup" "${args[@]}")
+  printf '%s\n' "${args[@]}"
+}
 
-  local -a out=()
-  local saw_iters=false
-  local saw_warmup=false
-  for ((i=0; i<${#args[@]}; i++)); do
-    case "${args[$i]}" in
-      --iterations)
-        out+=(--iterations "$override")
-        saw_iters=true
-        ((i++))
-        ;;
-      --warmup)
-        out+=(--warmup "$warmup")
-        saw_warmup=true
-        ((i++))
-        ;;
-      *)
-        out+=("${args[$i]}")
-        ;;
-    esac
-  done
+rewrite_args_for_target_runtime() {
+  local binary="$1" bench="$2" cfg="$3" cfg_json="$4"
+  shift 4
+  local -a args=("$@")
+  set_calibration_extra '{}'
 
-  if ! $saw_iters; then
-    out+=(--iterations "$override")
+  local requested_iterations
+  requested_iterations=$(args_value --iterations "${args[@]}" || true)
+  [[ "$requested_iterations" == "0" ]] || { printf '%s\n' "${args[@]}"; return 0; }
+
+  local target_ms max_iterations min_iterations calibration_iterations min_sample_ms
+  target_ms=$(json_number_or_default "$cfg_json" target_ms "$BENCH_TARGET_MS")
+  max_iterations=$(json_number_or_default "$cfg_json" max_iterations "$BENCH_MAX_ITERATIONS")
+  min_iterations=$(json_number_or_default "$cfg_json" min_iterations "$BENCH_MIN_ITERATIONS")
+  calibration_iterations=$(json_number_or_default "$cfg_json" calibration_iterations "$BENCH_CALIBRATION_ITERATIONS")
+  min_sample_ms=$(json_number_or_default "$cfg_json" calibration_min_sample_ms "$BENCH_CALIBRATION_MIN_SAMPLE_MS")
+
+  local first second final_probe sum_ns sample_ns raw_iters calibrated warmup second_iterations pass_count
+  if ! first=$(calibrate_once "$binary" "$calibration_iterations" "${args[@]}"); then
+    echo "calibration run failed for $bench [$cfg]; falling back to min_iterations=$min_iterations" >&2
+    calibrated="$min_iterations"
+  else
+    sum_ns=$(jq -r '.sum_ns_per_iter' <<< "$first")
+    sample_ns=$(jq -r '.sample_ns' <<< "$first")
+    raw_iters=$(awk -v target_ms="$target_ms" -v sum_ns="$sum_ns" -v min_iters="$min_iterations" 'BEGIN {
+      if (sum_ns <= 0) { print min_iters } else { printf "%.0f\n", (target_ms * 1000000.0) / sum_ns }
+    }')
+    calibrated=$(round_iterations_for_target "$raw_iters" "$target_ms" "$min_iterations" "$max_iterations")
+    final_probe="$first"
+    pass_count=1
+
+    second_iterations=$(awk -v sample_ns="$sample_ns" -v min_sample_ms="$min_sample_ms" -v sum_ns="$sum_ns" -v calibrated="$calibrated" -v min_iters="$min_iterations" -v max_iters="$max_iterations" 'BEGIN {
+      threshold_ns = min_sample_ms * 1000000.0
+      n = 0
+      if (sum_ns > 0 && sample_ns < threshold_ns) {
+        needed = int((threshold_ns + sum_ns - 1) / sum_ns)
+        n = calibrated
+        if (n < needed) n = needed
+        if (n < min_iters) n = min_iters
+        if (max_iters > 0 && n > max_iters) n = max_iters
+      }
+      printf "%d\n", n
+    }')
+    if (( second_iterations > 0 && second_iterations != calibration_iterations )); then
+      if second=$(calibrate_once "$binary" "$second_iterations" "${args[@]}"); then
+        sum_ns=$(jq -r '.sum_ns_per_iter' <<< "$second")
+        raw_iters=$(awk -v target_ms="$target_ms" -v sum_ns="$sum_ns" -v min_iters="$min_iterations" 'BEGIN {
+          if (sum_ns <= 0) { print min_iters } else { printf "%.0f\n", (target_ms * 1000000.0) / sum_ns }
+        }')
+        calibrated=$(round_iterations_for_target "$raw_iters" "$target_ms" "$min_iterations" "$max_iterations")
+        final_probe="$second"
+        pass_count=2
+      fi
+    fi
   fi
-  if ! $saw_warmup; then
-    out+=(--warmup "$warmup")
-  fi
 
-  printf '%s\n' "${out[@]}"
+  warmup=$(derive_warmup_iters "$calibrated")
+  mapfile -t args < <(rewrite_args_set_value --iterations "$calibrated" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --warmup "$warmup" "${args[@]}")
+  local final_probe_json="${final_probe:-"{}"}"
+  set_calibration_extra "$(jq -nc \
+    --argjson target_ms "$target_ms" \
+    --argjson calibration_iterations "$calibration_iterations" \
+    --argjson iterations "$calibrated" \
+    --argjson warmup "$warmup" \
+    --argjson max_iterations "$max_iterations" \
+    --argjson min_sample_ms "$min_sample_ms" \
+    --argjson pass_count "${pass_count:-0}" \
+    --argjson final_probe "$final_probe_json" \
+    '{target_ms:$target_ms, calibration_iterations:$calibration_iterations, iterations:$iterations, warmup:$warmup, max_iterations:$max_iterations, min_sample_ms:$min_sample_ms, passes:$pass_count, final_probe:$final_probe}')"
+  printf '%s\n' "${args[@]}"
 }
 
 COMPARE_BENCH_NAME=""
@@ -713,6 +884,9 @@ _compare_bins_insert_row() {
     local ex
     ex=$(jq -c --argjson raw "$raw_ex" --arg label "$label" --argjson round "$round" --argjson pos "$pos" \
       '$raw + {round:$round, position:$pos, label:$label}' <<< '{}')
+    if [[ -n "$CALIBRATION_EXTRA" && "$CALIBRATION_EXTRA" != '{}' ]]; then
+      ex=$(jq -c --argjson calibration "$CALIBRATION_EXTRA" '. + {calibration:$calibration}' <<< "$ex")
+    fi
     insert_row "$rid" "$bench" "$variant" "$iters" "$total" "$ns_pi" "$ex"
   done < <(jq -r -R "$standard_rows_jq" "$tmpf")
 
@@ -820,6 +994,10 @@ run_compare_bins() {
       if [[ -n "$BENCH_ITERATIONS_FROM_RUN_ID" ]]; then
         mapfile -t args < <(rewrite_args_for_iterations "$COMPARE_BENCH_NAME" "$COMPARE_CFG_NAME" "${args[@]}")
       fi
+      local cfg_json
+      cfg_json=$(jq -c '.configs[0] // {}' <<< "$COMPARE_BENCH_INFO")
+      mapfile -t args < <(rewrite_args_for_target_runtime "$bin" "$COMPARE_BENCH_NAME" "$COMPARE_CFG_NAME" "$cfg_json" "${args[@]}")
+      read_calibration_extra
       _compare_bins_insert_row "$rid" "$bench_name" "$label" "$round" "$pos" "$bin" "${args[@]}"
     done
   done
@@ -870,7 +1048,12 @@ clean_build() {
 }
 
 CURRENT_BUILD_DIR=""
-trap '[[ -n "$CURRENT_BUILD_DIR" ]] && clean_build "$CURRENT_BUILD_DIR"' EXIT
+cleanup_exit() {
+  rm -f "$CALIBRATION_EXTRA_FILE"
+  [[ -n "$CURRENT_BUILD_DIR" ]] && clean_build "$CURRENT_BUILD_DIR"
+  return 0
+}
+trap cleanup_exit EXIT
 
 if $COMPARE_MODE; then
   run_compare "${COMPARE_PRESETS[@]}"
@@ -963,6 +1146,11 @@ for PRESET in "${PRESET_LIST[@]}"; do
       mapfile -t args < <(jq -r '.args[]?' <<< "$cfg_json")
       if [[ -n "$BENCH_ITERATIONS_FROM_RUN_ID" ]]; then
         mapfile -t args < <(rewrite_args_for_iterations "$bench_name" "$cfg_name" "${args[@]}")
+      fi
+      mapfile -t args < <(rewrite_args_for_target_runtime "$binary" "$bench_name" "$cfg_name" "$cfg_json" "${args[@]}")
+      read_calibration_extra
+      if [[ -n "$CALIBRATION_EXTRA" && "$CALIBRATION_EXTRA" != '{}' ]]; then
+        extra=$(jq -c --argjson calibration "$CALIBRATION_EXTRA" '. + {calibration:$calibration}' <<< "$extra")
       fi
 
       if [[ "$parser" == "file_copy" ]]; then

@@ -565,7 +565,7 @@ int main(
 	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::print(
 			"{}\n",
-			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0"]}]})");
 		return 0;
 	}
 	try {

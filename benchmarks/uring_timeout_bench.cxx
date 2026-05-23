@@ -137,7 +137,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"uring_timeout","parser":"standard","configs":[{"name":"depth_64","extra":{"depth":64},"args":["--depth","64","--config-name","depth_64","--iterations","20000","--warmup","1000"]},{"name":"depth_128","extra":{"depth":128},"args":["--depth","128","--config-name","depth_128","--iterations","10000","--warmup","500"]}]})");
+		R"({"name":"uring_timeout","parser":"standard","configs":[{"name":"depth_64","extra":{"depth":64},"target_ms":500,"max_iterations":20000,"calibration_iterations":4,"args":["--depth","64","--config-name","depth_64","--iterations","0","--warmup","0"]},{"name":"depth_128","extra":{"depth":128},"target_ms":500,"max_iterations":10000,"calibration_iterations":4,"args":["--depth","128","--config-name","depth_128","--iterations","0","--warmup","0"]}]})");
 
 	auto const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	::io_uring ring{};

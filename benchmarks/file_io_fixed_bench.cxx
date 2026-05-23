@@ -277,7 +277,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"file_io_fixed","parser":"standard","configs":[{"name":"depth_64_4k","extra":{"depth":64,"chunk":4096},"args":["--depth","64","--chunk","4096","--config-name","depth_64_4k","--iterations","20000","--warmup","1000"]},{"name":"depth_128_4k","extra":{"depth":128,"chunk":4096},"args":["--depth","128","--chunk","4096","--config-name","depth_128_4k","--iterations","10000","--warmup","500"]}]})");
+		R"({"name":"file_io_fixed","parser":"standard","configs":[{"name":"depth_64_4k","extra":{"depth":64,"chunk":4096},"target_ms":500,"max_iterations":20000,"calibration_iterations":4,"args":["--depth","64","--chunk","4096","--config-name","depth_64_4k","--iterations","0","--warmup","0"]},{"name":"depth_128_4k","extra":{"depth":128,"chunk":4096},"target_ms":500,"max_iterations":10000,"calibration_iterations":4,"args":["--depth","128","--chunk","4096","--config-name","depth_128_4k","--iterations","0","--warmup","0"]}]})");
 
 	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	TempFile file;

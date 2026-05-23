@@ -31,20 +31,6 @@ struct CreateTodo {
 	std::string title;
 };
 
-struct TodoRecord {
-	std::int64_t id{};
-	std::string title;
-	std::atomic_bool done{false};
-
-	[[nodiscard]] Todo snapshot() const {
-		return Todo{
-			.id = id,
-			.title = title,
-			.done = done.load(std::memory_order_acquire),
-		};
-	}
-};
-
 template<>
 struct JsonMembers<Todo> {
 	static constexpr auto members() {
@@ -80,11 +66,9 @@ public:
 	[[nodiscard]] http::Response list() {
 		return http::offload(pool_, [this] {
 			TodoList list;
-			list.items.reserve(slots_.size());
-			for (auto const &slot: slots_) {
-				if (slot.state.load(std::memory_order_acquire) == SlotState::full) {
-					list.items.push_back(slot.todo->snapshot());
-				}
+			{
+				std::scoped_lock lock{mutex_};
+				list.items = todos_;
 			}
 			return http::into_response(http::json(std::move(list)));
 		});
@@ -93,29 +77,28 @@ public:
 	[[nodiscard]] http::Response get(
 		std::int64_t todo_id) {
 		return http::offload(pool_, [this, todo_id] {
-			if (todo_id <= 0 || static_cast<std::uint64_t>(todo_id) > slots_.size()) {
-				return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
+			auto todo = find_todo_copy(todo_id);
+			if (!todo) {
+				return todo_not_found();
 			}
-			auto const &slot = slots_[static_cast<std::size_t>(todo_id - 1)];
-			if (slot.state.load(std::memory_order_acquire) != SlotState::full) {
-				return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
-			}
-			return http::into_response(http::json(slot.todo->snapshot()));
+			return http::into_response(http::json(*todo));
 		});
 	}
 
 	[[nodiscard]] http::Response mark_done(
 		std::int64_t todo_id) {
 		return http::offload(pool_, [this, todo_id] {
-			if (todo_id <= 0 || static_cast<std::uint64_t>(todo_id) > slots_.size()) {
-				return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
+			std::optional<Todo> todo;
+			{
+				std::scoped_lock lock{mutex_};
+				auto it = find_todo_locked(todo_id);
+				if (it == todos_.end()) {
+					return todo_not_found();
+				}
+				it->done = true;
+				todo = *it;
 			}
-			auto const &slot = slots_[static_cast<std::size_t>(todo_id - 1)];
-			if (slot.state.load(std::memory_order_acquire) != SlotState::full) {
-				return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
-			}
-			slot.todo->done.store(true, std::memory_order_release);
-			return http::into_response(http::json(slot.todo->snapshot()));
+			return http::into_response(http::json(*todo));
 		});
 	}
 
@@ -123,22 +106,17 @@ public:
 		std::string title,
 		std::shared_ptr<http::SseChannel> events) {
 		return http::offload(pool_, [this, title = std::move(title), events = std::move(events)]() mutable {
-			auto const id = next_id_.fetch_add(1, std::memory_order_relaxed);
-			if (id > static_cast<std::int64_t>(slots_.size())) {
-				return http::into_response(http::problem::content_too_large());
+			Todo todo;
+			{
+				std::scoped_lock lock{mutex_};
+				if (todos_.size() >= kMaxTodos) {
+					return http::into_response(http::problem::content_too_large());
+				}
+				todo = Todo{.id = next_id_++, .title = std::move(title), .done = false};
+				todos_.push_back(todo);
 			}
-			auto &slot = slots_[static_cast<std::size_t>(id - 1)];
-			auto expected = SlotState::empty;
-			if (!slot.state.compare_exchange_strong(expected, SlotState::writing, std::memory_order_acq_rel)) {
-				return http::into_response(http::problem::internal_error("todo_slot_busy", "todo slot is busy"));
-			}
-			slot.todo = std::make_unique<TodoRecord>();
-			slot.todo->id = id;
-			slot.todo->title = std::move(title);
-			slot.state.store(SlotState::full, std::memory_order_release);
-			(void)events->send_event("todo.created", std::format("{}", slot.todo->id));
-			return http::into_response(
-				http::created(slot.todo->snapshot()).header("Location", std::format("/todos/{}", slot.todo->id)));
+			(void)events->send_event("todo.created", std::format("{}", todo.id));
+			return http::into_response(http::created(todo).header("Location", std::format("/todos/{}", todo.id)));
 		});
 	}
 
@@ -152,22 +130,31 @@ private:
 		};
 	}
 
-	static constexpr std::size_t kMaxTodos = 1024;
-	enum class SlotState : std::uint8_t {
-		empty,
-		writing,
-		full,
-		deleted,
-	};
+	[[nodiscard]] static http::Response todo_not_found() {
+		return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
+	}
 
-	struct TodoSlot {
-		std::atomic<SlotState> state{SlotState::empty};
-		std::unique_ptr<TodoRecord> todo;
-	};
+	[[nodiscard]] std::optional<Todo> find_todo_copy(
+		std::int64_t todo_id) {
+		std::scoped_lock lock{mutex_};
+		auto it = find_todo_locked(todo_id);
+		if (it == todos_.end()) {
+			return std::nullopt;
+		}
+		return *it;
+	}
+
+	[[nodiscard]] std::vector<Todo>::iterator find_todo_locked(
+		std::int64_t todo_id) {
+		return std::ranges::find(todos_, todo_id, &Todo::id);
+	}
+
+	static constexpr std::size_t kMaxTodos = 1024;
 
 	WorkPool pool_{state_pool_options()};
-	std::array<TodoSlot, kMaxTodos> slots_{};
-	std::atomic<std::int64_t> next_id_{1};
+	std::mutex mutex_;
+	std::vector<Todo> todos_;
+	std::int64_t next_id_{1};
 };
 
 namespace {

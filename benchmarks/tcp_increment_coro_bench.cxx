@@ -552,7 +552,7 @@ int main(
 	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::print(
 			"{}\n",
-			R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","40","--config","default"]},{"name":"parallel_4","extra":{},"args":["--iterations","200","--warmup","40","--clients","4","--config","parallel_4"]}]})");
+			R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":200,"calibration_iterations":2,"args":["--iterations","0","--warmup","0","--config","default"]},{"name":"parallel_4","extra":{"clients":4},"target_ms":500,"max_iterations":200,"calibration_iterations":2,"args":["--iterations","0","--warmup","0","--clients","4","--config","parallel_4"]}]})");
 		return 0;
 	}
 	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});

@@ -103,7 +103,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"uring_completion","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","2000000","--warmup","200000"]}]})");
+		R"({"name":"uring_completion","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
 
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	run_warmup(cfg.warmup);

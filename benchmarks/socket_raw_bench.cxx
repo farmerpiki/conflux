@@ -1580,7 +1580,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","1000","--warmup","200"]}]})");
+		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":1000,"max_iterations":1000,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"]}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;

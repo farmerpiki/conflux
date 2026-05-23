@@ -352,7 +352,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","2000"]}]})");
+		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":1000,"max_iterations":10000,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"]}]})");
 	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 
 	auto kc = make_self_signed();

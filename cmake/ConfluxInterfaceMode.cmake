@@ -495,6 +495,7 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_gzip examples/gzip)
         conflux_add_header_example_from_id(conflux_dual examples/advanced/dual)
         conflux_add_header_example_from_id(conflux_http_observability_example examples/advanced/http_observability)
+        conflux_add_header_example_from_id(conflux_production_showcase_example examples/advanced/production_showcase)
         conflux_add_header_example_from_id(conflux_http_policy_stack_example examples/advanced/http_policy_stack)
         conflux_add_header_example_from_id(conflux_vhost_openapi_example examples/advanced/vhost_openapi)
     endif()
@@ -592,6 +593,7 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_process_run_example
         conflux_crypto_sealing_example
         conflux_http_observability_example
+        conflux_production_showcase_example
         conflux_http_policy_stack_example
         conflux_vhost_openapi_example
         conflux_http_client_builder_example

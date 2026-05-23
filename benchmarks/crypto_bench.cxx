@@ -62,7 +62,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","180000","--warmup","36000"]}]})");
+		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 

@@ -219,10 +219,14 @@ run_one() {
   for c in "${candidates[@]}"; do
     local label="${c%%:*}"
     local bin="${c#*:}"
-    local info warmup
+    local info warmup calibrates target_ms max_iters
     info=$("$bin" --bench-info 2>/dev/null)
     warmup=$(jq -r '[.configs[].args[]?] | any(. == "--warmup")' <<< "$info")
-    printf '  [%s] %s warmup=%s\n' "$label" "$bin" "$warmup"
+    calibrates=$(jq -r '[.configs[]? | (.args // []) as $args | any(range(0; ($args|length) - 1); $args[.] == "--iterations" and $args[.+1] == "0")] | any' <<< "$info")
+    target_ms=$(jq -r '[.configs[]? | .target_ms?] | map(tostring) | unique | join(",")' <<< "$info")
+    max_iters=$(jq -r '[.configs[]? | .max_iterations?] | map(tostring) | unique | join(",")' <<< "$info")
+    printf '  [%s] %s warmup=%s calibrates=%s target_ms=%s max_iterations=%s\n' \
+      "$label" "$bin" "$warmup" "$calibrates" "${target_ms:-default}" "${max_iters:-default}"
   done
 
   if (( ! AUTO_YES )); then

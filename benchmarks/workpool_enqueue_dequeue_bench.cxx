@@ -526,8 +526,9 @@ int main(
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 				",\"queue_modes\":[\"stealing\",\"no_stealing\"]"
 #endif
-				"}},\"args\":[\"--threads\",\"{0}\","
-				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"1000\","
+				"}},\"target_ms\":1000,\"max_iterations\":5000,\"calibration_iterations\":2,"
+				"\"args\":[\"--threads\",\"{0}\","
+				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"0\",\"--warmup\",\"0\","
 				"\"--work\",\"2048\"]}}",
 				ts[i]);
 		}

@@ -82,10 +82,30 @@ All recordable `conflux_*bench*` binaries implement a standard interface:
   "name":    "logical_bench_name",
   "parser":  "standard|file_copy",
   "configs": [
-    { "name": "cfg", "extra": {}, "args": ["--iterations", "N"], "reps": 2 }
+    {
+      "name": "cfg",
+      "extra": {},
+      "target_ms": 500,
+      "max_iterations": 0,
+      "calibration_iterations": 16,
+      "calibration_min_sample_ms": 50,
+      "args": ["--iterations", "0"],
+      "reps": 2
+    }
   ]
 }
 ```
+
+For standard parser configs, `--iterations 0` is a recorder-only request for
+calibration. `scripts/bench_record.sh` runs a short probe, reruns calibration
+when the probe is below `calibration_min_sample_ms`, then replaces
+`--iterations 0` with a measured count derived from `target_ms`. Counts are
+rounded to two significant digits: 500ms targets round up because 500ms is a
+minimum, while larger targets round down. `max_iterations: 0` means uncapped.
+The calibration uses the sum of all emitted row `ns_per_iter` values, so
+multi-variant binaries target the whole launch rather than giving every row a
+full target duration. Fixed-duration load/congestion/tail configs should keep
+explicit `--duration`/fixed arguments and omit `--iterations 0`.
 
 Parsers:
 
@@ -134,6 +154,12 @@ Default recorder behavior:
 - `BENCH_ITERATIONS_FROM_RUN_ID=ID` reuses prior stable iteration counts so
   candidate-vs-baseline runs keep fixed inputs, including a derived warmup when
   the benchmark config did not specify one.
+- `BENCH_TARGET_MS`, `BENCH_MAX_ITERATIONS`, `BENCH_MIN_ITERATIONS`,
+  `BENCH_CALIBRATION_ITERATIONS`, and `BENCH_CALIBRATION_MIN_SAMPLE_MS` provide
+  defaults for configs that use `--iterations 0`. Most normal configs target
+  short sub-2-second launches; congestion, slow-consumer, tail-latency, and
+  duration-based load configs stay explicit because longer wall time is part of
+  what they test.
 
 Focused component commands:
 
@@ -326,6 +352,9 @@ Current groups:
 
 - `micro/*`: small hot-path operations.
 - `flow/*`: full in-process request flows through the public router/middleware API.
+- `http_parser`: user-space HTTP/1 request-parser scenarios, including
+  adversarial large/many/malformed/incomplete header cases that avoid live
+  socket/kernel round trips.
 - `http_server`, `http_server_concurrency`, `send_zc`, `tcp_increment`, and
   `socket_raw`: HTTP/socket/io_uring transport measurements.
 - `file_copy_coro`: file/runtime measurements.
