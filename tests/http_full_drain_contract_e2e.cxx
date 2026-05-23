@@ -1,6 +1,6 @@
 // Plain TU: contract-level HTTP drain lifecycle coverage.
-#include <catch2/catch_test_macros.hpp>
 #include <arpa/inet.h>
+#include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -45,23 +45,6 @@ void shrink_recv_buffer(
 	int fd) {
 	int size = 4096;
 	(void)::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
-}
-
-std::string read_headers_from(
-	int fd) {
-	std::string out;
-	std::array<char, 4096> buf{};
-	for (;;) {
-		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
-		if (n <= 0) {
-			break;
-		}
-		out.append(buf.data(), static_cast<std::size_t>(n));
-		if (out.find("\r\n\r\n") != std::string::npos) {
-			break;
-		}
-	}
-	return out;
 }
 
 std::string read_until_close_from(
@@ -117,7 +100,9 @@ TEST_CASE(
 	"[http][e2e][lifecycle][drain]") {
 	Router router;
 	router.get("/ping", [](chttp::Request const &) { return chttp::Response::text("pong"); });
-	router.get("/large", [](chttp::Request const &) { return chttp::Response::text(std::string(16 * 1024 * 1024, 'x')); });
+	router.get("/large", [](chttp::Request const &) {
+		return chttp::Response::text(std::string(16 * 1024 * 1024, 'x'));
+	});
 	router.get("/events/open", [](chttp::Request const &) {
 		auto ch = std::make_shared<SseChannel>();
 		(void)ch->send("data: open\n\n");
@@ -157,6 +142,17 @@ TEST_CASE(
 	auto sse_headers = sse.read_headers();
 	REQUIRE(sse_headers.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(sse_headers.find("Content-Type: text/event-stream") != std::string::npos);
+	set_recv_timeout(sse.fd(), std::chrono::milliseconds{250});
+	std::string sse_initial;
+	std::array<char, 256> sse_buf{};
+	for (;;) {
+		auto const n = sse.recv(sse_buf.data(), sse_buf.size());
+		if (n <= 0) {
+			break;
+		}
+		sse_initial.append(sse_buf.data(), static_cast<std::size_t>(n));
+	}
+	REQUIRE(sse_initial.find("data: open") != std::string::npos);
 
 	LocalTcpClient ws{port};
 	auto ws_req = websocket_upgrade_request();
@@ -196,7 +192,8 @@ TEST_CASE(
 	set_recv_timeout(idle.fd(), std::chrono::milliseconds{250});
 	CHECK(idle.recv(&probe, 1) == 0);
 	set_recv_timeout(sse.fd(), std::chrono::milliseconds{250});
-	CHECK(sse.recv(&probe, 1) <= 0);
+	auto const sse_tail = read_until_close_from(sse.fd());
+	CHECK(sse_tail.find("0\r\n\r\n") != std::string::npos);
 	set_recv_timeout(ws.fd(), std::chrono::milliseconds{250});
 	CHECK(ws.recv(&probe, 1) <= 0);
 	CHECK(connect_and_expect_no_service(port));

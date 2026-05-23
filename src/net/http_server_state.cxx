@@ -329,6 +329,10 @@ struct Ring {
 		UniqueSsl ssl{};
 #endif
 	};
+	struct ActiveWsRegistry {
+		std::mutex mu{};
+		std::unordered_set<int> fds{};
+	};
 	struct RetiredIncrementalBuf {
 		std::uint16_t id{};
 		bool present{};
@@ -353,6 +357,7 @@ struct Ring {
 	std::unordered_map<std::uint64_t, std::unique_ptr<std::uint64_t>> in_flight_read_bufs{};
 	std::unordered_map<int, WsInstallEntry> ws_cancel_handoffs{};
 	std::unordered_map<int, WsInstallEntry> ws_installs{};
+	std::shared_ptr<ActiveWsRegistry> active_ws_registry{std::make_shared<ActiveWsRegistry>()};
 	std::unordered_map<std::uint64_t, RetiredIncrementalBuf> retired_incremental_recv{};
 	std::vector<int> ws_cancel_ready{};
 
@@ -628,6 +633,9 @@ struct Ring {
 	void handle_http_response_send_complete(int fd, Conn &conn);
 	[[nodiscard]] static bool make_blocking_fd(int fd);
 	[[nodiscard]] WsHandoffState begin_ws_handoff(Conn &conn);
+	void register_active_ws(int fd);
+	void unregister_active_ws(int fd);
+	std::uint64_t shutdown_active_ws_for_pressure();
 	void launch_plain_ws_handler(WorkPool &pool, WsHandoffState state, int fd, std::string initial_buf);
 	void finish_plain_ws_handoff(int fd, WsInstallEntry entry);
 	void handoff_plain_ws(Conn &conn, int fd);

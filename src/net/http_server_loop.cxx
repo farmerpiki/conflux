@@ -941,7 +941,9 @@ void Ring::handle_shutdown() {
 			}
 		}
 		bool const finish_send = drain == nullptr || drain->options.finish_requests;
-		if (conn.send_queued && finish_send) {
+		bool const response_ready = response_send_ready(conn);
+		bool const response_pending = conn.request_in_progress || conn.send_queued || response_ready;
+		if (response_pending && finish_send) {
 			conn.close_after_send = true;
 			conn.close_after_send_deadline =
 				drain != nullptr ? drain->deadline : now + shutdown_close_after_send_timeout;
@@ -951,6 +953,9 @@ void Ring::handle_shutdown() {
 				} else {
 					cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
 				}
+			}
+			if (response_ready) {
+				start_response_send(static_cast<int>(i), conn);
 			}
 		} else {
 			bool const idle = !conn.request_in_progress && !conn.send_queued;
@@ -962,6 +967,12 @@ void Ring::handle_shutdown() {
 			}
 			queue_close(static_cast<int>(i));
 		}
+	}
+	if (drain != nullptr && drain->options.websocket_policy != DrainStreamPolicy::leave_open) {
+		auto const closed = shutdown_active_ws_for_pressure();
+		drain->accepted_before_stop.fetch_add(closed, std::memory_order_relaxed);
+		pressure_counters_.websocket_closed_for_pressure += closed;
+		drain->streams_closed.fetch_add(closed, std::memory_order_relaxed);
 	}
 	arm_timer();
 }

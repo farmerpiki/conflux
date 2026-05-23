@@ -62,12 +62,19 @@ def _read_http(sock: socket.socket) -> HttpResponse:
         if ":" in line:
             key, value = line.split(":", 1)
             headers[key.lower()] = value.strip()
-    expected = int(headers.get("content-length", len(body)))
-    while len(body) < expected:
-        chunk = sock.recv(expected - len(body))
-        if not chunk:
-            break
-        body.extend(chunk)
+    if "content-length" in headers:
+        expected = int(headers["content-length"])
+        while len(body) < expected:
+            chunk = sock.recv(expected - len(body))
+            if not chunk:
+                break
+            body.extend(chunk)
+    elif headers.get("content-type") == "text/event-stream":
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            body.extend(chunk)
     return HttpResponse(lines[0], headers, bytes(body))
 
 
@@ -175,7 +182,7 @@ def _read_ws_frame(sock: socket.socket) -> bytes:
 
 
 def case_quickstart_websocket() -> None:
-    key = base64.b64encode(b"conflux-e2e-key!!").decode("ascii")
+    key = base64.b64encode(b"conflux-e2e-key!").decode("ascii")
     with _connect(9096, timeout=2.0) as sock:
         sock.sendall(
             (

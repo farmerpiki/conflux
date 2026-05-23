@@ -82,17 +82,45 @@ import :state;
 	return state;
 }
 
+void Ring::register_active_ws(
+	int fd) {
+	std::scoped_lock const lk{active_ws_registry->mu};
+	active_ws_registry->fds.insert(fd);
+}
+
+void Ring::unregister_active_ws(
+	int fd) {
+	std::scoped_lock const lk{active_ws_registry->mu};
+	active_ws_registry->fds.erase(fd);
+}
+
+std::uint64_t Ring::shutdown_active_ws_for_pressure() {
+	std::scoped_lock const lk{active_ws_registry->mu};
+	for (int const fd: active_ws_registry->fds) {
+		(void)::shutdown(fd, SHUT_RDWR);
+	}
+	return active_ws_registry->fds.size();
+}
+
 void Ring::launch_plain_ws_handler(
 	WorkPool &pool,
 	Ring::WsHandoffState state,
 	int fd,
 	std::string initial_buf) {
 	auto pressure_counter = ws_pressure_counter_;
-	if (!pool.enqueue([state = std::move(state), fd, ibuf = std::move(initial_buf), pressure_counter]() mutable {
-			WsConn ws{fd, std::move(ibuf), std::move(pressure_counter)};
-			state.upgrade->handler(state.request, ws);
-			::close(fd);
-		})) {
+	auto registry = active_ws_registry;
+	register_active_ws(fd);
+	if (!pool.enqueue(
+			[registry, state = std::move(state), fd, ibuf = std::move(initial_buf), pressure_counter]() mutable {
+				WsConn ws{fd, std::move(ibuf), std::move(pressure_counter)};
+				state.upgrade->handler(state.request, ws);
+				{
+					std::scoped_lock const lk{registry->mu};
+					registry->fds.erase(fd);
+				}
+				::close(fd);
+			})) {
+		unregister_active_ws(fd);
 		++pressure_counters_.websocket_closed_for_pressure;
 		::close(fd);
 	}
@@ -162,15 +190,23 @@ void Ring::launch_tls_ws_handler(
 	std::string initial_buf) {
 	UniqueSsl owned{ssl};
 	auto pressure_counter = ws_pressure_counter_;
+	auto registry = active_ws_registry;
+	register_active_ws(fd);
 	if (!pool.enqueue([state = std::move(state),
+					   registry,
 					   fd,
 					   ssl_owned = std::move(owned),
 					   ibuf = std::move(initial_buf),
 					   pressure_counter]() mutable {
 			WsConn ws{fd, ssl_owned.release(), std::move(ibuf), std::move(pressure_counter)};
 			state.upgrade->handler(state.request, ws);
+			{
+				std::scoped_lock const lk{registry->mu};
+				registry->fds.erase(fd);
+			}
 			::close(fd);
 		})) {
+		unregister_active_ws(fd);
 		++pressure_counters_.websocket_closed_for_pressure;
 		::close(fd);
 	}
