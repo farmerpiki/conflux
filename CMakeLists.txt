@@ -25,6 +25,9 @@ option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF
 set(CONFLUX_INTERFACE_MODE "MODULE_INTERFACE" CACHE STRING
     "Public consumer interface: MODULE_INTERFACE or HEADER_INTERFACE")
 set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_INTERFACE HEADER_INTERFACE)
+set(CONFLUX_USE_IMPORT_STD "AUTO" CACHE STRING
+    "Use the standard-library module in MODULE_INTERFACE mode: AUTO, ON, or OFF")
+set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
 option(CONFLUX_USE_MOCK_LIBURING
     "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
 option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
@@ -43,17 +46,37 @@ else()
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(NOT CONFLUX_USE_IMPORT_STD STREQUAL "AUTO"
+        AND NOT CONFLUX_USE_IMPORT_STD STREQUAL "ON"
+        AND NOT CONFLUX_USE_IMPORT_STD STREQUAL "OFF")
+    message(FATAL_ERROR
+        "CONFLUX_USE_IMPORT_STD must be AUTO, ON, or OFF; got '${CONFLUX_USE_IMPORT_STD}'")
+endif()
+
+set(CONFLUX_IMPORT_STD_ENABLED OFF)
+set(_conflux_import_std_supported OFF)
+if(${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+    set(_conflux_import_std_supported ON)
+endif()
+
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-    if(NOT ${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+    if(CONFLUX_USE_IMPORT_STD STREQUAL "ON" AND NOT _conflux_import_std_supported)
         set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
         if(_conflux_import_std_levels STREQUAL "")
             set(_conflux_import_std_levels "<none>")
         endif()
         message(FATAL_ERROR
-            "conflux requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support in MODULE_INTERFACE mode. "
+            "CONFLUX_USE_IMPORT_STD=ON requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support. "
             "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
-            "Use CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to generate the header consumer surface.")
+            "Use CONFLUX_USE_IMPORT_STD=OFF to keep MODULE_INTERFACE with generated standard-header overlays.")
+    elseif(CONFLUX_USE_IMPORT_STD STREQUAL "AUTO" AND _conflux_import_std_supported)
+        set(CONFLUX_IMPORT_STD_ENABLED ON)
+    elseif(CONFLUX_USE_IMPORT_STD STREQUAL "ON")
+        set(CONFLUX_IMPORT_STD_ENABLED ON)
     endif()
+endif()
+
+if(CONFLUX_IMPORT_STD_ENABLED)
     set(CMAKE_CXX_MODULE_STD ON)
     if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON)
         cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
@@ -88,16 +111,15 @@ option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF
 set(CONFLUX_LTO_MODE "AUTO" CACHE STRING "LTO mode when CONFLUX_ENABLE_LTO=ON: AUTO, THIN, or FULL")
 set_property(CACHE CONFLUX_LTO_MODE PROPERTY STRINGS AUTO THIN FULL)
 if(CONFLUX_JSON_REFLECT
-        AND CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
-        AND NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+        AND CONFLUX_USE_IMPORT_STD STREQUAL "ON"
+        AND NOT CONFLUX_IMPORT_STD_ENABLED)
     set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
     if(_conflux_import_std_levels STREQUAL "")
         set(_conflux_import_std_levels "<none>")
     endif()
     message(FATAL_ERROR
-        "conflux: CONFLUX_JSON_REFLECT requires C++26 import std support in MODULE_INTERFACE mode. "
-        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
-        "Use CONFLUX_INTERFACE_MODE=HEADER_INTERFACE to avoid import std.")
+        "conflux: CONFLUX_JSON_REFLECT with CONFLUX_USE_IMPORT_STD=ON requires C++26 import std support. "
+        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}.")
 endif()
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
@@ -1089,7 +1111,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_HEADER_USE_IMPORT_STD=0
     CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
     CONFLUX_HEADER_USE_MODULE_IMPORTS=0
-    CONFLUX_MODULE_USE_IMPORT_STD=$<BOOL:${CMAKE_CXX_MODULE_STD}>
+    CONFLUX_MODULE_USE_IMPORT_STD=$<BOOL:${CONFLUX_IMPORT_STD_ENABLED}>
     CONFLUX_MODULE_USE_IMPORT_STD_COMPAT=0
     CONFLUX_MODULE_USE_IMPORTS=0
     CONFLUX_MODULE_REEXPORT_IMPORTS=0
@@ -1377,6 +1399,14 @@ if(CONFLUX_WANT_SMTP
     message(STATUS "conflux: SMTP disabled (TLS unavailable)")
 elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_TLS_PROVIDER=AUTO/OPENSSL and OpenSSL")
+endif()
+
+# conflux.net.config is part of the core surface and imports conflux.file_io_sync
+# for config/secret file loading, so the provider module is required even when
+# broader runtime file I/O is disabled.
+if(NOT CONFLUX_WANT_FILE_IO_SYNC)
+    set(CONFLUX_WANT_FILE_IO_SYNC TRUE)
+    set(CONFLUX_WANT_FILE_IO_SYNC TRUE CACHE INTERNAL "Resolved conflux component flag" FORCE)
 endif()
 
 if(CONFLUX_WANT_FILE_MAP AND NOT CONFLUX_WANT_FILE_IO_SYNC)
@@ -3107,6 +3137,13 @@ if(CONFLUX_BUILD_FUZZ)
     target_compile_definitions(conflux PUBLIC CONFLUX_BUILD_FUZZ=1)
 endif()
 
+set(_conflux_examples_root "${CMAKE_CURRENT_SOURCE_DIR}/examples")
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+        AND NOT CONFLUX_IMPORT_STD_ENABLED
+        AND EXISTS "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+    set(_conflux_examples_root "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+endif()
+
 if(CONFLUX_BUILD_EXAMPLES)
     set(CONFLUX_EXAMPLES_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/conflux_examples_manifest.txt")
     file(WRITE "${CONFLUX_EXAMPLES_MANIFEST}" "Conflux examples manifest\n\n")
@@ -3114,153 +3151,153 @@ if(CONFLUX_BUILD_EXAMPLES)
         file(APPEND "${CONFLUX_EXAMPLES_MANIFEST}" "${TARGET_NAME}: ${STATUS} - ${REASON}\n")
     endfunction()
 
-    add_executable(conflux_quickstart_hello examples/quickstart/hello.cxx)
+    add_executable(conflux_quickstart_hello ${_conflux_examples_root}/quickstart/hello.cxx)
     target_link_libraries(conflux_quickstart_hello PRIVATE conflux conflux_options)
 
-    add_executable(conflux_quickstart_middleware examples/quickstart/middleware.cxx)
+    add_executable(conflux_quickstart_middleware ${_conflux_examples_root}/quickstart/middleware.cxx)
     target_link_libraries(conflux_quickstart_middleware PRIVATE conflux conflux_options)
 
-    add_executable(conflux_quickstart_sse examples/quickstart/sse.cxx)
+    add_executable(conflux_quickstart_sse ${_conflux_examples_root}/quickstart/sse.cxx)
     target_link_libraries(conflux_quickstart_sse PRIVATE conflux conflux_options)
 
-    add_executable(conflux_quickstart_static_files examples/quickstart/static_files.cxx)
+    add_executable(conflux_quickstart_static_files ${_conflux_examples_root}/quickstart/static_files.cxx)
     target_link_libraries(conflux_quickstart_static_files PRIVATE conflux conflux_options)
 
-    add_executable(conflux_quickstart_websocket examples/quickstart/websocket.cxx)
+    add_executable(conflux_quickstart_websocket ${_conflux_examples_root}/quickstart/websocket.cxx)
     target_link_libraries(conflux_quickstart_websocket PRIVATE conflux conflux_options)
 
-    add_executable(conflux_quickstart_openapi examples/quickstart/openapi.cxx)
+    add_executable(conflux_quickstart_openapi ${_conflux_examples_root}/quickstart/openapi.cxx)
     target_link_libraries(conflux_quickstart_openapi PRIVATE conflux conflux_options)
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)
-        add_executable(conflux_quickstart_json_crud examples/quickstart/json_crud.cxx)
+        add_executable(conflux_quickstart_json_crud ${_conflux_examples_root}/quickstart/json_crud.cxx)
         target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
     endif()
 
     if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
-        add_executable(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud.cxx)
+        add_executable(conflux_quickstart_json_reflect_crud ${_conflux_examples_root}/quickstart/json_reflect_crud.cxx)
         target_link_libraries(conflux_quickstart_json_reflect_crud PRIVATE conflux conflux_json_reflect conflux_options)
     endif()
 
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-        add_executable(conflux_quickstart_postgres examples/quickstart/postgres_json.cxx)
+        add_executable(conflux_quickstart_postgres ${_conflux_examples_root}/quickstart/postgres_json.cxx)
         target_link_libraries(conflux_quickstart_postgres
             PRIVATE conflux conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
     # Easy HTTP examples (first-contact / v1-facing)
-    add_executable(conflux_hello examples/hello.cxx)
+    add_executable(conflux_hello ${_conflux_examples_root}/hello.cxx)
     target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
 
-    add_executable(conflux_middleware examples/middleware.cxx)
+    add_executable(conflux_middleware ${_conflux_examples_root}/middleware.cxx)
     target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
 
-    add_executable(conflux_sse examples/sse.cxx)
+    add_executable(conflux_sse ${_conflux_examples_root}/sse.cxx)
     target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
 
-    add_executable(conflux_static examples/static.cxx)
+    add_executable(conflux_static ${_conflux_examples_root}/static.cxx)
     target_link_libraries(conflux_static PRIVATE conflux conflux_options)
 
     # Additional examples
-    add_executable(conflux_forms examples/forms.cxx)
+    add_executable(conflux_forms ${_conflux_examples_root}/forms.cxx)
     target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
 
-    add_executable(conflux_gzip examples/gzip.cxx)
+    add_executable(conflux_gzip ${_conflux_examples_root}/gzip.cxx)
     target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_client examples/http_client.cxx)
+    add_executable(conflux_http_client ${_conflux_examples_root}/http_client.cxx)
     target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 
-    add_executable(conflux_dual examples/advanced/dual.cxx)
+    add_executable(conflux_dual ${_conflux_examples_root}/advanced/dual.cxx)
     target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
 
-    add_executable(conflux_process_run_example examples/advanced/process_run.cxx)
+    add_executable(conflux_process_run_example ${_conflux_examples_root}/advanced/process_run.cxx)
     target_link_libraries(conflux_process_run_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_crypto_sealing_example examples/advanced/crypto_sealing.cxx)
+    add_executable(conflux_crypto_sealing_example ${_conflux_examples_root}/advanced/crypto_sealing.cxx)
     target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_observability_example examples/advanced/http_observability.cxx)
+    add_executable(conflux_http_observability_example ${_conflux_examples_root}/advanced/http_observability.cxx)
     target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_lifecycle_example examples/advanced/http_lifecycle.cxx)
+    add_executable(conflux_http_lifecycle_example ${_conflux_examples_root}/advanced/http_lifecycle.cxx)
     target_link_libraries(conflux_http_lifecycle_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_production_showcase_example examples/advanced/production_showcase.cxx)
+    add_executable(conflux_production_showcase_example ${_conflux_examples_root}/advanced/production_showcase.cxx)
     target_link_libraries(conflux_production_showcase_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_policy_stack_example examples/advanced/http_policy_stack.cxx)
+    add_executable(conflux_http_policy_stack_example ${_conflux_examples_root}/advanced/http_policy_stack.cxx)
     target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_vhost_openapi_example examples/advanced/vhost_openapi.cxx)
+    add_executable(conflux_vhost_openapi_example ${_conflux_examples_root}/advanced/vhost_openapi.cxx)
     target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_client_builder_example examples/advanced/http_client_builder.cxx)
+    add_executable(conflux_http_client_builder_example ${_conflux_examples_root}/advanced/http_client_builder.cxx)
     target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
 
     if(TARGET conflux_http_app_json AND TARGET conflux_http_native_json AND TARGET conflux_json)
-        add_executable(conflux_api_typed_json_example examples/advanced/manual_json_members.cxx)
+        add_executable(conflux_api_typed_json_example ${_conflux_examples_root}/advanced/manual_json_members.cxx)
         target_link_libraries(conflux_api_typed_json_example
             PRIVATE conflux conflux_options)
 
-        add_executable(conflux_http_explicit_offload_example examples/advanced/explicit_offload.cxx)
+        add_executable(conflux_http_explicit_offload_example ${_conflux_examples_root}/advanced/explicit_offload.cxx)
         target_link_libraries(conflux_http_explicit_offload_example
             PRIVATE conflux conflux_work conflux_options)
     endif()
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)
-        add_executable(conflux_http_client_json_example examples/advanced/http_client_json.cxx)
+        add_executable(conflux_http_client_json_example ${_conflux_examples_root}/advanced/http_client_json.cxx)
         target_link_libraries(conflux_http_client_json_example
             PRIVATE conflux_http_native_json conflux_json conflux_options)
 
-        add_executable(conflux_custom_json_provider_example examples/advanced/custom_json_provider.cxx)
+        add_executable(conflux_custom_json_provider_example ${_conflux_examples_root}/advanced/custom_json_provider.cxx)
         target_link_libraries(conflux_custom_json_provider_example
             PRIVATE conflux_http_native_json conflux_json conflux_options)
     endif()
 
-    add_executable(conflux_work_join_all_example examples/advanced/work_join_all.cxx)
+    add_executable(conflux_work_join_all_example ${_conflux_examples_root}/advanced/work_join_all.cxx)
     target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
 
     if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
-        add_executable(conflux_template_pages_example examples/advanced/template_pages.cxx)
+        add_executable(conflux_template_pages_example ${_conflux_examples_root}/advanced/template_pages.cxx)
         target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
     endif()
 
     if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-        add_executable(conflux_h3_probe examples/advanced/h3_probe.cxx)
+        add_executable(conflux_h3_probe ${_conflux_examples_root}/advanced/h3_probe.cxx)
         target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
-        add_executable(conflux_h3_server examples/advanced/h3_server.cxx)
+        add_executable(conflux_h3_server ${_conflux_examples_root}/advanced/h3_server.cxx)
         target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
     endif()
 
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-        add_executable(conflux_db_basic examples/advanced/db_basic.cxx)
+        add_executable(conflux_db_basic ${_conflux_examples_root}/advanced/db_basic.cxx)
         target_link_libraries(conflux_db_basic
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
 
-        add_executable(conflux_db_pool examples/advanced/db_pool.cxx)
+        add_executable(conflux_db_pool ${_conflux_examples_root}/advanced/db_pool.cxx)
         target_link_libraries(conflux_db_pool
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
 
-        add_executable(conflux_advanced_postgres examples/advanced/postgres.cxx)
+        add_executable(conflux_advanced_postgres ${_conflux_examples_root}/advanced/postgres.cxx)
         target_link_libraries(conflux_advanced_postgres
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
     # JSON examples (use monolith for convenience)
-    add_executable(conflux_json_example examples/advanced/json.cxx)
+    add_executable(conflux_json_example ${_conflux_examples_root}/advanced/json.cxx)
     target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_config_example examples/advanced/json_config.cxx)
+    add_executable(conflux_json_config_example ${_conflux_examples_root}/advanced/json_config.cxx)
     target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_stream_ingest_example examples/advanced/json_stream_ingest.cxx)
+    add_executable(conflux_json_stream_ingest_example ${_conflux_examples_root}/advanced/json_stream_ingest.cxx)
     target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_diagnostics_example examples/advanced/json_diagnostics.cxx)
+    add_executable(conflux_json_diagnostics_example ${_conflux_examples_root}/advanced/json_diagnostics.cxx)
     target_link_libraries(conflux_json_diagnostics_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_transform_example examples/advanced/json_transform.cxx)
+    add_executable(conflux_json_transform_example ${_conflux_examples_root}/advanced/json_transform.cxx)
     target_link_libraries(conflux_json_transform_example PRIVATE conflux conflux_options)
 endif() # CONFLUX_BUILD_EXAMPLES
 
@@ -3278,11 +3315,23 @@ if(CONFLUX_BUILD_TESTS)
     if(TARGET conflux_uring)
         target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
     endif()
-    add_subdirectory(tests)
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+            AND NOT CONFLUX_IMPORT_STD_ENABLED
+            AND EXISTS "${CONFLUX_GENERATED_TESTS_DIR}/CMakeLists.txt")
+        add_subdirectory("${CONFLUX_GENERATED_TESTS_DIR}" tests)
+    else()
+        add_subdirectory(tests)
+    endif()
 endif()
 
 if(CONFLUX_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+            AND NOT CONFLUX_IMPORT_STD_ENABLED
+            AND EXISTS "${CONFLUX_GENERATED_BENCHMARKS_DIR}/CMakeLists.txt")
+        add_subdirectory("${CONFLUX_GENERATED_BENCHMARKS_DIR}" benchmarks)
+    else()
+        add_subdirectory(benchmarks)
+    endif()
 endif()
 
 if(CONFLUX_BUILD_FUZZ)
@@ -3779,16 +3828,24 @@ endif()
 # Standalone examples (don't require monolith)
 # ---------------------------------------------------------------------------
 
+if(CONFLUX_BUILD_EXAMPLES AND NOT COMMAND conflux_note_example)
+    set(CONFLUX_EXAMPLES_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/conflux_examples_manifest.txt")
+    file(WRITE "${CONFLUX_EXAMPLES_MANIFEST}" "Conflux examples manifest\n\n")
+    function(conflux_note_example TARGET_NAME STATUS REASON)
+        file(APPEND "${CONFLUX_EXAMPLES_MANIFEST}" "${TARGET_NAME}: ${STATUS} - ${REASON}\n")
+    endfunction()
+endif()
+
 if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_WANT_FILE_IO)
-    add_executable(conflux_file_io_example examples/advanced/file_io.cxx)
+    add_executable(conflux_file_io_example ${_conflux_examples_root}/advanced/file_io.cxx)
     target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
 
-    add_executable(conflux_coroutines examples/advanced/coroutines.cxx)
+    add_executable(conflux_coroutines ${_conflux_examples_root}/advanced/coroutines.cxx)
     target_link_libraries(conflux_coroutines PRIVATE conflux_file_io conflux_work conflux_options)
 endif()
 
 if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
-    add_executable(conflux_json_reflect_example examples/advanced/json_reflect.cxx)
+    add_executable(conflux_json_reflect_example ${_conflux_examples_root}/advanced/json_reflect.cxx)
     target_link_libraries(conflux_json_reflect_example
         PRIVATE conflux_json_reflect_provider conflux_json_reflect conflux_json conflux_types conflux_options)
 endif()

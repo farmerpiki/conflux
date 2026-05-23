@@ -1419,6 +1419,10 @@ def module_source_import_prelude(lines: list[str]) -> tuple[list[str], list[str]
 def source_standard_include_block(unit: ModuleUnit, text: str, include_own_header: bool) -> list[str]:
     out: list[str] = [f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n"]
     headers = set(infer_standard_headers(text, uses_std_compat=unit.uses_std_compat))
+    for token in set(STD_TOKEN_RE.findall(text)) & STD_STREAM_TOKENS:
+        headers.add(STREAM_TOKEN_HEADER[token])
+    if "std::println" in text or "std::print" in text:
+        headers.add("print")
     for header in sorted(headers):
         out.append(f"#include <{header}>\n")
     if include_own_header:
@@ -1460,6 +1464,35 @@ def transform_to_header_mode_source(unit: ModuleUnit, include_own_header: bool =
     out.extend(import_prelude)
     out.append("\n")
     out.extend(header_impl_source_line(header_collision_rewrite(line, unit)) for line in body)
+    return "".join(out)
+
+
+def transform_to_module_no_import_consumer(path: Path) -> str:
+    lines = read_lines(path)
+    text = "".join(lines)
+    stream_headers: set[str] = set()
+    if any(token in text for token in ("std::ifstream", "std::ofstream", "std::fstream")):
+        stream_headers.add("fstream")
+    if any(token in text for token in ("std::istringstream", "std::ostringstream", "std::stringstream")):
+        stream_headers.add("sstream")
+    if any(token in text for token in ("std::cerr", "std::cout", "std::clog", "std::cin")):
+        stream_headers.add("iostream")
+    out: list[str] = [
+        f"{GENERATED_BANNER}\n",
+        f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
+    ]
+    for header in sorted(set(infer_standard_headers(text, uses_std_compat="import std.compat;" in text)) | stream_headers):
+        out.append(f"#include <{header}>\n")
+    if "std::println" in text or "std::print" in text:
+        out.append("#include <print>\n")
+    out.append("\n")
+    for line in lines:
+        if line.strip() == "module;" or MODULE_DECL_RE.match(line):
+            continue
+        match = IMPORT_RE.match(line)
+        if match is not None and match.group("name") in {"std", "std.compat"}:
+            continue
+        out.append(rebase_local_include_line(line))
     return "".join(out)
 
 
@@ -1547,7 +1580,7 @@ def consumer_module_name(path: Path) -> str | None:
     return None
 
 
-def emit_consumer_overlay(consumer_root: Path, consumer_out: Path, include_out: Path, write: bool) -> tuple[int, list[dict[str, str]]]:
+def emit_consumer_overlay(consumer_root: Path, consumer_out: Path, include_out: Path, write: bool, mode: str = "header") -> tuple[int, list[dict[str, str]]]:
     changed = 0
     emitted: list[dict[str, str]] = []
     if not consumer_root.exists():
@@ -1563,15 +1596,26 @@ def emit_consumer_overlay(consumer_root: Path, consumer_out: Path, include_out: 
         rel = path.relative_to(consumer_root)
         out_path = consumer_out / rel
         if path.suffix == ".cxx":
-            out_content = transform_to_header_mode_consumer(path, local_imports)
-            emit_mode = "header-consumer"
-            name = local_imports.get(consumer_module_name(path) or "")
-            if name is not None:
-                header_path = include_out / name
-                header_content = transform_to_header_mode_consumer_header(path, local_imports)
-                if write_if_changed(header_path, header_content, write):
-                    changed += 1
-                emitted.append({"source": str(rel), "output": str(header_path), "mode": "header-consumer-local-module"})
+            if mode == "module-std-headers":
+                unit = discover_module_unit(path, consumer_root)
+                if unit is not None:
+                    out_content = transform_to_module_no_import_source(unit)
+                    emit_mode = "module-consumer-module-no-import-std"
+                else:
+                    out_content = transform_to_module_no_import_consumer(path)
+                    emit_mode = "module-consumer-no-import-std"
+            elif mode == "header":
+                out_content = transform_to_header_mode_consumer(path, local_imports)
+                emit_mode = "header-consumer"
+                name = local_imports.get(consumer_module_name(path) or "")
+                if name is not None:
+                    header_path = include_out / name
+                    header_content = transform_to_header_mode_consumer_header(path, local_imports)
+                    if write_if_changed(header_path, header_content, write):
+                        changed += 1
+                    emitted.append({"source": str(rel), "output": str(header_path), "mode": "header-consumer-local-module"})
+            else:
+                raise ValueError(f"unknown consumer overlay mode: {mode}")
         else:
             try:
                 out_content = path.read_text(encoding="utf-8")
@@ -1899,7 +1943,8 @@ def generate(args: argparse.Namespace) -> int:
             source_arg.resolve(),
             out_arg.resolve(),
             include_out,
-            args.write)
+            args.write,
+            args.consumer_mode)
         changed += consumer_changed
         consumer_overlays[label] = {
             "root": str(out_arg.resolve()),
@@ -1952,6 +1997,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--manifest-out", type=Path, default=Path("build/module_header_bridge_manifest.json"), help="JSON manifest path")
     parser.add_argument("--source-out", type=Path, default=None, help="optional output root for a transformed source overlay")
     parser.add_argument("--source-mode", choices=("module-std-headers", "header"), default="module-std-headers", help="mode for --source-out")
+    parser.add_argument("--consumer-mode", choices=("module-std-headers", "header"), default="header", help="mode for example/test/benchmark overlays")
     parser.add_argument("--examples-src", type=Path, default=None, help="optional examples tree to transform for header consumers")
     parser.add_argument("--examples-out", type=Path, default=None, help="optional output root for transformed header-mode examples")
     parser.add_argument("--tests-src", type=Path, default=None, help="optional tests tree to transform for header consumers")

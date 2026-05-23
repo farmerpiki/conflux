@@ -31,10 +31,11 @@ cmake --build --preset release-clang-libcxx
 ```
 
 Use the checked-in presets as the support matrix. `MODULE_INTERFACE` is the
-primary source-consumption and development mode. C++26 modules remain sensitive
-to the exact compiler, standard library, and CMake versions, so unsupported
-toolchains should fail at configure/build time instead of silently selecting a
-different contract. Generated headers are staged release artifacts for
+primary source-consumption and development mode. `CONFLUX_USE_IMPORT_STD` is a
+separate `AUTO|ON|OFF` knob: `AUTO` uses the standard-library module when
+CMake/toolchain support is discoverable, while `OFF` keeps `MODULE_INTERFACE`
+and lets CMake generate a source overlay that replaces `import std` with
+ordinary standard headers. Generated headers are staged release artifacts for
 compatibility consumers and should not require CMake import-std discovery.
 
 ## First-contact docs

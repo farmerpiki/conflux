@@ -26,7 +26,8 @@ function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_BENCHMARKS_DIR "${CONFLUX_GENERATED_BENCHMARKS_DIR}" PARENT_SCOPE)
     set(CONFLUX_MOCK_LIBURING_ROOT "${CONFLUX_MOCK_LIBURING_ROOT}" PARENT_SCOPE)
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+            AND CONFLUX_IMPORT_STD_ENABLED)
         return()
     endif()
 
@@ -37,15 +38,38 @@ function(conflux_configure_interface_mode)
         --include-out "${CONFLUX_GENERATED_INCLUDE_DIR}"
         --manifest-out "${CONFLUX_BRIDGE_MANIFEST}"
         --cmake-fragment-out "${CONFLUX_BRIDGE_CMAKE_FRAGMENT}"
-        --warnings-as-errors
         --write)
+
+    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+        list(APPEND _bridge_args --warnings-as-errors)
+    endif()
 
     if(CONFLUX_USE_MOCK_LIBURING)
         list(APPEND _bridge_args
             --mock-liburing-out "${CONFLUX_MOCK_LIBURING_ROOT}")
     endif()
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+        list(APPEND _bridge_args
+            --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
+            --source-mode module-std-headers
+            --consumer-mode module-std-headers)
+        if(CONFLUX_BUILD_EXAMPLES)
+            list(APPEND _bridge_args
+                --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+                --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+        endif()
+        if(CONFLUX_BUILD_TESTS)
+            list(APPEND _bridge_args
+                --tests-src "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+                --tests-out "${CONFLUX_GENERATED_TESTS_DIR}")
+        endif()
+        if(CONFLUX_BUILD_BENCHMARKS)
+            list(APPEND _bridge_args
+                --benchmarks-src "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks"
+                --benchmarks-out "${CONFLUX_GENERATED_BENCHMARKS_DIR}")
+        endif()
+    elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args
             --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
             --source-mode header
@@ -75,6 +99,9 @@ function(conflux_configure_interface_mode)
     endif()
 
     include("${CONFLUX_BRIDGE_CMAKE_FRAGMENT}")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+        set(CONFLUX_SRC_ROOT "${CONFLUX_GENERATED_SOURCE_DIR}" PARENT_SCOPE)
+    endif()
     if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
         set_source_files_properties(${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES}
             PROPERTIES CXX_SCAN_FOR_MODULES OFF)
@@ -245,7 +272,8 @@ function(conflux_select_header_impl_sources out)
 endfunction()
 
 function(conflux_resolve_source_id out source_id)
-    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
+            OR (CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND NOT CONFLUX_IMPORT_STD_ENABLED))
         if(source_id MATCHES "^examples/")
             string(REGEX REPLACE "^examples/" "" _rel "${source_id}")
             set(${out} "${CONFLUX_GENERATED_EXAMPLES_DIR}/${_rel}.cxx" PARENT_SCOPE)

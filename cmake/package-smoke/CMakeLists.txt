@@ -49,7 +49,7 @@ if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE
 endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-    set(CMAKE_CXX_MODULE_STD ON)
+    set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
 endif()
 
 foreach(_component IN LISTS _conflux_find_components)
@@ -117,6 +117,7 @@ file(WRITE "${_conflux_smoke_summary}"
     "visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}\n"
     "resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}\n"
     "interface_mode=${CONFLUX_INTERFACE_MODE}\n"
+    "use_import_std=${CONFLUX_USE_IMPORT_STD}\n"
     "package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}\n"
     "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}\n"
     "runtime_mock=${CONFLUX_RUNTIME_MOCK}\n"
@@ -128,9 +129,31 @@ file(WRITE "${_conflux_smoke_summary}"
 )
 
 set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
-if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND CONFLUX_USE_IMPORT_STD)
     file(WRITE "${_conflux_package_smoke_source}" [[
 import std;
+import conflux.types;
+
+int main() {
+    std::string value{"conflux"};
+    std::vector<std::string> values{};
+    values.emplace_back(value);
+
+    std::optional<std::size_t> count{values.size()};
+    if (not count.has_value()) {
+        return 1;
+    }
+
+    return (*count == std::size_t{1} and values.front() == value) ? 0 : 1;
+}
+]])
+elseif(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    file(WRITE "${_conflux_package_smoke_source}" [[
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <vector>
+
 import conflux.types;
 
 int main() {
