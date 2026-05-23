@@ -438,6 +438,8 @@ Current groups:
   `live-kernel-sanity`; 30s+ rows with 5s+ warmup are labeled
   `end-to-end-proof`.
 - `file_copy_coro`: file/runtime measurements.
+- `uring_completion` and `synthetic_cqe_coro`: no-kernel io_uring-adjacent
+  microbenchmarks for CompletionTable dispatch and coroutine completion plumbing.
 - `work`, `task_*`, `workpool_*`, and `join_all_N`: worker/runtime measurements.
 
 `conflux_send_zc_bench` emits per-variant SEND_ZC counter fields in its NDJSON

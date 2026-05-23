@@ -1184,8 +1184,11 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/task_cancellation_bench
         benchmarks/task_chain_composition_bench
         benchmarks/task_creation_bench
+        benchmarks/synthetic_cqe_coro_bench
         benchmarks/tcp_increment_coro_bench
         benchmarks/template_bench
+        benchmarks/uring_completion_bench
+        benchmarks/uring_timeout_bench
         benchmarks/work_bench
         benchmarks/work_compile_bench
         benchmarks/workpool_enqueue_dequeue_bench)

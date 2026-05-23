@@ -89,6 +89,72 @@ void pump_all(
 	}
 }
 
+void drain_raw_cqes(
+	io_uring &ring,
+	std::size_t expected) {
+	std::size_t completed = 0;
+	while (completed < expected) {
+		::io_uring_cqe *cqe = nullptr;
+		int rc = ::io_uring_submit_and_wait(&ring, 1);
+		if (rc == -EINTR) {
+			continue;
+		}
+		if (rc >= 0) {
+			rc = ::io_uring_peek_cqe(&ring, &cqe);
+		}
+		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+			continue;
+		}
+		if (rc < 0 || cqe == nullptr) {
+			throw std::runtime_error{std::format("raw submit_and_wait rc={}", rc)};
+		}
+		std::array<::io_uring_cqe *, 128> batch{};
+		for (;;) {
+			unsigned const n = ::io_uring_peek_batch_cqe(&ring, batch.data(), static_cast<unsigned>(batch.size()));
+			if (n == 0) {
+				break;
+			}
+			::io_uring_cq_advance(&ring, n);
+			completed += n;
+		}
+	}
+}
+
+void submit_nops(
+	io_uring &ring,
+	std::size_t count) {
+	for (std::size_t i = 0; i < count; ++i) {
+		::io_uring_sqe *sqe = ::io_uring_get_sqe(&ring);
+		if (sqe == nullptr) {
+			int const rc = ::io_uring_submit(&ring);
+			if (rc < 0) {
+				throw std::runtime_error{std::format("io_uring_submit for nop rc={}", rc)};
+			}
+			sqe = ::io_uring_get_sqe(&ring);
+		}
+		if (sqe == nullptr) {
+			throw std::runtime_error{"io_uring_get_sqe returned null for nop"};
+		}
+		::io_uring_prep_nop(sqe);
+		::io_uring_sqe_set_data64(sqe, static_cast<std::uint64_t>(i));
+	}
+}
+
+BenchStats bench_nop_submit_cqe(
+	io_uring &ring,
+	Config const &cfg,
+	bool warmup) {
+	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	auto const t0 = bench_now_ns();
+	for (std::size_t batch = 0; batch < batches; ++batch) {
+		submit_nops(ring, cfg.depth);
+		drain_raw_cqes(ring, cfg.depth);
+	}
+	auto const elapsed = bench_now_ns() - t0;
+	std::size_t const ops = batches * cfg.depth;
+	return {cfg.config_name, "nop_submit_cqe"sv, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+}
+
 BenchStats bench_timeout_remove_miss(
 	io_uring &ring,
 	CompletionTable &completions,
@@ -137,7 +203,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"uring_timeout","parser":"standard","configs":[{"name":"depth_64","extra":{"depth":64},"target_ms":500,"max_iterations":20000,"calibration_iterations":4,"args":["--depth","64","--config-name","depth_64","--iterations","0","--warmup","0"]},{"name":"depth_128","extra":{"depth":128},"target_ms":500,"max_iterations":10000,"calibration_iterations":4,"args":["--depth","128","--config-name","depth_128","--iterations","0","--warmup","0"]}]})");
+		R"({"name":"uring_timeout","parser":"standard","configs":[{"name":"depth_64","extra":{"depth":64,"label":"live-kernel-sanity","baseline":"nop_submit_cqe"},"target_ms":500,"max_iterations":20000,"calibration_iterations":4,"args":["--depth","64","--config-name","depth_64","--iterations","0","--warmup","0"]},{"name":"depth_128","extra":{"depth":128,"label":"live-kernel-sanity","baseline":"nop_submit_cqe"},"target_ms":500,"max_iterations":10000,"calibration_iterations":4,"args":["--depth","128","--config-name","depth_128","--iterations","0","--warmup","0"]}]})");
 
 	auto const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	::io_uring ring{};
@@ -148,9 +214,15 @@ int main(
 
 	try {
 		CompletionTable completions{cfg.depth * 2U};
+		(void)bench_nop_submit_cqe(ring, cfg, true);
 		(void)bench_timeout_remove_miss(ring, completions, cfg, true);
-		auto stats = bench_timeout_remove_miss(ring, completions, cfg, false);
-		bench_print(stats, cfg.json_out, true);
+		BenchStats stats[]{
+			bench_nop_submit_cqe(ring, cfg, false),
+			bench_timeout_remove_miss(ring, completions, cfg, false),
+		};
+		for (std::size_t i = 0; i < std::size(stats); ++i) {
+			bench_print(stats[i], cfg.json_out, i == 0);
+		}
 	} catch (std::exception const &ex) {
 		std::println(std::cerr, "conflux_uring_timeout_bench: {}", ex.what());
 		::io_uring_queue_exit(&ring);
