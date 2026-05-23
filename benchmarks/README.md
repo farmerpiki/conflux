@@ -446,7 +446,8 @@ Current groups:
   before making public static-file throughput claims.
 - `file_copy_coro`: file/runtime measurements.
 - `uring_completion` and `synthetic_cqe_coro`: no-kernel io_uring-adjacent
-  microbenchmarks for CompletionTable dispatch and coroutine completion plumbing.
+  microbenchmarks for CompletionTable dispatch, coroutine completion plumbing,
+  synthetic file-read/socket-send loops, and cancel-before/after-completion cost.
 - `work`, `task_*`, `workpool_*`, and `join_all_N`: worker/runtime measurements.
 
 `conflux_send_zc_bench` emits per-variant SEND_ZC counter fields in its NDJSON
