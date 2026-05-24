@@ -447,6 +447,10 @@ void Ring::conn_erase(
 		clear_deferred_wait(stream.deferred_efd);
 	}
 	conn.h2_streams.clear();
+	conn.h2_closed_streams.clear();
+	conn.h2_stream_window_updates.clear();
+	conn.h2_max_client_stream_id = 0;
+	conn.h2_client_preface_seen = false;
 	conn.h2_pending_send.clear();
 	conn.is_h2 = false;
 	conn.h2_sse_stream_id = -1;
@@ -1107,6 +1111,10 @@ void Ring::handle_accept(
 	}
 	conn.h2_ctx.reset();
 	conn.h2_streams.clear();
+	conn.h2_closed_streams.clear();
+	conn.h2_stream_window_updates.clear();
+	conn.h2_max_client_stream_id = 0;
+	conn.h2_client_preface_seen = false;
 	conn.h2_pending_send.clear();
 	conn.is_h2 = false;
 	conn.h2_sse_stream_id = -1;

@@ -268,6 +268,10 @@ struct alignas(
 	nghttp2_session *h2_session = nullptr;
 	std::unique_ptr<H2ConnCtx> h2_ctx;
 	std::map<std::int32_t, H2Stream> h2_streams{};
+	std::set<std::int32_t> h2_closed_streams{};
+	std::map<std::int32_t, std::uint32_t> h2_stream_window_updates{};
+	std::int32_t h2_max_client_stream_id{};
+	bool h2_client_preface_seen{};
 	std::string h2_pending_send{};
 	std::int32_t h2_sse_stream_id{-1}; // stream_id of active H2 SSE stream (-1 = none)
 	bool h2_sse_pending_wait{}; // set by on_frame_recv_cb to trigger queue_sse_wait after h2_do_send
@@ -486,6 +490,7 @@ struct Ring {
 	// ---------------------------------------------------------------------------
 	static void
 	h2_reject_stream(nghttp2_session *session, H2Stream &stream, std::int32_t stream_id, std::uint32_t error_code);
+	[[nodiscard]] bool h2_prevalidate_client_frames(Conn &conn, std::string_view bytes);
 	[[nodiscard]] static bool h2_valid_regular_header_name(std::string_view name) noexcept;
 	[[nodiscard]] static bool h2_forbidden_connection_header(std::string_view name) noexcept;
 	// nghttp2 wants to write bytes to the wire; accumulate into h2_pending_send.
@@ -529,6 +534,11 @@ struct Ring {
 	// A frame is fully received.  On END_STREAM, dispatch to the router and
 	// submit the HTTP/2 response via nghttp2_submit_response.
 	static int h2_on_frame_recv_cb(nghttp2_session *session, nghttp2_frame const *frame, void *user_data);
+	static int h2_on_invalid_frame_recv_cb(
+		nghttp2_session *session,
+		nghttp2_frame const *frame,
+		int lib_error_code,
+		void *user_data);
 	// Stream fully closed — release its state.
 	static int
 	h2_on_stream_close_cb(nghttp2_session * /*unused*/, std::int32_t stream_id, std::uint32_t /*EC*/, void *user_data);

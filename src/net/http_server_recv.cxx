@@ -408,6 +408,11 @@ void Ring::phase2_build_responses() {
 				h2_setup_conn(conn);
 			}
 			if (!conn.partial.empty()) {
+				if (!h2_prevalidate_client_frames(conn, conn.partial.view())) {
+					conn.partial.clear();
+					h2_do_send(conn);
+					continue;
+				}
 				auto n = nghttp2_session_mem_recv(
 					conn.h2_session,
 					reinterpret_cast<std::uint8_t const *>(conn.partial.data()),

@@ -339,6 +339,8 @@ set(CONFLUX_TEST_CATCH2_PROVIDER "SYSTEM" CACHE STRING
 set_property(CACHE CONFLUX_TEST_CATCH2_PROVIDER PROPERTY STRINGS FETCH SYSTEM AUTO)
 set(CONFLUX_CATCH2_SOURCE_DIR "" CACHE PATH "Path to a local Catch2 source tree for CONFLUX_TEST_CATCH2_PROVIDER=FETCH")
 option(CONFLUX_ENABLE_JSON_TESTSUITE "Build nst/JSONTestSuite conformance gate when JSONTestSuite is available" OFF)
+option(CONFLUX_ENABLE_THIRD_PARTY_TESTS
+    "Register optional third-party protocol conformance tests such as h2spec and Autobahn" OFF)
 set(JSONTESTSUITE_DIR "" CACHE PATH "Path to nst/JSONTestSuite/test_parsing, or repository root containing test_parsing")
 option(CONFLUX_BUILD_BENCHMARKS "Build benchmark targets"                    OFF)
 option(CONFLUX_BUILD_EXAMPLES "Build example targets"                        OFF)

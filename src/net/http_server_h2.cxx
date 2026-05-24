@@ -61,6 +61,31 @@ import :state;
 
 #if CONFLUX_HAS_HTTP2
 static constexpr std::size_t kH2PendingSendCap = std::size_t{64} * 1024;
+static void h2_queue_raw_rst_stream(
+	Conn &conn,
+	std::int32_t stream_id,
+	std::uint32_t error_code) {
+	if (stream_id <= 0 || conn.h2_pending_send.size() + 13 > kH2PendingSendCap) {
+		return;
+	}
+	auto const id = static_cast<std::uint32_t>(stream_id) & 0x7fffffffU;
+	std::array<char, 13> frame{
+		char{0},
+		char{0},
+		char{4},
+		static_cast<char>(NGHTTP2_RST_STREAM),
+		char{0},
+		static_cast<char>((id >> 24U) & 0x7fU),
+		static_cast<char>((id >> 16U) & 0xffU),
+		static_cast<char>((id >> 8U) & 0xffU),
+		static_cast<char>(id & 0xffU),
+		static_cast<char>((error_code >> 24U) & 0xffU),
+		static_cast<char>((error_code >> 16U) & 0xffU),
+		static_cast<char>((error_code >> 8U) & 0xffU),
+		static_cast<char>(error_code & 0xffU),
+	};
+	conn.h2_pending_send.append(frame.data(), frame.size());
+}
 // ---------------------------------------------------------------------------
 void Ring::h2_reject_stream(
 	nghttp2_session *session,
@@ -69,6 +94,97 @@ void Ring::h2_reject_stream(
 	std::uint32_t error_code) {
 	stream.rejected = true;
 	nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, stream_id, error_code);
+}
+
+[[nodiscard]] bool Ring::h2_prevalidate_client_frames(
+	Conn &conn,
+	std::string_view bytes) {
+	if (conn.h2_session == nullptr) {
+		return true;
+	}
+	std::size_t offset = 0;
+	constexpr std::string_view client_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	if (!conn.h2_client_preface_seen && bytes.starts_with(client_preface)) {
+		offset = client_preface.size();
+		conn.h2_client_preface_seen = true;
+	}
+	while (bytes.size() - offset >= 9) {
+		auto const *frame = reinterpret_cast<unsigned char const *>(bytes.data() + offset);
+		auto const length = (std::size_t{frame[0]} << 16U) | (std::size_t{frame[1]} << 8U) | std::size_t{frame[2]};
+		if (bytes.size() - offset - 9 < length) {
+			return true;
+		}
+		auto const type = frame[3];
+		auto const stream_id = static_cast<std::int32_t>(
+			(std::uint32_t{frame[5] & 0x7fU} << 24U)
+			| (std::uint32_t{frame[6]} << 16U)
+			| (std::uint32_t{frame[7]} << 8U)
+			| std::uint32_t{frame[8]});
+		auto const payload = std::string_view{bytes.data() + offset + 9, length};
+
+		if (type == NGHTTP2_PRIORITY) {
+			if (stream_id == 0) {
+				nghttp2_session_terminate_session(conn.h2_session, NGHTTP2_PROTOCOL_ERROR);
+				return false;
+			}
+			if (length != 5) {
+				h2_queue_raw_rst_stream(conn, stream_id, NGHTTP2_FRAME_SIZE_ERROR);
+				return false;
+			}
+			if (payload.size() >= 4) {
+				auto const dependency = static_cast<std::int32_t>(
+					(std::uint32_t{static_cast<unsigned char>(payload[0]) & 0x7fU} << 24U)
+					| (std::uint32_t{static_cast<unsigned char>(payload[1])} << 16U)
+					| (std::uint32_t{static_cast<unsigned char>(payload[2])} << 8U)
+					| std::uint32_t{static_cast<unsigned char>(payload[3])});
+				if (dependency == stream_id) {
+					h2_queue_raw_rst_stream(conn, stream_id, NGHTTP2_PROTOCOL_ERROR);
+					return false;
+				}
+			}
+		}
+		if (type == NGHTTP2_RST_STREAM && stream_id != 0) {
+			conn.h2_closed_streams.insert(stream_id);
+			if (conn.h2_closed_streams.size() > 256) {
+				conn.h2_closed_streams.erase(conn.h2_closed_streams.begin());
+			}
+		}
+		if (type == NGHTTP2_WINDOW_UPDATE && stream_id != 0 && payload.size() == 4) {
+			auto const increment = (std::uint32_t{static_cast<unsigned char>(payload[0]) & 0x7fU} << 24U)
+								 | (std::uint32_t{static_cast<unsigned char>(payload[1])} << 16U)
+								 | (std::uint32_t{static_cast<unsigned char>(payload[2])} << 8U)
+								 | std::uint32_t{static_cast<unsigned char>(payload[3])};
+			auto &total = conn.h2_stream_window_updates[stream_id];
+			if (increment > std::numeric_limits<std::int32_t>::max() - total) {
+				h2_queue_raw_rst_stream(conn, stream_id, NGHTTP2_FLOW_CONTROL_ERROR);
+				return false;
+			}
+			total += increment;
+		}
+
+		if ((type == NGHTTP2_DATA || type == NGHTTP2_HEADERS) && stream_id != 0) {
+			if (conn.h2_closed_streams.contains(stream_id)) {
+				if (type == NGHTTP2_HEADERS) {
+					nghttp2_session_terminate_session(conn.h2_session, NGHTTP2_STREAM_CLOSED);
+				} else {
+					h2_queue_raw_rst_stream(conn, stream_id, NGHTTP2_STREAM_CLOSED);
+				}
+				return false;
+			}
+			if (type == NGHTTP2_HEADERS && !conn.h2_streams.contains(stream_id)) {
+				if (stream_id < conn.h2_max_client_stream_id) {
+					nghttp2_session_terminate_session(conn.h2_session, NGHTTP2_PROTOCOL_ERROR);
+					return false;
+				}
+				if ((stream_id & 1) != 0) {
+					conn.h2_max_client_stream_id = std::max(conn.h2_max_client_stream_id, stream_id);
+				}
+			}
+		}
+
+		offset += 9 + length;
+	}
+	return true;
 }
 
 [[nodiscard]] bool Ring::h2_valid_regular_header_name(
@@ -484,6 +600,27 @@ int Ring::h2_on_frame_recv_cb(
 	return 0;
 }
 
+int Ring::h2_on_invalid_frame_recv_cb(
+	nghttp2_session *session,
+	nghttp2_frame const *frame,
+	int lib_error_code,
+	void * /*user_data*/) {
+	auto error_code = NGHTTP2_PROTOCOL_ERROR;
+	if (lib_error_code == NGHTTP2_ERR_FRAME_SIZE_ERROR) {
+		error_code = NGHTTP2_FRAME_SIZE_ERROR;
+	} else if (lib_error_code == NGHTTP2_ERR_FLOW_CONTROL) {
+		error_code = NGHTTP2_FLOW_CONTROL_ERROR;
+	} else if (lib_error_code == NGHTTP2_ERR_STREAM_CLOSED) {
+		error_code = NGHTTP2_STREAM_CLOSED;
+	}
+	if (frame->hd.stream_id == 0) {
+		nghttp2_session_terminate_session(session, static_cast<std::uint32_t>(error_code));
+		return 0;
+	}
+	nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, frame->hd.stream_id, static_cast<std::uint32_t>(error_code));
+	return 0;
+}
+
 // Stream fully closed — release its state.
 int Ring::h2_on_stream_close_cb(
 	nghttp2_session * /*unused*/,
@@ -494,6 +631,10 @@ int Ring::h2_on_stream_close_cb(
 	auto &conn = ctx->ring->conn_for(ctx->fd);
 	if (auto it = conn.h2_streams.find(stream_id); it != conn.h2_streams.end()) {
 		ctx->ring->clear_deferred_wait(it->second.deferred_efd);
+	}
+	conn.h2_closed_streams.insert(stream_id);
+	if (conn.h2_closed_streams.size() > 256) {
+		conn.h2_closed_streams.erase(conn.h2_closed_streams.begin());
 	}
 	// If this was the active H2 SSE stream, clear conn-level SSE state.
 	if (conn.h2_sse_stream_id == stream_id) {
@@ -548,6 +689,9 @@ void Ring::h2_do_send(
 	}
 	if (nghttp2_session_want_write(conn.h2_session) == 0) {
 		h2_flush_pending(conn);
+		if (!conn.send_queued && conn.h2_pending_send.empty() && nghttp2_session_want_read(conn.h2_session) == 0) {
+			queue_close(conn.fd);
+		}
 		return;
 	}
 	if (nghttp2_session_send(conn.h2_session) != 0) {
@@ -570,6 +714,7 @@ void Ring::h2_setup_conn(
 	nghttp2_session_callbacks_set_on_header_callback(cbs, h2_on_header_cb);
 	nghttp2_session_callbacks_set_on_data_chunk_recv_callback(cbs, h2_on_data_chunk_cb);
 	nghttp2_session_callbacks_set_on_frame_recv_callback(cbs, h2_on_frame_recv_cb);
+	nghttp2_session_callbacks_set_on_invalid_frame_recv_callback(cbs, h2_on_invalid_frame_recv_cb);
 	nghttp2_session_callbacks_set_on_stream_close_callback(cbs, h2_on_stream_close_cb);
 
 	conn.h2_ctx = std::make_unique<H2ConnCtx>(H2ConnCtx{.ring = this, .fd = conn.fd});
@@ -584,15 +729,13 @@ void Ring::h2_setup_conn(
 
 	constexpr std::uint32_t kH2MaxConcurrentStreams = 100;
 	constexpr std::uint32_t kH2InitialWindowSize = 1U << 24;
-	constexpr std::uint32_t kH2MaxFrameSize = 1U << 17;
 	std::uint32_t const h2_max_header_list_size = static_cast<std::uint32_t>(std::min<std::size_t>(
 		parser_limits.max_header_block_size,
 		static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())));
-	std::array<nghttp2_settings_entry, 4> const iv{
+	std::array<nghttp2_settings_entry, 3> const iv{
 		{
          {.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, .value = kH2MaxConcurrentStreams},
          {.settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, .value = kH2InitialWindowSize},
-         {.settings_id = NGHTTP2_SETTINGS_MAX_FRAME_SIZE, .value = kH2MaxFrameSize},
          {.settings_id = NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, .value = h2_max_header_list_size},
 		 }
     };

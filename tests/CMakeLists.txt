@@ -248,6 +248,33 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
         PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 endif()
 
+if(CONFLUX_ENABLE_THIRD_PARTY_TESTS AND TARGET conflux_http_app)
+    add_executable(conflux_third_party_conformance_server third_party_conformance_server.cxx)
+    target_link_libraries(conflux_third_party_conformance_server PRIVATE conflux conflux_options)
+
+    if(TARGET conflux_http2 AND CONFLUX_HAS_TLS STREQUAL "true")
+        add_test(NAME third-party/h2spec
+            COMMAND "${CMAKE_SOURCE_DIR}/scripts/third-party/run-h2spec.sh"
+                    "$<TARGET_FILE:conflux_third_party_conformance_server>")
+        set_tests_properties(third-party/h2spec PROPERTIES
+            LABELS "third-party;h2;conformance"
+            RUN_SERIAL TRUE
+            SKIP_RETURN_CODE 77
+            TIMEOUT 120)
+    endif()
+
+    if(TARGET conflux_http_realtime)
+        add_test(NAME third-party/autobahn
+            COMMAND "${CMAKE_SOURCE_DIR}/scripts/third-party/run-autobahn.sh"
+                    "$<TARGET_FILE:conflux_third_party_conformance_server>")
+        set_tests_properties(third-party/autobahn PROPERTIES
+            LABELS "third-party;websocket;conformance"
+            RUN_SERIAL TRUE
+            SKIP_RETURN_CODE 77
+            TIMEOUT 600)
+    endif()
+endif()
+
 add_executable(conflux_crypto_tests crypto_test.cxx)
 target_link_libraries(conflux_crypto_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 

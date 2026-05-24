@@ -144,6 +144,20 @@ cmake --build /tmp/conflux-tests
 ctest --test-dir /tmp/conflux-tests --output-on-failure
 ```
 
+Optional third-party protocol conformance lane, when `h2spec` or Autobahn
+`wstest` are available from the system or an approved cache:
+
+```sh
+cmake -S . -B /tmp/conflux-third-party -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCONFLUX_FEATURE_SET=release-full \
+  -DCONFLUX_BUILD_TESTS=ON \
+  -DCONFLUX_BUILD_EXAMPLES=OFF \
+  -DCONFLUX_ENABLE_THIRD_PARTY_TESTS=ON
+cmake --build /tmp/conflux-third-party --target conflux_third_party_conformance_server
+ctest --test-dir /tmp/conflux-third-party -L third-party --output-on-failure
+```
+
 ## Final proof capture timing
 
 Prepare scripts, templates, and local smoke evidence throughout prerelease work,
