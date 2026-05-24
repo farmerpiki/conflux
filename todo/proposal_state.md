@@ -23,6 +23,7 @@ checked against this index before implementation starts.
 | P2 | `perf/evidence-inventory` | `proposals/perf_ideas.md` | Open inventory, not a direct implementation branch. | Use it to classify benchmark/evidence gaps after checking this state index. |
 | P2 | `simd/dispatch-independence-stage1` | `proposals/simd_dispatch_independence_stage1_proposal.md` | Active Stage 1 cleanup for direct/runtime SIMD selection semantics. | Keep evidence focused on object shape and hot-call-site dispatch policy, not a larger ISA matrix. |
 | P1 | `release/proof-repo-final-evidence` | `proposals/release_proof_repo_proposal.md` | Proposed release-blocking evidence packaging lane. | Implement scripts/templates now, but defer final proof capture until release-candidate source/API/docs/benchmark shape is frozen. |
+| DEFERRED | `http/streaming-upload-api` | `todo/server_gaps.md`, `docs/http-server-api.md` | Explicitly deferred future server API for bounded-memory request body and multipart upload streaming. | Current HTTP server intentionally buffers accepted request bodies in memory up to `max_body_size`; arbitrary large uploads need a separate streaming/spill-to-file surface with backpressure instead of raising the body cap. Do not start before the prerelease API/docs/evidence lanes settle. |
 
 ## Historical / implemented proposals
 
