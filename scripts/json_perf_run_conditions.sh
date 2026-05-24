@@ -17,6 +17,7 @@ Environment:
   JSON_PERF_EVENTS      perf stat events for JSON benches; default avoids tracefs-only syscall events
   JSON_PERF_REPS        default: 5
   JSON_PERF_BENCHES     default: json json_storage
+                        use json_reflect with release-p2996-gcc builds
   JSON_PERF_PROFILES    default: clang-libcxx gcc-stdcxx gcc16-stdcxx
   JSON_PERF_TARGETS     default: conflux_json_bench conflux_json_storage_bench
   JSON_PERF_PGO_ROOT    default: /tmp/conflux-json-pgo
@@ -79,7 +80,15 @@ bench_bin_name() {
   case "$1" in
     json) printf '%s\n' conflux_json_bench ;;
     json_storage) printf '%s\n' conflux_json_storage_bench ;;
+    json_reflect) printf '%s\n' conflux_json_reflect_bench ;;
     *) echo "unknown json bench: $1" >&2; exit 2 ;;
+  esac
+}
+
+profile_has_pgo() {
+  case "$1" in
+    p2996-gcc) return 1 ;;
+    *) return 0 ;;
   esac
 }
 
@@ -117,6 +126,9 @@ append_combo_dirs() {
   bin_name="$(bench_bin_name "$bench")"
   APPENDED_DIRS=0
   for condition in normal o2-lto pgo; do
+    if [[ "$condition" == pgo ]] && ! profile_has_pgo "$profile"; then
+      continue
+    fi
     case "$condition" in
       normal)
         name="$(release_preset "$profile")"
@@ -236,6 +248,7 @@ for profile in "${profiles[@]}"; do
     o2_build="$(o2_lto_build_dir "$profile")"
     perf_capture o2-lto "$o2_build" "$o2_build" "$bench" "$rid"
 
+    profile_has_pgo "$profile" || continue
     pgo_build="$(pgo_use_preset "$profile")"
     perf_capture pgo "$pgo_build" "$pgo_build" "$bench" "$rid"
   done

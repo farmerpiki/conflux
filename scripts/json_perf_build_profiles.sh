@@ -18,6 +18,7 @@ Environment:
                                 pgo-gen-clang-libcxx pgo-gen-gcc-stdcxx pgo-gen-gcc16-stdcxx
   JSON_PERF_TARGETS    space-separated targets
                        default: conflux_json_bench conflux_json_storage_bench
+                       use conflux_json_reflect_bench with release-p2996-gcc
   JSON_PERF_PGO_ROOT   profile-data root for generated profiles
                        default: /tmp/conflux-json-pgo
   JSON_PERF_PGO_OPT_FLAGS
@@ -174,6 +175,7 @@ bench_name_for_target() {
   case "$1" in
     conflux_json_bench) printf '%s\n' json ;;
     conflux_json_storage_bench) printf '%s\n' json_storage ;;
+    conflux_json_reflect_bench) printf '%s\n' json_reflect ;;
     *) echo "unknown JSON benchmark target: $1" >&2; exit 2 ;;
   esac
 }
