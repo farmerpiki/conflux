@@ -21,7 +21,8 @@ import tempfile
 from typing import Any
 
 DEFAULT_EVENTS = (
-    "cycles,instructions,cache-references,cache-misses,branch-misses,cs,"
+    "cycles,instructions,branches,branch-misses,cache-references,cache-misses,"
+    "L1-dcache-loads,L1-dcache-load-misses,dTLB-loads,dTLB-load-misses,cs,"
     "syscalls:sys_enter_io_uring_enter,syscalls:sys_enter_sendto,syscalls:sys_enter_recvfrom"
 )
 
@@ -78,7 +79,13 @@ def add_derived(row: dict[str, Any], perf: dict[str, Any]) -> dict[str, Any]:
         for source, dest in (
             ("cycles", "cycles_per_op"),
             ("instructions", "instructions_per_op"),
+            ("branches", "branches_per_op"),
+            ("cache_references", "cache_references_per_op"),
             ("cache_misses", "cache_misses_per_op"),
+            ("L1_dcache_loads", "l1_dcache_loads_per_op"),
+            ("L1_dcache_load_misses", "l1_dcache_load_misses_per_op"),
+            ("dTLB_loads", "dtlb_loads_per_op"),
+            ("dTLB_load_misses", "dtlb_load_misses_per_op"),
             ("branch_misses", "branch_misses_per_op"),
             ("cs", "context_switches_per_op"),
             ("syscalls_sys_enter_io_uring_enter", "io_uring_enter_syscalls_per_op"),
@@ -88,6 +95,26 @@ def add_derived(row: dict[str, Any], perf: dict[str, Any]) -> dict[str, Any]:
             value = events.get(source)
             if isinstance(value, int | float):
                 derived[dest] = float(value) / float(denom)
+    instructions = events.get("instructions")
+    cycles = events.get("cycles")
+    branches = events.get("branches")
+    branch_misses = events.get("branch_misses")
+    cache_references = events.get("cache_references")
+    cache_misses = events.get("cache_misses")
+    l1_loads = events.get("L1_dcache_loads")
+    l1_misses = events.get("L1_dcache_load_misses")
+    dtlb_loads = events.get("dTLB_loads")
+    dtlb_misses = events.get("dTLB_load_misses")
+    if isinstance(cycles, int | float) and isinstance(instructions, int | float) and instructions > 0:
+        derived["cycles_per_instruction"] = float(cycles) / float(instructions)
+    if isinstance(branch_misses, int | float) and isinstance(branches, int | float) and branches > 0:
+        derived["branch_miss_rate"] = float(branch_misses) / float(branches)
+    if isinstance(cache_misses, int | float) and isinstance(cache_references, int | float) and cache_references > 0:
+        derived["cache_miss_rate"] = float(cache_misses) / float(cache_references)
+    if isinstance(l1_misses, int | float) and isinstance(l1_loads, int | float) and l1_loads > 0:
+        derived["l1_dcache_load_miss_rate"] = float(l1_misses) / float(l1_loads)
+    if isinstance(dtlb_misses, int | float) and isinstance(dtlb_loads, int | float) and dtlb_loads > 0:
+        derived["dtlb_load_miss_rate"] = float(dtlb_misses) / float(dtlb_loads)
     if derived:
         row["perf_derived"] = derived
     return row

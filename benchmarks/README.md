@@ -94,13 +94,14 @@ target produces an executable, tool versions, and the exact commands used.
 /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --csv   # alias for --format csv
 ```
 
-## Live-kernel counter wrapper
+## Perf counter wrapper
 
 `scripts/bench_perf_stat.py` is the optional `perf stat` wrapper for rows where
-wall-clock time alone would hide kernel round trips. It runs one benchmark
-command under `perf stat -x,`, copies child NDJSON through, and annotates JSON
-rows with a parsed `perf_stat` object plus normalized `perf_derived` counters
-such as `cycles_per_op`, `instructions_per_op`, `context_switches_per_op`, and
+wall-clock time alone hides the reason for a win or regression. It runs one
+benchmark command under `perf stat -x,`, copies child NDJSON through, and
+annotates JSON rows with a parsed `perf_stat` object plus normalized
+`perf_derived` counters such as `cycles_per_op`, `instructions_per_op`,
+`cycles_per_instruction`, branch/cache/TLB miss rates, context switches, and
 selected syscall counts when those events are available.
 
 ```sh
@@ -111,6 +112,16 @@ scripts/bench_perf_stat.py -- \
 Host evidence wrappers can enable this directly with `STORAGE_READ_PERF_STAT=1`
 or `SEND_ZC_PERF_STAT=1`; raw perf stderr and parsed JSON are kept under each
 artifact directory's `perf/` subdirectory.
+
+For multi-row microbenchmarks, prefer a benchmark-side row filter when diagnosing
+one hot row so the perf counters describe the selected sub-bench rather than the
+whole executable:
+
+```sh
+scripts/bench_perf_stat.py -- \
+  /tmp/<tree>/build/<profile>/benchmarks/conflux_json_bench \
+  --json --filter 'dump/long_strings'
+```
 
 ## Bench binary contract
 

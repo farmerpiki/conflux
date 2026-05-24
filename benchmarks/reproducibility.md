@@ -100,7 +100,32 @@ results are comparable across candidates and future runs.
    code paths. Treat higher instructions with flat wall time as a warning: it may
    become visible after unrelated layout or optimizer changes.
 
-9. Preserve skipped lanes explicitly.
+9. Diagnose large wins or regressions with filtered sub-bench perf.
+
+   Whole-binary `perf stat` is useful for initial triage, but it can hide which
+   variant is responsible when one benchmark executable emits many rows. When a
+   row is a major win/loss, rerun that exact row or row family with the benchmark
+   `--filter` option and collect per-sub-bench perf counters. Keep cycles,
+   instructions, branches, branch-misses, cache-references, cache-misses,
+   L1-dcache-loads, L1-dcache-load-misses, dTLB-loads, and dTLB-load-misses.
+
+   ```sh
+   BENCH_PERF_EVENTS='cycles,instructions,branches,branch-misses,cache-references,cache-misses,L1-dcache-loads,L1-dcache-load-misses,dTLB-loads,dTLB-load-misses' \
+     scripts/bench_perf_stat.py \
+       --perf-json /tmp/conflux-perf/<profile>.<candidate>.<row>.perf.json \
+       -- taskset -c 2 /tmp/<tree>/build/<profile>/benchmarks/conflux_json_bench \
+          --json --filter 'parse/long_strings'
+   ```
+
+   Report the base row scale and candidate deltas for ns/op, instructions/op,
+   cycles/op, cycles/instruction, branch-misses/op, cache-misses/op, and L1/TLB
+   misses/op. If instructions decrease but cycles or CPI increase, look for
+   branch prediction, I-cache/layout, and data-cache effects before rejecting the
+   candidate. A targeted source change such as a small `[[likely]]`/`[[unlikely]]`
+   annotation or layout adjustment is valid follow-up only after filtered perf
+   shows the failure mode.
+
+10. Preserve skipped lanes explicitly.
 
    If a compiler ICEs under LTO or PGO, skip that lane and report the skip. Do
    not block the whole candidate batch when other compilers produce usable
@@ -120,7 +145,8 @@ Attach environment metadata:
 - Compiler and CMake versions.
 - CPU model, microcode when available, kernel version, and libc.
 - Governor, turbo state, CPU pinning, NUMA placement, and background-load notes.
-- Warmup policy and exact benchmark filters.
+- Warmup policy and exact benchmark filters, including any sub-bench `--filter`
+  used for diagnostic perf reruns.
 - For live-kernel rows, attach `perf stat` events or wrapper output where
   practical: cycles, instructions, context switches, cache/TLB misses, and
   relevant syscall counts. `scripts/bench_perf_stat.py` can annotate benchmark
