@@ -140,9 +140,6 @@ void dispatch_request(
 		headers.emplace_back(name, field_value);
 	}
 
-	std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
-	redirect_target += redirect_query;
-
 	if (version == "HTTP/1.1") {
 		auto const host_count = headers.count("host");
 		if (host_count == 0) {
@@ -177,6 +174,8 @@ void dispatch_request(
 			conn.request_bytes = raw.size();
 			return;
 		}
+		std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
+		redirect_target += redirect_query;
 		conn.own_response = format_response(
 			Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
 			ring.alt_svc_header,
