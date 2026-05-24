@@ -183,104 +183,13 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
         PRIVATE conflux_json_reflect_provider conflux_json_reflect conflux_json conflux_types conflux_options)
 endif()
 
-set(CONFLUX_EXAMPLE_TARGETS
-    conflux_quickstart_hello
-    conflux_quickstart_json_crud
-    conflux_quickstart_json_reflect_crud
-    conflux_quickstart_middleware
-    conflux_quickstart_openapi
-    conflux_quickstart_postgres
-    conflux_quickstart_sse
-    conflux_quickstart_static_files
-    conflux_quickstart_websocket
-    conflux_hello
-    conflux_middleware
-    conflux_sse
-    conflux_static
-    conflux_forms
-    conflux_gzip
-    conflux_http_client
-    conflux_dual
-    conflux_process_run_example
-    conflux_crypto_sealing_example
-    conflux_http_observability_example
-    conflux_production_showcase_example
-    conflux_http_policy_stack_example
-    conflux_vhost_openapi_example
-    conflux_http_client_builder_example
-    conflux_api_typed_json_example
-    conflux_http_client_json_example
-    conflux_http_explicit_offload_example
-    conflux_work_join_all_example
-    conflux_template_pages_example
-    conflux_h3_probe
-    conflux_h3_server
-    conflux_db_basic
-    conflux_db_pool
-    conflux_advanced_postgres
-    conflux_json_example
-    conflux_json_config_example
-    conflux_json_stream_ingest_example
-    conflux_json_diagnostics_example
-    conflux_json_transform_example
-    conflux_file_io_example
-    conflux_coroutines
-    conflux_json_reflect_example
-)
-set(CONFLUX_EXAMPLE_TARGET_REASONS
-    "preview HTTP example"
-    "requires JSON HTTP support"
-    "requires JSON reflection support"
-    "preview HTTP example"
-    "preview HTTP example"
-    "requires DB support and libpq"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "preview HTTP example"
-    "requires compression support"
-    "HTTP client example"
-    "HTTP server example"
-    "process support example"
-    "crypto support example"
-    "observability example"
-    "production showcase example"
-    "HTTP policy example"
-    "vhost/OpenAPI example"
-    "HTTP client builder example"
-    "requires JSON HTTP support"
-    "requires JSON HTTP support"
-    "requires work and JSON HTTP support"
-    "work support example"
-    "requires template support"
-    "requires HTTP/3 support"
-    "requires HTTP/3 support"
-    "requires DB support and libpq"
-    "requires DB support and libpq"
-    "requires DB support and libpq"
-    "JSON example"
-    "JSON example"
-    "JSON example"
-    "JSON example"
-    "JSON example"
-    "requires file I/O support"
-    "requires file I/O support"
-    "requires JSON reflection support")
 set(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
-list(LENGTH CONFLUX_EXAMPLE_TARGETS _conflux_example_count)
-math(EXPR _conflux_example_last "${_conflux_example_count} - 1")
-foreach(_conflux_example_index RANGE 0 ${_conflux_example_last})
-    list(GET CONFLUX_EXAMPLE_TARGETS ${_conflux_example_index} _conflux_example_target)
-    list(GET CONFLUX_EXAMPLE_TARGET_REASONS ${_conflux_example_index} _conflux_example_reason)
-    if(TARGET ${_conflux_example_target})
+get_property(_conflux_examples_dir_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_conflux_example_target IN LISTS _conflux_examples_dir_targets)
+    get_target_property(_conflux_example_type ${_conflux_example_target} TYPE)
+    if(_conflux_example_type STREQUAL "EXECUTABLE")
         list(APPEND CONFLUX_AVAILABLE_EXAMPLE_TARGETS ${_conflux_example_target})
-        conflux_note_example(${_conflux_example_target} built "${_conflux_example_reason}")
-    else()
-        conflux_note_example(${_conflux_example_target} skipped "${_conflux_example_reason}")
+        conflux_note_example(${_conflux_example_target} built "example target")
     endif()
 endforeach()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CONFLUX_GCC_EAGER_MODULE_IMPORTS)
