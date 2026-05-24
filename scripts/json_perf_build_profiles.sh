@@ -191,8 +191,23 @@ extract_max_iterations() {
   ' "$1"
 }
 
+bench_info_iterations() {
+  local bin="$1"
+  "$bin" --bench-info \
+    | jq -r '
+      [
+        .configs[]? | (.args // []) as $args |
+        [range(0; ($args | length) - 1) |
+          select($args[.] == "--iterations") |
+          ($args[. + 1] | tonumber)]
+      ]
+      | flatten
+      | max // empty
+    '
+}
+
 calibrate_pgo_iterations() {
-  local profile="$1" target="$2" compiler_profile bin bench log_dir log iter max_iter=0
+  local profile="$1" target="$2" compiler_profile bin bench log_dir log iter fixed_iter max_iter=0
   compiler_profile="${profile#pgo-gen-}"
   bench="$(bench_name_for_target "$target")"
 
@@ -212,6 +227,11 @@ calibrate_pgo_iterations() {
       fi
       echo "missing PGO-generate binary: $bin" >&2
       exit 1
+    fi
+    fixed_iter="$(bench_info_iterations "$bin")"
+    if [[ -n "$fixed_iter" && "$fixed_iter" != "0" ]]; then
+      ((fixed_iter > max_iter)) && max_iter="$fixed_iter"
+      continue
     fi
     log_dir="$src/build/pgo-gen-logs"
     mkdir -p "$log_dir"
