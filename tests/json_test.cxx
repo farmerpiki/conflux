@@ -3900,6 +3900,54 @@ TEST_CASE(
 	CHECK(decoded.error().member_name == "tail");
 }
 TEST_CASE(
+	"phase8: wide JsonMembers lookup honors duplicate policy",
+	"[phase8][json][direct][wide]") {
+	auto make_input = [](std::int64_t duplicate_value) {
+		std::string input{"{"};
+		for (int i = 0; i < 65; ++i) {
+			if (i != 0) {
+				input += ',';
+			}
+			input += "\"f";
+			input += std::to_string(i);
+			input += "\":";
+			input += std::to_string(i);
+		}
+		input += ",\"f40\":";
+		input += std::to_string(duplicate_value);
+		input += R"(,"inner":{)";
+		for (int i = 0; i < 65; ++i) {
+			if (i != 0) {
+				input += ',';
+			}
+			input += "\"f";
+			input += std::to_string(i);
+			input += "\":";
+			input += std::to_string(1000 + i);
+		}
+		input += R"(},"tail":999})";
+		return input;
+	};
+	JsonParseOptions last_opts;
+	last_opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	auto last_input = make_input(777);
+	JsonReader last_reader{last_input, last_opts};
+	auto last = decode<P4WideOuter>(last_reader);
+	REQUIRE(last.has_value());
+	CHECK(last->f40 == 777LL);
+	CHECK(last->tail == 999LL);
+
+	JsonParseOptions first_opts;
+	first_opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	auto first_input = make_input(888);
+	JsonReader first_reader{first_input, first_opts};
+	auto first = decode<P4WideOuter>(first_reader);
+	REQUIRE(first.has_value());
+	CHECK(first->f40 == 40LL);
+	CHECK(first->tail == 999LL);
+}
+
+TEST_CASE(
 	"json boundary: copy_input rejects borrowed-view JsonMembers fields",
 	"[json][boundary][lifetime]") {
 	auto decoded = boundary::NativeJsonProvider::decode_json<P4BorrowedName>(R"({"name":"Ann"})", {.copy_input = true});

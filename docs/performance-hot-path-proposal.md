@@ -71,6 +71,11 @@ signals, always report both the percentage delta and the absolute event-count
 delta; a large percentage over a tiny event count is not equivalent evidence to
 millions of extra misses.
 
+PMR-aware JSON runtime work remains a revisit item. The first wide-row pass
+showed parse-side wins on some file datasets, but dump/write-side regressions on
+the same data shape, especially under O2/LTO, so it is not yet accepted as a
+default performance change.
+
 Minimum release acceptance matrix for a performance-sensitive patch that changes
 hot-path behavior:
 
