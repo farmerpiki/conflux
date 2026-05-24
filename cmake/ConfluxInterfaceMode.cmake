@@ -395,6 +395,44 @@ function(conflux_register_header_impl_target target export_name)
     set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_IMPL_NAMESPACED_TARGETS conflux::${export_name})
 endfunction()
 
+function(conflux_register_header_package_component target export_name)
+    set(options)
+    set(one_value_args)
+    set(multi_value_args MODULE_PREFIXES)
+    cmake_parse_arguments(CONFLUX_HEADER_COMPONENT
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    if(NOT TARGET ${target})
+        return()
+    endif()
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
+
+    foreach(_list IN ITEMS
+            CONFLUX_HEADER_INSTALL_TARGETS
+            CONFLUX_PACKAGE_COMPONENTS
+            CONFLUX_PACKAGE_ALL_COMPONENTS)
+        set(_values ${${_list}})
+        if(_list STREQUAL "CONFLUX_HEADER_INSTALL_TARGETS")
+            list(APPEND _values ${target})
+        else()
+            list(APPEND _values ${export_name})
+        endif()
+        set(${_list} "${_values}" PARENT_SCOPE)
+    endforeach()
+
+    foreach(_list IN ITEMS
+            CONFLUX_PACKAGE_TARGETS
+            CONFLUX_PACKAGE_ALL_TARGETS)
+        set(_values ${${_list}})
+        list(APPEND _values conflux::${export_name})
+        set(${_list} "${_values}" PARENT_SCOPE)
+    endforeach()
+
+    if(CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES)
+        conflux_register_header_public_surface(${target}
+            MODULE_PREFIXES ${CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES})
+    endif()
+endfunction()
+
 function(conflux_define_header_impl_component target export_name module_regex)
     set(_sources)
     conflux_append_header_impl_sources_for_modules(_sources "${module_regex}")
@@ -735,6 +773,9 @@ function(conflux_register_header_public_surface target)
         set_property(GLOBAL APPEND PROPERTY
             CONFLUX_ACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
             ${CONFLUX_HEADER_SURFACE_MODULE_PREFIXES})
+        set_property(GLOBAL APPEND PROPERTY
+            CONFLUX_ACTIVE_PUBLIC_HEADER_TARGETS
+            ${target})
     else()
         set_property(GLOBAL APPEND PROPERTY
             CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
@@ -774,8 +815,12 @@ function(conflux_add_header_component_smoke_targets)
             ${CONFLUX_PUBLIC_HEADER_SMOKE_SOURCES})
         conflux_apply_header_generated_build_policy(conflux_header_smoke_public_includes)
         target_link_libraries(conflux_header_smoke_public_includes PRIVATE conflux_headers)
-        if(TARGET conflux_pg)
-            target_link_libraries(conflux_header_smoke_public_includes PRIVATE conflux_pg)
+        get_property(_active_public_header_targets GLOBAL PROPERTY
+            CONFLUX_ACTIVE_PUBLIC_HEADER_TARGETS)
+        if(_active_public_header_targets)
+            list(REMOVE_DUPLICATES _active_public_header_targets)
+            target_link_libraries(conflux_header_smoke_public_includes PRIVATE
+                ${_active_public_header_targets})
         endif()
         conflux_apply_header_smoke_warnings(conflux_header_smoke_public_includes)
         message(STATUS "conflux: generated ${CONFLUX_PUBLIC_HEADER_SMOKE_COUNT} public header include smoke TUs")
