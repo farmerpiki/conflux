@@ -236,8 +236,8 @@ grep -q "CONFLUX_JSON_HASH_PROVIDER=XXHASH" scripts/check-package-smoke-core-iso
     || fail "core-isolated package smoke must force the external JSON hash provider"
 grep -q -- "--components core" scripts/check-package-smoke-core-isolated.sh \
     || fail "core-isolated package smoke must request only core"
-grep -q "core;json;http;file_io_sync;runtime" scripts/check-package-smoke-runtime.sh \
-    || fail "runtime package smoke must request runtime/http components"
+grep -q "core;json;http;file_io_sync;work" scripts/check-package-smoke-runtime.sh \
+    || fail "runtime package smoke must request work/http components"
 grep -q "pkg-config --exists liburing" scripts/check-package-smoke-runtime.sh \
     || fail "runtime package smoke must gate on real liburing"
 grep -q "pkg-config --exists libpq" scripts/check-package-smoke-db.sh \

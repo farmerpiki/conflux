@@ -669,15 +669,15 @@ int main() { return 0; }
 int main() { return 0; }
 ]])
         endif()
-    elseif(_component STREQUAL "runtime")
+    elseif(_component STREQUAL "work")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-            conflux_add_component_smoke(runtime runtime [[
+            conflux_add_component_smoke(work work [[
 import conflux.work;
 int main() { return 0; }
 ]])
         else()
-            conflux_add_component_smoke(runtime runtime [[
-#include <conflux/runtime.hpp>
+            conflux_add_component_smoke(work work [[
+#include <conflux/work.hpp>
 int main() { return 0; }
 ]])
         endif()

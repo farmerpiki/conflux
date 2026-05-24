@@ -83,7 +83,7 @@ flags unless the package metadata declares that CPU baseline.
 - `find_package(conflux REQUIRED COMPONENTS ...)` imports only the requested
   components and their direct dependency closure. Unrequested package targets
   must not be visible to the consumer, so `find_package(conflux COMPONENTS dns)`
-  may expose `conflux::dns`, `conflux::runtime`, `conflux::file_io`,
+  may expose `conflux::dns`, `conflux::work`, `conflux::file_io`,
   `conflux::socket_io`, `conflux::uring`, and other required support targets,
   but it must not expose unrelated targets such as `conflux::http`,
   `conflux::template`, or `conflux::pg`.
@@ -99,7 +99,7 @@ flags unless the package metadata declares that CPU baseline.
   prevents broad aggregates from leaking into minimal installs.
 - mock-liburing install: `core`, `types`, `json`, `file_io_sync` only, as
   internal compile evidence for generated header artifacts.
-- real-liburing install: `runtime` and `http` may be requested when producer
+- real-liburing install: `work` and `http` may be requested when producer
   configure found real `liburing` and consumers can find it through
   `pkg-config`.
 - DB-off install: no generated DB headers and no `db` / `pg` package contract.
@@ -110,8 +110,8 @@ flags unless the package metadata declares that CPU baseline.
 Runtime/http consumers use a real-liburing install:
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http runtime)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http conflux::runtime)
+find_package(conflux REQUIRED COMPONENTS core json http work)
+target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http conflux::work)
 ```
 
 Do not mix `import conflux.*` and generated Conflux headers in one consumer

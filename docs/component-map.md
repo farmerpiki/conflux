@@ -24,7 +24,7 @@ aggregate import/include surface selected by `import conflux;` and
 | Bundle | Intended use | Notable defaults |
 |---|---|---|
 | `core` | liburing-free vocabulary-only consumer | core/types only |
-| `runtime` | io_uring/work/socket runtime experiments | runtime + socket I/O |
+| `work` | io_uring/work/socket runtime experiments | work + socket I/O |
 | `json` | JSON parser/DOM/SAX/NDJSON only | JSON without HTTP/runtime |
 | `http-minimal` | smallest HTTP server app shape | runtime, file I/O, DNS, crypto, JSON, HTTP core/router/server/JSON |
 | `http-api` | HTTP API service with policy/auth | `http-minimal` + policy + auth |
@@ -98,7 +98,7 @@ time and are consumed through the separate runtime smoke lane.
 | `json_file` | `conflux::json_file` | `conflux.json.file` | `docs/json-api.md`, `tests/json_file_test.cxx` |
 | `json_reflect` | `conflux::json_reflect` | `conflux.json.reflect` | `docs/json-reflect.md` |
 | `json_reflect_provider` | `conflux::json_reflect_provider` | `conflux.json.reflect_provider` | `docs/json-reflect.md` |
-| `runtime` | `conflux::runtime` | `conflux.work`, `conflux.work.root`, `conflux.work.carrier.*` | `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md` |
+| `work` | `conflux::work` | `conflux.work`, `conflux.work.root`, `conflux.work.carrier.*` | `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md` |
 | `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.handle` | `docs/io_uring_direct_file_flow_design.md` |
 | `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | `tests/uring_flow_test.cxx` |
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | `examples/advanced/file_io.cxx`, `tests/file_io_sync_test.cxx` |

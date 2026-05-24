@@ -105,7 +105,7 @@ if [[ "$components" != *";"* ]]; then
             forbidden_external_deps="LIBURING;XXHASH;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         json)
-            forbidden_components="http;http1;http2;http3;http_protocol;template;pg;db;dns;runtime${forbidden_components:+;$forbidden_components}"
+            forbidden_components="http;http1;http2;http3;http_protocol;template;pg;db;dns;work${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         template)

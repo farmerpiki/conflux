@@ -46,7 +46,7 @@ cmake --build --preset release-clang-libcxx
 ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
-  --components 'core;json;http;runtime' \
+  --components 'core;json;http;work' \
   -- -DCONFLUX_USE_MOCK_LIBURING=OFF
 ```
 
@@ -189,7 +189,7 @@ links to immutable proof runs.
   must use real liburing or be absent from the package.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
-  `core;json;http;file_io_sync;runtime`.
+  `core;json;http;file_io_sync;work`.
 - Installed `find_package(conflux REQUIRED COMPONENTS ...)` works for the
   components listed in `docs/component-map.md`.
 - Install/package smokes cover the selected public interface mode. Run the

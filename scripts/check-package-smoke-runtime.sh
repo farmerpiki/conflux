@@ -13,7 +13,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-runtime/build" \
     --prefix "${TMPDIR:-/tmp}/conflux-package-smoke-runtime/prefix" \
     --smoke-build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-runtime/smoke" \
-    --components 'core;json;http;file_io_sync;runtime' \
+    --components 'core;json;http;file_io_sync;work' \
     --feature-set http-minimal \
     --interface-mode HEADER_INTERFACE \
     --generator Ninja \

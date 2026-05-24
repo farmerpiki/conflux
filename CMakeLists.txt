@@ -827,7 +827,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     target_link_libraries(conflux_types INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_types conflux_header_impl_core)
     conflux_register_header_package_component(conflux_types types
-        HPP_ALIAS types)
+        PUBLIC_HPP)
 
     set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
     set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
@@ -878,7 +878,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
         endif()
         conflux_register_header_package_component(conflux_json json
-            HPP_ALIAS json
+            PUBLIC_HPP
             HPP_TOP_LEVEL)
     endif()
 
@@ -903,7 +903,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_templates)
         target_link_libraries(conflux_net_http INTERFACE PkgConfig::LIBURING)
         conflux_register_header_package_component(conflux_net_http http
-            HPP_ALIAS http
+            PUBLIC_HPP
             HPP_TOP_LEVEL)
     endif()
 
@@ -911,7 +911,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_file_io_sync conflux_header_impl_file_io_sync)
     conflux_register_header_package_component(conflux_file_io_sync file_io_sync
-        HPP_ALIAS file_io_sync)
+        PUBLIC_HPP)
 
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         add_library(conflux_work INTERFACE)
@@ -921,9 +921,8 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_runtime
             conflux_header_impl_socket_io)
         target_link_libraries(conflux_work INTERFACE PkgConfig::LIBURING)
-        conflux_register_header_package_component(conflux_work runtime
-            HPP_ALIAS runtime
-            HPP_INCLUDE work
+        conflux_register_header_package_component(conflux_work work
+            PUBLIC_HPP
             HPP_TOP_LEVEL)
     endif()
 
@@ -941,22 +940,22 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             target_link_libraries(conflux_db INTERFACE PkgConfig::LIBPQ)
         endif()
         conflux_register_header_package_component(conflux_db db
-            HPP_ALIAS db
+            PUBLIC_HPP
             MODULE_PREFIXES conflux.db)
 
         add_library(conflux_pg INTERFACE)
         target_link_libraries(conflux_pg INTERFACE conflux_db)
         conflux_register_header_package_component(conflux_pg pg
-            HPP_ALIAS pg
+            PUBLIC_HPP
             MODULE_PREFIXES conflux.pg)
     endif()
 
     set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
-    conflux_register_header_public_hpp_alias(config config)
-    conflux_register_header_public_hpp_alias(curated curated)
-    conflux_register_header_public_hpp_alias(extended extended)
-    conflux_register_header_public_hpp_alias(complete complete)
-    conflux_write_header_public_hpp_aliases("${CONFLUX_PUBLIC_HPP_DIR}")
+    conflux_register_header_public_hpp(config)
+    conflux_register_header_public_hpp(curated)
+    conflux_register_header_public_hpp(extended)
+    conflux_register_header_public_hpp(complete)
+    conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
 
     if(NOT CONFLUX_HAS_TLS STREQUAL "true")
         conflux_register_header_public_surface(conflux_net_tls
@@ -3862,6 +3861,7 @@ set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
 set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
 set(CONFLUX_PACKAGE_ALL_COMPONENTS)
 set(CONFLUX_PACKAGE_ALL_TARGETS)
+set(CONFLUX_PUBLIC_COMPONENT_TARGETS)
 set(CONFLUX_INSTALL_TARGET_CANDIDATES)
 
 function(conflux_component target export_name)
@@ -3913,6 +3913,11 @@ function(conflux_component target export_name)
             set(_targets ${CONFLUX_PACKAGE_TARGETS})
             list(APPEND _targets "conflux::${export_name}")
             set(CONFLUX_PACKAGE_TARGETS "${_targets}" PARENT_SCOPE)
+
+            set(_public_targets ${CONFLUX_PUBLIC_COMPONENT_TARGETS})
+            list(APPEND _public_targets ${target})
+            set(CONFLUX_PUBLIC_COMPONENT_TARGETS
+                "${_public_targets}" PARENT_SCOPE)
         endif()
 
     endif()
@@ -3989,7 +3994,7 @@ conflux_public_component(conflux_http_app http_app)
 conflux_public_component(conflux_net_http http)
 conflux_public_component(conflux_uring uring)
 conflux_public_component(conflux_uring_timeout uring_timeout)
-conflux_public_component(conflux_work runtime)
+conflux_public_component(conflux_work work)
 conflux_public_component(conflux_file_io_sync file_io_sync)
 conflux_public_component(conflux_file_map file_map)
 conflux_public_component(conflux_file_io file_io)
@@ -4043,13 +4048,16 @@ foreach(_target IN LISTS CONFLUX_INSTALL_MODULE_TARGETS)
 endforeach()
 
 if(CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
-    set(_conflux_public_module_import_smoke_targets ${CONFLUX_INSTALL_MODULE_TARGETS})
-    list(REMOVE_ITEM _conflux_public_module_import_smoke_targets
-        conflux_direct_slot_pool
-        conflux_uring_primitives)
-    if(TARGET conflux)
-        list(APPEND _conflux_public_module_import_smoke_targets conflux)
-    endif()
+    set(_conflux_public_module_import_smoke_targets)
+    list(REMOVE_DUPLICATES CONFLUX_PUBLIC_COMPONENT_TARGETS)
+    foreach(_target IN LISTS CONFLUX_PUBLIC_COMPONENT_TARGETS)
+        if(TARGET ${_target})
+            conflux_target_has_module_file_sets(_has_module_file_sets ${_target})
+            if(_has_module_file_sets)
+                list(APPEND _conflux_public_module_import_smoke_targets ${_target})
+            endif()
+        endif()
+    endforeach()
     conflux_add_public_module_import_smoke_target(
         TARGETS ${_conflux_public_module_import_smoke_targets})
     unset(_conflux_public_module_import_smoke_targets)
