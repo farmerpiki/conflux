@@ -433,7 +433,7 @@ void Ring::phase2_build_responses() {
 		}
 #endif
 		// Skip SSE/WS connections — their I/O is driven by separate loops.
-		if (!conn.has_response && !conn.is_sse && !conn.is_ws) {
+		if (!conn.has_response && !conn.is_deferred && !conn.is_sse && !conn.is_ws) {
 			dispatch_request(
 				conn,
 				conn.partial.view(),

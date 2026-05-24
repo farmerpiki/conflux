@@ -213,6 +213,28 @@ void ensure_server() {
 			return Response::json(
 				std::format(R"({{"fields":{},"files":{}}})", req.form.values("field").size(), req.files.size()));
 		});
+		router.add_context(
+			"POST",
+			"/api/multipart-file-async",
+			[](RequestView req, RequestContext const &) -> conflux::work::root::Task<Response> {
+				auto [gate, source] = conflux::work::root::make_task_source<int>();
+				std::thread([source = std::move(source)] mutable {
+					std::this_thread::sleep_for(std::chrono::milliseconds{10});
+					(void)source.try_set_value(conflux::work::root::Success<int>{0});
+				}).detach();
+				(void)co_await std::move(gate);
+				if (req.files.empty()) {
+					co_return Response::not_found("file");
+				}
+				auto const &f = req.files[0];
+				co_return Response::json(
+					std::format(
+						R"({{"name":"{}","filename":"{}","content_type":"{}","data":"{}"}})",
+						f.name,
+						f.filename,
+						f.content_type,
+						f.data));
+			});
 		router.get("/api/with-header", [](Request const &) {
 			auto r = Response::text("ok");
 			r.headers["X-Custom"] = "hello";
@@ -1784,6 +1806,50 @@ TEST_CASE(
 	REQUIRE(json.find("\"filename\":\"hello.txt\"") != std::string::npos);
 	REQUIRE(json.find("\"content_type\":\"text/plain\"") != std::string::npos);
 	REQUIRE(json.find("\"size\":17") != std::string::npos);
+}
+TEST_CASE(
+	"multipart/form-data file part survives async suspension") {
+	auto body = make_multipart_file("asyncBnd", "upload", "async.txt", "text/plain", "async file content");
+	auto resp = http_post("/api/multipart-file-async", "multipart/form-data; boundary=asyncBnd", body);
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	auto hdr_end = resp.find("\r\n\r\n");
+	REQUIRE(hdr_end != std::string::npos);
+	auto json = resp.substr(hdr_end + 4);
+	REQUIRE(json.find("\"name\":\"upload\"") != std::string::npos);
+	REQUIRE(json.find("\"filename\":\"async.txt\"") != std::string::npos);
+	REQUIRE(json.find("\"content_type\":\"text/plain\"") != std::string::npos);
+	REQUIRE(json.find("\"data\":\"async file content\"") != std::string::npos);
+}
+TEST_CASE(
+	"async request buffer cut preserves pipelined follow-up request") {
+	ensure_server();
+	LocalTcpClient client{g_test_port};
+	client.set_recv_timeout(std::chrono::seconds{5});
+
+	auto body = make_multipart_file("pipeBnd", "upload", "pipe.txt", "text/plain", "pipelined file");
+	auto req = std::format(
+		"POST /api/multipart-file-async HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Content-Type: multipart/form-data; boundary=pipeBnd\r\n"
+		"Content-Length: {}\r\n"
+		"\r\n"
+		"{}"
+		"GET /api/ping HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Connection: close\r\n"
+		"\r\n",
+		body.size(),
+		body);
+	(void)client.send(req);
+	auto combined = client.read_until_close();
+	auto first_pos = combined.find("HTTP/1.1 200 OK");
+	REQUIRE(first_pos != std::string::npos);
+	auto second_pos = combined.find("HTTP/1.1 200 OK", first_pos + 1);
+	REQUIRE(second_pos != std::string::npos);
+	auto first = combined.substr(first_pos, second_pos - first_pos);
+	auto second = combined.substr(second_pos);
+	REQUIRE(extract_body(first).find("\"data\":\"pipelined file\"") != std::string::npos);
+	REQUIRE(extract_body(second) == R"({"status":"ok"})");
 }
 TEST_CASE(
 	"multipart/form-data parses each part exactly once") {

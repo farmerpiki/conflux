@@ -380,7 +380,6 @@ public:
 	[[nodiscard]] Response dispatch(Request const &req) const;
 	[[nodiscard]] Response dispatch(RequestView const &req) const;
 	[[nodiscard]] std::optional<Response> dispatch_context(RequestView const &req, RequestContext const &ctx) const;
-	[[nodiscard]] std::optional<Response> dispatch_context(Request req, RequestContext const &ctx) const;
 
 private:
 	struct Impl;

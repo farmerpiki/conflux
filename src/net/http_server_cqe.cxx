@@ -167,6 +167,8 @@ void Ring::handle_deferred_poll(
 	conn.is_deferred = false;
 	conn.deferred_efd = -1;
 	conn.deferred_response.reset();
+	conn.deferred_request_storage.reset();
+	conn.deferred_request_files.reset();
 	if (conn.deferred_head_only) {
 		ready->head_only = true;
 	}

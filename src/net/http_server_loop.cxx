@@ -113,6 +113,26 @@ Ring::~Ring() {
 	io_uring_queue_exit(&ring);
 }
 
+[[nodiscard]] std::shared_ptr<std::string> Ring::acquire_request_buffer() {
+	std::string initial;
+	{
+		std::scoped_lock lock{request_buffer_pool_mutex};
+		if (!request_buffer_pool.empty()) {
+			initial = std::move(request_buffer_pool.back());
+			request_buffer_pool.pop_back();
+		}
+	}
+	auto *storage = new std::string{std::move(initial)};
+	return std::shared_ptr<std::string>{storage, [this](std::string *ptr) noexcept {
+											ptr->clear();
+											{
+												std::scoped_lock lock{request_buffer_pool_mutex};
+												request_buffer_pool.push_back(std::move(*ptr));
+											}
+											delete ptr;
+										}};
+}
+
 [[nodiscard]] Response Ring::dispatch(
 	RequestView const &req) const {
 	if (vhost_router != nullptr) {
@@ -141,21 +161,6 @@ Ring::~Ring() {
 		return vhost_router->dispatch_context(req, ctx);
 	}
 	return router->dispatch_context(req, ctx);
-}
-
-[[nodiscard]] std::optional<Response> Ring::try_dispatch_context(
-	Request req) const {
-	if (!client_task_ring_) {
-		return std::nullopt;
-	}
-	if (!has_context_routes()) {
-		return std::nullopt;
-	}
-	RequestContext const ctx{*client_task_ring_};
-	if (vhost_router != nullptr) {
-		return vhost_router->dispatch_context(std::move(req), ctx);
-	}
-	return router->dispatch_context(std::move(req), ctx);
 }
 
 [[nodiscard]] std::shared_ptr<WorkPool> Ring::resolve_ws_work_pool(
@@ -417,6 +422,8 @@ void Ring::conn_erase(
 	clear_deferred_wait(conn.deferred_efd);
 	conn.deferred_efd = -1;
 	conn.deferred_response.reset();
+	conn.deferred_request_storage.reset();
+	conn.deferred_request_files.reset();
 	conn.ws_upgrade.reset();
 	conn.partial.clear();
 	conn.chunked_decode.reset();
@@ -1082,6 +1089,8 @@ void Ring::handle_accept(
 	conn.sse_channel.reset();
 	conn.deferred_efd = -1;
 	conn.deferred_response.reset();
+	conn.deferred_request_storage.reset();
+	conn.deferred_request_files.reset();
 	conn.ws_upgrade.reset();
 	conn.partial.clear();
 	conn.chunked_decode.reset();

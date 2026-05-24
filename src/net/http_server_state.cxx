@@ -138,6 +138,31 @@ struct PartialBuf {
 		pos = 0;
 		return std::move(buf);
 	}
+	[[nodiscard]] inline std::shared_ptr<std::string> cut_prefix(
+		std::size_t n,
+		std::shared_ptr<std::string> out,
+		std::string &tail_scratch) {
+		tail_scratch.clear();
+		auto const available = size();
+		n = std::min(n, available);
+		if (pos == 0) {
+			*out = std::move(buf);
+			if (out->size() > n) {
+				tail_scratch.assign(out->data() + n, out->size() - n);
+				out->resize(n);
+			}
+			buf = std::move(tail_scratch);
+			pos = 0;
+			return out;
+		}
+		out->assign(data(), n);
+		if (available > n) {
+			tail_scratch.assign(data() + n, available - n);
+		}
+		buf = std::move(tail_scratch);
+		pos = 0;
+		return out;
+	}
 };
 
 struct RecvComp {
@@ -193,7 +218,8 @@ void dispatch_request(
 	std::size_t max_body_size,
 	bool http_redirect_to_https,
 	std::vector<std::string> const &https_redirect_hosts,
-	ParserLimits const &limits);
+	ParserLimits const &limits,
+	std::shared_ptr<std::string> request_storage = {});
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
 struct alignas(
 	64) Conn {
@@ -217,6 +243,8 @@ struct alignas(
 	std::shared_ptr<SseChannel> sse_channel{};
 	int deferred_efd = -1;
 	std::shared_ptr<DeferredResponse> deferred_response{};
+	std::shared_ptr<std::string> deferred_request_storage{};
+	std::shared_ptr<std::vector<UploadedFile>> deferred_request_files{};
 	std::shared_ptr<WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
 	std::shared_ptr<WorkPool> ws_work_pool{};
 	Request saved_req{}; // copy of request saved for WS handler std::thread
@@ -355,6 +383,9 @@ struct Ring {
 	sockaddr_in6 client_addr{};
 	socklen_t client_addr_len = sizeof(client_addr);
 
+	std::mutex request_buffer_pool_mutex{};
+	std::vector<std::string> request_buffer_pool{};
+	std::string request_tail_scratch{};
 	std::vector<Conn> fd_table{};
 	std::vector<RecvComp> recvs{};
 	std::unordered_map<int, DeferredWait> deferred_waits{};
@@ -467,7 +498,7 @@ struct Ring {
 	[[nodiscard]] Response dispatch(RequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
 	[[nodiscard]] std::optional<Response> try_dispatch_context(RequestView const &req) const;
-	[[nodiscard]] std::optional<Response> try_dispatch_context(Request req) const;
+	[[nodiscard]] std::shared_ptr<std::string> acquire_request_buffer();
 	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(RequestView const &req) const;
 	void clear_deferred_wait(int deferred_efd);
 	void queue_deferred_wait(

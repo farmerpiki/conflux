@@ -86,20 +86,6 @@ public:
 		}
 		return std::nullopt;
 	}
-	[[nodiscard]] std::optional<Response> dispatch_context(
-		Request req,
-		RequestContext const &ctx) const {
-		RequestView const view{req};
-		auto host = ascii_lower(conflux::http::host_without_port(view.headers["host"]));
-		auto it = vhosts_.find(std::string{host});
-		if (it != vhosts_.end()) {
-			return it->second.dispatch_context(std::move(req), ctx);
-		}
-		if (default_) {
-			return default_->dispatch_context(std::move(req), ctx);
-		}
-		return std::nullopt;
-	}
 
 private:
 	std::unordered_map<std::string, Router> vhosts_;

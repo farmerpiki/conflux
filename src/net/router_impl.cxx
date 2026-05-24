@@ -668,16 +668,3 @@ Router &Router::serve_static(
 	}
 	return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
 }
-
-[[nodiscard]] std::optional<Response> Router::dispatch_context(
-	Request req,
-	RequestContext const &ctx) const {
-	bool const is_head = (req.method == "HEAD");
-	std::string path{conflux::http::path_without_query(req.path)};
-	auto task = [this, req = std::move(req), ctx, path = std::move(path), is_head]() mutable
-		-> conflux::work::root::Task<Response> {
-		RequestView const view{req};
-		co_return co_await dispatch_router_context_task(*impl_, view, ctx, path, is_head);
-	}();
-	return defer_http_task(std::move(task));
-}

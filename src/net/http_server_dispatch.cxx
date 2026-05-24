@@ -85,7 +85,8 @@ void dispatch_request(
 	std::size_t max_body_size,
 	bool http_redirect_to_https,
 	std::vector<std::string> const &https_redirect_hosts,
-	ParserLimits const &limits) {
+	ParserLimits const &limits,
+	std::shared_ptr<std::string> request_storage) {
 	conn.has_response = false;
 	conn.written = 0;
 	conn.mapped_file.reset();
@@ -291,32 +292,45 @@ void dispatch_request(
 	}
 
 	conn.request_bytes = header_end + 4 + body_stream_bytes;
+	if (!request_storage) {
+		auto storage =
+			conn.partial.cut_prefix(conn.request_bytes, ring.acquire_request_buffer(), ring.request_tail_scratch);
+		dispatch_request(
+			conn,
+			*storage,
+			ring,
+			max_body_size,
+			http_redirect_to_https,
+			https_redirect_hosts,
+			limits,
+			std::move(storage));
+		conn.request_bytes = 0;
+		return;
+	}
 
-	RequestView const
-		req{method, path, version, conn.remote_addr, conn.is_tls, params, headers, query, form, cookies, files, body};
+	std::shared_ptr<std::vector<UploadedFile>> request_files;
+	std::span<UploadedFile const> file_views{files};
+	if (!files.empty()) {
+		request_files = std::make_shared<std::vector<UploadedFile>>(std::move(files));
+		file_views = *request_files;
+	}
+	RequestView const req{
+		method,
+		path,
+		version,
+		conn.remote_addr,
+		conn.is_tls,
+		params,
+		headers,
+		query,
+		form,
+		cookies,
+		file_views,
+		body};
 	auto const handler_started = std::chrono::steady_clock::now();
 	Response resp;
 	try {
-		if (ring.has_context_routes()) {
-			Request owned{
-				.method = std::string{method},
-				.path = std::string{path},
-				.version = std::string{version},
-				.remote_addr = std::string{conn.remote_addr},
-				.is_tls = conn.is_tls,
-				.params = params.to_owned(),
-				.headers = headers.to_owned(),
-				.query = query.to_owned(),
-				.form = form.to_owned(),
-				.cookies = cookies.to_owned(),
-				.body = std::string{body}};
-			owned.files.reserve(files.size());
-			for (auto const &file: files) {
-				owned.files.push_back(file.to_owned());
-			}
-			auto async = ring.try_dispatch_context(std::move(owned));
-			resp = async ? std::move(*async) : ring.dispatch(req);
-		} else if (auto async = ring.try_dispatch_context(req)) {
+		if (auto async = ring.try_dispatch_context(req)) {
 			resp = std::move(*async);
 		} else {
 			resp = ring.dispatch(req);
@@ -352,6 +366,10 @@ void dispatch_request(
 		conn.deferred_head_only = resp.head_only;
 		conn.deferred_efd = resp.deferred_response_ptr()->eventfd_fd();
 		conn.deferred_response = resp.take_deferred_response();
+		conn.deferred_request_storage = std::move(request_storage);
+		if (request_files) {
+			conn.deferred_request_files = std::move(request_files);
+		}
 		conn.has_response = false;
 	} else if (resp.is_ws_upgrade()) {
 		conn.is_ws = true;
