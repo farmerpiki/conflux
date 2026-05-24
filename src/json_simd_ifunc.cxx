@@ -3,6 +3,8 @@
 extern "C" {
 std::size_t conflux_json_scan_str_until_special_stdsimd_avx2(char const *, std::size_t) noexcept;
 std::size_t conflux_json_scan_dump_safe_run_stdsimd_avx2(char const *, std::size_t, int) noexcept;
+std::size_t conflux_json_scan_str_until_special_stdsimd_sse2(char const *, std::size_t) noexcept;
+std::size_t conflux_json_scan_dump_safe_run_stdsimd_sse2(char const *, std::size_t, int) noexcept;
 }
 
 namespace {
@@ -10,7 +12,7 @@ namespace {
 using scan_str_fn = std::size_t (*)(char const *, std::size_t) noexcept;
 using scan_dump_fn = std::size_t (*)(char const *, std::size_t, int) noexcept;
 
-std::size_t conflux_json_scan_str_until_special_scalar(
+[[maybe_unused]] std::size_t conflux_json_scan_str_until_special_scalar(
 	char const *p,
 	std::size_t n) noexcept {
 	std::size_t i = 0;
@@ -23,7 +25,7 @@ std::size_t conflux_json_scan_str_until_special_scalar(
 	return n;
 }
 
-std::size_t conflux_json_scan_dump_safe_run_scalar(
+[[maybe_unused]] std::size_t conflux_json_scan_dump_safe_run_scalar(
 	char const *p,
 	std::size_t n,
 	int ascii_only) noexcept {
@@ -49,7 +51,14 @@ scan_str_fn resolve_conflux_json_scan_str_until_special() noexcept {
 	if (__builtin_cpu_supports("avx2") != 0) {
 		return conflux_json_scan_str_until_special_stdsimd_avx2;
 	}
+#if defined(__x86_64__) || defined(_M_X64)
+	return conflux_json_scan_str_until_special_stdsimd_sse2;
+#else
+	if (__builtin_cpu_supports("sse2") != 0) {
+		return conflux_json_scan_str_until_special_stdsimd_sse2;
+	}
 	return conflux_json_scan_str_until_special_scalar;
+#endif
 }
 
 scan_dump_fn resolve_conflux_json_scan_dump_safe_run() noexcept {
@@ -57,7 +66,14 @@ scan_dump_fn resolve_conflux_json_scan_dump_safe_run() noexcept {
 	if (__builtin_cpu_supports("avx2") != 0) {
 		return conflux_json_scan_dump_safe_run_stdsimd_avx2;
 	}
+#if defined(__x86_64__) || defined(_M_X64)
+	return conflux_json_scan_dump_safe_run_stdsimd_sse2;
+#else
+	if (__builtin_cpu_supports("sse2") != 0) {
+		return conflux_json_scan_dump_safe_run_stdsimd_sse2;
+	}
 	return conflux_json_scan_dump_safe_run_scalar;
+#endif
 }
 
 std::size_t conflux_json_scan_str_until_special_stdsimd(char const *, std::size_t) noexcept

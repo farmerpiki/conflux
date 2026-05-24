@@ -61,9 +61,9 @@ Distribution packages should build with a portable compiler baseline and enable
 This allows Conflux to compile optional ISA-specific objects such as
 AES-NI/PCLMUL or AVX2 SIMD scan helpers while selecting supported scan helpers
 at runtime. On Linux x86 Clang/GCC builds, JSON stdsimd scan helpers use ELF
-IFUNC and resolve once to AVX2 or scalar code. Other runtime builds keep guarded
-call-site fallback. The generated binary remains runnable on machines that lack
-those features and falls back to scalar code.
+IFUNC and resolve once to AVX2, SSE2, or scalar code. Other runtime builds keep
+guarded call-site fallback. The generated binary remains runnable on machines
+that lack those features and falls back to scalar code.
 
 `CONFLUX_SIMD_SELECTION=DIRECT` removes runtime AVX2 probes from selected SIMD
 scan call sites. While the stdsimd objects are built with `-mavx2`, direct
