@@ -826,7 +826,8 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     add_library(conflux_types INTERFACE)
     target_link_libraries(conflux_types INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_types conflux_header_impl_core)
-    conflux_register_header_package_component(conflux_types types)
+    conflux_register_header_package_component(conflux_types types
+        HPP_ALIAS types)
 
     set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
     set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
@@ -876,7 +877,9 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
             target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
         endif()
-        conflux_register_header_package_component(conflux_json json)
+        conflux_register_header_package_component(conflux_json json
+            HPP_ALIAS json
+            HPP_TOP_LEVEL)
     endif()
 
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
@@ -899,13 +902,16 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_http_proxy
             conflux_header_impl_templates)
         target_link_libraries(conflux_net_http INTERFACE PkgConfig::LIBURING)
-        conflux_register_header_package_component(conflux_net_http http)
+        conflux_register_header_package_component(conflux_net_http http
+            HPP_ALIAS http
+            HPP_TOP_LEVEL)
     endif()
 
     add_library(conflux_file_io_sync INTERFACE)
     target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_file_io_sync conflux_header_impl_file_io_sync)
-    conflux_register_header_package_component(conflux_file_io_sync file_io_sync)
+    conflux_register_header_package_component(conflux_file_io_sync file_io_sync
+        HPP_ALIAS file_io_sync)
 
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         add_library(conflux_work INTERFACE)
@@ -915,7 +921,10 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_runtime
             conflux_header_impl_socket_io)
         target_link_libraries(conflux_work INTERFACE PkgConfig::LIBURING)
-        conflux_register_header_package_component(conflux_work runtime)
+        conflux_register_header_package_component(conflux_work runtime
+            HPP_ALIAS runtime
+            HPP_INCLUDE work
+            HPP_TOP_LEVEL)
     endif()
 
     set(CONFLUX_HEADER_INSTALL_DB_COMPONENTS FALSE)
@@ -932,54 +941,22 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             target_link_libraries(conflux_db INTERFACE PkgConfig::LIBPQ)
         endif()
         conflux_register_header_package_component(conflux_db db
+            HPP_ALIAS db
             MODULE_PREFIXES conflux.db)
 
         add_library(conflux_pg INTERFACE)
         target_link_libraries(conflux_pg INTERFACE conflux_db)
         conflux_register_header_package_component(conflux_pg pg
+            HPP_ALIAS pg
             MODULE_PREFIXES conflux.pg)
     endif()
 
     set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
-    file(MAKE_DIRECTORY "${CONFLUX_PUBLIC_HPP_DIR}")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp"
-        "#pragma once
-"
-        "#include <conflux.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp" "#pragma once
-#include <conflux/config.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp" "#pragma once
-#include <conflux/types.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/curated.hpp" "#pragma once
-#include <conflux/curated.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/extended.hpp" "#pragma once
-#include <conflux/extended.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/complete.hpp" "#pragma once
-#include <conflux/complete.hxx>
-")
-    file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp" "#pragma once
-#include <conflux/file_io_sync.hxx>
-")
-    if(CONFLUX_WANT_JSON)
-        file(APPEND "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp" "#include <conflux/json.hpp>\n")
-        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp" "#pragma once\n#include <conflux/json.hxx>\n")
-    endif()
-    if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
-        file(APPEND "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp"
-            "#include <conflux/http.hpp>\n"
-            "#include <conflux/runtime.hpp>\n")
-        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/http.hpp" "#pragma once\n#include <conflux/http.hxx>\n")
-        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/runtime.hpp" "#pragma once\n#include <conflux/work.hxx>\n")
-    endif()
-    if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
-        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/db.hpp" "#pragma once\n#include <conflux/db.hxx>\n")
-        file(WRITE "${CONFLUX_PUBLIC_HPP_DIR}/pg.hpp" "#pragma once\n#include <conflux/pg.hxx>\n")
-    endif()
+    conflux_register_header_public_hpp_alias(config config)
+    conflux_register_header_public_hpp_alias(curated curated)
+    conflux_register_header_public_hpp_alias(extended extended)
+    conflux_register_header_public_hpp_alias(complete complete)
+    conflux_write_header_public_hpp_aliases("${CONFLUX_PUBLIC_HPP_DIR}")
 
     if(NOT CONFLUX_HAS_TLS STREQUAL "true")
         conflux_register_header_public_surface(conflux_net_tls

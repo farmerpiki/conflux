@@ -396,8 +396,8 @@ function(conflux_register_header_impl_target target export_name)
 endfunction()
 
 function(conflux_register_header_package_component target export_name)
-    set(options)
-    set(one_value_args)
+    set(options HPP_TOP_LEVEL)
+    set(one_value_args HPP_ALIAS HPP_INCLUDE)
     set(multi_value_args MODULE_PREFIXES)
     cmake_parse_arguments(CONFLUX_HEADER_COMPONENT
         "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
@@ -430,6 +430,52 @@ function(conflux_register_header_package_component target export_name)
     if(CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES)
         conflux_register_header_public_surface(${target}
             MODULE_PREFIXES ${CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES})
+    endif()
+    if(CONFLUX_HEADER_COMPONENT_HPP_ALIAS)
+        if(CONFLUX_HEADER_COMPONENT_HPP_INCLUDE)
+            set(_hpp_include "${CONFLUX_HEADER_COMPONENT_HPP_INCLUDE}")
+        else()
+            set(_hpp_include "${CONFLUX_HEADER_COMPONENT_HPP_ALIAS}")
+        endif()
+        conflux_register_header_public_hpp_alias(
+            "${CONFLUX_HEADER_COMPONENT_HPP_ALIAS}" "${_hpp_include}")
+        if(CONFLUX_HEADER_COMPONENT_HPP_TOP_LEVEL)
+            set_property(GLOBAL APPEND PROPERTY
+                CONFLUX_HEADER_PUBLIC_HPP_TOP_LEVEL_ALIASES
+                "${CONFLUX_HEADER_COMPONENT_HPP_ALIAS}")
+        endif()
+    endif()
+endfunction()
+
+function(conflux_register_header_public_hpp_alias alias include)
+    set_property(GLOBAL APPEND PROPERTY
+        CONFLUX_HEADER_PUBLIC_HPP_ALIASES "${alias}")
+    set_property(GLOBAL APPEND PROPERTY
+        CONFLUX_HEADER_PUBLIC_HPP_INCLUDES "${include}")
+endfunction()
+
+function(conflux_write_header_public_hpp_aliases out_dir)
+    file(MAKE_DIRECTORY "${out_dir}")
+    file(WRITE "${out_dir}/conflux.hpp" "#pragma once\n#include <conflux.hxx>\n")
+
+    get_property(_aliases GLOBAL PROPERTY CONFLUX_HEADER_PUBLIC_HPP_ALIASES)
+    get_property(_includes GLOBAL PROPERTY CONFLUX_HEADER_PUBLIC_HPP_INCLUDES)
+    get_property(_top_level_aliases GLOBAL PROPERTY
+        CONFLUX_HEADER_PUBLIC_HPP_TOP_LEVEL_ALIASES)
+
+    list(LENGTH _aliases _alias_count)
+    if(_alias_count GREATER 0)
+        math(EXPR _last_index "${_alias_count} - 1")
+        foreach(_index RANGE 0 ${_last_index})
+            list(GET _aliases ${_index} _alias)
+            list(GET _includes ${_index} _include)
+            file(WRITE "${out_dir}/${_alias}.hpp"
+                "#pragma once\n#include <conflux/${_include}.hxx>\n")
+            if(_alias IN_LIST _top_level_aliases)
+                file(APPEND "${out_dir}/conflux.hpp"
+                    "#include <conflux/${_alias}.hpp>\n")
+            endif()
+        endforeach()
     endif()
 endfunction()
 
