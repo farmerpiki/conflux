@@ -1,6 +1,6 @@
 import conflux.extended;
 
 int main() {
-	IoUring ring;
-	(void)ring;
+	conflux::uring::IoUringCaps caps;
+	(void)caps;
 }

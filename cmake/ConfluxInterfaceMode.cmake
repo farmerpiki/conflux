@@ -1266,61 +1266,53 @@ function(conflux_add_header_compile_fail_tests)
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-route-policy-internal
         tests/http_facade_compile_fail_route_policy_internal
-        "AppRouteRateLimit"
-        "is not a member of"
-        "conflux::http")
+        "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-middleware-concept-alias
         tests/http_facade_compile_fail_middleware_concept_alias
-        "Middleware"
-        "is not a member of"
-        "conflux::http")
+        "no member named 'Middleware' in namespace 'conflux::http'")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-router-member
         tests/http_facade_compile_fail_router_member
-        "router"
-        "has no member named"
-        "conflux::http::App")
+        "conflux_http_facade_unexpected_router_member_visible")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-route-infos-member
         tests/http_facade_compile_fail_route_infos_member
-        "route_infos"
-        "has no member named"
-        "conflux::http::App")
+        "conflux_http_facade_unexpected_route_infos_member_visible")
 
-    if(CONFLUX_WANT_HTTP_SERVER)
+        if(CONFLUX_WANT_HTTP_SERVER)
         conflux_add_header_compile_fail_test(
             api-surface/header-curated-hides-iouring
             tests/header_api_surface_curated_compile_fail_iouring
-            "IoUring")
+            "no type named 'IoUringCaps' in namespace 'conflux::uring'")
         conflux_add_header_compile_fail_test(
             api-surface/header-curated-hides-blocking-file
             tests/header_api_surface_curated_compile_fail_file
-            "file")
+            "no member named 'file' in namespace 'conflux::http'")
         conflux_add_header_compile_fail_test(
             api-surface/header-extended-hides-iouring
             tests/header_api_surface_extended_compile_fail_iouring
-            "IoUring")
+            "no type named 'IoUringCaps' in namespace 'conflux::uring'")
         conflux_add_header_compile_fail_test(
             api-surface/header-complete-hides-direct-slot-pool
             tests/header_api_surface_complete_compile_fail_direct_slot_pool
-            "direct_slot_pool")
+            "unknown type name 'DirectSlotPool'")
         conflux_add_header_compile_fail_test(
             api-surface/header-http-facade-offload-free
             tests/header_http_facade_compile_fail_offload_free
-            "offload")
+            "no member named 'offload' in namespace 'conflux::http'")
         conflux_add_header_compile_fail_test(
             api-surface/header-http-facade-openapi-handler-free
             tests/header_http_facade_compile_fail_openapi_handler_free
-            "openapi_handler")
+            "no member named 'openapi_handler' in namespace 'conflux::http'")
         conflux_add_header_compile_fail_test(
             api-surface/header-http-facade-file-free
             tests/header_http_facade_compile_fail_file_free
-            "file(\"")
+            "no member named 'file' in namespace 'conflux::http'")
         conflux_add_header_compile_fail_test(
             api-surface/header-http-facade-route-infos-member
             tests/header_http_facade_compile_fail_route_infos_member
-            "route_infos")
+            "conflux_http_facade_header_unexpected_route_infos_member_visible")
     endif()
 endfunction()
 

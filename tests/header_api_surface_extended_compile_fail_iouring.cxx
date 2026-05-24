@@ -2,6 +2,6 @@
 #include <conflux/extended.hxx>
 
 int main() {
-	IoUring ring;
-	(void)ring;
+	conflux::uring::IoUringCaps caps;
+	(void)caps;
 }

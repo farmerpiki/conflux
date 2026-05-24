@@ -1,6 +1,5 @@
 import conflux.http;
 
 int main() {
-	conflux::http::Router router;
-	(void)router;
+	static_assert(requires { typename conflux::http::Router; }, "conflux_http_facade_unexpected_router_alias_visible");
 }

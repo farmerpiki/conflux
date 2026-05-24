@@ -1,6 +1,6 @@
 import conflux.complete;
 
 int main() {
-	direct_slot_pool pool;
+	DirectSlotPool pool{1};
 	(void)pool;
 }

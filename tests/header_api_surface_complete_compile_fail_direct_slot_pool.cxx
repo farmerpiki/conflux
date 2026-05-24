@@ -2,6 +2,6 @@
 #include <conflux/complete.hxx>
 
 int main() {
-	direct_slot_pool pool;
+	DirectSlotPool pool{1};
 	(void)pool;
 }

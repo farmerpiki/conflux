@@ -91,7 +91,7 @@ if(TARGET conflux)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_api_surface_curated_compile_fail_workpool
-                "WorkPool")
+                "conflux_api_surface_curated_unexpected_workpool_visible")
     set_tests_properties(api-surface/curated-hides-workpool PROPERTIES
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
@@ -104,7 +104,7 @@ if(TARGET conflux)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_api_surface_curated_compile_fail_iouring
-                "IoUring")
+                "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
     set_tests_properties(api-surface/curated-hides-iouring PROPERTIES
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
@@ -117,7 +117,7 @@ if(TARGET conflux)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_api_surface_curated_compile_fail_file
-                "file")
+                "no member named 'file' in namespace 'conflux::http'")
     set_tests_properties(api-surface/curated-hides-blocking-file PROPERTIES
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
@@ -130,7 +130,7 @@ if(TARGET conflux)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_api_surface_extended_compile_fail_iouring
-                "IoUring")
+                "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
     set_tests_properties(api-surface/extended-hides-iouring PROPERTIES
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
@@ -143,7 +143,7 @@ if(TARGET conflux)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_api_surface_complete_compile_fail_direct_slot_pool
-                "direct_slot_pool")
+                "unknown type name 'DirectSlotPool'")
     set_tests_properties(api-surface/complete-hides-direct-slot-pool PROPERTIES
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
@@ -478,8 +478,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_router_alias
-                "Router"
-                "conflux::http")
+                "conflux_http_facade_unexpected_router_alias_visible")
     set_tests_properties(http-facade/compile-fail-router-alias PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -488,8 +487,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_route_policy_internal
-                "AppRouteRateLimit"
-                "conflux::http")
+                "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
     set_tests_properties(http-facade/compile-fail-route-policy-internal PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -498,8 +496,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_middleware_concept_alias
-                "Middleware"
-                "conflux::http")
+                "no member named 'Middleware' in namespace 'conflux::http'")
     set_tests_properties(http-facade/compile-fail-middleware-concept-alias PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -527,8 +524,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_openapi_handler_member
-                "openapi_handler"
-                "conflux::http::App")
+                "conflux_http_facade_unexpected_openapi_handler_member_visible")
     set_tests_properties(http-facade/compile-fail-openapi-handler-member PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -537,8 +533,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_router_member
-                "router"
-                "conflux::http::App")
+                "conflux_http_facade_unexpected_router_member_visible")
     set_tests_properties(http-facade/compile-fail-router-member PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -547,8 +542,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_route_infos_member
-                "route_infos"
-                "conflux::http::App")
+                "conflux_http_facade_unexpected_route_infos_member_visible")
     set_tests_properties(http-facade/compile-fail-route-infos-member PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
