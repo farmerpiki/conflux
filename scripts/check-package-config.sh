@@ -59,7 +59,7 @@ grep -q 'add_test(NAME docs/package-docs' tests/CMakeLists.txt \
     || fail "missing package-docs CTest guard"
 grep -q 'add_test(NAME docs/release-notes' tests/CMakeLists.txt \
     || fail "missing release-notes CTest guard"
-grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
+grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' cmake/ConfluxOptions.cmake \
     || fail "missing package smoke component cache variable"
 grep -q 'add_test(NAME build/package-config-install-tree' tests/CMakeLists.txt \
     || fail "missing installed-prefix package smoke CTest guard"
