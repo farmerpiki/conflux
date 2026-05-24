@@ -614,6 +614,19 @@ target_link_libraries(
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+if(_conflux_simd_selection STREQUAL "RUNTIME" AND CONFLUX_JSON_STDSIMD_IFUNC AND TARGET conflux_json)
+    add_executable(conflux_json_simd_ifunc_test json_simd_ifunc_test.cxx)
+    target_link_libraries(conflux_json_simd_ifunc_test PRIVATE conflux_json conflux_options)
+    foreach(_conflux_json_simd_ifunc_variant IN ITEMS scalar sse2 avx2)
+        add_test(NAME simd/json-ifunc-${_conflux_json_simd_ifunc_variant}
+            COMMAND conflux_json_simd_ifunc_test ${_conflux_json_simd_ifunc_variant})
+        set_tests_properties(simd/json-ifunc-${_conflux_json_simd_ifunc_variant} PROPERTIES
+            ENVIRONMENT "CONFLUX_TEST_JSON_SIMD_IFUNC=${_conflux_json_simd_ifunc_variant}"
+            LABELS "simd;json"
+            RUN_SERIAL TRUE)
+    endforeach()
+endif()
+
 if(TARGET conflux_json_native_provider)
     add_executable(conflux_json_boundary_tests json_boundary_test.cxx)
     target_link_libraries(conflux_json_boundary_tests
