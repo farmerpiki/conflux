@@ -1386,6 +1386,41 @@ function(conflux_add_header_compile_fail_tests)
         "route_infos"
         "has no member named"
         "conflux::http::App")
+
+    if(CONFLUX_WANT_HTTP_SERVER)
+        conflux_add_header_compile_fail_test(
+            api-surface/header-curated-hides-iouring
+            tests/header_api_surface_curated_compile_fail_iouring
+            "IoUring")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-curated-hides-blocking-file
+            tests/header_api_surface_curated_compile_fail_file
+            "file")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-extended-hides-iouring
+            tests/header_api_surface_extended_compile_fail_iouring
+            "IoUring")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-complete-hides-direct-slot-pool
+            tests/header_api_surface_complete_compile_fail_direct_slot_pool
+            "direct_slot_pool")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-http-facade-offload-free
+            tests/header_http_facade_compile_fail_offload_free
+            "offload")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-http-facade-openapi-handler-free
+            tests/header_http_facade_compile_fail_openapi_handler_free
+            "openapi_handler")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-http-facade-file-free
+            tests/header_http_facade_compile_fail_file_free
+            "file(\"")
+        conflux_add_header_compile_fail_test(
+            api-surface/header-http-facade-route-infos-member
+            tests/header_http_facade_compile_fail_route_infos_member
+            "route_infos")
+    endif()
 endfunction()
 
 function(conflux_add_header_benchmark_compile_targets)

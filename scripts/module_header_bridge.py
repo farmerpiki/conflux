@@ -30,7 +30,10 @@ from pathlib import Path
 from typing import Iterable
 
 MODULE_DECL_RE = re.compile(r"^(?P<indent>\s*)(?P<export>export\s+)?module\s+(?P<name>[A-Za-z_][A-Za-z0-9_.]*(?::[A-Za-z_][A-Za-z0-9_]*)?)\s*;")
-IMPORT_RE = re.compile(r"^(?P<indent>\s*)(?P<export>export\s+)?import\s+(?P<name>[A-Za-z_][A-Za-z0-9_.]*|std(?:\.compat)?|:[A-Za-z_][A-Za-z0-9_]*)\s*;")
+IMPORT_RE = re.compile(
+    r"^(?P<indent>\s*)(?P<export>export\s+)?import\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*|std(?:\.compat)?|:[A-Za-z_][A-Za-z0-9_]*)\s*;"
+)
 EXPORT_PREFIX_RE = re.compile(r"^(?P<indent>\s*)export\s+")
 NAMESPACE_RE = re.compile(r"^\s*(?:export\s+)?namespace\s+(?P<name>[A-Za-z_][A-Za-z0-9_:]*)\s*\{")
 TOP_TYPE_RE = re.compile(r"^\s*export\s+(?:template\s*<[^>]+>\s*)?(?:(?:class|struct|union)\s+|enum\s+class\s+|enum\s+)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b")
