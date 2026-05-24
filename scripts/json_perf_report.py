@@ -42,7 +42,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("artifact_dir", type=pathlib.Path)
     parser.add_argument("--pguri", default="postgresql:///conflux_bench?user=postgres")
     parser.add_argument("--wall-threshold-pct", type=float, default=1.0)
-    parser.add_argument("--instr-threshold-pct", type=float, default=1.0)
     parser.add_argument("--include-negligible", action="store_true")
     parser.add_argument("--bench", action="append", help="restrict to benchmark name; repeatable")
     parser.add_argument("--profile", action="append", help="restrict to profile substring; repeatable")
@@ -236,7 +235,6 @@ def run() -> int:
                 if (
                     not args.include_negligible
                     and abs(p50_pct) < args.wall_threshold_pct
-                    and (instr_pct is None or abs(instr_pct) < args.instr_threshold_pct)
                 ):
                     continue
                 table.append(

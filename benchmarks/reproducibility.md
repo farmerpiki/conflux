@@ -5,6 +5,107 @@ performance claim. Final public benchmark capture is performed only after
 release-candidate source/API/docs/example shape is frozen, so published graphs
 match the commit users can actually build.
 
+## Candidate Perf Methodology
+
+Use this workflow for implementation-candidate performance work. The goal is to
+separate correctness, build/profile preparation, measurement, and reporting so
+results are comparable across candidates and future runs.
+
+1. Build each candidate in its own worktree.
+
+   Keep one base worktree and one worktree per candidate. Use `/tmp` for build
+   trees and generated profile data. Do not reuse a dirty build tree when the
+   candidate source changed.
+
+2. Run focused correctness tests before timing.
+
+   Run only the relevant component tests for every candidate. If a test is
+   already broken in the base tree, record it and ignore it for this perf pass.
+   Do not change expectations or behavior just to make a perf batch pass.
+
+3. Prepare benchmark binaries before measuring.
+
+   Build the normal release profile, the O2/LTO profile, the PGO-generate
+   profile, and the PGO-use profile before starting compare-bins measurement.
+   For JSON candidates, use:
+
+   ```sh
+   scripts/json_perf_build_profiles.sh \
+     --tree base:/tmp/conflux-jsonpatch-<id>-base \
+     --tree candidate:/tmp/conflux-jsonpatch-<id>-candidate
+   ```
+
+   The preparation step owns PGO. PGO-generate binaries must first run
+   calibration with `--iterations 0`, then run training again with the discovered
+   fixed iteration count. Do not train PGO-use from the short discovery run
+   itself; that produces profiles for calibration behavior rather than benchmark
+   behavior.
+
+4. Measure only already-built binaries.
+
+   The measurement script must not build, train PGO, or include PGO-generate
+   binaries. It should compare normal release, O2/LTO release, and PGO-use
+   release binaries together for a single compiler/stdlib and benchmark, so rows
+   can answer questions such as "candidate A regresses on clang but is stable on
+   GCC" or "candidate B wins only under GCC 16 PGO".
+
+   ```sh
+   BENCH_PIN_CPUS=2 scripts/json_perf_run_conditions.sh \
+     --tree base:/tmp/conflux-jsonpatch-<id>-base \
+     --tree candidate:/tmp/conflux-jsonpatch-<id>-candidate
+   ```
+
+   Use `BENCH_REPS`/`JSON_PERF_REPS` for repeated measurements. `5` is the
+   default for candidate work. `perf stat` capture is one run per binary; more
+   repetitions usually do not add useful information for counters.
+
+5. Keep iterations fixed inside a comparison.
+
+   First run calibration separately. Then pass the calibration run id into
+   compare-bins so all candidates in that compiler/stdlib/benchmark group use
+   the same iteration counts. Never compare rows where each binary independently
+   chose a different iteration count.
+
+6. Control the host as much as practical.
+
+   Pin benchmark launches with `BENCH_PIN_CPUS`. Prefer a performance governor
+   and pinned VM vCPUs when available. Do not run independent builds and
+   benchmarks concurrently; build heat and CPU migration are large enough to
+   hide small effects.
+
+7. Report from Postgres with stable grouped rows.
+
+   Use the report helper instead of ad hoc SQL. It keeps fixed-width columns,
+   groups by compiler/stdlib, profile condition, and benchmark, and keeps
+   per-variant rows while dropping negligible effects by default.
+
+   ```sh
+   scripts/json_perf_report.py /tmp/conflux-json-perf-artifacts/<stamp>
+   scripts/json_perf_report.py /tmp/conflux-json-perf-artifacts/<stamp> \
+     --bench json_storage \
+     --profile gcc16 \
+     --wall-threshold-pct 1
+   ```
+
+   Row filtering is based only on wall-time effect. Instruction and cycle
+   deltas are evidence for the rows that remain, but they never decide which
+   rows are hidden. Use `--include-negligible` only when auditing noise. Tighten
+   wall thresholds as benchmark stability improves.
+
+8. Interpret wall time and counters together.
+
+   A candidate can still be a win when wall time is flat but instructions drop
+   at similar or lower cycles. Treat lower instructions as useful signal when
+   p50/p10/p99 are within noise, especially for changes meant to simplify hot
+   code paths. Treat higher instructions with flat wall time as a warning: it may
+   become visible after unrelated layout or optimizer changes.
+
+9. Preserve skipped lanes explicitly.
+
+   If a compiler ICEs under LTO or PGO, skip that lane and report the skip. Do
+   not block the whole candidate batch when other compilers produce usable
+   evidence.
+
 Record raw command lines with each artifact:
 
 ```sh
