@@ -7,9 +7,9 @@ Usage:
   scripts/json_perf_build_profiles.sh --tree LABEL:PATH [--tree LABEL:PATH ...]
 
 Builds the JSON benchmark targets for each worktree and selected profile. The
-default profiles cover normal release, O2/LTO release, and PGO-generate lanes;
-PGO-use is built by json_perf_run_conditions.sh after profile data has been
-generated.
+default profiles cover normal release, O2/LTO release, PGO-generate lanes, and
+PGO-use lanes. PGO-generate binaries are run with --iterations 0 before PGO-use
+builds so benchmark measurement can run later without mixed build/profile work.
 
 Environment:
   JSON_PERF_PROFILES   space-separated presets
@@ -23,6 +23,10 @@ Environment:
                        default: -O2 -DNDEBUG
   JSON_PERF_BUILD_O2_LTO
                        build extra release-O2/LTO trees, default: 1
+  JSON_PERF_BUILD_PGO_USE
+                       run PGO generation and build PGO-use trees, default: 1
+  JSON_PERF_PGO_ITERATIONS
+                       iterations passed to PGO-generate binaries, default: 0
   JSON_PERF_ALLOW_GCC15_LTO_FAILURE
                        continue if gcc-stdcxx O2/LTO or PGO builds fail,
                        default: 1
@@ -34,6 +38,8 @@ targets=(${JSON_PERF_TARGETS:-conflux_json_bench conflux_json_storage_bench})
 pgo_root="${JSON_PERF_PGO_ROOT:-/tmp/conflux-json-pgo}"
 pgo_opt_flags="${JSON_PERF_PGO_OPT_FLAGS:--O2 -DNDEBUG}"
 build_o2_lto="${JSON_PERF_BUILD_O2_LTO:-1}"
+build_pgo_use="${JSON_PERF_BUILD_PGO_USE:-1}"
+pgo_iterations="${JSON_PERF_PGO_ITERATIONS:-0}"
 allow_gcc15_lto_failure="${JSON_PERF_ALLOW_GCC15_LTO_FAILURE:-1}"
 trees=()
 
@@ -93,6 +99,34 @@ pgo_config_args() {
   esac
 }
 
+pgo_use_config_args() {
+  local label="$1" profile="$2" compiler_profile dir
+  compiler_profile="${profile#pgo-use-}"
+  dir="$pgo_root/$label/$compiler_profile"
+  case "$profile" in
+    pgo-use-clang-*)
+      printf '%s\0' \
+        "-DCONFLUX_PGO_GENERATE=OFF" \
+        "-DCONFLUX_PGO_PROFILE_DIR=$dir/merged.profdata" \
+        "-DCMAKE_CXX_FLAGS_RELEASE=$pgo_opt_flags" \
+        "-DCMAKE_C_FLAGS_RELEASE=$pgo_opt_flags" \
+        "-DCONFLUX_ENABLE_LTO=ON"
+      ;;
+    pgo-use-gcc-*|pgo-use-gcc16-*)
+      printf '%s\0' \
+        "-DCONFLUX_PGO_GENERATE=OFF" \
+        "-DCONFLUX_PGO_PROFILE_DIR=$dir" \
+        "-DCMAKE_CXX_FLAGS_RELEASE=$pgo_opt_flags" \
+        "-DCMAKE_C_FLAGS_RELEASE=$pgo_opt_flags" \
+        "-DCONFLUX_ENABLE_LTO=ON" \
+        "-DCONFLUX_LTO_MODE=AUTO"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 release_o2_lto_args() {
   local profile="$1"
   case "$profile" in
@@ -134,6 +168,77 @@ build_targets() {
   return 1
 }
 
+bench_name_for_target() {
+  case "$1" in
+    conflux_json_bench) printf '%s\n' json ;;
+    conflux_json_storage_bench) printf '%s\n' json_storage ;;
+    *) echo "unknown JSON benchmark target: $1" >&2; exit 2 ;;
+  esac
+}
+
+run_pgo_generation() {
+  local label="$1" src="$2" profile="$3" compiler_profile dir build target bin bench log_dir
+  compiler_profile="${profile#pgo-gen-}"
+  dir="$pgo_root/$label/$compiler_profile"
+  build="$src/build/$profile"
+  log_dir="$src/build/pgo-gen-logs"
+  rm -rf "$dir"
+  mkdir -p "$dir" "$log_dir"
+
+  for target in "${targets[@]}"; do
+    bin="$build/benchmarks/$target"
+    if [[ ! -x "$bin" ]]; then
+      if may_skip_build_failure "$profile"; then
+        echo "WARN: missing $label $profile $target; skipping PGO generation for this binary" >&2
+        continue
+      fi
+      echo "missing PGO-generate binary: $bin" >&2
+      exit 1
+    fi
+    bench="$(bench_name_for_target "$target")"
+    echo "==> generate PGO $label $compiler_profile $bench iterations=$pgo_iterations"
+    "$bin" --iterations "$pgo_iterations" --json >"$log_dir/$compiler_profile.$bench.ndjson"
+  done
+}
+
+merge_clang_profile() {
+  local label="$1" profile="$2" dir
+  [[ "$profile" == pgo-gen-clang-* ]] || return 0
+  command -v llvm-profdata >/dev/null 2>&1 || { echo "llvm-profdata not found" >&2; exit 2; }
+  dir="$pgo_root/$label/${profile#pgo-gen-}"
+  find "$dir" -name '*.profraw' -type f -print -quit | grep -q . || {
+    echo "no clang profraw files in $dir" >&2
+    exit 1
+  }
+  llvm-profdata merge -output="$dir/merged.profdata" "$dir"/*.profraw
+}
+
+build_pgo_use_profile() {
+  local label="$1" src="$2" gen_profile="$3" use_profile build
+  use_profile="pgo-use-${gen_profile#pgo-gen-}"
+  case "$use_profile" in
+    pgo-use-gcc-*|pgo-use-gcc16-*)
+      # GCC encodes the object path into .gcda names. Reusing the generate
+      # build directory lets -fprofile-use find the profiles it just wrote.
+      build="$src/build/$gen_profile"
+      ;;
+    *)
+      build="$src/build/$use_profile"
+      ;;
+  esac
+  declare -a override_args=()
+  while IFS= read -r -d '' arg; do
+    override_args+=("$arg")
+  done < <(pgo_use_config_args "$label" "$use_profile")
+  echo "==> configure $label $use_profile"
+  cmake --preset "$use_profile" -S "$src" -B "$build" "${override_args[@]}"
+  build_targets "$label" "$use_profile" "$build"
+  if [[ "$build" != "$src/build/$use_profile" ]]; then
+    rm -rf "$src/build/$use_profile"
+    ln -s "${gen_profile}" "$src/build/$use_profile"
+  fi
+}
+
 for spec in "${trees[@]}"; do
   label="${spec%%:*}"
   src="${spec#*:}"
@@ -165,4 +270,13 @@ for spec in "${trees[@]}"; do
       build_targets "$label" "$(o2_build_dir_name "$profile")" "$build"
     fi
   done
+
+  if [[ "$build_pgo_use" == 1 ]]; then
+    for profile in "${profiles[@]}"; do
+      [[ "$profile" == pgo-gen-* ]] || continue
+      run_pgo_generation "$label" "$src" "$profile"
+      merge_clang_profile "$label" "$profile"
+      build_pgo_use_profile "$label" "$src" "$profile"
+    done
+  fi
 done

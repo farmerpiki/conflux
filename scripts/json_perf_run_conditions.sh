@@ -9,21 +9,19 @@ Usage:
 Runs JSON benchmark candidates under:
   - normal release compare-bins, 5 reps
   - O2/LTO release compare-bins, 5 reps
-  - PGO profile generation, 1 rep
   - PGO-use release compare-bins, 5 reps
   - perf-stat capture, 1 rep, for normal, O2/LTO, and PGO-use binaries
 
 Environment:
   PGURI                 default: postgresql:///conflux_bench?user=postgres
   BENCH_PIN_CPUS        optional taskset cpuset passed through to bench_record
+  JSON_PERF_EVENTS      perf stat events for JSON benches; default avoids tracefs-only syscall events
   JSON_PERF_REPS        default: 5
   JSON_PERF_BENCHES     default: json json_storage
   JSON_PERF_PROFILES    default: clang-libcxx gcc-stdcxx gcc16-stdcxx
   JSON_PERF_TARGETS     default: conflux_json_bench conflux_json_storage_bench
   JSON_PERF_PGO_ROOT    default: /tmp/conflux-json-pgo
   JSON_PERF_ARTIFACTS   default: /tmp/conflux-json-perf-artifacts/<timestamp>
-  JSON_PERF_PGO_OPT_FLAGS
-                        default: -O2 -DNDEBUG
   JSON_PERF_ALLOW_GCC15_LTO_FAILURE
                         skip missing gcc-stdcxx O2/LTO or PGO binaries,
                         default: 1
@@ -68,11 +66,11 @@ benches=(${JSON_PERF_BENCHES:-json json_storage})
 profiles=(${JSON_PERF_PROFILES:-clang-libcxx gcc-stdcxx gcc16-stdcxx})
 targets=(${JSON_PERF_TARGETS:-conflux_json_bench conflux_json_storage_bench})
 pgo_root="${JSON_PERF_PGO_ROOT:-/tmp/conflux-json-pgo}"
-pgo_opt_flags="${JSON_PERF_PGO_OPT_FLAGS:--O2 -DNDEBUG}"
 allow_gcc15_lto_failure="${JSON_PERF_ALLOW_GCC15_LTO_FAILURE:-1}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 artifact_root="${JSON_PERF_ARTIFACTS:-/tmp/conflux-json-perf-artifacts/$stamp}"
 mkdir -p "$artifact_root/logs" "$artifact_root/perf"
+perf_events="${JSON_PERF_EVENTS:-cycles,instructions,cache-references,cache-misses,branch-misses,cs}"
 
 release_preset() { printf 'release-%s\n' "$1"; }
 o2_lto_build_dir() { printf 'o2-lto-%s\n' "$1"; }
@@ -82,28 +80,6 @@ pgo_use_preset() { printf 'pgo-use-%s\n' "$1"; }
 pgo_profile_dir() {
   local label="$1" profile="$2"
   printf '%s/%s/%s\n' "$pgo_root" "$label" "$profile"
-}
-
-pgo_config_args() {
-  local label="$1" profile="$2" dir
-  dir="$(pgo_profile_dir "$label" "$profile")"
-  case "$profile" in
-    clang-*)
-      printf '%s\0' \
-        "-DCONFLUX_PGO_PROFILE_DIR=$dir/merged.profdata" \
-        "-DCMAKE_CXX_FLAGS_RELEASE=$pgo_opt_flags" \
-        "-DCMAKE_C_FLAGS_RELEASE=$pgo_opt_flags" \
-        "-DCONFLUX_ENABLE_LTO=ON"
-      ;;
-    *)
-      printf '%s\0' \
-        "-DCONFLUX_PGO_PROFILE_DIR=$dir" \
-        "-DCMAKE_CXX_FLAGS_RELEASE=$pgo_opt_flags" \
-        "-DCMAKE_C_FLAGS_RELEASE=$pgo_opt_flags" \
-        "-DCONFLUX_ENABLE_LTO=ON" \
-        "-DCONFLUX_LTO_MODE=AUTO"
-      ;;
-  esac
 }
 
 bench_bin_name() {
@@ -177,78 +153,6 @@ calibrate_one() {
   CALIBRATION_RUN_ID="$rid"
 }
 
-generate_pgo_profiles() {
-  local profile="$1" bench="$2" baseline_run_id="$3" preset args=()
-  preset="$(pgo_gen_preset "$profile")"
-  for spec in "${trees[@]}"; do
-    label="${spec%%:*}"
-    mkdir -p "$(pgo_profile_dir "$label" "$profile")"
-  done
-  echo "==> generate PGO profiles $profile $bench"
-  args=(--yes --reps 1 --pguri "$pguri" --baseline-run-id "$baseline_run_id")
-  appended_dirs=0
-  for spec in "${trees[@]}"; do
-    label="${spec%%:*}"
-    src="${spec#*:}"
-    bin="$src/build/$preset/benchmarks/$(bench_bin_name "$bench")"
-    if [[ -x "$bin" ]]; then
-      args+=(--dir "pgo-gen-$profile-$label:$src/build/$preset")
-      appended_dirs=$((appended_dirs + 1))
-    elif may_skip_missing_binary "$preset"; then
-      echo "WARN: missing pgo-gen $profile $bench binary for $label; skipping this candidate" >&2
-    else
-      echo "missing benchmark binary: $bin" >&2
-      exit 1
-    fi
-  done
-  if ((appended_dirs < 2)); then
-    echo "WARN: fewer than two candidates for pgo-gen $profile $bench; skipping" >&2
-    return 0
-  fi
-  BENCH_REPS=1 scripts/compare_bins_by_bench.sh "${args[@]}" "$bench" \
-    | tee "$artifact_root/logs/pgo-gen.${profile}.${bench}.log"
-}
-
-merge_clang_profiles() {
-  local profile="$1"
-  [[ "$profile" == clang-* ]] || return 0
-  command -v llvm-profdata >/dev/null 2>&1 || { echo "llvm-profdata not found" >&2; exit 2; }
-  for spec in "${trees[@]}"; do
-    label="${spec%%:*}"
-    dir="$(pgo_profile_dir "$label" "$profile")"
-    find "$dir" -name '*.profraw' -type f -print -quit | grep -q . || {
-      echo "no clang profraw files in $dir" >&2
-      exit 1
-    }
-    llvm-profdata merge -output="$dir/merged.profdata" "$dir"/*.profraw
-  done
-}
-
-build_pgo_use() {
-  local profile="$1" preset
-  preset="$(pgo_use_preset "$profile")"
-  for spec in "${trees[@]}"; do
-    label="${spec%%:*}"
-    src="${spec#*:}"
-    build="$src/build/$preset"
-    declare -a override_args=()
-    while IFS= read -r -d '' arg; do
-      override_args+=("$arg")
-    done < <(pgo_config_args "$label" "$profile")
-    echo "==> configure $label $preset"
-    cmake --preset "$preset" -S "$src" -B "$build" "${override_args[@]}"
-    echo "==> build $label $preset: ${targets[*]}"
-    if cmake --build "$build" --target "${targets[@]}"; then
-      continue
-    fi
-    if may_skip_missing_binary "$preset"; then
-      echo "WARN: $label $preset build failed; continuing because gcc15 LTO/PGO failures are non-blocking" >&2
-      continue
-    fi
-    return 1
-  done
-}
-
 baseline_iterations() {
   local run_id="$1"
   psql "$pguri" -Atc "select max(iterations) from results where run_id = $run_id"
@@ -281,6 +185,7 @@ perf_capture() {
       cmd=(taskset -c "$BENCH_PIN_CPUS" "${cmd[@]}")
     fi
     python3 scripts/bench_perf_stat.py \
+      --events "$perf_events" \
       --output "$out" \
       --perf-json "$perf_json" \
       --perf-stderr "$perf_stderr" \
@@ -312,18 +217,6 @@ for profile in "${profiles[@]}"; do
 done
 
 for profile in "${profiles[@]}"; do
-  for spec in "${trees[@]}"; do
-    label="${spec%%:*}"
-    rm -rf "$(pgo_profile_dir "$label" "$profile")"
-    mkdir -p "$(pgo_profile_dir "$label" "$profile")"
-  done
-  for bench in "${benches[@]}"; do
-    rid="${calibration_ids["o2-lto/$profile/$bench"]:-}"
-    [[ -n "$rid" ]] || continue
-    generate_pgo_profiles "$profile" "$bench" "$rid"
-  done
-  merge_clang_profiles "$profile"
-  build_pgo_use "$profile"
   preset="$(pgo_use_preset "$profile")"
   for bench in "${benches[@]}"; do
     rid="${calibration_ids["o2-lto/$profile/$bench"]:-}"
