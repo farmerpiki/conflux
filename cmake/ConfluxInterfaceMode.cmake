@@ -722,6 +722,26 @@ int main() {
     endif()
 endfunction()
 
+function(conflux_register_header_public_surface target)
+    set(options)
+    set(one_value_args)
+    set(multi_value_args MODULE_PREFIXES)
+    cmake_parse_arguments(CONFLUX_HEADER_SURFACE
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    if(NOT CONFLUX_HEADER_SURFACE_MODULE_PREFIXES)
+        return()
+    endif()
+    if(TARGET ${target})
+        set_property(GLOBAL APPEND PROPERTY
+            CONFLUX_ACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
+            ${CONFLUX_HEADER_SURFACE_MODULE_PREFIXES})
+    else()
+        set_property(GLOBAL APPEND PROPERTY
+            CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
+            ${CONFLUX_HEADER_SURFACE_MODULE_PREFIXES})
+    endif()
+endfunction()
+
 function(conflux_add_header_component_smoke_targets)
     set(_smoke_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/header-component-smoke")
     file(MAKE_DIRECTORY "${_smoke_dir}")
@@ -729,44 +749,13 @@ function(conflux_add_header_component_smoke_targets)
     set(_public_smoke_dir "${_smoke_dir}/public-includes")
     set(_public_smoke_fragment "${_smoke_dir}/public-includes.cmake")
     set(_public_smoke_skip_args)
-    if(NOT CONFLUX_HAS_DB STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-header conflux/db.hxx
-            --skip-header conflux/pg.hxx
-            --skip-prefix conflux/pg/)
-    endif()
-    if(NOT CONFLUX_HAS_TLS STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/tls.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_HTTP2 STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/http2.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_HTTP3 STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/http3.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_COMPRESS STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/compress/)
-    endif()
-    if(NOT CONFLUX_HAS_ZLIB STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/compress/backend/zlib.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/compress/backend/libdeflate.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/compress/backend/zlibng.hxx)
-    endif()
-    if(NOT CONFLUX_HAS_ISAL STREQUAL "true")
-        list(APPEND _public_smoke_skip_args
-            --skip-prefix conflux/net/compress/backend/isal.hxx)
-    endif()
+    get_property(_inactive_public_header_module_prefixes GLOBAL PROPERTY
+        CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES)
+    set(_public_smoke_inactive_module_args)
+    foreach(_inactive_module_prefix IN LISTS _inactive_public_header_module_prefixes)
+        list(APPEND _public_smoke_inactive_module_args
+            --inactive-module-prefix "${_inactive_module_prefix}")
+    endforeach()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-public-header-include-smoke.py"
@@ -774,6 +763,7 @@ function(conflux_add_header_component_smoke_targets)
                 --out-dir "${_public_smoke_dir}"
                 --cmake-fragment "${_public_smoke_fragment}"
                 ${_public_smoke_skip_args}
+                ${_public_smoke_inactive_module_args}
         RESULT_VARIABLE _public_smoke_result)
     if(NOT _public_smoke_result EQUAL 0)
         message(FATAL_ERROR "conflux: public header include smoke generation failed")
@@ -856,10 +846,8 @@ function(conflux_add_header_component_smoke_targets)
         elseif(TARGET conflux_db)
             target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_db)
         else()
-            target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_headers)
-            if(TARGET PkgConfig::LIBPQ)
-                target_link_libraries(conflux_header_smoke_pg PRIVATE PkgConfig::LIBPQ)
-            endif()
+            message(FATAL_ERROR
+                "conflux: DB header smoke requires the conflux_pg or conflux_db component target")
         endif()
         conflux_apply_header_smoke_warnings(conflux_header_smoke_pg)
     endif()
@@ -1486,9 +1474,9 @@ function(conflux_add_header_benchmark_compile_targets)
         "${CONFLUX_BUILD_BENCHMARKS}"
         ${_conflux_header_benchmark_source_ids})
     if(TARGET conflux_header_benchmark_benchmarks_db_protocol_synthetic_bench
-            AND TARGET PkgConfig::LIBPQ)
+            AND TARGET conflux_pg)
         target_link_libraries(
             conflux_header_benchmark_benchmarks_db_protocol_synthetic_bench
-            PRIVATE PkgConfig::LIBPQ)
+            PRIVATE conflux_pg)
     endif()
 endfunction()
