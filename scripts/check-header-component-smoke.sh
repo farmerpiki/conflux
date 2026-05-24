@@ -22,8 +22,26 @@ run_smoke() {
         -DCONFLUX_BUILD_BENCHMARKS=OFF \
         -DCONFLUX_BUILD_EXAMPLES=ON
 
+    if [[ "$target" == "__all_header_smokes" ]]; then
+        mapfile -t smoke_targets < <(
+            cmake --build "$build_dir" --target help \
+                | grep -oE 'conflux_header_smoke_[A-Za-z0-9_]+' \
+                | sort -u
+        )
+        if ((${#smoke_targets[@]} == 0)); then
+            printf 'header-component-smoke: no header smoke targets discovered for %s\n' "$name" >&2
+            exit 1
+        fi
+        printf 'header-component-smoke: discovered %s header smoke targets\n' "${#smoke_targets[@]}"
+        for smoke_target in "${smoke_targets[@]}"; do
+            printf 'header-component-smoke: build target %s\n' "$smoke_target"
+            cmake --build "$build_dir" --target "$smoke_target"
+        done
+        return
+    fi
+
     printf 'header-component-smoke: build target %s\n' "$target"
-    cmake --build "$build_dir" --target "$target" -j2
+    cmake --build "$build_dir" --target "$target"
 }
 
 compiler_supports_public_include_matrix() {
@@ -53,11 +71,10 @@ compiler_supports_public_include_matrix() {
 
 run_smoke core core conflux_header_smoke_core
 run_smoke json json conflux_header_smoke_json
-run_smoke work work conflux_header_smoke_runtime
+run_smoke runtime runtime conflux_header_smoke_runtime
 run_smoke http http-minimal conflux_quickstart_hello
 if compiler_supports_public_include_matrix; then
-    run_smoke public-include-matrix http-minimal conflux_header_smoke_public_includes
+    run_smoke public-include-matrix http-minimal __all_header_smokes
 fi
-run_smoke public-hygiene http-minimal conflux_header_smoke_public_hygiene
 
 printf 'header-component-smoke: ok\n'

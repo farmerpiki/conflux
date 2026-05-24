@@ -263,16 +263,46 @@ if(CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
 endif()
 conflux_add_header_interface_target()
 
-add_library(conflux_core INTERFACE)
-target_link_libraries(conflux_core INTERFACE conflux_headers)
-conflux_link_existing_header_impls(conflux_core conflux_header_impl_core)
-target_compile_definitions(conflux_core INTERFACE CONFLUX_INTERFACE_HEADER=1)
-conflux_register_header_package_component(conflux_core core)
+macro(conflux_header_public_component target export_name)
+    set(options HPP_TOP_LEVEL)
+    set(one_value_args)
+    set(multi_value_args COMPILE_DEFINITIONS IMPLS LINKS MODULE_PREFIXES)
+    cmake_parse_arguments(CONFLUX_HEADER_PUBLIC_COMPONENT
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-add_library(conflux_types INTERFACE)
-target_link_libraries(conflux_types INTERFACE conflux_headers)
-conflux_link_existing_header_impls(conflux_types conflux_header_impl_core)
-conflux_register_header_package_component(conflux_types types)
+    add_library(${target} INTERFACE)
+    target_link_libraries(${target} INTERFACE conflux_headers)
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_IMPLS)
+        conflux_link_existing_header_impls(${target}
+            ${CONFLUX_HEADER_PUBLIC_COMPONENT_IMPLS})
+    endif()
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_LINKS)
+        target_link_libraries(${target} INTERFACE
+            ${CONFLUX_HEADER_PUBLIC_COMPONENT_LINKS})
+    endif()
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_COMPILE_DEFINITIONS)
+        target_compile_definitions(${target} INTERFACE
+            ${CONFLUX_HEADER_PUBLIC_COMPONENT_COMPILE_DEFINITIONS})
+    endif()
+
+    set(_register_args)
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_HPP_TOP_LEVEL)
+        list(APPEND _register_args HPP_TOP_LEVEL)
+    endif()
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES)
+        list(APPEND _register_args MODULE_PREFIXES
+            ${CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES})
+    endif()
+    conflux_register_header_package_component(${target} ${export_name}
+        ${_register_args})
+endmacro()
+
+conflux_header_public_component(conflux_core core
+    IMPLS conflux_header_impl_core
+    COMPILE_DEFINITIONS CONFLUX_INTERFACE_HEADER=1)
+
+conflux_header_public_component(conflux_types types
+    IMPLS conflux_header_impl_core)
 
 set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
 set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
@@ -311,25 +341,32 @@ if(NOT CONFLUX_USE_MOCK_LIBURING AND TARGET PkgConfig::LIBURING)
 endif()
 
 if(CONFLUX_WANT_JSON)
-    add_library(conflux_json INTERFACE)
-    target_link_libraries(conflux_json INTERFACE conflux_headers)
-    conflux_link_existing_header_impls(conflux_json conflux_header_impl_json)
+    set(_conflux_json_compile_definitions)
+    set(_conflux_json_links)
     if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
-        target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
+        list(APPEND _conflux_json_compile_definitions
+            CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
         if(TARGET PkgConfig::XXHASH)
-            target_link_libraries(conflux_json INTERFACE PkgConfig::XXHASH)
+            list(APPEND _conflux_json_links PkgConfig::XXHASH)
         endif()
     elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
-        target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
+        list(APPEND _conflux_json_compile_definitions
+            CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
     endif()
-    conflux_register_header_package_component(conflux_json json HPP_TOP_LEVEL)
+    conflux_header_public_component(conflux_json json
+        HPP_TOP_LEVEL
+        IMPLS conflux_header_impl_json
+        LINKS ${_conflux_json_links}
+        COMPILE_DEFINITIONS ${_conflux_json_compile_definitions})
+    unset(_conflux_json_compile_definitions)
+    unset(_conflux_json_links)
 endif()
 
 if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
         AND (CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER))
-    add_library(conflux_net_http INTERFACE)
-    target_link_libraries(conflux_net_http INTERFACE conflux_headers)
-    conflux_link_existing_header_impls(conflux_net_http
+    conflux_header_public_component(conflux_net_http http
+        HPP_TOP_LEVEL
+        IMPLS
         conflux_header_impl_core
         conflux_header_impl_json
         conflux_header_impl_runtime
@@ -343,25 +380,21 @@ if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
         conflux_header_impl_http_static
         conflux_header_impl_http_client
         conflux_header_impl_http_proxy
-        conflux_header_impl_templates)
-    target_link_libraries(conflux_net_http INTERFACE PkgConfig::LIBURING)
-    conflux_register_header_package_component(conflux_net_http http HPP_TOP_LEVEL)
+        conflux_header_impl_templates
+        LINKS PkgConfig::LIBURING)
 endif()
 
-add_library(conflux_file_io_sync INTERFACE)
-target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
-conflux_link_existing_header_impls(conflux_file_io_sync conflux_header_impl_file_io_sync)
-conflux_register_header_package_component(conflux_file_io_sync file_io_sync)
+conflux_header_public_component(conflux_file_io_sync file_io_sync
+    IMPLS conflux_header_impl_file_io_sync)
 
 if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
-    add_library(conflux_work INTERFACE)
-    target_link_libraries(conflux_work INTERFACE conflux_headers)
-    conflux_link_existing_header_impls(conflux_work
+    conflux_header_public_component(conflux_work work
+        HPP_TOP_LEVEL
+        IMPLS
         conflux_header_impl_core
         conflux_header_impl_runtime
-        conflux_header_impl_socket_io)
-    target_link_libraries(conflux_work INTERFACE PkgConfig::LIBURING)
-    conflux_register_header_package_component(conflux_work work HPP_TOP_LEVEL)
+        conflux_header_impl_socket_io
+        LINKS PkgConfig::LIBURING)
 endif()
 
 set(CONFLUX_HEADER_INSTALL_DB_COMPONENTS FALSE)
@@ -370,20 +403,19 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
 endif()
 
 if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
-    add_library(conflux_db INTERFACE)
-    target_link_libraries(conflux_db INTERFACE conflux_headers)
-    conflux_link_existing_header_impls(conflux_db conflux_header_impl_db)
-    target_link_libraries(conflux_db INTERFACE conflux_work)
+    set(_conflux_db_links conflux_work)
     if(TARGET PkgConfig::LIBPQ)
-        target_link_libraries(conflux_db INTERFACE PkgConfig::LIBPQ)
+        list(APPEND _conflux_db_links PkgConfig::LIBPQ)
     endif()
-    conflux_register_header_package_component(conflux_db db
+    conflux_header_public_component(conflux_db db
+        IMPLS conflux_header_impl_db
+        LINKS ${_conflux_db_links}
         MODULE_PREFIXES conflux.db)
 
-    add_library(conflux_pg INTERFACE)
-    target_link_libraries(conflux_pg INTERFACE conflux_db)
-    conflux_register_header_package_component(conflux_pg pg
+    conflux_header_public_component(conflux_pg pg
+        LINKS conflux_db
         MODULE_PREFIXES conflux.pg)
+    unset(_conflux_db_links)
 endif()
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
