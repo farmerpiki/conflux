@@ -3,5 +3,8 @@ import std;
 import conflux.http;
 
 int main() {
-	(void)http::file("index.html");
+	namespace http = conflux::http;
+	static_assert(
+		requires { http::file("index.html"); },
+		"conflux_http_facade_unexpected_file_helper_visible");
 }

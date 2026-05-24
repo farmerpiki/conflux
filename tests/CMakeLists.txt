@@ -557,8 +557,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_offload_free
-                "offload"
-                "conflux::http")
+                "no member named 'offload' in namespace 'conflux::http'")
     set_tests_properties(http-facade/compile-fail-offload-free PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -567,7 +566,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_openapi_handler_free
-                "openapi_handler")
+                "no member named 'openapi_handler' in namespace 'conflux::http'")
     set_tests_properties(http-facade/compile-fail-openapi-handler-free PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
@@ -576,7 +575,7 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_file_free
-                "file(\"")
+                "declaration of 'file' must be imported from module 'conflux.net.config'")
     set_tests_properties(http-facade/compile-fail-file-free PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)

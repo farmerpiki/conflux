@@ -3,7 +3,9 @@ import std;
 import conflux.http;
 
 int main() {
-	auto pool = std::make_shared<conflux::work::WorkPool>();
-	(void)http::offload(pool, [] { return http::text("ok"); });
+	namespace http = conflux::http;
+	static_assert(
+		requires { http::offload(nullptr, [] { return http::text("ok"); }); },
+		"conflux_http_facade_unexpected_offload_helper_visible");
 	return 0;
 }
