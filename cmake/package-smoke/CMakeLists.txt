@@ -120,6 +120,49 @@ foreach(_external_dep IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS)
     endif()
 endforeach()
 
+set(_conflux_install_prefix "${PACKAGE_PREFIX_DIR}")
+if(NOT _conflux_install_prefix)
+    get_filename_component(_conflux_install_prefix "${conflux_DIR}/../../.." ABSOLUTE)
+endif()
+
+if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
+    foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS)
+        foreach(_suffix IN ITEMS hxx hpp)
+            set(_forbidden_header
+                "${_conflux_install_prefix}/include/conflux/${_component}.${_suffix}")
+            if(EXISTS "${_forbidden_header}")
+                message(FATAL_ERROR
+                    "package smoke found installed forbidden component header: ${_forbidden_header}")
+            endif()
+        endforeach()
+        if(EXISTS "${_conflux_install_prefix}/include/conflux/${_component}")
+            message(FATAL_ERROR
+                "package smoke found installed forbidden component include directory: "
+                "${_conflux_install_prefix}/include/conflux/${_component}")
+        endif()
+    endforeach()
+
+    if(CONFLUX_PACKAGE_MOCK_LIBURING)
+        foreach(_mock_forbidden_header IN ITEMS
+                conflux.hxx
+                conflux.hpp
+                curated.hxx
+                curated.hpp
+                extended.hxx
+                extended.hpp
+                complete.hxx
+                complete.hpp
+                json/reflect.hxx
+                json/reflect_provider.hxx)
+            if(EXISTS "${_conflux_install_prefix}/include/conflux/${_mock_forbidden_header}")
+                message(FATAL_ERROR
+                    "mock-liburing package smoke found installed unsupported header: "
+                    "${_conflux_install_prefix}/include/conflux/${_mock_forbidden_header}")
+            endif()
+        endforeach()
+    endif()
+endif()
+
 set(_conflux_smoke_summary "${CMAKE_CURRENT_BINARY_DIR}/conflux-package-smoke-summary.txt")
 file(WRITE "${_conflux_smoke_summary}"
     "components=${_conflux_find_components}\n"
@@ -714,10 +757,6 @@ int main() { return 0; }
 endforeach()
 
 if(NOT CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
-    set(_conflux_install_prefix "${PACKAGE_PREFIX_DIR}")
-    if(NOT _conflux_install_prefix)
-        get_filename_component(_conflux_install_prefix "${conflux_DIR}/../../.." ABSOLUTE)
-    endif()
     set(_db_headers
         "${_conflux_install_prefix}/include/conflux/db.hxx"
         "${_conflux_install_prefix}/include/conflux/db.hpp"

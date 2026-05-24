@@ -99,11 +99,11 @@ time and are consumed through the separate runtime smoke lane.
 | `json_reflect` | `conflux::json_reflect` | `conflux.json.reflect` | extended | `docs/json-reflect.md` |
 | `json_reflect_provider` | `conflux::json_reflect_provider` | `conflux.json.reflect_provider` | extended | `docs/json-reflect.md` |
 | `work` | `conflux::work` | `conflux.work`, `conflux.work.root`, `conflux.work.carrier.*` | extended | `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md` |
-| `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.handle` | complete | `docs/io_uring_direct_file_flow_design.md` |
+| `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.fd`, `conflux.uring.handle` | complete | `docs/io_uring_direct_file_flow_design.md` |
 | `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | complete | `tests/uring_flow_test.cxx` |
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | extended | `examples/advanced/file_io.cxx`, `tests/file_io_sync_test.cxx` |
 | `file_map` | `conflux::file_map` | `conflux.file_map` | extended | `tests/file_io_sync_test.cxx` |
-| `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `.pipe_pool`, `.reader`, `.iopoll`, `.driver` leaf modules | complete | `examples/advanced/file_io.cxx`, `tests/file_io_test.cxx` |
+| `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `conflux.file_io.pipe_pool`, `conflux.file_io.reader`, `conflux.file_io.iopoll`, `conflux.file_io.driver` leaf modules | complete | `examples/advanced/file_io.cxx`, `tests/file_io_test.cxx` |
 | `file_watch` | `conflux::file_watch` | `conflux.file_watch` | complete | `src/file_watch.cxx` |
 | `template` | `conflux::template` | `conflux.templates` | extended | `examples/advanced/template_pages.cxx`, `tests/template_test.cxx` |
 | `template_watch` | `conflux::template_watch` | `conflux.templates.watch` | extended | `examples/advanced/template_pages.cxx` |
@@ -112,7 +112,7 @@ time and are consumed through the separate runtime smoke lane.
 | `dns_bridge` | `conflux::dns_bridge` | `conflux.dns_bridge` HTTP-client DNS bridge provider | complete | `examples/advanced/http_client_builder.cxx` |
 | `process` | `conflux::process` | `conflux.process` | extended | `examples/advanced/process_run.cxx`, `tests/process_test.cxx` |
 | `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | extended | `docs/db-api.md`, `examples/advanced/db_basic.cxx`, `examples/advanced/db_pool.cxx` |
-| `db` | `conflux::db` | compatibility re-export of PostgreSQL API; not advertised for new public code | complete | `docs/db-api.md` |
+| `db` | `conflux::db` | `conflux.db` compatibility re-export of PostgreSQL API; not advertised for new public code | complete | `docs/db-api.md` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | complete | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | selected | `README.md` |
 
@@ -137,9 +137,9 @@ Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable ext
 | `http_server_helpers` | `conflux::http_server_helpers` | `conflux.net.http_server_helpers` | complete | `tests/http_server_helpers_test.cxx` |
 | `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | extended | `docs/http-server-api.md`, `tests/config_test.cxx` |
 | `http_server` | `conflux::http_server` | `conflux.net.http_server` | extended | `docs/http-server-api.md`, `examples/hello.cxx` |
-| `http_app` | `conflux::http_app` | `conflux.net.app` | extended | `docs/http-server-api.md` |
+| `http_app` | `conflux::http_app` | `conflux.http.extended`, `conflux.net.app` | extended | `docs/http-server-api.md` |
 | `http_client` | `conflux::http_client` | first-contact `conflux.net.http.client`, lower-level `conflux.net.client`, and HTTP/1 wire helpers in `conflux.net.client_wire` | extended | `docs/conflux-http-client-api.md`, `examples/http_client.cxx`, `examples/advanced/http_client_json.cxx` |
-| `http` | `conflux::http` | `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` and `conflux.net.http.client` | curated | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
+| `http` | `conflux::http` | `conflux.http` façade, `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` and `conflux.net.http.client` | curated | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
 | `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | complete | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
 | `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | complete | `examples/static.cxx` |
 | `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | complete | `examples/static.cxx` |

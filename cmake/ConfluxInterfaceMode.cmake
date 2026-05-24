@@ -405,6 +405,9 @@ function(conflux_register_header_package_component target export_name)
         return()
     endif()
     set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
+    if(NOT CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES)
+        set(CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES conflux.${export_name})
+    endif()
 
     foreach(_list IN ITEMS
             CONFLUX_HEADER_INSTALL_TARGETS
@@ -839,6 +842,15 @@ function(conflux_add_header_component_smoke_targets)
     set(_public_smoke_dir "${_smoke_dir}/public-includes")
     set(_public_smoke_fragment "${_smoke_dir}/public-includes.cmake")
     set(_public_smoke_skip_args)
+    set(_public_smoke_active_module_args)
+    if(CONFLUX_USE_MOCK_LIBURING)
+        get_property(_active_public_header_module_prefixes GLOBAL PROPERTY
+            CONFLUX_ACTIVE_PUBLIC_HEADER_MODULE_PREFIXES)
+        foreach(_active_module_prefix IN LISTS _active_public_header_module_prefixes)
+            list(APPEND _public_smoke_active_module_args
+                --active-module-prefix "${_active_module_prefix}")
+        endforeach()
+    endif()
     get_property(_inactive_public_header_module_prefixes GLOBAL PROPERTY
         CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES)
     set(_public_smoke_inactive_module_args)
@@ -853,6 +865,7 @@ function(conflux_add_header_component_smoke_targets)
                 --out-dir "${_public_smoke_dir}"
                 --cmake-fragment "${_public_smoke_fragment}"
                 ${_public_smoke_skip_args}
+                ${_public_smoke_active_module_args}
                 ${_public_smoke_inactive_module_args}
         RESULT_VARIABLE _public_smoke_result)
     if(NOT _public_smoke_result EQUAL 0)

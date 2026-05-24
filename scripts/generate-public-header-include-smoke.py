@@ -26,6 +26,7 @@ def main() -> int:
     parser.add_argument('--cmake-fragment', required=True, type=Path)
     parser.add_argument('--skip-prefix', action='append', default=[])
     parser.add_argument('--skip-header', action='append', default=[])
+    parser.add_argument('--active-module-prefix', action='append', default=[])
     parser.add_argument('--inactive-module-prefix', action='append', default=[])
     args = parser.parse_args()
 
@@ -36,6 +37,7 @@ def main() -> int:
     seen: set[str] = set()
     skipped_headers = set(args.skip_header)
     skipped_prefixes = tuple(args.skip_prefix)
+    active_module_prefixes = tuple(args.active_module_prefix)
     inactive_module_prefixes = tuple(args.inactive_module_prefix)
     sources: list[Path] = []
     for item in data.get('interfaces', []):
@@ -44,6 +46,14 @@ def main() -> int:
             continue
         module_name = item.get('module')
         if isinstance(module_name, str):
+            if active_module_prefixes:
+                active = False
+                for prefix in active_module_prefixes:
+                    if module_name == prefix or module_name.startswith(f'{prefix}.') or module_name.startswith(f'{prefix}:'):
+                        active = True
+                        break
+                if not active:
+                    continue
             inactive = False
             for prefix in inactive_module_prefixes:
                 if module_name == prefix or module_name.startswith(f'{prefix}.') or module_name.startswith(f'{prefix}:'):

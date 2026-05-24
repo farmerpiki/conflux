@@ -409,14 +409,16 @@ if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
     endif()
     conflux_header_public_component(conflux_db db
         IMPLS conflux_header_impl_db
-        LINKS ${_conflux_db_links}
-        MODULE_PREFIXES conflux.db)
+        LINKS ${_conflux_db_links})
 
     conflux_header_public_component(conflux_pg pg
-        LINKS conflux_db
-        MODULE_PREFIXES conflux.pg)
+        LINKS conflux_db)
     unset(_conflux_db_links)
 endif()
+conflux_register_header_public_surface(conflux_db
+    MODULE_PREFIXES conflux.db)
+conflux_register_header_public_surface(conflux_pg
+    MODULE_PREFIXES conflux.pg)
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
 conflux_register_header_public_hpp(config)
@@ -518,7 +520,9 @@ if(CONFLUX_USE_MOCK_LIBURING)
             "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json.hxx"
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
         install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json/"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json)
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json
+            PATTERN "reflect.hxx" EXCLUDE
+            PATTERN "reflect_provider.hxx" EXCLUDE)
     endif()
     install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
@@ -537,8 +541,21 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(CONFLUX_USE_MOCK_LIBURING)
+    install(FILES
+        "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp"
+        "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp"
+        "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
+    if(CONFLUX_WANT_JSON)
+        install(FILES
+            "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
+    endif()
+else()
+    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()
 foreach(_target IN LISTS CONFLUX_HEADER_INSTALL_TARGETS)
     get_target_property(_export_name ${_target} EXPORT_NAME)
     install(EXPORT confluxTargets-${_export_name}

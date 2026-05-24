@@ -1172,6 +1172,12 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;docs;package"
     )
 
+    add_test(NAME build/api-surface-map
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-api-surface-map.py")
+    set_tests_properties(build/api-surface-map PROPERTIES
+        LABELS "build;docs;public-api"
+    )
+
     add_test(NAME build/package-config
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-config.sh"
                 "${CMAKE_SOURCE_DIR}")
