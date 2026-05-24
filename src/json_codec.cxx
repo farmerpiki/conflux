@@ -1134,6 +1134,20 @@ std::expected<T, JsonError> decode_from_event(
 	return token.decode_into(std::span<char>{scratch.key_overflow.data(), scratch.key_overflow.size()});
 }
 
+[[nodiscard]] inline std::expected<std::string, JsonError> string_from_token(
+	JsonStringToken const &token) {
+	if (auto borrowed = token.unescaped_borrow()) {
+		return std::string{*borrowed};
+	}
+	std::string out;
+	out.reserve(token.max_decoded_size());
+	auto res = token.append_decoded_to(out);
+	if (!res) {
+		return std::unexpected(std::move(res).error());
+	}
+	return out;
+}
+
 [[nodiscard]] inline bool found_bit_is_set(
 	std::uint64_t inline_bits,
 	std::span<std::uint64_t const> overflow_bits,
@@ -1235,12 +1249,7 @@ std::expected<T, JsonError> decode_from_event(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected string"});
 		}
-		std::string out;
-		auto res = r.string_token().append_decoded_to(out);
-		if (!res) {
-			return std::unexpected(std::move(res).error());
-		}
-		return out;
+		return string_from_token(r.string_token());
 	} else if constexpr (std::same_as<T, std::string_view>) {
 		static_assert(
 			!std::same_as<T, std::string_view>,
@@ -1250,7 +1259,7 @@ std::expected<T, JsonError> decode_from_event(
 		if (ev == Ev::null_value) {
 			return T{};
 		}
-		auto v = decode_from_event<Inner>(r, ev, opts);
+		auto v = decode_from_event<Inner>(r, ev, opts, scratch);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -1260,7 +1269,7 @@ std::expected<T, JsonError> decode_from_event(
 			return T{};
 		}
 		using Inner = nullable_inner_t<T>;
-		auto v = decode_from_event<Inner>(r, ev, opts);
+		auto v = decode_from_event<Inner>(r, ev, opts, scratch);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -1290,7 +1299,7 @@ std::expected<T, JsonError> decode_from_event(
 			if (**ne == Ev::end_array) {
 				return result;
 			}
-			auto elem = decode_from_event<E>(r, **ne, opts);
+			auto elem = decode_from_event<E>(r, **ne, opts, scratch);
 			if (!elem) {
 				return std::unexpected(std::move(elem).error());
 			}
@@ -1326,7 +1335,7 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::invalid_value,
 						.message = std::format("std::expected array of length {}", N)});
 			}
-			auto elem = decode_from_event<E>(r, **ne, opts);
+			auto elem = decode_from_event<E>(r, **ne, opts, scratch);
 			if (!elem) {
 				return std::unexpected(std::move(elem).error());
 			}
@@ -1368,7 +1377,7 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in pair"});
 			}
-			auto v = decode_from_event<FA>(r, **ne, opts);
+			auto v = decode_from_event<FA>(r, **ne, opts, scratch);
 			if (!v) {
 				return std::unexpected(std::move(v).error());
 			}
@@ -1386,7 +1395,7 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in pair"});
 			}
-			auto v = decode_from_event<FB>(r, **ne, opts);
+			auto v = decode_from_event<FB>(r, **ne, opts, scratch);
 			if (!v) {
 				return std::unexpected(std::move(v).error());
 			}
@@ -1446,7 +1455,7 @@ std::expected<T, JsonError> decode_from_event(
 					 return;
 				 }
 				 using E = std::tuple_element_t<Is, T>;
-				 auto v = decode_from_event<E>(r, **ne, opts);
+				 auto v = decode_from_event<E>(r, **ne, opts, scratch);
 				 if (!v) {
 					 ok = false;
 					 first_err = std::move(v).error();
@@ -1503,11 +1512,11 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::syntax_error,
 						.message = "std::expected key"});
 			}
-			std::string key;
-			auto key_res = r.key_token().append_decoded_to(key);
+			auto key_res = string_from_token(r.key_token());
 			if (!key_res) {
 				return std::unexpected(std::move(key_res).error());
 			}
+			std::string key = std::move(*key_res);
 			auto vne = r.next();
 			if (!vne) {
 				return std::unexpected(std::move(vne).error());
@@ -1519,7 +1528,7 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in object value"});
 			}
-			auto val = decode_from_event<Vt>(r, **vne, opts);
+			auto val = decode_from_event<Vt>(r, **vne, opts, scratch);
 			if (!val) {
 				return std::unexpected(std::move(val).error());
 			}

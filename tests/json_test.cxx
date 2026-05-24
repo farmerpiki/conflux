@@ -3120,6 +3120,21 @@ struct JsonMembers<P4Nested> {
 		};
 	}
 };
+struct P4LongKey {
+	std::int64_t value{};
+};
+[[nodiscard]] std::string const &p4_long_key_name() {
+	static std::string const key(260, 'a');
+	return key;
+}
+template<>
+struct JsonMembers<P4LongKey> {
+	static auto members() {
+		return std::tuple{
+			json_member(std::string_view{p4_long_key_name()}, &P4LongKey::value),
+		};
+	}
+};
 TEST_CASE(
 	"phase4: JsonReader scalar events",
 	"[phase4]") {
@@ -3547,6 +3562,35 @@ TEST_CASE(
 	CHECK((*v)[0].age == 1LL);
 	CHECK((*v)[1].name == "B");
 	CHECK((*v)[1].age == 2LL);
+}
+TEST_CASE(
+	"phase4: nested direct decode reuses caller scratch for long escaped keys",
+	"[phase4][direct]") {
+	CountingResource resource;
+	JsonDecodeScratch scratch;
+	scratch.reset_resource(&resource);
+
+	std::string escaped_key;
+	escaped_key.reserve(p4_long_key_name().size() + 5);
+	escaped_key += R"(\u0061)";
+	escaped_key.append(p4_long_key_name().size() - 1, 'a');
+
+	std::string input;
+	input.reserve((escaped_key.size() + 16) * 2);
+	input += R"([{")";
+	input += escaped_key;
+	input += R"(":1},{")";
+	input += escaped_key;
+	input += R"(":2}])";
+
+	JsonReader r{input};
+	auto v = decode_direct<std::vector<P4LongKey>>(r, {}, &scratch);
+	REQUIRE(v.has_value());
+	REQUIRE(v->size() == 2UZ);
+	CHECK((*v)[0].value == 1LL);
+	CHECK((*v)[1].value == 2LL);
+	CHECK(scratch.key_overflow.capacity() >= p4_long_key_name().size());
+	CHECK(resource.alloc_count == 1UZ);
 }
 TEST_CASE(
 	"phase4: decode<std::optional<std::int64_t>>(JsonReader&) with null",

@@ -340,10 +340,13 @@ export struct JsonDecodeScratch {
 
 	void reset_resource(
 		std::pmr::memory_resource *mr = std::pmr::get_default_resource()) {
-		resource = mr;
-		key_overflow = std::pmr::vector<char>{resource};
-		string_overflow = std::pmr::vector<char>{resource};
-		found_bits = std::pmr::vector<std::uint64_t>{resource};
+		resource = mr != nullptr ? mr : std::pmr::get_default_resource();
+		std::destroy_at(std::addressof(key_overflow));
+		std::construct_at(std::addressof(key_overflow), resource);
+		std::destroy_at(std::addressof(string_overflow));
+		std::construct_at(std::addressof(string_overflow), resource);
+		std::destroy_at(std::addressof(found_bits));
+		std::construct_at(std::addressof(found_bits), resource);
 	}
 };
 
