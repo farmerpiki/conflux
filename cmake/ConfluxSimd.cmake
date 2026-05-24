@@ -99,6 +99,15 @@ int main() {
 endfunction()
 
 function(conflux_add_stdsimd_targets backend)
+    set(_conflux_json_stdsimd_ifunc OFF)
+    if(_conflux_simd_selection STREQUAL "RUNTIME"
+            AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
+            AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
+            AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|i[3-6]86)$")
+        set(_conflux_json_stdsimd_ifunc ON)
+    endif()
+    set(CONFLUX_JSON_STDSIMD_IFUNC "${_conflux_json_stdsimd_ifunc}" PARENT_SCOPE)
+
     if(backend STREQUAL "STD26")
         add_library(conflux_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/simd_std26.cxx)
         target_compile_features(conflux_simd_std26 PRIVATE cxx_std_26)
@@ -115,6 +124,11 @@ function(conflux_add_stdsimd_targets backend)
         add_library(conflux_json_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/json_simd_std26.cxx)
         target_compile_features(conflux_json_simd_std26 PRIVATE cxx_std_26)
         target_link_libraries(conflux_json_simd_std26 PRIVATE conflux_options)
+        if(_conflux_json_stdsimd_ifunc)
+            target_compile_definitions(conflux_json_simd_std26 PRIVATE
+                CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_stdsimd_avx2
+                CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdsimd_avx2)
+        endif()
         set(_conflux_json_simd_std26_options "-mavx2")
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
@@ -132,6 +146,11 @@ function(conflux_add_stdsimd_targets backend)
         add_library(conflux_json_simd_stdx OBJECT ${CONFLUX_SRC_ROOT}/json_simd_stdx.cxx)
         target_compile_features(conflux_json_simd_stdx PRIVATE cxx_std_23)
         target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options)
+        if(_conflux_json_stdsimd_ifunc)
+            target_compile_definitions(conflux_json_simd_stdx PRIVATE
+                CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_stdsimd_avx2
+                CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdsimd_avx2)
+        endif()
         target_compile_options(conflux_json_simd_stdx PRIVATE "-mavx2")
     endif()
 
@@ -139,6 +158,10 @@ function(conflux_add_stdsimd_targets backend)
         string(TOLOWER "${backend}" _conflux_simd_target_suffix)
         add_library(conflux_simd_runtime STATIC $<TARGET_OBJECTS:conflux_simd_${_conflux_simd_target_suffix}>)
         target_link_libraries(conflux_simd_runtime PRIVATE conflux_options)
+        if(_conflux_json_stdsimd_ifunc)
+            add_library(conflux_json_simd_ifunc OBJECT ${CONFLUX_SRC_ROOT}/json_simd_ifunc.cxx)
+            target_link_libraries(conflux_json_simd_ifunc PRIVATE conflux_options)
+        endif()
     endif()
 endfunction()
 
@@ -157,5 +180,10 @@ function(conflux_attach_stdsimd_targets backend)
         target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
         string(TOLOWER "${backend}" _conflux_json_simd_target_suffix)
         target_sources(conflux_json PRIVATE $<TARGET_OBJECTS:conflux_json_simd_${_conflux_json_simd_target_suffix}>)
+        if(CONFLUX_JSON_STDSIMD_IFUNC)
+            message(STATUS "conflux: JSON runtime SIMD dispatch uses ELF IFUNC")
+            target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_STDSIMD_IFUNC=1)
+            target_sources(conflux_json PRIVATE $<TARGET_OBJECTS:conflux_json_simd_ifunc>)
+        endif()
     endif()
 endfunction()

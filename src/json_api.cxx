@@ -1809,6 +1809,11 @@ namespace detail::simd {
 	if (n >= kStdsimdThreshold) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);
 	}
+#elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME && defined(CONFLUX_JSON_STDSIMD_IFUNC)
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (n >= kStdsimdThreshold) {
+		return conflux_json_scan_str_until_special_stdsimd(p, n);
+	}
 #elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 32;
 	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {

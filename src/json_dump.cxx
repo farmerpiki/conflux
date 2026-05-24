@@ -48,6 +48,11 @@ inline void append_u_escape(
 	if (n >= kStdsimdThreshold) {
 		return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
 	}
+#elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME && defined(CONFLUX_JSON_STDSIMD_IFUNC)
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (n >= kStdsimdThreshold) {
+		return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
+	}
 #elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 32;
 	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
