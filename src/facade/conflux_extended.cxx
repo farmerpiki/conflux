@@ -38,9 +38,7 @@ export import conflux.net.config;
 export import conflux.net.http.client;
 #endif
 
-// Keep conflux.http.extended as an explicit leaf import for now. Re-exporting
-// the HTTP façade wrapper through profile modules currently trips GCC 16 module
-// namespace import ICEs.
+export import conflux.http.extended;
 
 #if CONFLUX_SURFACE_HAS_HTTP_APP
 export import conflux.net.app;
