@@ -1,6 +1,8 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
+import conflux.net.http.server_types;
+import conflux.net.router;
 
 namespace http_snapshot {
 
@@ -50,12 +52,6 @@ static_assert(std::same_as<http::Response, Response>);
 static_assert(std::same_as<http::RequestContext, RequestContext>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
-static_assert(
-	http::AsyncMiddleware<
-		decltype([](http::Request const &req, http::RequestContext const &ctx, http::AsyncNext const &next) -> http::Task<http::Response> {
-			co_return co_await next(req, ctx);
-		})>);
-
 void route_forms_compile() {
 	auto app = http::app();
 	std::string state = "state";

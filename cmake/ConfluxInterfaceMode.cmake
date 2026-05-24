@@ -326,6 +326,10 @@ function(conflux_apply_header_impl_common target)
         CONFLUX_HEADER_USE_IMPORT_STD=0
         CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
         CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+        CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
+        CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
+        CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
+        CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
         CONFLUX_HAS_TLS=$<BOOL:${CONFLUX_HAS_TLS}>
         CONFLUX_HAS_COMPRESS=$<BOOL:${CONFLUX_HAS_COMPRESS}>
         CONFLUX_HAS_ZLIB=$<BOOL:${CONFLUX_HAS_ZLIB}>
@@ -596,6 +600,10 @@ function(conflux_add_header_interface_target)
         CONFLUX_HEADER_USE_IMPORT_STD=0
         CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
         CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+        CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
+        CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
+        CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
+        CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
         CONFLUX_HAS_TLS=$<BOOL:${CONFLUX_HAS_TLS}>
         CONFLUX_HAS_COMPRESS=$<BOOL:${CONFLUX_HAS_COMPRESS}>
         CONFLUX_HAS_ZLIB=$<BOOL:${CONFLUX_HAS_ZLIB}>
@@ -1360,6 +1368,24 @@ function(conflux_add_header_compile_fail_tests)
         "AppRouteRateLimit"
         "is not a member of"
         "conflux::http")
+    conflux_add_header_compile_fail_test(
+        http-facade-header/compile-fail-middleware-concept-alias
+        tests/http_facade_compile_fail_middleware_concept_alias
+        "Middleware"
+        "is not a member of"
+        "conflux::http")
+    conflux_add_header_compile_fail_test(
+        http-facade-header/compile-fail-router-member
+        tests/http_facade_compile_fail_router_member
+        "router"
+        "has no member named"
+        "conflux::http::App")
+    conflux_add_header_compile_fail_test(
+        http-facade-header/compile-fail-route-infos-member
+        tests/http_facade_compile_fail_route_infos_member
+        "route_infos"
+        "has no member named"
+        "conflux::http::App")
 endfunction()
 
 function(conflux_add_header_benchmark_compile_targets)

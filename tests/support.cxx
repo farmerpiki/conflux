@@ -9,7 +9,10 @@ export module conflux.tests.support;
 
 import std;
 import conflux.types;
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.http_server;
+import conflux.net.router;
+import conflux.net.vhost;
 export namespace conflux::tests {
 
 std::string read_one_response(

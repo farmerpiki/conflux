@@ -1,7 +1,7 @@
 // External TLS validation tests.
+#include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
 #include <conflux/detail/discard.hxx>
-#include <arpa/inet.h>
 #include <cstdlib>
 #include <netinet/in.h>
 #include <poll.h>
@@ -10,7 +10,11 @@
 
 import std;
 import conflux.types;
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.http.realtime;
+import conflux.net.http.static_files;
+import conflux.net.http_server;
+import conflux.net.router;
 import conflux.tests.external_support;
 
 namespace {
@@ -30,7 +34,8 @@ public:
 	}
 	TcpFd(TcpFd const &) = delete;
 	TcpFd &operator =(TcpFd const &) = delete;
-	TcpFd(TcpFd &&other) noexcept
+	TcpFd(
+		TcpFd &&other) noexcept
 		: fd_{std::exchange(other.fd_, -1)} {}
 	TcpFd &operator =(
 		TcpFd &&other) noexcept {
@@ -71,10 +76,10 @@ public:
 	auto const deadline = std::chrono::steady_clock::now() + budget;
 	std::array<char, 256> buf{};
 	while (std::chrono::steady_clock::now() < deadline) {
-		auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-			deadline - std::chrono::steady_clock::now());
+		auto const remaining =
+			std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
 		pollfd pfd{.fd = fd, .events = POLLIN | POLLHUP | POLLERR, .revents = 0};
-		int const rc = ::poll(&pfd, 1, static_cast<int>(std::max(remaining.count(), 1LL)));
+		int const rc = ::poll(&pfd, 1, static_cast<int>(std::max(remaining.count(), decltype(remaining.count()){1})));
 		if (rc <= 0) {
 			break;
 		}
@@ -244,10 +249,9 @@ TEST_CASE(
 	"tls/bad-client: malformed ClientHello is rejected and server stays healthy") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto fd = connect_loopback(fx.port());
-	std::array<unsigned char, 27> const garbage{
-		0x16, 0x03, 0x03, 0x00, 0x20,
-		'n', 'o', 't', '-', 'a', '-', 'r', 'e', 'a', 'l', '-',
-		'c', 'l', 'i', 'e', 'n', 't', 'h', 'e', 'l', 'l', 'o'};
+	std::array<unsigned char, 27> const garbage{0x16, 0x03, 0x03, 0x00, 0x20, 'n', 'o', 't', '-',
+												'a',  '-',  'r',  'e',  'a',  'l', '-', 'c', 'l',
+												'i',  'e',  'n',  't',  'h',  'e', 'l', 'l', 'o'};
 	REQUIRE(::send(fd.get(), garbage.data(), garbage.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(garbage.size()));
 	::shutdown(fd.get(), SHUT_WR);
 	auto const response = read_available(fd.get(), std::chrono::milliseconds{500});

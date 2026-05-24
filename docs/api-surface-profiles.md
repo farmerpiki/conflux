@@ -111,8 +111,8 @@ from `conflux.features`.
 ## HTTP façade split
 
 `conflux.http` is the curated HTTP application façade. It keeps route registration,
-request/response helpers, typed extractors, JSON response helpers, middleware
-helpers, and coroutine handler spelling. Lower-level WorkPool-based offload helpers
-are intentionally outside the curated façade; use `import conflux.http.extended`,
-`import conflux.extended`, or explicit `conflux.work` + `conflux.net.app.defer`
-for those escape hatches.
+request/response helpers, typed extractors, JSON response helpers, common middleware
+helper functions, and coroutine handler spelling. Lower-level WorkPool-based offload helpers,
+blocking file helpers, OpenAPI route-handler mounting, named middleware concept aliases,
+and raw-router access are intentionally outside the curated façade; use `import conflux.http.extended`,
+`import conflux.extended`, or explicit leaf imports for those escape hatches.

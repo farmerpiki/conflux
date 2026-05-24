@@ -41,9 +41,15 @@ struct nullable_inner<Nullable<T>> {
 template<class T>
 using nullable_inner_t = typename nullable_inner<T>::type;
 template<class T>
-struct is_vector_of : std::false_type {};
+struct is_basic_string_of_char : std::false_type {};
+template<class Traits, class Alloc>
+struct is_basic_string_of_char<std::basic_string<char, Traits, Alloc>> : std::true_type {};
 template<class T>
-struct is_vector_of<std::vector<T>> : std::true_type {};
+constexpr bool is_basic_string_of_char_v = is_basic_string_of_char<T>::value;
+template<class T>
+struct is_vector_of : std::false_type {};
+template<class T, class Alloc>
+struct is_vector_of<std::vector<T, Alloc>> : std::true_type {};
 template<class T>
 constexpr bool is_vector_of_v = is_vector_of<T>::value;
 template<class T>
@@ -116,16 +122,16 @@ template<>
 struct direct_writable<std::uint64_t> : std::true_type {};
 template<>
 struct direct_writable<double> : std::true_type {};
-template<>
-struct direct_writable<std::string> : std::true_type {};
+template<class Traits, class Alloc>
+struct direct_writable<std::basic_string<char, Traits, Alloc>> : std::true_type {};
 template<>
 struct direct_writable<std::string_view> : std::true_type {};
 template<class T>
 struct direct_writable<std::optional<T>> : direct_writable<std::remove_cvref_t<T>> {};
 template<class T>
 struct direct_writable<Nullable<T>> : direct_writable<std::remove_cvref_t<T>> {};
-template<class T>
-struct direct_writable<std::vector<T>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T, class Alloc>
+struct direct_writable<std::vector<T, Alloc>> : direct_writable<std::remove_cvref_t<T>> {};
 template<class T, std::size_t N>
 struct direct_writable<std::array<T, N>> : direct_writable<std::remove_cvref_t<T>> {};
 template<class T>
@@ -592,8 +598,9 @@ template<class T>
 struct json_contains_borrowed_view_impl<std::optional<T>> : json_contains_borrowed_view_impl<std::remove_cvref_t<T>> {};
 template<class T>
 struct json_contains_borrowed_view_impl<Nullable<T>> : json_contains_borrowed_view_impl<std::remove_cvref_t<T>> {};
-template<class T>
-struct json_contains_borrowed_view_impl<std::vector<T>> : json_contains_borrowed_view_impl<std::remove_cvref_t<T>> {};
+template<class T, class Alloc>
+struct json_contains_borrowed_view_impl<std::vector<T, Alloc>>
+	: json_contains_borrowed_view_impl<std::remove_cvref_t<T>> {};
 template<class T, std::size_t N>
 struct json_contains_borrowed_view_impl<std::array<T, N>> : json_contains_borrowed_view_impl<std::remove_cvref_t<T>> {};
 
@@ -612,16 +619,16 @@ template<>
 struct JsonCodec<std::uint64_t>;
 template<>
 struct JsonCodec<double>;
-template<>
-struct JsonCodec<std::string>;
+template<class Traits, class Alloc>
+struct JsonCodec<std::basic_string<char, Traits, Alloc>>;
 template<>
 struct JsonCodec<std::string_view>;
 template<class T>
 struct JsonCodec<std::optional<T>>;
 template<class T>
 struct JsonCodec<Nullable<T>>;
-template<class T>
-struct JsonCodec<std::vector<T>>;
+template<class T, class Alloc>
+struct JsonCodec<std::vector<T, Alloc>>;
 template<class T, std::size_t N>
 struct JsonCodec<std::array<T, N>>;
 template<class A, class B>
@@ -724,20 +731,22 @@ struct JsonCodec<double> {
 	}
 	static constexpr std::string_view type_name() { return "double"; }
 };
-template<>
-struct JsonCodec<std::string> {
-	static std::expected<std::string, JsonError> decode(
+template<class Traits, class Alloc>
+struct JsonCodec<std::basic_string<char, Traits, Alloc>> {
+	using String = std::basic_string<char, Traits, Alloc>;
+
+	static std::expected<String, JsonError> decode(
 		NodeRef n) {
 		auto sv = n.as_string();
 		if (!sv) {
 			return std::unexpected(std::move(sv).error());
 		}
-		return std::string{*sv};
+		return String{*sv};
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
-		std::string const &v) {
-		return b.set_string(v);
+		String const &v) {
+		return b.set_string(std::string_view{v.data(), v.size()});
 	}
 	static constexpr std::string_view type_name() { return "string"; }
 };
@@ -817,10 +826,11 @@ struct JsonCodec<Nullable<T>> {
 };
 namespace detail {
 
-template<class T>
-std::expected<std::vector<T>, JsonError> decode_array_elements(
+template<class Vec>
+std::expected<Vec, JsonError> decode_array_elements(
 	ArrayView const &arr) {
-	std::vector<T> result;
+	using T = typename Vec::value_type;
+	Vec result;
 	result.reserve(arr.size());
 	for (std::size_t i = 0; i < arr.size(); ++i) {
 		auto elem = arr.element(i);
@@ -839,19 +849,21 @@ std::expected<std::vector<T>, JsonError> decode_array_elements(
 }
 
 } // namespace detail
-template<class T>
-struct JsonCodec<std::vector<T>> {
-	static std::expected<std::vector<T>, JsonError> decode(
+template<class T, class Alloc>
+struct JsonCodec<std::vector<T, Alloc>> {
+	using Vec = std::vector<T, Alloc>;
+
+	static std::expected<Vec, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
 		if (!arr) {
 			return std::unexpected(std::move(arr).error());
 		}
-		return detail::decode_array_elements<T>(*arr);
+		return detail::decode_array_elements<Vec>(*arr);
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
-		std::vector<T> const &v) {
+		Vec const &v) {
 		auto arr_res = b.begin_array();
 		if (!arr_res) {
 			return std::unexpected(std::move(arr_res).error());
@@ -1196,17 +1208,20 @@ std::expected<T, JsonError> decode_from_event(
 	return token.decode_into(std::span<char>{scratch.key_overflow.data(), scratch.key_overflow.size()});
 }
 
-[[nodiscard]] inline std::expected<std::string, JsonError> string_from_token(
+template<class String>
+[[nodiscard]] inline std::expected<String, JsonError> string_from_token(
 	JsonStringToken const &token) {
+	String out;
 	if (auto borrowed = token.unescaped_borrow()) {
-		return std::string{*borrowed};
+		out.assign(borrowed->data(), borrowed->size());
+		return out;
 	}
-	std::string out;
-	out.reserve(token.max_decoded_size());
-	auto res = token.append_decoded_to(out);
+	out.resize(token.max_decoded_size());
+	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
 	if (!res) {
 		return std::unexpected(std::move(res).error());
 	}
+	out.resize(res->size());
 	return out;
 }
 
@@ -1292,16 +1307,23 @@ struct JsonPresenceBits {
 		.message = std::format("duplicate member: {}", name)};
 }
 
+template<class String>
 [[nodiscard]] inline std::expected<void, JsonError> decode_string_into(
-	std::string &out,
+	String &out,
 	JsonStringToken const &token) {
 	if (auto borrowed = token.unescaped_borrow()) {
-		out.assign(*borrowed);
+		out.assign(borrowed->data(), borrowed->size());
 		return {};
 	}
 	out.clear();
-	out.reserve(token.max_decoded_size());
-	return token.append_decoded_to(out);
+	out.resize(token.max_decoded_size());
+	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
+	if (!res) {
+		out.clear();
+		return std::unexpected(std::move(res).error());
+	}
+	out.resize(res->size());
+	return {};
 }
 
 template<class T>
@@ -1565,7 +1587,7 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected number"});
 		}
 		return r.number_val().to_f64();
-	} else if constexpr (std::same_as<T, std::string>) {
+	} else if constexpr (is_basic_string_of_char_v<T>) {
 		if (ev != Ev::string_value) {
 			return std::unexpected(
 				JsonError{
@@ -1573,7 +1595,7 @@ std::expected<T, JsonError> decode_from_event(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected string"});
 		}
-		return string_from_token(r.string_token());
+		return string_from_token<T>(r.string_token());
 	} else if constexpr (std::same_as<T, std::string_view>) {
 		static_assert(
 			!std::same_as<T, std::string_view>,
@@ -1836,7 +1858,7 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::syntax_error,
 						.message = "std::expected key"});
 			}
-			auto key_res = string_from_token(r.key_token());
+			auto key_res = string_from_token<std::string>(r.key_token());
 			if (!key_res) {
 				return std::unexpected(std::move(key_res).error());
 			}
@@ -1899,7 +1921,7 @@ std::expected<void, JsonError> decode_into(
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
-	if constexpr (std::same_as<T, std::string>) {
+	if constexpr (is_basic_string_of_char_v<T>) {
 		if (ev != Ev::string_value) {
 			return std::unexpected(
 				JsonError{
@@ -2615,7 +2637,7 @@ constexpr std::string_view json_type_name() noexcept {
 		return "integer";
 	} else if constexpr (std::same_as<Raw, double> || std::same_as<Raw, float>) {
 		return "number";
-	} else if constexpr (std::same_as<Raw, std::string> || std::same_as<Raw, std::string_view>) {
+	} else if constexpr (is_basic_string_of_char_v<Raw> || std::same_as<Raw, std::string_view>) {
 		return "string";
 	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
 		return "array";

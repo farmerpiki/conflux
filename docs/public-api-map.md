@@ -14,7 +14,7 @@ semantics, see [`api-surface-profiles.md`](api-surface-profiles.md).
 | Stable candidate | `import conflux.curated;` / `<conflux/curated.hxx>` | Recommended polished app/library API. |
 | Stable candidate | `import conflux.http;` / `<conflux/http.hxx>` | Normal HTTP app API. |
 | Stable candidate | `import conflux.json;` / `<conflux/json.hxx>` | JSON DOM/view/serde. |
-| Advanced | `import conflux.extended;` / `<conflux/extended.hxx>` | Stable extension points and production customization. |
+| Advanced | `import conflux.extended;` / `<conflux/extended.hxx>` | Stable extension points, production customization, and advanced HTTP façade helpers. |
 | Advanced | `import conflux.work;` / `<conflux/work.hxx>` | Task/runtime primitives. |
 | Low-level public | `import conflux.complete;` / `<conflux/complete.hxx>` | Documented low-level escape hatches. |
 | Low-level public | `import conflux.uring;` / `<conflux/uring.hxx>` | Raw Linux/io_uring machinery. |

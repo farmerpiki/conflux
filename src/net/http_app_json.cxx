@@ -220,7 +220,7 @@ public:
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
 	{
-		app_->router().add(method, path, make_handler_with<Provider>(std::forward<F>(fn), opts));
+		app_->add(method, path, make_handler_with<Provider>(std::forward<F>(fn), opts));
 		return *app_;
 	}
 
@@ -233,10 +233,7 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		app_->router().add(
-			method,
-			path,
-			make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
+		app_->add(method, path, make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
 		return *app_;
 	}
 

@@ -1,7 +1,9 @@
 // Advanced runtime example: HTTP/3 probe with explicit ring/taskrun config.
 #include <cstdlib>
 #include <unistd.h>
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.http_server;
+import conflux.net.router;
 import std;
 import conflux.types;
 int main() {

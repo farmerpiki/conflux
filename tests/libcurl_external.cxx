@@ -9,7 +9,9 @@
 
 import std;
 import conflux.types;
-import conflux.net.http;
+import conflux.net.http.realtime;
+import conflux.net.http.static_files;
+import conflux.net.router;
 import conflux.tests.external_support;
 
 namespace {

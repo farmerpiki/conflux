@@ -1,12 +1,12 @@
 #include "cpu_features.hxx"
 
-#if CONFLUX_ENABLE_CPU_DISPATCH                                                          \
+#if CONFLUX_CPU_FEATURE_PROBES_RUNTIME                                                   \
 	&& (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) \
 	&& (defined(__GNUC__) || defined(__clang__))
 	#define CONFLUX_CPU_HAS_X86_BUILTINS 1
 #endif
 
-#if CONFLUX_ENABLE_CPU_DISPATCH
+#if CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 namespace {
 
 [[nodiscard]] bool detect_avx2_once() noexcept {
@@ -34,7 +34,7 @@ namespace {
 #endif
 
 extern "C" bool conflux_cpu_supports_avx2() noexcept {
-#if !CONFLUX_ENABLE_CPU_DISPATCH
+#if !CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	return true;
 #else
 	static bool const supported = detect_avx2_once();
@@ -43,7 +43,7 @@ extern "C" bool conflux_cpu_supports_avx2() noexcept {
 }
 
 extern "C" bool conflux_cpu_supports_aesni_pclmul_sse41() noexcept {
-#if !CONFLUX_ENABLE_CPU_DISPATCH
+#if !CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	return true;
 #else
 	static bool const supported = detect_aesni_pclmul_sse41_once();

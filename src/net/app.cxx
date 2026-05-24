@@ -30,6 +30,11 @@ import conflux.net.http.native_json;
 import conflux.work;
 export namespace conflux::http {
 
+class App;
+Router &router(App &app) noexcept;
+Router const &router(App const &app) noexcept;
+std::vector<RouteInfo> route_infos(App const &app);
+
 namespace detail {
 
 template<class T>
@@ -984,9 +989,9 @@ public:
 	}
 	[[nodiscard]] Config &config() { return cfg_; }
 	[[nodiscard]] Config const &config() const { return cfg_; }
-	[[nodiscard]] Router &router() { return router_; }
-	[[nodiscard]] Router const &router() const { return router_; }
-	[[nodiscard]] std::vector<RouteInfo> route_infos() const { return router_.route_infos(); }
+	friend Router &router(App &app) noexcept;
+	friend Router const &router(App const &app) noexcept;
+	friend std::vector<RouteInfo> route_infos(App const &app);
 	[[nodiscard]] std::vector<AppRouteInfo> routes() const {
 		std::vector<AppRouteInfo> out;
 		out.reserve(route_metadata_.size());
@@ -2264,6 +2269,21 @@ private:
 	std::shared_ptr<AppJsonOptions> json_options_;
 #endif
 };
+
+[[nodiscard]] Router &router(
+	App &app) noexcept {
+	return app.router_;
+}
+
+[[nodiscard]] Router const &router(
+	App const &app) noexcept {
+	return app.router_;
+}
+
+[[nodiscard]] std::vector<RouteInfo> route_infos(
+	App const &app) {
+	return router(app).route_infos();
+}
 
 [[nodiscard]] App app(
 	Config cfg = Config::public_server()) {

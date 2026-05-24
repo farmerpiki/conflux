@@ -15,7 +15,9 @@
 //   curl -k https://localhost:9090/hello/World
 #include <cstdlib> // mkstemps, system
 #include <unistd.h> // close, unlink
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.http_server;
+import conflux.net.router;
 import std;
 import conflux.types;
 // Write a PEM std::string to a temp file and return the path.

@@ -1,8 +1,7 @@
 # Proposal: Independent SIMD Direct Builds and Runtime Dispatch — Stage 1 Update
 
-## Status
-
-Active / partially implemented by this patch.
+Status: Active / under validation.
+Branch: `simd/dispatch-independence-stage1`
 
 This is the tightened Stage 1 proposal after verification against the current tree. It keeps the original goal, narrows the first implementation step, and fixes two wording issues:
 
@@ -55,7 +54,7 @@ DIRECT
   With the current object flags, STDX/STD26 direct builds are AVX2-specific.
 
 RUNTIME
-  Preserve current call-site guard behavior for now.
+  Preserve current call-site guard behavior for now. Runtime CPU-feature probes are enabled by the resolved SIMD selection even when the legacy CPU-dispatch knob is explicitly OFF; otherwise the guard would compile but return unconditional true.
 ```
 
 Keep:
@@ -74,9 +73,10 @@ The normalized policy produces:
 ```cpp
 CONFLUX_SIMD_SELECTION_DIRECT=0|1
 CONFLUX_SIMD_SELECTION_RUNTIME=0|1
+CONFLUX_CPU_FEATURE_PROBES_RUNTIME=0|1
 ```
 
-These are internal build-shape definitions. Public API code should not branch behaviorally on them except for implementation dispatch.
+These are internal build-shape definitions. Public API code should not branch behaviorally on them except for implementation dispatch. `CONFLUX_CPU_FEATURE_PROBES_RUNTIME` is intentionally distinct from `CONFLUX_ENABLE_CPU_DISPATCH`: the legacy knob remains visible for AES-GCM and other existing policy, while resolved SIMD runtime mode still makes the shared CPU probe functions perform real detection.
 
 ## Source changes
 
@@ -131,10 +131,16 @@ direct:
   CONFLUX_SIMD_SELECTION=DIRECT
   CONFLUX_ENABLE_CPU_DISPATCH=OFF
 
-runtime:
+runtime legacy-compatible:
+  CONFLUX_USE_STDSIMD=STDX or STD26 when available
+  CONFLUX_SIMD_SELECTION=AUTO
+  CONFLUX_ENABLE_CPU_DISPATCH=ON
+
+runtime explicit override:
   CONFLUX_USE_STDSIMD=STDX or STD26 when available
   CONFLUX_SIMD_SELECTION=RUNTIME
-  CONFLUX_ENABLE_CPU_DISPATCH=ON or OFF
+  CONFLUX_ENABLE_CPU_DISPATCH=OFF
+  expected: CONFLUX_CPU_FEATURE_PROBES_RUNTIME=1 and runtime guards perform real detection
 ```
 
 Required direct object-shape proof:
@@ -164,7 +170,7 @@ Use OFF/scalar for baseline-safe builds without those SIMD objects.
 - Configure rejects invalid `CONFLUX_SIMD_SELECTION` values.
 - `AUTO` resolves from `CONFLUX_ENABLE_CPU_DISPATCH` as described above.
 - Direct mode compiles hot stdsimd call sites without `conflux_cpu_supports_avx2()` calls.
-- Runtime mode preserves existing runtime guard behavior.
+- Runtime mode preserves existing runtime guard behavior, including real CPU-feature detection when selected explicitly with the legacy CPU-dispatch knob OFF.
 - Scalar mode still builds without stdsimd objects.
 - Direct object-shape CTest exists.
 - Existing correctness tests pass in the required sandbox build mode.

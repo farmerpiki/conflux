@@ -520,11 +520,11 @@ auto doc = move(b).finish();
 | `int64_t` | integer number |
 | `uint64_t` | integer number |
 | `double` | number |
-| `string` | string (copied) |
+| `string` / `basic_string<char, Traits, Alloc>` | string (copied; allocator-aware strings use their own allocator) |
 | `string_view` | string (borrowed — caller ensures lifetime) |
 | `optional<T>` | `null` or `T` |
 | `Nullable<T>` | `null` or `T` (null-aware wrapper) |
-| `vector<T>` | array |
+| `vector<T, Alloc>` | array (allocator-aware vectors use their own allocator) |
 | `array<T, N>` | array (exact size required) |
 | `pair<A, B>` | two-element array |
 | `tuple<Ts...>` | N-element array |
@@ -550,7 +550,13 @@ Convenience factory used inside `JsonMembers<T>::members()` tuples.
 
 Specialise `JsonMembers<T>` to decode structs. Unknown members and missing
 required members are errors. `optional<T>` fields are optional; all others
-are required.
+are required. Reader-path struct decode writes supported field types directly
+into the destination field. Allocator-aware `std::basic_string<char, Traits, Alloc>`
+and `std::vector<T, Alloc>` fields are accepted; they keep the allocator of
+the field object being decoded. The current public return-by-value decode APIs
+still default-construct `T`, so PMR fields use the default PMR resource unless
+the caller owns the destination object through a future resource-aware API.
+No PMR performance claim is implied by this support.
 
 For GCC 16+ P2996 builds, `conflux.json.reflect` provides a zero-boilerplate
 aggregate path instead. See `json-reflect.md` and

@@ -39,6 +39,17 @@ private:
 	}
 };
 
+struct DefaultPmrResourceGuard {
+	std::pmr::memory_resource *previous{};
+
+	explicit DefaultPmrResourceGuard(
+		std::pmr::memory_resource *next)
+		: previous{std::pmr::set_default_resource(next)} {}
+	~DefaultPmrResourceGuard() { std::pmr::set_default_resource(previous); }
+	DefaultPmrResourceGuard(DefaultPmrResourceGuard const &) = delete;
+	DefaultPmrResourceGuard &operator =(DefaultPmrResourceGuard const &) = delete;
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -3148,6 +3159,20 @@ struct JsonMembers<P4BorrowedName> {
 };
 static_assert(json_contains_borrowed_view_v<P4BorrowedName>);
 
+struct P4PmrPayload {
+	std::pmr::string name{};
+	std::pmr::vector<std::int64_t> scores{};
+};
+template<>
+struct JsonMembers<P4PmrPayload> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("name", &P4PmrPayload::name),
+			json_member("scores", &P4PmrPayload::scores),
+		};
+	}
+};
+
 struct P4WideInner {
 	std::int64_t f0{};
 	std::int64_t f1{};
@@ -3772,6 +3797,39 @@ TEST_CASE(
 	auto p = decode<P4Person>(r);
 	REQUIRE(p.has_value());
 	CHECK(p->name == "A\nB");
+}
+TEST_CASE(
+	"phase7: JsonMembers reader decode supports pmr string and vector fields",
+	"[phase7][json][pmr]") {
+	CountingResource resource;
+	DefaultPmrResourceGuard guard{&resource};
+	std::string input{R"({"name":")"};
+	input += std::string(128, 'x');
+	input += R"(","scores":[1,2,3,4,5,6,7,8,9,10]})";
+	JsonReader r{input};
+	auto payload = decode<P4PmrPayload>(r);
+	REQUIRE(payload.has_value());
+	CHECK(std::string_view{payload->name} == std::string(128, 'x'));
+	REQUIRE(payload->scores.size() == 10UZ);
+	CHECK(payload->scores[9] == 10);
+	CHECK(payload->name.get_allocator().resource() == &resource);
+	CHECK(payload->scores.get_allocator().resource() == &resource);
+	CHECK(resource.alloc_count > 0);
+}
+TEST_CASE(
+	"phase7: DOM decode supports allocator-aware string and vector codecs",
+	"[phase7][json][pmr]") {
+	CountingResource resource;
+	DefaultPmrResourceGuard guard{&resource};
+	auto doc = parse(R"({"name":"dom-pmr","scores":[11,12,13]})");
+	REQUIRE(doc.has_value());
+	auto payload = decode<P4PmrPayload>(doc->root());
+	REQUIRE(payload.has_value());
+	CHECK(payload->name == "dom-pmr");
+	REQUIRE(payload->scores.size() == 3UZ);
+	CHECK(payload->scores[2] == 13);
+	CHECK(payload->name.get_allocator().resource() == &resource);
+	CHECK(payload->scores.get_allocator().resource() == &resource);
 }
 TEST_CASE(
 	"phase4: recursive wide JsonMembers presence bits are object local",

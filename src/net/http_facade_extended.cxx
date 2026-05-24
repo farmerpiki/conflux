@@ -9,12 +9,23 @@ export import conflux.http;
 export import conflux.work;
 import std;
 import conflux.net.app.defer;
+import conflux.net.router;
 import conflux.file_io_sync;
 import conflux.types;
 
 export namespace conflux::http {
 
 using Router = ::Router;
+using RouteInfo = ::RouteInfo;
+
+template<class F>
+concept ViewMiddleware = ::ViewMiddleware<F>;
+template<class F>
+concept RequestMiddleware = ::RequestMiddleware<F>;
+template<class F>
+concept AsyncMiddleware = ::AsyncMiddleware<F>;
+template<class F>
+concept Middleware = ::Middleware<F>;
 
 [[nodiscard]] Response file(
 	std::filesystem::path const &path,

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import conflux.http;
+import conflux.net.http.server_types;
 import std;
 
 namespace http = conflux::http;
@@ -13,12 +14,9 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
 
-	Request req;
-	req.method = "GET";
-	req.path = "/health";
-
-	auto response = app.router().dispatch(req);
-	CHECK(response.status == kHttpOk);
-	CHECK(response.text_body() == "ok");
-	CHECK(app.routes()[0].name == "health.check");
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].method == "GET");
+	CHECK(routes[0].path == "/health");
+	CHECK(routes[0].name == "health.check");
 }

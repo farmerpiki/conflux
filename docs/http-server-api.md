@@ -60,14 +60,14 @@ return static_cast<int>(*status);
 
 ### App facade passthroughs
 
-`http::App` mirrors the router APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods without dropping to `app.router()`, ordinary verbs for handlers that need `RequestContext`, ordinary `app.use(...)` for sync or owned async middleware, and `app.route_infos()` for OpenAPI route metadata. Context-specific registration remains available on the lower-level router for advanced integrations that need direct router ownership.
+`http::App` keeps the route-registration APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods, ordinary verbs for handlers that need `RequestContext`, ordinary `app.use(...)` for sync or owned async middleware, and `app.routes()` / `app.openapi_spec()` for app-level metadata. The raw router is an extended escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::Request const& req) {
     return http::Response::text(std::string{req.params["id"]});
 });
 
-auto infos = app.route_infos();
+auto routes = app.routes();
 ```
 
 ---
@@ -848,8 +848,10 @@ auto spec = app.openapi_spec();      // app metadata backed OpenAPI JSON
 ```
 
 `import conflux.http.extended;` also exposes `http::openapi_handler(app, title, version)`
-for mounting the generated spec as a route handler. The curated `App` surface keeps
-`openapi_spec()` as plain data and does not expose a router-handler member.
+for mounting the generated spec as a route handler, plus `http::router(app)` and
+`http::route_infos(app)` for integrations that deliberately need the lower-level
+router metadata. The curated `App` surface keeps `openapi_spec()` as plain data
+and does not expose router-handler or raw-router members.
 
 `app.validate()` returns source locations for route and static-mount issues.
 `ValidationReport::detailed_summary()` includes both the reported source and any

@@ -64,6 +64,10 @@ struct is_opt_refl : std::false_type {};
 template<class T>
 struct is_opt_refl<std::optional<T>> : std::true_type {};
 template<class T>
+struct is_basic_string_refl : std::false_type {};
+template<class Traits, class Alloc>
+struct is_basic_string_refl<std::basic_string<char, Traits, Alloc>> : std::true_type {};
+template<class T>
 struct is_vector_refl : std::false_type {};
 template<class T, class Alloc>
 struct is_vector_refl<std::vector<T, Alloc>> : std::true_type {};
@@ -220,16 +224,23 @@ inline void reflect_indent(
 		.message = std::format("duplicate member: {}", name)};
 }
 
+template<class String>
 [[nodiscard]] inline std::expected<void, JsonError> reflect_decode_string_into(
-	std::string &out,
+	String &out,
 	JsonStringToken const &token) {
 	if (auto borrowed = token.unescaped_borrow()) {
-		out.assign(*borrowed);
+		out.assign(borrowed->data(), borrowed->size());
 		return {};
 	}
 	out.clear();
-	out.reserve(token.max_decoded_size());
-	return token.append_decoded_to(out);
+	out.resize(token.max_decoded_size());
+	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
+	if (!res) {
+		out.clear();
+		return std::unexpected(std::move(res).error());
+	}
+	out.resize(res->size());
+	return {};
 }
 
 template<class T>
@@ -358,7 +369,7 @@ template<class M>
 		}
 		out = reader.bool_val();
 		return {};
-	} else if constexpr (std::same_as<Raw, std::string>) {
+	} else if constexpr (is_basic_string_refl<Raw>::value) {
 		if (event != Ev::string_value) {
 			return std::unexpected(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected string"});
@@ -1010,8 +1021,8 @@ std::expected<void, JsonError> reflect_write_value(
 	} else if constexpr (std::same_as<Raw, bool>) {
 		out += value ? "true" : "false";
 		return {};
-	} else if constexpr (std::same_as<Raw, std::string>) {
-		reflect_dump_string(out, value, opts.ascii_only);
+	} else if constexpr (is_basic_string_refl<Raw>::value) {
+		reflect_dump_string(out, std::string_view{value.data(), value.size()}, opts.ascii_only);
 		return {};
 	} else if constexpr (std::same_as<Raw, std::string_view>) {
 		reflect_dump_string(out, value, opts.ascii_only);

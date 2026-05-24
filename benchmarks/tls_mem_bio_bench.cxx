@@ -5,12 +5,12 @@
 // keeps a warm client/server TLS session connected by OpenSSL memory BIO pairs
 // and measures record encode/decode for payload sizes used by static/HTTP rows.
 
+#include <bits/stdc++.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-import std;
 import bench_common;
 
 using namespace std::string_view_literals;
@@ -219,7 +219,8 @@ void ssl_write_all(
 	std::span<char const> data) {
 	std::size_t off = 0;
 	while (off < data.size()) {
-		int const n = SSL_write(ssl, data.data() + off, static_cast<int>(std::min<std::size_t>(data.size() - off, 16 * 1024)));
+		int const n =
+			SSL_write(ssl, data.data() + off, static_cast<int>(std::min<std::size_t>(data.size() - off, 16 * 1024)));
 		if (n <= 0) {
 			throw_ssl_error(ssl, n, "SSL_write"sv);
 			continue;
@@ -271,13 +272,15 @@ void print_row(
 	std::string_view variant,
 	std::uint64_t total_ns,
 	bool &first) {
-	double const ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, cfg.iterations));
+	double const ns_per_iter =
+		static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, cfg.iterations));
 	double const mib = static_cast<double>(cfg.bytes) / (1024.0 * 1024.0);
 	double const seconds = static_cast<double>(total_ns) / 1e9;
 	double const mib_s = seconds > 0.0 ? (mib * static_cast<double>(cfg.iterations)) / seconds : 0.0;
 	if (cfg.json_out) {
 		std::println(
-			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":\"micro/user-space\",\"payload_bytes\":{},\"mib_per_s\":{:.1f},\"sink\":{}}}",
+			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":"
+			"\"micro/user-space\",\"payload_bytes\":{},\"mib_per_s\":{:.1f},\"sink\":{}}}",
 			cfg.config_name,
 			variant,
 			cfg.iterations,

@@ -6,6 +6,7 @@
 //   curl -X POST http://localhost:9111/api/hash
 //        -H 'Content-Type: application/json' -d '{"input":"conflux","rounds":200}'
 import conflux.extended;
+import conflux.net.http.server_types;
 import conflux.net.http.native_json;
 import std;
 

@@ -1,5 +1,4 @@
 import conflux;
-import conflux.http.extended;
 import std;
 
 struct StatusReply {
@@ -20,7 +19,7 @@ int main() {
 	app.get("/health", [] { return http::json(StatusReply{.status = "ok"}); })
 		.name("health.check")
 		.openapi_summary("Health check");
-	app.get("/openapi.json", http::openapi_handler(app, "conflux quickstart", "0.1.0"));
+	app.get("/openapi.json", [&app] { return http::Response::json(app.openapi_spec("conflux quickstart", "0.1.0")); });
 
 	return static_cast<int>(std::move(app).run({.port = 9098}));
 }

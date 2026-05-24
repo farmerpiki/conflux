@@ -3,7 +3,11 @@
 #include <cctype>
 
 import std;
-import conflux.net.http;
+import conflux.net.app;
+import conflux.net.config;
+import conflux.net.http_server;
+import conflux.net.observability;
+import conflux.net.router;
 import conflux.net.observability;
 import conflux.tests.support;
 

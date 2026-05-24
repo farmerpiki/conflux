@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 import conflux.net.http.server;
+import conflux.http.extended;
 import conflux.types;
 import std;
 
@@ -145,9 +146,10 @@ int main() {
 
 	std::vector<Router::Middleware> openapi_auth;
 	openapi_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
-	app.router().get(
+	auto &openapi_router = http::router(app);
+	openapi_router.get(
 		"/openapi.json",
-		openapi_handler_protected(app.router(), "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
+		openapi_handler_protected(openapi_router, "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
 
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);

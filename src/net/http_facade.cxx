@@ -6,11 +6,11 @@ import conflux.net.http.server_types;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
 export import conflux.json;
+export import conflux.net.http.native_json;
 import std;
 
 import conflux.net.config;
-import conflux.net.http.app_json;
-import conflux.net.http.native_json;
+export import conflux.net.http.app_json;
 import conflux.net.router;
 import conflux.net.request_id;
 import conflux.net.security;
@@ -27,20 +27,14 @@ export namespace conflux::http {
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
+using ::Request;
+using ::RequestView;
+using ::RunStatus;
 using RequestContext = ::RequestContext;
 template<class T>
 using Task = conflux::work::Task<T>;
 using Next = ::Router::Handler;
 using AsyncNext = ::Router::AsyncNext;
-template<class F>
-concept ViewMiddleware = ::ViewMiddleware<F>;
-template<class F>
-concept RequestMiddleware = ::RequestMiddleware<F>;
-template<class F>
-concept AsyncMiddleware = ::AsyncMiddleware<F>;
-template<class F>
-concept Middleware = ::Middleware<F>;
-
 [[nodiscard]] ::Router::Middleware request_id(
 	RequestIdOptions opts = {}) {
 	return request_id_middleware(std::move(opts));

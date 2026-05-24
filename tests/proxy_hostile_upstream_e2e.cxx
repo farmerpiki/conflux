@@ -7,7 +7,9 @@
 
 import std;
 import conflux.types;
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.proxy;
+import conflux.net.router;
 import conflux.net.proxy;
 import conflux.tests.support;
 

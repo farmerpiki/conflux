@@ -1,6 +1,6 @@
 import conflux.http;
 
 int main() {
-	http::Router router;
+	conflux::http::Router router;
 	(void)router;
 }

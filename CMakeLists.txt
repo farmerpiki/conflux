@@ -484,6 +484,11 @@ else()
     message(FATAL_ERROR "conflux: internal SIMD selection resolution failed")
 endif()
 
+set(_conflux_cpu_feature_probes_runtime OFF)
+if(CONFLUX_ENABLE_CPU_DISPATCH OR _conflux_simd_selection_runtime)
+    set(_conflux_cpu_feature_probes_runtime ON)
+endif()
+
 set(CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF OFF)
 set(CONFLUX_EXPERIMENTAL_SEND_ZC OFF)
 set(CONFLUX_EXPERIMENTAL_RING_GROWTH OFF)
@@ -1628,6 +1633,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_MODULE_REEXPORT_IMPORTS=0
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
     CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
+    CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
     CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
     CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
     CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
@@ -1648,6 +1654,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_BUILD_FEATURE_SET="${CONFLUX_FEATURE_SET}"
     CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
     CONFLUX_BUILD_SIMD_SELECTION="${_conflux_simd_selection}"
+    CONFLUX_BUILD_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
 )
 conflux_apply_api_surface_definitions(conflux_options INTERFACE)
 if(CONFLUX_ENABLE_EXPERIMENTAL)
@@ -1661,6 +1668,11 @@ else()
     message(STATUS "conflux: legacy CPU dispatch knob disabled")
 endif()
 message(STATUS "conflux: SIMD selection resolved to ${_conflux_simd_selection}")
+if(_conflux_cpu_feature_probes_runtime)
+    message(STATUS "conflux: CPU feature probes use runtime detection")
+else()
+    message(STATUS "conflux: CPU feature probes assume selected compiled ISA is available")
+endif()
 if(CONFLUX_ENABLE_RECV_BUNDLE)
     message(STATUS "conflux: recv bundle enabled")
 else()

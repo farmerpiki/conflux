@@ -5,7 +5,7 @@
 
 import std;
 import conflux.types;
-import conflux.net.http;
+import conflux.net.router;
 import conflux.tests.external_support;
 namespace {
 

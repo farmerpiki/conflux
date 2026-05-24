@@ -537,7 +537,7 @@ TEST_CASE(
 	req.headers.set("Authorization", "Bearer secret");
 	req.headers.set("X-Secret", "secret");
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.headers.get("X-Request-ID").has_value());
 	CHECK(response.headers.get("Traceparent").has_value());
@@ -553,7 +553,7 @@ TEST_CASE(
 	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
-	auto metrics = app.router().dispatch(metrics_req);
+	auto metrics = http::router(app).dispatch(metrics_req);
 	CHECK(metrics.status == kHttpOk);
 	CHECK(metrics.text_body().contains("http_requests_total"));
 	CHECK(metrics.text_body().contains(
@@ -594,7 +594,7 @@ TEST_CASE(
 	Request req;
 	req.method = "GET";
 	req.path = "/missing?token=secret";
-	auto missing = app.router().dispatch(req);
+	auto missing = http::router(app).dispatch(req);
 	CHECK(missing.status == kHttpNotFound);
 	REQUIRE(logs.size() == 1);
 	CHECK(logs[0].contains(R"("route":"<unmatched>")"));
@@ -603,7 +603,7 @@ TEST_CASE(
 	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
-	auto metrics = app.router().dispatch(metrics_req);
+	auto metrics = http::router(app).dispatch(metrics_req);
 	CHECK(metrics.text_body().contains(R"(route="<unmatched>")"));
 	CHECK(metrics.text_body().contains("http_rejections_total"));
 }
@@ -645,7 +645,7 @@ TEST_CASE(
 	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
-	auto metrics = app.router().dispatch(metrics_req);
+	auto metrics = http::router(app).dispatch(metrics_req);
 	auto const body = metrics.text_body();
 	CHECK(body.contains(R"(http_pressure_overflow_total{kind="accept",policy="reject"} 2)"));
 	CHECK(body.contains(R"(http_pressure_overflow_total{kind="sse",policy="drop_newest"} 3)"));
@@ -677,7 +677,7 @@ TEST_CASE(
 	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
-	auto metrics = app.router().dispatch(metrics_req);
+	auto metrics = http::router(app).dispatch(metrics_req);
 	auto const body = metrics.text_body();
 	CHECK(body.contains("json_arena_slabs_total 2"));
 	CHECK(body.contains("json_arena_high_water_bytes 256"));
@@ -700,7 +700,7 @@ TEST_CASE(
 	Request metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
-	auto metrics = app.router().dispatch(metrics_req);
+	auto metrics = http::router(app).dispatch(metrics_req);
 	CHECK(metrics.text_body().contains(
 		R"(http_rejections_total{service="conflux",reason="header_line_too_large",status="431"} 1)"));
 }
@@ -722,7 +722,7 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].middleware_count == 1);
-	CHECK(app.router().has_context_routes());
+	CHECK(http::router(app).has_context_routes());
 }
 
 TEST_CASE(
@@ -745,7 +745,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/events";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	REQUIRE(response.is_sse());
 	response.sse_channel_ptr()->close();
 	response.sse_channel_ptr()->close();
@@ -766,7 +766,7 @@ TEST_CASE(
 	CHECK(routes[0].path == "/context");
 	CHECK(routes[0].handler_kind == "context");
 	CHECK(routes[0].extractors == std::vector<std::string>{"Request"});
-	CHECK(app.router().has_context_routes());
+	CHECK(http::router(app).has_context_routes());
 }
 
 TEST_CASE(
@@ -784,7 +784,7 @@ TEST_CASE(
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"State"});
 	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
-	CHECK(app.router().has_context_routes());
+	CHECK(http::router(app).has_context_routes());
 }
 
 TEST_CASE(
@@ -812,7 +812,7 @@ TEST_CASE(
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].middleware_count == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"State"});
-	CHECK(app.router().has_context_routes());
+	CHECK(http::router(app).has_context_routes());
 }
 
 TEST_CASE(
@@ -848,7 +848,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/api/items/42";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "item=42");
 }
@@ -877,7 +877,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/api/items/42";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.headers.get("x-group") == "api");
 	CHECK(response.text_body() == "item=42");
@@ -1041,12 +1041,12 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/private";
 
-	auto unauthorized = app.router().dispatch(req);
+	auto unauthorized = http::router(app).dispatch(req);
 	CHECK(unauthorized.status == kHttpUnauthorized);
 	CHECK(unauthorized.headers["WWW-Authenticate"] == "Bearer");
 
 	req.headers["authorization"] = "Bearer token";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == "secret");
 }
@@ -1064,11 +1064,11 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/private-state";
 
-	auto unauthorized = app.router().dispatch(req);
+	auto unauthorized = http::router(app).dispatch(req);
 	CHECK(unauthorized.status == kHttpUnauthorized);
 
 	req.headers["authorization"] = "Bearer token";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == "state-secret");
 }
@@ -1085,11 +1085,11 @@ TEST_CASE(
 	req.path = "/limited";
 	req.remote_addr = "203.0.113.10";
 
-	auto first = app.router().dispatch(req);
+	auto first = http::router(app).dispatch(req);
 	CHECK(first.status == kHttpOk);
 	CHECK(first.text_body() == "ok");
 
-	auto second = app.router().dispatch(req);
+	auto second = http::router(app).dispatch(req);
 	CHECK(second.status == 429);
 	CHECK(second.headers["Retry-After"] == "60");
 }
@@ -1106,7 +1106,7 @@ TEST_CASE(
 	req.path = "/deferred";
 
 	auto const before = std::chrono::steady_clock::now();
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	REQUIRE(response.is_deferred());
 	auto const deadline = response.deferred_response_ptr()->deadline();
 	CHECK(deadline >= before);
@@ -1178,7 +1178,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/openapi.json";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "application/json");
 	CHECK(response.text_body().find(R"("title":"Facade API")") != std::string_view::npos);
@@ -1248,7 +1248,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/answer";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "application/json");
 	CHECK(response.text_body() == R"({"value":"ok"})");
@@ -1267,7 +1267,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/state";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "state-value");
 }
@@ -1282,7 +1282,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/hello/Ada";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "Ada");
 }
@@ -1329,7 +1329,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/typed/42";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "42");
 }
@@ -1355,12 +1355,12 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/todos/-42";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "todo=-42");
 
 	req.path = "/todos/nope";
-	auto bad = app.router().dispatch(req);
+	auto bad = http::router(app).dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().contains(R"("extractor":"Path")"));
@@ -1387,7 +1387,7 @@ TEST_CASE(
 	req.method = "GET";
 	req.path = "/teams/core/users/42";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "core:42");
 }
@@ -1435,7 +1435,7 @@ TEST_CASE(
 	req.headers["x-request-id"] = "req-1";
 	req.cookies["session"] = "cookie-1";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "search:req-1:cookie-1");
 }
@@ -1451,7 +1451,7 @@ TEST_CASE(
 	req.path = "/request-id";
 	req.headers["x-request-id"] = "req-123";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "req-123");
 
@@ -1475,7 +1475,7 @@ TEST_CASE(
 	req.remote_addr = "203.0.113.10";
 	req.is_tls = true;
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "203.0.113.10:tls");
 
@@ -1496,7 +1496,7 @@ TEST_CASE(
 	req.path = "/trace";
 	req.headers["traceparent"] = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01");
 
@@ -1517,7 +1517,7 @@ TEST_CASE(
 	req.path = "/bearer";
 	req.headers["authorization"] = "bearer  token-123 \t";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "token-123");
 
@@ -1540,7 +1540,7 @@ TEST_CASE(
 	req.path = "/basic";
 	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "alice:s3cret");
 
@@ -1563,10 +1563,10 @@ TEST_CASE(
 	req.path = "/items/42";
 	req.params["id"] = "42";
 	req.query["page"] = "7";
-	CHECK(app.router().dispatch(req).text_body() == "42:7");
+	CHECK(http::router(app).dispatch(req).text_body() == "42:7");
 
 	req.query["page"] = "bad";
-	auto bad = app.router().dispatch(req);
+	auto bad = http::router(app).dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
@@ -1587,10 +1587,10 @@ TEST_CASE(
 	req.path = "/submit";
 	req.form["name"] = "Ada";
 	req.form["age"] = "37";
-	CHECK(app.router().dispatch(req).text_body() == "Ada:37");
+	CHECK(http::router(app).dispatch(req).text_body() == "Ada:37");
 
 	req.form["age"] = "bad";
-	auto bad = app.router().dispatch(req);
+	auto bad = http::router(app).dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
@@ -1611,10 +1611,10 @@ TEST_CASE(
 	req.path = "/search";
 	req.query["q"] = "conflux";
 	req.query["page"] = "3";
-	CHECK(app.router().dispatch(req).text_body() == "conflux:3");
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:3");
 
 	req.query["page"] = "bad";
-	auto bad = app.router().dispatch(req);
+	auto bad = http::router(app).dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
@@ -1638,10 +1638,10 @@ TEST_CASE(
 	req.path = "/search";
 	req.form["q"] = "conflux";
 	req.form["page"] = "4";
-	CHECK(app.router().dispatch(req).text_body() == "conflux:4");
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:4");
 
 	req.form["page"] = "bad";
-	auto bad = app.router().dispatch(req);
+	auto bad = http::router(app).dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
@@ -1663,19 +1663,19 @@ TEST_CASE(
 	req.path = "/json";
 	req.body = R"({"value":"ok"})";
 
-	auto missing = app.router().dispatch(req);
+	auto missing = http::router(app).dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
 	CHECK(missing.content_type == "application/problem+json");
 	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
 	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
 
 	req.body = R"({"value":)";
-	auto malformed = app.router().dispatch(req);
+	auto malformed = http::router(app).dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
 	CHECK(malformed.content_type == "application/problem+json");
 	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
@@ -1704,19 +1704,19 @@ TEST_CASE(
 	req.path = "/json-doc";
 	req.body = R"({"value":"ok"})";
 
-	auto missing = app.router().dispatch(req);
+	auto missing = http::router(app).dispatch(req);
 	CHECK(missing.status == kHttpBadRequest);
 	CHECK(missing.content_type == "application/problem+json");
 	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
 	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
 
 	req.body = R"({"value":)";
-	auto malformed = app.router().dispatch(req);
+	auto malformed = http::router(app).dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
 	CHECK(malformed.content_type == "application/problem+json");
 	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
@@ -1740,7 +1740,7 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":"too large"})";
 
-	auto too_large = app.router().dispatch(req);
+	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.content_type == "application/problem+json");
 	CHECK(too_large.text_body().find(R"("code":"content_too_large")") != std::string_view::npos);
@@ -1761,17 +1761,17 @@ TEST_CASE(
 	req.path = "/patch";
 	req.body = R"([{"op":"add","path":"/name","value":"Ada"}])";
 
-	auto wrong = app.router().dispatch(req);
+	auto wrong = http::router(app).dispatch(req);
 	CHECK(wrong.status == kHttpBadRequest);
 	CHECK(wrong.content_type == "application/problem+json");
 	CHECK(wrong.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
 
 	req.headers["content-type"] = "application/json-patch+json";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpNoContent);
 
 	req.body = R"([{"path":"/name","value":"Ada"}])";
-	auto invalid = app.router().dispatch(req);
+	auto invalid = http::router(app).dispatch(req);
 	CHECK(invalid.status == kHttpBadRequest);
 	CHECK(invalid.content_type == "application/problem+json");
 	CHECK(invalid.text_body().find(R"("code":"patch_op_missing")") != std::string_view::npos);
@@ -1800,17 +1800,17 @@ TEST_CASE(
 	req.path = "/merge";
 	req.body = R"({"a":1})";
 
-	auto wrong = app.router().dispatch(req);
+	auto wrong = http::router(app).dispatch(req);
 	CHECK(wrong.status == kHttpBadRequest);
 	CHECK(wrong.content_type == "application/problem+json");
 
 	req.headers["content-type"] = "application/merge-patch+json";
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"a":1})");
 
 	req.body = R"({"long":true})";
-	auto too_large = app.router().dispatch(req);
+	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.content_type == "application/problem+json");
 
@@ -1834,7 +1834,7 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":"too large"})";
 
-	auto too_large = app.router().dispatch(req);
+	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.status_text == "Content Too Large");
 	CHECK(too_large.content_type == "application/problem+json");
@@ -1858,13 +1858,13 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":"ok","ignored":true})";
 
-	auto ok = app.router().dispatch(req);
+	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body().find('\n') != std::string_view::npos);
 	CHECK(ok.text_body().find(R"("value": "ok")") != std::string_view::npos);
 
 	req.body = R"({"value":"this body is deliberately longer than the configured route default limit"})";
-	auto too_large = app.router().dispatch(req);
+	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 }
 
@@ -1880,15 +1880,15 @@ TEST_CASE(
 	req.method = "POST";
 	req.path = "/echo-text";
 	req.body = "hello";
-	CHECK(app.router().dispatch(req).text_body() == "hello");
+	CHECK(http::router(app).dispatch(req).text_body() == "hello");
 
 	req.path = "/echo-bytes";
 	req.body = "bytes";
-	CHECK(app.router().dispatch(req).text_body() == "bytes");
+	CHECK(http::router(app).dispatch(req).text_body() == "bytes");
 
 	req.path = "/echo-owned";
 	req.body = "owned";
-	CHECK(app.router().dispatch(req).text_body() == "owned");
+	CHECK(http::router(app).dispatch(req).text_body() == "owned");
 }
 
 TEST_CASE(
@@ -1911,7 +1911,7 @@ TEST_CASE(
 	req.form["title"] = "Report";
 	req.files.push_back(UploadedFile::borrowed("upload", "report.txt", "text/plain", "file-body"));
 
-	auto response = app.router().dispatch(req);
+	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.text_body() == "Report:report.txt:file-body");
 

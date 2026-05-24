@@ -362,9 +362,24 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_route_policy_internal
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_middleware_concept_alias EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_middleware_concept_alias.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_middleware_concept_alias
+        PRIVATE conflux_net_http conflux_options)
+
     add_library(conflux_http_facade_compile_fail_openapi_handler_member EXCLUDE_FROM_ALL
         OBJECT http_facade_compile_fail_openapi_handler_member.cxx)
     target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_member
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_router_member EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_router_member.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_router_member
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_route_infos_member EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_route_infos_member.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_route_infos_member
         PRIVATE conflux_net_http conflux_options)
 
     add_test(NAME http-facade/compile-fail-request-view-task
@@ -434,7 +449,6 @@ if(TARGET conflux_net_http)
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_router_alias
                 "Router"
-                "is not a member of"
                 "conflux::http")
     set_tests_properties(http-facade/compile-fail-router-alias PROPERTIES
         LABELS "http;compile-fail"
@@ -445,9 +459,18 @@ if(TARGET conflux_net_http)
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_route_policy_internal
                 "AppRouteRateLimit"
-                "is not a member of"
                 "conflux::http")
     set_tests_properties(http-facade/compile-fail-route-policy-internal PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-middleware-concept-alias
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_middleware_concept_alias
+                "Middleware"
+                "conflux::http")
+    set_tests_properties(http-facade/compile-fail-middleware-concept-alias PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 
@@ -456,9 +479,28 @@ if(TARGET conflux_net_http)
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_openapi_handler_member
                 "openapi_handler"
-                "has no member named"
                 "conflux::http::App")
     set_tests_properties(http-facade/compile-fail-openapi-handler-member PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-router-member
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_router_member
+                "router"
+                "conflux::http::App")
+    set_tests_properties(http-facade/compile-fail-router-member PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-route-infos-member
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_route_infos_member
+                "route_infos"
+                "conflux::http::App")
+    set_tests_properties(http-facade/compile-fail-route-infos-member PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 endif()

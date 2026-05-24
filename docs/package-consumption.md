@@ -56,16 +56,27 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io
 ## CPU / ISA Dispatch for Distribution Packages
 
 Distribution packages should build with a portable compiler baseline and enable
-`CONFLUX_ENABLE_CPU_DISPATCH=ON`. This allows Conflux to compile
-optional ISA-specific objects such as AES-NI/PCLMUL or AVX2 SIMD scan helpers,
-while guarding each call site with runtime CPU feature checks. The generated
-binary remains runnable on machines that lack those features and falls back to
-scalar code.
+`CONFLUX_ENABLE_CPU_DISPATCH=ON`. With the default
+`CONFLUX_SIMD_SELECTION=AUTO`, that resolves SIMD scan binding to `RUNTIME`.
+This allows Conflux to compile optional ISA-specific objects such as
+AES-NI/PCLMUL or AVX2 SIMD scan helpers while guarding call sites with runtime
+CPU feature checks. The generated binary remains runnable on machines that lack
+those features and falls back to scalar code.
+
+`CONFLUX_SIMD_SELECTION=DIRECT` removes runtime AVX2 probes from selected SIMD
+scan call sites. While the stdsimd objects are built with `-mavx2`, direct
+`STDX`/`STD26` builds are AVX2-specific and must only be shipped when package
+metadata declares that CPU baseline. `CONFLUX_ENABLE_CPU_DISPATCH=OFF` remains
+the default for local appliance and benchmark builds where every deployment
+target is known to support the selected ISA-specific objects.
+
+`CONFLUX_SIMD_SELECTION=RUNTIME` may be used explicitly even with the legacy
+`CONFLUX_ENABLE_CPU_DISPATCH=OFF`; in that case Conflux still enables real CPU
+feature probes for the shared SIMD guard functions. The legacy knob continues
+to control existing non-generic-SIMD policies such as AES-GCM dispatch.
 
 Do not ship packages built with `-march=native` or unconditional deployment ISA
-flags unless the package metadata declares that CPU baseline. `CONFLUX_ENABLE_CPU_DISPATCH=OFF`
-is the default for local appliance and benchmark builds where every deployment
-target is known to support the selected ISA-specific objects.
+flags unless the package metadata declares that CPU baseline.
 
 ## Package Contract
 

@@ -9,7 +9,11 @@ import std;
 import conflux.types;
 import conflux.features;
 #if CONFLUX_HAS_HTTP3
-import conflux.net.http;
+import conflux.net.config;
+import conflux.net.http.client;
+import conflux.net.http_server;
+import conflux.net.router;
+import conflux.net.vhost;
 import conflux.net.http3;
 import conflux.net.tls;
 import conflux.tests.support;

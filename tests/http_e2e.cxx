@@ -22,7 +22,35 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.app.defer;
 import conflux.net.async_client;
-import conflux.net.http;
+import conflux.http.extended;
+import conflux.net.app;
+import conflux.net.auth;
+import conflux.net.cache_control;
+import conflux.net.compress;
+import conflux.net.config;
+import conflux.net.cookie_signing;
+import conflux.net.cors;
+import conflux.net.csrf;
+import conflux.net.etag;
+import conflux.net.forwarded;
+import conflux.net.http.client;
+import conflux.net.http.realtime;
+import conflux.net.http.static_files;
+import conflux.net.http_server;
+import conflux.net.ip_filter;
+import conflux.net.metrics;
+import conflux.net.openapi;
+import conflux.net.proxy;
+import conflux.net.rate_limit;
+import conflux.net.redirect;
+import conflux.net.request_id;
+import conflux.net.response_cache;
+import conflux.net.router;
+import conflux.net.security;
+import conflux.net.structured_log;
+import conflux.net.tracing;
+import conflux.net.trailing_slash;
+import conflux.net.vhost;
 #if CONFLUX_HAS_TLS
 import conflux.net.jwt;
 #endif
@@ -90,9 +118,9 @@ TEST_CASE(
 			return std::move(task);
 		});
 	CHECK(&ctx_added == &app);
-	CHECK(app.router().has_context_routes());
+	CHECK(chttp::router(app).has_context_routes());
 
-	auto infos = app.route_infos();
+	auto infos = chttp::route_infos(app);
 	REQUIRE(infos.size() == 1);
 	CHECK(infos[0].method == "REPORT");
 	CHECK(infos[0].path_pattern == "/reports/{id}");
