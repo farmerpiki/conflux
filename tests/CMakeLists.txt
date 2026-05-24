@@ -367,6 +367,16 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_middleware_concept_alias
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_use_async_member EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_use_async_member.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_use_async_member
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_use_async_helper EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_use_async_helper.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_use_async_helper
+        PRIVATE conflux_net_http conflux_options)
+
     add_library(conflux_http_facade_compile_fail_openapi_handler_member EXCLUDE_FROM_ALL
         OBJECT http_facade_compile_fail_openapi_handler_member.cxx)
     target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_member
@@ -471,6 +481,25 @@ if(TARGET conflux_net_http)
                 "Middleware"
                 "conflux::http")
     set_tests_properties(http-facade/compile-fail-middleware-concept-alias PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-use-async-member
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_use_async_member
+                "use_async"
+                "conflux::http::App")
+    set_tests_properties(http-facade/compile-fail-use-async-member PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-use-async-helper
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_use_async_helper
+                "use_async")
+    set_tests_properties(http-facade/compile-fail-use-async-helper PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 

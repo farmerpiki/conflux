@@ -8,7 +8,7 @@ namespace http = conflux::http;
 
 void invalid_async_middleware() {
 	auto app = http::app();
-	app.use_async(
+	app.use(
 		[](http::RequestView const &, RequestContext const &, http::AsyncNext const &) -> http::Task<http::Response> {
 			co_return http::text("bad");
 		});

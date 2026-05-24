@@ -525,9 +525,12 @@ contains valid adversarial inputs; and `malformed/` contains strict-JSON
 rejection inputs. Keep these fixtures deterministic so benchmark history remains
 comparable.
 
-`conflux_json_bench` includes manual `JsonMembers<T>` DOM/direct decode and
-write rows. `conflux_json_reflect_bench` is built only with
-`CONFLUX_JSON_REFLECT=ON` and reports the matching P2996 reflected rows.
+`conflux_json_bench` includes manual `JsonMembers<T>` DOM/direct decode,
+wide-object direct typed decode, unknown-member-ignore wide-object rows, and
+write rows. The wide-object rows are the measurement gate for any future
+field-lookup specialization; do not add lookup tables from intuition alone.
+`conflux_json_reflect_bench` is built only with `CONFLUX_JSON_REFLECT=ON` and
+reports the matching P2996 reflected rows.
 
 ## Benchmark groups
 

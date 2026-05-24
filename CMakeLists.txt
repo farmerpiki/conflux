@@ -4275,6 +4275,41 @@ if(TARGET conflux)
 endif()
 install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")
 
+if(NOT _conflux_simd_backend STREQUAL "OFF" AND _conflux_simd_selection STREQUAL "DIRECT")
+    set(_conflux_simd_direct_shape_objects)
+    set(_conflux_simd_direct_shape_deps)
+    if(TARGET conflux_json)
+        list(APPEND _conflux_simd_direct_shape_objects
+            json_api.cxx.o
+            json_dump.cxx.o)
+        list(APPEND _conflux_simd_direct_shape_deps conflux_json)
+    endif()
+    if(TARGET conflux_utils)
+        list(APPEND _conflux_simd_direct_shape_objects utils.cxx.o)
+        list(APPEND _conflux_simd_direct_shape_deps conflux_utils)
+    endif()
+    if(TARGET conflux_crypto)
+        list(APPEND _conflux_simd_direct_shape_objects crypto.cxx.o)
+        list(APPEND _conflux_simd_direct_shape_deps conflux_crypto)
+    endif()
+    if(TARGET conflux_http_realtime)
+        list(APPEND _conflux_simd_direct_shape_objects realtime.cxx.o)
+        list(APPEND _conflux_simd_direct_shape_deps conflux_http_realtime)
+    endif()
+    if(_conflux_simd_direct_shape_objects)
+        add_custom_target(conflux_simd_direct_shape
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-simd-direct-shape.py"
+                    "${CMAKE_BINARY_DIR}"
+                    "${CMAKE_NM}"
+                    ${_conflux_simd_direct_shape_objects}
+            DEPENDS ${_conflux_simd_direct_shape_deps}
+            VERBATIM)
+    endif()
+    unset(_conflux_simd_direct_shape_deps)
+    unset(_conflux_simd_direct_shape_objects)
+endif()
+
 if(CONFLUX_BUILD_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -4329,35 +4364,14 @@ if(CONFLUX_BUILD_TESTS)
         TIMEOUT 1200
     )
 
-    if(NOT _conflux_simd_backend STREQUAL "OFF" AND _conflux_simd_selection STREQUAL "DIRECT")
-        set(_conflux_simd_direct_shape_objects)
-        if(TARGET conflux_json)
-            list(APPEND _conflux_simd_direct_shape_objects
-                json_api.cxx.o
-                json_dump.cxx.o)
-        endif()
-        if(TARGET conflux_utils)
-            list(APPEND _conflux_simd_direct_shape_objects utils.cxx.o)
-        endif()
-        if(TARGET conflux_crypto)
-            list(APPEND _conflux_simd_direct_shape_objects crypto.cxx.o)
-        endif()
-        if(TARGET conflux_http_realtime)
-            list(APPEND _conflux_simd_direct_shape_objects realtime.cxx.o)
-        endif()
-        if(_conflux_simd_direct_shape_objects)
-            add_test(NAME build/simd-direct-shape
-                COMMAND "${Python3_EXECUTABLE}"
-                        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-simd-direct-shape.py"
-                        "${CMAKE_BINARY_DIR}"
-                        "${CMAKE_NM}"
-                        ${_conflux_simd_direct_shape_objects})
-            set_tests_properties(build/simd-direct-shape PROPERTIES
-                LABELS "build;simd"
-                RUN_SERIAL TRUE
-            )
-        endif()
-        unset(_conflux_simd_direct_shape_objects)
+    if(TARGET conflux_simd_direct_shape)
+        add_test(NAME build/simd-direct-shape
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+                    --target conflux_simd_direct_shape --config "$<CONFIG>")
+        set_tests_properties(build/simd-direct-shape PROPERTIES
+            LABELS "build;simd"
+            RUN_SERIAL TRUE
+        )
     endif()
 
     add_test(NAME docs/planning-state

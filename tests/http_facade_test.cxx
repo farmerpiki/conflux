@@ -795,7 +795,7 @@ TEST_CASE(
 	app.state(value);
 
 	app.group("/api", [](auto &group) {
-		group.use_async(
+		group.use(
 			[](http::Request const &req,
 			   RequestContext const &ctx,
 			   http::AsyncNext const &next) -> http::Task<http::Response> {

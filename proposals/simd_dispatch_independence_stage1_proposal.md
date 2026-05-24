@@ -153,7 +153,7 @@ crypto.cxx.o       no unresolved conflux_cpu_supports_avx2 from constant_time_eq
 realtime.cxx.o     no unresolved conflux_cpu_supports_avx2
 ```
 
-The shape test should inspect source/module build objects where these object files exist. Header-interface smoke builds may not expose the same object layout and should not be the only proof.
+The shape test should inspect source/module build objects where these object files exist. Header-interface smoke builds may not expose the same object layout and should not be the only proof. CTest should drive a dedicated build target for this check so the inspected static-library objects are produced before `nm` runs; a plain script-only test can fail on clean build trees.
 
 ## Documentation rule
 

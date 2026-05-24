@@ -51,6 +51,13 @@ concept Middleware = ::Middleware<F>;
 }
 
 template<typename F>
+App &use_async(
+	App &app,
+	F &&middleware) {
+	return app.use(std::forward<F>(middleware));
+}
+
+template<typename F>
 	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
 [[nodiscard]] Response offload(
 	std::shared_ptr<WorkPool> const &pool,

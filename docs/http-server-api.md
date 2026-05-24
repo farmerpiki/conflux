@@ -60,7 +60,7 @@ return static_cast<int>(*status);
 
 ### App facade passthroughs
 
-`http::App` keeps the route-registration APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods, ordinary verbs for handlers that need `RequestContext`, ordinary `app.use(...)` for sync or owned async middleware, and `app.routes()` / `app.openapi_spec()` for app-level metadata. The raw router is an extended escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
+`http::App` keeps the route-registration APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods, ordinary verbs for handlers that need `RequestContext`, `app.use(...)` for both sync and owned async middleware, and `app.routes()` / `app.openapi_spec()` for app-level metadata. The raw router is an extended escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::Request const& req) {
@@ -848,10 +848,12 @@ auto spec = app.openapi_spec();      // app metadata backed OpenAPI JSON
 ```
 
 `import conflux.http.extended;` also exposes `http::openapi_handler(app, title, version)`
-for mounting the generated spec as a route handler, plus `http::router(app)` and
-`http::route_infos(app)` for integrations that deliberately need the lower-level
-router metadata. The curated `App` surface keeps `openapi_spec()` as plain data
-and does not expose router-handler or raw-router members.
+for mounting the generated spec as a route handler, `http::use_async(app, mw)`
+for codebases that prefer an explicit async-middleware spelling, plus
+`http::router(app)` and `http::route_infos(app)` for integrations that
+deliberately need the lower-level router metadata. The curated `App` surface
+keeps `openapi_spec()` as plain data and uses `app.use(...)` as the single
+middleware registration path.
 
 `app.validate()` returns source locations for route and static-mount issues.
 `ValidationReport::detailed_summary()` includes both the reported source and any

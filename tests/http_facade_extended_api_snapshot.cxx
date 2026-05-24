@@ -21,6 +21,15 @@ void openapi_handler_spelling_compiles() {
 	(void)http::openapi_handler(app, "API", "1.0.0");
 }
 
+void use_async_spelling_compiles() {
+	auto app = http::app();
+	http::use_async(
+		app,
+		[](http::Request const &req,
+		   http::RequestContext const &ctx,
+		   http::AsyncNext const &next) -> http::Task<http::Response> { co_return co_await next(req, ctx); });
+}
+
 void router_escape_hatch_spelling_compiles() {
 	auto app = http::app();
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");

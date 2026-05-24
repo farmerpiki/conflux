@@ -747,13 +747,6 @@ public:
 		return *this;
 	}
 	template<typename F>
-	App &use_async(
-		F &&middleware) {
-		router_.use_async(std::forward<F>(middleware));
-		++middleware_count_;
-		return *this;
-	}
-	template<typename F>
 	App &sse(
 		std::string_view path,
 		F &&handler) {
@@ -844,12 +837,6 @@ public:
 			} else {
 				middlewares_.emplace_back(std::forward<F>(middleware));
 			}
-			return *this;
-		}
-		template<typename F>
-		Group &use_async(
-			F &&middleware) {
-			context_middlewares_.emplace_back(std::forward<F>(middleware));
 			return *this;
 		}
 		template<typename F>

@@ -436,6 +436,233 @@ struct BenchNested {
 	BenchInner origin{};
 	std::vector<BenchSmall> items{};
 };
+
+struct BenchWide8 {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+};
+struct BenchWide16 {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+};
+struct BenchWide32 {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+	std::int64_t f16{};
+	std::int64_t f17{};
+	std::int64_t f18{};
+	std::int64_t f19{};
+	std::int64_t f20{};
+	std::int64_t f21{};
+	std::int64_t f22{};
+	std::int64_t f23{};
+	std::int64_t f24{};
+	std::int64_t f25{};
+	std::int64_t f26{};
+	std::int64_t f27{};
+	std::int64_t f28{};
+	std::int64_t f29{};
+	std::int64_t f30{};
+	std::int64_t f31{};
+};
+struct BenchWide64 {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+	std::int64_t f16{};
+	std::int64_t f17{};
+	std::int64_t f18{};
+	std::int64_t f19{};
+	std::int64_t f20{};
+	std::int64_t f21{};
+	std::int64_t f22{};
+	std::int64_t f23{};
+	std::int64_t f24{};
+	std::int64_t f25{};
+	std::int64_t f26{};
+	std::int64_t f27{};
+	std::int64_t f28{};
+	std::int64_t f29{};
+	std::int64_t f30{};
+	std::int64_t f31{};
+	std::int64_t f32{};
+	std::int64_t f33{};
+	std::int64_t f34{};
+	std::int64_t f35{};
+	std::int64_t f36{};
+	std::int64_t f37{};
+	std::int64_t f38{};
+	std::int64_t f39{};
+	std::int64_t f40{};
+	std::int64_t f41{};
+	std::int64_t f42{};
+	std::int64_t f43{};
+	std::int64_t f44{};
+	std::int64_t f45{};
+	std::int64_t f46{};
+	std::int64_t f47{};
+	std::int64_t f48{};
+	std::int64_t f49{};
+	std::int64_t f50{};
+	std::int64_t f51{};
+	std::int64_t f52{};
+	std::int64_t f53{};
+	std::int64_t f54{};
+	std::int64_t f55{};
+	std::int64_t f56{};
+	std::int64_t f57{};
+	std::int64_t f58{};
+	std::int64_t f59{};
+	std::int64_t f60{};
+	std::int64_t f61{};
+	std::int64_t f62{};
+	std::int64_t f63{};
+};
+struct BenchWide96 {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+	std::int64_t f16{};
+	std::int64_t f17{};
+	std::int64_t f18{};
+	std::int64_t f19{};
+	std::int64_t f20{};
+	std::int64_t f21{};
+	std::int64_t f22{};
+	std::int64_t f23{};
+	std::int64_t f24{};
+	std::int64_t f25{};
+	std::int64_t f26{};
+	std::int64_t f27{};
+	std::int64_t f28{};
+	std::int64_t f29{};
+	std::int64_t f30{};
+	std::int64_t f31{};
+	std::int64_t f32{};
+	std::int64_t f33{};
+	std::int64_t f34{};
+	std::int64_t f35{};
+	std::int64_t f36{};
+	std::int64_t f37{};
+	std::int64_t f38{};
+	std::int64_t f39{};
+	std::int64_t f40{};
+	std::int64_t f41{};
+	std::int64_t f42{};
+	std::int64_t f43{};
+	std::int64_t f44{};
+	std::int64_t f45{};
+	std::int64_t f46{};
+	std::int64_t f47{};
+	std::int64_t f48{};
+	std::int64_t f49{};
+	std::int64_t f50{};
+	std::int64_t f51{};
+	std::int64_t f52{};
+	std::int64_t f53{};
+	std::int64_t f54{};
+	std::int64_t f55{};
+	std::int64_t f56{};
+	std::int64_t f57{};
+	std::int64_t f58{};
+	std::int64_t f59{};
+	std::int64_t f60{};
+	std::int64_t f61{};
+	std::int64_t f62{};
+	std::int64_t f63{};
+	std::int64_t f64{};
+	std::int64_t f65{};
+	std::int64_t f66{};
+	std::int64_t f67{};
+	std::int64_t f68{};
+	std::int64_t f69{};
+	std::int64_t f70{};
+	std::int64_t f71{};
+	std::int64_t f72{};
+	std::int64_t f73{};
+	std::int64_t f74{};
+	std::int64_t f75{};
+	std::int64_t f76{};
+	std::int64_t f77{};
+	std::int64_t f78{};
+	std::int64_t f79{};
+	std::int64_t f80{};
+	std::int64_t f81{};
+	std::int64_t f82{};
+	std::int64_t f83{};
+	std::int64_t f84{};
+	std::int64_t f85{};
+	std::int64_t f86{};
+	std::int64_t f87{};
+	std::int64_t f88{};
+	std::int64_t f89{};
+	std::int64_t f90{};
+	std::int64_t f91{};
+	std::int64_t f92{};
+	std::int64_t f93{};
+	std::int64_t f94{};
+	std::int64_t f95{};
+};
 template<>
 struct JsonMembers<BenchSmall> {
 	static constexpr auto members() {
@@ -484,6 +711,159 @@ struct JsonMembers<BenchNested> {
 	static constexpr std::string_view type_name() { return "BenchNested"; }
 };
 
+template<>
+struct JsonMembers<BenchWide8> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("f0", &BenchWide8::f0),
+			json_member("f1", &BenchWide8::f1),
+			json_member("f2", &BenchWide8::f2),
+			json_member("f3", &BenchWide8::f3),
+			json_member("f4", &BenchWide8::f4),
+			json_member("f5", &BenchWide8::f5),
+			json_member("f6", &BenchWide8::f6),
+			json_member("f7", &BenchWide8::f7)};
+	}
+	static constexpr std::string_view type_name() { return "BenchWide8"; }
+};
+template<>
+struct JsonMembers<BenchWide16> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("f0", &BenchWide16::f0),
+			json_member("f1", &BenchWide16::f1),
+			json_member("f2", &BenchWide16::f2),
+			json_member("f3", &BenchWide16::f3),
+			json_member("f4", &BenchWide16::f4),
+			json_member("f5", &BenchWide16::f5),
+			json_member("f6", &BenchWide16::f6),
+			json_member("f7", &BenchWide16::f7),
+			json_member("f8", &BenchWide16::f8),
+			json_member("f9", &BenchWide16::f9),
+			json_member("f10", &BenchWide16::f10),
+			json_member("f11", &BenchWide16::f11),
+			json_member("f12", &BenchWide16::f12),
+			json_member("f13", &BenchWide16::f13),
+			json_member("f14", &BenchWide16::f14),
+			json_member("f15", &BenchWide16::f15)};
+	}
+	static constexpr std::string_view type_name() { return "BenchWide16"; }
+};
+template<>
+struct JsonMembers<BenchWide32> {
+	static constexpr auto members() {
+		return std::tuple{json_member("f0", &BenchWide32::f0),   json_member("f1", &BenchWide32::f1),
+						  json_member("f2", &BenchWide32::f2),   json_member("f3", &BenchWide32::f3),
+						  json_member("f4", &BenchWide32::f4),   json_member("f5", &BenchWide32::f5),
+						  json_member("f6", &BenchWide32::f6),   json_member("f7", &BenchWide32::f7),
+						  json_member("f8", &BenchWide32::f8),   json_member("f9", &BenchWide32::f9),
+						  json_member("f10", &BenchWide32::f10), json_member("f11", &BenchWide32::f11),
+						  json_member("f12", &BenchWide32::f12), json_member("f13", &BenchWide32::f13),
+						  json_member("f14", &BenchWide32::f14), json_member("f15", &BenchWide32::f15),
+						  json_member("f16", &BenchWide32::f16), json_member("f17", &BenchWide32::f17),
+						  json_member("f18", &BenchWide32::f18), json_member("f19", &BenchWide32::f19),
+						  json_member("f20", &BenchWide32::f20), json_member("f21", &BenchWide32::f21),
+						  json_member("f22", &BenchWide32::f22), json_member("f23", &BenchWide32::f23),
+						  json_member("f24", &BenchWide32::f24), json_member("f25", &BenchWide32::f25),
+						  json_member("f26", &BenchWide32::f26), json_member("f27", &BenchWide32::f27),
+						  json_member("f28", &BenchWide32::f28), json_member("f29", &BenchWide32::f29),
+						  json_member("f30", &BenchWide32::f30), json_member("f31", &BenchWide32::f31)};
+	}
+	static constexpr std::string_view type_name() { return "BenchWide32"; }
+};
+template<>
+struct JsonMembers<BenchWide64> {
+	static constexpr auto members() {
+		return std::tuple{json_member("f0", &BenchWide64::f0),   json_member("f1", &BenchWide64::f1),
+						  json_member("f2", &BenchWide64::f2),   json_member("f3", &BenchWide64::f3),
+						  json_member("f4", &BenchWide64::f4),   json_member("f5", &BenchWide64::f5),
+						  json_member("f6", &BenchWide64::f6),   json_member("f7", &BenchWide64::f7),
+						  json_member("f8", &BenchWide64::f8),   json_member("f9", &BenchWide64::f9),
+						  json_member("f10", &BenchWide64::f10), json_member("f11", &BenchWide64::f11),
+						  json_member("f12", &BenchWide64::f12), json_member("f13", &BenchWide64::f13),
+						  json_member("f14", &BenchWide64::f14), json_member("f15", &BenchWide64::f15),
+						  json_member("f16", &BenchWide64::f16), json_member("f17", &BenchWide64::f17),
+						  json_member("f18", &BenchWide64::f18), json_member("f19", &BenchWide64::f19),
+						  json_member("f20", &BenchWide64::f20), json_member("f21", &BenchWide64::f21),
+						  json_member("f22", &BenchWide64::f22), json_member("f23", &BenchWide64::f23),
+						  json_member("f24", &BenchWide64::f24), json_member("f25", &BenchWide64::f25),
+						  json_member("f26", &BenchWide64::f26), json_member("f27", &BenchWide64::f27),
+						  json_member("f28", &BenchWide64::f28), json_member("f29", &BenchWide64::f29),
+						  json_member("f30", &BenchWide64::f30), json_member("f31", &BenchWide64::f31),
+						  json_member("f32", &BenchWide64::f32), json_member("f33", &BenchWide64::f33),
+						  json_member("f34", &BenchWide64::f34), json_member("f35", &BenchWide64::f35),
+						  json_member("f36", &BenchWide64::f36), json_member("f37", &BenchWide64::f37),
+						  json_member("f38", &BenchWide64::f38), json_member("f39", &BenchWide64::f39),
+						  json_member("f40", &BenchWide64::f40), json_member("f41", &BenchWide64::f41),
+						  json_member("f42", &BenchWide64::f42), json_member("f43", &BenchWide64::f43),
+						  json_member("f44", &BenchWide64::f44), json_member("f45", &BenchWide64::f45),
+						  json_member("f46", &BenchWide64::f46), json_member("f47", &BenchWide64::f47),
+						  json_member("f48", &BenchWide64::f48), json_member("f49", &BenchWide64::f49),
+						  json_member("f50", &BenchWide64::f50), json_member("f51", &BenchWide64::f51),
+						  json_member("f52", &BenchWide64::f52), json_member("f53", &BenchWide64::f53),
+						  json_member("f54", &BenchWide64::f54), json_member("f55", &BenchWide64::f55),
+						  json_member("f56", &BenchWide64::f56), json_member("f57", &BenchWide64::f57),
+						  json_member("f58", &BenchWide64::f58), json_member("f59", &BenchWide64::f59),
+						  json_member("f60", &BenchWide64::f60), json_member("f61", &BenchWide64::f61),
+						  json_member("f62", &BenchWide64::f62), json_member("f63", &BenchWide64::f63)};
+	}
+	static constexpr std::string_view type_name() { return "BenchWide64"; }
+};
+template<>
+struct JsonMembers<BenchWide96> {
+	static constexpr auto members() {
+		return std::tuple{json_member("f0", &BenchWide96::f0),   json_member("f1", &BenchWide96::f1),
+						  json_member("f2", &BenchWide96::f2),   json_member("f3", &BenchWide96::f3),
+						  json_member("f4", &BenchWide96::f4),   json_member("f5", &BenchWide96::f5),
+						  json_member("f6", &BenchWide96::f6),   json_member("f7", &BenchWide96::f7),
+						  json_member("f8", &BenchWide96::f8),   json_member("f9", &BenchWide96::f9),
+						  json_member("f10", &BenchWide96::f10), json_member("f11", &BenchWide96::f11),
+						  json_member("f12", &BenchWide96::f12), json_member("f13", &BenchWide96::f13),
+						  json_member("f14", &BenchWide96::f14), json_member("f15", &BenchWide96::f15),
+						  json_member("f16", &BenchWide96::f16), json_member("f17", &BenchWide96::f17),
+						  json_member("f18", &BenchWide96::f18), json_member("f19", &BenchWide96::f19),
+						  json_member("f20", &BenchWide96::f20), json_member("f21", &BenchWide96::f21),
+						  json_member("f22", &BenchWide96::f22), json_member("f23", &BenchWide96::f23),
+						  json_member("f24", &BenchWide96::f24), json_member("f25", &BenchWide96::f25),
+						  json_member("f26", &BenchWide96::f26), json_member("f27", &BenchWide96::f27),
+						  json_member("f28", &BenchWide96::f28), json_member("f29", &BenchWide96::f29),
+						  json_member("f30", &BenchWide96::f30), json_member("f31", &BenchWide96::f31),
+						  json_member("f32", &BenchWide96::f32), json_member("f33", &BenchWide96::f33),
+						  json_member("f34", &BenchWide96::f34), json_member("f35", &BenchWide96::f35),
+						  json_member("f36", &BenchWide96::f36), json_member("f37", &BenchWide96::f37),
+						  json_member("f38", &BenchWide96::f38), json_member("f39", &BenchWide96::f39),
+						  json_member("f40", &BenchWide96::f40), json_member("f41", &BenchWide96::f41),
+						  json_member("f42", &BenchWide96::f42), json_member("f43", &BenchWide96::f43),
+						  json_member("f44", &BenchWide96::f44), json_member("f45", &BenchWide96::f45),
+						  json_member("f46", &BenchWide96::f46), json_member("f47", &BenchWide96::f47),
+						  json_member("f48", &BenchWide96::f48), json_member("f49", &BenchWide96::f49),
+						  json_member("f50", &BenchWide96::f50), json_member("f51", &BenchWide96::f51),
+						  json_member("f52", &BenchWide96::f52), json_member("f53", &BenchWide96::f53),
+						  json_member("f54", &BenchWide96::f54), json_member("f55", &BenchWide96::f55),
+						  json_member("f56", &BenchWide96::f56), json_member("f57", &BenchWide96::f57),
+						  json_member("f58", &BenchWide96::f58), json_member("f59", &BenchWide96::f59),
+						  json_member("f60", &BenchWide96::f60), json_member("f61", &BenchWide96::f61),
+						  json_member("f62", &BenchWide96::f62), json_member("f63", &BenchWide96::f63),
+						  json_member("f64", &BenchWide96::f64), json_member("f65", &BenchWide96::f65),
+						  json_member("f66", &BenchWide96::f66), json_member("f67", &BenchWide96::f67),
+						  json_member("f68", &BenchWide96::f68), json_member("f69", &BenchWide96::f69),
+						  json_member("f70", &BenchWide96::f70), json_member("f71", &BenchWide96::f71),
+						  json_member("f72", &BenchWide96::f72), json_member("f73", &BenchWide96::f73),
+						  json_member("f74", &BenchWide96::f74), json_member("f75", &BenchWide96::f75),
+						  json_member("f76", &BenchWide96::f76), json_member("f77", &BenchWide96::f77),
+						  json_member("f78", &BenchWide96::f78), json_member("f79", &BenchWide96::f79),
+						  json_member("f80", &BenchWide96::f80), json_member("f81", &BenchWide96::f81),
+						  json_member("f82", &BenchWide96::f82), json_member("f83", &BenchWide96::f83),
+						  json_member("f84", &BenchWide96::f84), json_member("f85", &BenchWide96::f85),
+						  json_member("f86", &BenchWide96::f86), json_member("f87", &BenchWide96::f87),
+						  json_member("f88", &BenchWide96::f88), json_member("f89", &BenchWide96::f89),
+						  json_member("f90", &BenchWide96::f90), json_member("f91", &BenchWide96::f91),
+						  json_member("f92", &BenchWide96::f92), json_member("f93", &BenchWide96::f93),
+						  json_member("f94", &BenchWide96::f94), json_member("f95", &BenchWide96::f95)};
+	}
+	static constexpr std::string_view type_name() { return "BenchWide96"; }
+};
+
 namespace {
 
 [[nodiscard]] std::string make_medium_json(
@@ -511,6 +891,35 @@ namespace {
 		out += std::format(R"({{"id":{},"active":{}}})", i, (i % 2 == 0) ? "true" : "false");
 	}
 	out += ']';
+	return out;
+}
+
+[[nodiscard]] std::string make_wide_object_json(
+	std::size_t known_fields,
+	std::size_t unknown_fields = 0) {
+	std::string out;
+	out.reserve((known_fields + unknown_fields) * 18 + 8);
+	out += '{';
+	bool first = true;
+	auto append_sep = [&] {
+		if (!first) {
+			out += ',';
+		}
+		first = false;
+	};
+	for (std::size_t i = 0; i < known_fields; ++i) {
+		append_sep();
+		out += std::format(R"("f{}":{})", i, i);
+		if (i < unknown_fields) {
+			append_sep();
+			out += std::format(R"("extra_{}":{})", i, i);
+		}
+	}
+	for (std::size_t i = known_fields; i < unknown_fields; ++i) {
+		append_sep();
+		out += std::format(R"("extra_{}":{})", i, i);
+	}
+	out += '}';
 	return out;
 }
 template<class T>
@@ -621,6 +1030,59 @@ void bench_direct_struct_matrix() {
 	run_alloc_row("write/manual/direct/nested", [&] {
 		return measure_alloc([&] { require_dump(dump_direct(nested_value)); }, 100, 500, 1, nested.size());
 	});
+}
+
+void bench_direct_wide_object_matrix() {
+	std::string const wide8 = make_wide_object_json(8);
+	std::string const wide16 = make_wide_object_json(16);
+	std::string const wide32 = make_wide_object_json(32);
+	std::string const wide64 = make_wide_object_json(64);
+	std::string const wide96 = make_wide_object_json(96);
+	std::string const wide32_unknown = make_wide_object_json(32, 32);
+	std::string const wide64_unknown = make_wide_object_json(64, 64);
+	std::string const wide96_unknown = make_wide_object_json(96, 96);
+	JsonDecodeOptions ignore_unknown;
+	ignore_unknown.unknown_members = UnknownMemberPolicy::ignore;
+
+	print_alloc_row(
+		"decode/manual/reader/direct/wide08/all_known",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchWide8>(wide8)); }, 100, 500, 1, wide8.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide16/all_known",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchWide16>(wide16)); }, 100, 500, 1, wide16.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide32/all_known",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchWide32>(wide32)); }, 100, 500, 1, wide32.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide64/all_known",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchWide64>(wide64)); }, 100, 500, 1, wide64.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide96/all_known",
+		measure_alloc([&] { require_decode(decode_borrowed<BenchWide96>(wide96)); }, 100, 500, 1, wide96.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide32/unknown_ignore",
+		measure_alloc(
+			[&] { require_decode(decode_borrowed<BenchWide32>(wide32_unknown, {}, ignore_unknown)); },
+			100,
+			500,
+			1,
+			wide32_unknown.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide64/unknown_ignore",
+		measure_alloc(
+			[&] { require_decode(decode_borrowed<BenchWide64>(wide64_unknown, {}, ignore_unknown)); },
+			100,
+			500,
+			1,
+			wide64_unknown.size()));
+	print_alloc_row(
+		"decode/manual/reader/direct/wide96/unknown_ignore",
+		measure_alloc(
+			[&] { require_decode(decode_borrowed<BenchWide96>(wide96_unknown, {}, ignore_unknown)); },
+			100,
+			500,
+			1,
+			wide96_unknown.size()));
 }
 
 void bench_parse_small(
@@ -1588,6 +2050,12 @@ int main(
 		std::println("[json-bench] -- direct struct serde matrix --");
 	}
 	bench_direct_struct_matrix();
+
+	if (!g_csv) {
+		std::println("[json-bench]");
+		std::println("[json-bench] -- direct typed wide-object lookup matrix --");
+	}
+	bench_direct_wide_object_matrix();
 
 	if (!g_csv) {
 		std::println("[json-bench]");
