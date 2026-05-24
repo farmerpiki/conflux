@@ -826,8 +826,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     add_library(conflux_types INTERFACE)
     target_link_libraries(conflux_types INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_types conflux_header_impl_core)
-    conflux_register_header_package_component(conflux_types types
-        PUBLIC_HPP)
+    conflux_register_header_package_component(conflux_types types)
 
     set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
     set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
@@ -877,9 +876,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
             target_compile_definitions(conflux_json INTERFACE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
         endif()
-        conflux_register_header_package_component(conflux_json json
-            PUBLIC_HPP
-            HPP_TOP_LEVEL)
+        conflux_register_header_package_component(conflux_json json HPP_TOP_LEVEL)
     endif()
 
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
@@ -902,16 +899,13 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_http_proxy
             conflux_header_impl_templates)
         target_link_libraries(conflux_net_http INTERFACE PkgConfig::LIBURING)
-        conflux_register_header_package_component(conflux_net_http http
-            PUBLIC_HPP
-            HPP_TOP_LEVEL)
+        conflux_register_header_package_component(conflux_net_http http HPP_TOP_LEVEL)
     endif()
 
     add_library(conflux_file_io_sync INTERFACE)
     target_link_libraries(conflux_file_io_sync INTERFACE conflux_headers)
     conflux_link_existing_header_impls(conflux_file_io_sync conflux_header_impl_file_io_sync)
-    conflux_register_header_package_component(conflux_file_io_sync file_io_sync
-        PUBLIC_HPP)
+    conflux_register_header_package_component(conflux_file_io_sync file_io_sync)
 
     if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         add_library(conflux_work INTERFACE)
@@ -921,9 +915,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             conflux_header_impl_runtime
             conflux_header_impl_socket_io)
         target_link_libraries(conflux_work INTERFACE PkgConfig::LIBURING)
-        conflux_register_header_package_component(conflux_work work
-            PUBLIC_HPP
-            HPP_TOP_LEVEL)
+        conflux_register_header_package_component(conflux_work work HPP_TOP_LEVEL)
     endif()
 
     set(CONFLUX_HEADER_INSTALL_DB_COMPONENTS FALSE)
@@ -940,13 +932,11 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
             target_link_libraries(conflux_db INTERFACE PkgConfig::LIBPQ)
         endif()
         conflux_register_header_package_component(conflux_db db
-            PUBLIC_HPP
             MODULE_PREFIXES conflux.db)
 
         add_library(conflux_pg INTERFACE)
         target_link_libraries(conflux_pg INTERFACE conflux_db)
         conflux_register_header_package_component(conflux_pg pg
-            PUBLIC_HPP
             MODULE_PREFIXES conflux.pg)
     endif()
 

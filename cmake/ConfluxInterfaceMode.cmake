@@ -396,7 +396,7 @@ function(conflux_register_header_impl_target target export_name)
 endfunction()
 
 function(conflux_register_header_package_component target export_name)
-    set(options PUBLIC_HPP HPP_TOP_LEVEL)
+    set(options HPP_TOP_LEVEL)
     set(one_value_args)
     set(multi_value_args MODULE_PREFIXES)
     cmake_parse_arguments(CONFLUX_HEADER_COMPONENT
@@ -431,13 +431,18 @@ function(conflux_register_header_package_component target export_name)
         conflux_register_header_public_surface(${target}
             MODULE_PREFIXES ${CONFLUX_HEADER_COMPONENT_MODULE_PREFIXES})
     endif()
-    if(CONFLUX_HEADER_COMPONENT_PUBLIC_HPP)
+    set(_hpp_path "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${export_name}.hxx")
+    if(EXISTS "${_hpp_path}")
         conflux_register_header_public_hpp("${export_name}")
         if(CONFLUX_HEADER_COMPONENT_HPP_TOP_LEVEL)
             set_property(GLOBAL APPEND PROPERTY
                 CONFLUX_HEADER_PUBLIC_HPP_TOP_LEVEL_NAMES
                 "${export_name}")
         endif()
+    elseif(CONFLUX_HEADER_COMPONENT_HPP_TOP_LEVEL)
+        message(FATAL_ERROR
+            "conflux: HPP_TOP_LEVEL requested for '${export_name}', but "
+            "'${_hpp_path}' does not exist")
     endif()
 endfunction()
 
