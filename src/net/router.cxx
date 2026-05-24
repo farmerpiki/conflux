@@ -229,7 +229,7 @@ public:
 		set_error_handler(make_error_handler(std::forward<F>(handler)));
 		return *this;
 	}
-	// Return metadata for all registered routes (regular routes only).
+	// Return metadata for all registered route entry points.
 	[[nodiscard]] std::vector<RouteInfo> route_infos() const;
 	template<typename F>
 	Router &sse(

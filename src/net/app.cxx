@@ -476,35 +476,7 @@ public:
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
-			record_route_metadata<std::tuple<RequestView>>(method, path, "context", loc);
-			record_return_metadata<conflux::work::root::Task<Response>>();
-			auto auth_policy = route_metadata_.back().auth_policy;
-			auto rate_limit = route_metadata_.back().rate_limit;
-			auto scoped_context_middlewares = current_group_context_middlewares();
-			router_.add_context(
-				method,
-				path,
-				[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
-					RequestView const &req,
-					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-					Router::ContextHandler inner =
-						[auth_policy, rate_limit, &fn](
-							RequestView const &inner_req,
-							RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
-							co_return *std::move(denied);
-						}
-						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
-							co_return *std::move(limited);
-						}
-						co_return co_await fn(inner_req, inner_ctx);
-					};
-					co_return co_await run_scoped_context_middlewares(
-						scoped_context_middlewares,
-						req,
-						ctx,
-						std::move(inner));
-				});
+			add_context_route(method, path, std::forward<F>(handler), loc);
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
 		}
@@ -671,51 +643,58 @@ public:
 	App &add_context(
 		std::string_view method,
 		std::string_view path,
-		F &&handler) {
-		router_.add_context(method, path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		add_context_route(method, path, std::forward<F>(handler), loc);
 		return *this;
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &get_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("GET", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("GET", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &post_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("POST", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("POST", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &put_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("PUT", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("PUT", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &patch_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("PATCH", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("PATCH", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &del_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("DELETE", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("DELETE", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &options_context(
 		std::string_view path,
-		F &&handler) {
-		return add_context("OPTIONS", path, std::forward<F>(handler));
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return add_context("OPTIONS", path, std::forward<F>(handler), loc);
 	}
 	template<typename F>
 		requires(!std::same_as<std::remove_cvref_t<F>, ObservabilityMiddleware>)
@@ -748,14 +727,20 @@ public:
 	template<typename F>
 	App &sse(
 		std::string_view path,
-		F &&handler) {
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		record_route_metadata<std::tuple<RequestView>>("GET", path, "sse", loc);
+		record_return_metadata<Response>();
 		router_.sse(path, std::forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &ws(
 		std::string_view path,
-		F &&handler) {
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		record_route_metadata<std::tuple<RequestView>>("GET", path, "ws", loc);
+		record_return_metadata<Response>();
 		router_.ws(path, std::forward<F>(handler));
 		return *this;
 	}
@@ -1438,6 +1423,44 @@ public:
 			...);
 	}
 #endif
+
+	template<typename F>
+	void add_context_route(
+		std::string_view method,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc) {
+		using Fn = std::decay_t<F>;
+		record_route_metadata<std::tuple<RequestView>>(method, path, "context", loc);
+		record_return_metadata<conflux::work::root::Task<Response>>();
+		auto auth_policy = route_metadata_.back().auth_policy;
+		auto rate_limit = route_metadata_.back().rate_limit;
+		auto scoped_context_middlewares = current_group_context_middlewares();
+		router_.add_context(
+			method,
+			path,
+			[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
+				RequestView const &req,
+				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+				Router::ContextHandler inner =
+					[auth_policy, rate_limit, &fn](
+						RequestView const &inner_req,
+						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
+					if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						co_return *std::move(denied);
+					}
+					if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
+						co_return *std::move(limited);
+					}
+					co_return co_await fn(inner_req, inner_ctx);
+				};
+				co_return co_await run_scoped_context_middlewares(
+					scoped_context_middlewares,
+					req,
+					ctx,
+					std::move(inner));
+			});
+	}
 
 	template<class Args>
 	void record_route_metadata(

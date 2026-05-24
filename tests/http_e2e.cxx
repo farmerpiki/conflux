@@ -96,8 +96,19 @@ TEST_CASE(
 	auto app = chttp::App::default_server();
 	auto &ws_app = app.ws("/ws", [](RequestView const &, WsConn &) {});
 	CHECK(&ws_app == &app);
+	auto &sse_app = app.sse("/events", [](RequestView const &, std::shared_ptr<SseChannel> const &) {});
+	CHECK(&sse_app == &app);
 	auto &static_app = app.serve_static("/assets", std::filesystem::temp_directory_path().string());
 	CHECK(&static_app == &app);
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 2);
+	CHECK(routes[0].method == "GET");
+	CHECK(routes[0].path == "/ws");
+	CHECK(routes[0].handler_kind == "ws");
+	CHECK(routes[1].method == "GET");
+	CHECK(routes[1].path == "/events");
+	CHECK(routes[1].handler_kind == "sse");
 }
 
 TEST_CASE(
@@ -121,11 +132,20 @@ TEST_CASE(
 	CHECK(chttp::router(app).has_context_routes());
 
 	auto infos = chttp::route_infos(app);
-	REQUIRE(infos.size() == 1);
+	REQUIRE(infos.size() == 2);
 	CHECK(infos[0].method == "REPORT");
 	CHECK(infos[0].path_pattern == "/reports/{id}");
 	REQUIRE(infos[0].path_params.size() == 1);
 	CHECK(infos[0].path_params[0] == "id");
+	CHECK(infos[1].method == "POST");
+	CHECK(infos[1].path_pattern == "/jobs/{id}");
+	REQUIRE(infos[1].path_params.size() == 1);
+	CHECK(infos[1].path_params[0] == "id");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/jobs/{id}");
+	CHECK(routes[0].handler_kind == "context");
 }
 
 void ensure_server() {

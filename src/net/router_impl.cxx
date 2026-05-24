@@ -238,6 +238,31 @@ template<typename RouteT>
 	return select_routes_for_path(index->routes, path);
 }
 
+template<typename RouteT>
+void append_route_info(
+	std::vector<RouteInfo> &result,
+	std::string_view method,
+	RouteT const &route) {
+	RouteInfo info;
+	info.method = std::string{method};
+	info.path_pattern = route.path_pattern;
+	for (auto const &seg: route.pattern) {
+		if (seg.is_param || seg.is_wildcard) {
+			info.path_params.push_back(seg.value);
+		}
+	}
+	result.push_back(std::move(info));
+}
+
+template<typename RouteT>
+void append_route_infos(
+	std::vector<RouteInfo> &result,
+	std::vector<RouteT> const &routes) {
+	for (auto const &route: routes) {
+		append_route_info(result, route.method, route);
+	}
+}
+
 template<typename ImplT>
 [[nodiscard]] Response dispatch_router_sync(
 	ImplT const &impl,
@@ -497,17 +522,11 @@ Router &Router::ws_prepared(
 
 [[nodiscard]] std::vector<RouteInfo> Router::route_infos() const {
 	std::vector<RouteInfo> result;
-	result.reserve(impl_->routes.size());
-	for (auto const &route: impl_->routes) {
-		RouteInfo info;
-		info.method = route.method;
-		info.path_pattern = route.path_pattern;
-		for (auto const &seg: route.pattern) {
-			if (seg.is_param || seg.is_wildcard) {
-				info.path_params.push_back(seg.value);
-			}
-		}
-		result.push_back(std::move(info));
+	result.reserve(impl_->routes.size() + impl_->context_routes.size() + impl_->sse_routes.size());
+	append_route_infos(result, impl_->routes);
+	append_route_infos(result, impl_->context_routes);
+	for (auto const &route: impl_->sse_routes) {
+		append_route_info(result, "GET", route);
 	}
 	return result;
 }
