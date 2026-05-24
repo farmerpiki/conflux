@@ -668,6 +668,10 @@ std::string_view JsonReader::input() const noexcept {
 	return input_;
 }
 
+JsonParseOptions const &JsonReader::parse_options() const noexcept {
+	return opts_;
+}
+
 std::size_t JsonReader::depth() const noexcept {
 	return stack_.size();
 }

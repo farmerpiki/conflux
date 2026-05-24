@@ -206,7 +206,7 @@ parse_view(input, { .max_string_size = no_limit });
 
 **`ParseMode::json5`** accepts a subset of JSON5: single-line `//` and block `/* */` comments, trailing commas in objects and arrays, unquoted keys (identifier characters), and single-quoted strings. This is not full JSON5; the accepted subset matches what the test suite covers.
 
-**`DuplicateKeyPolicy`** controls parser behavior when an object has repeated member names. Default is `reject` (returns `duplicate_member` error). `last_wins` and `first_wins` allow lossy ingestion of non-conforming inputs. Security note: use `reject` for untrusted input — duplicate-key ambiguity has been exploited in JSON security bypasses.
+**`DuplicateKeyPolicy`** controls parser behavior when an object has repeated member names. Default is `reject` (returns `duplicate_member` error). `last_wins` and `first_wins` allow lossy ingestion of non-conforming inputs. Security note: use `reject` for untrusted input — duplicate-key ambiguity has been exploited in JSON security bypasses. Streaming typed decode honors this policy for duplicate known fields. Unknown duplicate fields under `UnknownMemberPolicy::ignore` are consumed and validated but are not tracked for duplicate-key rejection.
 
 **`warm_threshold`** — if set and an object's member count is ≥ the threshold (and ≥ the internal `kHashThreshold`), the parser automatically builds a hash index for that object during parse rather than waiting for an explicit `warm_member_index` call.
 
@@ -643,7 +643,10 @@ value and return `trailing_garbage` if another top-level value remains.
 multi-value inputs.
 `decode_direct(...)` exposes the reader/scratch path used by typed providers.
 `decode_borrowed(...)` names the view-backed input lifetime explicitly;
-`decode_owned(...)` rejects `string_view` targets at compile time.
+`decode_owned(...)` rejects targets that contain borrowed-view fields such as
+`std::string_view` at compile time. Provider boundaries that copy input reject
+the same borrowed-view target shapes at runtime because the temporary owning DOM
+would otherwise be destroyed before the returned value.
 
 For direct output, `write_json_direct(out, value, opts)` appends compact JSON to
 an existing string and `dump_direct(value, opts)` returns a new string. The

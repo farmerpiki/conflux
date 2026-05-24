@@ -171,24 +171,34 @@ struct NativeJsonProvider {
 	[[nodiscard]] static std::expected<std::remove_cvref_t<T>, Error> decode_json(
 		std::string_view input,
 		DecodeOptions const &opts = {}) {
-		auto const decode_opts = detail::map_decode_options(opts);
-		if (opts.copy_input) {
-			auto doc = parse_dom(input, detail::map_dom_policy(opts));
-			if (!doc) {
-				return std::unexpected(detail::map_error(doc.error()));
+		using Raw = std::remove_cvref_t<T>;
+		if constexpr (json_contains_borrowed_view_v<Raw>) {
+			return std::unexpected(
+				Error{
+					.stage = ErrorStage::decode,
+					.code = ErrorCode::invalid_value,
+					.message = opts.copy_input ? "copy_input=true cannot safely decode borrowed-view fields" :
+												 "borrowed-view direct decode is not supported by NativeJsonProvider"});
+		} else {
+			auto const decode_opts = detail::map_decode_options(opts);
+			if (opts.copy_input) {
+				auto doc = parse_dom(input, detail::map_dom_policy(opts));
+				if (!doc) {
+					return std::unexpected(detail::map_error(doc.error()));
+				}
+				auto decoded = decode<Raw>(*doc, decode_opts);
+				if (!decoded) {
+					return std::unexpected(detail::map_error(decoded.error()));
+				}
+				return std::move(*decoded);
 			}
-			auto decoded = decode<std::remove_cvref_t<T>>(*doc, decode_opts);
+			JsonReader reader{input, detail::map_dom_policy(opts).parse};
+			auto decoded = decode_full<Raw>(reader, decode_opts);
 			if (!decoded) {
 				return std::unexpected(detail::map_error(decoded.error()));
 			}
 			return std::move(*decoded);
 		}
-		JsonReader reader{input, detail::map_dom_policy(opts).parse};
-		auto decoded = decode_full<std::remove_cvref_t<T>>(reader, decode_opts);
-		if (!decoded) {
-			return std::unexpected(detail::map_error(decoded.error()));
-		}
-		return std::move(*decoded);
 	}
 };
 

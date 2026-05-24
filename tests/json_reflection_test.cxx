@@ -35,6 +35,13 @@ struct WithArrays {
 	std::vector<Point> points;
 	std::array<int, 3> weights{};
 };
+struct NestedOptional {
+	int required{0};
+	std::optional<std::string> label{};
+};
+struct WithNestedOptional {
+	NestedOptional child{};
+};
 // ---------------------------------------------------------------------------
 // Minimal test runner
 // ---------------------------------------------------------------------------
@@ -295,6 +302,27 @@ void test_reader_path_decode_array_members() {
 	CHECK(value->points[1].y == 4);
 	CHECK(value->weights[2] == 7);
 }
+void test_reader_path_duplicate_vector_last_wins_clears_previous() {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonReader reader{R"({"points":[{"x":1,"y":2},{"x":3,"y":4}],"points":[{"x":5,"y":6}],"weights":[7,8,9]})", opts};
+	auto value = decode<WithArrays>(reader);
+	REQUIRE(value.has_value());
+	REQUIRE(value->points.size() == 1UZ);
+	CHECK(value->points[0].x == 5);
+	CHECK(value->points[0].y == 6);
+	CHECK(value->weights[2] == 9);
+}
+void test_reader_path_duplicate_nested_last_wins_resets_missing_optional() {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonReader reader{R"({"child":{"required":1,"label":"old"},"child":{"required":2}})", opts};
+	auto value = decode<WithNestedOptional>(reader);
+	REQUIRE(value.has_value());
+	CHECK(value->child.required == 2);
+	CHECK(!value->child.label.has_value());
+}
+
 void test_reader_path_decode_unknown_rejected() {
 	std::string_view input = R"({"x": 5, "ignored": {"nested": [1, 2, 3]}, "y": -3})";
 	JsonReader reader{input};
@@ -302,6 +330,31 @@ void test_reader_path_decode_unknown_rejected() {
 	REQUIRE(!p.has_value());
 	CHECK(p.error().code == JsonIssueCode::invalid_value);
 	CHECK(p.error().member_name == "ignored");
+}
+void test_reader_path_duplicate_reject() {
+	JsonReader reader{R"({"x": 1, "x": 2, "y": 3})"};
+	auto p = decode<Point>(reader);
+	REQUIRE(!p.has_value());
+	CHECK(p.error().code == JsonIssueCode::duplicate_member);
+	CHECK(p.error().member_name == "x");
+}
+void test_reader_path_duplicate_last_wins() {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonReader reader{R"({"x": 1, "x": 2, "y": 3})", opts};
+	auto p = decode<Point>(reader);
+	REQUIRE(p.has_value());
+	CHECK(p->x == 2);
+	CHECK(p->y == 3);
+}
+void test_reader_path_duplicate_first_wins() {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	JsonReader reader{R"({"x": 1, "x": 2, "y": 3})", opts};
+	auto p = decode<Point>(reader);
+	REQUIRE(p.has_value());
+	CHECK(p->x == 1);
+	CHECK(p->y == 3);
 }
 
 } // namespace
@@ -313,31 +366,38 @@ export int run_tests() {
 		fn_t fn;
 		std::string_view name;
 	} tests[] = {
-		{						 test_decode_plain_aggregate,                          "decode plain aggregate"},
-		{					test_decode_with_name_annotation,                     "decode with name annotation"},
-		{				  test_decode_optional_field_present,                   "decode optional field present"},
-		{				  test_decode_missing_required_field,                   "decode missing required field"},
-		{			 test_decode_skip_field_present_rejected,              "decode skip field present rejected"},
-		{					test_decode_skip_field_absent_ok,                     "decode skip field absent ok"},
-		{						test_decode_nested_aggregate,                         "decode nested aggregate"},
-		{						   test_decode_array_members,                            "decode array members"},
-		{			test_decode_unknown_member_ignore_policy,             "decode unknown member ignore policy"},
-		{test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
-		{				 test_boundary_reflect_provider_dump,                  "boundary reflect provider dump"},
-		{       test_reflect_direct_dump_with_name_annotation,        "reflect direct dump with name annotation"},
-		{					 test_reflect_direct_dump_nested,                      "reflect direct dump nested"},
-		{						 test_encode_plain_aggregate,                          "encode plain aggregate"},
-		{					test_encode_with_name_annotation,                     "encode with name annotation"},
-		{					   test_encode_skip_field_absent,                        "encode skip field absent"},
-		{						test_encode_nested_aggregate,                         "encode nested aggregate"},
-		{								test_roundtrip_point,								"round-trip Point"},
-		{							   test_roundtrip_config,                               "round-trip Config"},
-		{						 test_has_json_codec_concept,                          "has_json_codec concept"},
-		{							 test_reader_path_decode,                              "reader path decode"},
-		{				 test_reader_path_decode_escaped_key,                  "reader path decode escaped key"},
-		{       test_reader_path_decode_ignore_unknown_nested,        "reader path decode ignore unknown nested"},
-		{			   test_reader_path_decode_array_members,                "reader path decode array members"},
-		{			test_reader_path_decode_unknown_rejected,             "reader path decode unknown rejected"},
+		{										test_decode_plain_aggregate,"decode plain aggregate"																			 },
+		{								   test_decode_with_name_annotation,                     "decode with name annotation"},
+		{								 test_decode_optional_field_present,                   "decode optional field present"},
+		{								 test_decode_missing_required_field,                   "decode missing required field"},
+		{							test_decode_skip_field_present_rejected,              "decode skip field present rejected"},
+		{								   test_decode_skip_field_absent_ok,                     "decode skip field absent ok"},
+		{									   test_decode_nested_aggregate,                         "decode nested aggregate"},
+		{										  test_decode_array_members,                            "decode array members"},
+		{						   test_decode_unknown_member_ignore_policy,             "decode unknown member ignore policy"},
+		{			   test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
+		{								test_boundary_reflect_provider_dump,                  "boundary reflect provider dump"},
+		{					  test_reflect_direct_dump_with_name_annotation,        "reflect direct dump with name annotation"},
+		{									test_reflect_direct_dump_nested,                      "reflect direct dump nested"},
+		{										test_encode_plain_aggregate,                          "encode plain aggregate"},
+		{								   test_encode_with_name_annotation,                     "encode with name annotation"},
+		{									  test_encode_skip_field_absent,                        "encode skip field absent"},
+		{									   test_encode_nested_aggregate,                         "encode nested aggregate"},
+		{											   test_roundtrip_point,								"round-trip Point"},
+		{											  test_roundtrip_config,                               "round-trip Config"},
+		{										test_has_json_codec_concept,                          "has_json_codec concept"},
+		{											test_reader_path_decode,                              "reader path decode"},
+		{								test_reader_path_decode_escaped_key,                  "reader path decode escaped key"},
+		{					  test_reader_path_decode_ignore_unknown_nested,        "reader path decode ignore unknown nested"},
+		{							  test_reader_path_decode_array_members,                "reader path decode array members"},
+		{        test_reader_path_duplicate_vector_last_wins_clears_previous,
+		 "reader path duplicate vector last_wins clears previous"                                                              },
+		{test_reader_path_duplicate_nested_last_wins_resets_missing_optional,
+		 "reader path duplicate nested last_wins resets missing optional"                                                      },
+		{						   test_reader_path_decode_unknown_rejected,             "reader path decode unknown rejected"},
+		{								  test_reader_path_duplicate_reject,                    "reader path duplicate reject"},
+		{							   test_reader_path_duplicate_last_wins,                 "reader path duplicate last_wins"},
+		{							  test_reader_path_duplicate_first_wins,                "reader path duplicate first_wins"},
 	};
 	int saved = g_failures;
 	for (auto const &t: tests) {

@@ -75,7 +75,7 @@ corresponding aggregate surface for the configured feature set.
 | JSON boundary/provider/reflect modules | no | yes, when built | yes |
 | `conflux.work` runtime/task primitives | no | yes, when built | yes |
 | sync file helpers and mapped-file helpers | no | yes, when built | yes |
-| auth/policy/observability/OpenAPI/vhost customization | no | yes, when built | yes |
+| auth/policy/observability/OpenAPI handler/vhost customization | no | yes, when built | yes |
 | raw `io_uring`, socket/file async I/O, protocol/parser/router internals | no | no | yes, when built |
 | private detail modules, partitions, tests, benches, generated glue | no | no | no |
 

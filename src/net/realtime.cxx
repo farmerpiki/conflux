@@ -659,7 +659,15 @@ public:
 			}
 			std::string payload(buf_.data(), static_cast<std::size_t>(plen));
 			consume(static_cast<std::size_t>(plen));
-#if defined(CONFLUX_STDSIMD)
+#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+			constexpr std::size_t kStdsimdThreshold = 32;
+			if (payload.size() >= kStdsimdThreshold) {
+				conflux_ws_unmask_stdsimd(
+					reinterpret_cast<unsigned char *>(payload.data()),
+					payload.size(),
+					mask_key.data());
+			} else
+#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 			constexpr std::size_t kStdsimdThreshold = 32;
 			if (payload.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 				conflux_ws_unmask_stdsimd(

@@ -1354,6 +1354,12 @@ function(conflux_add_header_compile_fail_tests)
         tests/http_facade_compile_fail_async_middleware
         "Async middleware must take http::Request const&"
         "RequestView const&")
+    conflux_add_header_compile_fail_test(
+        http-facade-header/compile-fail-route-policy-internal
+        tests/http_facade_compile_fail_route_policy_internal
+        "AppRouteRateLimit"
+        "is not a member of"
+        "conflux::http")
 endfunction()
 
 function(conflux_add_header_benchmark_compile_targets)

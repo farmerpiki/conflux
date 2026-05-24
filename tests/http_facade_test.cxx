@@ -5,6 +5,7 @@
 import std;
 import conflux.types;
 import conflux.http;
+import conflux.http.extended;
 import conflux.json;
 import conflux.json.boundary;
 import conflux.net.config;
@@ -15,7 +16,6 @@ import conflux.work;
 namespace http = conflux::http;
 
 static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
-static_assert(std::same_as<http::Next, http::Router::Handler>);
 static_assert(std::same_as<http::Config, Config>);
 static_assert(std::same_as<http::DrainOptions, DrainOptions>);
 static_assert(std::same_as<http::DrainReport, DrainReport>);
@@ -1172,7 +1172,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
-	app.get("/openapi.json", app.openapi_handler("Facade API", "1.2.3"));
+	app.get("/openapi.json", http::openapi_handler(app, "Facade API", "1.2.3"));
 
 	Request req;
 	req.method = "GET";

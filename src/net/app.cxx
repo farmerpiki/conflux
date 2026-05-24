@@ -2,7 +2,6 @@ module;
 
 export module conflux.net.app;
 
-export import conflux.net.app.policies;
 export import conflux.net.app.response;
 export import conflux.net.app.types;
 import std;
@@ -48,6 +47,20 @@ class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 	using ScopedMiddlewareList = std::vector<Router::Middleware>;
 	using ScopedContextMiddlewareList = std::vector<Router::ContextMiddleware>;
+
+	struct AppRouteRateLimit {
+		std::string name;
+		AppRateLimitOptions options{};
+		bool enabled{};
+
+		struct Bucket {
+			unsigned tokens{};
+			std::chrono::steady_clock::time_point window_start{std::chrono::steady_clock::now()};
+		};
+
+		std::mutex mutex;
+		std::unordered_map<std::string, Bucket> buckets;
+	};
 
 	struct AppRouteMetadata {
 		std::string method;
@@ -149,6 +162,80 @@ class App {
 		auto step = std::make_shared<Step>(std::move(middlewares), std::move(inner));
 		step->bind(step);
 		co_return co_await step->call(req, ctx);
+	}
+
+	[[nodiscard]] static std::optional<Response> route_auth_failure(
+		std::string_view policy,
+		RequestView const &req) {
+		if (policy.empty()) {
+			return std::nullopt;
+		}
+		auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
+		if (!token || token->empty()) {
+			return Response::unauthorized("Bearer");
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] static std::optional<Response> route_rate_limit_failure(
+		AppRouteRateLimit &policy,
+		RequestView const &req) {
+		if (!policy.enabled) {
+			return std::nullopt;
+		}
+		auto const capacity = policy.options.requests + policy.options.burst;
+		if (capacity == 0) {
+			auto response = Response::text("Too Many Requests", kHttpTooManyRequests);
+			response.headers["Retry-After"] = std::format("{}", policy.options.window.count());
+			return response;
+		}
+
+		auto const now = std::chrono::steady_clock::now();
+		auto const key = req.remote_addr.empty() ? std::string{"unknown"} : std::string{req.remote_addr};
+		auto retry_after = static_cast<unsigned>(policy.options.window.count());
+
+		{
+			std::scoped_lock const lock{policy.mutex};
+			auto const max_clients = std::max<std::size_t>(policy.options.max_clients, 1);
+			if (policy.buckets.size() >= max_clients && !policy.buckets.contains(key)) {
+				policy.buckets.erase(policy.buckets.begin());
+			}
+			auto [it, inserted] =
+				policy.buckets.try_emplace(key, AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now});
+			auto &bucket = it->second;
+			if (inserted) {
+				bucket.tokens = capacity;
+			}
+
+			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
+			if (elapsed >= policy.options.window) {
+				bucket.tokens = capacity;
+				bucket.window_start = now;
+				elapsed = std::chrono::seconds{0};
+			}
+
+			if (bucket.tokens > 0) {
+				--bucket.tokens;
+				return std::nullopt;
+			}
+			auto remaining = policy.options.window - elapsed;
+			retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+		}
+
+		auto response = Response::text("Too Many Requests", kHttpTooManyRequests);
+		response.headers["Retry-After"] = std::format("{}", retry_after);
+		return response;
+	}
+
+	[[nodiscard]] static Response apply_route_timeout(
+		Response response,
+		std::chrono::milliseconds timeout) {
+		if (timeout.count() > 0 && response.is_deferred()) {
+			if (auto const &deferred = response.deferred_response_ptr()) {
+				deferred->set_deadline(std::chrono::steady_clock::now() + timeout);
+			}
+		}
+		return response;
 	}
 
 public:
@@ -274,13 +361,13 @@ public:
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
-						return detail::apply_route_timeout(
+						return apply_route_timeout(
 #if CONFLUX_HAS_JSON
 							into_app_response(fn(), *json_options),
 #else
@@ -320,13 +407,13 @@ public:
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
-						return detail::apply_route_timeout(
+						return apply_route_timeout(
 #if CONFLUX_HAS_JSON
 							into_app_response(fn(inner_req), *json_options),
 #else
@@ -366,14 +453,14 @@ public:
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
 						auto owned = inner_req.to_owned();
-						return detail::apply_route_timeout(
+						return apply_route_timeout(
 #if CONFLUX_HAS_JSON
 							into_app_response(fn(owned), *json_options),
 #else
@@ -400,10 +487,10 @@ public:
 							Request const &inner_req,
 							RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
 						RequestView const view{inner_req};
-						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
+						if (auto denied = route_auth_failure(*auth_policy, view)) {
 							co_return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, view)) {
 							co_return *std::move(limited);
 						}
 						co_return co_await fn(inner_req, inner_ctx);
@@ -1015,15 +1102,6 @@ public:
 					.problem_response = route.problem_response});
 		}
 		return detail::render_openapi_spec(routes, title, version);
-	}
-	[[nodiscard]] Router::Handler openapi_handler(
-		std::string_view title = "API",
-		std::string_view version = "1.0.0") const {
-		auto spec = openapi_spec(title, version);
-		return [spec = std::move(spec)](RequestView const &) -> Response {
-			auto response = Response::json(spec);
-			return response;
-		};
 	}
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
@@ -1774,13 +1852,13 @@ public:
 										 json_options
 #endif
 				](RequestView const &inner_req) mutable {
-					if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+					if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 						return *std::move(denied);
 					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+					if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 						return *std::move(limited);
 					}
-					return detail::apply_route_timeout(
+					return apply_route_timeout(
 						invoke_fixed_route<Args>(
 							*states,
 							fn,
@@ -1945,10 +2023,10 @@ public:
 #endif
 					](Request const &inner_req, RequestContext const &) mutable -> conflux::work::root::Task<Response> {
 						RequestView const view{inner_req};
-						if (auto denied = detail::route_auth_failure(*auth_policy, view)) {
+						if (auto denied = route_auth_failure(*auth_policy, view)) {
 							co_return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, view)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, view)) {
 							co_return *std::move(limited);
 						}
 						co_return co_await invoke_extracted_async<Args>(
@@ -1996,13 +2074,13 @@ public:
 											 json_options
 #endif
 					](RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							return *std::move(denied);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
-						return detail::apply_route_timeout(
+						return apply_route_timeout(
 							invoke_extracted<Args>(
 								*states,
 								fn,
@@ -2083,10 +2161,10 @@ public:
 			 decode_opts = decode_opts,
 			 max_body_size,
 			 json_options](RequestView const &req) mutable -> Response {
-				if (auto denied = detail::route_auth_failure(*auth_policy, req)) {
+				if (auto denied = route_auth_failure(*auth_policy, req)) {
 					return *std::move(denied);
 				}
-				if (auto limited = detail::route_rate_limit_failure(*rate_limit, req)) {
+				if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 					return *std::move(limited);
 				}
 				auto content_type = req.header("content-type");
@@ -2106,7 +2184,7 @@ public:
 					return detail::json_decode_problem(decoded.error());
 				}
 				auto body = Json<BodyValue>{std::move(*decoded)};
-				return detail::apply_route_timeout(
+				return apply_route_timeout(
 					invoke_json_extracted<Args>(
 						*states,
 						fn,

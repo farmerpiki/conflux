@@ -104,6 +104,19 @@ if(TARGET conflux)
         LABELS "build;api-surface;compile-fail"
         RUN_SERIAL TRUE)
 
+    add_library(conflux_api_surface_curated_compile_fail_file EXCLUDE_FROM_ALL
+        OBJECT api_surface_curated_compile_fail_file.cxx)
+    target_link_libraries(conflux_api_surface_curated_compile_fail_file
+        PRIVATE conflux conflux_options)
+    add_test(NAME api-surface/curated-hides-blocking-file
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_api_surface_curated_compile_fail_file
+                "file")
+    set_tests_properties(api-surface/curated-hides-blocking-file PROPERTIES
+        LABELS "build;api-surface;compile-fail"
+        RUN_SERIAL TRUE)
+
     add_library(conflux_api_surface_extended_compile_fail_iouring EXCLUDE_FROM_ALL
         OBJECT api_surface_extended_compile_fail_iouring.cxx)
     target_link_libraries(conflux_api_surface_extended_compile_fail_iouring
@@ -339,6 +352,21 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_async_middleware
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_router_alias EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_router_alias.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_router_alias
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_route_policy_internal EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_route_policy_internal.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_route_policy_internal
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_openapi_handler_member EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_openapi_handler_member.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_member
+        PRIVATE conflux_net_http conflux_options)
+
     add_test(NAME http-facade/compile-fail-request-view-task
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
@@ -398,6 +426,39 @@ if(TARGET conflux_net_http)
                 "Async middleware must take http::Request const&"
                 "RequestView const&")
     set_tests_properties(http-facade/compile-fail-async-middleware PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-router-alias
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_router_alias
+                "Router"
+                "is not a member of"
+                "conflux::http")
+    set_tests_properties(http-facade/compile-fail-router-alias PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-route-policy-internal
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_route_policy_internal
+                "AppRouteRateLimit"
+                "is not a member of"
+                "conflux::http")
+    set_tests_properties(http-facade/compile-fail-route-policy-internal PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-openapi-handler-member
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_openapi_handler_member
+                "openapi_handler"
+                "has no member named"
+                "conflux::http::App")
+    set_tests_properties(http-facade/compile-fail-openapi-handler-member PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 endif()

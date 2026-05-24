@@ -449,7 +449,12 @@ std::size_t scan_url_plain_run_(
 	char const *p,
 	std::size_t n,
 	bool plus_is_special) noexcept {
-#if defined(CONFLUX_STDSIMD)
+#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+	constexpr std::size_t kStdsimdThreshold = 24;
+	if (n >= kStdsimdThreshold) {
+		return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
+	}
+#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 24;
 	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
@@ -653,7 +658,13 @@ export bool cidr_match(
 // bytes untouched; branch-free via the ASCII case bit.
 export void ascii_lower_inplace(
 	std::span<char> s) noexcept {
-#if defined(CONFLUX_STDSIMD)
+#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (s.size() >= kStdsimdThreshold) {
+		conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
+		return;
+	}
+#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 32;
 	if (s.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());

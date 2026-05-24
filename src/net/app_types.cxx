@@ -32,6 +32,13 @@ struct AppRunOptions {
 	std::uint16_t port = kConfigDefaultPort;
 };
 
+struct AppRateLimitOptions {
+	unsigned requests{100};
+	std::chrono::seconds window{60};
+	unsigned burst{0};
+	std::size_t max_clients{65536};
+};
+
 #if CONFLUX_HAS_JSON
 struct AppJsonOptions {
 	conflux::json::boundary::DecodeOptions decode{};

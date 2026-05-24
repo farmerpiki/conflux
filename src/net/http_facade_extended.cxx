@@ -1,4 +1,5 @@
 module;
+#include <cerrno>
 #include <chrono>
 #include <memory>
 
@@ -8,8 +9,35 @@ export import conflux.http;
 export import conflux.work;
 import std;
 import conflux.net.app.defer;
+import conflux.file_io_sync;
+import conflux.types;
 
 export namespace conflux::http {
+
+using Router = ::Router;
+
+[[nodiscard]] Response file(
+	std::filesystem::path const &path,
+	std::string content_type = "application/octet-stream") {
+	auto path_string = path.string();
+	auto body = blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
+	if (!body) {
+		auto const err = errnum(body);
+		if (err == ENOENT || err == ENOTDIR) {
+			return Response::not_found(path.string());
+		}
+		return Response::internal_error("failed to read file");
+	}
+	return Response::with_body(std::move(*body), std::move(content_type));
+}
+
+[[nodiscard]] Router::Handler openapi_handler(
+	App const &app,
+	std::string_view title = "API",
+	std::string_view version = "1.0.0") {
+	auto spec = app.openapi_spec(title, version);
+	return [spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); };
+}
 
 template<typename F>
 	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)

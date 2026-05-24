@@ -1,7 +1,6 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
-import conflux.net.router;
 
 namespace http_snapshot {
 

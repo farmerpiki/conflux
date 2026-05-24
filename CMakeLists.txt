@@ -49,12 +49,16 @@ if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 	message(FATAL_ERROR
 		"CONFLUX_INTERFACE_MODE must be MODULE_INTERFACE or HEADER_INTERFACE; got '${CONFLUX_INTERFACE_MODE}'")
 endif()
-if(NOT CONFLUX_API_SURFACE STREQUAL "curated"
-        AND NOT CONFLUX_API_SURFACE STREQUAL "extended"
-        AND NOT CONFLUX_API_SURFACE STREQUAL "complete")
+set(_conflux_api_surface_input "${CONFLUX_API_SURFACE}")
+string(TOLOWER "${CONFLUX_API_SURFACE}" CONFLUX_API_SURFACE)
+if(NOT CONFLUX_API_SURFACE MATCHES "^(curated|extended|complete)$")
     message(FATAL_ERROR
-        "CONFLUX_API_SURFACE must be curated, extended, or complete; got '${CONFLUX_API_SURFACE}'")
+        "CONFLUX_API_SURFACE must be one of: curated, extended, complete; "
+        "got '${_conflux_api_surface_input}'")
 endif()
+set(CONFLUX_API_SURFACE "${CONFLUX_API_SURFACE}" CACHE STRING
+    "Aggregate API surface re-exported by import conflux / <conflux.hxx>: curated, extended, or complete" FORCE)
+set_property(CACHE CONFLUX_API_SURFACE PROPERTY STRINGS curated extended complete)
 set(CONFLUX_API_SURFACE_LEVEL_VALUE 1)
 if(CONFLUX_API_SURFACE STREQUAL "extended")
     set(CONFLUX_API_SURFACE_LEVEL_VALUE 2)
@@ -443,6 +447,9 @@ endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
 option(CONFLUX_ENABLE_CPU_DISPATCH
     "Guard compiled ISA-specific fast paths with runtime CPU feature checks for portable distribution builds" OFF)
+set(CONFLUX_SIMD_SELECTION "AUTO" CACHE STRING
+    "Select SIMD binding policy for ISA-specific fast paths (AUTO|DIRECT|RUNTIME)")
+set_property(CACHE CONFLUX_SIMD_SELECTION PROPERTY STRINGS AUTO DIRECT RUNTIME)
 set(CONFLUX_USE_STDSIMD "AUTO" CACHE STRING
     "Use standard/experimental SIMD for library scan paths (AUTO|STD26|STDX|ON|OFF)")
 set_property(CACHE CONFLUX_USE_STDSIMD PROPERTY STRINGS AUTO STD26 STDX ON OFF)
@@ -451,6 +458,30 @@ if(DEFINED CONFLUX_JSON_USE_STDSIMD)
         "Use standard/experimental SIMD for library scan paths (AUTO|STD26|STDX|ON|OFF)" FORCE)
     message(DEPRECATION
         "conflux: CONFLUX_JSON_USE_STDSIMD is deprecated; use CONFLUX_USE_STDSIMD")
+endif()
+
+if(NOT CONFLUX_SIMD_SELECTION MATCHES "^(AUTO|DIRECT|RUNTIME)$")
+    message(FATAL_ERROR
+        "conflux: CONFLUX_SIMD_SELECTION must be AUTO, DIRECT, or RUNTIME "
+        "(got '${CONFLUX_SIMD_SELECTION}')")
+endif()
+
+set(_conflux_simd_selection "${CONFLUX_SIMD_SELECTION}")
+if(_conflux_simd_selection STREQUAL "AUTO")
+    if(CONFLUX_ENABLE_CPU_DISPATCH)
+        set(_conflux_simd_selection RUNTIME)
+    else()
+        set(_conflux_simd_selection DIRECT)
+    endif()
+endif()
+set(_conflux_simd_selection_direct OFF)
+set(_conflux_simd_selection_runtime OFF)
+if(_conflux_simd_selection STREQUAL "DIRECT")
+    set(_conflux_simd_selection_direct ON)
+elseif(_conflux_simd_selection STREQUAL "RUNTIME")
+    set(_conflux_simd_selection_runtime ON)
+else()
+    message(FATAL_ERROR "conflux: internal SIMD selection resolution failed")
 endif()
 
 set(CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF OFF)
@@ -1597,6 +1628,8 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_MODULE_REEXPORT_IMPORTS=0
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
     CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
+    CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
+    CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
     CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
     CONFLUX_ENABLE_RECV_INCREMENTAL_BUF=$<BOOL:${CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF}>
     CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
@@ -1614,6 +1647,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_BUILD_INTERFACE_MODE="${CONFLUX_INTERFACE_MODE}"
     CONFLUX_BUILD_FEATURE_SET="${CONFLUX_FEATURE_SET}"
     CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
+    CONFLUX_BUILD_SIMD_SELECTION="${_conflux_simd_selection}"
 )
 conflux_apply_api_surface_definitions(conflux_options INTERFACE)
 if(CONFLUX_ENABLE_EXPERIMENTAL)
@@ -1622,10 +1656,11 @@ else()
     message(STATUS "conflux: experimental features disabled")
 endif()
 if(CONFLUX_ENABLE_CPU_DISPATCH)
-    message(STATUS "conflux: CPU dispatch guards enabled for ISA-specific fast paths")
+    message(STATUS "conflux: legacy CPU dispatch knob enabled")
 else()
-    message(STATUS "conflux: CPU dispatch guards disabled")
+    message(STATUS "conflux: legacy CPU dispatch knob disabled")
 endif()
+message(STATUS "conflux: SIMD selection resolved to ${_conflux_simd_selection}")
 if(CONFLUX_ENABLE_RECV_BUNDLE)
     message(STATUS "conflux: recv bundle enabled")
 else()
@@ -4281,6 +4316,37 @@ if(CONFLUX_BUILD_TESTS)
         RUN_SERIAL TRUE
         TIMEOUT 1200
     )
+
+    if(NOT _conflux_simd_backend STREQUAL "OFF" AND _conflux_simd_selection STREQUAL "DIRECT")
+        set(_conflux_simd_direct_shape_objects)
+        if(TARGET conflux_json)
+            list(APPEND _conflux_simd_direct_shape_objects
+                json_api.cxx.o
+                json_dump.cxx.o)
+        endif()
+        if(TARGET conflux_utils)
+            list(APPEND _conflux_simd_direct_shape_objects utils.cxx.o)
+        endif()
+        if(TARGET conflux_crypto)
+            list(APPEND _conflux_simd_direct_shape_objects crypto.cxx.o)
+        endif()
+        if(TARGET conflux_http_realtime)
+            list(APPEND _conflux_simd_direct_shape_objects realtime.cxx.o)
+        endif()
+        if(_conflux_simd_direct_shape_objects)
+            add_test(NAME build/simd-direct-shape
+                COMMAND "${Python3_EXECUTABLE}"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-simd-direct-shape.py"
+                        "${CMAKE_BINARY_DIR}"
+                        "${CMAKE_NM}"
+                        ${_conflux_simd_direct_shape_objects})
+            set_tests_properties(build/simd-direct-shape PROPERTIES
+                LABELS "build;simd"
+                RUN_SERIAL TRUE
+            )
+        endif()
+        unset(_conflux_simd_direct_shape_objects)
+    endif()
 
     add_test(NAME docs/planning-state
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-planning-state.py")

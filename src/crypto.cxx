@@ -351,7 +351,16 @@ export bool constant_time_eq(
 	if (a.size() != b.size()) {
 		return false;
 	}
-#if defined(CONFLUX_STDSIMD)
+#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+	constexpr std::size_t kStdsimdThreshold = 64;
+	if (a.size() >= kStdsimdThreshold) {
+		return conflux_constant_time_eq_stdsimd(
+				   reinterpret_cast<unsigned char const *>(a.data()),
+				   reinterpret_cast<unsigned char const *>(b.data()),
+				   a.size())
+			!= 0;
+	}
+#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 64;
 	if (a.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_constant_time_eq_stdsimd(

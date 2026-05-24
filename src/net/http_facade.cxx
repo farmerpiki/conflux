@@ -1,11 +1,8 @@
-module;
-#include <cerrno>
-
 export module conflux.http;
 
 export import :problem;
 export import conflux.net.app;
-export import conflux.net.http.server_types;
+import conflux.net.http.server_types;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
 export import conflux.json;
@@ -21,22 +18,20 @@ import conflux.net.tracing;
 import conflux.net.observability;
 import conflux.types;
 import conflux.work;
-import conflux.file_io_sync;
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
 #endif
 
 export namespace conflux::http {
 
-using Router = ::Router;
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
 using RequestContext = ::RequestContext;
 template<class T>
 using Task = conflux::work::Task<T>;
-using Next = Router::Handler;
-using AsyncNext = Router::AsyncNext;
+using Next = ::Router::Handler;
+using AsyncNext = ::Router::AsyncNext;
 template<class F>
 concept ViewMiddleware = ::ViewMiddleware<F>;
 template<class F>
@@ -46,17 +41,17 @@ concept AsyncMiddleware = ::AsyncMiddleware<F>;
 template<class F>
 concept Middleware = ::Middleware<F>;
 
-[[nodiscard]] Router::Middleware request_id(
+[[nodiscard]] ::Router::Middleware request_id(
 	RequestIdOptions opts = {}) {
 	return request_id_middleware(std::move(opts));
 }
 
-[[nodiscard]] Router::Middleware trace_context(
+[[nodiscard]] ::Router::Middleware trace_context(
 	TracingOptions opts = {}) {
 	return tracing_middleware(std::move(opts));
 }
 
-[[nodiscard]] Router::Middleware security_headers(
+[[nodiscard]] ::Router::Middleware security_headers(
 	SecurityOptions opts = {}) {
 	return security_headers_middleware(std::move(opts));
 }
@@ -84,21 +79,6 @@ concept Middleware = ::Middleware<F>;
 [[nodiscard]] Response sse(
 	std::shared_ptr<SseChannel> channel) {
 	return Response::sse(std::move(channel));
-}
-
-[[nodiscard]] Response file(
-	std::filesystem::path const &path,
-	std::string content_type = "application/octet-stream") {
-	auto path_string = path.string();
-	auto body = blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
-	if (!body) {
-		auto const err = errnum(body);
-		if (err == ENOENT || err == ENOTDIR) {
-			return Response::not_found(path.string());
-		}
-		return Response::internal_error("failed to read file");
-	}
-	return Response::with_body(std::move(*body), std::move(content_type));
 }
 
 struct StreamSink {

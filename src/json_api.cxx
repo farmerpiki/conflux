@@ -1272,6 +1272,7 @@ public:
 	[[nodiscard]] JsonNumberView number_val() const noexcept;
 	[[nodiscard]] bool bool_val() const noexcept;
 	[[nodiscard]] std::string_view input() const noexcept;
+	[[nodiscard]] JsonParseOptions const &parse_options() const noexcept;
 	[[nodiscard]] std::size_t depth() const noexcept;
 	[[nodiscard]] bool has_error() const noexcept;
 	[[nodiscard]] std::size_t pos() const noexcept;
@@ -1803,7 +1804,12 @@ namespace detail::simd {
 	char const *p,
 	std::size_t n) noexcept {
 	std::size_t i = 0;
-#if defined(CONFLUX_JSON_HAS_STDSIMD)
+#if defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+	constexpr std::size_t kStdsimdThreshold = 32;
+	if (n >= kStdsimdThreshold) {
+		return conflux_json_scan_str_until_special_stdsimd(p, n);
+	}
+#elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 32;
 	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);

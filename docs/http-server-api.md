@@ -847,6 +847,10 @@ auto table = app.route_table();      // printable startup/debug route table
 auto spec = app.openapi_spec();      // app metadata backed OpenAPI JSON
 ```
 
+`import conflux.http.extended;` also exposes `http::openapi_handler(app, title, version)`
+for mounting the generated spec as a route handler. The curated `App` surface keeps
+`openapi_spec()` as plain data and does not expose a router-handler member.
+
 `app.validate()` returns source locations for route and static-mount issues.
 `ValidationReport::detailed_summary()` includes both the reported source and any
 related source, such as the earlier registration for a duplicate route.

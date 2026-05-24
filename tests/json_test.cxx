@@ -3135,6 +3135,236 @@ struct JsonMembers<P4LongKey> {
 		};
 	}
 };
+struct P4BorrowedName {
+	std::string_view name{};
+};
+template<>
+struct JsonMembers<P4BorrowedName> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("name", &P4BorrowedName::name),
+		};
+	}
+};
+static_assert(json_contains_borrowed_view_v<P4BorrowedName>);
+
+struct P4WideInner {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+	std::int64_t f16{};
+	std::int64_t f17{};
+	std::int64_t f18{};
+	std::int64_t f19{};
+	std::int64_t f20{};
+	std::int64_t f21{};
+	std::int64_t f22{};
+	std::int64_t f23{};
+	std::int64_t f24{};
+	std::int64_t f25{};
+	std::int64_t f26{};
+	std::int64_t f27{};
+	std::int64_t f28{};
+	std::int64_t f29{};
+	std::int64_t f30{};
+	std::int64_t f31{};
+	std::int64_t f32{};
+	std::int64_t f33{};
+	std::int64_t f34{};
+	std::int64_t f35{};
+	std::int64_t f36{};
+	std::int64_t f37{};
+	std::int64_t f38{};
+	std::int64_t f39{};
+	std::int64_t f40{};
+	std::int64_t f41{};
+	std::int64_t f42{};
+	std::int64_t f43{};
+	std::int64_t f44{};
+	std::int64_t f45{};
+	std::int64_t f46{};
+	std::int64_t f47{};
+	std::int64_t f48{};
+	std::int64_t f49{};
+	std::int64_t f50{};
+	std::int64_t f51{};
+	std::int64_t f52{};
+	std::int64_t f53{};
+	std::int64_t f54{};
+	std::int64_t f55{};
+	std::int64_t f56{};
+	std::int64_t f57{};
+	std::int64_t f58{};
+	std::int64_t f59{};
+	std::int64_t f60{};
+	std::int64_t f61{};
+	std::int64_t f62{};
+	std::int64_t f63{};
+	std::int64_t f64{};
+};
+template<>
+struct JsonMembers<P4WideInner> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("f0", &P4WideInner::f0),   json_member("f1", &P4WideInner::f1),
+			json_member("f2", &P4WideInner::f2),   json_member("f3", &P4WideInner::f3),
+			json_member("f4", &P4WideInner::f4),   json_member("f5", &P4WideInner::f5),
+			json_member("f6", &P4WideInner::f6),   json_member("f7", &P4WideInner::f7),
+			json_member("f8", &P4WideInner::f8),   json_member("f9", &P4WideInner::f9),
+			json_member("f10", &P4WideInner::f10), json_member("f11", &P4WideInner::f11),
+			json_member("f12", &P4WideInner::f12), json_member("f13", &P4WideInner::f13),
+			json_member("f14", &P4WideInner::f14), json_member("f15", &P4WideInner::f15),
+			json_member("f16", &P4WideInner::f16), json_member("f17", &P4WideInner::f17),
+			json_member("f18", &P4WideInner::f18), json_member("f19", &P4WideInner::f19),
+			json_member("f20", &P4WideInner::f20), json_member("f21", &P4WideInner::f21),
+			json_member("f22", &P4WideInner::f22), json_member("f23", &P4WideInner::f23),
+			json_member("f24", &P4WideInner::f24), json_member("f25", &P4WideInner::f25),
+			json_member("f26", &P4WideInner::f26), json_member("f27", &P4WideInner::f27),
+			json_member("f28", &P4WideInner::f28), json_member("f29", &P4WideInner::f29),
+			json_member("f30", &P4WideInner::f30), json_member("f31", &P4WideInner::f31),
+			json_member("f32", &P4WideInner::f32), json_member("f33", &P4WideInner::f33),
+			json_member("f34", &P4WideInner::f34), json_member("f35", &P4WideInner::f35),
+			json_member("f36", &P4WideInner::f36), json_member("f37", &P4WideInner::f37),
+			json_member("f38", &P4WideInner::f38), json_member("f39", &P4WideInner::f39),
+			json_member("f40", &P4WideInner::f40), json_member("f41", &P4WideInner::f41),
+			json_member("f42", &P4WideInner::f42), json_member("f43", &P4WideInner::f43),
+			json_member("f44", &P4WideInner::f44), json_member("f45", &P4WideInner::f45),
+			json_member("f46", &P4WideInner::f46), json_member("f47", &P4WideInner::f47),
+			json_member("f48", &P4WideInner::f48), json_member("f49", &P4WideInner::f49),
+			json_member("f50", &P4WideInner::f50), json_member("f51", &P4WideInner::f51),
+			json_member("f52", &P4WideInner::f52), json_member("f53", &P4WideInner::f53),
+			json_member("f54", &P4WideInner::f54), json_member("f55", &P4WideInner::f55),
+			json_member("f56", &P4WideInner::f56), json_member("f57", &P4WideInner::f57),
+			json_member("f58", &P4WideInner::f58), json_member("f59", &P4WideInner::f59),
+			json_member("f60", &P4WideInner::f60), json_member("f61", &P4WideInner::f61),
+			json_member("f62", &P4WideInner::f62), json_member("f63", &P4WideInner::f63),
+			json_member("f64", &P4WideInner::f64),
+		};
+	}
+};
+struct P4WideOuter {
+	std::int64_t f0{};
+	std::int64_t f1{};
+	std::int64_t f2{};
+	std::int64_t f3{};
+	std::int64_t f4{};
+	std::int64_t f5{};
+	std::int64_t f6{};
+	std::int64_t f7{};
+	std::int64_t f8{};
+	std::int64_t f9{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+	std::int64_t f16{};
+	std::int64_t f17{};
+	std::int64_t f18{};
+	std::int64_t f19{};
+	std::int64_t f20{};
+	std::int64_t f21{};
+	std::int64_t f22{};
+	std::int64_t f23{};
+	std::int64_t f24{};
+	std::int64_t f25{};
+	std::int64_t f26{};
+	std::int64_t f27{};
+	std::int64_t f28{};
+	std::int64_t f29{};
+	std::int64_t f30{};
+	std::int64_t f31{};
+	std::int64_t f32{};
+	std::int64_t f33{};
+	std::int64_t f34{};
+	std::int64_t f35{};
+	std::int64_t f36{};
+	std::int64_t f37{};
+	std::int64_t f38{};
+	std::int64_t f39{};
+	std::int64_t f40{};
+	std::int64_t f41{};
+	std::int64_t f42{};
+	std::int64_t f43{};
+	std::int64_t f44{};
+	std::int64_t f45{};
+	std::int64_t f46{};
+	std::int64_t f47{};
+	std::int64_t f48{};
+	std::int64_t f49{};
+	std::int64_t f50{};
+	std::int64_t f51{};
+	std::int64_t f52{};
+	std::int64_t f53{};
+	std::int64_t f54{};
+	std::int64_t f55{};
+	std::int64_t f56{};
+	std::int64_t f57{};
+	std::int64_t f58{};
+	std::int64_t f59{};
+	std::int64_t f60{};
+	std::int64_t f61{};
+	std::int64_t f62{};
+	std::int64_t f63{};
+	std::int64_t f64{};
+	P4WideInner inner{};
+	std::int64_t tail{};
+};
+template<>
+struct JsonMembers<P4WideOuter> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("f0", &P4WideOuter::f0),     json_member("f1", &P4WideOuter::f1),
+			json_member("f2", &P4WideOuter::f2),     json_member("f3", &P4WideOuter::f3),
+			json_member("f4", &P4WideOuter::f4),     json_member("f5", &P4WideOuter::f5),
+			json_member("f6", &P4WideOuter::f6),     json_member("f7", &P4WideOuter::f7),
+			json_member("f8", &P4WideOuter::f8),     json_member("f9", &P4WideOuter::f9),
+			json_member("f10", &P4WideOuter::f10),   json_member("f11", &P4WideOuter::f11),
+			json_member("f12", &P4WideOuter::f12),   json_member("f13", &P4WideOuter::f13),
+			json_member("f14", &P4WideOuter::f14),   json_member("f15", &P4WideOuter::f15),
+			json_member("f16", &P4WideOuter::f16),   json_member("f17", &P4WideOuter::f17),
+			json_member("f18", &P4WideOuter::f18),   json_member("f19", &P4WideOuter::f19),
+			json_member("f20", &P4WideOuter::f20),   json_member("f21", &P4WideOuter::f21),
+			json_member("f22", &P4WideOuter::f22),   json_member("f23", &P4WideOuter::f23),
+			json_member("f24", &P4WideOuter::f24),   json_member("f25", &P4WideOuter::f25),
+			json_member("f26", &P4WideOuter::f26),   json_member("f27", &P4WideOuter::f27),
+			json_member("f28", &P4WideOuter::f28),   json_member("f29", &P4WideOuter::f29),
+			json_member("f30", &P4WideOuter::f30),   json_member("f31", &P4WideOuter::f31),
+			json_member("f32", &P4WideOuter::f32),   json_member("f33", &P4WideOuter::f33),
+			json_member("f34", &P4WideOuter::f34),   json_member("f35", &P4WideOuter::f35),
+			json_member("f36", &P4WideOuter::f36),   json_member("f37", &P4WideOuter::f37),
+			json_member("f38", &P4WideOuter::f38),   json_member("f39", &P4WideOuter::f39),
+			json_member("f40", &P4WideOuter::f40),   json_member("f41", &P4WideOuter::f41),
+			json_member("f42", &P4WideOuter::f42),   json_member("f43", &P4WideOuter::f43),
+			json_member("f44", &P4WideOuter::f44),   json_member("f45", &P4WideOuter::f45),
+			json_member("f46", &P4WideOuter::f46),   json_member("f47", &P4WideOuter::f47),
+			json_member("f48", &P4WideOuter::f48),   json_member("f49", &P4WideOuter::f49),
+			json_member("f50", &P4WideOuter::f50),   json_member("f51", &P4WideOuter::f51),
+			json_member("f52", &P4WideOuter::f52),   json_member("f53", &P4WideOuter::f53),
+			json_member("f54", &P4WideOuter::f54),   json_member("f55", &P4WideOuter::f55),
+			json_member("f56", &P4WideOuter::f56),   json_member("f57", &P4WideOuter::f57),
+			json_member("f58", &P4WideOuter::f58),   json_member("f59", &P4WideOuter::f59),
+			json_member("f60", &P4WideOuter::f60),   json_member("f61", &P4WideOuter::f61),
+			json_member("f62", &P4WideOuter::f62),   json_member("f63", &P4WideOuter::f63),
+			json_member("f64", &P4WideOuter::f64),   json_member("inner", &P4WideOuter::inner),
+			json_member("tail", &P4WideOuter::tail),
+		};
+	}
+};
 TEST_CASE(
 	"phase4: JsonReader scalar events",
 	"[phase4]") {
@@ -3479,6 +3709,144 @@ TEST_CASE(
 	REQUIRE(p.has_value());
 	CHECK(p->name == "Bob");
 	CHECK(p->age == 25LL);
+}
+TEST_CASE(
+	"phase4: JsonReader typed decode rejects duplicate known member by default",
+	"[phase4][duplicates]") {
+	JsonReader r{R"({"name":"Ann","name":"Beth","age":30})"};
+	auto p = decode<P4Person>(r);
+	CHECK_FALSE(p.has_value());
+	CHECK(p.error().code == JsonIssueCode::duplicate_member);
+	CHECK(p.error().member_name == "name");
+}
+TEST_CASE(
+	"phase4: JsonReader typed decode honors duplicate last_wins",
+	"[phase4][duplicates]") {
+	JsonParseOptions parse_opts;
+	parse_opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonReader r{R"({"name":"Ann","name":"Beth","age":30})", parse_opts};
+	auto p = decode<P4Person>(r);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "Beth");
+	CHECK(p->age == 30LL);
+}
+TEST_CASE(
+	"phase4: JsonReader typed decode honors duplicate first_wins",
+	"[phase4][duplicates]") {
+	JsonParseOptions parse_opts;
+	parse_opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	JsonReader r{R"({"name":"Ann","name":"Beth","age":30})", parse_opts};
+	auto p = decode<P4Person>(r);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "Ann");
+	CHECK(p->age == 30LL);
+}
+TEST_CASE(
+	"phase4: JsonReader duplicate first_wins still validates skipped value syntax",
+	"[phase4][duplicates]") {
+	JsonParseOptions parse_opts;
+	parse_opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	std::string input = R"({"name":"Ann","name":"bad)";
+	input.push_back('\x01');
+	input += R"(","age":30})";
+	JsonReader r{input, parse_opts};
+	auto p = decode<P4Person>(r);
+	CHECK_FALSE(p.has_value());
+	CHECK(p.error().code == JsonIssueCode::syntax_error);
+}
+TEST_CASE(
+	"phase4: JsonReader unknown duplicate under ignore remains streaming-allowed",
+	"[phase4][duplicates]") {
+	JsonReader r{R"({"name":"Ann","extra":1,"extra":2,"age":30})"};
+	JsonDecodeOptions opts;
+	opts.unknown_members = UnknownMemberPolicy::ignore;
+	auto p = decode<P4Person>(r, opts);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "Ann");
+	CHECK(p->age == 30LL);
+}
+TEST_CASE(
+	"phase4: JsonMembers direct-to-field decodes escaped string fields",
+	"[phase4][direct]") {
+	JsonReader r{R"({"name":"A\nB","age":30})"};
+	auto p = decode<P4Person>(r);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "A\nB");
+}
+TEST_CASE(
+	"phase4: recursive wide JsonMembers presence bits are object local",
+	"[phase4][direct]") {
+	auto make_object = [](std::string_view prefix, std::int64_t base) {
+		std::string out{"{"};
+		for (int i = 0; i < 65; ++i) {
+			if (i != 0) {
+				out += ',';
+			}
+			out += '"';
+			out += prefix;
+			out += std::to_string(i);
+			out += "\":";
+			out += std::to_string(base + i);
+		}
+		out += '}';
+		return out;
+	};
+	std::string input{"{"};
+	for (int i = 0; i < 65; ++i) {
+		if (i != 0) {
+			input += ',';
+		}
+		input += "\"f";
+		input += std::to_string(i);
+		input += "\":";
+		input += std::to_string(i);
+	}
+	input += R"(,"inner":)";
+	input += make_object("f", 1000);
+	input += R"(,"tail":999})";
+	JsonReader r{input};
+	auto decoded = decode<P4WideOuter>(r);
+	REQUIRE(decoded.has_value());
+	CHECK(decoded->f64 == 64LL);
+	CHECK(decoded->inner.f64 == 1064LL);
+	CHECK(decoded->tail == 999LL);
+}
+TEST_CASE(
+	"phase4: recursive wide JsonMembers missing field remains accurate after nested decode",
+	"[phase4][direct]") {
+	std::string input{"{"};
+	for (int i = 0; i < 65; ++i) {
+		if (i != 0) {
+			input += ',';
+		}
+		input += "\"f";
+		input += std::to_string(i);
+		input += "\":";
+		input += std::to_string(i);
+	}
+	input += R"(,"inner":{)";
+	for (int i = 0; i < 65; ++i) {
+		if (i != 0) {
+			input += ',';
+		}
+		input += "\"f";
+		input += std::to_string(i);
+		input += "\":";
+		input += std::to_string(1000 + i);
+	}
+	input += "}}";
+	JsonReader r{input};
+	auto decoded = decode<P4WideOuter>(r);
+	CHECK_FALSE(decoded.has_value());
+	CHECK(decoded.error().code == JsonIssueCode::missing_member);
+	CHECK(decoded.error().member_name == "tail");
+}
+TEST_CASE(
+	"json boundary: copy_input rejects borrowed-view JsonMembers fields",
+	"[json][boundary][lifetime]") {
+	auto decoded = boundary::NativeJsonProvider::decode_json<P4BorrowedName>(R"({"name":"Ann"})", {.copy_input = true});
+	CHECK_FALSE(decoded.has_value());
+	CHECK(decoded.error().code == boundary::ErrorCode::invalid_value);
 }
 TEST_CASE(
 	"phase4: decode_direct<JsonMembers> uses caller scratch for key decode",
