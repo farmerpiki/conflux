@@ -392,6 +392,21 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_route_infos_member
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_offload_free EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_offload_free.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_offload_free
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_openapi_handler_free EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_openapi_handler_free.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_free
+        PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_file_free EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_file_free.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_file_free
+        PRIVATE conflux_net_http conflux_options)
+
     add_test(NAME http-facade/compile-fail-request-view-task
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
@@ -530,6 +545,34 @@ if(TARGET conflux_net_http)
                 "route_infos"
                 "conflux::http::App")
     set_tests_properties(http-facade/compile-fail-route-infos-member PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-offload-free
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_offload_free
+                "offload"
+                "conflux::http")
+    set_tests_properties(http-facade/compile-fail-offload-free PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-openapi-handler-free
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_openapi_handler_free
+                "openapi_handler")
+    set_tests_properties(http-facade/compile-fail-openapi-handler-free PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-file-free
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_file_free
+                "file(\"")
+    set_tests_properties(http-facade/compile-fail-file-free PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 endif()
