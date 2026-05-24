@@ -3,9 +3,9 @@
 # Explicit user overrides (ON/OFF) are never overwritten; AUTO resolves to preset default.
 
 set(CONFLUX_FEATURE_SET "core" CACHE STRING
-    "Feature bundle: core;runtime;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
+    "Feature bundle: core;work;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
 set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
-    core runtime json http-minimal http-api http-api-full web-server http-server-complete complete
+    core work json http-minimal http-api http-api-full web-server http-server-complete complete
     dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full)
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ macro(conflux_apply_preset)
 
     if(_p STREQUAL "core")
         # Types, utils, generated features. No liburing, no HTTP, no JSON.
-    elseif(_p STREQUAL "runtime")
+    elseif(_p STREQUAL "work")
         set(_d_RUNTIME TRUE)
         set(_d_SOCKET_IO TRUE)
     elseif(_p STREQUAL "json")
@@ -336,7 +336,7 @@ macro(conflux_apply_preset)
         set(_d_PROVIDER_ARGON2 OFF)
     endif()
 
-    if(_p STREQUAL "core" OR _p STREQUAL "runtime" OR _p STREQUAL "json" OR _p STREQUAL "http-minimal")
+    if(_p STREQUAL "core" OR _p STREQUAL "work" OR _p STREQUAL "json" OR _p STREQUAL "http-minimal")
         set(_d_PROVIDER_TLS OFF)
         set(_d_PROVIDER_HTTP2 OFF)
         set(_d_PROVIDER_HTTP3 OFF)

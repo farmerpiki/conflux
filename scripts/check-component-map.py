@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CMAKELISTS = ROOT / "CMakeLists.txt"
+COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxInstall.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
 PUBLIC_COMPONENT_RE = re.compile(
@@ -21,7 +21,7 @@ DOC_COMPONENT_RE = re.compile(
 
 
 def public_components() -> dict[str, str]:
-    text = CMAKELISTS.read_text(encoding="utf-8")
+    text = COMPONENT_SOURCE.read_text(encoding="utf-8")
     components: dict[str, str] = {}
     for target, export_name in PUBLIC_COMPONENT_RE.findall(text):
         if export_name in components:
