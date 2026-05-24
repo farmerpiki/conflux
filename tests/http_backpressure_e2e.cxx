@@ -44,15 +44,18 @@ TEST_CASE(
 	"drain force-closes live connections after deadline and records pressure metrics",
 	"[http][e2e][backpressure]") {
 	Router router;
-	router.get("/large", [](chttp::RequestView const &) { return chttp::Response::text(std::string(1024, 'x')); });
+	auto deferred = std::make_shared<DeferredResponse>(std::chrono::seconds{30});
+	router.get("/pending", [deferred](chttp::RequestView const &) { return chttp::Response::deferred(deferred); });
 	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
 
 	LocalTcpClient client{srv.port()};
-	std::string_view const req = "GET /large HTTP/1.1\r\nHost: localhost\r\n\r\n";
+	client.set_recv_timeout(std::chrono::seconds{3});
+	std::string_view const req = "GET /pending HTTP/1.1\r\nHost: localhost\r\n\r\n";
 	REQUIRE(client.send(req, MSG_NOSIGNAL) == static_cast<ssize_t>(req.size()));
-	auto const headers = client.read_headers();
-	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
+	std::this_thread::sleep_for(std::chrono::milliseconds{50});
+	REQUIRE_FALSE(deferred->is_ready());
 
+	auto const before = srv.metrics();
 	auto report = srv.drain(
 		DrainOptions{
 			.deadline = std::chrono::milliseconds{1},
@@ -62,9 +65,11 @@ TEST_CASE(
 	CHECK(report.deadline_hit);
 
 	auto const metrics = srv.metrics();
-	CHECK(metrics.pressure.drain_started >= 1);
-	CHECK(metrics.pressure.drain_deadline_hit >= 1);
-	CHECK(metrics.pressure.drain_forced_close >= 1);
+	CHECK(metrics.pressure.drain_started == before.pressure.drain_started + 1);
+	CHECK(metrics.pressure.drain_deadline_hit == before.pressure.drain_deadline_hit + 1);
+	CHECK(metrics.pressure.drain_forced_close == before.pressure.drain_forced_close + 1);
+	char byte{};
+	CHECK(client.recv(&byte, 1) <= 0);
 	client.close();
 }
 
