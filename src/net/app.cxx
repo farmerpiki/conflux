@@ -1911,6 +1911,23 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
+		auto run_with_args =
+#if CONFLUX_HAS_JSON
+			[](Fn &handler, auto extracted_args, AppJsonOptions json_opts) -> conflux::work::root::Task<Response> {
+			try {
+				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+				co_return into_app_response(co_await std::move(result), json_opts);
+			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+		};
+#else
+			[](Fn &handler, auto extracted_args) -> conflux::work::root::Task<Response> {
+			try {
+				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+				co_return into_app_response(co_await std::move(result));
+			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+		};
+#endif
+		auto extraction_failure = [](Response response) -> conflux::work::root::Task<Response> { co_return response; };
 		return conflux::work::root::spawn(
 			[&states,
 			 &fn,
@@ -1920,10 +1937,12 @@ public:
 			 &json_options,
 			 max_body_size
 #endif
-		]() mutable -> conflux::work::root::Task<Response> {
+			 ,
+			 run_with_args,
+			 extraction_failure]() mutable -> conflux::work::root::Task<Response> {
 				try {
-					auto result =
-						fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
+					auto extracted_args = std::make_tuple(
+						make_handler_arg<std::tuple_element_t<Is, Args>>(
 							states,
 							req
 #if CONFLUX_HAS_JSON
@@ -1933,11 +1952,11 @@ public:
 #endif
 							)...);
 #if CONFLUX_HAS_JSON
-					co_return into_app_response(co_await std::move(result), json_options);
+					return run_with_args(fn, std::move(extracted_args), json_options);
 #else
-					co_return into_app_response(co_await std::move(result));
+					return run_with_args(fn, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+				} catch (ExtractorFailure &failure) { return extraction_failure(std::move(failure).response()); }
 			});
 	}
 

@@ -1852,6 +1852,34 @@ TEST_CASE(
 	REQUIRE(extract_body(second) == R"({"status":"ok"})");
 }
 TEST_CASE(
+	"async extracted body reference survives suspension") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/async-body-ref", [](chttp::BodyText const &body) -> chttp::Task<chttp::Response> {
+		auto [gate, source] = conflux::work::root::make_task_source<int>();
+		std::thread([source = std::move(source)] mutable {
+			std::this_thread::sleep_for(std::chrono::milliseconds{10});
+			(void)source.try_set_value(conflux::work::root::Success<int>{0});
+		}).detach();
+		(void)co_await std::move(gate);
+		co_return chttp::text(body.get());
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/async-body-ref", "text/plain", "borrowed-body");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "borrowed-body");
+}
+TEST_CASE(
 	"multipart/form-data parses each part exactly once") {
 	auto body =
 		make_multipart_text_and_file("countBnd", "field", "value", "upload", "hello.txt", "text/plain", "file content");

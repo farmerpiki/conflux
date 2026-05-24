@@ -314,6 +314,9 @@ void Ring::phase1_copy_recv_bufs() {
 		raw_receive_cap = bounded_add(raw_receive_cap, 6);
 		if (recv_buffered > raw_receive_cap) {
 			++rejection_counters_.body_too_large;
+			if (observability_hooks_.rejection) {
+				observability_hooks_.rejection(HttpRejectReason::body_too_large, kHttpRequestEntityTooLarge);
+			}
 			conn.own_response =
 				"HTTP/1.1 413 Content Too Large\r\n"
 				"Content-Type: application/problem+json\r\n"
