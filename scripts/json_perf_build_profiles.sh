@@ -8,8 +8,9 @@ Usage:
 
 Builds the JSON benchmark targets for each worktree and selected profile. The
 default profiles cover normal release, O2/LTO release, PGO-generate lanes, and
-PGO-use lanes. PGO-generate binaries are run with --iterations 0 before PGO-use
-builds so benchmark measurement can run later without mixed build/profile work.
+PGO-use lanes. PGO-generate binaries are calibrated with --iterations 0 first,
+then rerun with the discovered iteration count before PGO-use builds so benchmark
+measurement can run later without mixed build/profile work.
 
 Environment:
   JSON_PERF_PROFILES   space-separated presets
@@ -26,7 +27,7 @@ Environment:
   JSON_PERF_BUILD_PGO_USE
                        run PGO generation and build PGO-use trees, default: 1
   JSON_PERF_PGO_ITERATIONS
-                       iterations passed to PGO-generate binaries, default: 0
+                       fixed iterations for PGO training; default: discover with 0
   JSON_PERF_ALLOW_GCC15_LTO_FAILURE
                        continue if gcc-stdcxx O2/LTO or PGO builds fail,
                        default: 1
@@ -39,9 +40,10 @@ pgo_root="${JSON_PERF_PGO_ROOT:-/tmp/conflux-json-pgo}"
 pgo_opt_flags="${JSON_PERF_PGO_OPT_FLAGS:--O2 -DNDEBUG}"
 build_o2_lto="${JSON_PERF_BUILD_O2_LTO:-1}"
 build_pgo_use="${JSON_PERF_BUILD_PGO_USE:-1}"
-pgo_iterations="${JSON_PERF_PGO_ITERATIONS:-0}"
+pgo_iterations="${JSON_PERF_PGO_ITERATIONS:-}"
 allow_gcc15_lto_failure="${JSON_PERF_ALLOW_GCC15_LTO_FAILURE:-1}"
 trees=()
+declare -A pgo_training_iterations=()
 
 while (($#)); do
   case "$1" in
@@ -176,8 +178,64 @@ bench_name_for_target() {
   esac
 }
 
+extract_max_iterations() {
+  awk '
+    {
+      if (match($0, /"iterations":[[:space:]]*[0-9]+/)) {
+        value = substr($0, RSTART, RLENGTH)
+        sub(/^"iterations":[[:space:]]*/, "", value)
+        if (value + 0 > max) max = value + 0
+      }
+    }
+    END { if (max > 0) print max }
+  ' "$1"
+}
+
+calibrate_pgo_iterations() {
+  local profile="$1" target="$2" compiler_profile bin bench log_dir log iter max_iter=0
+  compiler_profile="${profile#pgo-gen-}"
+  bench="$(bench_name_for_target "$target")"
+
+  if [[ -n "$pgo_iterations" ]]; then
+    pgo_training_iterations["$profile|$target"]="$pgo_iterations"
+    return 0
+  fi
+
+  for spec in "${trees[@]}"; do
+    label="${spec%%:*}"
+    src="${spec#*:}"
+    bin="$src/build/$profile/benchmarks/$target"
+    if [[ ! -x "$bin" ]]; then
+      if may_skip_build_failure "$profile"; then
+        echo "WARN: missing $label $profile $target; skipping PGO calibration for this binary" >&2
+        continue
+      fi
+      echo "missing PGO-generate binary: $bin" >&2
+      exit 1
+    fi
+    log_dir="$src/build/pgo-gen-logs"
+    mkdir -p "$log_dir"
+    log="$log_dir/$compiler_profile.$bench.calibrate.ndjson"
+    echo "==> calibrate PGO $label $compiler_profile $bench iterations=0"
+    "$bin" --iterations 0 --json >"$log"
+    iter="$(extract_max_iterations "$log")"
+    [[ -n "$iter" ]] || { echo "could not discover PGO iterations from $log" >&2; exit 1; }
+    ((iter > max_iter)) && max_iter="$iter"
+  done
+
+  if ((max_iter <= 0)); then
+    if may_skip_build_failure "$profile"; then
+      echo "WARN: no PGO calibration data for $profile $target; skipping" >&2
+      return 0
+    fi
+    echo "no PGO calibration data for $profile $target" >&2
+    exit 1
+  fi
+  pgo_training_iterations["$profile|$target"]="$max_iter"
+}
+
 run_pgo_generation() {
-  local label="$1" src="$2" profile="$3" compiler_profile dir build target bin bench log_dir
+  local label="$1" src="$2" profile="$3" compiler_profile dir build target bin bench log_dir iter
   compiler_profile="${profile#pgo-gen-}"
   dir="$pgo_root/$label/$compiler_profile"
   build="$src/build/$profile"
@@ -196,8 +254,10 @@ run_pgo_generation() {
       exit 1
     fi
     bench="$(bench_name_for_target "$target")"
-    echo "==> generate PGO $label $compiler_profile $bench iterations=$pgo_iterations"
-    "$bin" --iterations "$pgo_iterations" --json >"$log_dir/$compiler_profile.$bench.ndjson"
+    iter="${pgo_training_iterations["$profile|$target"]:-}"
+    [[ -n "$iter" ]] || { echo "missing PGO training iterations for $profile $target" >&2; exit 1; }
+    echo "==> generate PGO $label $compiler_profile $bench iterations=$iter"
+    "$bin" --iterations "$iter" --json >"$log_dir/$compiler_profile.$bench.train.ndjson"
   done
 }
 
@@ -270,13 +330,24 @@ for spec in "${trees[@]}"; do
       build_targets "$label" "$(o2_build_dir_name "$profile")" "$build"
     fi
   done
+done
 
-  if [[ "$build_pgo_use" == 1 ]]; then
+if [[ "$build_pgo_use" == 1 ]]; then
+  for profile in "${profiles[@]}"; do
+    [[ "$profile" == pgo-gen-* ]] || continue
+    for target in "${targets[@]}"; do
+      calibrate_pgo_iterations "$profile" "$target"
+    done
+  done
+
+  for spec in "${trees[@]}"; do
+    label="${spec%%:*}"
+    src="${spec#*:}"
     for profile in "${profiles[@]}"; do
       [[ "$profile" == pgo-gen-* ]] || continue
       run_pgo_generation "$label" "$src" "$profile"
       merge_clang_profile "$label" "$profile"
       build_pgo_use_profile "$label" "$src" "$profile"
     done
-  fi
-done
+  done
+fi

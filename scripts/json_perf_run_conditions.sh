@@ -7,9 +7,8 @@ Usage:
   scripts/json_perf_run_conditions.sh --tree LABEL:PATH [--tree LABEL:PATH ...]
 
 Runs JSON benchmark candidates under:
-  - normal release compare-bins, 5 reps
-  - O2/LTO release compare-bins, 5 reps
-  - PGO-use release compare-bins, 5 reps
+  - one compare-bins run per compiler/stdlib and benchmark, 5 reps, covering
+    normal release, O2/LTO release, and PGO-use release binaries together
   - perf-stat capture, 1 rep, for normal, O2/LTO, and PGO-use binaries
 
 Environment:
@@ -65,7 +64,6 @@ reps="${JSON_PERF_REPS:-5}"
 benches=(${JSON_PERF_BENCHES:-json json_storage})
 profiles=(${JSON_PERF_PROFILES:-clang-libcxx gcc-stdcxx gcc16-stdcxx})
 targets=(${JSON_PERF_TARGETS:-conflux_json_bench conflux_json_storage_bench})
-pgo_root="${JSON_PERF_PGO_ROOT:-/tmp/conflux-json-pgo}"
 allow_gcc15_lto_failure="${JSON_PERF_ALLOW_GCC15_LTO_FAILURE:-1}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 artifact_root="${JSON_PERF_ARTIFACTS:-/tmp/conflux-json-perf-artifacts/$stamp}"
@@ -76,11 +74,6 @@ release_preset() { printf 'release-%s\n' "$1"; }
 o2_lto_build_dir() { printf 'o2-lto-%s\n' "$1"; }
 pgo_gen_preset() { printf 'pgo-gen-%s\n' "$1"; }
 pgo_use_preset() { printf 'pgo-use-%s\n' "$1"; }
-
-pgo_profile_dir() {
-  local label="$1" profile="$2"
-  printf '%s/%s/%s\n' "$pgo_root" "$label" "$profile"
-}
 
 bench_bin_name() {
   case "$1" in
@@ -119,17 +112,51 @@ append_existing_dirs() {
   done
 }
 
-compare_one() {
-  local condition="$1" name="$2" build_dir_name="$3" bench="$4" baseline_run_id="${5:-}" log
+append_combo_dirs() {
+  local profile="$1" bench="$2" bin_name condition name build_dir_name
+  bin_name="$(bench_bin_name "$bench")"
+  APPENDED_DIRS=0
+  for condition in normal o2-lto pgo; do
+    case "$condition" in
+      normal)
+        name="$(release_preset "$profile")"
+        build_dir_name="$name"
+        ;;
+      o2-lto)
+        name="$(o2_lto_build_dir "$profile")"
+        build_dir_name="$name"
+        ;;
+      pgo)
+        name="$(pgo_use_preset "$profile")"
+        build_dir_name="$name"
+        ;;
+    esac
+    for spec in "${trees[@]}"; do
+      label="${spec%%:*}"
+      src="${spec#*:}"
+      bin="$src/build/$build_dir_name/benchmarks/$bin_name"
+      if [[ -x "$bin" ]]; then
+        args+=(--dir "$condition-$name-$label:$src/build/$build_dir_name")
+        APPENDED_DIRS=$((APPENDED_DIRS + 1))
+      elif may_skip_missing_binary "$name"; then
+        echo "WARN: missing $condition $name $bench binary for $label; skipping this candidate" >&2
+      else
+        echo "missing benchmark binary: $bin" >&2
+        exit 1
+      fi
+    done
+  done
+}
+
+compare_combo() {
+  local profile="$1" bench="$2" baseline_run_id="$3" log
   local -a args
-  log="$artifact_root/logs/${condition}.${name}.${bench}.log"
-  echo "==> compare $condition $name $bench"
-  args=(--yes --reps "$reps" --pguri "$pguri")
-  [[ -n "$baseline_run_id" ]] && args+=(--baseline-run-id "$baseline_run_id")
-  append_existing_dirs "$condition" "$name" "$build_dir_name" "$bench"
+  log="$artifact_root/logs/combo.${profile}.${bench}.log"
+  echo "==> compare combo $profile $bench"
+  args=(--yes --reps "$reps" --pguri "$pguri" --baseline-run-id "$baseline_run_id")
+  append_combo_dirs "$profile" "$bench"
   if ((APPENDED_DIRS < 2)); then
-    echo "WARN: fewer than two candidates for $condition $name $bench; skipping compare" >&2
-    COMPARE_RUN_ID=""
+    echo "WARN: fewer than two candidates for combo $profile $bench; skipping compare" >&2
     return 0
   fi
   scripts/compare_bins_by_bench.sh "${args[@]}" "$bench" | tee "$log"
@@ -198,31 +225,19 @@ cd "$repo_root"
 declare -A calibration_ids=()
 for profile in "${profiles[@]}"; do
   preset="$(release_preset "$profile")"
-  o2_build="$(o2_lto_build_dir "$profile")"
   for bench in "${benches[@]}"; do
     calibrate_one "$preset" "$preset" "$bench"
     rid="$CALIBRATION_RUN_ID"
     [[ -n "$rid" ]] || continue
-    calibration_ids["normal/$profile/$bench"]="$rid"
-    compare_one normal "$preset" "$preset" "$bench" "$rid"
+    calibration_ids["$profile/$bench"]="$rid"
+    compare_combo "$profile" "$bench" "$rid"
     perf_capture normal "$preset" "$preset" "$bench" "$rid"
 
-    calibrate_one "$o2_build" "$o2_build" "$bench"
-    rid="$CALIBRATION_RUN_ID"
-    [[ -n "$rid" ]] || continue
-    calibration_ids["o2-lto/$profile/$bench"]="$rid"
-    compare_one o2-lto "$o2_build" "$o2_build" "$bench" "$rid"
+    o2_build="$(o2_lto_build_dir "$profile")"
     perf_capture o2-lto "$o2_build" "$o2_build" "$bench" "$rid"
-  done
-done
 
-for profile in "${profiles[@]}"; do
-  preset="$(pgo_use_preset "$profile")"
-  for bench in "${benches[@]}"; do
-    rid="${calibration_ids["o2-lto/$profile/$bench"]:-}"
-    [[ -n "$rid" ]] || continue
-    compare_one pgo "$preset" "$preset" "$bench" "$rid"
-    perf_capture pgo "$preset" "$preset" "$bench" "$rid"
+    pgo_build="$(pgo_use_preset "$profile")"
+    perf_capture pgo "$pgo_build" "$pgo_build" "$bench" "$rid"
   done
 done
 
