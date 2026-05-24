@@ -14,11 +14,6 @@ from dataclasses import dataclass
 
 
 RUN_RE = re.compile(r"^\s*(?P<label>\S+)\s+.*run_id=(?P<run_id>[0-9]+)\s*$")
-LABEL_RE = re.compile(
-    r"^(?P<condition>normal|o2-lto|pgo|calibrate)-(?P<profile>.+)-(?P<candidate>base|exact-string|exact-key|sax-reflect)$"
-)
-
-
 @dataclass(frozen=True)
 class Run:
     condition: str
@@ -43,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("artifact_dir", type=pathlib.Path)
     parser.add_argument("--pguri", default="postgresql:///conflux_bench?user=postgres")
+    parser.add_argument("--base-candidate", default="base")
     parser.add_argument("--wall-threshold-pct", type=float, default=1.0)
     parser.add_argument("--include-negligible", action="store_true")
     parser.add_argument("--bench", action="append", help="restrict to benchmark name; repeatable")
@@ -55,11 +51,23 @@ def split_log_name(path: pathlib.Path) -> tuple[str, str] | None:
     if stem.startswith("calibrate."):
         return None
     parts = stem.split(".")
-    if len(parts) < 3:
+    if len(parts) < 3 or parts[0] != "combo":
         return None
     benchmark = parts[-1]
-    profile = ".".join(parts[:-1])
+    profile = ".".join(parts[1:-1])
     return profile, benchmark
+
+
+def parse_run_label(label: str, profile: str) -> tuple[str, str, str] | None:
+    prefixes = (
+        ("normal", f"normal-release-{profile}-", f"release-{profile}"),
+        ("o2-lto", f"o2-lto-o2-lto-{profile}-", f"o2-lto-{profile}"),
+        ("pgo", f"pgo-pgo-use-{profile}-", f"pgo-use-{profile}"),
+    )
+    for condition, prefix, run_profile in prefixes:
+        if label.startswith(prefix):
+            return condition, run_profile, label.removeprefix(prefix)
+    return None
 
 
 def parse_runs(artifact_dir: pathlib.Path) -> list[Run]:
@@ -69,24 +77,22 @@ def parse_runs(artifact_dir: pathlib.Path) -> list[Run]:
         split = split_log_name(log)
         if split is None:
             continue
-        _log_profile, benchmark = split
+        log_profile, benchmark = split
         for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
             match = RUN_RE.match(line)
             if not match:
                 continue
             label = match.group("label")
-            label_match = LABEL_RE.match(label)
-            if not label_match:
+            parsed = parse_run_label(label, log_profile)
+            if parsed is None:
                 continue
-            condition = label_match.group("condition")
-            if condition == "calibrate":
-                continue
+            condition, profile, candidate = parsed
             runs.append(
                 Run(
                     condition=condition,
-                    profile=label_match.group("profile"),
+                    profile=profile,
                     benchmark=benchmark,
-                    candidate=label_match.group("candidate"),
+                    candidate=candidate,
                     run_id=int(match.group("run_id")),
                     log_name=log.name,
                 )
@@ -164,12 +170,17 @@ def perf_stats(artifact_dir: pathlib.Path) -> dict[tuple[str, str, str, str], di
             "instructions": float(events.get("instructions_u") or events.get("instructions") or 0.0),
             "cycles": float(events.get("cycles_u") or events.get("cycles") or 0.0),
             "cache_misses": float(events.get("cache_misses_u") or events.get("cache_misses") or 0.0),
+            "branch_misses": float(events.get("branch_misses_u") or events.get("branch_misses") or 0.0),
         }
     return out
 
 
 def fmt(value: float, suffix: str = "") -> str:
     return f"{value:+.2f}{suffix}"
+
+
+def fmt_count(value: float) -> str:
+    return f"{value:+.0f}"
 
 
 def print_table(rows: list[list[str]]) -> None:
@@ -202,11 +213,11 @@ def run() -> int:
     for key in sorted(grouped):
         condition, profile, benchmark = key
         items = sorted(grouped[key], key=lambda item: item.candidate)
-        base = next((item for item in items if item.candidate == "base"), None)
+        base = next((item for item in items if item.candidate == args.base_candidate), None)
         if base is None:
             continue
         base_rows = {row.variant: row for row in results.get(base.run_id, [])}
-        base_perf = perf.get((condition, profile, benchmark, "base"), {})
+        base_perf = perf.get((condition, profile, benchmark, base.candidate), {})
         table = [[
             "candidate",
             "variant",
@@ -216,19 +227,33 @@ def run() -> int:
             "p99 %",
             "instr %",
             "cycles %",
+            "cache miss %",
+            "cache miss #",
+            "branch miss %",
+            "branch miss #",
             "samples",
         ]]
         for item in items:
-            if item.candidate == "base":
+            if item.candidate == base.candidate:
                 continue
             item_rows = {row.variant: row for row in results.get(item.run_id, [])}
             item_perf = perf.get((condition, profile, benchmark, item.candidate), {})
             instr_pct = None
             cycles_pct = None
+            cache_miss_pct = None
+            cache_miss_abs = None
+            branch_miss_pct = None
+            branch_miss_abs = None
             if base_perf.get("instructions") and item_perf.get("instructions"):
                 instr_pct = 100.0 * (item_perf["instructions"] / base_perf["instructions"] - 1.0)
             if base_perf.get("cycles") and item_perf.get("cycles"):
                 cycles_pct = 100.0 * (item_perf["cycles"] / base_perf["cycles"] - 1.0)
+            if base_perf.get("cache_misses") and item_perf.get("cache_misses"):
+                cache_miss_pct = 100.0 * (item_perf["cache_misses"] / base_perf["cache_misses"] - 1.0)
+                cache_miss_abs = item_perf["cache_misses"] - base_perf["cache_misses"]
+            if base_perf.get("branch_misses") and item_perf.get("branch_misses"):
+                branch_miss_pct = 100.0 * (item_perf["branch_misses"] / base_perf["branch_misses"] - 1.0)
+                branch_miss_abs = item_perf["branch_misses"] - base_perf["branch_misses"]
 
             for variant in sorted(set(base_rows) & set(item_rows)):
                 baseline = base_rows[variant]
@@ -249,6 +274,10 @@ def run() -> int:
                         fmt(100.0 * (current.p99 / baseline.p99 - 1.0), "%"),
                         "n/a" if instr_pct is None else fmt(instr_pct, "%"),
                         "n/a" if cycles_pct is None else fmt(cycles_pct, "%"),
+                        "n/a" if cache_miss_pct is None else fmt(cache_miss_pct, "%"),
+                        "n/a" if cache_miss_abs is None else fmt_count(cache_miss_abs),
+                        "n/a" if branch_miss_pct is None else fmt(branch_miss_pct, "%"),
+                        "n/a" if branch_miss_abs is None else fmt_count(branch_miss_abs),
                         str(current.samples),
                     ]
                 )

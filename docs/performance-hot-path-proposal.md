@@ -60,6 +60,17 @@ Use `scripts/bench_record.sh --compare-bins` or
 This keeps the binaries fixed, rotates candidate order, inserts separate run IDs
 per label, and stores raw NDJSON plus summary rows in `conflux_bench`.
 
+JSON hot-path work that needs counter evidence should use the JSON perf helpers
+instead of hand-rolled benchmark loops. Build candidates with
+`scripts/json_perf_build_profiles.sh`, then run them with
+`scripts/json_perf_run_conditions.sh` so calibration, fixed iteration counts,
+compare-bins rotation, and `perf stat` capture stay aligned. Reports must keep
+compiler/profile/condition groups separate and must not filter on instruction,
+cycle, cache-miss, or branch-miss percentages. For cache-miss and branch-miss
+signals, always report both the percentage delta and the absolute event-count
+delta; a large percentage over a tiny event count is not equivalent evidence to
+millions of extra misses.
+
 Minimum release acceptance matrix for a performance-sensitive patch that changes
 hot-path behavior:
 
