@@ -4,6 +4,7 @@ build
 benchmark-results
 AGENTS.md
 research
+findings
 __pycache__/
 *.orig
 *.rej
