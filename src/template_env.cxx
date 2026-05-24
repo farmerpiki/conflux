@@ -255,8 +255,8 @@ Environment::Impl::build_cache_from_directory() const {
 			std::format("failed to scan template directory '{}': {}", dir.string(), e.what()));
 		return std::unexpected{std::move(report)};
 	}
-	std::sort(files.begin(), files.end(), [](std::filesystem::path const &a, std::filesystem::path const &b) {
-		return a.string() < b.string();
+	std::ranges::sort(files, std::less<>{}, [](std::filesystem::path const &path) -> auto const & {
+		return path.native();
 	});
 	report.templates_seen = files.size();
 	for (auto const &path: files) {
