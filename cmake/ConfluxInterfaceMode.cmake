@@ -815,15 +815,11 @@ function(conflux_register_header_public_surface target)
     endif()
     if(TARGET ${target})
         set_property(GLOBAL APPEND PROPERTY
-            CONFLUX_ACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
+            CONFLUX_ACTIVE_PUBLIC_HEADER_MODULES
             ${CONFLUX_HEADER_SURFACE_MODULE_PREFIXES})
         set_property(GLOBAL APPEND PROPERTY
             CONFLUX_ACTIVE_PUBLIC_HEADER_TARGETS
             ${target})
-    else()
-        set_property(GLOBAL APPEND PROPERTY
-            CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES
-            ${CONFLUX_HEADER_SURFACE_MODULE_PREFIXES})
     endif()
 endfunction()
 
@@ -842,21 +838,12 @@ function(conflux_add_header_component_smoke_targets)
     set(_public_smoke_dir "${_smoke_dir}/public-includes")
     set(_public_smoke_fragment "${_smoke_dir}/public-includes.cmake")
     set(_public_smoke_skip_args)
-    set(_public_smoke_active_module_args)
-    if(CONFLUX_USE_MOCK_LIBURING)
-        get_property(_active_public_header_module_prefixes GLOBAL PROPERTY
-            CONFLUX_ACTIVE_PUBLIC_HEADER_MODULE_PREFIXES)
-        foreach(_active_module_prefix IN LISTS _active_public_header_module_prefixes)
-            list(APPEND _public_smoke_active_module_args
-                --active-module-prefix "${_active_module_prefix}")
-        endforeach()
-    endif()
-    get_property(_inactive_public_header_module_prefixes GLOBAL PROPERTY
-        CONFLUX_INACTIVE_PUBLIC_HEADER_MODULE_PREFIXES)
-    set(_public_smoke_inactive_module_args)
-    foreach(_inactive_module_prefix IN LISTS _inactive_public_header_module_prefixes)
-        list(APPEND _public_smoke_inactive_module_args
-            --inactive-module-prefix "${_inactive_module_prefix}")
+    set(_public_smoke_active_modules)
+    get_property(_active_public_header_modules GLOBAL PROPERTY
+        CONFLUX_ACTIVE_PUBLIC_HEADER_MODULES)
+    foreach(_active_module IN LISTS _active_public_header_modules)
+        list(APPEND _public_smoke_active_modules
+            --active-module "${_active_module}")
     endforeach()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}"
@@ -865,8 +852,7 @@ function(conflux_add_header_component_smoke_targets)
                 --out-dir "${_public_smoke_dir}"
                 --cmake-fragment "${_public_smoke_fragment}"
                 ${_public_smoke_skip_args}
-                ${_public_smoke_active_module_args}
-                ${_public_smoke_inactive_module_args}
+                ${_public_smoke_active_modules}
         RESULT_VARIABLE _public_smoke_result)
     if(NOT _public_smoke_result EQUAL 0)
         message(FATAL_ERROR "conflux: public header include smoke generation failed")

@@ -415,10 +415,6 @@ if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
         LINKS conflux_db)
     unset(_conflux_db_links)
 endif()
-conflux_register_header_public_surface(conflux_db
-    MODULE_PREFIXES conflux.db)
-conflux_register_header_public_surface(conflux_pg
-    MODULE_PREFIXES conflux.pg)
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
 conflux_register_header_public_hpp(config)
@@ -426,45 +422,6 @@ conflux_register_header_public_hpp(curated)
 conflux_register_header_public_hpp(extended)
 conflux_register_header_public_hpp(complete)
 conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
-
-if(NOT CONFLUX_HAS_TLS STREQUAL "true")
-    conflux_register_header_public_surface(conflux_net_tls
-        MODULE_PREFIXES conflux.net.tls)
-endif()
-if(NOT CONFLUX_HAS_HTTP2 STREQUAL "true")
-    conflux_register_header_public_surface(conflux_http2
-        MODULE_PREFIXES conflux.net.http2)
-endif()
-if(NOT CONFLUX_HAS_HTTP3 STREQUAL "true")
-    conflux_register_header_public_surface(conflux_http3
-        MODULE_PREFIXES conflux.net.http3)
-endif()
-if(NOT CONFLUX_HAS_COMPRESS STREQUAL "true")
-    conflux_register_header_public_surface(conflux_http_compression
-        MODULE_PREFIXES conflux.net.compress)
-endif()
-if(NOT CONFLUX_JSON_REFLECT)
-    conflux_register_header_public_surface(conflux_json_reflect
-        MODULE_PREFIXES conflux.json.reflect)
-    conflux_register_header_public_surface(conflux_json_reflect_provider
-        MODULE_PREFIXES conflux.json.reflect_provider)
-endif()
-if(NOT CONFLUX_HAS_ZLIB STREQUAL "true")
-    conflux_register_header_public_surface(conflux_net_compress_backend_zlib
-        MODULE_PREFIXES conflux.net.compress.backend.zlib)
-endif()
-if(NOT CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-    conflux_register_header_public_surface(conflux_net_compress_backend_libdeflate
-        MODULE_PREFIXES conflux.net.compress.backend.libdeflate)
-endif()
-if(NOT CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-    conflux_register_header_public_surface(conflux_net_compress_backend_zlibng
-        MODULE_PREFIXES conflux.net.compress.backend.zlibng)
-endif()
-if(NOT CONFLUX_HAS_ISAL STREQUAL "true")
-    conflux_register_header_public_surface(conflux_net_compress_backend_isal
-        MODULE_PREFIXES conflux.net.compress.backend.isal)
-endif()
 
 conflux_add_header_component_smoke_targets()
 conflux_add_header_link_smoke_targets()

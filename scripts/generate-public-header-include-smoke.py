@@ -19,6 +19,13 @@ def symbol_for(relpath: str) -> str:
     return f'conflux_public_header_smoke_{safe}'
 
 
+def matches_active_module(module_name: str, active_modules: tuple[str, ...]) -> bool:
+    return any(
+        module_name == active_module or module_name.startswith(f'{active_module}:')
+        for active_module in active_modules
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest', required=True, type=Path)
@@ -26,8 +33,7 @@ def main() -> int:
     parser.add_argument('--cmake-fragment', required=True, type=Path)
     parser.add_argument('--skip-prefix', action='append', default=[])
     parser.add_argument('--skip-header', action='append', default=[])
-    parser.add_argument('--active-module-prefix', action='append', default=[])
-    parser.add_argument('--inactive-module-prefix', action='append', default=[])
+    parser.add_argument('--active-module', action='append', default=[])
     args = parser.parse_args()
 
     data = json.loads(args.manifest.read_text(encoding='utf-8'))
@@ -37,8 +43,7 @@ def main() -> int:
     seen: set[str] = set()
     skipped_headers = set(args.skip_header)
     skipped_prefixes = tuple(args.skip_prefix)
-    active_module_prefixes = tuple(args.active_module_prefix)
-    inactive_module_prefixes = tuple(args.inactive_module_prefix)
+    active_modules = tuple(args.active_module)
     sources: list[Path] = []
     for item in data.get('interfaces', []):
         relpath = item.get('header_relpath')
@@ -46,20 +51,7 @@ def main() -> int:
             continue
         module_name = item.get('module')
         if isinstance(module_name, str):
-            if active_module_prefixes:
-                active = False
-                for prefix in active_module_prefixes:
-                    if module_name == prefix or module_name.startswith(f'{prefix}.') or module_name.startswith(f'{prefix}:'):
-                        active = True
-                        break
-                if not active:
-                    continue
-            inactive = False
-            for prefix in inactive_module_prefixes:
-                if module_name == prefix or module_name.startswith(f'{prefix}.') or module_name.startswith(f'{prefix}:'):
-                    inactive = True
-                    break
-            if inactive:
+            if active_modules and not matches_active_module(module_name, active_modules):
                 continue
         if relpath.startswith('conflux/detail/') or '/detail/' in relpath:
             continue
