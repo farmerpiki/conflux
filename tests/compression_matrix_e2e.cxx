@@ -1,7 +1,12 @@
 // Plain TU — not a module unit.
 #include <catch2/catch_test_macros.hpp>
+#if CONFLUX_HAS_BROTLI
+	#include <brotli/decode.h>
+	#include <brotli/encode.h>
+#endif
 #include <stdlib.h>
 #include <unistd.h>
+#include <zlib.h>
 
 import std;
 import conflux.types;
@@ -71,6 +76,92 @@ std::string header_value(
 	}
 	return std::string{response.substr(value_begin, value_end - value_begin)};
 }
+
+std::string gzip_decompress(
+	std::string_view compressed) {
+	z_stream zs{};
+	if (inflateInit2(&zs, 15 | 16) != Z_OK) {
+		return {};
+	}
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-type-const-cast)
+	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(compressed.data()));
+	zs.avail_in = static_cast<uInt>(compressed.size());
+
+	std::string out;
+	std::array<char, 4096> chunk{};
+	int rc = Z_OK;
+	while (rc == Z_OK) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+		zs.next_out = reinterpret_cast<Bytef *>(chunk.data());
+		zs.avail_out = static_cast<uInt>(chunk.size());
+		rc = inflate(&zs, Z_NO_FLUSH);
+		out.append(chunk.data(), chunk.size() - zs.avail_out);
+	}
+	inflateEnd(&zs);
+	return rc == Z_STREAM_END ? out : std::string{};
+}
+
+std::string gzip_compress(
+	std::string_view body) {
+	z_stream zs{};
+	if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 | 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+		return {};
+	}
+	std::string out;
+	out.resize(deflateBound(&zs, static_cast<uLong>(body.size())));
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-type-const-cast)
+	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(body.data()));
+	zs.avail_in = static_cast<uInt>(body.size());
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+	zs.next_out = reinterpret_cast<Bytef *>(out.data());
+	zs.avail_out = static_cast<uInt>(out.size());
+	auto const rc = deflate(&zs, Z_FINISH);
+	out.resize(out.size() - zs.avail_out);
+	deflateEnd(&zs);
+	return rc == Z_STREAM_END ? out : std::string{};
+}
+
+#if CONFLUX_HAS_BROTLI
+std::string brotli_compress(
+	std::string_view body) {
+	auto out_size = BrotliEncoderMaxCompressedSize(body.size());
+	std::string out(out_size, '\0');
+	auto const ok = BrotliEncoderCompress(
+		BROTLI_DEFAULT_QUALITY,
+		BROTLI_DEFAULT_WINDOW,
+		BROTLI_DEFAULT_MODE,
+		body.size(),
+		reinterpret_cast<std::uint8_t const *>(body.data()),
+		&out_size,
+		reinterpret_cast<std::uint8_t *>(out.data()));
+	if (ok == BROTLI_FALSE) {
+		return {};
+	}
+	out.resize(out_size);
+	return out;
+}
+
+std::string brotli_decompress(
+	std::string_view body) {
+	std::string out(4096, '\0');
+	for (;;) {
+		auto out_size = out.size();
+		auto const rc = BrotliDecoderDecompress(
+			body.size(),
+			reinterpret_cast<std::uint8_t const *>(body.data()),
+			&out_size,
+			reinterpret_cast<std::uint8_t *>(out.data()));
+		if (rc == BROTLI_DECODER_RESULT_SUCCESS) {
+			out.resize(out_size);
+			return out;
+		}
+		if (rc != BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
+			return {};
+		}
+		out.resize(out.size() * 2);
+	}
+}
+#endif
 
 std::uint16_t compression_port() {
 	static std::uint16_t port = 0;
@@ -144,8 +235,8 @@ TEST_CASE(
 		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
 		CHECK(header_value(resp, "Vary: ") == "Accept-Encoding");
 		auto const body = body_of(resp);
-		CHECK(!body.empty());
-		CHECK(body != std::string(4096, 'A'));
+		REQUIRE(!body.empty());
+		CHECK(gzip_decompress(body) == std::string(4096, 'A'));
 	}
 }
 
@@ -218,33 +309,42 @@ TEST_CASE(
 	"compression matrix: static precompressed sidecars negotiate br, gzip, and identity",
 	"[compression][http][e2e][static]") {
 	TempDir dir{"/tmp/conflux_compression_matrix_XXXXXX"};
-	dir.write("asset.txt", "identity-body");
-	dir.write("asset.txt.gz", "gzip-sidecar");
-	dir.write("asset.txt.br", "brotli-sidecar");
+	std::string const identity = "identity-body";
+	auto gzip_sidecar = gzip_compress(identity);
+	REQUIRE(!gzip_sidecar.empty());
+	dir.write("asset.txt", identity);
+	dir.write("asset.txt.gz", gzip_sidecar);
+#if CONFLUX_HAS_BROTLI
+	auto brotli_sidecar = brotli_compress(identity);
+	REQUIRE(!brotli_sidecar.empty());
+	dir.write("asset.txt.br", brotli_sidecar);
+#endif
 
 	Config cfg = mw_config();
 	Router router;
 	router.serve_static("/static", dir.path());
 	ScopedTestServer const server{cfg, std::move(router)};
 
+#if CONFLUX_HAS_BROTLI
 	SECTION("br sidecar wins over gzip when both are accepted") {
 		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br, gzip\r\n");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 		CHECK(header_value(resp, "Content-Encoding: ") == "br");
-		CHECK(body_of(resp) == "brotli-sidecar");
+		CHECK(brotli_decompress(body_of(resp)) == identity);
 	}
+#endif
 
 	SECTION("gzip sidecar is used when br is excluded") {
 		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br;q=0, gzip\r\n");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
-		CHECK(body_of(resp) == "gzip-sidecar");
+		CHECK(gzip_decompress(body_of(resp)) == identity);
 	}
 
 	SECTION("identity file is used when compressed sidecars are excluded") {
 		auto resp = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: br;q=0, gzip;q=0\r\n");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 		CHECK(header_value(resp, "Content-Encoding: ").empty());
-		CHECK(body_of(resp) == "identity-body");
+		CHECK(body_of(resp) == identity);
 	}
 }

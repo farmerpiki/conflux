@@ -966,6 +966,12 @@ target_link_libraries(conflux_compression_matrix_e2e
         conflux_options
         Catch2::Catch2WithMain
 )
+if(ZLIB_FOUND)
+    target_link_libraries(conflux_compression_matrix_e2e PRIVATE ZLIB::ZLIB)
+endif()
+if(TARGET PkgConfig::BROTLI)
+    target_link_libraries(conflux_compression_matrix_e2e PRIVATE PkgConfig::BROTLI)
+endif()
 
 add_executable(conflux_chaos_resource_e2e)
 target_sources(conflux_chaos_resource_e2e
