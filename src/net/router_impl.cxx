@@ -70,6 +70,18 @@ namespace {
 	return empty;
 }
 
+template<typename Fn>
+[[nodiscard]] auto make_one_shot_next(
+	Fn &&fn) {
+	auto used = std::make_shared<std::atomic_bool>(false);
+	return [used, fn = std::forward<Fn>(fn)]<typename... Args>(Args &&...args) mutable -> decltype(auto) {
+		if (used->exchange(true, std::memory_order_acq_rel)) {
+			throw std::logic_error{"middleware next() called more than once"};
+		}
+		return fn(std::forward<Args>(args)...);
+	};
+}
+
 [[nodiscard]] std::optional<std::string_view> first_literal_key(
 	std::vector<Segment> const &pattern) noexcept {
 	std::size_t index = 0;
@@ -348,7 +360,8 @@ template<typename ImplT>
 					co_return co_await inner_(r, c);
 				}
 				auto const &mw = impl_->context_middlewares[idx_++];
-				co_return co_await mw(r, c, next_);
+				auto next = make_one_shot_next(next_);
+				co_return co_await mw(r, c, next);
 			}
 		};
 		auto step = std::make_shared<Step>(&impl, &inner);
@@ -560,7 +573,8 @@ void Router::launch_sse_handler(
 				return (*inner_)(r);
 			}
 			auto const &mw = impl_->middlewares[idx_++];
-			return mw(r, next_);
+			auto next = make_one_shot_next(next_);
+			return mw(r, next);
 		}
 	};
 	Step s{impl_.get(), &inner};
@@ -600,7 +614,8 @@ void Router::launch_sse_handler(
 				return inner_(r, c);
 			}
 			auto const &mw = impl_->context_middlewares[idx_++];
-			return mw(r, c, next_);
+			auto next = make_one_shot_next(next_);
+			return mw(r, c, next);
 		}
 	};
 	auto step = std::make_shared<Step>(impl_.get(), &inner);

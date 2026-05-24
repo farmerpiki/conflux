@@ -65,6 +65,23 @@ import conflux.tests.support;
 import conflux.work;
 
 using namespace conflux::tests;
+
+TEST_CASE(
+	"middleware next is one-shot",
+	"[middleware]") {
+	Router router;
+	router.use([](Request const &req, Router::Handler const &next) {
+		(void)next(req);
+		return next(req);
+	});
+	router.get("/twice", [](Request const &) { return Response::text("ok"); });
+
+	Request req;
+	req.method = "GET";
+	req.path = "/twice";
+	CHECK_THROWS_AS(router.dispatch(req), std::logic_error);
+}
+
 namespace {
 namespace chttp = conflux::http;
 using conflux::http::HttpClient;
