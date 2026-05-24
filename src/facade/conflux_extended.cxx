@@ -38,9 +38,8 @@ export import conflux.net.config;
 export import conflux.net.http.client;
 #endif
 
-export import conflux.http.extended;
-
 #if CONFLUX_SURFACE_HAS_HTTP_APP
+export import conflux.http.extended;
 export import conflux.net.app;
 #endif
 

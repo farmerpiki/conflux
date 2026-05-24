@@ -5,3 +5,5 @@ benchmark-results
 AGENTS.md
 research
 __pycache__/
+*.orig
+*.rej
