@@ -467,6 +467,7 @@ struct Ring {
 	[[nodiscard]] Response dispatch(RequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
 	[[nodiscard]] std::optional<Response> try_dispatch_context(RequestView const &req) const;
+	[[nodiscard]] std::optional<Response> try_dispatch_context(Request req) const;
 	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(RequestView const &req) const;
 	void clear_deferred_wait(int deferred_efd);
 	void queue_deferred_wait(

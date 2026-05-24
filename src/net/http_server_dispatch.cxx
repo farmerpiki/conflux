@@ -297,7 +297,26 @@ void dispatch_request(
 	auto const handler_started = std::chrono::steady_clock::now();
 	Response resp;
 	try {
-		if (auto async = ring.try_dispatch_context(req)) {
+		if (ring.has_context_routes()) {
+			Request owned{
+				.method = std::string{method},
+				.path = std::string{path},
+				.version = std::string{version},
+				.remote_addr = std::string{conn.remote_addr},
+				.is_tls = conn.is_tls,
+				.params = params.to_owned(),
+				.headers = headers.to_owned(),
+				.query = query.to_owned(),
+				.form = form.to_owned(),
+				.cookies = cookies.to_owned(),
+				.body = std::string{body}};
+			owned.files.reserve(files.size());
+			for (auto const &file: files) {
+				owned.files.push_back(file.to_owned());
+			}
+			auto async = ring.try_dispatch_context(std::move(owned));
+			resp = async ? std::move(*async) : ring.dispatch(req);
+		} else if (auto async = ring.try_dispatch_context(req)) {
 			resp = std::move(*async);
 		} else {
 			resp = ring.dispatch(req);

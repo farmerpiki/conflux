@@ -143,6 +143,21 @@ Ring::~Ring() {
 	return router->dispatch_context(req, ctx);
 }
 
+[[nodiscard]] std::optional<Response> Ring::try_dispatch_context(
+	Request req) const {
+	if (!client_task_ring_) {
+		return std::nullopt;
+	}
+	if (!has_context_routes()) {
+		return std::nullopt;
+	}
+	RequestContext const ctx{*client_task_ring_};
+	if (vhost_router != nullptr) {
+		return vhost_router->dispatch_context(std::move(req), ctx);
+	}
+	return router->dispatch_context(std::move(req), ctx);
+}
+
 [[nodiscard]] std::shared_ptr<WorkPool> Ring::resolve_ws_work_pool(
 	RequestView const &req) const {
 	if (vhost_router != nullptr) {
