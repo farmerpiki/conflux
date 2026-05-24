@@ -259,15 +259,21 @@ export std::string hex_encode(
 	std::span<unsigned char const> in) {
 	std::string out;
 	out.resize(in.size() * 2);
-#if defined(CONFLUX_CRYPTO_USE_AESNI)
+#if defined(CONFLUX_CRYPTO_USE_AESNI) && !CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	conflux_hex_encode_ssse3(in.data(), in.size(), out.data());
-#else
+	return out;
+#endif
+#if defined(CONFLUX_CRYPTO_USE_AESNI) && CONFLUX_CPU_FEATURE_PROBES_RUNTIME
+	if (conflux_cpu_supports_aesni_pclmul_sse41()) {
+		conflux_hex_encode_ssse3(in.data(), in.size(), out.data());
+		return out;
+	}
+#endif
 	static constexpr char kHex[] = "0123456789abcdef";
 	for (std::size_t i = 0; i < in.size(); ++i) {
 		out[i * 2] = kHex[in[i] >> 4U];
 		out[i * 2 + 1] = kHex[in[i] & 0x0FU];
 	}
-#endif
 	return out;
 }
 constexpr int hex_nibble_(

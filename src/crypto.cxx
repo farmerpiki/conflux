@@ -382,7 +382,7 @@ export bool constant_time_eq(
 
 namespace {
 
-#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 
 constexpr std::array<unsigned char, 256> kAesSbox{
 	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9,
@@ -424,7 +424,7 @@ constexpr std::uint32_t aes_rot_word(
 	std::uint32_t w) {
 	return (w << 8) | (w >> 24);
 }
-	#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
+	#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 struct AesKey256 {
 	std::array<std::uint32_t, 60> rk{};
 };
@@ -563,7 +563,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
-	#if CONFLUX_ENABLE_CPU_DISPATCH
+	#if CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	if (conflux_cpu_supports_aesni_pclmul_sse41())
 	#endif
 	{
@@ -580,7 +580,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	}
 #endif
 
-#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	auto const ek = aes256_expand_key(key);
 
 	std::array<unsigned char, 16> h_in{};
@@ -654,7 +654,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
-	#if CONFLUX_ENABLE_CPU_DISPATCH
+	#if CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	if (conflux_cpu_supports_aesni_pclmul_sse41())
 	#endif
 	{
@@ -675,7 +675,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	}
 #endif
 
-#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_ENABLE_CPU_DISPATCH
+#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
 	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
 	auto const ct = ciphertext_and_tag.subspan(0, ct_len);
 	auto const claimed_tag = ciphertext_and_tag.subspan(ct_len, 16);

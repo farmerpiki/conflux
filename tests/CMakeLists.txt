@@ -251,6 +251,15 @@ endif()
 add_executable(conflux_crypto_tests crypto_test.cxx)
 target_link_libraries(conflux_crypto_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+if(_conflux_cpu_feature_probes_runtime AND CONFLUX_HAS_AESNI)
+    add_test(NAME simd/crypto-aesni-runtime-scalar-fallback
+        COMMAND conflux_crypto_tests "crypto: aes_gcm empty plaintext decrypt")
+    set_tests_properties(simd/crypto-aesni-runtime-scalar-fallback PROPERTIES
+        ENVIRONMENT "CONFLUX_TEST_CPU_FEATURES_DISABLE=aesni_pclmul_sse41"
+        LABELS "simd;crypto"
+        RUN_SERIAL TRUE)
+endif()
+
 set(CONFLUX_BUILD_AES_GCM_COMPARE TRUE)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # GCC modules conflict/ICE when this standalone OpenSSL comparison TU includes
@@ -264,6 +273,15 @@ endif()
 
 add_executable(conflux_utils_tests utils_test.cxx)
 target_link_libraries(conflux_utils_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+
+if(_conflux_cpu_feature_probes_runtime AND CONFLUX_HAS_AESNI)
+    add_test(NAME simd/hex-ssse3-runtime-scalar-fallback
+        COMMAND conflux_utils_tests "utils: hex_encode known values")
+    set_tests_properties(simd/hex-ssse3-runtime-scalar-fallback PROPERTIES
+        ENVIRONMENT "CONFLUX_TEST_CPU_FEATURES_DISABLE=aesni_pclmul_sse41"
+        LABELS "simd;crypto"
+        RUN_SERIAL TRUE)
+endif()
 
 if(CONFLUX_HAS_TLS STREQUAL "true")
     add_executable(conflux_jwt_tests jwt_test.cxx)
