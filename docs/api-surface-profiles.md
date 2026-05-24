@@ -17,7 +17,7 @@ Default: `curated`.
 
 | Profile | Entry points | Intended use |
 |---|---|---|
-| `curated` | `import conflux;`, `import conflux.curated;`, `<conflux.hxx>`, `<conflux/curated.hxx>` | recommended first-contact app/library surface |
+| `curated` | `import conflux;`, `import conflux.curated;`, `<conflux.hxx>`, `<conflux/curated.hxx>` | recommended first-contact app/library surface; use explicit `import conflux.http` / `<conflux/http.hxx>` for HTTP in the current module lane |
 | `extended` | `import conflux.extended;`, `<conflux/extended.hxx>` | stable extension points and production customization knobs |
 | `complete` | `import conflux.complete;`, `<conflux/complete.hxx>` | documented low-level escape hatches |
 
@@ -69,8 +69,9 @@ corresponding aggregate surface for the configured feature set.
 
 | Surface area | Curated | Extended | Complete |
 |---|---:|---:|---:|
-| `conflux.types`, `conflux.features` | yes | yes | yes |
-| `conflux.http` façade | yes, when built | yes | yes |
+| `conflux.features` | yes | yes | yes |
+| `conflux.types` | no, pending alias policy | no, pending alias policy | no, pending alias policy |
+| `conflux.http` façade | explicit leaf import in current module lane | explicit leaf import in current module lane | explicit leaf import in current module lane |
 | `conflux.json` normal API | yes, when built | yes | yes |
 | JSON boundary/provider/reflect modules | no | yes, when built | yes |
 | `conflux.work` runtime/task primitives | no | yes, when built | yes |
@@ -110,7 +111,12 @@ from `conflux.features`.
 
 ## HTTP façade split
 
-`conflux.http` is the curated HTTP application façade. It keeps route registration,
+`conflux.http` is the curated HTTP application façade. In the current module lane,
+import it explicitly instead of relying on profile re-export; re-exporting the
+HTTP façade module family through profile modules currently triggers a GCC 16
+module importer ICE. Header mode still follows the generated include surface.
+
+`conflux.http` keeps route registration,
 request/response helpers, typed extractors, JSON response helpers, common middleware
 helper functions, and coroutine handler spelling. Lower-level WorkPool-based offload helpers,
 blocking file helpers, OpenAPI route-handler mounting, named middleware concept aliases,
