@@ -241,6 +241,57 @@ function(conflux_apply_api_surface_definitions target scope)
         CONFLUX_SURFACE_HAS_DB_COMPAT=${_conflux_surface_has_db_compat}
         CONFLUX_SURFACE_HAS_SMTP=${_conflux_surface_has_smtp})
 endfunction()
+
+function(conflux_target_links_item out target needle)
+    if(NOT TARGET ${target})
+        set(${out} FALSE PARENT_SCOPE)
+        return()
+    endif()
+
+    get_property(_visited GLOBAL PROPERTY CONFLUX_LINK_ITEM_SCAN_VISITED)
+    if(target IN_LIST _visited)
+        set(${out} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    set_property(GLOBAL APPEND PROPERTY CONFLUX_LINK_ITEM_SCAN_VISITED ${target})
+
+    foreach(_property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+        get_target_property(_items ${target} ${_property})
+        if(NOT _items)
+            continue()
+        endif()
+        foreach(_item IN LISTS _items)
+            if(_item MATCHES "^\\$<LINK_ONLY:([^>]+)>$")
+                set(_item "${CMAKE_MATCH_1}")
+            endif()
+            if(_item STREQUAL "${needle}")
+                set(${out} TRUE PARENT_SCOPE)
+                return()
+            endif()
+            if(TARGET ${_item})
+                conflux_target_links_item(_nested "${_item}" "${needle}")
+                if(_nested)
+                    set(${out} TRUE PARENT_SCOPE)
+                    return()
+                endif()
+            endif()
+        endforeach()
+    endforeach()
+
+    set(${out} FALSE PARENT_SCOPE)
+endfunction()
+
+function(conflux_any_target_links_item out needle)
+    set_property(GLOBAL PROPERTY CONFLUX_LINK_ITEM_SCAN_VISITED "")
+    foreach(_target IN LISTS ARGN)
+        conflux_target_links_item(_found "${_target}" "${needle}")
+        if(_found)
+            set(${out} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out} FALSE PARENT_SCOPE)
+endfunction()
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
 	set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 endif()
@@ -1033,25 +1084,9 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     conflux_add_header_compile_fail_tests()
     conflux_add_header_benchmark_compile_targets()
 
-    set(CONFLUX_INSTALL_NEEDS_LIBURING ${CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS})
-    set(CONFLUX_INSTALL_NEEDS_XXHASH FALSE)
-    if(CONFLUX_WANT_JSON AND CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
-        set(CONFLUX_INSTALL_NEEDS_XXHASH TRUE)
-    endif()
-    set(CONFLUX_INSTALL_NEEDS_LIBPQ FALSE)
-    if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
-        set(CONFLUX_INSTALL_NEEDS_LIBPQ TRUE)
-    endif()
-    set(CONFLUX_INSTALL_NEEDS_OPENSSL FALSE)
-    set(CONFLUX_INSTALL_NEEDS_ZLIB FALSE)
-    set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE FALSE)
-    set(CONFLUX_INSTALL_NEEDS_ZLIB_NG FALSE)
-    set(CONFLUX_INSTALL_NEEDS_ISAL FALSE)
-    set(CONFLUX_INSTALL_NEEDS_BROTLI FALSE)
-    set(CONFLUX_INSTALL_NEEDS_ZSTD FALSE)
-    set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
-    set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
-    set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
+    conflux_any_target_links_item(CONFLUX_INSTALL_NEEDS_LIBURING
+        PkgConfig::LIBURING
+        ${CONFLUX_HEADER_INSTALL_TARGETS})
 
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ConfluxGeneratePackageMetadata.cmake.in"
@@ -3907,6 +3942,7 @@ set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
 set(CONFLUX_PACKAGE_SUPPORT_TARGETS)
 set(CONFLUX_PACKAGE_ALL_COMPONENTS)
 set(CONFLUX_PACKAGE_ALL_TARGETS)
+set(CONFLUX_INSTALL_TARGET_CANDIDATES)
 
 function(conflux_component target export_name)
     set(options)
@@ -3936,6 +3972,11 @@ function(conflux_component target export_name)
         list(APPEND _all_targets "conflux::${export_name}")
         set(CONFLUX_PACKAGE_ALL_TARGETS "${_all_targets}" PARENT_SCOPE)
 
+        set(_install_target_candidates ${CONFLUX_INSTALL_TARGET_CANDIDATES})
+        list(APPEND _install_target_candidates ${target})
+        set(CONFLUX_INSTALL_TARGET_CANDIDATES
+            "${_install_target_candidates}" PARENT_SCOPE)
+
         if(CONFLUX_COMPONENT_KIND STREQUAL "SUPPORT")
             set(_support_components ${CONFLUX_PACKAGE_SUPPORT_COMPONENTS})
             list(APPEND _support_components "${export_name}")
@@ -3960,6 +4001,18 @@ endfunction()
 macro(conflux_public_component target export_name)
     conflux_component(${target} ${export_name} KIND REQUESTABLE)
 endmacro()
+
+function(conflux_target_has_module_file_sets out target)
+    set(_has_module_file_sets FALSE)
+    foreach(_property IN ITEMS CXX_MODULE_SETS INTERFACE_CXX_MODULE_SETS)
+        get_target_property(_sets ${target} ${_property})
+        if(_sets)
+            set(_has_module_file_sets TRUE)
+            break()
+        endif()
+    endforeach()
+    set(${out} ${_has_module_file_sets} PARENT_SCOPE)
+endfunction()
 
 conflux_public_component(conflux_core core)
 conflux_public_component(conflux_types types)
@@ -4042,84 +4095,19 @@ if(TARGET conflux AND NOT TARGET conflux::conflux)
 endif()
 
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
-foreach(_target IN ITEMS
-        conflux_options
-        conflux_core
-        conflux_cpu_features
-        conflux_simd_runtime)
-    if(TARGET ${_target})
-        list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
-    endif()
-endforeach()
-
 set(CONFLUX_INSTALL_MODULE_TARGETS)
-foreach(_target IN ITEMS
-        conflux_types
-        conflux_utils
-        conflux_net_config
-        conflux_net_cancel
-        conflux_net_tls
-        conflux_process
-        conflux_net_io_buffer
-        conflux_crypto
-        conflux_json_boundary
-        conflux_json
-        conflux_json_native_provider
-        conflux_json_file
-        conflux_json_reflect
-        conflux_json_reflect_provider
-        conflux_template
-        conflux_template_watch
-        conflux_file_watch
-        conflux_http_parse_helpers
-        conflux_http_core
-        conflux_http_router
-        conflux_http_router_dispatch
-        conflux_http_router_match
-        conflux_http_router_static
-        conflux_http_static
-        conflux_http_static_core
-        conflux_http_static_async
-        conflux_http_realtime
-        conflux_http_response
-        conflux_http_server_helpers
-        conflux_http_server_config
-        conflux_http_policy
-        conflux_http_auth
-        conflux_http_compression
-        conflux_net_client
-        conflux_net_async_client
-        conflux_http_proxy
-        conflux_net_smtp
-        conflux_dns_bridge
-        conflux_http_observability
-        conflux_http_openapi
-        conflux_http_vhost
-        conflux_http_json
-        conflux_http_response_json
-        conflux_http_app_json
-        conflux_http_native_json
-        conflux_http1
-        conflux_http2
-        conflux_http3
-        conflux_http_protocol
-        conflux_http_server
-        conflux_http_app
-        conflux_net_http
-        conflux_uring_primitives
-        conflux_uring
-        conflux_uring_timeout
-        conflux_work
-        conflux_file_io_sync
-        conflux_file_map
-        conflux_file_io
-        conflux_socket_io
-        conflux_dns
-        conflux_pg
-        conflux_db
-        conflux_direct_slot_pool)
+list(REMOVE_DUPLICATES CONFLUX_INSTALL_TARGET_CANDIDATES)
+foreach(_target IN LISTS CONFLUX_INSTALL_TARGET_CANDIDATES)
     if(TARGET ${_target})
-        list(APPEND CONFLUX_INSTALL_MODULE_TARGETS ${_target})
+        if(_target STREQUAL "conflux")
+            continue()
+        endif()
+        conflux_target_has_module_file_sets(_has_module_file_sets ${_target})
+        if(_has_module_file_sets)
+            list(APPEND CONFLUX_INSTALL_MODULE_TARGETS ${_target})
+        else()
+            list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
+        endif()
     endif()
 endforeach()
 
@@ -4184,58 +4172,17 @@ if(TARGET conflux)
     )
 endif()
 
-set(CONFLUX_INSTALL_NEEDS_LIBURING FALSE)
-set(CONFLUX_INSTALL_NEEDS_XXHASH FALSE)
-set(CONFLUX_INSTALL_NEEDS_LIBPQ FALSE)
-set(CONFLUX_INSTALL_NEEDS_OPENSSL FALSE)
-set(CONFLUX_INSTALL_NEEDS_ZLIB FALSE)
-set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE FALSE)
-set(CONFLUX_INSTALL_NEEDS_ZLIB_NG FALSE)
-set(CONFLUX_INSTALL_NEEDS_ISAL FALSE)
-set(CONFLUX_INSTALL_NEEDS_BROTLI FALSE)
-set(CONFLUX_INSTALL_NEEDS_ZSTD FALSE)
-set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
-set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
-set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
 set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
-
-if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_process OR TARGET conflux_net_io_buffer OR TARGET conflux_file_io OR TARGET conflux_file_watch OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux_http_server OR TARGET conflux_http_app OR TARGET conflux_net_http OR TARGET conflux)
-    set(CONFLUX_INSTALL_NEEDS_LIBURING TRUE)
+set(_conflux_install_targets_for_runtime_scan
+    ${CONFLUX_INSTALL_INTERFACE_TARGETS}
+    ${CONFLUX_INSTALL_MODULE_TARGETS})
+if(TARGET conflux)
+    list(APPEND _conflux_install_targets_for_runtime_scan conflux)
 endif()
-if(TARGET conflux_json AND CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
-    set(CONFLUX_INSTALL_NEEDS_XXHASH TRUE)
-endif()
-if(TARGET conflux_db)
-    set(CONFLUX_INSTALL_NEEDS_LIBPQ TRUE)
-endif()
-if(TARGET conflux_net_tls OR (TARGET conflux_http_protocol AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux_http_server AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux_net_http AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true"))
-    set(CONFLUX_INSTALL_NEEDS_OPENSSL TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_ZLIB STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_ZLIB TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_ZLIB_NG TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_ISAL STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_ISAL TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_BROTLI STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_BROTLI TRUE)
-endif()
-if(TARGET conflux_http_compression AND CONFLUX_HAS_ZSTD STREQUAL "true")
-    set(CONFLUX_INSTALL_NEEDS_ZSTD TRUE)
-endif()
-if(TARGET conflux_http2)
-    set(CONFLUX_INSTALL_NEEDS_NGHTTP2 TRUE)
-endif()
-if(TARGET conflux_http3)
-    set(CONFLUX_INSTALL_NEEDS_NGTCP2 TRUE)
-    set(CONFLUX_INSTALL_NEEDS_NGHTTP3 TRUE)
-endif()
+conflux_any_target_links_item(CONFLUX_INSTALL_NEEDS_LIBURING
+    PkgConfig::LIBURING
+    ${_conflux_install_targets_for_runtime_scan})
+unset(_conflux_install_targets_for_runtime_scan)
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ConfluxGeneratePackageMetadata.cmake.in"
