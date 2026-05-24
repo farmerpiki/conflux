@@ -1,3 +1,8 @@
+if(CONFLUX_BUILD_TESTS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+endif()
+
+if(CONFLUX_BUILD_TESTS)
 find_package(Catch2 3 REQUIRED)
 find_package(CURL QUIET)
 include(Catch)
@@ -1145,4 +1150,140 @@ endif()
 if(CONFLUX_HAS_DB STREQUAL "true")
     conflux_discover_tests(conflux_db_tests)
     conflux_discover_db_integration_tests(conflux_db_integration)
+endif()
+endif()
+
+if(CONFLUX_BUILD_TESTS)
+    add_test(NAME build/no-std-streams
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check_no_std_streams.py")
+    set_tests_properties(build/no-std-streams PROPERTIES
+        LABELS "build;lint"
+    )
+
+    add_test(NAME build/cmake-source-files
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-cmake-source-files.py")
+    set_tests_properties(build/cmake-source-files PROPERTIES
+        LABELS "build;lint"
+    )
+
+    add_test(NAME build/component-map
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-component-map.py")
+    set_tests_properties(build/component-map PROPERTIES
+        LABELS "build;docs;package"
+    )
+
+    add_test(NAME build/package-config
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-config.sh"
+                "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(build/package-config PROPERTIES
+        LABELS "build;package"
+    )
+
+    add_test(NAME build/header-component-smoke
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-header-component-smoke.sh"
+                "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(build/header-component-smoke PROPERTIES
+        LABELS "build;headers;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 600
+    )
+
+    add_test(NAME build/mixed-module-header-smoke
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-smoke-mixed-module-header.sh")
+    set_tests_properties(build/mixed-module-header-smoke PROPERTIES
+        LABELS "build;modules;headers;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 1200
+    )
+
+    add_test(NAME build/public-module-import-smoke
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-public-module-import-smoke.sh"
+                "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(build/public-module-import-smoke PROPERTIES
+        LABELS "build;modules;package"
+        RUN_SERIAL TRUE
+        TIMEOUT 1200
+    )
+
+    if(TARGET conflux_simd_direct_shape)
+        add_test(NAME build/simd-direct-shape
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+                    --target conflux_simd_direct_shape --config "$<CONFIG>")
+        set_tests_properties(build/simd-direct-shape PROPERTIES
+            LABELS "build;simd"
+            RUN_SERIAL TRUE
+        )
+    endif()
+
+    add_test(NAME docs/planning-state
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-planning-state.py")
+    set_tests_properties(docs/planning-state PROPERTIES
+        LABELS "docs;lint"
+    )
+
+    add_test(NAME docs/release-docs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-release-docs.py")
+    set_tests_properties(docs/release-docs PROPERTIES
+        LABELS "docs;lint"
+    )
+
+    add_test(NAME docs/first-contact-public-dialect
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-first-contact-public-dialect.py")
+    set_tests_properties(docs/first-contact-public-dialect PROPERTIES
+        LABELS "docs;lint;public-api"
+    )
+
+    add_test(NAME docs/package-docs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-package-docs.py")
+    set_tests_properties(docs/package-docs PROPERTIES
+        LABELS "docs;package"
+    )
+
+    add_test(NAME docs/release-notes
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-release-notes.py")
+    set_tests_properties(docs/release-notes PROPERTIES
+        LABELS "docs;release"
+    )
+endif()
+
+if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+        AND CONFLUX_PACKAGE_SMOKE_PREFIX)
+    set(_conflux_package_smoke_args
+        --source "${CMAKE_SOURCE_DIR}"
+        --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
+        --build-dir "${CMAKE_BINARY_DIR}/package-smoke"
+        --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+    if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE)
+        list(APPEND _conflux_package_smoke_args
+            --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
+    endif()
+    if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+        list(APPEND _conflux_package_smoke_args --mixed-module-header)
+    endif()
+    add_test(NAME build/package-config-install-tree
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
+                ${_conflux_package_smoke_args})
+    set_tests_properties(build/package-config-install-tree PROPERTIES
+        LABELS "build;package;install"
+    )
+endif()
+
+if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
+        AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
+    add_test(NAME build/install-tree-smoke
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/run-install-tree-smoke.sh"
+                --source "${CMAKE_SOURCE_DIR}"
+                --build-dir "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR}"
+                --prefix "${CONFLUX_INSTALL_TREE_SMOKE_PREFIX}"
+                --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
+                --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
+                --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
+                --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
+                --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
+                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
+                $<$<BOOL:${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}>:--mixed-module-header-smoke>
+                -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
+    set_tests_properties(build/install-tree-smoke PROPERTIES
+        LABELS "build;package;install"
+    )
 endif()
