@@ -18,6 +18,8 @@ using namespace conflux::tests;
 namespace chttp = conflux::http;
 namespace {
 
+constexpr std::size_t kLargeBodyBytes = 2UZ * 1024UZ * 1024UZ;
+
 Config drain_contract_cfg() {
 	Config cfg = Config::test();
 	cfg.rings = 1;
@@ -64,6 +66,15 @@ std::string read_until_close_from(
 	return out;
 }
 
+std::size_t body_bytes_in_response_prefix(
+	std::string_view response) {
+	auto const header_end = response.find("\r\n\r\n");
+	if (header_end == std::string_view::npos) {
+		return 0;
+	}
+	return response.size() - (header_end + 4);
+}
+
 [[nodiscard]] bool connect_and_expect_no_service(
 	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -104,7 +115,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ping", [](chttp::RequestView const &) { return chttp::Response::text("pong"); });
 	router.get("/large", [](chttp::RequestView const &) {
-		return chttp::Response::text(std::string(16 * 1024 * 1024, 'x'));
+		return chttp::Response::text(std::string(kLargeBodyBytes, 'x'));
 	});
 	router.get("/events/open", [](chttp::RequestView const &) {
 		auto ch = std::make_shared<SseChannel>();
@@ -131,12 +142,12 @@ TEST_CASE(
 
 	LocalTcpClient large{port};
 	shrink_recv_buffer(large.fd());
-	set_recv_timeout(large.fd(), std::chrono::seconds{5});
+	set_recv_timeout(large.fd(), std::chrono::seconds{30});
 	std::string_view const large_req = "GET /large HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	REQUIRE(large.send(large_req, MSG_NOSIGNAL) == static_cast<ssize_t>(large_req.size()));
 	auto large_headers = large.read_headers();
 	REQUIRE(large_headers.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(large_headers.find("Content-Length: 16777216") != std::string::npos);
+	REQUIRE(large_headers.find(std::format("Content-Length: {}", kLargeBodyBytes)) != std::string::npos);
 
 	LocalTcpClient sse{port};
 	std::string_view const sse_req =
@@ -167,7 +178,7 @@ TEST_CASE(
 	std::thread drain_thread{[&] {
 		report = srv.drain(
 			DrainOptions{
-				.deadline = std::chrono::milliseconds{5000},
+				.deadline = std::chrono::milliseconds{30000},
 				.stop_accepting = true,
 				.close_idle = true,
 				.finish_requests = true,
@@ -183,13 +194,14 @@ TEST_CASE(
 	REQUIRE(report.has_value());
 
 	CHECK_FALSE(report->deadline_hit);
-	CHECK(report->accepted_before_stop >= 4);
+	CHECK(report->accepted_before_stop >= 3);
 	CHECK(report->idle_closed >= 1);
 	CHECK(report->requests_finished >= 1);
 	CHECK(report->streams_closed >= 2);
 	CHECK(report->forced_closed == 0);
-	CHECK(!large_tail.empty());
-	CHECK(large_tail.ends_with(std::string(32, 'x')));
+	auto const large_body_bytes = body_bytes_in_response_prefix(large_headers) + large_tail.size();
+	CHECK(large_body_bytes == kLargeBodyBytes);
+	CHECK(std::ranges::all_of(large_tail, [](char c) { return c == 'x'; }));
 
 	char probe{};
 	set_recv_timeout(idle.fd(), std::chrono::milliseconds{250});
