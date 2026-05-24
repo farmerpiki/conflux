@@ -25,7 +25,7 @@ TEST_CASE(
 	cfg.send_buffer_slabs = 0;
 
 	Router router;
-	router.get("/", [](chttp::Request const &) { return chttp::Response::text("ok"); });
+	router.get("/", [](chttp::RequestView const &) { return chttp::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	LocalTcpClient client{srv.port()};
@@ -61,7 +61,7 @@ TEST_CASE(
 	cfg.send_buffer_slabs = 0;
 
 	Router router;
-	router.post("/upload", [](chttp::Request const &req) { return chttp::Response::text(req.body); });
+	router.post("/upload", [](chttp::RequestView const &req) { return chttp::Response::text(std::string{req.body}); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	LocalTcpClient client{srv.port()};

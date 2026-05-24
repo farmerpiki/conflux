@@ -27,8 +27,7 @@ export namespace conflux::http {
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
-using ::Request;
-using ::RequestView;
+using RequestView = ::RequestView;
 using ::RunStatus;
 using RequestContext = ::RequestContext;
 template<class T>

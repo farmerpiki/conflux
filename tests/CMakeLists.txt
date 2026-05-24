@@ -372,16 +372,6 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_extended_api_snapshot
         PRIVATE conflux_net_http conflux_options)
 
-    add_library(conflux_http_facade_compile_fail_request_view_task EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_request_view_task.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_request_view_task
-        PRIVATE conflux_net_http conflux_options)
-
-    add_library(conflux_http_facade_compile_fail_request_view_task_extractor EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_request_view_task_extractor.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_request_view_task_extractor
-        PRIVATE conflux_net_http conflux_options)
-
     add_library(conflux_http_facade_compile_fail_raw_string EXCLUDE_FROM_ALL
         OBJECT http_facade_compile_fail_raw_string.cxx)
     target_link_libraries(conflux_http_facade_compile_fail_raw_string
@@ -395,11 +385,6 @@ if(TARGET conflux_net_http)
     add_library(conflux_http_facade_compile_fail_json_codec EXCLUDE_FROM_ALL
         OBJECT http_facade_compile_fail_json_codec.cxx)
     target_link_libraries(conflux_http_facade_compile_fail_json_codec
-        PRIVATE conflux_net_http conflux_options)
-
-    add_library(conflux_http_facade_compile_fail_async_middleware EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_async_middleware.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_async_middleware
         PRIVATE conflux_net_http conflux_options)
 
     add_library(conflux_http_facade_compile_fail_router_alias EXCLUDE_FROM_ALL
@@ -457,26 +442,6 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_file_free
         PRIVATE conflux_net_http conflux_options)
 
-    add_test(NAME http-facade/compile-fail-request-view-task
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_request_view_task
-                "Async handlers must take Request const&, not RequestView const&"
-                "the view can dangle after coroutine suspension")
-    set_tests_properties(http-facade/compile-fail-request-view-task PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-request-view-task-extractor
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_request_view_task_extractor
-                "Async handlers must take http::Request const&, not http::RequestView const&"
-                "the view can dangle after coroutine suspension")
-    set_tests_properties(http-facade/compile-fail-request-view-task-extractor PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
     add_test(NAME http-facade/compile-fail-raw-string
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
@@ -506,16 +471,6 @@ if(TARGET conflux_net_http)
                 "http::Json<T> responses require T to be serializable"
                 "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
     set_tests_properties(http-facade/compile-fail-json-codec PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-async-middleware
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_async_middleware
-                "Async middleware must take http::Request const&"
-                "RequestView const&")
-    set_tests_properties(http-facade/compile-fail-async-middleware PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 

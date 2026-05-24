@@ -25,7 +25,7 @@ int main() {
 	app.use(cache_control_middleware({.default_directive = "no-store"}));
 	app.use(rate_limit_middleware({.requests = 60, .window = std::chrono::seconds{60}, .burst = 10}));
 
-	app.get("/", [](http::Request const &) {
+	app.get("/", [](http::RequestView const &) {
 		return http::html(
 			"<html><body>"
 			"<h1>conflux observability example</h1>"

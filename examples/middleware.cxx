@@ -66,7 +66,7 @@ int main() {
 	app.use(request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
 	app.use(
-		[](http::Request const &req,
+		[](http::RequestView const &req,
 		   http::RequestContext const &ctx,
 		   http::AsyncNext const &next) -> http::Task<http::Response> {
 			auto response = co_await next(req, ctx);
@@ -74,7 +74,7 @@ int main() {
 			co_return response;
 		});
 
-	app.get("/", [](http::Request const &) {
+	app.get("/", [](http::RequestView const &) {
 		return http::html(
 			"<html><body>"
 			"<h1>conflux middleware example</h1>"
@@ -98,19 +98,19 @@ int main() {
 		g.use(basic_auth_middleware(
 			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
-		(void)g.get("/profile", [](http::Request const &req) {
+		(void)g.get("/profile", [](http::RequestView const &req) {
 			return http::json(
 				ProfileReply{
 					.user = "demo",
 					.request_id = std::string{req.header("x-request-id")},
-					.remote_addr = req.remote_addr});
+					.remote_addr = std::string{req.remote_addr}});
 		});
 	});
 
 	app.group("/private", [](auto &g) {
 		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
-		(void)g.get("/token", [](http::Request const &req) {
+		(void)g.get("/token", [](http::RequestView const &req) {
 			return http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}});
 		});
 	});

@@ -9,7 +9,7 @@ void invalid_use_async_helper() {
 	auto app = http::app();
 	http::use_async(
 		app,
-		[](http::Request const &, http::RequestContext const &, http::AsyncNext const &) -> http::Task<http::Response> {
-			co_return http::text("bad");
-		});
+		[](http::RequestView const &,
+		   http::RequestContext const &,
+		   http::AsyncNext const &) -> http::Task<http::Response> { co_return http::text("bad"); });
 }

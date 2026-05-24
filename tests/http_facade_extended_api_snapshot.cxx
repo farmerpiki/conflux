@@ -8,7 +8,7 @@ namespace http = conflux::http;
 
 static_assert(
 	http::AsyncMiddleware<
-		decltype([](http::Request const &req, http::RequestContext const &ctx, http::AsyncNext const &next) -> http::Task<http::Response> {
+		decltype([](http::RequestView const &req, http::RequestContext const &ctx, http::AsyncNext const &next) -> http::Task<http::Response> {
 			co_return co_await next(req, ctx);
 		})>);
 
@@ -25,7 +25,7 @@ void use_async_spelling_compiles() {
 	auto app = http::app();
 	http::use_async(
 		app,
-		[](http::Request const &req,
+		[](http::RequestView const &req,
 		   http::RequestContext const &ctx,
 		   http::AsyncNext const &next) -> http::Task<http::Response> { co_return co_await next(req, ctx); });
 }

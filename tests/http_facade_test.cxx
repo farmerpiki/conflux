@@ -706,12 +706,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http facade: async middleware uses owned requests",
+	"http facade: async middleware uses request views",
 	"[http.facade]") {
 	auto app = http::app();
 	app.use(
-		[](http::Request const &req,
-		   RequestContext const &ctx,
+		[](http::RequestView const &req,
+		   http::RequestContext const &ctx,
 		   http::AsyncNext const &next) -> http::Task<http::Response> {
 			auto response = co_await next(req, ctx);
 			response.headers.set("x-async-middleware", "1");
@@ -756,7 +756,7 @@ TEST_CASE(
 	"http facade: ordinary verbs accept context handlers",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/context", [](http::Request const &, RequestContext const &) -> http::Task<http::Response> {
+	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
 		co_return http::text("context");
 	});
 
@@ -765,7 +765,7 @@ TEST_CASE(
 	CHECK(routes[0].method == "GET");
 	CHECK(routes[0].path == "/context");
 	CHECK(routes[0].handler_kind == "context");
-	CHECK(routes[0].extractors == std::vector<std::string>{"Request"});
+	CHECK(routes[0].extractors == std::vector<std::string>{"RequestView"});
 	CHECK(http::router(app).has_context_routes());
 }
 
@@ -796,8 +796,8 @@ TEST_CASE(
 
 	app.group("/api", [](auto &group) {
 		group.use(
-			[](http::Request const &req,
-			   RequestContext const &ctx,
+			[](http::RequestView const &req,
+			   http::RequestContext const &ctx,
 			   http::AsyncNext const &next) -> http::Task<http::Response> {
 				auto response = co_await next(req, ctx);
 				response.headers.set("x-async-group", "api");

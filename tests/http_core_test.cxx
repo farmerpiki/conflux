@@ -121,7 +121,7 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::RejectionMetrics, HttpRejectionMetrics>);
 	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);
 	static_assert(std::same_as<chttp::RequestView, RequestView>);
-	static_assert(std::same_as<chttp::Request, Request>);
+	static_assert(std::same_as<chttp::Request, RequestView>);
 	static_assert(std::same_as<chttp::OwnedRequest, Request>);
 	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
 }

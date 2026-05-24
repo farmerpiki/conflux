@@ -101,16 +101,14 @@ namespace proxy_detail {
 }
 
 [[nodiscard]] wroot::Task<Response> perform_proxy_request_async(
-	Request const &req,
+	RequestView const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
 	HttpClient client{std::move(co)};
-	auto builder = apply_headers(
-		http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)),
-		RequestView{req},
-		opts);
+	auto builder =
+		apply_headers(http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
 	builder.timeouts(client.options().default_timeouts);
 	auto result = co_await http::async_send(client, ring, std::move(builder).build());
 	if (!result) {
@@ -129,7 +127,7 @@ Response blocking_proxy(
 }
 
 wroot::Task<Response> async_proxy(
-	Request const &req,
+	RequestView const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	co_return co_await proxy_detail::perform_proxy_request_async(req, opts, ring);

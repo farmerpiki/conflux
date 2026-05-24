@@ -135,7 +135,7 @@ class App {
 
 	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_middlewares(
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
-		Request const &req,
+		RequestView const &req,
 		RequestContext const &ctx,
 		Router::ContextHandler inner) {
 		if (!middlewares || middlewares->empty()) {
@@ -150,12 +150,12 @@ class App {
 			void bind(
 				std::shared_ptr<Step> self) {
 				next = [self = std::move(self)](
-						   Request const &r,
+						   RequestView const &r,
 						   RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
 			}
 
 			conflux::work::root::Task<Response> call(
-				Request const &r,
+				RequestView const &r,
 				RequestContext const &c) {
 				if (index == middlewares->size()) {
 					return inner(r, c);
@@ -476,7 +476,7 @@ public:
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
-			record_route_metadata<std::tuple<Request>>(method, path, "context", loc);
+			record_route_metadata<std::tuple<RequestView>>(method, path, "context", loc);
 			record_return_metadata<conflux::work::root::Task<Response>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
@@ -485,17 +485,16 @@ public:
 				method,
 				path,
 				[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
-					Request const &req,
+					RequestView const &req,
 					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					Router::ContextHandler inner =
 						[auth_policy, rate_limit, &fn](
-							Request const &inner_req,
+							RequestView const &inner_req,
 							RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
-						RequestView const view{inner_req};
-						if (auto denied = route_auth_failure(*auth_policy, view)) {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							co_return *std::move(denied);
 						}
-						if (auto limited = route_rate_limit_failure(*rate_limit, view)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							co_return *std::move(limited);
 						}
 						co_return co_await fn(inner_req, inner_ctx);
@@ -1904,7 +1903,7 @@ public:
 	[[nodiscard]] static conflux::work::root::Task<Response> invoke_extracted_async(
 		StateMap const &states,
 		Fn &fn,
-		RequestView const &req,
+		RequestView req,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -1915,9 +1914,9 @@ public:
 		return conflux::work::root::spawn(
 			[&states,
 			 &fn,
-			 &req
+			 req = std::move(req)
 #if CONFLUX_HAS_JSON
-			 ,
+				 ,
 			 &json_options,
 			 max_body_size
 #endif
@@ -1986,10 +1985,6 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
-			static_assert(
-				!detail::has_request_view_arg<Args>(),
-				"Async handlers must take http::Request const&, not http::RequestView const&; "
-				"the view can dangle after coroutine suspension");
 			router_.add_context(
 				method,
 				path,
@@ -2003,28 +1998,29 @@ public:
 				 max_body_size,
 				 json_options
 #endif
-			](Request const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-					Router::ContextHandler inner = [states,
-													auth_policy,
-													rate_limit,
-													&fn
+			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					Router::ContextHandler inner =
+						[states,
+						 auth_policy,
+						 rate_limit,
+						 &fn
 #if CONFLUX_HAS_JSON
-													,
-													max_body_size,
-													json_options
+						 ,
+						 max_body_size,
+						 json_options
 #endif
-					](Request const &inner_req, RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-						RequestView const view{inner_req};
-						if (auto denied = route_auth_failure(*auth_policy, view)) {
+					](RequestView const &inner_req,
+						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
 							co_return *std::move(denied);
 						}
-						if (auto limited = route_rate_limit_failure(*rate_limit, view)) {
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							co_return *std::move(limited);
 						}
 						co_return co_await invoke_extracted_async<Args>(
 							*states,
 							fn,
-							view,
+							inner_req,
 							std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
 							,

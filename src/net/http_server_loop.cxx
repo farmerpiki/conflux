@@ -137,11 +137,10 @@ Ring::~Ring() {
 		return std::nullopt;
 	}
 	RequestContext const ctx{*client_task_ring_};
-	Request const owned = req.to_owned();
 	if (vhost_router != nullptr) {
-		return vhost_router->dispatch_context(owned, ctx);
+		return vhost_router->dispatch_context(req, ctx);
 	}
-	return router->dispatch_context(owned, ctx);
+	return router->dispatch_context(req, ctx);
 }
 
 [[nodiscard]] std::shared_ptr<WorkPool> Ring::resolve_ws_work_pool(

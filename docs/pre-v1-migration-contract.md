@@ -108,11 +108,11 @@ int main() {
 		return http::text("ok");
 	});
 
-	app.get("/task", [](http::Request const &) -> http::Task<http::Response> {
+	app.get("/task", [](http::RequestView const &) -> http::Task<http::Response> {
 		co_return http::text("task-ok");
 	});
 
-	app.get("/context", [](http::Request const &, http::RequestContext const &) -> http::Task<http::Response> {
+	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
 		co_return http::text("context-ok");
 	});
 
@@ -160,7 +160,7 @@ int main() {
 	auto app = http::app();
 	app.config().slow_handler_diagnostics = true;
 	app.config().slow_handler_warn_ms = 10;
-	app.get("/ping", [](http::Request const &) { return http::text("ok"); });
+	app.get("/ping", [](http::RequestView const &) { return http::text("ok"); });
 	return static_cast<int>(std::move(app).run({.port = 9090}));
 }
 ```

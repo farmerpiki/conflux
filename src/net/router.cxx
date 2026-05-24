@@ -30,14 +30,14 @@ export struct RequestContext {
 export using NextHandler = CloneableFunction<Response(RequestView const &)>;
 export using MiddlewareFunction = CloneableFunction<Response(RequestView const &, NextHandler const &)>;
 export using ContextNextHandler =
-	CloneableFunction<conflux::work::root::Task<Response>(Request const &, RequestContext const &)>;
+	CloneableFunction<conflux::work::root::Task<Response>(RequestView const &, RequestContext const &)>;
 
 export template<class R>
 concept HandlerResult = std::same_as<R, Response> || std::same_as<R, conflux::work::root::Task<Response>>;
 
 export template<class F>
 concept ViewHandler = requires(std::decay_t<F> &fn, RequestView const &req) {
-	{ std::invoke(fn, req) } -> std::same_as<Response>;
+	{ std::invoke(fn, req) } -> HandlerResult;
 };
 
 export template<class F>
@@ -49,13 +49,13 @@ export template<class F>
 concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
 export template<class F>
-concept ContextHandlerFunction = requires(std::decay_t<F> &fn, Request const &req, RequestContext const &ctx) {
+concept ContextHandlerFunction = requires(std::decay_t<F> &fn, RequestView const &req, RequestContext const &ctx) {
 	{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<Response>>;
 };
 
 export template<class F>
 concept ContextMiddlewareFunction =
-	requires(std::decay_t<F> &fn, Request const &req, RequestContext const &ctx, ContextNextHandler const &next) {
+	requires(std::decay_t<F> &fn, RequestView const &req, RequestContext const &ctx, ContextNextHandler const &next) {
 		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
 	};
 
@@ -125,7 +125,7 @@ public:
 	using Handler = NextHandler;
 	using ContextHandler = ContextNextHandler;
 	using ContextMiddleware = CloneableFunction<
-		conflux::work::root::Task<Response>(Request const &, RequestContext const &, ContextHandler const &)>;
+		conflux::work::root::Task<Response>(RequestView const &, RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
 	using SseHandler = CloneableFunction<void(RequestView const &, std::shared_ptr<SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
@@ -379,7 +379,7 @@ public:
 	Router &serve_static(std::string_view url_prefix, std::string root_dir, StaticOptions const &sopts = {});
 	[[nodiscard]] Response dispatch(Request const &req) const;
 	[[nodiscard]] Response dispatch(RequestView const &req) const;
-	[[nodiscard]] std::optional<Response> dispatch_context(Request const &req, RequestContext const &ctx) const;
+	[[nodiscard]] std::optional<Response> dispatch_context(RequestView const &req, RequestContext const &ctx) const;
 
 private:
 	struct Impl;
@@ -400,7 +400,7 @@ private:
 	[[nodiscard]] static Response defer_http_task(conflux::work::root::Task<Response> task);
 	[[nodiscard]] Response run_middlewares(RequestView const &req, Handler const &inner) const;
 	[[nodiscard]] std::optional<Response>
-	run_context_middlewares(Request const &req, RequestContext const &ctx, ContextHandler const &inner) const;
+	run_context_middlewares(RequestView const &req, RequestContext const &ctx, ContextHandler const &inner) const;
 	[[nodiscard]] static Response run_async_http_task(conflux::work::root::Task<Response> task);
 	template<class>
 	static constexpr bool kDependentFalse = false;
@@ -413,14 +413,13 @@ private:
 			if constexpr (std::same_as<Ret, Response>) {
 				return Handler{std::forward<F>(fn)};
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
-				static_assert(
-					kDependentFalse<Fn>,
-					"Async handlers must take Request const&, not RequestView const& — "
-					"the view can dangle after coroutine suspension");
+				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
+					return defer_http_task(std::invoke(wrapped, req));
+				}};
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Handler taking RequestView const& must return Response (sync only)");
+					"Handler taking RequestView const& must return Response or root::Task<Response>");
 			}
 		} else if constexpr (std::invocable<Fn &, Request const &>) {
 			using Ret = std::invoke_result_t<Fn &, Request const &>;
@@ -458,8 +457,8 @@ private:
 					  }) {
 			static_assert(
 				kDependentFalse<Fn>,
-				"Async middleware must take http::Request const&, not http::RequestView const& — "
-				"the view can dangle after coroutine suspension");
+				"Async middleware must be registered with Router::use or Router::use_async so it can run through "
+				"the context dispatch path");
 		} else if constexpr (requires(
 								 Fn &middleware,
 								 Request const &req,
@@ -498,10 +497,7 @@ private:
 							  std::invoke(middleware, req, ctx, next)
 						  } -> std::same_as<conflux::work::root::Task<Response>>;
 					  }) {
-			static_assert(
-				kDependentFalse<Fn>,
-				"Async middleware must take http::Request const&, not http::RequestView const& — "
-				"the view can dangle after coroutine suspension");
+			return ContextMiddleware{std::forward<F>(fn)};
 		} else if constexpr (requires(
 								 Fn &middleware,
 								 Request const &req,
@@ -511,11 +507,18 @@ private:
 									 std::invoke(middleware, req, ctx, next)
 								 } -> std::same_as<conflux::work::root::Task<Response>>;
 							 }) {
-			return ContextMiddleware{std::forward<F>(fn)};
+			return ContextMiddleware{
+				[wrapped = Fn(std::forward<F>(fn))](
+					RequestView const &req,
+					RequestContext const &ctx,
+					ContextHandler const &next) mutable -> conflux::work::root::Task<Response> {
+					auto owned = req.to_owned();
+					co_return co_await std::invoke(wrapped, owned, ctx, next);
+				}};
 		} else {
 			static_assert(
 				kDependentFalse<Fn>,
-				"Async middleware must accept Request const&, RequestContext const&, and Router::AsyncNext const&");
+				"Async middleware must accept RequestView const&, RequestContext const&, and Router::AsyncNext const&");
 		}
 	}
 	template<typename F>

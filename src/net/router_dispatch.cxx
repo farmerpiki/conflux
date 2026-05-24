@@ -176,7 +176,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<conflux::work::root::Task<Response>> dispatch_context_route_tasks(
-	Request const &req,
+	RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
@@ -190,22 +190,35 @@ export template<typename ContextRouteRange, typename Ctx>
 		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
 													match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
-			Request call_req = req;
+			auto all_params = req.params;
 			for (auto const &[k, v]: matched_params) {
-				if (!call_req.params.get(k)) {
-					call_req.params.emplace_back(std::string{k}, std::string{v});
+				if (!all_params.get(k)) {
+					all_params.emplace_back(k, v);
 				}
 			}
 			std::string pattern{route.path_pattern};
-			call_req.params.emplace_back("__conflux_route_pattern", pattern);
-			return
-				[](auto task, std::string route_pattern, bool should_annotate) -> conflux::work::root::Task<Response> {
-					auto resp = co_await std::move(task);
-					if (should_annotate) {
-						resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
-					}
-					co_return resp;
-				}(route.handler(call_req, ctx), std::move(pattern), observe_route);
+			all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
+			RequestView const matched_view{
+				req.method,
+				req.path,
+				req.version,
+				req.remote_addr,
+				req.is_tls,
+				std::move(all_params),
+				req.headers,
+				req.query,
+				req.form,
+				req.cookies,
+				req.files,
+				req.body};
+			return [](auto handler, RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
+					   -> conflux::work::root::Task<Response> {
+				auto resp = co_await handler(req, ctx);
+				if (should_annotate) {
+					resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+				}
+				co_return resp;
+			}(route.handler, std::move(matched_view), ctx, std::move(pattern), observe_route);
 		}
 	}
 	return std::nullopt;
@@ -213,7 +226,7 @@ export template<typename ContextRouteRange, typename Ctx>
 
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<Response> dispatch_context_routes(
-	Request const &req,
+	RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {

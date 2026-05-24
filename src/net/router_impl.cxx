@@ -263,7 +263,7 @@ template<typename ImplT>
 template<typename ImplT>
 [[nodiscard]] std::optional<Response> dispatch_router_async(
 	ImplT const &impl,
-	Request const &req,
+	RequestView const &req,
 	RequestContext const &ctx,
 	std::string_view path_sv,
 	bool is_head) {
@@ -292,7 +292,7 @@ Router::ContextHandler Router::Group::wrap_context(
 	for (int i = static_cast<int>(context_middlewares_.size()) - 1; i >= 0; --i) {
 		auto mw = context_middlewares_[static_cast<std::size_t>(i)];
 		h = [mw = std::move(mw),
-			 n = std::move(h)](Request const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {
+			 n = std::move(h)](RequestView const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {
 			co_return co_await mw(r, c, n);
 		};
 	}
@@ -498,7 +498,7 @@ void Router::launch_sse_handler(
 }
 
 [[nodiscard]] std::optional<Response> Router::run_context_middlewares(
-	Request const &req,
+	RequestView const &req,
 	RequestContext const &ctx,
 	ContextHandler const &inner) const {
 	if (impl_->context_middlewares.empty()) {
@@ -519,12 +519,12 @@ void Router::launch_sse_handler(
 		void bind_next(
 			std::shared_ptr<Step> self) {
 			next_ = [self = std::move(self)](
-						Request const &r,
+						RequestView const &r,
 						RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
 		}
 
 		conflux::work::root::Task<Response> call(
-			Request const &r,
+			RequestView const &r,
 			RequestContext const &c) {
 			if (idx_ == impl_->context_middlewares.size()) {
 				return inner_(r, c);
@@ -585,13 +585,14 @@ Router &Router::serve_static(
 }
 
 [[nodiscard]] std::optional<Response> Router::dispatch_context(
-	Request const &req,
+	RequestView const &req,
 	RequestContext const &ctx) const {
 	bool const is_head = (req.method == "HEAD");
 	std::string_view const path_sv = conflux::http::path_without_query(req.path);
 	if (!impl_->context_middlewares.empty()) {
-		ContextHandler inner =
-			[this, path_sv, is_head](Request const &r, RequestContext const &c) -> conflux::work::root::Task<Response> {
+		ContextHandler inner = [this, path_sv, is_head](
+								   RequestView const &r,
+								   RequestContext const &c) -> conflux::work::root::Task<Response> {
 			if (auto task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
 				auto resp = co_await std::move(*task);
 				if (is_head) {
@@ -599,8 +600,7 @@ Router &Router::serve_static(
 				}
 				co_return resp;
 			}
-			RequestView const view{r};
-			co_return dispatch_router_sync(*impl_, view, path_sv, is_head);
+			co_return dispatch_router_sync(*impl_, r, path_sv, is_head);
 		};
 		return run_context_middlewares(req, ctx, inner);
 	}

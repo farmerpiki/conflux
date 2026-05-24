@@ -4,16 +4,18 @@ This page answers the operational questions that matter at API boundaries:
 does this copy, does this allocate, does it borrow, can it block, and how long
 is the data valid?
 
-The short rule for HTTP is: `http::RequestView` and extractor views are
-handler-lifetime only. Coroutine handlers must use owned request state before
-the first suspension.
+The short rule for HTTP is: the server owns the request storage, while handlers,
+middleware, async context routes, and extractor views receive `http::Request`
+/ `http::RequestView` views over that storage. Code that needs to retain request
+data past the server-owned lifetime must copy the needed fields or explicitly
+materialize `http::OwnedRequest`.
 
 ## HTTP request lifetimes
 
 | Type | owns memory? | borrows from? | valid until | can suspend? | can cross thread? | can be stored? | copies? | allocates? |
 |---|---|---|---|---|---|---|---|---|
-| `http::RequestView` | No | Parser/request storage for the current dispatch | End of synchronous handler call | No | No | No | No | No |
-| `http::Request` | No; alias for the view-shaped sync request | Parser/request storage for the current dispatch | End of synchronous handler call | No | No | No | No | No |
+| `http::RequestView` | No | Server-owned request storage for the current dispatch | Server-owned dispatch/task lifetime | Yes, while the server-owned request remains live | No unless the server dispatch contract says so | No | No | No |
+| `http::Request` | No; alias for `http::RequestView` | Server-owned request storage for the current dispatch | Server-owned dispatch/task lifetime | Yes, while the server-owned request remains live | No unless the server dispatch contract says so | No | No | No |
 | `http::OwnedRequest` | Yes | Nothing after construction | Object lifetime | Yes | Yes, subject to normal C++ synchronization | Yes | Yes, from request buffers | Yes |
 | `http::Path<...>` | Usually no for view/scalar extraction | `req.params` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
 | `http::Query<...>` | Usually no for view/scalar extraction | `req.query` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
@@ -25,10 +27,10 @@ the first suspension.
 | `http::State<T>` | No; reference/shared access to app state | Application-owned state | State object lifetime | Yes if the state access remains valid | Yes if `T` is safe for that use | Store handles only when their ownership semantics allow it | No by default | No by default |
 | `UploadedFile` | No for `RequestView`; yes after `to_owned()` | Multipart request body and header storage | End of synchronous handler call, unless converted with `to_owned()` | No when borrowed | No when borrowed | Only after `to_owned()` or manual copy | `to_owned()` copies fields and bytes | `to_owned()` allocates |
 
-View extractors are for immediate inspection inside the handler call. If data
-must survive a return, a coroutine suspension, or a handoff to another thread,
-copy it into `std::string`, decode it into an owning value, or convert the whole
-request to `http::OwnedRequest`.
+View extractors are for inspection while the server-owned request remains live.
+If data must survive that lifetime or a handoff to another thread, copy it into
+`std::string`, decode it into an owning value, or convert the whole request to
+`http::OwnedRequest`.
 
 ## HTTP response costs
 
@@ -72,10 +74,10 @@ arena, string interning, or writer strategy.
 |---|---|---|---|---|---|
 | `blocking_*` APIs | Yes | Yes | Yes, if caller is a ring thread | Yes; name advertises it | No, except tiny bounded operations proven harmless |
 | `sync_*` APIs | Caller enters a synchronous surface; work is executor-owned when applicable | May block caller waiting for completion | Should not block ring thread unless explicitly documented | Yes by API choice | Usually no from ring handlers if it waits |
-| `async_*` APIs | Progress is executor/task-owned after start | Suspends instead of blocking caller | No, unless coroutine body performs blocking work | Yes by coroutine/task use | Yes when awaited work is non-blocking and request state is owned |
+| `async_*` APIs | Progress is executor/task-owned after start | Suspends instead of blocking caller | No, unless coroutine body performs blocking work | Yes by coroutine/task use | Yes when awaited work is non-blocking and request views stay within the server-owned lifetime |
 | `root::blocking_join` | Yes | Yes | Yes, if called on a ring thread | Yes | No |
 | HTTP handler | Ring thread | Handler runs inline until it returns | Yes if handler performs blocking or heavy work | Handler registration is explicit | Yes for bounded parsing, routing, response construction |
-| HTTP async handler | Starts on ring/task executor path | Suspends instead of blocking when awaiting async work | No unless coroutine body blocks | Must use coroutine handler and owned request state | Yes when it owns request data before suspension |
+| HTTP async handler | Starts on ring/task executor path | Suspends instead of blocking when awaiting async work | No unless coroutine body blocks | Must keep request views within server-owned lifetime or copy explicitly | Yes when awaited work is non-blocking |
 | `http::offload` / worker pool path | Enqueues work from caller; work runs on worker | Caller should not block while queued work runs | No for the offloaded work | Yes | Yes for blocking/heavy work that has been explicitly moved |
 | `HttpServer::drain` | Caller requests drain; rings perform connection work | No long wait in the API itself; `run()` returns when rings finish | Wakes ring threads; deadline close work runs on rings | Yes | Yes from a controller thread, not from a handler |
 | File mmap setup | Caller performs setup/syscalls | May block on filesystem metadata/page setup | Yes, if caller is a ring thread | Yes through file/static setup path | Avoid in hot handler path unless cached or explicitly acceptable |

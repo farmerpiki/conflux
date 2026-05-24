@@ -44,7 +44,7 @@ TEST_CASE(
 	"drain force-closes live connections after deadline and records pressure metrics",
 	"[http][e2e][backpressure]") {
 	Router router;
-	router.get("/large", [](chttp::Request const &) { return chttp::Response::text(std::string(1024, 'x')); });
+	router.get("/large", [](chttp::RequestView const &) { return chttp::Response::text(std::string(1024, 'x')); });
 	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
 
 	LocalTcpClient client{srv.port()};
@@ -72,7 +72,7 @@ TEST_CASE(
 	"drain closes an open SSE stream and records stream pressure metrics",
 	"[http][e2e][backpressure][sse][lifecycle]") {
 	Router router;
-	router.get("/events/open", [](chttp::Request const &) {
+	router.get("/events/open", [](chttp::RequestView const &) {
 		auto ch = std::make_shared<SseChannel>();
 		(void)ch->send("data: open\n\n");
 		return chttp::Response::sse(std::move(ch));
@@ -108,7 +108,7 @@ TEST_CASE(
 	"[http][e2e][backpressure][ws]") {
 	Router router;
 	auto handler_started = std::make_shared<std::atomic_bool>(false);
-	router.ws("/ws", [handler_started](chttp::Request const &, WsConn &ws) {
+	router.ws("/ws", [handler_started](chttp::RequestView const &, WsConn &ws) {
 		handler_started->store(true, std::memory_order_release);
 		std::string payload(64 * 1024, 'w');
 		for (int i = 0; i < 1024; ++i) {

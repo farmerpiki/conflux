@@ -72,7 +72,7 @@ compiler_supports_public_include_matrix() {
 run_smoke core core conflux_header_smoke_core
 run_smoke json json conflux_header_smoke_json
 run_smoke work work conflux_header_smoke_runtime
-run_smoke http http-minimal conflux_quickstart_hello
+run_smoke http http-minimal __all_header_smokes
 if compiler_supports_public_include_matrix; then
     run_smoke public-include-matrix http-minimal __all_header_smokes
 fi

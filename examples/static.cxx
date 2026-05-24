@@ -67,9 +67,9 @@ int main() {
 		"<p>Try <a href='/api/info'>/api/info</a> or <a href='/assets/hello.txt'>/assets/hello.txt</a>.</p>"
 		"</body></html>");
 
-	app.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
+	app.get("/", [](http::RequestView const &) { return http::Response::redirect("/assets/"); });
 
-	app.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
+	app.get("/api/info", [asset_dir = asset_dir.string()](http::RequestView const &) {
 		return http::json(StaticInfo{.status = "ok", .assets = asset_dir, .routes = "/,/api/info,/assets/{*file}"});
 	});
 

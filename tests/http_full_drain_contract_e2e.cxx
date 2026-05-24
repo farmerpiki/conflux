@@ -102,16 +102,16 @@ TEST_CASE(
 	"drain contract stops accepts and drains idle, active, SSE, and WebSocket connections",
 	"[http][e2e][lifecycle][drain]") {
 	Router router;
-	router.get("/ping", [](chttp::Request const &) { return chttp::Response::text("pong"); });
-	router.get("/large", [](chttp::Request const &) {
+	router.get("/ping", [](chttp::RequestView const &) { return chttp::Response::text("pong"); });
+	router.get("/large", [](chttp::RequestView const &) {
 		return chttp::Response::text(std::string(16 * 1024 * 1024, 'x'));
 	});
-	router.get("/events/open", [](chttp::Request const &) {
+	router.get("/events/open", [](chttp::RequestView const &) {
 		auto ch = std::make_shared<SseChannel>();
 		(void)ch->send("data: open\n\n");
 		return chttp::Response::sse(std::move(ch));
 	});
-	router.ws("/ws", [](chttp::Request const &, WsConn &ws) {
+	router.ws("/ws", [](chttp::RequestView const &, WsConn &ws) {
 		while (auto frame = ws.recv()) {
 			if (frame->opcode == WsConn::Opcode::Text && !ws.send_text(frame->payload)) {
 				break;

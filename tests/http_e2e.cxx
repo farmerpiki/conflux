@@ -112,7 +112,7 @@ TEST_CASE(
 	auto &ctx_added = app.add_context(
 		"POST",
 		"/jobs/{id}",
-		[](Request const &, RequestContext const &) -> conflux::work::root::Task<Response> {
+		[](RequestView const &, RequestContext const &) -> conflux::work::root::Task<Response> {
 			auto [task, source] = conflux::work::root::make_task_source<Response>();
 			(void)source.try_set_value(conflux::work::root::Success<Response>{Response::text("queued")});
 			return std::move(task);
@@ -328,7 +328,7 @@ void ensure_redirect_follow_servers() {
 		};
 		front.get_context(
 			"/async-follow",
-			[popts](Request const &, RequestContext const &ctx) -> conflux::work::root::Task<Response> {
+			[popts](RequestView const &, RequestContext const &ctx) -> conflux::work::root::Task<Response> {
 				HttpClient client{};
 				auto result = co_await async_send(
 					client,
@@ -1093,7 +1093,7 @@ void ensure_proxy_server() {
 		front.add_context(
 			"GET",
 			"/proxy/ping",
-			[popts = std::move(popts)](Request const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](RequestView const &req, RequestContext const &ctx)
 				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 		g_proxy_port = g_proxy_front->port();

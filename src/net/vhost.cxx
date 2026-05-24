@@ -74,7 +74,7 @@ public:
 		return default_ && default_->has_context_routes();
 	}
 	[[nodiscard]] std::optional<Response> dispatch_context(
-		Request const &req,
+		RequestView const &req,
 		RequestContext const &ctx) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});

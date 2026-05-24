@@ -994,8 +994,12 @@ function(conflux_add_header_examples_from_source_ids)
     set_property(GLOBAL PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS "")
     set(_conflux_examples_manifest "${CMAKE_CURRENT_BINARY_DIR}/conflux_examples_manifest.txt")
     file(WRITE "${_conflux_examples_manifest}" "Conflux examples manifest\n\n")
+    set(_conflux_has_header_http_facade FALSE)
+    if(TARGET conflux_net_http)
+        set(_conflux_has_header_http_facade TRUE)
+    endif()
 
-    if(CONFLUX_WANT_HTTP_SERVER)
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER)
         conflux_add_header_example_from_id(conflux_quickstart_hello examples/quickstart/hello)
         conflux_add_header_example_from_id(conflux_quickstart_middleware examples/quickstart/middleware)
         conflux_add_header_example_from_id(conflux_quickstart_sse examples/quickstart/sse)
@@ -1015,7 +1019,7 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_vhost_openapi_example examples/advanced/vhost_openapi)
     endif()
 
-    if(CONFLUX_WANT_HTTP_CLIENT)
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_CLIENT)
         conflux_add_header_example_from_id(conflux_http_client examples/http_client)
         conflux_add_header_example_from_id(conflux_http_client_builder_example examples/advanced/http_client_builder)
     endif()
@@ -1036,17 +1040,17 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_json_transform_example examples/advanced/json_transform)
     endif()
 
-    if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_JSON)
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_JSON)
         conflux_add_header_example_from_id(conflux_quickstart_json_crud examples/quickstart/json_crud)
         conflux_add_header_example_from_id(conflux_http_explicit_offload_example examples/advanced/explicit_offload)
         conflux_add_header_example_from_id(conflux_http_client_json_example examples/advanced/http_client_json)
         conflux_add_header_example_from_id(conflux_api_typed_json_example examples/advanced/manual_json_members)
     endif()
-    if(CONFLUX_WANT_HTTP_CORE AND CONFLUX_HAS_JSON)
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_CORE AND CONFLUX_HAS_JSON)
         conflux_add_header_example_from_id(conflux_custom_json_provider_example examples/advanced/custom_json_provider)
     endif()
 
-    if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_JSON_REFLECT)
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_JSON_REFLECT)
         conflux_add_header_example_from_id(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud)
     endif()
 
@@ -1054,12 +1058,12 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_template_pages_example examples/advanced/template_pages)
     endif()
 
-    if(CONFLUX_HAS_HTTP3)
+    if(_conflux_has_header_http_facade AND CONFLUX_HAS_HTTP3)
         conflux_add_header_example_from_id(conflux_h3_probe examples/advanced/h3_probe)
         conflux_add_header_example_from_id(conflux_h3_server examples/advanced/h3_server)
     endif()
 
-    if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
         conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json)
     endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
@@ -1243,16 +1247,6 @@ function(conflux_add_header_compile_fail_tests)
         return()
     endif()
     conflux_add_header_compile_fail_test(
-        http-facade-header/compile-fail-request-view-task
-        tests/http_facade_compile_fail_request_view_task
-        "Async handlers must take Request const&, not RequestView const&"
-        "the view can dangle after coroutine suspension")
-    conflux_add_header_compile_fail_test(
-        http-facade-header/compile-fail-request-view-task-extractor
-        tests/http_facade_compile_fail_request_view_task_extractor
-        "Async handlers must take http::Request const&, not http::RequestView const&"
-        "the view can dangle after coroutine suspension")
-    conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-raw-string
         tests/http_facade_compile_fail_raw_string
         "HTTP app handlers must not return raw strings"
@@ -1269,11 +1263,6 @@ function(conflux_add_header_compile_fail_tests)
         tests/http_facade_compile_fail_json_codec
         "http::Json<T> responses require T to be serializable"
         "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
-    conflux_add_header_compile_fail_test(
-        http-facade-header/compile-fail-async-middleware
-        tests/http_facade_compile_fail_async_middleware
-        "Async middleware must take http::Request const&"
-        "RequestView const&")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-route-policy-internal
         tests/http_facade_compile_fail_route_policy_internal

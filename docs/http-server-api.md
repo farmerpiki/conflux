@@ -15,7 +15,7 @@ namespace http = conflux::http;
 
 int main() {
     auto app = http::app();
-    app.get("/hello", [](http::Request const&) {
+    app.get("/hello", [](http::RequestView const&) {
         return http::text("hello world");
     });
 
@@ -63,7 +63,7 @@ return static_cast<int>(*status);
 `http::App` keeps the route-registration APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods, ordinary verbs for handlers that need `RequestContext`, `app.use(...)` for both sync and owned async middleware, and `app.routes()` / `app.openapi_spec()` for app-level metadata. The raw router is an extended escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
 
 ```cpp
-app.add("REPORT", "/reports/{id}", [](http::Request const& req) {
+app.add("REPORT", "/reports/{id}", [](http::RequestView const& req) {
     return http::Response::text(std::string{req.params["id"]});
 });
 
@@ -265,8 +265,8 @@ not print this report by default.
 
 The first-contact server namespace exposes the canonical request and response vocabulary:
 
-- `http::Request` / `http::RequestView`: zero-copy request view for synchronous handlers;
-- `http::OwnedRequest`: owned request for coroutine handlers or escaped request data;
+- `http::Request` / `http::RequestView`: zero-copy request view for handlers and middleware;
+- `http::OwnedRequest`: explicit owned copy for escaped request data;
 - `http::Response`: server response builder/factory type;
 - `http::RunStatus` / `http::ServerMetrics`: server run result and metric snapshot types.
 
@@ -335,7 +335,7 @@ strings only on failure; successful numeric/bool parsing stays borrowed and
 `std::from_chars`-based.
 
 ```cpp
-router.get("/items/{id}", [](http::Request const& req) -> http::Response {
+router.get("/items/{id}", [](http::RequestView const& req) -> http::Response {
     auto id = req.param_as<std::uint64_t>("id");
     if (!id) return http::Response::text("bad id", 400);
 
@@ -381,11 +381,11 @@ concept HandlerResult = std::same_as<R, Response>
 
 template<class F>
 concept ViewHandler = requires(std::decay_t<F>& fn, RequestView const& req) {
-    { std::invoke(fn, req) } -> std::same_as<Response>;
+    { std::invoke(fn, req) } -> HandlerResult;
 };
 
 template<class F>
-concept RequestHandler = requires(std::decay_t<F>& fn, Request const& req) {
+concept RequestHandler = requires(std::decay_t<F>& fn, OwnedRequest const& req) {
     { std::invoke(fn, req) } -> HandlerResult;
 };
 
@@ -393,14 +393,14 @@ template<class F> concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
 template<class F>
 concept ContextHandlerFunction = requires(std::decay_t<F>& fn,
-                                          Request const& req,
+                                          RequestView const& req,
                                           RequestContext const& ctx) {
     { std::invoke(fn, req, ctx) } -> std::same_as<root::Task<Response>>;
 };
 
 template<class F>
 concept ContextMiddlewareFunction = requires(std::decay_t<F>& fn,
-                                             Request const& req,
+                                             RequestView const& req,
                                              RequestContext const& ctx,
                                              ContextNextHandler const& next) {
     { std::invoke(fn, req, ctx, next) } -> std::same_as<root::Task<Response>>;
@@ -417,7 +417,7 @@ concept ViewMiddleware = requires(std::decay_t<F>& fn,
 
 template<class F>
 concept RequestMiddleware = requires(std::decay_t<F>& fn,
-                                     Request const& req,
+                                     OwnedRequest const& req,
                                      NextHandler const& next) {
     { std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
@@ -487,7 +487,10 @@ app.get<"/todos/{id:i64}">([](std::int64_t id) {
 });
 ```
 
-The public concepts are intended for user helpers and diagnostics. `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers and async middleware must accept owned `http::Request`. A synchronous handler may also accept `http::Request const&`; that deliberately materializes an owned request before the call, so prefer `http::RequestView const&` unless ownership is needed.
+The public concepts are intended for user helpers and diagnostics. The HTTP
+server owns the request storage for the dispatch lifetime; handlers,
+middleware, async context routes, and extractors receive `http::Request` /
+`http::RequestView` unless they explicitly ask for `http::OwnedRequest`.
 
 Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`
 requires `Content-Type: application/json-patch+json`, parses the body, and
@@ -500,23 +503,23 @@ PATCH content type in OpenAPI metadata.
 
 ## Handlers
 
-Handlers can be synchronous or coroutine-based. View handlers are sync-only.
-Coroutine handlers must accept the owning request type.
+Handlers can be synchronous or coroutine-based. Prefer `Request` /
+`RequestView`; accepting `OwnedRequest` explicitly materializes an owned copy.
 
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
-router.get("/ping", [](http::Request const& req) -> http::Response {
+router.get("/ping", [](http::RequestView const& req) -> http::Response {
     return http::Response::text("pong");
 });
 
-// Async handler: the request is owned before the task can suspend.
-router.post("/echo", [](http::OwnedRequest const& req) -> root::Task<http::Response> {
+// Async handler: also borrows the server-owned request storage.
+router.post("/echo", [](http::RequestView const& req) -> root::Task<http::Response> {
     co_return http::Response::text(req.body);
 });
 
 // Explicit worker placement for blocking/heavy work.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
-router.get("/slow", [pool](http::Request const&) -> http::Response {
+router.get("/slow", [pool](http::RequestView const&) -> http::Response {
     return http::offload(pool, [] {
         return http::Response::text("done");
     });
@@ -679,7 +682,7 @@ app.use([](http::RequestView const& req, http::Next const& next) {
     return response;
 });
 
-app.use([](http::Request const& req,
+app.use([](http::RequestView const& req,
            http::RequestContext const& ctx,
            http::AsyncNext const& next) -> http::Task<http::Response> {
     auto response = co_await next(req, ctx);
@@ -993,11 +996,11 @@ In-flight requests are allowed to complete. New accepts stop immediately. A conf
 ## Error handlers
 
 ```cpp
-router.on_not_found([](http::Request const& req) -> http::Response {
+router.on_not_found([](http::RequestView const& req) -> http::Response {
     return http::Response::json(R"({"error":"not found"})", 404);
 });
 
-router.on_error([](http::Request const& req, std::exception const& ex) -> http::Response {
+router.on_error([](http::RequestView const& req, std::exception const& ex) -> http::Response {
     // log ex, return 500
     return http::Response::internal_error(ex.what());
 });

@@ -21,4 +21,4 @@ export struct ProxyOptions {
 
 export Response blocking_proxy(RequestView const &req, ProxyOptions const &opts);
 
-export wroot::Task<Response> async_proxy(Request const &req, ProxyOptions const &opts, SocketTaskRing &ring);
+export wroot::Task<Response> async_proxy(RequestView const &req, ProxyOptions const &opts, SocketTaskRing &ring);

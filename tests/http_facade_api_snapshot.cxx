@@ -47,7 +47,8 @@ struct JsonMembers<http_snapshot::Payload> {
 namespace http_snapshot {
 
 static_assert(std::same_as<http::RequestView, RequestView>);
-static_assert(std::same_as<http::Request, Request>);
+static_assert(std::same_as<http::Request, RequestView>);
+static_assert(std::same_as<http::OwnedRequest, Request>);
 static_assert(std::same_as<http::Response, Response>);
 static_assert(std::same_as<http::RequestContext, RequestContext>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
@@ -96,7 +97,7 @@ void middleware_forms_compile() {
 		return response;
 	});
 	app.use(
-		[](http::Request const &req,
+		[](http::RequestView const &req,
 		   http::RequestContext const &ctx,
 		   http::AsyncNext const &next) -> http::Task<http::Response> {
 			auto response = co_await next(req, ctx);
@@ -105,14 +106,14 @@ void middleware_forms_compile() {
 		});
 	app.group("/scoped", [](auto &group) {
 		group.use(
-			[](http::Request const &req,
+			[](http::RequestView const &req,
 			   http::RequestContext const &ctx,
 			   http::AsyncNext const &next) -> http::Task<http::Response> {
 				auto response = co_await next(req, ctx);
 				response.headers.set("x-group-async-middleware", "1");
 				co_return response;
 			});
-		(void)group.get("/", [](http::Request const &, http::RequestContext const &) -> http::Task<http::Response> {
+		(void)group.get("/", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
 			co_return http::text("ok");
 		});
 	});
