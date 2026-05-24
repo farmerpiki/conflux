@@ -14,7 +14,9 @@ from dataclasses import dataclass
 
 
 RUN_RE = re.compile(r"^\s*(?P<label>\S+)\s+.*run_id=(?P<run_id>[0-9]+)\s*$")
-LABEL_RE = re.compile(r"^(?P<condition>normal|o2-lto|pgo|calibrate)-(?P<profile>.+)-(?P<candidate>[^-]+)$")
+LABEL_RE = re.compile(
+    r"^(?P<condition>normal|o2-lto|pgo|calibrate)-(?P<profile>.+)-(?P<candidate>base|exact-string|exact-key|sax-reflect)$"
+)
 
 
 @dataclass(frozen=True)
