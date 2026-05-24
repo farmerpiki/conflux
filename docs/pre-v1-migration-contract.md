@@ -34,7 +34,9 @@ For code-review rules around handler placement and `blocking_`/`sync_`/`async_` 
 - `http::App` is the preferred first-contact surface and includes core routing
   ergonomics (`get/post/put/patch/del/options`, context-aware handlers, `use`,
   `sse`, `ws`, `serve_static`, `group`, `on_not_found`, `on_error`), while
-  still exposing `config()` and `router()` for advanced tuning.
+  still exposing `config()` for app/server tuning. Direct raw-router access is an
+  advanced escape hatch through `conflux.http.extended` (`http::router(app)`) or
+  explicit low-level imports; it is not part of the curated façade.
 
 Current HTTP direction:
 

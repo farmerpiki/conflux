@@ -176,6 +176,10 @@ links to immutable proof runs.
 - Mock-liburing HEADER_INTERFACE installs are internal generated-header artifact
   evidence. They must request `core;types;json;file_io_sync` availability, with
   the smoke compile lane using `core;json;file_io_sync`, not runtime/http.
+- `CONFLUX_API_SURFACE=curated|extended|complete` smoke behavior is validated by the
+  selected aggregate lane; core/json-only builds use explicit leaf imports because
+  aggregate re-exports are feature-lane dependent and not used to gate component
+  visibility.
 - `CONFLUX_HEADER_INTERFACE_WITH_SOURCES=OFF` remains only as migration-era
   include/declaration smoke scaffolding. Remove it before public preview; the
   released header interface must always ship implementation sources or stop
