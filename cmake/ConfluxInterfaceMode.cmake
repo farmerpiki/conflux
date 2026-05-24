@@ -1083,23 +1083,14 @@ function(conflux_add_header_examples_from_source_ids)
     set_property(GLOBAL PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS "")
     set(_conflux_examples_manifest "${CMAKE_CURRENT_BINARY_DIR}/conflux_examples_manifest.txt")
     file(WRITE "${_conflux_examples_manifest}" "Conflux examples manifest\n\n")
-    function(conflux_note_header_example TARGET_NAME STATUS REASON)
-        file(APPEND "${_conflux_examples_manifest}" "${TARGET_NAME}: ${STATUS} - ${REASON}\n")
-    endfunction()
 
     if(CONFLUX_WANT_HTTP_SERVER)
         conflux_add_header_example_from_id(conflux_quickstart_hello examples/quickstart/hello)
-        conflux_note_header_example(conflux_quickstart_hello built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_quickstart_middleware examples/quickstart/middleware)
-        conflux_note_header_example(conflux_quickstart_middleware built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_quickstart_sse examples/quickstart/sse)
-        conflux_note_header_example(conflux_quickstart_sse built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_quickstart_static_files examples/quickstart/static_files)
-        conflux_note_header_example(conflux_quickstart_static_files built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_quickstart_websocket examples/quickstart/websocket)
-        conflux_note_header_example(conflux_quickstart_websocket built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_quickstart_openapi examples/quickstart/openapi)
-        conflux_note_header_example(conflux_quickstart_openapi built "preview HTTP example")
         conflux_add_header_example_from_id(conflux_hello examples/hello)
         conflux_add_header_example_from_id(conflux_middleware examples/middleware)
         conflux_add_header_example_from_id(conflux_sse examples/sse)
@@ -1136,16 +1127,12 @@ function(conflux_add_header_examples_from_source_ids)
 
     if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_JSON)
         conflux_add_header_example_from_id(conflux_quickstart_json_crud examples/quickstart/json_crud)
-        conflux_note_header_example(conflux_quickstart_json_crud built "JSON support enabled")
         conflux_add_header_example_from_id(conflux_http_explicit_offload_example examples/advanced/explicit_offload)
         conflux_add_header_example_from_id(conflux_http_client_json_example examples/advanced/http_client_json)
         conflux_add_header_example_from_id(conflux_api_typed_json_example examples/advanced/manual_json_members)
     endif()
     if(CONFLUX_WANT_HTTP_CORE AND CONFLUX_HAS_JSON)
         conflux_add_header_example_from_id(conflux_custom_json_provider_example examples/advanced/custom_json_provider)
-    endif()
-    if(NOT (CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_JSON))
-        conflux_note_header_example(conflux_quickstart_json_crud skipped "JSON HTTP support target unavailable")
     endif()
 
     if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_JSON_REFLECT)
@@ -1163,89 +1150,25 @@ function(conflux_add_header_examples_from_source_ids)
 
     if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
         conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json)
-        conflux_note_header_example(conflux_quickstart_postgres built "DB support enabled and libpq found")
-    else()
-        conflux_note_header_example(conflux_quickstart_postgres skipped "requires CONFLUX_POSTGRES_PROVIDER=LIBPQ/AUTO and libpq")
     endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
         conflux_add_header_example_from_id(conflux_db_basic examples/advanced/db_basic)
-        conflux_note_header_example(conflux_db_basic built "DB support enabled and libpq found")
         conflux_add_header_example_from_id(conflux_db_pool examples/advanced/db_pool)
-        conflux_note_header_example(conflux_db_pool built "DB support enabled and libpq found")
         conflux_add_header_example_from_id(conflux_advanced_postgres examples/advanced/postgres)
-        conflux_note_header_example(conflux_advanced_postgres built "DB support enabled and libpq found")
-    else()
-        conflux_note_header_example(conflux_db_basic skipped "requires CONFLUX_POSTGRES_PROVIDER=LIBPQ/AUTO and libpq")
-        conflux_note_header_example(conflux_db_pool skipped "requires CONFLUX_POSTGRES_PROVIDER=LIBPQ/AUTO and libpq")
-        conflux_note_header_example(conflux_advanced_postgres skipped "requires CONFLUX_POSTGRES_PROVIDER=LIBPQ/AUTO and libpq")
     endif()
 
     if(CONFLUX_JSON_REFLECT)
         conflux_add_header_example_from_id(conflux_json_reflect_example examples/advanced/json_reflect)
     endif()
 
-    file(WRITE "${_conflux_examples_manifest}" "Conflux examples manifest\n\n")
-    set(_conflux_header_manifest_targets
-        conflux_quickstart_hello
-        conflux_quickstart_json_crud
-        conflux_quickstart_json_reflect_crud
-        conflux_quickstart_middleware
-        conflux_quickstart_openapi
-        conflux_quickstart_postgres
-        conflux_quickstart_sse
-        conflux_quickstart_static_files
-        conflux_quickstart_websocket
-        conflux_hello
-        conflux_middleware
-        conflux_sse
-        conflux_static
-        conflux_forms
-        conflux_gzip
-        conflux_http_client
-        conflux_dual
-        conflux_process_run_example
-        conflux_crypto_sealing_example
-        conflux_http_observability_example
-        conflux_production_showcase_example
-        conflux_http_policy_stack_example
-        conflux_vhost_openapi_example
-        conflux_http_client_builder_example
-        conflux_api_typed_json_example
-        conflux_http_client_json_example
-        conflux_http_explicit_offload_example
-        conflux_work_join_all_example
-        conflux_template_pages_example
-        conflux_h3_probe
-        conflux_h3_server
-        conflux_db_basic
-        conflux_db_pool
-        conflux_advanced_postgres
-        conflux_json_example
-        conflux_json_config_example
-        conflux_json_stream_ingest_example
-        conflux_json_diagnostics_example
-        conflux_json_transform_example
-        conflux_json_reflect_example)
-    foreach(_conflux_header_manifest_target IN LISTS _conflux_header_manifest_targets)
-        if(TARGET ${_conflux_header_manifest_target})
-            conflux_note_header_example(${_conflux_header_manifest_target} built "target available")
-        elseif(_conflux_header_manifest_target MATCHES "postgres|db_")
-            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires CONFLUX_POSTGRES_PROVIDER=LIBPQ/AUTO and libpq")
-        elseif(_conflux_header_manifest_target MATCHES "json|typed_json|explicit_offload|custom_json")
-            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires JSON support")
-        elseif(_conflux_header_manifest_target MATCHES "h3_")
-            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires HTTP/3 support")
-        elseif(_conflux_header_manifest_target MATCHES "template")
-            conflux_note_header_example(${_conflux_header_manifest_target} skipped "requires template support")
-        else()
-            conflux_note_header_example(${_conflux_header_manifest_target} skipped "target unavailable")
-        endif()
-    endforeach()
-
     add_custom_target(conflux_header_examples)
     add_custom_target(conflux_examples)
     get_property(_conflux_header_example_targets GLOBAL PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS)
     if(_conflux_header_example_targets)
+        foreach(_conflux_header_example_target IN LISTS _conflux_header_example_targets)
+            file(APPEND "${_conflux_examples_manifest}"
+                "${_conflux_header_example_target}: built - header example target\n")
+        endforeach()
         add_dependencies(conflux_header_examples ${_conflux_header_example_targets})
         add_dependencies(conflux_examples ${_conflux_header_example_targets})
     endif()
