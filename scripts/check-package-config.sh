@@ -12,6 +12,7 @@ fail() {
 [[ -f CMakeLists.txt ]] || fail "missing CMakeLists.txt"
 [[ -f cmake/conflux-config.cmake.in ]] || fail "missing package config template"
 [[ -f cmake/ConfluxGeneratePackageMetadata.cmake.in ]] || fail "missing package metadata generator"
+[[ -f cmake/ConfluxInstall.cmake ]] || fail "missing install/export CMake module"
 [[ -f cmake/package-smoke/CMakeLists.txt ]] || fail "missing package smoke project"
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
@@ -31,35 +32,35 @@ fail() {
 grep -Eq '^project\(conflux VERSION [0-9]+\.[0-9]+\.[0-9]+ LANGUAGES CXX\)' CMakeLists.txt \
     || fail "project() must declare the package version"
 
-grep -q 'configure_package_config_file(' CMakeLists.txt \
+grep -q 'configure_package_config_file(' cmake/ConfluxInstall.cmake \
     || fail "missing configure_package_config_file()"
-grep -q 'write_basic_package_version_file(' CMakeLists.txt \
+grep -q 'write_basic_package_version_file(' cmake/ConfluxInstall.cmake \
     || fail "missing write_basic_package_version_file()"
-grep -q 'VERSION ${PROJECT_VERSION}' CMakeLists.txt \
+grep -q 'VERSION ${PROJECT_VERSION}' cmake/ConfluxInstall.cmake \
     || fail "package version file must use PROJECT_VERSION"
-grep -q 'install(EXPORT confluxTargets' CMakeLists.txt \
+grep -q 'install(EXPORT confluxTargets' cmake/ConfluxInstall.cmake \
     || fail "missing install(EXPORT confluxTargets)"
-grep -q 'install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")' CMakeLists.txt \
+grep -q 'install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")' cmake/ConfluxInstall.cmake \
     || fail "missing install-time package metadata generator"
-grep -q 'NAMESPACE conflux::' CMakeLists.txt \
+grep -q 'NAMESPACE conflux::' cmake/ConfluxInstall.cmake \
     || fail "export namespace must stay conflux::"
-grep -q 'add_test(NAME build/cmake-source-files' CMakeLists.txt \
+grep -q 'add_test(NAME build/cmake-source-files' tests/CMakeLists.txt \
     || fail "missing CMake source-file CTest guard"
-grep -q 'add_test(NAME build/component-map' CMakeLists.txt \
+grep -q 'add_test(NAME build/component-map' tests/CMakeLists.txt \
     || fail "missing component-map CTest guard"
-grep -q 'add_test(NAME build/package-config' CMakeLists.txt \
+grep -q 'add_test(NAME build/package-config' tests/CMakeLists.txt \
     || fail "missing package-config CTest guard"
-grep -q 'add_test(NAME docs/planning-state' CMakeLists.txt \
+grep -q 'add_test(NAME docs/planning-state' tests/CMakeLists.txt \
     || fail "missing planning-state CTest guard"
-grep -q 'add_test(NAME docs/release-docs' CMakeLists.txt \
+grep -q 'add_test(NAME docs/release-docs' tests/CMakeLists.txt \
     || fail "missing release-docs CTest guard"
-grep -q 'add_test(NAME docs/package-docs' CMakeLists.txt \
+grep -q 'add_test(NAME docs/package-docs' tests/CMakeLists.txt \
     || fail "missing package-docs CTest guard"
-grep -q 'add_test(NAME docs/release-notes' CMakeLists.txt \
+grep -q 'add_test(NAME docs/release-notes' tests/CMakeLists.txt \
     || fail "missing release-notes CTest guard"
 grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
     || fail "missing package smoke component cache variable"
-grep -q 'add_test(NAME build/package-config-install-tree' CMakeLists.txt \
+grep -q 'add_test(NAME build/package-config-install-tree' tests/CMakeLists.txt \
     || fail "missing installed-prefix package smoke CTest guard"
 grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' CMakeLists.txt \
     || fail "missing package-only CTest option"
@@ -85,7 +86,7 @@ grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfa
     || fail "header generated targets must override release optimization for fast compile"
 grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
     || fail "missing opt-in install-tree smoke CTest option"
-grep -q 'add_test(NAME build/install-tree-smoke' CMakeLists.txt \
+grep -q 'add_test(NAME build/install-tree-smoke' tests/CMakeLists.txt \
 	|| fail "missing install-tree smoke CTest guard"
 grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' CMakeLists.txt \
 	|| fail "HEADER_INTERFACE must disable CMake module scanning"
