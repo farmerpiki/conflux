@@ -44,6 +44,24 @@ P2996 reflection benchmarks use the dedicated release lane:
 cmake --preset release-p2996-gcc
 cmake --build --preset release-p2996-gcc --target conflux_json_reflect_bench
 ```
+
+### JSON direct typed wide-object gate
+
+Manual `JsonMembers<T>` reader decode has two member-match paths: the original
+linear scan for small structs and a generated open-addressed lookup for wider
+structs. Current measured cutoff is `member_count > 8`: the 8-field row must stay
+on the unmodified linear shape, while the 16/32/64/96-field rows are the gate for
+lookup-specialization changes.
+
+Before changing the cutoff or extending this to reflected decode, rerun at least:
+
+```sh
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_bench --filter 'decode/manual/reader/direct/wide'
+```
+
+Acceptance evidence should include all-known and unknown-heavy rows, plus
+compile-time and binary-size impact for the generated lookup metadata.
+
 When `CONFLUX_ENABLE_CPU_DISPATCH=ON`, the optional
 `conflux_cpu_dispatch_impl_bench` target compares the scalar fallback,
 compiled ISA fastpath, and public dispatch wrapper for the small kernels used by

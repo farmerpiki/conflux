@@ -1330,6 +1330,9 @@ template<class T>
 std::expected<void, JsonError>
 decode_into(T &out, JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
 
+// Real wide-object measurements showed generated lookup wins from 16 fields
+// upward, but an 8-field row regressed when the small path was perturbed.
+// Keep <=8 on the pre-existing linear decode shape; benchmark before moving.
 inline constexpr std::size_t kJsonMemberLinearLookupLimit = 8;
 
 [[nodiscard]] constexpr std::uint64_t json_member_name_hash(
@@ -1596,31 +1599,50 @@ std::expected<void, JsonError> decode_members_from_event_into(
 						 auto const &m = jm_member(entry);
 						 if (key_name == m.name) {
 							 matched = true;
-							 auto decoded = decode_known_member_value(
-								 r,
-								 presence,
-								 idx,
-								 m.name,
-								 [&](JsonReader::Event value_event) -> std::expected<void, JsonError> {
-									 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
-									 auto value_res =
-										 decode_into<M>(result.*m.pointer, r, value_event, opts, &decode_scratch);
-									 if (!value_res) {
-										 return std::unexpected(std::move(value_res).error());
-									 }
-									 auto cfn = jm_constraint(entry);
-									 if (cfn != nullptr) {
-										 if (auto cr = cfn(result.*m.pointer); !cr) {
-											 auto err = std::move(cr).error();
-											 err.member_name = std::string{m.name};
-											 return std::unexpected(std::move(err));
-										 }
-									 }
-									 return {};
-								 });
+							 bool const already_found = presence.test(idx);
+							 if (already_found && r.parse_options().duplicate_key == DuplicateKeyPolicy::reject) {
+								 ok = false;
+								 first_err = duplicate_member_error(m.name);
+								 ++idx;
+								 return;
+							 }
+							 auto vne = r.next();
+							 if (!vne || !*vne) {
+								 ok = false;
+								 first_err = !vne ? std::move(vne).error() :
+													JsonError{
+														.stage = JsonStage::decode,
+														.code = JsonIssueCode::unexpected_eof,
+														.message = "EOF in object value"};
+								 ++idx;
+								 return;
+							 }
+							 if (already_found && r.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
+								 if (auto skipped = skip_remaining_reader(r, **vne); !skipped) {
+									 ok = false;
+									 first_err = std::move(skipped).error();
+								 }
+								 ++idx;
+								 return;
+							 }
+							 if (!already_found) {
+								 presence.set(idx);
+							 }
+							 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
+							 auto decoded = decode_into<M>(result.*m.pointer, r, **vne, opts, &decode_scratch);
 							 if (!decoded) {
 								 ok = false;
 								 first_err = std::move(decoded).error();
+								 ++idx;
+								 return;
+							 }
+							 auto cfn = jm_constraint(entry);
+							 if (cfn != nullptr) {
+								 if (auto cr = cfn(result.*m.pointer); !cr) {
+									 ok = false;
+									 first_err = std::move(cr).error();
+									 first_err.member_name = std::string{m.name};
+								 }
 							 }
 						 }
 						 ++idx;
