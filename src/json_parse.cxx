@@ -1147,20 +1147,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	// Clear storage for reuse — std::hash tables use ::operator delete (safe before mbr release).
-	for (auto &n: storage_->nodes) {
-		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-			ObjHashTable::destroy(n.hash_idx_raw);
-			n.hash_idx_raw = nullptr;
-		}
-	}
-	storage_->nodes.clear();
-	storage_->string_arena.clear();
-	storage_->array_children.clear();
-	storage_->object_members.clear();
-	storage_->owned_input.reset();
-	storage_->root_node = 0;
-	storage_->bom_prefix_bytes = 0;
+	reset_storage_for_reuse();
 
 	storage_->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage_->owned_input;
@@ -1177,12 +1164,9 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	}
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
-std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
-	std::string_view input,
-	JsonParseOptions const &opts) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
+
+void JsonArena::reset_storage_for_reuse() noexcept {
+	++generation_;
 	for (auto &n: storage_->nodes) {
 		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
 			ObjHashTable::destroy(n.hash_idx_raw);
@@ -1196,6 +1180,15 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 	storage_->owned_input.reset();
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
+}
+
+std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
+	std::string_view input,
+	JsonParseOptions const &opts) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
+	reset_storage_for_reuse();
 
 	std::string_view src = input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
@@ -1217,19 +1210,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	for (auto &n: storage_->nodes) {
-		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-			ObjHashTable::destroy(n.hash_idx_raw);
-			n.hash_idx_raw = nullptr;
-		}
-	}
-	storage_->nodes.clear();
-	storage_->string_arena.clear();
-	storage_->array_children.clear();
-	storage_->object_members.clear();
-	storage_->owned_input.reset();
-	storage_->root_node = 0;
-	storage_->bom_prefix_bytes = 0;
+	reset_storage_for_reuse();
 
 	storage_->owned_input = std::make_unique<std::string>(std::move(input));
 	std::string_view src = *storage_->owned_input;

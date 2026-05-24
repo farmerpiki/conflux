@@ -1725,10 +1725,18 @@ export class ArenaDocument {
 		: storage_{s}
 		, generation_{gen}
 		, arena_gen_{ag} {}
-	void check_live() const noexcept { assert(storage_ != nullptr && *arena_gen_ == generation_); }
+	[[nodiscard]] bool live_() const noexcept {
+		return storage_ != nullptr && arena_gen_ != nullptr && *arena_gen_ == generation_;
+	}
+	void check_live() const noexcept {
+		if (!live_()) {
+			std::terminate();
+		}
+	}
 
 public:
 	ArenaDocument() = default;
+	[[nodiscard]] bool is_live() const noexcept { return live_(); }
 	[[nodiscard]] NodeRef root() const noexcept {
 		check_live();
 		return NodeRef{storage_, storage_->root_node};
@@ -1745,6 +1753,7 @@ export class JsonArena {
 	std::pmr::monotonic_buffer_resource mbr_;
 	std::unique_ptr<DocumentStorage> storage_;
 	std::uint32_t generation_{0};
+	void reset_storage_for_reuse() noexcept;
 
 public:
 	explicit JsonArena(
@@ -1770,7 +1779,16 @@ public:
 
 	void reset() noexcept;
 	[[nodiscard]] std::size_t slab_capacity() const noexcept { return initial_slab_; }
-	[[nodiscard]] std::size_t slab_used() const noexcept { return 0; }
+	[[nodiscard]] std::size_t slab_used() const noexcept {
+		if (!storage_) {
+			return 0;
+		}
+		auto const stats = storage_->storage_stats();
+		return stats.nodes_size * sizeof(Node)
+			 + stats.array_children_size * sizeof(std::uint32_t)
+			 + stats.object_members_size * sizeof(MemberEntry)
+			 + stats.string_arena_size;
+	}
 };
 // ---------------------------------------------------------------------------
 // Field accessor helpers (Phase 1.1)

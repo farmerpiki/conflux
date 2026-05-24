@@ -4570,11 +4570,14 @@ TEST_CASE(
 	JsonArena arena;
 	auto d1 = arena.parse_into("1");
 	REQUIRE(d1.has_value());
+	CHECK(d1->is_live());
 	CHECK(*d1->root().as_i64() == 1LL);
 
 	// Second parse reuses arena storage
 	auto d2 = arena.parse_into("2");
 	REQUIRE(d2.has_value());
+	CHECK_FALSE(d1->is_live());
+	CHECK(d2->is_live());
 	CHECK(*d2->root().as_i64() == 2LL);
 }
 TEST_CASE(
@@ -4597,6 +4600,10 @@ TEST_CASE(
 	"[phase5]") {
 	JsonArena arena{JsonArenaOptions{.initial_slab = 128 * 1024}};
 	CHECK(arena.slab_capacity() == 128 * 1024UZ);
+	CHECK(arena.slab_used() == 0UZ);
+	auto doc = arena.parse_into(R"({"name":"Alice","age":30})");
+	REQUIRE(doc.has_value());
+	CHECK(arena.slab_used() > 0UZ);
 }
 TEST_CASE(
 	"phase5: JsonArena hash index allocations use the injected resource",
