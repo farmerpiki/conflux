@@ -17,7 +17,7 @@ Default: `curated`.
 
 | Profile | Entry points | Intended use |
 |---|---|---|
-| `curated` | `import conflux;`, `import conflux.curated;`, `<conflux.hxx>`, `<conflux/curated.hxx>` | recommended first-contact app/library surface; use explicit `import conflux.http` / `<conflux/http.hxx>` for HTTP in the current module lane |
+| `curated` | `import conflux;`, `import conflux.curated;`, `<conflux.hxx>`, `<conflux/curated.hxx>` | recommended first-contact app/library surface, including the HTTP façade when built |
 | `extended` | `import conflux.extended;`, `<conflux/extended.hxx>` | stable extension points and production customization knobs |
 | `complete` | `import conflux.complete;`, `<conflux/complete.hxx>` | documented low-level escape hatches |
 
@@ -71,7 +71,7 @@ corresponding aggregate surface for the configured feature set.
 |---|---:|---:|---:|
 | `conflux.features` | yes | yes | yes |
 | `conflux.types` | no, pending alias policy | no, pending alias policy | no, pending alias policy |
-| `conflux.http` façade | explicit leaf import in current module lane | explicit leaf import in current module lane | explicit leaf import in current module lane |
+| `conflux.http` façade | yes, when built | yes | yes |
 | `conflux.json` normal API | yes, when built | yes | yes |
 | JSON boundary/provider/reflect modules | no | yes, when built | yes |
 | `conflux.work` runtime/task primitives | no | yes, when built | yes |
@@ -111,10 +111,10 @@ from `conflux.features`.
 
 ## HTTP façade split
 
-`conflux.http` is the curated HTTP application façade. In the current module lane,
-import it explicitly instead of relying on profile re-export; re-exporting the
-HTTP façade module family through profile modules currently triggers a GCC 16
-module importer ICE. Header mode still follows the generated include surface.
+`conflux.http` is the curated HTTP application façade and is re-exported by the
+curated profile when the HTTP aggregate target is built. Explicit
+`import conflux.http;` remains valid for users who want the leaf façade without
+the selected aggregate profile.
 
 `conflux.http` keeps route registration,
 request/response helpers, typed extractors, JSON response helpers, common middleware
