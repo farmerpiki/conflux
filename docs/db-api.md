@@ -278,7 +278,7 @@ public:
 
 `Lease` is move-only. The destructor returns the connection to the pool; do not use the connection after the `Lease` is destroyed.
 
-`acquire()` suspends until a connection is available or `acquire_timeout` elapses. Pool closed, off-owner acquire, connection failure, and acquire timeout complete the task with a `PgError` exception. A successful acquire returns a truthy `Lease`.
+`acquire()` suspends until a connection is available or `acquire_timeout` elapses. Pool closed, off-owner acquire, connection failure, and acquire timeout complete the task with a `PgError` exception. External cancellation of a queued acquire completes the task as cancelled. A successful acquire returns a truthy `Lease`.
 
 ---
 

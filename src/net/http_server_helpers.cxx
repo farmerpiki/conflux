@@ -285,25 +285,58 @@ export [[nodiscard]] std::string format_http_chunk(
 export [[nodiscard]] std::string_view extract_param(
 	std::string_view header,
 	std::string_view param_name) {
-	auto pos = header.find(param_name);
-	if (pos == std::string_view::npos) {
-		return {};
+	std::size_t pos = 0;
+	while (pos <= header.size()) {
+		auto const sep = header.find(';', pos);
+		auto segment = trim(sep == std::string_view::npos ? header.substr(pos) : header.substr(pos, sep - pos));
+
+		if (auto const eq = segment.find('='); eq != std::string_view::npos) {
+			auto const key = trim(segment.substr(0, eq));
+			auto value = trim(segment.substr(eq + 1));
+			if (conflux::http::ascii_iequals(key, param_name)) {
+				if (value.empty()) {
+					return {};
+				}
+				if (value.front() != '"') {
+					return value;
+				}
+				value.remove_prefix(1);
+				bool escaped = false;
+				for (std::size_t i = 0; i < value.size(); ++i) {
+					char const c = value[i];
+					if (escaped) {
+						escaped = false;
+						continue;
+					}
+					if (c == '\\') {
+						escaped = true;
+						continue;
+					}
+					if (c == '"') {
+						return value.substr(0, i);
+					}
+				}
+				return value;
+			}
+		}
+
+		if (sep == std::string_view::npos) {
+			break;
+		}
+		pos = sep + 1;
 	}
-	pos += param_name.size();
-	if (pos >= header.size() || header[pos] != '=') {
-		return {};
+	return {};
+}
+
+[[nodiscard]] std::string_view trim_cookie_ows(
+	std::string_view s) noexcept {
+	while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) {
+		s.remove_prefix(1);
 	}
-	++pos;
-	if (pos >= header.size()) {
-		return {};
+	while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) {
+		s.remove_suffix(1);
 	}
-	if (header[pos] == '"') {
-		++pos;
-		auto end = header.find('"', pos);
-		return end == std::string_view::npos ? header.substr(pos) : header.substr(pos, end - pos);
-	}
-	auto end = header.find_first_of(";\r\n ", pos);
-	return end == std::string_view::npos ? header.substr(pos) : header.substr(pos, end - pos);
+	return s;
 }
 
 export void parse_cookies(
@@ -311,16 +344,15 @@ export void parse_cookies(
 	HttpFieldsView &out) {
 	std::size_t pos = 0;
 	while (pos < cookie_header.size()) {
-		while (pos < cookie_header.size() && cookie_header[pos] == ' ') {
-			++pos;
-		}
 		auto sep = cookie_header.find(';', pos);
-		auto P = sep == std::string_view::npos ? cookie_header.substr(pos) : cookie_header.substr(pos, sep - pos);
-		while (!P.empty() && P.back() == ' ') {
-			P.remove_suffix(1);
-		}
+		auto P = trim_cookie_ows(
+			sep == std::string_view::npos ? cookie_header.substr(pos) : cookie_header.substr(pos, sep - pos));
 		if (auto eq = P.find('='); eq != std::string_view::npos) {
-			out.emplace_back(P.substr(0, eq), P.substr(eq + 1));
+			auto name = trim_cookie_ows(P.substr(0, eq));
+			auto value = trim_cookie_ows(P.substr(eq + 1));
+			if (!name.empty()) {
+				out.emplace_back(name, value);
+			}
 		} else if (!P.empty()) {
 			out.emplace_back(P, {});
 		}

@@ -1268,8 +1268,17 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				auto shared_waiter = std::make_shared<root::TaskSource<ResolveResult>>(std::move(wraw_src));
 				it->second.waiters.push_back(shared_waiter);
 				auto [out_task, out_raw_src] =
-					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = true});
 				auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
+				auto weak_out = std::weak_ptr<root::TaskSource<ResolveResult>>{out_src};
+				auto _ = out_src->install_cancel_hook([weak_out](root::CancelReason) noexcept {
+					try {
+						if (auto src = weak_out.lock()) {
+							auto _ = src->try_set_exception(make_exception_ptr(
+								DnsError{DnsErrorKind::cancelled, "dns: coalesced query cancelled"}));
+						}
+					} catch (...) {} // NOLINT(bugprone-empty-catch): cancellation callback is best-effort.
+				});
 				[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
 				   root::Task<ResolveResult> wt) -> root::Task<void> {
 					try {
@@ -1367,9 +1376,12 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto [out_task, out_raw_src] =
 		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = true});
 	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-	auto _ = out_src->install_cancel_hook([inner_control, out_src](root::CancelReason) mutable noexcept {
+	auto weak_out = std::weak_ptr<root::TaskSource<ResolveResult>>{out_src};
+	auto _ = out_src->install_cancel_hook([inner_control, weak_out](root::CancelReason) mutable noexcept {
 		(void)inner_control.request_cancel();
-		(void)out_src->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+		if (auto src = weak_out.lock()) {
+			(void)src->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+		}
 	});
 	[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
 	   root::Task<ResolveResult> inner,

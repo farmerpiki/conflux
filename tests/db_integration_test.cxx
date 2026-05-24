@@ -466,6 +466,171 @@ TEST_CASE(
 	pool->close();
 }
 TEST_CASE(
+	"db: pool max_connections pressure times out queued acquire and recovers",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 1,
+		.acquire_timeout = std::chrono::milliseconds{150},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> held{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(held);
+	CHECK(pool->total() == 1);
+	CHECK(pool->idle() == 0);
+
+	try {
+		(void)block_on(fx->reader, pool->acquire(), std::chrono::seconds{5});
+		FAIL("expected acquire timeout under max_connections pressure");
+	} catch (PgError const &e) { CHECK(std::string_view{e.what()}.find("acquire timeout") != std::string_view::npos); }
+
+	held.reset();
+	CHECK(pool->total() == 1);
+	CHECK(pool->idle() == 1);
+
+	std::optional<Pool::Lease> recovered{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(recovered);
+	auto r = block_on(fx->reader, (*recovered)->query("SELECT 5::int8"), std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 5);
+
+	recovered.reset();
+	pool->close();
+}
+TEST_CASE(
+	"db: pool queued acquire cancellation completes and does not consume next lease",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 1,
+		.acquire_timeout = std::chrono::seconds{10},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> held{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(held);
+
+	auto pending = pool->acquire();
+	pending.cancel();
+	CHECK_THROWS_AS(block_on(fx->reader, std::move(pending), std::chrono::seconds{1}), Cancelled);
+
+	held.reset();
+	std::optional<Pool::Lease> next{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(next);
+	auto r = block_on(fx->reader, (*next)->query("SELECT 6::int8"), std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 6);
+
+	next.reset();
+	pool->close();
+}
+TEST_CASE(
+	"db: pool replaces lost connection after backend termination",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 1,
+		.acquire_timeout = std::chrono::seconds{5},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> lost{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(lost);
+	int const lost_pid = (*lost)->backend_pid();
+	CHECK(lost_pid != 0);
+
+	try {
+		(void)block_on(
+			fx->reader,
+			(*lost)->query("SELECT pg_terminate_backend(pg_backend_pid())"),
+			std::chrono::seconds{30});
+		FAIL("expected backend termination to surface as PgError");
+	} catch (PgError const &e) {
+		bool const lost_or_admin = e.is_connection_lost() || e.sqlstate.starts_with("57P");
+		CHECK(lost_or_admin);
+	}
+	lost.reset();
+	CHECK(pool->idle() == 0);
+	CHECK(pool->total() == 0);
+
+	std::optional<Pool::Lease> replacement{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(replacement);
+	CHECK((*replacement)->backend_pid() != 0);
+	auto r = block_on(fx->reader, (*replacement)->query("SELECT 7::int8"), std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 7);
+
+	replacement.reset();
+	pool->close();
+}
+
+TEST_CASE(
+	"db: transaction query deadline cancels and rolls back",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	block_on(
+		fx->reader,
+		conn->query(R"(CREATE TEMP TABLE tx_deadline_test (id int8 PRIMARY KEY, v text))"),
+		std::chrono::seconds{30});
+
+	try {
+		block_on(
+			fx->reader,
+			with_transaction(
+				*conn,
+				TxOptions{},
+				[](Connection &c) -> Task<void> {
+					co_await c.query("INSERT INTO tx_deadline_test VALUES (1, 'pending')");
+					co_await c.query(
+						"SELECT pg_sleep(10)",
+						{},
+						QueryOptions{.deadline = std::make_optional(std::chrono::milliseconds{100})});
+				}),
+			std::chrono::seconds{30});
+		FAIL("expected query deadline inside transaction");
+	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); }
+
+	auto r = block_on(
+		fx->reader,
+		conn->query("SELECT count(*) FROM tx_deadline_test WHERE id = 1"),
+		std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 0);
+}
+
+TEST_CASE(
 	"db: with_transaction commit and rollback",
 	"[db][integration]") {
 	auto ci = conninfo();

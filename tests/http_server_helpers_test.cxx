@@ -109,6 +109,10 @@ TEST_CASE(
 	CHECK(extract_param("attachment; filename=unterminated", "filename") == "unterminated");
 	CHECK(extract_param("attachment; filename", "filename").empty());
 	CHECK(extract_param(header, "missing").empty());
+	CHECK(extract_param("multipart/form-data; boundary=abc123", "boundary") == "abc123");
+	CHECK(extract_param("form-data; filename=only-file.txt", "name").empty());
+	CHECK(extract_param("form-data; x-name=wrong; name=right", "name") == "right");
+	CHECK(extract_param("form-data; NAME=upper", "name") == "upper");
 }
 
 TEST_CASE(
@@ -123,6 +127,19 @@ TEST_CASE(
 	CHECK(cookies.values("a")[1] == "2");
 	CHECK(cookies["b"] == "two words");
 	CHECK(cookies["flag"].empty());
+}
+
+TEST_CASE(
+	"http_server_helpers: cookie parser trims RFC optional whitespace",
+	"[http_server_helpers]") {
+	HttpFieldsView cookies;
+	parse_cookies("\t sid = abc \t;\t csrf_token = tok \t; ;\tflag\t", cookies);
+
+	REQUIRE(cookies.size() == 3);
+	CHECK(cookies["sid"] == "abc");
+	CHECK(cookies["csrf_token"] == "tok");
+	CHECK(cookies["flag"].empty());
+	CHECK(cookies["\tsid"].empty());
 }
 
 TEST_CASE(

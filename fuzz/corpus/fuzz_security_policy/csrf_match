@@ -1,0 +1,1 @@
+POST|csrf_token=fixed-token|X-CSRF-Token=fixed-token

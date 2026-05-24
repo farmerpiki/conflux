@@ -1231,6 +1231,56 @@ TEST_CASE(
 	CHECK(mock.query_count("coalesce.test", 28) == 1);
 }
 TEST_CASE(
+	"dns: cancelling coalesced waiter does not cancel shared UDP query",
+	"[dns][resolver][native][coalesce][cancel][transport]") {
+	auto g = RingGuard::make();
+	REQUIRE(g);
+	REQUIRE(g->ok);
+	Resolver r{&g->ring, &g->ct, pack_ud, ResolverOptions{.cache_capacity = 16}};
+
+	DnsMockServer mock;
+	mock.set_response(
+		"coalesced-cancel.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 11, 12, 13}, .ttl = 60}},
+			.response_delay = std::chrono::milliseconds{100},
+		});
+
+	ResolveOptions opts = mock_opts(mock);
+	opts.allow_v6 = false;
+	opts.query_timeout = std::chrono::milliseconds{1000};
+	opts.total_timeout = std::chrono::milliseconds{1000};
+
+	// Both calls happen before the ring is pumped: the second attaches as a
+	// coalesced waiter. Cancelling it must not cancel the shared UDP query.
+	auto first = r.resolve("coalesced-cancel.test", 80, opts);
+	auto second = r.resolve("coalesced-cancel.test", 80, opts);
+	second.cancel();
+
+	bool second_cancelled = false;
+	try {
+		(void)block_on<ResolveResult>(
+			*r.file_reader(),
+			std::move(second),
+			std::make_optional(std::chrono::milliseconds{5000}),
+			PackUdDecode{});
+	} catch (DnsError const &e) { second_cancelled = e.kind == DnsErrorKind::cancelled; }
+	CHECK(second_cancelled);
+
+	auto first_result = block_on<ResolveResult>(
+		*r.file_reader(),
+		std::move(first),
+		std::make_optional(std::chrono::milliseconds{5000}),
+		PackUdDecode{});
+
+	REQUIRE(first_result.endpoints.size() == 1);
+	CHECK_FALSE(first_result.from_coalesced);
+	CHECK(first_result.endpoints[0].family == AddressFamily::v4);
+	CHECK(mock.query_count("coalesced-cancel.test", 1) == 1);
+}
+TEST_CASE(
 	"dns: async resolve applies resolv.conf search domain",
 	"[dns][resolver][native][resolv-conf][async]") {
 	auto g = RingGuard::make();

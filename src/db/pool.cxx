@@ -261,6 +261,12 @@ root::Task<Pool::Lease> Pool::acquire() {
 		return std::move(task);
 	}
 	waiters_.push_back(shared_src);
+	std::weak_ptr<root::TaskSource<Lease>> const weak_src{shared_src};
+	(void)shared_src->install_cancel_hook([weak_src](root::CancelReason) noexcept {
+		if (auto src = weak_src.lock()) {
+			auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
+		}
+	});
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();

@@ -12,7 +12,7 @@ bundle, or security-sensitive surface is added.
 | Compiler lanes | Preset name, compiler version, full configure/build/test log path | Cover the primary Clang lane and every GCC lane available to the maintainer. |
 | Runtime preflight | Host kernel/container notes and `io_uring_queue_init*` success/failure | Capability probes matter more than kernel version strings. |
 | Tests | `ctest` command, preset, result summary | Use `scripts/run-ctest.sh` where possible. |
-| Sanitizers / fuzz | Sanitizer preset logs and parser-facing fuzz/security corpus result | Required when HTTP parser, JSON parser, URL/form decoding, or WebSocket framing changed. |
+| Sanitizers / fuzz | Sanitizer preset logs and parser-facing fuzz/security corpus result | Required when HTTP parser, JSON parser, URL/form decoding, multipart parsing, or WebSocket framing changed. |
 | Examples | `examples/compile` CTest result | Examples must compile, not necessarily run server loops in CI. |
 | Module package | Full `MODULE_INTERFACE` configure/build/test/package log | Primary prerelease consumption mode; use checked presets and fail clearly on unsupported toolchains. |
 | Generated header artifact | Staged artifact tree and `HEADER_INTERFACE` compile pass log | Generated headers are release artifacts from module sources, not hand-maintained source. |
@@ -100,7 +100,7 @@ Runtime package smoke, only on hosts with real liburing discoverable through
 scripts/check-package-smoke-runtime.sh
 ```
 
-Optional DB-enabled lane, only on hosts with libpq headers:
+Optional DB-enabled build lane, only on hosts with libpq headers:
 
 ```sh
 cmake -S . -B /tmp/conflux-db -G Ninja \
@@ -112,6 +112,22 @@ cmake -S . -B /tmp/conflux-db -G Ninja \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
   -DCONFLUX_POSTGRES_PROVIDER=LIBPQ
 cmake --build /tmp/conflux-db
+```
+
+Optional DB integration/pressure lane, only on hosts with libpq, Catch2, a live
+PostgreSQL database, and io_uring support:
+
+```sh
+cmake -S . -B /tmp/conflux-db-tests -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
+  -DCONFLUX_BUILD_TESTS=ON \
+  -DCONFLUX_BUILD_BENCHMARKS=OFF \
+  -DCONFLUX_POSTGRES_PROVIDER=LIBPQ \
+  -DCONFLUX_PG_TEST_CONNINFO="postgresql:///conflux_test"
+cmake --build /tmp/conflux-db-tests --target conflux_db_integration
+ctest --test-dir /tmp/conflux-db-tests --output-on-failure -L 'db|integration'
 ```
 
 Test lane, when Catch2 is available from the system or an approved cache:
@@ -194,6 +210,17 @@ links to immutable proof runs.
   ring threads unless code explicitly moves work elsewhere.
 - HTTP parser/security corpus covers any request parsing, header, chunking,
   Host, Content-Length, Transfer-Encoding, range/static, or proxy change.
+- Multipart parser changes run `fuzz_multipart_smoke`; the seed corpus covers
+  filename/content-type parameters, malformed boundaries, many tiny parts, and
+  oversized part headers.
+- Cookie/header/security policy changes run `fuzz_cookie_header_smoke`,
+  `fuzz_cookie_signing_smoke`, and `fuzz_security_policy_smoke`; the seed
+  corpus covers cookie OWS/duplicates, CORS preflight, CSRF double-submit,
+  forwarded/trusted proxy headers, cache-control, ETag, and security headers.
+- Static-file path handling changes run `fuzz_static_path_smoke`; the seed corpus
+  covers encoded traversal, UTF-8 oddities, repeated separators, symlink
+  attempts, and absolute-path attempts against both normalization and contained
+  file opens.
 - `docs/cost-lifetime-model.md` matches request view/owned request lifetimes,
   response body ownership, static/file zero-copy caveats, and TLS behavior.
 - Lifecycle/backpressure docs match `DrainOptions`, `DrainReport`,
@@ -224,7 +251,7 @@ links to immutable proof runs.
 
 - File-layer docs preserve the boundary between POSIX sync file helpers, mmap
   helpers, and async/runtime-backed file I/O.
-- DB docs match libpq feature-gate behavior and pool/query contracts.
+- DB docs match libpq feature-gate behavior and pool/query/pressure contracts.
 - DB-off header-interface installs do not expose generated `conflux/pg*` or
   `conflux/db.hxx` headers.
 - Process-spawn changes include argument/env/lifetime/error-path tests.

@@ -49,6 +49,10 @@ extern "C" int LLVMFuzzerTestOneInput(
 		if (!points_into(input, name) || !points_into(input, value)) {
 			__builtin_trap();
 		}
+		if (!name.empty()
+			&& (name.front() == ' ' || name.front() == '\t' || name.back() == ' ' || name.back() == '\t')) {
+			__builtin_trap();
+		}
 	}
 	return 0;
 }
