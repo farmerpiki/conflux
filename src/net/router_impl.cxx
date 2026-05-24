@@ -363,17 +363,6 @@ template<typename ImplT>
 
 } // namespace
 
-[[nodiscard]] std::string_view trim_ascii_ws(
-	std::string_view s) noexcept {
-	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
-		s.remove_prefix(1);
-	}
-	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
-		s.remove_suffix(1);
-	}
-	return s;
-}
-
 Router::ContextHandler Router::Group::wrap_context(
 	ContextHandler h) const {
 	for (int i = static_cast<int>(context_middlewares_.size()) - 1; i >= 0; --i) {
@@ -509,7 +498,7 @@ Router &Router::ws_prepared(
 					 if (!ws_detail::is_valid_handshake(req)) {
 						 return Response::bad_request();
 					 }
-					 auto key = trim_ascii_ws(req.headers["sec-websocket-key"]);
+					 auto key = conflux::http::trim_http_whitespace(req.headers["sec-websocket-key"]);
 					 auto up = std::make_shared<WsUpgrade>();
 					 up->accept_key = ws_detail::ws_accept_key(key);
 					 up->handler = h;

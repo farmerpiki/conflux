@@ -170,17 +170,6 @@ template<FixedString Path, std::size_t Index>
 	return out;
 }
 
-[[nodiscard]] std::string_view trim_ascii(
-	std::string_view value) noexcept {
-	while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
-		value.remove_prefix(1);
-	}
-	while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
-		value.remove_suffix(1);
-	}
-	return value;
-}
-
 [[nodiscard]] std::optional<std::string_view> credentials_for_scheme(
 	std::string_view auth,
 	std::string_view scheme) noexcept {
@@ -190,7 +179,7 @@ template<FixedString Path, std::size_t Index>
 	if (!ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
 		return std::nullopt;
 	}
-	return trim_ascii(auth.substr(scheme.size() + 1));
+	return conflux::http::trim_http_whitespace(auth.substr(scheme.size() + 1));
 }
 
 } // namespace conflux::http::detail
