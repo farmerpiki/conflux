@@ -330,6 +330,10 @@ TEST_CASE(
 
 	ScopedTestServer const srv{cfg, std::move(router)};
 	auto [headers, body] = send_get_split_body(srv.port(), "/static/link.txt", 0);
-	CHECK_FALSE(headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(headers.starts_with("HTTP/1.1 404 Not Found"));
 	CHECK(body.find("secret-through-symlink") == std::string::npos);
+
+	auto [real_headers, real_body] = send_get_split_body(srv.port(), "/static/real.txt", 22);
+	REQUIRE(real_headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(real_body == "secret-through-symlink");
 }
