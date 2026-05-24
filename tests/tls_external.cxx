@@ -102,6 +102,32 @@ void require_https_ping_ok(
 	REQUIRE(body == R"({"ok":true})");
 }
 
+std::optional<std::string> first_http_status_code(
+	std::string_view output) {
+	auto const line_begin = output.find("HTTP/1.");
+	if (line_begin == std::string_view::npos) {
+		return std::nullopt;
+	}
+	auto const line_end = output.find('\n', line_begin);
+	auto line = output.substr(
+		line_begin,
+		line_end == std::string_view::npos ? output.size() - line_begin : line_end - line_begin);
+	if (!line.empty() && line.back() == '\r') {
+		line.remove_suffix(1);
+	}
+	auto const first_space = line.find(' ');
+	if (first_space == std::string_view::npos) {
+		return std::nullopt;
+	}
+	auto const code_begin = line.find_first_not_of(' ', first_space);
+	if (code_begin == std::string_view::npos) {
+		return std::nullopt;
+	}
+	auto const code_end = line.find(' ', code_begin);
+	return std::string{
+		line.substr(code_begin, code_end == std::string_view::npos ? line.size() - code_begin : code_end - code_begin)};
+}
+
 } // namespace
 TEST_CASE(
 	"ext/curl: HTTPS GET /ping returns 200 with JSON body") {
@@ -208,8 +234,7 @@ TEST_CASE(
 	"ext/openssl: s_client GET /ping returns 200 OK") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/ping");
-	REQUIRE(resp.find("HTTP/1.") != std::string::npos);
-	REQUIRE(resp.find("200") != std::string::npos);
+	REQUIRE(first_http_status_code(resp) == "200");
 	REQUIRE(resp.find(R"({"ok":true})") != std::string::npos);
 }
 TEST_CASE(
@@ -225,7 +250,7 @@ TEST_CASE(
 	"ext/openssl: s_client GET path param echoes correctly") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/hello/tls");
-	REQUIRE(resp.find("200") != std::string::npos);
+	REQUIRE(first_http_status_code(resp) == "200");
 	REQUIRE(resp.find("hello tls") != std::string::npos);
 }
 TEST_CASE(
