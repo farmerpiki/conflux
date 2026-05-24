@@ -182,7 +182,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json_reflect","parser":"standard","configs":[{"name":"p2996","extra":{"reflection":true},"args":[]}]})");
+		R"({"name":"json_reflect","parser":"standard","configs":[{"name":"p2996","extra":{"reflection":true},"args":[]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 
@@ -208,9 +208,13 @@ int main(
 		std::println(
 			"[json-reflect-bench] -----------------------------------------------------------------------------");
 	}
-	print_alloc_row(
-		"decode/reflection/dom/small",
-		measure_alloc(
+	auto run = [&](std::string_view name, auto &&fn) {
+		if (bench_matches_filter(cfg, name)) {
+			print_alloc_row(name, fn());
+		}
+	};
+	run("decode/reflection/dom/small", [&] {
+		return measure_alloc(
 			[&] {
 				auto doc = parse(small);
 				if (!doc) {
@@ -221,32 +225,33 @@ int main(
 			100,
 			500,
 			1,
-			small.size()));
-	print_alloc_row(
-		"decode/reflection/direct/small",
-		measure_alloc(
+			small.size());
+	});
+	run("decode/reflection/direct/small", [&] {
+		return measure_alloc(
 			[&] { require_boundary_decode(Provider::decode_json<ReflectSmall>(small, {.copy_input = false})); },
 			100,
 			500,
 			1,
-			small.size()));
-	print_alloc_row(
-		"decode/reflection/direct/medium",
-		measure_alloc(
+			small.size());
+	});
+	run("decode/reflection/direct/medium", [&] {
+		return measure_alloc(
 			[&] { require_boundary_decode(Provider::decode_json<ReflectMedium>(medium, {.copy_input = false})); },
 			100,
 			500,
 			1,
-			medium.size()));
-	print_alloc_row(
-		"write/reflection/dom",
-		measure_alloc(
+			medium.size());
+	});
+	run("write/reflection/dom", [&] {
+		return measure_alloc(
 			[&] { require_boundary_dump(Provider::dump_json(medium_value, sorted)); },
 			100,
 			500,
 			1,
-			medium.size()));
-	print_alloc_row(
-		"write/reflection/direct",
-		measure_alloc([&] { require_dump(dump_reflect_direct(medium_value)); }, 100, 500, 1, medium.size()));
+			medium.size());
+	});
+	run("write/reflection/direct", [&] {
+		return measure_alloc([&] { require_dump(dump_reflect_direct(medium_value)); }, 100, 500, 1, medium.size());
+	});
 }

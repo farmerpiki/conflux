@@ -23,6 +23,7 @@ export struct BenchArgs {
 	std::size_t warmup = 40000;
 	bool json_out = false;
 	std::string config_name;
+	std::vector<std::string> filters;
 };
 
 export struct BenchCalibrationDefaults {
@@ -35,7 +36,7 @@ export struct BenchCalibrationDefaults {
 
 export inline constexpr BenchCalibrationDefaults bench_calibration_defaults{};
 
-// Parses --json, --iterations, --warmup, --config-name.
+// Parses --json, --iterations, --warmup, --config-name, and repeatable --filter.
 // Unknown flags are silently ignored so each bench can do a second pass for
 // its own extra arguments over the same argv.
 export [[nodiscard]] BenchArgs bench_parse_args(
@@ -51,9 +52,26 @@ export [[nodiscard]] BenchArgs bench_parse_args(
 			a.warmup = bench_parse_sz(args[++i]);
 		} else if (arg == "--config-name" && i + 1 < args.size()) {
 			a.config_name = args[++i];
+		} else if (arg == "--filter" && i + 1 < args.size()) {
+			a.filters.emplace_back(args[++i]);
 		}
 	}
 	return a;
+}
+
+export [[nodiscard]] bool bench_matches_filter(
+	std::span<std::string const> filters,
+	std::string_view variant) {
+	if (filters.empty()) {
+		return true;
+	}
+	return std::ranges::any_of(filters, [variant](std::string const &filter) { return variant.contains(filter); });
+}
+
+export [[nodiscard]] bool bench_matches_filter(
+	BenchArgs const &args,
+	std::string_view variant) {
+	return bench_matches_filter(std::span<std::string const>{args.filters}, variant);
 }
 // ── stats output ─────────────────────────────────────────────────────────────
 

@@ -53,6 +53,7 @@ struct Config {
 	std::size_t warmup = 50;
 	std::string config_name = "default";
 	bool json_out = false;
+	std::vector<std::string> filters;
 };
 
 Config parse_args(
@@ -68,6 +69,8 @@ Config parse_args(
 			cfg.config_name = args[++i];
 		} else if (a == "--json") {
 			cfg.json_out = true;
+		} else if (a == "--filter" && i + 1 < args.size()) {
+			cfg.filters.emplace_back(args[++i]);
 		}
 	}
 	return cfg;
@@ -232,7 +235,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json_storage","parser":"standard","configs":[{"name":"default","extra":{},"args":["--config-name","default","--iterations","500","--warmup","50"]}]})");
+		R"({"name":"json_storage","parser":"standard","configs":[{"name":"default","extra":{},"args":["--config-name","default","--iterations","500","--warmup","50"]}],"filters":["--filter SUBSTR"]})");
 
 	auto const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::string const sparse = make_plain_sparse_strings(4096);
@@ -246,20 +249,17 @@ int main(
 	last_wins_opts.duplicate_key = DuplicateKeyPolicy::last_wins;
 
 	try {
-		(void)measure_parse(cfg.config_name, "plain_sparse_strings"sv, sparse, default_opts, cfg.warmup);
-		(void)measure_parse(cfg.config_name, "escape_heavy_strings"sv, escaped, default_opts, cfg.warmup);
-		(void)measure_parse(cfg.config_name, "duplicate_first_wins"sv, dup, first_wins_opts, cfg.warmup);
-		(void)measure_parse(cfg.config_name, "duplicate_last_wins"sv, dup, last_wins_opts, cfg.warmup);
-
-		std::array const samples{
-			measure_parse(cfg.config_name, "plain_sparse_strings"sv, sparse, default_opts, cfg.iterations),
-			measure_parse(cfg.config_name, "escape_heavy_strings"sv, escaped, default_opts, cfg.iterations),
-			measure_parse(cfg.config_name, "duplicate_first_wins"sv, dup, first_wins_opts, cfg.iterations),
-			measure_parse(cfg.config_name, "duplicate_last_wins"sv, dup, last_wins_opts, cfg.iterations),
+		auto run = [&](std::string_view variant, std::string_view corpus, JsonParseOptions opts) {
+			if (!bench_matches_filter(std::span<std::string const>{cfg.filters}, variant)) {
+				return;
+			}
+			(void)measure_parse(cfg.config_name, variant, corpus, opts, cfg.warmup);
+			print_sample(measure_parse(cfg.config_name, variant, corpus, opts, cfg.iterations), cfg.json_out, false);
 		};
-		for (std::size_t i = 0; i < samples.size(); ++i) {
-			print_sample(samples[i], cfg.json_out, i == 0);
-		}
+		run("plain_sparse_strings"sv, sparse, default_opts);
+		run("escape_heavy_strings"sv, escaped, default_opts);
+		run("duplicate_first_wins"sv, dup, first_wins_opts);
+		run("duplicate_last_wins"sv, dup, last_wins_opts);
 	} catch (std::exception const &ex) {
 		std::println(std::cerr, "conflux_json_storage_bench: {}", ex.what());
 		return 1;

@@ -152,6 +152,36 @@ AllocBenchStats measure_alloc(
 }
 bool g_csv = false;
 bool g_first_row = true;
+std::vector<std::string> g_filters;
+
+void print_row(std::string_view name, BenchStats s);
+void print_alloc_row(std::string_view name, AllocBenchStats s);
+
+[[nodiscard]] bool should_run(
+	std::string_view name) {
+	return bench_matches_filter(std::span<std::string const>{g_filters}, name);
+}
+
+template<class F>
+void run_row(
+	std::string_view name,
+	F &&fn) {
+	if (!should_run(name)) {
+		return;
+	}
+	print_row(name, fn());
+}
+
+template<class F>
+void run_alloc_row(
+	std::string_view name,
+	F &&fn) {
+	if (!should_run(name)) {
+		return;
+	}
+	print_alloc_row(name, fn());
+}
+
 void print_row(
 	std::string_view name,
 	BenchStats s) {
@@ -535,9 +565,8 @@ void bench_direct_struct_matrix() {
 		.items = {{.id = 1, .active = true}, {.id = 2, .active = false}, {.id = 3, .active = true}},
 	};
 
-	print_alloc_row(
-		"decode/manual/dom/small",
-		measure_alloc(
+	run_alloc_row("decode/manual/dom/small", [&] {
+		return measure_alloc(
 			[&] {
 				auto doc = parse(small);
 				if (!doc) {
@@ -548,55 +577,63 @@ void bench_direct_struct_matrix() {
 			100,
 			500,
 			1,
-			small.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/small",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchSmall>(small)); }, 100, 500, 1, small.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/medium",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchMedium>(medium)); }, 100, 500, 1, medium.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/nested",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchNested>(nested)); }, 100, 500, 1, nested.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/array_objects",
-		measure_alloc(
+			small.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/small", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchSmall>(small)); }, 100, 500, 1, small.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/medium", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchMedium>(medium)); }, 100, 500, 1, medium.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/nested", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchNested>(nested)); }, 100, 500, 1, nested.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/array_objects", [&] {
+		return measure_alloc(
 			[&] { require_decode(decode_borrowed<std::vector<BenchSmall>>(array_objects)); },
 			100,
 			500,
 			1,
-			array_objects.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/out_of_order",
-		measure_alloc(
+			array_objects.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/out_of_order", [&] {
+		return measure_alloc(
 			[&] { require_decode(decode_borrowed<BenchMedium>(out_of_order)); },
 			100,
 			500,
 			1,
-			out_of_order.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/escaped_strings",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchMedium>(escaped)); }, 100, 500, 1, escaped.size()));
-	print_alloc_row(
-		"write/manual/dom",
-		measure_alloc([&] { require_dom_write(medium_value); }, 100, 500, 1, medium.size()));
-	print_alloc_row(
-		"write/manual/direct",
-		measure_alloc([&] { require_dump(dump_direct(medium_value)); }, 100, 500, 1, medium.size()));
-	print_alloc_row(
-		"write/manual/direct/nested",
-		measure_alloc([&] { require_dump(dump_direct(nested_value)); }, 100, 500, 1, nested.size()));
+			out_of_order.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/escaped_strings", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<BenchMedium>(escaped)); },
+			100,
+			500,
+			1,
+			escaped.size());
+	});
+	run_alloc_row("write/manual/dom", [&] {
+		return measure_alloc([&] { require_dom_write(medium_value); }, 100, 500, 1, medium.size());
+	});
+	run_alloc_row("write/manual/direct", [&] {
+		return measure_alloc([&] { require_dump(dump_direct(medium_value)); }, 100, 500, 1, medium.size());
+	});
+	run_alloc_row("write/manual/direct/nested", [&] {
+		return measure_alloc([&] { require_dump(dump_direct(nested_value)); }, 100, 500, 1, nested.size());
+	});
 }
 
 void bench_parse_small(
 	std::string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 100, 500, 1, corpus.size());
-	print_row("parse/small (~4KB config)", s);
+	run_row("parse/small (~4KB config)", [&] {
+		return measure([&] { (void)parse(corpus); }, 100, 500, 1, corpus.size());
+	});
 }
 void bench_parse_large(
 	std::string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 4, 20, 1, corpus.size());
-	print_row("parse/large (~1MB nested)", s);
+	run_row("parse/large (~1MB nested)", [&] {
+		return measure([&] { (void)parse(corpus); }, 4, 20, 1, corpus.size());
+	});
 }
 void bench_decode(
 	std::string const &corpus) {
@@ -605,32 +642,33 @@ void bench_decode(
 		return;
 	}
 	// Measure: parse + extract name field as std::string_view from each object
-	auto s = measure(
-		[&] {
-			auto res = parse(corpus);
-			if (!res) {
-				return;
-			}
-			auto arr = res->root().as_array();
-			if (!arr) {
-				return;
-			}
-			for (NodeRef const elem: arr->elements()) {
-				auto obj = elem.as_object();
-				if (!obj) {
-					continue;
+	run_row("decode/struct-like (sv fields)", [&] {
+		return measure(
+			[&] {
+				auto res = parse(corpus);
+				if (!res) {
+					return;
 				}
-				auto name = obj->find_member("name");
-				if (name) {
-					(void)name->as_string();
+				auto arr = res->root().as_array();
+				if (!arr) {
+					return;
 				}
-			}
-		},
-		20,
-		100,
-		1,
-		corpus.size());
-	print_row("decode/struct-like (sv fields)", s);
+				for (NodeRef const elem: arr->elements()) {
+					auto obj = elem.as_object();
+					if (!obj) {
+						continue;
+					}
+					auto name = obj->find_member("name");
+					if (name) {
+						(void)name->as_string();
+					}
+				}
+			},
+			20,
+			100,
+			1,
+			corpus.size());
+	});
 }
 void bench_find_member(
 	std::string const &corpus) {
@@ -644,17 +682,19 @@ void bench_find_member(
 		return;
 	}
 	// batch=1000: amortise clock overhead for sub-microsecond lookup
-	auto s = measure(
-		[&] {
-			(void)obj->find_member("member_0");
-			(void)obj->find_member("member_511");
-			(void)obj->find_member("member_1023");
-		},
-		100,
-		500,
-		1000);
-	s.ns_per_iter /= 3.0;
-	print_row("find_member/1024-member object (per lookup)", s);
+	run_row("find_member/1024-member object (per lookup)", [&] {
+		auto s = measure(
+			[&] {
+				(void)obj->find_member("member_0");
+				(void)obj->find_member("member_511");
+				(void)obj->find_member("member_1023");
+			},
+			100,
+			500,
+			1000);
+		s.ns_per_iter /= 3.0;
+		return s;
+	});
 }
 void bench_array_traversal(
 	std::string const &corpus) {
@@ -666,44 +706,49 @@ void bench_array_traversal(
 	if (!arr) {
 		return;
 	}
-	auto s = measure(
-		[&] {
-			std::int64_t sum = 0;
-			for (NodeRef const elem: arr->elements()) {
-				auto n = elem.as_number();
-				if (n) {
-					auto v = n->to_i64();
-					if (v) {
-						sum += *v;
+	run_row("A/traverse 10k numbers", [&] {
+		return measure(
+			[&] {
+				std::int64_t sum = 0;
+				for (NodeRef const elem: arr->elements()) {
+					auto n = elem.as_number();
+					if (n) {
+						auto v = n->to_i64();
+						if (v) {
+							sum += *v;
+						}
 					}
 				}
-			}
-			(void)sum;
-		},
-		100,
-		500);
-	print_row("A/traverse 10k numbers", s);
+				(void)sum;
+			},
+			100,
+			500);
+	});
 }
 void bench_builder() {
-	auto s = measure(
-		[&] {
-			auto b = value_builder();
-			auto obj = b.begin_object();
-			if (!obj) {
-				return;
-			}
-			for (int i = 0; i < 64; ++i) {
-				(void)obj->insert_string(std::format("key_{}", i), std::format("value_{}", i));
-			}
-			std::move(*obj).commit();
-			(void)std::move(b).finish();
-		},
-		100,
-		500);
-	print_row("builder/64-member object", s);
+	run_row("builder/64-member object", [&] {
+		return measure(
+			[&] {
+				auto b = value_builder();
+				auto obj = b.begin_object();
+				if (!obj) {
+					return;
+				}
+				for (int i = 0; i < 64; ++i) {
+					(void)obj->insert_string(std::format("key_{}", i), std::format("value_{}", i));
+				}
+				std::move(*obj).commit();
+				(void)std::move(b).finish();
+			},
+			100,
+			500);
+	});
 }
 void bench_dump_plain(
 	std::string const &corpus) {
+	if (!should_run("dump/plain (no sort / no ascii_only)")) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -717,6 +762,9 @@ void bench_dump_plain(
 }
 void bench_dump_sorted(
 	std::string const &corpus) {
+	if (!should_run("dump/sort_object_keys")) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -734,6 +782,9 @@ void bench_accumulate_chunked(
 	std::string_view name,
 	std::string const &corpus,
 	std::size_t chunk_size) {
+	if (!should_run(name)) {
+		return;
+	}
 	auto s = measure(
 		[&] {
 			JsonAccumulator acc;
@@ -908,6 +959,11 @@ conflux::work::root::Task<void> decode_socket_once(
 void bench_e2e_decode(
 	std::string_view name,
 	std::string const &corpus) {
+	std::string const file_name = std::format("{}/file_reader", name);
+	std::string const socket_name = std::format("{}/socket_task_ring", name);
+	if (!should_run(file_name) && !should_run(socket_name)) {
+		return;
+	}
 	TempCorpusFile const temp{corpus};
 	std::string const file_path = temp.path.string();
 	::io_uring raw{};
@@ -921,10 +977,12 @@ void bench_e2e_decode(
 	FileReader files{&raw, &ct, pack_ud};
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
 	try {
-		auto file_stats =
-			measure([&] { block_on(files, decode_file_once(files, file_path)); }, 4, 20, 1, corpus.size());
-		print_row(std::format("{}/file_reader", name), file_stats);
-		{
+		if (should_run(file_name)) {
+			auto file_stats =
+				measure([&] { block_on(files, decode_file_once(files, file_path)); }, 4, 20, 1, corpus.size());
+			print_row(file_name, file_stats);
+		}
+		if (should_run(socket_name)) {
 			std::uint16_t port = 0;
 			int listener_fd = start_listener(port);
 			std::atomic_flag stop{};
@@ -936,7 +994,7 @@ void bench_e2e_decode(
 					20,
 					1,
 					corpus.size());
-				print_row(std::format("{}/socket_task_ring", name), socket_stats);
+				print_row(socket_name, socket_stats);
 			} catch (...) {
 				stop.test_and_set(std::memory_order_release);
 				(void)::shutdown(listener_fd, SHUT_RDWR);
@@ -1025,6 +1083,9 @@ std::string make_linear31_corpus() {
 }
 void bench_find_member_linear31(
 	std::string const &corpus) {
+	if (!should_run("find_member/31-member linear (per lookup)")) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -1049,6 +1110,9 @@ void bench_find_member_linear31(
 // uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
 void bench_find_member_escaped(
 	std::string const &corpus) {
+	if (!should_run("find_member/1024-member escaped names (per lookup)")) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -1073,6 +1137,9 @@ void bench_find_member_escaped(
 // Item C — worst-case dispatch: alternating kStorageInputView/arena per probe.
 void bench_find_member_mixed(
 	std::string const &corpus) {
+	if (!should_run("find_member/1024-member mixed names (per lookup)")) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -1116,6 +1183,9 @@ void bench_builder_name_length() {
 	std::vector<std::string> const k128 = gen_keys(static_cast<std::size_t>(kMembers), 128);
 
 	auto run = [&](std::vector<std::string> const &keys, std::string_view label) {
+		if (!should_run(label)) {
+			return;
+		}
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -1140,6 +1210,9 @@ void bench_builder_name_length() {
 	run(k128, "builder/insert_string 128-char keys (per insert)");
 
 	auto run_view = [&](std::vector<std::string> const &keys, std::string_view label) {
+		if (!should_run(label)) {
+			return;
+		}
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -1169,6 +1242,9 @@ void bench_parse_named(
 	std::string const &corpus,
 	std::size_t warmup = 10,
 	std::size_t iters = 50) {
+	if (!should_run(name)) {
+		return;
+	}
 	auto s = measure([&] { (void)parse(corpus); }, warmup, iters, 1, corpus.size());
 	print_row(name, s);
 }
@@ -1177,6 +1253,9 @@ void bench_dump_named(
 	std::string const &corpus,
 	std::size_t warmup = 10,
 	std::size_t iters = 50) {
+	if (!should_run(name)) {
+		return;
+	}
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -1215,6 +1294,9 @@ void bench_parse_required_named(
 	std::size_t warmup = 10,
 	std::size_t iters = 50,
 	JsonParseOptions const &opts = {}) {
+	if (!should_run(name)) {
+		return;
+	}
 	auto s = measure(
 		[&] {
 			auto doc = parse(corpus, opts);
@@ -1233,6 +1315,9 @@ void bench_parse_reject_named(
 	std::string const &corpus,
 	std::size_t warmup = 20,
 	std::size_t iters = 100) {
+	if (!should_run(name)) {
+		return;
+	}
 	auto s = measure(
 		[&] {
 			auto doc = parse(corpus);
@@ -1304,7 +1389,7 @@ void bench_duplicate_policy_fixture(
 void bench_fi1_sentinel(
 	std::string const &small_corpus,
 	std::string const &lookup_corpus) {
-	{
+	if (should_run("FI-1/sentinel: (A) linear-only 7-member (failure path proxy)")) {
 		auto doc = parse(small_corpus);
 		if (!doc) {
 			return;
@@ -1325,7 +1410,7 @@ void bench_fi1_sentinel(
 		s.ns_per_iter /= 3.0;
 		print_row("FI-1/sentinel: (A) linear-only 7-member (failure path proxy)", s);
 	}
-	{
+	if (should_run("FI-1/sentinel: (B) build+lookup overhead (parse+find − parse-only)")) {
 		auto parse_only = measure([&] { (void)parse(lookup_corpus); }, 20, 100);
 		auto parse_find = measure(
 			[&] {
@@ -1388,43 +1473,52 @@ std::string make_reject_corpus(
 }
 void bench_reject_policy() {
 	for (std::size_t extra: std::array<std::size_t, 5>{0, 10, 50, 100, 200}) {
+		std::string const reject_name = std::format("decode/reject 5+{} members", extra);
+		std::string const ignore_name = std::format("decode/ignore 5+{} members", extra);
+		if (!should_run(reject_name) && !should_run(ignore_name)) {
+			continue;
+		}
 		std::string const corpus = make_reject_corpus(extra);
 		auto doc_res = parse(corpus);
 		if (!doc_res) {
 			return;
 		}
 
-		// reject policy (default): O(N·M) scan after DOM decode
-		auto s_reject = measure(
-			[&] {
-				auto d = parse(corpus);
-				if (!d) {
-					return;
-				}
-				JsonDecodeOptions opts;
-				opts.unknown_members = UnknownMemberPolicy::reject;
-				auto r = decode<BenchModel5>(d->root(), opts);
-				(void)r;
-			},
-			100,
-			500);
-		print_row(std::format("decode/reject 5+{} members", extra), s_reject);
+		if (should_run(reject_name)) {
+			// reject policy (default): O(N·M) scan after DOM decode
+			auto s_reject = measure(
+				[&] {
+					auto d = parse(corpus);
+					if (!d) {
+						return;
+					}
+					JsonDecodeOptions opts;
+					opts.unknown_members = UnknownMemberPolicy::reject;
+					auto r = decode<BenchModel5>(d->root(), opts);
+					(void)r;
+				},
+				100,
+				500);
+			print_row(reject_name, s_reject);
+		}
 
-		// ignore policy: no extra scan
-		auto s_ignore = measure(
-			[&] {
-				auto d = parse(corpus);
-				if (!d) {
-					return;
-				}
-				JsonDecodeOptions opts;
-				opts.unknown_members = UnknownMemberPolicy::ignore;
-				auto r = decode<BenchModel5>(d->root(), opts);
-				(void)r;
-			},
-			100,
-			500);
-		print_row(std::format("decode/ignore 5+{} members", extra), s_ignore);
+		if (should_run(ignore_name)) {
+			// ignore policy: no extra scan
+			auto s_ignore = measure(
+				[&] {
+					auto d = parse(corpus);
+					if (!d) {
+						return;
+					}
+					JsonDecodeOptions opts;
+					opts.unknown_members = UnknownMemberPolicy::ignore;
+					auto r = decode<BenchModel5>(d->root(), opts);
+					(void)r;
+				},
+				100,
+				500);
+			print_row(ignore_name, s_ignore);
+		}
 	}
 }
 
@@ -1436,9 +1530,10 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_csv = cfg.json_out;
+	g_filters = cfg.filters;
 	if (!g_csv) {
 		std::println("[json-bench] building corpora…");
 	}
