@@ -11,6 +11,7 @@ fail() {
 
 [[ -f CMakeLists.txt ]] || fail "missing CMakeLists.txt"
 [[ -f cmake/conflux-config.cmake.in ]] || fail "missing package config template"
+[[ -f cmake/ConfluxOptions.cmake ]] || fail "missing option/normalization CMake module"
 [[ -f cmake/ConfluxGeneratePackageMetadata.cmake.in ]] || fail "missing package metadata generator"
 [[ -f cmake/ConfluxInstall.cmake ]] || fail "missing install/export CMake module"
 [[ -f cmake/package-smoke/CMakeLists.txt ]] || fail "missing package smoke project"
@@ -62,13 +63,13 @@ grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
     || fail "missing package smoke component cache variable"
 grep -q 'add_test(NAME build/package-config-install-tree' tests/CMakeLists.txt \
     || fail "missing installed-prefix package smoke CTest guard"
-grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' CMakeLists.txt \
+grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' cmake/ConfluxOptions.cmake \
     || fail "missing package-only CTest option"
-grep -q 'CONFLUX_HEADER_FAST_COMPILE' CMakeLists.txt \
+grep -q 'CONFLUX_HEADER_FAST_COMPILE' cmake/ConfluxOptions.cmake \
     || fail "missing header fast-compile option"
-grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' CMakeLists.txt \
+grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in linked header examples option"
-grep -q 'CONFLUX_HEADER_LINK_SMOKE' CMakeLists.txt \
+grep -q 'CONFLUX_HEADER_LINK_SMOKE' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in linked header smoke option"
 grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/ConfluxInterfaceMode.cmake \
     || fail "header generated targets must disable module scanning"
@@ -84,11 +85,11 @@ grep -q 'conflux_header_impl_json' cmake/ConfluxInterfaceMode.cmake \
     || fail "header implementation sources must be split by component"
 grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfaceMode.cmake \
     || fail "header generated targets must override release optimization for fast compile"
-grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' CMakeLists.txt \
+grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in install-tree smoke CTest option"
 grep -q 'add_test(NAME build/install-tree-smoke' tests/CMakeLists.txt \
 	|| fail "missing install-tree smoke CTest guard"
-grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' CMakeLists.txt \
+grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' cmake/ConfluxOptions.cmake \
 	|| fail "HEADER_INTERFACE must disable CMake module scanning"
 grep -q '"name": "release-header-artifacts"' CMakePresets.json \
     || fail "missing release-header-artifacts preset"
