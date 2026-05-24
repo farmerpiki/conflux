@@ -160,7 +160,7 @@ template<class T>
 
 [[nodiscard]] Response json_body_too_large_problem() {
 	return Response::problem_json(
-		R"({"code":"content_too_large","detail":"request body is larger than the configured limit"})",
+		R"({"code":"body_too_large","detail":"request body exceeds the configured limit"})",
 		kHttpRequestEntityTooLarge,
 		"Content Too Large");
 }

@@ -1743,7 +1743,7 @@ TEST_CASE(
 	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.content_type == "application/problem+json");
-	CHECK(too_large.text_body().find(R"("code":"content_too_large")") != std::string_view::npos);
+	CHECK(too_large.text_body().find(R"("code":"body_too_large")") != std::string_view::npos);
 }
 
 TEST_CASE(
@@ -1838,7 +1838,7 @@ TEST_CASE(
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.status_text == "Content Too Large");
 	CHECK(too_large.content_type == "application/problem+json");
-	CHECK(too_large.text_body().find(R"("code":"content_too_large")") != std::string_view::npos);
+	CHECK(too_large.text_body().find(R"("code":"body_too_large")") != std::string_view::npos);
 }
 
 TEST_CASE(
