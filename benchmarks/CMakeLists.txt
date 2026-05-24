@@ -129,7 +129,7 @@ endif()
 conflux_add_recordable_benchmark(conflux_crypto_bench crypto_bench.cxx)
 target_link_libraries(conflux_crypto_bench PRIVATE bench_common conflux conflux_options)
 
-if(CONFLUX_ENABLE_CPU_DISPATCH AND TARGET conflux_crypto)
+if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
     conflux_add_recordable_benchmark(conflux_cpu_dispatch_impl_bench cpu_dispatch_impl_bench.cxx)
     target_link_libraries(
         conflux_cpu_dispatch_impl_bench

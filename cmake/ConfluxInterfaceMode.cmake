@@ -239,7 +239,6 @@ function(conflux_apply_header_impl_common target)
         CONFLUX_HEADER_USE_IMPORT_STD=0
         CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
         CONFLUX_HEADER_USE_MODULE_IMPORTS=0
-        CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
         CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
         CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
         CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
@@ -595,7 +594,6 @@ function(conflux_add_header_interface_target)
         CONFLUX_HEADER_USE_IMPORT_STD=0
         CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
         CONFLUX_HEADER_USE_MODULE_IMPORTS=0
-        CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
         CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
         CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
         CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
@@ -1365,7 +1363,7 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/work_bench
         benchmarks/work_compile_bench
         benchmarks/workpool_enqueue_dequeue_bench)
-    if(CONFLUX_ENABLE_CPU_DISPATCH AND CONFLUX_WANT_CRYPTO)
+    if(_conflux_cpu_feature_probes_runtime AND CONFLUX_WANT_CRYPTO)
         list(APPEND _conflux_header_benchmark_source_ids
             benchmarks/cpu_dispatch_impl_bench)
     endif()

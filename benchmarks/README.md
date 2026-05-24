@@ -62,10 +62,10 @@ Before changing the cutoff or extending this to reflected decode, rerun at least
 Acceptance evidence should include all-known and unknown-heavy rows, plus
 compile-time and binary-size impact for the generated lookup metadata.
 
-When `CONFLUX_ENABLE_CPU_DISPATCH=ON`, the optional
+When `CONFLUX_SIMD_SELECTION=RUNTIME`, the optional
 `conflux_cpu_dispatch_impl_bench` target compares the scalar fallback,
 compiled ISA fastpath, and public dispatch wrapper for the small kernels used by
-runtime dispatch. It is not created when CPU dispatch is disabled, so non-dispatch
+runtime dispatch. It is not created in direct mode, so non-runtime
 builds keep the same benchmark target set.
 
 ```sh

@@ -99,7 +99,6 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_MODULE_USE_IMPORTS=0
     CONFLUX_MODULE_REEXPORT_IMPORTS=0
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
-    CONFLUX_ENABLE_CPU_DISPATCH=$<BOOL:${CONFLUX_ENABLE_CPU_DISPATCH}>
     CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
     CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
     CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
@@ -128,11 +127,6 @@ if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")
 else()
     message(STATUS "conflux: experimental features disabled")
-endif()
-if(CONFLUX_ENABLE_CPU_DISPATCH)
-    message(STATUS "conflux: legacy CPU dispatch knob enabled")
-else()
-    message(STATUS "conflux: legacy CPU dispatch knob disabled")
 endif()
 message(STATUS "conflux: SIMD selection resolved to ${_conflux_simd_selection}")
 if(_conflux_cpu_feature_probes_runtime)
