@@ -69,6 +69,10 @@ those reviews.
 - `findings/5.md`: accepted the recv-bundle e2e weak assertion gap. The final
   liveness checks now validate the HTTP status line and exact JSON body instead
   of substring presence.
+- `findings/5.md`: accepted the header compile-fail wiring/quality issue.
+  Header-mode compile-fail tests are wired and verified; source fixes removed
+  header-only masking errors around ambiguous `Request`, missing
+  `<shared_mutex>`, and curated/extended exposure of `IoUringCaps`.
 
 ## Accepted backlog
 
@@ -88,11 +92,10 @@ those reviews.
 - `findings/4.md`: response gather-send, response storage normalization, and
   middleware allocation reduction. Accepted as performance backlog requiring
   benchmarks and isolated changes.
-- `findings/5.md`: remaining compile-fail wiring and structured-output
-  assertion gaps stay accepted test backlog. HTTP package smoke, façade import
-  purity, API surface symbol smokes, CQ-overflow status tightening, and SSE
-  exact stream assertions, and recv-bundle exact response assertions are
-  complete above.
+- `findings/5.md`: remaining structured-output assertion gaps stay accepted
+  test backlog. HTTP package smoke, façade import purity, API surface symbol
+  smokes, compile-fail wiring, CQ-overflow status tightening, SSE exact stream
+  assertions, and recv-bundle exact response assertions are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -162,6 +165,15 @@ those reviews.
   conflux_recv_bundle_e2e_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "recv_bundle.e2e"` completed: 2/2 passed.
+- Fresh header-interface compile-fail check completed:
+  `cmake --preset release-clang-libcxx -B
+  /tmp/gcc-16/header-compile-fail-check -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE
+  -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON -DCONFLUX_BUILD_TESTS=ON
+  -DCONFLUX_SIMD_SELECTION=DIRECT`, then `ctest --test-dir
+  /tmp/gcc-16/header-compile-fail-check --output-on-failure -R
+  "(http-facade-header/compile-fail|api-surface/header-)"`: 15/15 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_uring conflux_pg` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.

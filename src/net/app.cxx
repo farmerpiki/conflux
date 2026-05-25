@@ -21,7 +21,9 @@ import conflux.net.http_server;
 import conflux.net.observability;
 import conflux.net.request_id;
 import conflux.net.tracing;
+#if !defined(CONFLUX_INTERFACE_HEADER)
 import conflux.uring;
+#endif
 import conflux.crypto;
 import conflux.utils;
 #if CONFLUX_HAS_JSON
@@ -446,11 +448,11 @@ public:
 					};
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
-		} else if constexpr (requires(Fn &fn, Request const &req) {
+		} else if constexpr (requires(Fn &fn, ::Request const &req) {
 								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
-			record_route_metadata<std::tuple<Request>>(method, path, "app", loc);
-			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
+			record_route_metadata<std::tuple<::Request>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, ::Request const &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;

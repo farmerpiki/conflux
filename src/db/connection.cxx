@@ -6,6 +6,7 @@ module;
 #include <fcntl.h>
 #include <libpq-fe.h>
 #include <poll.h>
+#include <shared_mutex>
 
 export module conflux.pg.connection;
 

@@ -1270,7 +1270,7 @@ function(conflux_add_header_compile_fail_tests)
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-middleware-concept-alias
         tests/http_facade_compile_fail_middleware_concept_alias
-        "no member named 'Middleware' in namespace 'conflux::http'")
+        "no template named 'Middleware' in namespace 'conflux::http'")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-router-member
         tests/http_facade_compile_fail_router_member

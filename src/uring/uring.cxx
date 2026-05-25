@@ -499,6 +499,7 @@ inline constexpr unsigned inc{static_cast<unsigned>(IOU_PBUF_RING_INC)};
 } // namespace buf_ring_flags
 // ── IoUringCaps ───────────────────────────────────────────────────────────────
 
+#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 struct IoUringCaps {
 	// raw kernel feature bits
 	bool feat_nodrop{};
@@ -585,6 +586,7 @@ struct IoUringCaps {
 	app("recv_poll_first", c.recv_poll_first);
 	return s;
 }
+#endif
 
 } // namespace conflux::uring
 

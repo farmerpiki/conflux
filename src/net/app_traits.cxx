@@ -159,7 +159,7 @@ template<class Arg>
 concept RequestViewArg = std::same_as<std::remove_cvref_t<Arg>, RequestView>;
 
 template<class Arg>
-concept RequestArg = std::same_as<std::remove_cvref_t<Arg>, Request>;
+concept RequestArg = std::same_as<std::remove_cvref_t<Arg>, ::Request>;
 
 template<class Arg>
 concept BodyTextArg = std::same_as<std::remove_cvref_t<Arg>, BodyText>;
