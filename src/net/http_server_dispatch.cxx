@@ -107,57 +107,13 @@ void note_common_header(
 	return ExpectState::none;
 }
 
-void note_rejection(
-	HttpRejectionMetrics &metrics,
-	HttpRejectReason reason) noexcept {
-	switch (reason) {
-	case HttpRejectReason::malformed_request       : ++metrics.malformed_request; break;
-	case HttpRejectReason::request_line_too_large  : ++metrics.request_line_too_large; break;
-	case HttpRejectReason::header_line_too_large   : ++metrics.header_line_too_large; break;
-	case HttpRejectReason::header_block_too_large  : ++metrics.header_block_too_large; break;
-	case HttpRejectReason::too_many_headers        : ++metrics.too_many_headers; break;
-	case HttpRejectReason::missing_host            : ++metrics.missing_host; break;
-	case HttpRejectReason::duplicate_host          : ++metrics.duplicate_host; break;
-	case HttpRejectReason::malformed_content_length: ++metrics.malformed_content_length; break;
-	case HttpRejectReason::duplicate_content_length: ++metrics.duplicate_content_length; break;
-	case HttpRejectReason::content_length_with_transfer_encoding:
-		++metrics.content_length_with_transfer_encoding;
-		break;
-	case HttpRejectReason::unsupported_transfer_encoding: ++metrics.unsupported_transfer_encoding; break;
-	case HttpRejectReason::invalid_transfer_encoding    : ++metrics.invalid_transfer_encoding; break;
-	case HttpRejectReason::invalid_chunk                : ++metrics.invalid_chunk; break;
-	case HttpRejectReason::body_too_large               : ++metrics.body_too_large; break;
-	case HttpRejectReason::expectation_failed           : ++metrics.expectation_failed; break;
-	case HttpRejectReason::header_timeout               : ++metrics.header_timeout; break;
-	case HttpRejectReason::body_timeout                 : ++metrics.body_timeout; break;
-	case HttpRejectReason::none                         : break;
-	}
-}
-
 void emit_rejection(
 	Conn &conn,
 	std::string_view raw,
 	Ring &ring,
 	HttpRejectReason reason,
 	std::string_view alt_svc) {
-	Response r;
-	r.status = reject_reason_status(reason);
-	switch (r.status) {
-	case 400: r.status_text = "Bad Request"; break;
-	case 408: r.status_text = "Request Timeout"; break;
-	case 413: r.status_text = "Content Too Large"; break;
-	case 414: r.status_text = "URI Too Long"; break;
-	case 417: r.status_text = "Expectation Failed"; break;
-	case 431: r.status_text = "Request Header Fields Too Large"; break;
-	default : r.status_text = "Bad Request"; break;
-	}
-	r.content_type = "application/problem+json";
-	r.set_text_body(
-		std::format(
-			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
-			reject_reason_code(reason),
-			reject_reason_diagnostic_code(reason),
-			reject_reason_detail(reason)));
+	auto r = make_rejection_response(reason);
 	note_rejection(ring.rejection_counters_, reason);
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);

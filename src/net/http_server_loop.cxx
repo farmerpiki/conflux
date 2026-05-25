@@ -73,21 +73,8 @@ void emit_timeout_rejection(
 	Conn &conn,
 	Ring &ring,
 	HttpRejectReason reason) {
-	Response r;
-	r.status = reject_reason_status(reason);
-	r.status_text = "Request Timeout";
-	r.content_type = "application/problem+json";
-	r.set_text_body(
-		std::format(
-			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
-			reject_reason_code(reason),
-			reject_reason_diagnostic_code(reason),
-			reject_reason_detail(reason)));
-	switch (reason) {
-	case HttpRejectReason::header_timeout: ++ring.rejection_counters_.header_timeout; break;
-	case HttpRejectReason::body_timeout  : ++ring.rejection_counters_.body_timeout; break;
-	default                              : break;
-	}
+	auto r = make_rejection_response(reason);
+	note_rejection(ring.rejection_counters_, reason);
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);
 	}

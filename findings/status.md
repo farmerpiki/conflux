@@ -45,6 +45,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/6.md` P2 JSON extractor body parsing repetition: complete. JSON
   body content-type and max-body-size checks now share a private helper while
   leaving document/patch/merge-patch/typed decode branches explicit.
+- `findings/2.md` P0/P1 HTTP rejection problem response construction:
+  complete. HTTP/1 parser and timeout rejection paths now share
+  `make_rejection_response(...)` and `note_rejection(...)` from
+  `http_server_helpers`, leaving connection formatting and observability hooks
+  local to each emitter.
 
 ## Verification
 
@@ -102,6 +107,13 @@ Current review set: `findings/1.md` through `findings/7.md` after
   gate checks.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade:.*json|http json:"` completed: 7/7 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_server
+  conflux_tests conflux_http_server_helpers_tests` completed after sharing HTTP
+  rejection response construction and metrics.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "parser: rejection metrics count classified HTTP/1
+  rejects|body_timeout|header_timeout|http_server_helpers:"` completed: 15/15
+  passed.
 
 ## Accepted / In Scope
 
