@@ -2334,6 +2334,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: owned response helpers move caller bodies",
+	"[http.facade]") {
+	auto text_body = std::string{"owned text"};
+	auto text = http::owned_text(std::move(text_body));
+	CHECK(text.text_body() == "owned text");
+
+	auto html_body = std::string{"<p>owned</p>"};
+	auto html = http::owned_html(std::move(html_body));
+	CHECK(html.content_type == "text/html; charset=utf-8");
+	CHECK(html.text_body() == "<p>owned</p>");
+
+	auto created_body = std::string{"created"};
+	auto created = http::owned_created(std::move(created_body), "text/custom");
+	CHECK(created.status == kHttpCreated);
+	CHECK(created.content_type == "text/custom");
+	CHECK(created.text_body() == "created");
+}
+
+TEST_CASE(
 	"http facade: file helper reads small files",
 	"[http.facade]") {
 	struct Cleanup {

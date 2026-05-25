@@ -59,9 +59,19 @@ using AsyncNext = ::Router::AsyncNext;
 	return Response::text(std::string{body});
 }
 
+[[nodiscard]] Response owned_text(
+	std::string body) {
+	return Response::text(std::move(body));
+}
+
 [[nodiscard]] Response html(
 	std::string_view body) {
 	return Response::html(std::string{body});
+}
+
+[[nodiscard]] Response owned_html(
+	std::string body) {
+	return Response::html(std::move(body));
 }
 
 [[nodiscard]] Response no_content() {
@@ -101,6 +111,12 @@ template<class F>
 	std::string_view body,
 	std::string_view content_type = "text/plain; charset=utf-8") {
 	return Response::with_body(std::string{body}, std::string{content_type}, kHttpCreated);
+}
+
+[[nodiscard]] Response owned_created(
+	std::string body,
+	std::string content_type = "text/plain; charset=utf-8") {
+	return Response::with_body(std::move(body), std::move(content_type), kHttpCreated);
 }
 
 template<class T>
