@@ -145,6 +145,24 @@ struct ReflectMedium {
 	std::optional<std::int64_t> limit{};
 	std::vector<std::int64_t> values{};
 };
+struct ReflectWide16 {
+	std::int64_t f00{};
+	std::int64_t f01{};
+	std::int64_t f02{};
+	std::int64_t f03{};
+	std::int64_t f04{};
+	std::int64_t f05{};
+	std::int64_t f06{};
+	std::int64_t f07{};
+	std::int64_t f08{};
+	std::int64_t f09{};
+	std::int64_t f10{};
+	std::int64_t f11{};
+	std::int64_t f12{};
+	std::int64_t f13{};
+	std::int64_t f14{};
+	std::int64_t f15{};
+};
 
 template<class T>
 void require_decode(
@@ -190,6 +208,8 @@ int main(
 	std::string const small = R"({"id":7,"active":true})";
 	std::string const medium =
 		R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4,5,6,7,8]})";
+	std::string const wide16 =
+		R"({"f00":0,"f01":1,"f02":2,"f03":3,"f04":4,"f05":5,"f06":6,"f07":7,"f08":8,"f09":9,"f10":10,"f11":11,"f12":12,"f13":13,"f14":14,"f15":15})";
 	ReflectMedium const medium_value{
 		.id = 7,
 		.count = 42,
@@ -242,6 +262,14 @@ int main(
 			500,
 			1,
 			medium.size());
+	});
+	run("decode/reflection/direct/wide16", [&] {
+		return measure_alloc(
+			[&] { require_boundary_decode(Provider::decode_json<ReflectWide16>(wide16, {.copy_input = false})); },
+			100,
+			500,
+			1,
+			wide16.size());
 	});
 	run("write/reflection/dom", [&] {
 		return measure_alloc(

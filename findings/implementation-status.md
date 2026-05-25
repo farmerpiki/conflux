@@ -88,15 +88,18 @@ those reviews.
   pool's total connection count atomically, so a later owner-thread acquire can
   create replacement capacity instead of treating the closed connection as still
   live.
+- `findings/2.md`: accepted the reflected JSON member lookup
+  ergonomics/performance issue. Wide reflected aggregate direct decode now uses
+  the same fixed open-addressed, zero-allocation member-name lookup shape as the
+  manual `JsonMembers<T>` path for streaming key dispatch and DOM unknown-member
+  rejection, while keeping the existing linear path for small reflected
+  aggregates.
 
 ## Accepted backlog
 
-- `findings/2.md`: reflected JSON member lookup ergonomics/performance.
-  Accepted direction, but not in this slice; needs a focused data-structure
-  change and benchmarks.
-- `findings/2.md`: client effective-header materialization, public/internal
-  header callback algorithms, and shared parameterized HTTP-list parsing are
-  complete above.
+- `findings/2.md`: reflected JSON member lookup, client effective-header
+  materialization, public/internal header callback algorithms, and shared
+  parameterized HTTP-list parsing are complete above.
 - `findings/2.md`: route-pattern/OpenAPI/template rendering deduplication.
   Accepted as design debt, but too broad for this safety/perf slice.
 - `findings/3.md`: generic io_uring sync task driver, HTTP client body state
@@ -240,3 +243,24 @@ those reviews.
 - Fresh full `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest
   --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed:
   1945/1945 passed.
+- `cmake --preset debug-p2996-gcc`, then `cmake --build
+  /tmp/gcc-16/debug-p2996-gcc --target conflux_json_reflect
+  conflux_json_reflect_provider`, completed after the reflected member lookup
+  change.
+- `cmake --build /tmp/gcc-16/debug-p2996-gcc --target
+  conflux_json_reflect_tests` and `ctest --test-dir
+  /tmp/gcc-16/debug-p2996-gcc --output-on-failure -R
+  "conflux_json_reflect_tests"` completed: 1/1 passed.
+- Release reflection verification used a dedicated P2996 check tree configured
+  from `release-p2996-gcc` with `CONFLUX_ENABLE_LTO=OFF` and
+  `CONFLUX_USE_STDSIMD=OFF`, because the stock release P2996 preset currently
+  hits a GCC 16 ICE in unrelated `json_simd_std26.cxx` LTO before compiling the
+  reflection module.
+- In that release P2996 check tree, `cmake --build
+  /tmp/gcc-16/release-p2996-gcc-reflect-check --target
+  conflux_json_reflect_bench conflux_json_reflect_tests`, `ctest --test-dir
+  /tmp/gcc-16/release-p2996-gcc-reflect-check --output-on-failure -R
+  "conflux_json_reflect_tests"`, and
+  `/tmp/gcc-16/release-p2996-gcc-reflect-check/benchmarks/conflux_json_reflect_bench
+  --filter "decode/reflection/direct/wide16"` completed. The new wide16 row ran
+  at 2234 ns median with 1.00 allocation/iteration.

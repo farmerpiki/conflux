@@ -259,6 +259,147 @@ template<class M>
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch);
 
+// Wide-object measurements for the manual JsonMembers path showed generated
+// lookup wins from 16 fields upward while the tiny linear path stays best for
+// small aggregates. Keep reflection on the same cutoff.
+inline constexpr std::size_t kReflectMemberLinearLookupLimit = 8;
+
+[[nodiscard]] constexpr std::uint64_t reflect_member_name_hash(
+	std::string_view name) noexcept {
+	std::uint64_t h = 1469598103934665603ULL;
+	for (char c: name) {
+		h ^= static_cast<unsigned char>(c);
+		h *= 1099511628211ULL;
+	}
+	return h;
+}
+
+[[nodiscard]] constexpr std::size_t reflect_member_lookup_capacity(
+	std::size_t member_count) noexcept {
+	std::size_t capacity = 1;
+	while (capacity < member_count * 2) {
+		capacity <<= 1;
+	}
+	return capacity;
+}
+
+template<class T>
+using ReflectMemberDecodeFn = std::expected<void, JsonError> (
+		*)(T &, JsonReader &, JsonReader::Event, JsonDecodeOptions const &, JsonDecodeScratch *);
+
+template<class T>
+struct ReflectMemberLookupEntry {
+	std::string_view name{};
+	std::uint64_t hash{};
+	std::size_t index{};
+	ReflectMemberDecodeFn<T> decode{};
+	bool occupied{};
+};
+
+template<class T, std::size_t I>
+std::expected<void, JsonError> decode_reflect_member_by_static_index(
+	T &result,
+	JsonReader &reader,
+	JsonReader::Event event,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	constexpr auto mem = reflect_member_at<T, I>();
+	auto decoded = decode_reflect_reader_member_into(result.[:mem:], reader, event, opts, scratch);
+	if (!decoded) {
+		return std::unexpected(std::move(decoded).error());
+	}
+	return {};
+}
+
+template<class T, std::size_t I>
+[[nodiscard]] ReflectMemberLookupEntry<T> make_reflect_member_lookup_entry() {
+	constexpr auto mem = reflect_member_at<T, I>();
+	constexpr auto name_info = reflect_field_name<mem>();
+	std::string_view const field_name{name_info.p, name_info.n};
+	return ReflectMemberLookupEntry<T>{
+		.name = field_name,
+		.hash = reflect_member_name_hash(field_name),
+		.index = I,
+		.decode = &decode_reflect_member_by_static_index<T, I>,
+		.occupied = true};
+}
+
+template<class T, std::size_t... Is>
+[[nodiscard]] auto make_reflect_member_lookup_slots_impl(
+	std::index_sequence<Is...>) {
+	constexpr std::size_t member_count = sizeof...(Is);
+	std::array<ReflectMemberLookupEntry<T>, reflect_member_lookup_capacity(member_count)> slots{};
+	auto insert = [&](ReflectMemberLookupEntry<T> entry) {
+		auto pos = static_cast<std::size_t>(entry.hash) & (slots.size() - 1);
+		while (slots[pos].occupied) {
+			pos = (pos + 1) & (slots.size() - 1);
+		}
+		slots[pos] = entry;
+	};
+	(
+		[&]<std::size_t I>() {
+			constexpr auto mem = reflect_member_at<T, I>();
+			if constexpr (!reflect_has_skip<mem>()) {
+				insert(make_reflect_member_lookup_entry<T, I>());
+			}
+		}.template operator ()<Is>(),
+		...);
+	return slots;
+}
+
+template<class T>
+[[nodiscard]] auto const &reflect_member_lookup_slots() {
+	constexpr std::size_t member_count = reflect_member_count<T>();
+	static auto const slots = make_reflect_member_lookup_slots_impl<T>(std::make_index_sequence<member_count>{});
+	return slots;
+}
+
+template<class T>
+[[nodiscard]] ReflectMemberLookupEntry<T> const *find_reflect_member_lookup_entry(
+	std::string_view key) {
+	auto const &slots = reflect_member_lookup_slots<T>();
+	std::uint64_t const hash = reflect_member_name_hash(key);
+	auto pos = static_cast<std::size_t>(hash) & (slots.size() - 1);
+	for (std::size_t probe = 0; probe < slots.size(); ++probe) {
+		auto const &slot = slots[pos];
+		if (!slot.occupied) {
+			return nullptr;
+		}
+		if (slot.hash == hash && slot.name == key) {
+			return &slot;
+		}
+		pos = (pos + 1) & (slots.size() - 1);
+	}
+	return nullptr;
+}
+
+template<class T>
+[[nodiscard]] bool is_reflect_member_name(
+	std::string_view key) {
+	constexpr auto N = reflect_member_count<T>();
+	if constexpr (N > kReflectMemberLinearLookupLimit) {
+		return find_reflect_member_lookup_entry<T>(key) != nullptr;
+	} else {
+		bool found = false;
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			(
+				[&]<std::size_t I>() {
+					if (found) {
+						return;
+					}
+					constexpr auto mem = reflect_member_at<T, I>();
+					if constexpr (reflect_has_skip<mem>()) {
+						return;
+					}
+					constexpr auto name_info = reflect_field_name<mem>();
+					found = key == std::string_view{name_info.p, name_info.n};
+				}.template operator ()<Is>(),
+				...);
+		}(std::make_index_sequence<N>{});
+		return found;
+	}
+}
+
 template<class M>
 [[nodiscard]] std::expected<M, JsonError> decode_reflect_reader_member(
 	JsonReader &reader,
@@ -318,7 +459,6 @@ template<class M>
 			}
 		}
 	} else if constexpr (is_array_refl<Raw>::value) {
-		using Elem = typename Raw::value_type;
 		constexpr std::size_t N = std::tuple_size_v<Raw>;
 		if (event != Ev::begin_array) {
 			return std::unexpected(
@@ -505,64 +645,102 @@ template<class T>
 		std::string_view const key = *key_res;
 		bool matched = false;
 
-		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
-			(
-				[&]<std::size_t I>() {
-					if (matched || !ok) {
-						return;
-					}
-					constexpr auto mem = reflect_member_at<T, I>();
-					if constexpr (reflect_has_skip<mem>()) {
-						return;
-					}
-					constexpr auto name_info = reflect_field_name<mem>();
-					std::string_view const field_name{name_info.p, name_info.n};
-					if (key != field_name) {
-						return;
-					}
-					matched = true;
-					bool const already_found = found[I];
-					if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::reject) {
-						ok = false;
-						first_err = reflect_duplicate_member_error(field_name);
-						return;
-					}
-
+		if constexpr (N > kReflectMemberLinearLookupLimit) {
+			if (auto const *entry = find_reflect_member_lookup_entry<T>(key); entry != nullptr) {
+				matched = true;
+				bool const already_found = found[entry->index];
+				if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::reject) {
+					ok = false;
+					first_err = reflect_duplicate_member_error(entry->name);
+				} else {
 					auto value = reader.next();
 					if (!value) {
 						ok = false;
 						first_err = std::move(value).error();
-						return;
-					}
-					if (!*value) {
+					} else if (!*value) {
 						ok = false;
 						first_err = JsonError{
 							.stage = JsonStage::decode,
 							.code = JsonIssueCode::unexpected_eof,
 							.message = "EOF in object value"};
-						return;
-					}
-					if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
+					} else if (
+						already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
 						if (auto skipped = skip_reader_event(reader, **value); !skipped) {
 							ok = false;
 							first_err = std::move(skipped).error();
 						}
-						return;
+					} else {
+						if (!already_found) {
+							found[entry->index] = true;
+						}
+						auto decoded = entry->decode(result, reader, **value, opts, &decode_scratch);
+						if (!decoded) {
+							ok = false;
+							first_err = std::move(decoded).error();
+						}
 					}
-					if (!already_found) {
-						found[I] = true;
-					}
+				}
+			}
+		} else {
+			[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+				(
+					[&]<std::size_t I>() {
+						if (matched || !ok) {
+							return;
+						}
+						constexpr auto mem = reflect_member_at<T, I>();
+						if constexpr (reflect_has_skip<mem>()) {
+							return;
+						}
+						constexpr auto name_info = reflect_field_name<mem>();
+						std::string_view const field_name{name_info.p, name_info.n};
+						if (key != field_name) {
+							return;
+						}
+						matched = true;
+						bool const already_found = found[I];
+						if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::reject) {
+							ok = false;
+							first_err = reflect_duplicate_member_error(field_name);
+							return;
+						}
 
-					auto decoded =
-						decode_reflect_reader_member_into(result.[:mem:], reader, **value, opts, &decode_scratch);
-					if (!decoded) {
-						ok = false;
-						first_err = std::move(decoded).error();
-						return;
-					}
-				}.template operator ()<Is>(),
-				...);
-		}(std::make_index_sequence<N>{});
+						auto value = reader.next();
+						if (!value) {
+							ok = false;
+							first_err = std::move(value).error();
+							return;
+						}
+						if (!*value) {
+							ok = false;
+							first_err = JsonError{
+								.stage = JsonStage::decode,
+								.code = JsonIssueCode::unexpected_eof,
+								.message = "EOF in object value"};
+							return;
+						}
+						if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
+							if (auto skipped = skip_reader_event(reader, **value); !skipped) {
+								ok = false;
+								first_err = std::move(skipped).error();
+							}
+							return;
+						}
+						if (!already_found) {
+							found[I] = true;
+						}
+
+						auto decoded =
+							decode_reflect_reader_member_into(result.[:mem:], reader, **value, opts, &decode_scratch);
+						if (!decoded) {
+							ok = false;
+							first_err = std::move(decoded).error();
+							return;
+						}
+					}.template operator ()<Is>(),
+					...);
+			}(std::make_index_sequence<N>{});
+		}
 
 		if (!matched && ok) {
 			if (opts.unknown_members == UnknownMemberPolicy::reject) {
@@ -823,34 +1001,14 @@ struct JsonCodec<T> {
 		// behaves like manual JsonMembers<T> codecs at app/provider boundaries.
 		if (opts.unknown_members == UnknownMemberPolicy::reject) {
 			for (auto const &m: obj.members()) {
-				if (!ok) {
-					break;
-				}
-				bool found = false;
-				[&]<std::size_t... Is>(std::index_sequence<Is...>) {
-					(
-						[&]<std::size_t I>() {
-							if (found) {
-								return;
-							}
-							constexpr auto mem = detail::reflect_member_at<T, I>();
-							if constexpr (detail::reflect_has_skip<mem>()) {
-								return;
-							}
-							constexpr auto ni = detail::reflect_field_name<mem>();
-							if (std::string_view{ni.p, ni.n} == m.name) {
-								found = true;
-							}
-						}.template operator ()<Is>(),
-						...);
-				}(std::make_index_sequence<N>{});
-				if (!found) {
+				if (!detail::is_reflect_member_name<T>(m.name)) {
 					ok = false;
 					first_err = JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
 						.member_name = std::string{m.name},
 						.message = std::format("unknown member: {}", m.name)};
+					break;
 				}
 			}
 		}
