@@ -16,5 +16,5 @@ int main() {
 		}
 	});
 
-	return http::run_main(std::move(app), {.port = 9096});
+	return http::exit_code(http::run(std::move(app), {.port = 9096}));
 }

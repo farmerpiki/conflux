@@ -13,5 +13,5 @@ int main() noexcept {
 		return http::text(std::format("request_id={}\n", request_id.get()));
 	});
 
-	return http::run_main(std::move(app), {.port = 9094});
+	return http::exit_code(http::run(std::move(app), {.port = 9094}));
 }

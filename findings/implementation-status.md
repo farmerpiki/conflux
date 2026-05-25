@@ -99,6 +99,11 @@ those reviews.
   security scheme without overloading route `auth_policy`, so existing route
   policy enforcement remains bearer-compatible while Basic Auth extractor
   metadata renders correctly.
+- `findings/6.md`: accepted the first-contact run/listen spelling polish.
+  Quickstarts and first-contact docs now present `http::run(...)` as the
+  canonical app-running spelling and use `http::exit_code(...)` explicitly when
+  returning from `main`; `listen(...)` remains reserved for lifecycle examples
+  that construct a server object.
 
 ## Accepted backlog
 
@@ -123,7 +128,8 @@ those reviews.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
-  RequiredBasicAuth OpenAPI scheme metadata is complete above.
+  RequiredBasicAuth OpenAPI scheme metadata and first-contact run spelling are
+  complete above.
 - `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
   cleanup remain accepted backlog. Content-Type media-type parsing,
@@ -412,3 +418,13 @@ those reviews.
   metadata|handler serves metadata spec|mounts metadata route)|http facade: route
   auth policy"` completed after the RequiredBasicAuth OpenAPI metadata change:
   8/8 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_quickstart_hello conflux_quickstart_middleware conflux_quickstart_sse
+  conflux_quickstart_static_files conflux_quickstart_websocket
+  conflux_quickstart_openapi conflux_quickstart_json_crud
+  conflux_quickstart_postgres conflux_http_facade_api_snapshot` completed after
+  the first-contact run spelling update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "examples/(compile|quickstart-policy|public-policy)|http facade: api
+  snapshot|api-surface/import-(curated|extended|complete|selected)"` completed
+  after the first-contact run spelling update: 7/7 passed.

@@ -120,10 +120,10 @@ void middleware_forms_compile() {
 	});
 }
 
-void run_main_spelling_compiles() {
+void run_spelling_compiles() {
 	auto app = http::app();
 	app.get("/", [] { return http::text("ok"); });
-	(void)http::run_main(std::move(app), {});
+	(void)http::run(std::move(app), {});
 	(void)http::exit_code(http::RunStatus::stopped_normally);
 }
 
