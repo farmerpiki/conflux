@@ -264,7 +264,7 @@ endif()
 conflux_add_header_interface_target()
 
 macro(conflux_header_public_component target export_name)
-    set(options HPP_TOP_LEVEL)
+    set(options HPP_TOP_LEVEL NO_PACKAGE)
     set(one_value_args)
     set(multi_value_args COMPILE_DEFINITIONS IMPLS LINKS MODULE_PREFIXES)
     cmake_parse_arguments(CONFLUX_HEADER_PUBLIC_COMPONENT
@@ -285,16 +285,25 @@ macro(conflux_header_public_component target export_name)
             ${CONFLUX_HEADER_PUBLIC_COMPONENT_COMPILE_DEFINITIONS})
     endif()
 
-    set(_register_args)
-    if(CONFLUX_HEADER_PUBLIC_COMPONENT_HPP_TOP_LEVEL)
-        list(APPEND _register_args HPP_TOP_LEVEL)
+    if(CONFLUX_HEADER_PUBLIC_COMPONENT_NO_PACKAGE)
+        if(NOT CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES)
+            set(CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES
+                conflux.${export_name})
+        endif()
+        conflux_register_header_public_surface(${target}
+            MODULE_PREFIXES ${CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES})
+    else()
+        set(_register_args)
+        if(CONFLUX_HEADER_PUBLIC_COMPONENT_HPP_TOP_LEVEL)
+            list(APPEND _register_args HPP_TOP_LEVEL)
+        endif()
+        if(CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES)
+            list(APPEND _register_args MODULE_PREFIXES
+                ${CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES})
+        endif()
+        conflux_register_header_package_component(${target} ${export_name}
+            ${_register_args})
     endif()
-    if(CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES)
-        list(APPEND _register_args MODULE_PREFIXES
-            ${CONFLUX_HEADER_PUBLIC_COMPONENT_MODULE_PREFIXES})
-    endif()
-    conflux_register_header_package_component(${target} ${export_name}
-        ${_register_args})
 endmacro()
 
 conflux_header_public_component(conflux_core core
@@ -362,10 +371,13 @@ if(CONFLUX_WANT_JSON)
     unset(_conflux_json_links)
 endif()
 
-if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
-        AND (CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER))
+if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+    set(_conflux_http_component_options HPP_TOP_LEVEL)
+    if(NOT CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
+        set(_conflux_http_component_options NO_PACKAGE)
+    endif()
     conflux_header_public_component(conflux_net_http http
-        HPP_TOP_LEVEL
+        ${_conflux_http_component_options}
         IMPLS
         conflux_header_impl_core
         conflux_header_impl_json
@@ -382,6 +394,7 @@ if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS
         conflux_header_impl_http_proxy
         conflux_header_impl_templates
         LINKS PkgConfig::LIBURING)
+    unset(_conflux_http_component_options)
 endif()
 
 conflux_header_public_component(conflux_file_io_sync file_io_sync
@@ -418,9 +431,11 @@ endif()
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
 conflux_register_header_public_hpp(config)
-conflux_register_header_public_hpp(curated)
-conflux_register_header_public_hpp(extended)
-conflux_register_header_public_hpp(complete)
+if(NOT CONFLUX_USE_MOCK_LIBURING)
+    conflux_register_header_public_hpp(curated)
+    conflux_register_header_public_hpp(extended)
+    conflux_register_header_public_hpp(complete)
+endif()
 conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
 
 conflux_add_header_component_smoke_targets()
@@ -461,7 +476,9 @@ function(conflux_install_generated_header_component name)
 endfunction()
 
 function(conflux_install_registered_public_headers)
-    conflux_install_generated_header_file("conflux.hxx")
+    if(NOT CONFLUX_USE_MOCK_LIBURING)
+        conflux_install_generated_header_file("conflux.hxx")
+    endif()
     conflux_install_generated_header_file("conflux/config.hxx")
     conflux_install_generated_header_file("conflux/features.hxx")
 
@@ -479,10 +496,12 @@ function(conflux_install_registered_public_headers)
         conflux_install_generated_header_file("conflux/${_hpp_name}.hxx")
     endforeach()
 
-    set(_conflux_hpp "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp")
-    if(EXISTS "${_conflux_hpp}")
-        install(FILES "${_conflux_hpp}"
-            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
+    if(NOT CONFLUX_USE_MOCK_LIBURING)
+        set(_conflux_hpp "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp")
+        if(EXISTS "${_conflux_hpp}")
+            install(FILES "${_conflux_hpp}"
+                DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
+        endif()
     endif()
 
     install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
