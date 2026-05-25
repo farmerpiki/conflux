@@ -622,7 +622,6 @@ int main() { return 0; }
 			if(_conflux_package_smoke_linked_apis)
 				conflux_add_component_smoke(json json [[
 #include <conflux/features.hxx>
-#include <conflux/curated.hpp>
 #include <conflux/json.hpp>
 #if !CONFLUX_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
@@ -639,7 +638,6 @@ int main() {
 			else()
 				conflux_add_component_smoke(json json [[
 #include <conflux/features.hxx>
-#include <conflux/curated.hpp>
 #include <conflux/json.hpp>
 #if !CONFLUX_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_HAS_JSON=1"

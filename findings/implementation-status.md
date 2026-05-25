@@ -26,6 +26,10 @@ those reviews.
   `HEADER_INTERFACE_WITH_SOURCES` plus `CONFLUX_SIMD_SELECTION=RUNTIME` now
   fails at configure time with an explicit diagnostic instead of implying
   unsupported runtime dispatch.
+- `findings/9.md`: accepted the mock package smoke profile-wrapper mismatch.
+  JSON header-mode package smoke no longer includes `<conflux/curated.hpp>`, so
+  mock-liburing installs can keep profile wrappers forbidden while still
+  validating the installed JSON component.
 
 ## Accepted backlog
 
@@ -59,7 +63,8 @@ those reviews.
   send-view semantics, header hygiene, and manifest cleanup. Accepted backlog;
   several are intentionally larger ownership/API changes.
 - `findings/9.md`: public header warnings and JSON lifetime tests. Accepted as
-  follow-up validation work; runtime SIMD configure behavior is complete above.
+  follow-up validation work; runtime SIMD configure behavior and mock package
+  smoke behavior are complete above.
 
 ## Rejected / not applied
 
@@ -75,4 +80,5 @@ those reviews.
   completed: 1940/1940 passed.
 - The explicit `HEADER_INTERFACE_WITH_SOURCES` plus runtime SIMD configure check
   fails with the intended diagnostic.
-
+- `scripts/check-package-config.sh` completed.
+- `scripts/check-package-smoke-liburing-free.sh` completed.
