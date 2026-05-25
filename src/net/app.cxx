@@ -1575,8 +1575,9 @@ public:
 			meta.path_extractor_types,
 			meta.path_index_extractor_types,
 			std::make_index_sequence<std::tuple_size_v<Args>>{});
-		meta.path_params = detail::collect_path_params(path);
-		meta.path_param_types = detail::collect_path_param_types(path);
+		auto pattern = detail::route_pattern_info(path);
+		meta.path_params = std::move(pattern.params);
+		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
 		if constexpr (detail::has_body_extractor<Args>()) {
