@@ -688,7 +688,7 @@ struct DocumentStorage {
 	std::pmr::vector<std::uint32_t> array_children;
 	std::pmr::vector<MemberEntry> object_members;
 	std::vector<char const *> external_ptrs_; // indexed by MemberEntry::name_off when kMemberExternalView
-	std::unique_ptr<std::string> owned_input;
+	std::string owned_input;
 	std::string_view input_view;
 	std::uint32_t root_node{0};
 	std::uint32_t bom_prefix_bytes{0};

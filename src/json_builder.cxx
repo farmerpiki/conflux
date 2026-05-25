@@ -433,8 +433,8 @@ std::expected<Document, JsonError> ValueBuilder::finish() && {
 	}
 	auto storage = std::make_unique<DocumentStorage>(std::move(state_->store));
 	storage->root_node = static_cast<std::uint32_t>(state_->root_node);
-	storage->owned_input = std::make_unique<std::string>(std::move(state_->built_input));
-	storage->input_view = *storage->owned_input;
+	storage->owned_input = std::move(state_->built_input);
+	storage->input_view = storage->owned_input;
 	owned_.reset();
 	state_ = nullptr;
 	return ::make_document(std::move(storage));

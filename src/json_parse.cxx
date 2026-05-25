@@ -1156,8 +1156,8 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	}
 	reset_storage_for_reuse();
 
-	storage_->owned_input = std::make_unique<std::string>(input);
-	std::string_view src = *storage_->owned_input;
+	storage_->owned_input.assign(input);
+	std::string_view src = storage_->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
@@ -1184,7 +1184,7 @@ void JsonArena::reset_storage_for_reuse() noexcept {
 	storage_->string_arena.clear();
 	storage_->array_children.clear();
 	storage_->object_members.clear();
-	storage_->owned_input.reset();
+	storage_->owned_input.clear();
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 }
@@ -1219,8 +1219,8 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	}
 	reset_storage_for_reuse();
 
-	storage_->owned_input = std::make_unique<std::string>(std::move(input));
-	std::string_view src = *storage_->owned_input;
+	storage_->owned_input = std::move(input);
+	std::string_view src = storage_->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
@@ -1258,8 +1258,8 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-	storage->owned_input = std::make_unique<std::string>(input);
-	std::string_view src = *storage->owned_input;
+	storage->owned_input.assign(input);
+	std::string_view src = storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
@@ -1281,8 +1281,8 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-	storage->owned_input = std::make_unique<std::string>(std::move(input));
-	std::string_view src = *storage->owned_input;
+	storage->owned_input = std::move(input);
+	std::string_view src = storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
@@ -1342,8 +1342,8 @@ std::expected<Document, JsonError> parse_copy(
 		return std::unexpected(std::move(ok).error());
 	}
 	auto storage = std::make_unique<DocumentStorage>(resource);
-	storage->owned_input = std::make_unique<std::string>(input);
-	std::string_view src = *storage->owned_input;
+	storage->owned_input.assign(input);
+	std::string_view src = storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
