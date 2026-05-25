@@ -183,6 +183,20 @@ class App {
 		return std::nullopt;
 	}
 
+	[[nodiscard]] static std::optional<BasicAuth> parse_basic_auth(
+		RequestView const &req) {
+		auto credentials = credentials_for_auth_scheme(req.header("authorization"), "Basic");
+		if (!credentials) {
+			return std::nullopt;
+		}
+		auto decoded = base64_decode(*credentials);
+		auto colon = decoded.find(':');
+		if (colon == std::string::npos) {
+			return std::nullopt;
+		}
+		return BasicAuth{.username = decoded.substr(0, colon), .password = decoded.substr(colon + 1)};
+	}
+
 	[[nodiscard]] static std::optional<Response> route_rate_limit_failure(
 		AppRouteRateLimit &policy,
 		RequestView const &req) {
@@ -1842,16 +1856,15 @@ public:
 			return OptionalBearer{
 				.token = token && !token->empty() ? std::optional<std::string_view>{*token} : std::nullopt};
 		} else if constexpr (detail::BasicAuthArg<Clean>) {
-			auto credentials = credentials_for_auth_scheme(req.header("authorization"), "Basic");
+			return parse_basic_auth(req).value_or(BasicAuth{});
+		} else if constexpr (detail::RequiredBasicAuthArg<Clean>) {
+			auto credentials = parse_basic_auth(req);
 			if (!credentials) {
-				return BasicAuth{};
+				throw ExtractorFailure{Response::unauthorized("Basic")};
 			}
-			auto decoded = base64_decode(*credentials);
-			auto colon = decoded.find(':');
-			if (colon == std::string::npos) {
-				return BasicAuth{};
-			}
-			return BasicAuth{.username = decoded.substr(0, colon), .password = decoded.substr(colon + 1)};
+			return RequiredBasicAuth{.credentials = std::move(*credentials)};
+		} else if constexpr (detail::OptionalBasicAuthArg<Clean>) {
+			return OptionalBasicAuth{.credentials = parse_basic_auth(req)};
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
@@ -1859,8 +1872,9 @@ public:
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
 				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::Json<T>, http::JsonDocument, "
 				"http::JsonPatch, http::MergePatch, http::BodyBytes, http::OwnedBodyBytes, http::Multipart, "
-				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, "
-				"http::BasicAuth, or http::State<T>");
+				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, http::RequiredBearer, "
+				"http::OptionalBearer, http::BasicAuth, http::RequiredBasicAuth, http::OptionalBasicAuth, "
+				"or http::State<T>");
 		}
 	}
 

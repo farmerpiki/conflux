@@ -206,6 +206,12 @@ template<class Arg>
 concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;
 
 template<class Arg>
+concept RequiredBasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, RequiredBasicAuth>;
+
+template<class Arg>
+concept OptionalBasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, OptionalBasicAuth>;
+
+template<class Arg>
 concept InlinePathArg = (std::signed_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 8)
 					 || (std::unsigned_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 8)
 					 || (std::signed_integral<std::remove_cvref_t<Arg>> && sizeof(std::remove_cvref_t<Arg>) == 4)
@@ -279,7 +285,9 @@ consteval bool has_state_arg_impl(
 			|| BearerArg<std::tuple_element_t<Is, Args>>
 			|| RequiredBearerArg<std::tuple_element_t<Is, Args>>
 			|| OptionalBearerArg<std::tuple_element_t<Is, Args>>
-			|| BasicAuthArg<std::tuple_element_t<Is, Args>>));
+			|| BasicAuthArg<std::tuple_element_t<Is, Args>>
+			|| RequiredBasicAuthArg<std::tuple_element_t<Is, Args>>
+			|| OptionalBasicAuthArg<std::tuple_element_t<Is, Args>>));
 }
 
 template<class Args>

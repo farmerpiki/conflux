@@ -507,6 +507,21 @@ struct BasicAuth {
 	std::string password;
 };
 
+struct RequiredBasicAuth {
+	BasicAuth credentials;
+
+	[[nodiscard]] BasicAuth const &get() const noexcept { return credentials; }
+	[[nodiscard]] BasicAuth const &operator *() const noexcept { return credentials; }
+	[[nodiscard]] BasicAuth const *operator ->() const noexcept { return std::addressof(credentials); }
+};
+
+struct OptionalBasicAuth {
+	std::optional<BasicAuth> credentials;
+
+	[[nodiscard]] std::optional<BasicAuth> const &get() const noexcept { return credentials; }
+	[[nodiscard]] std::optional<BasicAuth> const &operator *() const noexcept { return credentials; }
+};
+
 template<class T>
 struct State {
 	T *value{};

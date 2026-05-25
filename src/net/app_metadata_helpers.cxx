@@ -73,6 +73,10 @@ template<class Arg>
 		return "OptionalBearer";
 	} else if constexpr (BasicAuthArg<Clean>) {
 		return "BasicAuth";
+	} else if constexpr (RequiredBasicAuthArg<Clean>) {
+		return "RequiredBasicAuth";
+	} else if constexpr (OptionalBasicAuthArg<Clean>) {
+		return "OptionalBasicAuth";
 	} else if constexpr (JsonArg<Clean>) {
 		return "Json";
 	} else if constexpr (RequestViewArg<Clean>) {

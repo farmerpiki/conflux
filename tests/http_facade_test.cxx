@@ -1724,6 +1724,52 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: required basic auth extractor rejects missing credentials",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/basic", [](http::RequiredBasicAuth auth) {
+		return http::text(std::format("{}:{}", auth->username, auth->password));
+	});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/basic";
+
+	auto missing = http::router(app).dispatch(req);
+	CHECK(missing.status == kHttpUnauthorized);
+	CHECK(missing.headers["WWW-Authenticate"] == "Basic");
+
+	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
+	auto ok = http::router(app).dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == "alice:s3cret");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBasicAuth"});
+}
+
+TEST_CASE(
+	"http facade: optional basic auth extractor does not reject missing credentials",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/basic", [](http::OptionalBasicAuth auth) {
+		if (!auth.get()) {
+			return http::text("none");
+		}
+		return http::text(std::format("{}:{}", auth.get()->username, auth.get()->password));
+	});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/basic";
+	CHECK(http::router(app).dispatch(req).text_body() == "none");
+
+	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
+	CHECK(http::router(app).dispatch(req).text_body() == "alice:s3cret");
+}
+
+TEST_CASE(
 	"http facade: typed field extractors parse scalars and reject malformed values",
 	"[http.facade]") {
 	auto app = http::app();
