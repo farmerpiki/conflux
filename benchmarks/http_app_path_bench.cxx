@@ -11,10 +11,13 @@ import conflux.net.http.parse_helpers;
 import conflux.net.http.response;
 import conflux.net.http_server_helpers;
 import conflux.net.router;
+import conflux.net.app;
+import conflux.json;
 
 import bench_common;
 
 using namespace std::string_view_literals;
+using namespace conflux::json;
 
 namespace bench_alloc_detail {
 
@@ -147,6 +150,7 @@ struct PathState {
 	std::string raw;
 	ParserLimits limits{};
 	Router router;
+	std::unique_ptr<conflux::http::App> app;
 	bool route_response = true;
 	bool serialize_response = true;
 };
@@ -164,6 +168,30 @@ struct PathBenchStats {
 	std::size_t allocations{};
 	std::size_t allocation_bytes{};
 };
+
+struct BenchAppJsonBody {
+	std::int64_t id{};
+	std::int64_t count{};
+	std::string name{};
+	std::vector<std::int64_t> values{};
+};
+
+} // namespace
+
+template<>
+struct JsonMembers<BenchAppJsonBody> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("id", &BenchAppJsonBody::id),
+			json_member("count", &BenchAppJsonBody::count),
+			json_member("name", &BenchAppJsonBody::name),
+			json_member("values", &BenchAppJsonBody::values),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchAppJsonBody"; }
+};
+
+namespace {
 
 std::atomic<std::size_t> g_sink{};
 
@@ -321,6 +349,17 @@ void append_standard_routes(
 		append_standard_routes(*state, small_json, std::move(medium_json));
 		return {state->name, state->description, 120000, state};
 	}
+	if (name == "app_json_body"sv) {
+		auto body = std::string{R"({"id":7,"count":42,"name":"bench","values":[1,2,3,4,5,6,7,8]})"};
+		state->description = "parse POST JSON body through App Json<T> extractor, route response, serialize";
+		state->raw = make_post_request("/api/json-body", body, "application/json");
+		state->app = std::make_unique<conflux::http::App>();
+		state->app->post("/api/json-body", [](conflux::http::Json<BenchAppJsonBody> const &json) {
+			auto const &body = *json;
+			return Response::text(std::to_string(body.id + body.count + static_cast<std::int64_t>(body.values.size())));
+		});
+		return {state->name, state->description, 120000, state};
+	}
 	throw std::invalid_argument{std::format("unknown HTTP app-path case: {}", name)};
 }
 
@@ -336,6 +375,7 @@ void append_standard_routes(
 		"json_medium"sv,
 		"post_body_parse_only"sv,
 		"post_echo"sv,
+		"app_json_body"sv,
 	};
 }
 
@@ -475,7 +515,7 @@ void apply_phase(
 		return req.method.size() + req.path.size() + req.body.size() + req.form.size();
 	}
 
-	auto resp = state.router.dispatch(req);
+	auto resp = state.app ? conflux::http::router(*state.app).dispatch(req) : state.router.dispatch(req);
 	if (!state.serialize_response) {
 		return resp.text_body().size() + static_cast<std::size_t>(resp.status);
 	}
@@ -586,7 +626,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_app_path","parser":"standard","configs":[{"name":"get_ping","extra":{"kind":"micro/user-space","case":"GET /api/ping"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_ping","--config-name","get_ping","--iterations","0","--warmup","0"]},{"name":"get_param","extra":{"kind":"micro/user-space","case":"GET /hello/{name}"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_param","--config-name","get_param","--iterations","0","--warmup","0"]},{"name":"not_found","extra":{"kind":"micro/user-space","case":"404"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","not_found","--config-name","not_found","--iterations","0","--warmup","0"]},{"name":"middleware_x1","extra":{"kind":"micro/user-space","middleware_count":1},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x1","--config-name","middleware_x1","--iterations","0","--warmup","0"]},{"name":"middleware_x4","extra":{"kind":"micro/user-space","middleware_count":4},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x4","--config-name","middleware_x4","--iterations","0","--warmup","0"]},{"name":"middleware_x16","extra":{"kind":"micro/user-space","middleware_count":16},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x16","--config-name","middleware_x16","--iterations","0","--warmup","0"]},{"name":"json_small","extra":{"kind":"micro/user-space","case":"JSON response small"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_small","--config-name","json_small","--iterations","0","--warmup","0"]},{"name":"json_medium","extra":{"kind":"micro/user-space","case":"JSON response medium"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_medium","--config-name","json_medium","--iterations","0","--warmup","0"]},{"name":"post_body_parse_only","extra":{"kind":"micro/user-space","case":"POST body parse only"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_body_parse_only","--config-name","post_body_parse_only","--iterations","0","--warmup","0"]},{"name":"post_echo","extra":{"kind":"micro/user-space","case":"POST echo 4KiB"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_echo","--config-name","post_echo","--iterations","0","--warmup","0"]}]})");
+		R"({"name":"http_app_path","parser":"standard","configs":[{"name":"get_ping","extra":{"kind":"micro/user-space","case":"GET /api/ping"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_ping","--config-name","get_ping","--iterations","0","--warmup","0"]},{"name":"get_param","extra":{"kind":"micro/user-space","case":"GET /hello/{name}"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_param","--config-name","get_param","--iterations","0","--warmup","0"]},{"name":"not_found","extra":{"kind":"micro/user-space","case":"404"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","not_found","--config-name","not_found","--iterations","0","--warmup","0"]},{"name":"middleware_x1","extra":{"kind":"micro/user-space","middleware_count":1},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x1","--config-name","middleware_x1","--iterations","0","--warmup","0"]},{"name":"middleware_x4","extra":{"kind":"micro/user-space","middleware_count":4},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x4","--config-name","middleware_x4","--iterations","0","--warmup","0"]},{"name":"middleware_x16","extra":{"kind":"micro/user-space","middleware_count":16},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x16","--config-name","middleware_x16","--iterations","0","--warmup","0"]},{"name":"json_small","extra":{"kind":"micro/user-space","case":"JSON response small"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_small","--config-name","json_small","--iterations","0","--warmup","0"]},{"name":"json_medium","extra":{"kind":"micro/user-space","case":"JSON response medium"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_medium","--config-name","json_medium","--iterations","0","--warmup","0"]},{"name":"post_body_parse_only","extra":{"kind":"micro/user-space","case":"POST body parse only"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_body_parse_only","--config-name","post_body_parse_only","--iterations","0","--warmup","0"]},{"name":"post_echo","extra":{"kind":"micro/user-space","case":"POST echo 4KiB"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_echo","--config-name","post_echo","--iterations","0","--warmup","0"]},{"name":"app_json_body","extra":{"kind":"micro/user-space","case":"App Json<T> request body"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","app_json_body","--config-name","app_json_body","--iterations","0","--warmup","0"]}]})");
 
 	try {
 		auto const args = std::span{argv, static_cast<std::size_t>(argc)};

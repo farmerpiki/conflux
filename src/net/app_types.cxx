@@ -45,6 +45,7 @@ struct AppJsonOptions {
 	conflux::json::boundary::DecodeOptions decode{};
 	conflux::json::boundary::DumpOptions dump{};
 	std::size_t max_body_size{};
+	bool direct_typed_decode{true};
 };
 #endif
 

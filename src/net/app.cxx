@@ -1680,6 +1680,15 @@ public:
 			throw ExtractorFailure{detail::json_body_too_large_problem()};
 		}
 	}
+
+	[[nodiscard]] static conflux::json::boundary::DecodeOptions typed_json_decode_options(
+		AppJsonOptions const &json_options) noexcept {
+		auto opts = json_options.decode;
+		if (json_options.direct_typed_decode) {
+			opts.copy_input = false;
+		}
+		return opts;
+	}
 #endif
 
 	template<class Arg>
@@ -1865,9 +1874,10 @@ public:
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using BodyValue = typename detail::JsonType<Clean>::type;
 			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size, json_options);
+			auto decode_opts = typed_json_decode_options(json_options);
 			auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 				req.body,
-				json_options.decode);
+				decode_opts);
 			if (!decoded) {
 				throw ExtractorFailure{detail::json_decode_problem(decoded.error())};
 			}
@@ -2508,7 +2518,7 @@ public:
 				if (limit != 0 && req.body.size() > limit) {
 					return detail::json_body_too_large_problem();
 				}
-				auto const &effective_decode_opts = decode_opts ? *decode_opts : json_options->decode;
+				auto effective_decode_opts = decode_opts ? *decode_opts : typed_json_decode_options(*json_options);
 				auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 					req.body,
 					effective_decode_opts);

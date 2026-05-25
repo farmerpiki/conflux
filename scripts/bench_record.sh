@@ -45,6 +45,9 @@
 #                      prior run_id in the database and override launch args.
 #                      If unset, the script falls back to descriptor args, including
 #                      target-runtime calibration when --iterations 0 is present.
+#   BENCH_COMPARE_CONFIG_NAME
+#                      in --compare-bins mode, select this --bench-info config
+#                      instead of the first config.
 #   BENCH_TARGET_MS   default target measured runtime for calibrated configs
 #                      whose --bench-info config omits target_ms (default: 500).
 #   BENCH_MAX_ITERATIONS
@@ -100,6 +103,7 @@ BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
 BENCH_ITERATIONS_FROM_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
+BENCH_COMPARE_CONFIG_NAME="${BENCH_COMPARE_CONFIG_NAME:-}"
 BENCH_TARGET_MS="${BENCH_TARGET_MS:-500}"
 BENCH_MAX_ITERATIONS="${BENCH_MAX_ITERATIONS:-0}"
 BENCH_MIN_ITERATIONS="${BENCH_MIN_ITERATIONS:-1}"
@@ -599,7 +603,15 @@ load_bench_info_args() {
   }
   COMPARE_BENCH_INFO="$info"
   COMPARE_BENCH_NAME=$(jq -r '.name' <<< "$info")
-  cfg_json=$(jq -c '.configs[0] // empty' <<< "$info")
+  if [[ -n "$BENCH_COMPARE_CONFIG_NAME" ]]; then
+    cfg_json=$(jq -c --arg name "$BENCH_COMPARE_CONFIG_NAME" '.configs[]? | select(.name == $name)' <<< "$info" | head -1)
+    if [[ -z "$cfg_json" ]]; then
+      echo "benchmark config not found for --compare-bins: $BENCH_COMPARE_CONFIG_NAME in $binary" >&2
+      exit 2
+    fi
+  else
+    cfg_json=$(jq -c '.configs[0] // empty' <<< "$info")
+  fi
   if [[ -z "$cfg_json" ]]; then
     COMPARE_CFG_NAME="default"
     COMPARE_BIN_ARGS=()

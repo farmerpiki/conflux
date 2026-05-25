@@ -280,12 +280,42 @@ Current review set: `findings/1.md` through `findings/7.md` after
   explicitly deferred, and only with representative benchmarks using the
   documented compare-bins/perf methodology.
 
+## Completed Performance Work
+
+- `findings/3.md` P0 default app `Json<T>` DOM-first decode: completed with
+  representative app dispatch coverage. `src/net/app.cxx` now defaults typed
+  owning `Json<T>` request bodies to direct decode while leaving
+  `JsonDocument`, JSON Patch, Merge Patch, and explicit route-level decode
+  options on the document/copy paths. `AppJsonOptions::direct_typed_decode`
+  can disable the app-level direct default when copied input is needed.
+  `benchmarks/http_app_path_bench.cxx` now includes `app_json_body`, which
+  routes a POST JSON request through `App` and the `Json<T>` extractor rather
+  than unit-testing the decoder in isolation.
+- Evidence: compare-bins artifact directory
+  `/tmp/gcc-16/bench-artifacts/20260525T183336Z-compare-bins`, base run
+  `1027`, candidate run `1028`, selected with
+  `BENCH_COMPARE_CONFIG_NAME=app_json_body`, pinned to CPU 2, 7 reps.
+  Release-clang-libcxx wall time improved from base to candidate:
+  best 1528.16 -> 1288.60 ns/iter (-239.56 ns, -15.68%),
+  p10 1528.61 -> 1293.47 ns/iter (-235.14 ns, -15.38%),
+  p50 1546.65 -> 1304.02 ns/iter (-15.69%),
+  p99 1726.67 -> 1358.30 ns/iter (-21.33%). Allocation smoke at 10000
+  iterations, preserved under
+  `/tmp/gcc-16/bench-artifacts/20260525T-app-json-body-manual`, improved from
+  30 allocations / 9156 bytes per request to 13 allocations / 1169 bytes per
+  request.
+- Sequential filtered `perf stat` for the same row is preserved in
+  `base.seq.perf.json` and `candidate.seq.perf.json` under that artifact
+  directory. Per request, instructions fell from about 20332 to 17971
+  (-11.62%), cycles from about 7089 to 6497 (-8.35%), branches from about 4251
+  to 3750 (-11.79%), and cache references from about 651 to 399 (-38.71%).
+
 ## Deferred / Perf-Gated
 
-- Hot-path performance proposals from `findings/3.md` and performance-sensitive
-  lazy/ranges changes from `findings/1.md` require representative benchmark
-  coverage first. If no benchmark exists for a path, add one before evaluating a
-  performance implementation.
+- Remaining hot-path performance proposals from `findings/3.md` and
+  performance-sensitive lazy/ranges changes from `findings/1.md` require
+  representative benchmark coverage first. If no benchmark exists for a path,
+  add one before evaluating a performance implementation.
 - `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
   lifetime/cancel refactor rather than a bounded dedup patch. The repeated
   wait loops are exactly where cancellation and ownership can drift, but a safe

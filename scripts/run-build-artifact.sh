@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] /tmp/%s/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" "$(basename "$PWD")" >&2
+	printf 'usage: %s [NAME=VALUE ...] /tmp/<repo>/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] ./build/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] /tmp/%s/<preset>/conflux_<example> [args...]\n' "$0" "$(basename "$PWD")" >&2
 	printf '       defaults: PG_TEST_CONNINFO=postgresql:///postgres?user=postgres, PG_CONNINFO=postgresql:///conflux_bench?user=postgres\n' >&2
@@ -85,6 +85,7 @@ if [[ $artifact != /* ]]; then
 fi
 case "$artifact" in
 	"$preset_root"/*/tests/*|"$preset_root"/*/benchmarks/*|"$preset_root"/*/examples/*|"$preset_root"/*/fuzz/*) ;;
+	/tmp/*/*/tests/*|/tmp/*/*/benchmarks/*|/tmp/*/*/examples/*|/tmp/*/*/fuzz/*) ;;
 	"$preset_root"/*/conflux_*)
 		if ! valid_root_example "$(basename "$artifact")"; then
 			printf 'refusing to run non-example root build artifact: %s\n' "$artifact" >&2
@@ -110,6 +111,9 @@ esac
 
 if [[ $artifact_abs == "$build_root"/* ]]; then
 	profile=${artifact_abs#"$build_root"/}
+elif [[ $artifact == /tmp/*/*/* ]]; then
+	profile=${artifact#/tmp/}
+	profile=${profile#*/}
 else
 	profile=${artifact#"$preset_root"/}
 fi

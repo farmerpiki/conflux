@@ -367,7 +367,8 @@ if(TARGET conflux_http1 AND TARGET conflux_http_server_helpers)
     conflux_add_recordable_benchmark(conflux_http_app_path_bench http_app_path_bench.cxx)
     target_link_libraries(conflux_http_app_path_bench
         PRIVATE bench_common conflux_http1 conflux_http_parse_helpers conflux_http_router
-                conflux_http_response conflux_http_server_helpers conflux_net_config conflux_options)
+                conflux_http_response conflux_http_server_helpers conflux_http_app conflux_json
+                conflux_net_config conflux_options)
 endif()
 
 if(TARGET conflux_http1)
