@@ -251,16 +251,15 @@ those reviews.
   conflux_json_reflect_tests` and `ctest --test-dir
   /tmp/gcc-16/debug-p2996-gcc --output-on-failure -R
   "conflux_json_reflect_tests"` completed: 1/1 passed.
-- Release reflection verification used a dedicated P2996 check tree configured
-  from `release-p2996-gcc` with `CONFLUX_ENABLE_LTO=OFF` and
-  `CONFLUX_USE_STDSIMD=OFF`, because the stock release P2996 preset currently
-  hits a GCC 16 ICE in unrelated `json_simd_std26.cxx` LTO before compiling the
-  reflection module.
-- In that release P2996 check tree, `cmake --build
-  /tmp/gcc-16/release-p2996-gcc-reflect-check --target
-  conflux_json_reflect_bench conflux_json_reflect_tests`, `ctest --test-dir
-  /tmp/gcc-16/release-p2996-gcc-reflect-check --output-on-failure -R
-  "conflux_json_reflect_tests"`, and
-  `/tmp/gcc-16/release-p2996-gcc-reflect-check/benchmarks/conflux_json_reflect_bench
-  --filter "decode/reflection/direct/wide16"` completed. The new wide16 row ran
-  at 2234 ns median with 1.00 allocation/iteration.
+- Build-system follow-up: `release-p2996-gcc` now disables LTO so the documented
+  reflection benchmark lane does not hit the GCC 16 LTO/std::simd ICE before
+  compiling reflection code.
+- `cmake --preset release-p2996-gcc`, then `cmake --build --preset
+  release-p2996-gcc --target conflux_json_reflect_bench
+  conflux_json_reflect_tests`, completed after the P2996 preset fix.
+- `ctest --test-dir /tmp/gcc-16/release-p2996-gcc --output-on-failure -R
+  "conflux_json_reflect_tests"` completed: 1/1 passed.
+- `/tmp/gcc-16/release-p2996-gcc/benchmarks/conflux_json_reflect_bench --filter
+  "decode/reflection/direct/wide16"` completed. The new wide16 row ran at 2204
+  ns median with 1.00 allocation/iteration.
+- `scripts/check-optimized-presets.sh` completed after the P2996 preset fix.

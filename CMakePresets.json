@@ -379,8 +379,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_STANDARD": "26",
-        "CONFLUX_ENABLE_LTO": "ON",
-        "CONFLUX_LTO_MODE": "AUTO",
+        "CONFLUX_ENABLE_LTO": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON",
         "CONFLUX_JSON_REFLECT": "ON",
