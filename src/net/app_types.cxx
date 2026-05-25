@@ -281,6 +281,12 @@ struct Path {
 	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
 };
 
 template<std::size_t Index, class T = std::string_view>
@@ -303,6 +309,12 @@ struct Query {
 	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
 };
 
 template<FixedString Name, class T = std::string_view>
@@ -320,6 +332,12 @@ struct Header {
 	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
 };
 
 template<FixedString Name, class T = std::string_view>
@@ -337,6 +355,12 @@ struct Cookie {
 	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
 };
 
 template<FixedString Name, class T = std::string_view>
@@ -354,6 +378,12 @@ struct Form {
 	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
 };
 
 template<FixedString Name, class T = std::string_view>

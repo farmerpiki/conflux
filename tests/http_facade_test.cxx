@@ -1808,12 +1808,7 @@ TEST_CASE(
 		   http::Header<"x-limit", std::optional<std::uint32_t>> limit,
 		   http::Cookie<"session", std::optional<std::uint32_t>> session) {
 			return http::text(
-				std::format(
-					"{}:{}:{}:{}",
-					id.get().value_or(0),
-					page.get().value_or(1),
-					limit.get().value_or(10),
-					session.get().value_or(99)));
+				std::format("{}:{}:{}:{}", id.value_or(0), page.value_or(1), limit.value_or(10), session.value_or(99)));
 		});
 
 	Request req;
@@ -1848,7 +1843,7 @@ TEST_CASE(
 		[](http::RequiredQuery<"id", std::uint64_t> id,
 		   http::OptionalHeader<"x-page", std::uint32_t> page,
 		   http::OptionalCookie<"session", std::uint32_t> session) {
-			return http::text(std::format("{}:{}:{}", id.get(), page.get().value_or(1), session.get().value_or(0)));
+			return http::text(std::format("{}:{}:{}", id.get(), page.value_or(1), session.value_or(0)));
 		});
 
 	Request req;
@@ -1898,7 +1893,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.post("/submit", [](http::Form<"age", std::optional<std::uint32_t>> age) {
-		return http::text(std::format("{}", age.get().value_or(0)));
+		return http::text(std::format("{}", age.value_or(0)));
 	});
 
 	Request req;
@@ -1926,7 +1921,7 @@ TEST_CASE(
 	app.post(
 		"/form-aliases",
 		[](http::RequiredForm<"id", std::uint64_t> id, http::OptionalForm<"age", std::uint32_t> age) {
-			return http::text(std::format("{}:{}", id.get(), age.get().value_or(0)));
+			return http::text(std::format("{}:{}", id.get(), age.value_or(0)));
 		});
 
 	Request req;
