@@ -1795,6 +1795,9 @@ TEST_CASE(
 	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+#ifndef NDEBUG
+	CHECK(bad.text_body().find(R"("target":)") != std::string_view::npos);
+#endif
 }
 
 TEST_CASE(

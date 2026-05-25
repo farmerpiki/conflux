@@ -27,12 +27,17 @@ template<class Arg>
 		return "invalid";
 	}();
 	auto body = std::format(
-		R"({{"code":"invalid_field","extractor":{},"source":{},"name":{},"kind":{},"detail":{}}})",
+		R"({{"code":"invalid_field","extractor":{},"source":{},"name":{},"kind":{},"detail":{})",
 		json_string(extractor),
 		json_string(http_field_source_name(err.source)),
 		json_string(err.name),
 		json_string(kind),
 		json_string(err.message));
+#ifndef NDEBUG
+	body += R"(,"target":)";
+	body += json_string(typeid(Arg).name());
+#endif
+	body += '}';
 	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
