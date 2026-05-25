@@ -90,6 +90,14 @@ template<FixedString Name, class T>
 struct QueryType<Query<Name, T>> {
 	using type = T;
 	static constexpr auto name = Name;
+	static constexpr bool required = false;
+};
+
+template<FixedString Name, class T>
+struct QueryType<RequiredQuery<Name, T>> {
+	using type = T;
+	static constexpr auto name = Name;
+	static constexpr bool required = true;
 };
 
 template<class T>
@@ -102,6 +110,14 @@ template<FixedString Name, class T>
 struct HeaderType<Header<Name, T>> {
 	using type = T;
 	static constexpr auto name = Name;
+	static constexpr bool required = false;
+};
+
+template<FixedString Name, class T>
+struct HeaderType<RequiredHeader<Name, T>> {
+	using type = T;
+	static constexpr auto name = Name;
+	static constexpr bool required = true;
 };
 
 template<class T>
@@ -114,6 +130,14 @@ template<FixedString Name, class T>
 struct CookieType<Cookie<Name, T>> {
 	using type = T;
 	static constexpr auto name = Name;
+	static constexpr bool required = false;
+};
+
+template<FixedString Name, class T>
+struct CookieType<RequiredCookie<Name, T>> {
+	using type = T;
+	static constexpr auto name = Name;
+	static constexpr bool required = true;
 };
 
 template<class T>
@@ -126,6 +150,14 @@ template<FixedString Name, class T>
 struct FormType<Form<Name, T>> {
 	using type = T;
 	static constexpr auto name = Name;
+	static constexpr bool required = false;
+};
+
+template<FixedString Name, class T>
+struct FormType<RequiredForm<Name, T>> {
+	using type = T;
+	static constexpr auto name = Name;
+	static constexpr bool required = true;
 };
 
 template<class T>

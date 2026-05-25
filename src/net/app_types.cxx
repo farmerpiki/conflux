@@ -318,7 +318,21 @@ struct Query {
 };
 
 template<FixedString Name, class T = std::string_view>
-using RequiredQuery = Query<Name, T>;
+struct RequiredQuery {
+	using value_type = T;
+
+	T value{};
+
+	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
+	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
+};
 
 template<FixedString Name, class T = std::string_view>
 using OptionalQuery = Query<Name, std::optional<T>>;
@@ -341,7 +355,21 @@ struct Header {
 };
 
 template<FixedString Name, class T = std::string_view>
-using RequiredHeader = Header<Name, T>;
+struct RequiredHeader {
+	using value_type = T;
+
+	T value{};
+
+	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
+	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
+};
 
 template<FixedString Name, class T = std::string_view>
 using OptionalHeader = Header<Name, std::optional<T>>;
@@ -364,7 +392,21 @@ struct Cookie {
 };
 
 template<FixedString Name, class T = std::string_view>
-using RequiredCookie = Cookie<Name, T>;
+struct RequiredCookie {
+	using value_type = T;
+
+	T value{};
+
+	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
+	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
+};
 
 template<FixedString Name, class T = std::string_view>
 using OptionalCookie = Cookie<Name, std::optional<T>>;
@@ -387,7 +429,21 @@ struct Form {
 };
 
 template<FixedString Name, class T = std::string_view>
-using RequiredForm = Form<Name, T>;
+struct RequiredForm {
+	using value_type = T;
+
+	T value{};
+
+	[[nodiscard]] static constexpr std::string_view name() noexcept { return Name.view(); }
+	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
+	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
+	template<class U>
+		requires requires(T const &v, U &&fallback) { v.value_or(std::forward<U>(fallback)); }
+	[[nodiscard]] constexpr decltype(auto) value_or(
+		U &&fallback) const {
+		return value.value_or(std::forward<U>(fallback));
+	}
+};
 
 template<FixedString Name, class T = std::string_view>
 using OptionalForm = Form<Name, std::optional<T>>;

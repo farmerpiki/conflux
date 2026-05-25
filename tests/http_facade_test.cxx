@@ -1910,6 +1910,60 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: required string-like field extractors reject absence but accept empty values",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post(
+		"/required-fields",
+		[](http::RequiredQuery<"q"> q,
+		   http::RequiredHeader<"x-token"> token,
+		   http::RequiredCookie<"session"> session,
+		   http::RequiredForm<"name"> name) {
+			return http::text(std::format("{}:{}:{}:{}", q.get(), token.get(), session.get(), name.get()));
+		});
+
+	Request req;
+	req.method = "POST";
+	req.path = "/required-fields";
+	req.query["q"] = "";
+	req.headers["x-token"] = "";
+	req.cookies["session"] = "";
+	req.form["name"] = "";
+	CHECK(http::router(app).dispatch(req).text_body() == ":::");
+
+	req.query.clear();
+	auto missing_query = http::router(app).dispatch(req);
+	CHECK(missing_query.status == kHttpBadRequest);
+	CHECK(missing_query.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
+	CHECK(missing_query.text_body().find(R"("name":"q")") != std::string_view::npos);
+	CHECK(missing_query.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+
+	req.query["q"] = "";
+	req.headers.clear();
+	auto missing_header = http::router(app).dispatch(req);
+	CHECK(missing_header.status == kHttpBadRequest);
+	CHECK(missing_header.text_body().find(R"("extractor":"Header")") != std::string_view::npos);
+	CHECK(missing_header.text_body().find(R"("name":"x-token")") != std::string_view::npos);
+	CHECK(missing_header.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+
+	req.headers["x-token"] = "";
+	req.cookies.clear();
+	auto missing_cookie = http::router(app).dispatch(req);
+	CHECK(missing_cookie.status == kHttpBadRequest);
+	CHECK(missing_cookie.text_body().find(R"("extractor":"Cookie")") != std::string_view::npos);
+	CHECK(missing_cookie.text_body().find(R"("name":"session")") != std::string_view::npos);
+	CHECK(missing_cookie.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+
+	req.cookies["session"] = "";
+	req.form.clear();
+	auto missing_form = http::router(app).dispatch(req);
+	CHECK(missing_form.status == kHttpBadRequest);
+	CHECK(missing_form.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
+	CHECK(missing_form.text_body().find(R"("name":"name")") != std::string_view::npos);
+	CHECK(missing_form.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive form extractors",
 	"[http.facade]") {
 	auto app = http::app();

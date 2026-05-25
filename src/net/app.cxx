@@ -1696,7 +1696,14 @@ public:
 		} else if constexpr (detail::QueryArg<Clean>) {
 			using QueryValue = typename detail::QueryType<Clean>::type;
 			if constexpr (std::same_as<QueryValue, std::string_view>) {
-				return Clean{.value = req.query_value(detail::QueryType<Clean>::name.view())};
+				if constexpr (detail::QueryType<Clean>::required) {
+					return Clean{
+						.value = detail::extract_or_throw(
+							req.template query_as<QueryValue>(detail::QueryType<Clean>::name.view()),
+							"Query")};
+				} else {
+					return Clean{.value = req.query_value(detail::QueryType<Clean>::name.view())};
+				}
 			} else if constexpr (detail::OptionalFieldValue<QueryValue>) {
 				using FieldValue = typename detail::OptionalFieldType<QueryValue>::type;
 				return Clean{
@@ -1712,7 +1719,14 @@ public:
 		} else if constexpr (detail::HeaderArg<Clean>) {
 			using HeaderValue = typename detail::HeaderType<Clean>::type;
 			if constexpr (std::same_as<HeaderValue, std::string_view>) {
-				return Clean{.value = req.header(detail::HeaderType<Clean>::name.view())};
+				if constexpr (detail::HeaderType<Clean>::required) {
+					return Clean{
+						.value = detail::extract_or_throw(
+							req.template header_as<HeaderValue>(detail::HeaderType<Clean>::name.view()),
+							"Header")};
+				} else {
+					return Clean{.value = req.header(detail::HeaderType<Clean>::name.view())};
+				}
 			} else if constexpr (detail::OptionalFieldValue<HeaderValue>) {
 				using FieldValue = typename detail::OptionalFieldType<HeaderValue>::type;
 				return Clean{
@@ -1728,7 +1742,14 @@ public:
 		} else if constexpr (detail::CookieArg<Clean>) {
 			using CookieValue = typename detail::CookieType<Clean>::type;
 			if constexpr (std::same_as<CookieValue, std::string_view>) {
-				return Clean{.value = req.cookie(detail::CookieType<Clean>::name.view())};
+				if constexpr (detail::CookieType<Clean>::required) {
+					return Clean{
+						.value = detail::extract_or_throw(
+							req.template cookie_as<CookieValue>(detail::CookieType<Clean>::name.view()),
+							"Cookie")};
+				} else {
+					return Clean{.value = req.cookie(detail::CookieType<Clean>::name.view())};
+				}
 			} else if constexpr (detail::OptionalFieldValue<CookieValue>) {
 				using FieldValue = typename detail::OptionalFieldType<CookieValue>::type;
 				return Clean{
@@ -1744,7 +1765,14 @@ public:
 		} else if constexpr (detail::FormArg<Clean>) {
 			using FormValue = typename detail::FormType<Clean>::type;
 			if constexpr (std::same_as<FormValue, std::string_view>) {
-				return Clean{.value = req.form_value(detail::FormType<Clean>::name.view())};
+				if constexpr (detail::FormType<Clean>::required) {
+					return Clean{
+						.value = detail::extract_or_throw(
+							req.template form_as<FormValue>(detail::FormType<Clean>::name.view()),
+							"Form")};
+				} else {
+					return Clean{.value = req.form_value(detail::FormType<Clean>::name.view())};
+				}
 			} else if constexpr (detail::OptionalFieldValue<FormValue>) {
 				using FieldValue = typename detail::OptionalFieldType<FormValue>::type;
 				return Clean{

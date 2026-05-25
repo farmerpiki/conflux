@@ -355,3 +355,21 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "examples/e2e-quickstart_json_crud|examples/compile"` completed after the
   quickstart storage note: 2/2 passed.
+- findings/6 required string-like field extractor semantics: complete.
+  `RequiredQuery`, `RequiredHeader`, `RequiredCookie`, and `RequiredForm` are
+  now distinct wrapper types, so required string-view fields reject missing
+  inputs while still accepting present empty values. Plain `Query/Header/Cookie/Form`
+  keep the previous optional-empty default behavior, and `Optional*` aliases keep
+  optional typed parsing.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_http_facade_tests` completed after the required extractor update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: required string-like field extractors|http facade: required and
+  optional field extractor aliases|http facade: typed field extractors|http
+  facade: app handlers can receive field extractors|http facade: app handlers
+  can receive form extractors|http facade: form extractors"` completed after
+  the required extractor update: 7/7 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "api-surface/import-(curated|extended|complete|selected)|build/header-component-smoke|build/public-module-import-smoke|http
+  facade: public import smoke"` completed after the exported app type update:
+  7/7 passed.
