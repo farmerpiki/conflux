@@ -163,11 +163,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = Response{};
-			r.status = kHttpBadRequest;
-			r.status_text = "Bad Request";
-			r.content_type = "text/plain; charset=utf-8";
-			r.set_text_body("Bad Request");
+			auto r = Response::text("Bad Request", kHttpBadRequest);
 			conn.own_response = format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;

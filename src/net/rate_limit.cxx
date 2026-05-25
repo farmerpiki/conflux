@@ -93,11 +93,7 @@ export Router::Middleware rate_limit_middleware(
 		}
 
 		if (!allowed) {
-			Response r;
-			r.status = 429;
-			r.status_text = "Too Many Requests";
-			r.content_type = "text/plain; charset=utf-8";
-			r.set_text_body("Too Many Requests");
+			auto r = Response::text("Too Many Requests", kHttpTooManyRequests);
 			r.headers["Retry-After"] = std::format("{}", retry_after);
 			return r;
 		}

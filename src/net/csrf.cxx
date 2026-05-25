@@ -53,12 +53,7 @@ export Router::Middleware csrf_middleware(
 			// Read cookie token.
 			auto cookie_token = std::string{req.cookies[lower_cookie]};
 			if (cookie_token.empty()) {
-				Response r;
-				r.status = 403;
-				r.status_text = "Forbidden";
-				r.content_type = "text/plain; charset=utf-8";
-				r.set_text_body("CSRF token missing");
-				return r;
+				return Response::text("CSRF token missing", kHttpForbidden);
 			}
 			// Read submitted token (header takes precedence over form field).
 			std::string submitted{req.headers[lower_header]};
@@ -66,12 +61,7 @@ export Router::Middleware csrf_middleware(
 				submitted = std::string{req.form[lower_field]};
 			}
 			if (!constant_time_eq(cookie_token, submitted)) {
-				Response r;
-				r.status = 403;
-				r.status_text = "Forbidden";
-				r.content_type = "text/plain; charset=utf-8";
-				r.set_text_body("CSRF token invalid");
-				return r;
+				return Response::text("CSRF token invalid", kHttpForbidden);
 			}
 		}
 

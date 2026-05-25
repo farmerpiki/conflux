@@ -16,12 +16,7 @@ export struct IpFilterOptions {
 namespace ip_filter_detail {
 
 Response forbidden() {
-	Response r;
-	r.status = 403;
-	r.status_text = "Forbidden";
-	r.content_type = "text/plain; charset=utf-8";
-	r.set_text_body("Forbidden");
-	return r;
+	return Response::text("Forbidden", kHttpForbidden);
 }
 
 } // namespace ip_filter_detail
