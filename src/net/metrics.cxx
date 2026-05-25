@@ -52,9 +52,9 @@ public:
 		double seconds) noexcept {
 		sum_.fetch_add(seconds, std::memory_order_relaxed);
 		count_.fetch_add(1, std::memory_order_relaxed);
-		for (auto [bound, cnt]: std::views::zip(kBuckets, buckets_)) {
-			if (seconds <= bound) {
-				cnt.fetch_add(1, std::memory_order_relaxed);
+		for (std::size_t i = 0; i < kBuckets.size(); ++i) {
+			if (seconds <= kBuckets[i]) {
+				buckets_[i].fetch_add(1, std::memory_order_relaxed);
 			}
 		}
 	}

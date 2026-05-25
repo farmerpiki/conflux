@@ -77,6 +77,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   reservation, and object/array child setup now use private builder helpers
   while preserving the existing owned-name copy and borrowed-name pointer
   lifetime behavior.
+- `findings/1.md` P2 compatibility-sensitive `views::zip` use: complete.
+  JWT constant-time byte comparison and fixed-bucket metrics observation now
+  use explicit indexed loops, making the constant-time path easier to audit and
+  removing the only remaining `std::views::zip` dependency from the runtime
+  sources.
 
 ## Verification
 
@@ -193,6 +198,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
   completed after the JSON builder helper extraction.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "json:"` completed: 204/204 passed after the JSON builder helper extraction.
+- `cmake --build --preset release-clang-libcxx --target conflux_jwt_tests
+  conflux_tests` completed after replacing compatibility-sensitive
+  `std::views::zip` loops.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "^(jwt:|metrics: Histogram|metrics: duration histogram appears in output)"`
+  completed: 23/23 passed.
 
 ## Accepted / In Scope
 

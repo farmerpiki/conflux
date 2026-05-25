@@ -130,8 +130,8 @@ bool ct_equal(
 		return false;
 	}
 	unsigned char diff = 0;
-	for (auto [x, y]: std::views::zip(a, b)) {
-		diff = static_cast<unsigned char>(diff | (x ^ y));
+	for (std::size_t i = 0; i < a.size(); ++i) {
+		diff = static_cast<unsigned char>(diff | (a[i] ^ b[i]));
 	}
 	return diff == 0;
 }
