@@ -56,6 +56,11 @@ struct FacadeSearch {
 	std::uint32_t page{};
 };
 
+struct FacadeOptionalSearch {
+	std::string q;
+	std::optional<std::uint32_t> page;
+};
+
 struct FacadeTodo {
 	std::int64_t id{};
 	std::string title;
@@ -95,6 +100,17 @@ struct JsonMembers<FacadeSearch> {
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeSearch"; }
+};
+
+template<>
+struct JsonMembers<FacadeOptionalSearch> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("q", &FacadeOptionalSearch::q),
+			json_member("page", &FacadeOptionalSearch::page),
+		};
+	}
+	static constexpr std::string_view type_name() { return "FacadeOptionalSearch"; }
 };
 
 template<>
@@ -2068,6 +2084,31 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: aggregate query params support optional fields",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/search", [](http::QueryParams<FacadeOptionalSearch> search) {
+		return http::text(std::format("{}:{}", search->q, search->page.value_or(1)));
+	});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/search";
+	req.query["q"] = "conflux";
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:1");
+
+	req.query["page"] = "5";
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:5");
+
+	req.query["page"] = "bad";
+	auto bad = http::router(app).dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive aggregate form params",
 	"[http.facade]") {
 	auto app = http::app();
@@ -2092,6 +2133,31 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"FormParams"});
+}
+
+TEST_CASE(
+	"http facade: aggregate form params support optional fields",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/search", [](http::FormParams<FacadeOptionalSearch> search) {
+		return http::text(std::format("{}:{}", search->q, search->page.value_or(1)));
+	});
+
+	Request req;
+	req.method = "POST";
+	req.path = "/search";
+	req.form["q"] = "conflux";
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:1");
+
+	req.form["page"] = "5";
+	CHECK(http::router(app).dispatch(req).text_body() == "conflux:5");
+
+	req.form["page"] = "bad";
+	auto bad = http::router(app).dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
 }
 
 TEST_CASE(

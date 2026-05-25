@@ -373,3 +373,22 @@ those reviews.
   "api-surface/import-(curated|extended|complete|selected)|build/header-component-smoke|build/public-module-import-smoke|http
   facade: public import smoke"` completed after the exported app type update:
   7/7 passed.
+- findings/6 aggregate query/form optional member semantics: complete for the
+  existing `JsonMembers<T>`-backed extractor path. `QueryParams<T>` and
+  `FormParams<T>` now route `std::optional<U>` members through the existing
+  optional query/form field accessors, so missing optional aggregate fields
+  produce `std::nullopt` while malformed present fields still return a typed
+  problem response. The broader neutral `FieldMembers<T>` metadata split remains
+  accepted backlog.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_http_facade_tests` completed after the aggregate optional-field
+  update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: aggregate (query|form) params"` completed after the aggregate
+  optional-field update: 2/2 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: app handlers can receive aggregate|http facade: aggregate|http
+  facade: required string-like field extractors|http facade: required and
+  optional field extractor aliases|http facade: typed field extractors|http
+  facade: form extractors"` completed after the aggregate optional-field update:
+  9/9 passed.

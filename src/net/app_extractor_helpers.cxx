@@ -103,7 +103,14 @@ template<class T, class Members, std::size_t... Is>
 		[&] {
 			auto const &member = std::get<Is>(members);
 			using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
-			out.*(member.pointer) = extract_or_throw(req.template query_as<MemberValue>(member.name), "QueryParams");
+			if constexpr (OptionalFieldValue<MemberValue>) {
+				using FieldValue = typename OptionalFieldType<MemberValue>::type;
+				out.*(member.pointer) =
+					extract_or_throw(req.template optional_query_as<FieldValue>(member.name), "QueryParams");
+			} else {
+				out.*(member.pointer) =
+					extract_or_throw(req.template query_as<MemberValue>(member.name), "QueryParams");
+			}
 		}(),
 		...);
 	return out;
@@ -129,7 +136,13 @@ template<class T, class Members, std::size_t... Is>
 		[&] {
 			auto const &member = std::get<Is>(members);
 			using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
-			out.*(member.pointer) = extract_or_throw(req.template form_as<MemberValue>(member.name), "FormParams");
+			if constexpr (OptionalFieldValue<MemberValue>) {
+				using FieldValue = typename OptionalFieldType<MemberValue>::type;
+				out.*(member.pointer) =
+					extract_or_throw(req.template optional_form_as<FieldValue>(member.name), "FormParams");
+			} else {
+				out.*(member.pointer) = extract_or_throw(req.template form_as<MemberValue>(member.name), "FormParams");
+			}
 		}(),
 		...);
 	return out;
