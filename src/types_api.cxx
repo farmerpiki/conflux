@@ -48,6 +48,9 @@ module;
 #ifndef CONFLUX_HAS_JSON
 	#define CONFLUX_HAS_JSON 0
 #endif
+#ifndef CONFLUX_HAS_JSON_REFLECT
+	#define CONFLUX_HAS_JSON_REFLECT 0
+#endif
 
 export module conflux.types:api;
 
@@ -304,7 +307,7 @@ struct BuildInfo {
 		.http2 = CONFLUX_HAS_HTTP2 != 0,
 		.http3 = CONFLUX_HAS_HTTP3 != 0,
 		.db = CONFLUX_HAS_DB != 0,
-		.json_reflect = CONFLUX_HAS_JSON != 0,
+		.json_reflect = CONFLUX_HAS_JSON_REFLECT != 0,
 		.modules = std::string_view{CONFLUX_BUILD_INTERFACE_MODE} == "MODULE_INTERFACE",
 		.header_interface = std::string_view{CONFLUX_BUILD_INTERFACE_MODE} == "HEADER_INTERFACE",
 	};
