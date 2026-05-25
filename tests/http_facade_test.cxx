@@ -1749,6 +1749,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: required and optional field extractor aliases share typed parsing",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get(
+		"/aliases",
+		[](http::RequiredQuery<"id", std::uint64_t> id,
+		   http::OptionalHeader<"x-page", std::uint32_t> page,
+		   http::OptionalCookie<"session", std::uint32_t> session) {
+			return http::text(std::format("{}:{}:{}", id.get(), page.get().value_or(1), session.get().value_or(0)));
+		});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/aliases";
+	req.query["id"] = "42";
+	req.headers["x-page"] = "7";
+	CHECK(http::router(app).dispatch(req).text_body() == "42:7:0");
+
+	req.headers.clear();
+	req.cookies["session"] = "5";
+	CHECK(http::router(app).dispatch(req).text_body() == "42:1:5");
+
+	req.query.clear();
+	auto missing = http::router(app).dispatch(req);
+	CHECK(missing.status == kHttpBadRequest);
+	CHECK(missing.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive form extractors",
 	"[http.facade]") {
 	auto app = http::app();
@@ -1796,6 +1826,33 @@ TEST_CASE(
 	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+}
+
+TEST_CASE(
+	"http facade: required and optional form extractor aliases share typed parsing",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post(
+		"/form-aliases",
+		[](http::RequiredForm<"id", std::uint64_t> id, http::OptionalForm<"age", std::uint32_t> age) {
+			return http::text(std::format("{}:{}", id.get(), age.get().value_or(0)));
+		});
+
+	Request req;
+	req.method = "POST";
+	req.path = "/form-aliases";
+	req.form["id"] = "42";
+	req.form["age"] = "37";
+	CHECK(http::router(app).dispatch(req).text_body() == "42:37");
+
+	req.form.erase("age");
+	CHECK(http::router(app).dispatch(req).text_body() == "42:0");
+
+	req.form.clear();
+	auto missing = http::router(app).dispatch(req);
+	CHECK(missing.status == kHttpBadRequest);
+	CHECK(missing.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
+	CHECK(missing.text_body().find(R"("kind":"missing")") != std::string_view::npos);
 }
 
 TEST_CASE(

@@ -306,6 +306,12 @@ struct Query {
 };
 
 template<FixedString Name, class T = std::string_view>
+using RequiredQuery = Query<Name, T>;
+
+template<FixedString Name, class T = std::string_view>
+using OptionalQuery = Query<Name, std::optional<T>>;
+
+template<FixedString Name, class T = std::string_view>
 struct Header {
 	using value_type = T;
 
@@ -315,6 +321,12 @@ struct Header {
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
 };
+
+template<FixedString Name, class T = std::string_view>
+using RequiredHeader = Header<Name, T>;
+
+template<FixedString Name, class T = std::string_view>
+using OptionalHeader = Header<Name, std::optional<T>>;
 
 template<FixedString Name, class T = std::string_view>
 struct Cookie {
@@ -328,6 +340,12 @@ struct Cookie {
 };
 
 template<FixedString Name, class T = std::string_view>
+using RequiredCookie = Cookie<Name, T>;
+
+template<FixedString Name, class T = std::string_view>
+using OptionalCookie = Cookie<Name, std::optional<T>>;
+
+template<FixedString Name, class T = std::string_view>
 struct Form {
 	using value_type = T;
 
@@ -337,6 +355,12 @@ struct Form {
 	[[nodiscard]] constexpr T const &get() const noexcept { return value; }
 	[[nodiscard]] constexpr T const &operator *() const noexcept { return value; }
 };
+
+template<FixedString Name, class T = std::string_view>
+using RequiredForm = Form<Name, T>;
+
+template<FixedString Name, class T = std::string_view>
+using OptionalForm = Form<Name, std::optional<T>>;
 
 #if CONFLUX_HAS_JSON
 template<class T>
