@@ -149,6 +149,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app state ownership aliases are explicit",
+	"[http.facade]") {
+	auto app = http::app();
+
+	int borrowed = 11;
+	app.state_ref(borrowed);
+	CHECK(app.state<int>().value == std::addressof(borrowed));
+	CHECK(app.state<int>().get() == 11);
+
+	app.state_owned(std::string{"owned"});
+	CHECK(app.state<std::string>().get() == "owned");
+
+	auto shared = std::make_shared<double>(2.5);
+	app.state_shared(shared);
+	CHECK(app.state<std::shared_ptr<double>>().get() == shared);
+}
+
+TEST_CASE(
 	"http facade: stream helper writes buffered response bodies",
 	"[http.facade]") {
 	auto response = http::stream(

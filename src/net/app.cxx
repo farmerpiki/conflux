@@ -804,6 +804,21 @@ public:
 		return *this;
 	}
 	template<class T>
+	App &state_ref(
+		T &value) {
+		return state(value);
+	}
+	template<class T>
+	App &state_shared(
+		std::shared_ptr<T> value) {
+		return state(std::move(value));
+	}
+	template<class T>
+	App &state_owned(
+		T value) {
+		return state_shared(std::make_shared<T>(std::move(value)));
+	}
+	template<class T>
 	[[nodiscard]] State<T> state() const {
 		auto const it = states_->find(std::type_index{typeid(T)});
 		if (it == states_->end()) {
