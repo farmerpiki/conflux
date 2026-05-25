@@ -843,7 +843,42 @@ public:
 					app.group_context_middlewares_ = previous_context;
 				}
 			} restore{app_, previous, previous_context};
-			return app_.add_route_ref(method, full_path(path), std::forward<F>(handler), loc);
+			auto route = app_.add_route_ref(method, full_path(path), std::forward<F>(handler), loc);
+			apply_policies(route);
+			return route;
+		}
+		Group &max_body_size(
+			std::size_t value) {
+			max_body_size_ = value;
+			return *this;
+		}
+		Group &timeout(
+			std::chrono::milliseconds value) {
+			timeout_ = value;
+			return *this;
+		}
+		Group &rate_limit(
+			std::string_view value) {
+			return rate_limit(value, AppRateLimitOptions{});
+		}
+		Group &rate_limit(
+			std::string_view value,
+			AppRateLimitOptions options) {
+			rate_limit_ = GroupRateLimit{.name = std::string{value}, .options = options};
+			return *this;
+		}
+		Group &auth_policy(
+			std::string_view value) {
+			auth_policy_ = std::string{value};
+			return *this;
+		}
+		template<typename F>
+		Group &group(
+			std::string_view prefix,
+			F &&fn) {
+			Group child{*this, full_path(prefix)};
+			std::invoke(std::forward<F>(fn), child);
+			return *this;
 		}
 		template<typename F>
 		[[nodiscard]] RouteRef get(
@@ -926,21 +961,55 @@ public:
 
 	private:
 		friend class App;
+		struct GroupRateLimit {
+			std::string name;
+			AppRateLimitOptions options{};
+		};
 		Group(
 			App &app,
 			std::string_view prefix)
 			: app_(app)
 			, prefix_(prefix) {}
+		Group(
+			Group const &parent,
+			std::string prefix)
+			: app_(parent.app_)
+			, prefix_(std::move(prefix))
+			, middlewares_(parent.middlewares_)
+			, context_middlewares_(parent.context_middlewares_)
+			, max_body_size_(parent.max_body_size_)
+			, timeout_(parent.timeout_)
+			, rate_limit_(parent.rate_limit_)
+			, auth_policy_(parent.auth_policy_) {}
 
 		[[nodiscard]] std::string full_path(
 			std::string_view path) const {
 			return detail::join_route_path(prefix_, path);
+		}
+		void apply_policies(
+			RouteRef &route) const {
+			if (max_body_size_) {
+				route.max_body_size(*max_body_size_);
+			}
+			if (timeout_) {
+				route.timeout(*timeout_);
+			}
+			if (rate_limit_) {
+				route.rate_limit(rate_limit_->name, rate_limit_->options);
+			}
+			if (auth_policy_) {
+				route.auth_policy(*auth_policy_);
+			}
 		}
 
 		App &app_;
 		std::string prefix_;
 		ScopedMiddlewareList middlewares_;
 		ScopedContextMiddlewareList context_middlewares_;
+		std::optional<std::size_t> max_body_size_;
+		std::optional<std::chrono::milliseconds> timeout_;
+		std::optional<GroupRateLimit> rate_limit_;
+		std::optional<std::string> auth_policy_;
 	};
 
 	template<typename F>

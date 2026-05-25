@@ -928,6 +928,45 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app group policies apply to nested routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api", [](auto &api) {
+		api.auth_policy("user")
+			.rate_limit("api", {.requests = 1, .window = std::chrono::seconds{60}})
+			.timeout(std::chrono::milliseconds{250})
+			.max_body_size(32);
+		api.group("v1", [](auto &v1) {
+			(void)v1.post("items", [](http::BodyText body) { return http::text(body.get()); });
+		});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/api/v1/items");
+	CHECK(routes[0].auth_policy == "user");
+	CHECK(routes[0].rate_limit == "api");
+	CHECK(routes[0].timeout == std::chrono::milliseconds{250});
+	CHECK(routes[0].max_body_size == 32);
+
+	Request req;
+	req.method = "POST";
+	req.path = "/api/v1/items";
+	req.body = "hello";
+
+	auto unauthorized = http::router(app).dispatch(req);
+	CHECK(unauthorized.status == kHttpUnauthorized);
+
+	req.headers["authorization"] = "Bearer token";
+	auto ok = http::router(app).dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == "hello");
+
+	auto limited = http::router(app).dispatch(req);
+	CHECK(limited.status == kHttpTooManyRequests);
+}
+
+TEST_CASE(
 	"http facade: app openapi spec uses route metadata",
 	"[http.facade]") {
 	auto app = http::app();
