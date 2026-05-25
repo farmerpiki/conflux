@@ -101,7 +101,7 @@ if(TARGET bench_io_common)
 
     conflux_add_recordable_benchmark(conflux_storage_read_bench storage_read_bench.cxx)
     target_link_libraries(conflux_storage_read_bench
-        PRIVATE bench_common conflux_file_io conflux_work conflux_options)
+        PRIVATE bench_io_common)
 endif()
 
 if(TARGET bench_io_common AND TARGET conflux_socket_io)
