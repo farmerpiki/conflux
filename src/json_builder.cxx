@@ -397,7 +397,7 @@ std::expected<ArrayBuilder, JsonError> ValueBuilder::begin_array() {
 }
 
 void ValueBuilder::reset() noexcept {
-	state_->store = DocumentStorage{};
+	state_->store.reset();
 	state_->built_input.clear();
 	state_->root_set = false;
 	state_->root_node = 0;

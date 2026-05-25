@@ -12,6 +12,25 @@ DocumentStorage::~DocumentStorage() noexcept {
 	}
 }
 
+void DocumentStorage::reset() noexcept {
+	for (auto &n: nodes) {
+		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
+			ObjHashTable::destroy(n.hash_idx_raw);
+			n.hash_idx_raw = nullptr;
+		}
+	}
+	nodes.clear();
+	string_arena.clear();
+	array_children.clear();
+	object_members.clear();
+	external_ptrs_.clear();
+	owned_input.clear();
+	input_view = {};
+	root_node = 0;
+	bom_prefix_bytes = 0;
+	parse_stats = {};
+}
+
 std::string_view DocumentStorage::str_at(
 	std::uint32_t off,
 	std::uint32_t len) const noexcept {

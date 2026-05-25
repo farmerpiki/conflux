@@ -1934,6 +1934,25 @@ TEST_CASE(
 	CHECK(*doc->root().as_string() == "fresh");
 }
 TEST_CASE(
+	"json: ValueBuilder::reset() clears borrowed string storage",
+	"[json][builder][lifetime]") {
+	auto b = value_builder();
+	std::string borrowed = "borrowed";
+	auto obj = b.begin_object();
+	REQUIRE(obj.has_value());
+	REQUIRE(obj->insert_string_borrowed("name", borrowed).has_value());
+	std::move(*obj).commit();
+	b.reset();
+	borrowed = "mutated";
+	REQUIRE(b.set_string("owned").has_value());
+
+	auto doc = std::move(b).finish();
+	REQUIRE(doc.has_value());
+	auto value = doc->root().as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == "owned");
+}
+TEST_CASE(
 	"json: ValueBuilder::discard() — prevents finish",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
@@ -4678,6 +4697,12 @@ TEST_CASE(
 	CHECK(hash_resource.alloc_count > 0);
 	CHECK(hash_resource.alloc_bytes > 0);
 	CHECK(hash_resource.dealloc_count == 0);
+
+	auto doc2 = arena.parse_into(R"({"fresh":true})");
+	REQUIRE(doc2.has_value());
+	CHECK_FALSE(doc->is_live());
+	CHECK(doc2->is_live());
+	CHECK(hash_resource.dealloc_count > 0);
 }
 TEST_CASE(
 	"phase5: ArenaDocument dump produces correct JSON",

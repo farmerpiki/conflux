@@ -30,6 +30,10 @@ those reviews.
   JSON header-mode package smoke no longer includes `<conflux/curated.hpp>`, so
   mock-liburing installs can keep profile wrappers forbidden while still
   validating the installed JSON component.
+- `findings/9.md`: accepted the remaining JSON lifetime reset-edge coverage.
+  `DocumentStorage::reset()` now destroys warmed object hash tables and clears
+  external borrowed-pointer slots before reuse; `ValueBuilder::reset()` and
+  `JsonArena` reuse paths use that helper.
 
 ## Accepted backlog
 
@@ -62,9 +66,9 @@ those reviews.
   release-core target graph cleanup, direct DB cancel-pool exposure, SSE
   send-view semantics, header hygiene, and manifest cleanup. Accepted backlog;
   several are intentionally larger ownership/API changes.
-- `findings/9.md`: public header warnings and JSON lifetime tests. Accepted as
-  follow-up validation work; runtime SIMD configure behavior and mock package
-  smoke behavior are complete above.
+- `findings/9.md`: public header warnings remain accepted follow-up validation
+  work; runtime SIMD configure behavior, mock package smoke behavior, and JSON
+  reset lifetime coverage are complete above.
 
 ## Rejected / not applied
 
@@ -82,3 +86,7 @@ those reviews.
   fails with the intended diagnostic.
 - `scripts/check-package-config.sh` completed.
 - `scripts/check-package-smoke-liburing-free.sh` completed.
+- `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
+  completed.
+- `/tmp/gcc-16/release-clang-libcxx/tests/conflux_json_tests
+  "[json][builder][lifetime],[phase5]"` completed.

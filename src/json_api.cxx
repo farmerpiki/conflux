@@ -719,6 +719,7 @@ struct DocumentStorage {
 	DocumentStorage(DocumentStorage &&) noexcept = default;
 	DocumentStorage &operator =(DocumentStorage &&) noexcept = default;
 	~DocumentStorage() noexcept;
+	void reset() noexcept;
 	[[nodiscard]] std::string_view str_at(std::uint32_t off, std::uint32_t len) const noexcept;
 	[[nodiscard]] std::string_view bytes_at(std::uint32_t off, std::uint32_t len, std::uint8_t flags) const noexcept;
 	[[nodiscard]] std::string_view member_name(MemberEntry const &m) const noexcept;

@@ -1174,19 +1174,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 
 void JsonArena::reset_storage_for_reuse() noexcept {
 	++generation_;
-	for (auto &n: storage_->nodes) {
-		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-			ObjHashTable::destroy(n.hash_idx_raw);
-			n.hash_idx_raw = nullptr;
-		}
-	}
-	storage_->nodes.clear();
-	storage_->string_arena.clear();
-	storage_->array_children.clear();
-	storage_->object_members.clear();
-	storage_->owned_input.clear();
-	storage_->root_node = 0;
-	storage_->bom_prefix_bytes = 0;
+	storage_->reset();
 }
 
 std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
@@ -1236,12 +1224,6 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 }
 void JsonArena::reset() noexcept {
 	++generation_;
-	for (auto &n: storage_->nodes) {
-		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-			ObjHashTable::destroy(n.hash_idx_raw);
-			n.hash_idx_raw = nullptr;
-		}
-	}
 	storage_ = nullptr; // ~DocumentStorage: pmr dealloc is no-op on monotonic
 	mbr_.release(); // actually frees the slab
 	storage_ = std::make_unique<DocumentStorage>(&mbr_);
