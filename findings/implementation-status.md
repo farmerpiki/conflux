@@ -337,3 +337,12 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "docs/(release-docs|first-contact-public-dialect|package-docs)|docs/planning-state"`
   completed after the SSE docs update: 4/4 passed.
+- findings/6 quickstart OpenAPI helper cleanup: complete. The first-contact
+  OpenAPI quickstart now uses `app.openapi(...)` instead of manually mounting
+  `Response::json(app.openapi_spec(...))`; the returned route handle is
+  explicitly discarded to avoid warning-clean build drift.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_quickstart_openapi` completed after the quickstart update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "examples/(compile|quickstart-policy|public-policy|e2e-quickstart)"`
+  completed after the quickstart update: 8/8 passed.

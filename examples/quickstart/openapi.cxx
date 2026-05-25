@@ -19,7 +19,7 @@ int main() {
 	app.get("/health", [] { return http::json(StatusReply{.status = "ok"}); })
 		.name("health.check")
 		.openapi_summary("Health check");
-	app.get("/openapi.json", [&app] { return http::Response::json(app.openapi_spec("conflux quickstart", "0.1.0")); });
+	(void)app.openapi("/openapi.json", "conflux quickstart", "0.1.0");
 
 	return http::run_main(std::move(app), {.port = 9098});
 }
