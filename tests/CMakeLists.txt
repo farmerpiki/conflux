@@ -154,6 +154,14 @@ if(TARGET conflux)
         LINK conflux conflux_options
         LABELS build api-surface compile-fail
         EXPECT "unknown type name 'DirectSlotPool'")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_detail
+        SOURCE crypto_compile_fail_detail.cxx
+        TEST api-surface/crypto-hides-detail
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "no member named 'detail' in namespace 'conflux::crypto'")
 endif()
 
 add_executable(conflux_tests)

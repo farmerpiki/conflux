@@ -422,7 +422,7 @@ struct Argon2Api {
 }
 
 [[nodiscard]] std::array<unsigned char, 32> pbkdf2_block(
-	conflux::crypto::detail::HmacSha256Key const &password_key,
+	conflux::crypto::HmacSha256Key const &password_key,
 	std::span<unsigned char const> salt,
 	std::uint32_t iterations,
 	std::uint32_t block_index) noexcept {
@@ -432,10 +432,10 @@ struct Argon2Api {
 		static_cast<unsigned char>((block_index >> 8U) & 0xFFU),
 		static_cast<unsigned char>(block_index & 0xFFU),
 	};
-	auto u = conflux::crypto::detail::hmac_sha256_noalloc(password_key, salt, block_suffix);
+	auto u = conflux::crypto::hmac_sha256_precomputed(password_key, salt, block_suffix);
 	std::array<unsigned char, 32> out = u;
 	for (std::uint32_t i = 1; i < iterations; ++i) {
-		u = conflux::crypto::detail::hmac_sha256_noalloc(password_key, u);
+		u = conflux::crypto::hmac_sha256_precomputed(password_key, u);
 		for (std::size_t j = 0; j < out.size(); ++j) {
 			out[j] = static_cast<unsigned char>(out[j] ^ u[j]);
 		}
@@ -456,7 +456,7 @@ struct Argon2Api {
 	}
 	std::vector<unsigned char> out(hash_bytes);
 	std::span<unsigned char const> salt_bytes = bytes_view(salt);
-	auto password_key = conflux::crypto::detail::hmac_sha256_key(bytes_view(password));
+	auto password_key = conflux::crypto::hmac_sha256_key(bytes_view(password));
 	std::uint32_t block_index = 1U;
 	std::size_t filled = 0;
 	while (filled < out.size()) {
@@ -478,7 +478,7 @@ struct Argon2Api {
 	if (hash_bytes == 0U || hash_bytes > kMaxHashBytes) {
 		return std::unexpected{"password std::hash: invalid verifier-secret output std::byte count"};
 	}
-	auto key = conflux::crypto::detail::hmac_sha256_key(bytes_view(verifier_secret));
+	auto key = conflux::crypto::hmac_sha256_key(bytes_view(verifier_secret));
 	std::span<unsigned char const> raw_bytes = bytes_view(raw);
 	std::vector<unsigned char> out(hash_bytes);
 	std::uint32_t block_index = 1U;
@@ -490,7 +490,7 @@ struct Argon2Api {
 			static_cast<unsigned char>((block_index >> 8U) & 0xFFU),
 			static_cast<unsigned char>(block_index & 0xFFU),
 		};
-		auto block = conflux::crypto::detail::hmac_sha256_noalloc(key, raw_bytes, suffix);
+		auto block = conflux::crypto::hmac_sha256_precomputed(key, raw_bytes, suffix);
 		std::size_t const n = std::min(block.size(), out.size() - filled);
 		std::ranges::copy(std::span{block}.first(n), out.begin() + static_cast<std::ptrdiff_t>(filled));
 		filled += n;

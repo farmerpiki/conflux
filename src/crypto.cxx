@@ -120,7 +120,7 @@ export std::string base64url_decode(
 	return b64_decode_impl(encoded, kB64UrlTable);
 }
 
-export namespace conflux::crypto::detail {
+namespace conflux::crypto::crypto_detail {
 
 struct Sha256State {
 	std::array<std::uint32_t, 8> h{};
@@ -129,10 +129,18 @@ struct Sha256State {
 	std::size_t pending_size{};
 };
 
+} // namespace conflux::crypto::crypto_detail
+
+export namespace conflux::crypto {
+
 struct HmacSha256Key {
 	std::array<unsigned char, 64> inner{};
 	std::array<unsigned char, 64> outer{};
 };
+
+} // namespace conflux::crypto
+
+namespace conflux::crypto::crypto_detail {
 
 [[nodiscard]] std::uint32_t rotr32(
 	std::uint32_t v,
@@ -257,11 +265,15 @@ void sha256_update(
 	return sha256_final(state);
 }
 
+} // namespace conflux::crypto::crypto_detail
+
+export namespace conflux::crypto {
+
 [[nodiscard]] HmacSha256Key hmac_sha256_key(
 	std::span<unsigned char const> key) noexcept {
 	std::array<unsigned char, 64> kpad{};
 	if (key.size() > 64U) {
-		auto hashed = sha256_noalloc(key);
+		auto hashed = crypto_detail::sha256_noalloc(key);
 		std::ranges::copy(hashed, kpad.begin());
 	} else {
 		std::ranges::copy(key, kpad.begin());
@@ -274,28 +286,22 @@ void sha256_update(
 	return out;
 }
 
-[[nodiscard]] std::array<unsigned char, 32> hmac_sha256_noalloc(
+[[nodiscard]] std::array<unsigned char, 32> hmac_sha256_precomputed(
 	HmacSha256Key const &key,
 	std::span<unsigned char const> a,
 	std::span<unsigned char const> b = {}) noexcept {
-	auto inner = sha256_init();
-	sha256_update(inner, key.inner);
-	sha256_update(inner, a);
-	sha256_update(inner, b);
-	auto inner_digest = sha256_final(inner);
-	auto outer = sha256_init();
-	sha256_update(outer, key.outer);
-	sha256_update(outer, inner_digest);
-	return sha256_final(outer);
+	auto inner = crypto_detail::sha256_init();
+	crypto_detail::sha256_update(inner, key.inner);
+	crypto_detail::sha256_update(inner, a);
+	crypto_detail::sha256_update(inner, b);
+	auto inner_digest = crypto_detail::sha256_final(inner);
+	auto outer = crypto_detail::sha256_init();
+	crypto_detail::sha256_update(outer, key.outer);
+	crypto_detail::sha256_update(outer, inner_digest);
+	return crypto_detail::sha256_final(outer);
 }
 
-[[nodiscard]] std::array<unsigned char, 32> hmac_sha256_noalloc(
-	std::span<unsigned char const> key,
-	std::span<unsigned char const> msg) noexcept {
-	return hmac_sha256_noalloc(hmac_sha256_key(key), msg);
-}
-
-} // namespace conflux::crypto::detail
+} // namespace conflux::crypto
 // ---------------------------------------------------------------------------
 // SHA padding helpers
 // ---------------------------------------------------------------------------
@@ -417,16 +423,15 @@ export std::array<unsigned char, 20> hmac_sha1(
 
 export std::array<unsigned char, 32> sha256(
 	std::span<unsigned char const> msg) {
-	return conflux::crypto::detail::sha256_noalloc(msg);
+	return conflux::crypto::crypto_detail::sha256_noalloc(msg);
 }
 // ---------------------------------------------------------------------------
 // HMAC-SHA256 (RFC 2104)
 // ---------------------------------------------------------------------------
-
 export std::array<unsigned char, 32> hmac_sha256(
 	std::span<unsigned char const> key,
 	std::span<unsigned char const> msg) {
-	return conflux::crypto::detail::hmac_sha256_noalloc(key, msg);
+	return conflux::crypto::hmac_sha256_precomputed(conflux::crypto::hmac_sha256_key(key), msg);
 }
 export bool constant_time_eq(
 	std::string_view a,

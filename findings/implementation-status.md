@@ -73,6 +73,11 @@ those reviews.
   Header-mode compile-fail tests are wired and verified; source fixes removed
   header-only masking errors around ambiguous `Request`, missing
   `<shared_mutex>`, and curated/extended exposure of `IoUringCaps`.
+- `findings/1.md`: accepted the exported crypto detail namespace issue.
+  `conflux.crypto` no longer exports `conflux::crypto::detail`; the
+  allocation-free precomputed HMAC-SHA256 path is exposed as documented
+  `conflux::crypto::HmacSha256Key`, `hmac_sha256_key`, and
+  `hmac_sha256_precomputed` APIs for internal and advanced callers.
 
 ## Accepted backlog
 
@@ -108,8 +113,8 @@ those reviews.
   send-view semantics, header hygiene, and manifest cleanup. Accepted backlog;
   several are intentionally larger ownership/API changes.
 - `findings/9.md`: public header warnings remain accepted follow-up validation
-  work; runtime SIMD configure behavior, mock package smoke behavior, and JSON
-  reset lifetime coverage are complete above.
+  work; runtime SIMD configure behavior, mock package smoke behavior, JSON reset
+  lifetime coverage, and crypto detail hiding are complete above.
 
 ## Rejected / not applied
 
@@ -198,3 +203,11 @@ those reviews.
   build fixes.
 - `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
   build/release-clang-libcxx --output-on-failure` completed: 1940/1940 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_crypto
+  conflux_http_auth conflux_crypto_tests conflux_password_hash_tests`
+  completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "api-surface/crypto-hides-detail|crypto:|password"` completed: 39/39 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "build/header-component-smoke"` completed after the crypto API adjustment:
+  1/1 passed.
