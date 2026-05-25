@@ -10,7 +10,6 @@ import conflux.types;
 import conflux.net.config;
 import conflux.net.proxy;
 import conflux.net.router;
-import conflux.net.proxy;
 import conflux.tests.support;
 
 using namespace conflux::tests;
@@ -185,12 +184,14 @@ std::string proxy_get_close(
 
 void check_bad_gateway_for(
 	HostileMode mode,
+	std::string_view expected_detail,
 	int timeout_sec = 2) {
 	HostileUpstream upstream{mode};
 	auto front = proxy_server_for(upstream, timeout_sec);
 	auto const response = proxy_get_close(front.port());
 	REQUIRE(response.starts_with("HTTP/1.1 502 Bad Gateway"));
 	CHECK(response.find("proxy:") != std::string::npos);
+	CHECK(response.find(expected_detail) != std::string::npos);
 }
 
 } // namespace
@@ -198,31 +199,31 @@ void check_bad_gateway_for(
 TEST_CASE(
 	"proxy e2e: upstream close mid-header returns bad gateway",
 	"[proxy][e2e][hostile]") {
-	check_bad_gateway_for(HostileMode::close_mid_header);
+	check_bad_gateway_for(HostileMode::close_mid_header, "response headers missing CRLFCRLF");
 }
 
 TEST_CASE(
 	"proxy e2e: upstream close mid-body returns bad gateway",
 	"[proxy][e2e][hostile]") {
-	check_bad_gateway_for(HostileMode::close_mid_body);
+	check_bad_gateway_for(HostileMode::close_mid_body, "failed to receive body");
 }
 
 TEST_CASE(
 	"proxy e2e: upstream malformed chunked body returns bad gateway",
 	"[proxy][e2e][hostile]") {
-	check_bad_gateway_for(HostileMode::malformed_chunked);
+	check_bad_gateway_for(HostileMode::malformed_chunked, "failed to receive chunked body");
 }
 
 TEST_CASE(
 	"proxy e2e: upstream oversized headers return bad gateway",
 	"[proxy][e2e][hostile]") {
-	check_bad_gateway_for(HostileMode::oversized_headers);
+	check_bad_gateway_for(HostileMode::oversized_headers, "response headers exceed");
 }
 
 TEST_CASE(
 	"proxy e2e: slow upstream response returns bad gateway",
 	"[proxy][e2e][hostile][slow]") {
-	check_bad_gateway_for(HostileMode::slow_response, 1);
+	check_bad_gateway_for(HostileMode::slow_response, "timed out waiting for response headers", 1);
 }
 
 TEST_CASE(

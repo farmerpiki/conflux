@@ -339,24 +339,63 @@ bool recv_some(
 	out.append(tmp.data(), static_cast<std::size_t>(n));
 	return true;
 }
+enum class RecvSomeStatus : std::uint8_t {
+	data,
+	timeout,
+	closed_or_error,
+};
+RecvSomeStatus recv_some_status(
+	Connection &conn,
+	std::string &out,
+	int timeout_sec) {
+#if CONFLUX_HAS_TLS
+	if (conn.use_tls) {
+		auto const before = out.size();
+		if (conn.tls_stream->read_some(out, timeout_sec)) {
+			return RecvSomeStatus::data;
+		}
+		return out.size() != before ? RecvSomeStatus::data : RecvSomeStatus::closed_or_error;
+	}
+#endif
+	std::array<char, 4096> tmp{};
+	if (!wait_fd(conn.fd, POLLIN, timeout_sec)) {
+		return RecvSomeStatus::timeout;
+	}
+	auto const n = ::recv(conn.fd, tmp.data(), tmp.size(), 0);
+	if (n <= 0) {
+		return RecvSomeStatus::closed_or_error;
+	}
+	out.append(tmp.data(), static_cast<std::size_t>(n));
+	return RecvSomeStatus::data;
+}
+struct RecvUntilResult {
+	std::string bytes{};
+	bool timed_out{false};
+};
 // Receive until delimiter or std::max bytes. Returns accumulated bytes (may contain
 // data past the delimiter if overread from the socket).
-std::string recv_until(
+RecvUntilResult recv_until(
 	Connection &conn,
 	std::string_view delim,
 	int timeout_sec,
 	std::size_t max_size) {
-	std::string buf;
-	buf.reserve(std::min<std::size_t>(4096, max_size));
-	while (buf.size() < max_size) {
-		if (!recv_some(conn, buf, timeout_sec)) {
+	RecvUntilResult result;
+	result.bytes.reserve(std::min<std::size_t>(4096, max_size));
+	while (result.bytes.size() < max_size) {
+		bool closed = false;
+		switch (recv_some_status(conn, result.bytes, timeout_sec)) {
+		case RecvSomeStatus::data           : break;
+		case RecvSomeStatus::timeout        : result.timed_out = true; return result;
+		case RecvSomeStatus::closed_or_error: closed = true; break;
+		}
+		if (result.bytes.find(delim) != std::string::npos) {
 			break;
 		}
-		if (buf.find(delim) != std::string::npos) {
+		if (closed) {
 			break;
 		}
 	}
-	return buf;
+	return result;
 }
 bool recv_exact(
 	Connection &conn,
@@ -675,11 +714,19 @@ ClientResult do_blocking_request(
 	std::size_t const max_buf = opts.max_buffered_bytes;
 
 	auto t_ttfb = std::chrono::steady_clock::now();
-	auto raw = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
+	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
+	auto raw = std::move(received_head.bytes);
 	auto const header_end = raw.find("\r\n\r\n");
 
 	if (header_end == std::string::npos) {
 		close_conn(conn);
+		if (received_head.timed_out) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::timeout,
+					.phase = HttpPhase::first_byte,
+					.message = "timed out waiting for response headers"});
+		}
 		if (raw.size() >= max_hdr) {
 			return std::unexpected(
 				HttpError{
