@@ -53,14 +53,18 @@ those reviews.
   accept so curl/TLS compatibility stress does not inherit fixed-file direct
   accept allocator nondeterminism. Direct accept remains covered by its own
   socket/recv-bundle tests.
+- `findings/2.md`: accepted the public/internal header callback algorithm
+  cleanup. `HttpFields` and `HttpFieldsView` now expose `for_each_value` and
+  `any_value`, with free `for_each_header_value` / `any_header_value` wrappers,
+  so duplicate header values can be scanned without allocating a vector.
 
 ## Accepted backlog
 
 - `findings/2.md`: reflected JSON member lookup ergonomics/performance.
   Accepted direction, but not in this slice; needs a focused data-structure
   change and benchmarks.
-- `findings/2.md`: public/internal header callback algorithms remain accepted
-  follow-up work. Client effective-header materialization is complete above.
+- `findings/2.md`: client effective-header materialization and public/internal
+  header callback algorithms are complete above.
 - `findings/2.md`: route-pattern/OpenAPI/template rendering deduplication.
   Accepted as design debt, but too broad for this safety/perf slice.
 - `findings/3.md`: generic io_uring sync task driver, HTTP client body state
@@ -120,6 +124,9 @@ those reviews.
   "template:"` completed: 51/51 passed.
 - `cmake --build --preset release-clang-libcxx --target conflux_tests`
   completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "HttpFields zero-allocation value callbacks|HttpFields::values returns all
+  entries"` completed: 2/2 passed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.

@@ -2675,6 +2675,26 @@ TEST_CASE(
 	REQUIRE(std::ranges::contains(vals, sv{"c=3"}));
 }
 TEST_CASE(
+	"HttpFields zero-allocation value callbacks visit duplicate keys") {
+	HttpFields f{true};
+	f.emplace_back("Set-Cookie", "a=1");
+	f.emplace_back("set-cookie", "b=2");
+	f.emplace_back("Other", "x");
+
+	std::vector<std::string_view> vals;
+	f.for_each_value("SET-COOKIE", [&](std::string_view value) { vals.push_back(value); });
+	REQUIRE(vals == (std::vector<std::string_view>{"a=1", "b=2"}));
+	CHECK(f.any_value("set-cookie", [](std::string_view value) { return value == "b=2"; }));
+	CHECK_FALSE(f.any_value("set-cookie", [](std::string_view value) { return value == "c=3"; }));
+
+	HttpFieldsView view{f};
+	vals.clear();
+	for_each_header_value(view, "set-cookie", [&](std::string_view value) { vals.push_back(value); });
+	REQUIRE(vals == (std::vector<std::string_view>{"a=1", "b=2"}));
+	CHECK(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "a=1"; }));
+	CHECK_FALSE(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "z=9"; }));
+}
+TEST_CASE(
 	"HttpFields::value_or returns default when key absent") {
 	HttpFields f{true};
 	f.emplace_back("A", "hello");

@@ -128,6 +128,26 @@ public:
 		self.for_each_matching(key, [&out](auto const &value) { out.push_back(value); });
 		return out;
 	}
+	template<typename Self, class F>
+	void for_each_value(
+		this Self const &self,
+		std::string_view key,
+		F &&fn) {
+		self.for_each_matching(key, std::forward<F>(fn));
+	}
+	template<typename Self, class Pred>
+	[[nodiscard]] bool any_value(
+		this Self const &self,
+		std::string_view key,
+		Pred &&pred) {
+		bool matched = false;
+		self.for_each_matching(key, [&](std::string_view value) {
+			if (!matched && std::invoke(pred, value)) {
+				matched = true;
+			}
+		});
+		return matched;
+	}
 	template<typename Self>
 	[[nodiscard]] bool contains(
 		this Self const &self,
@@ -357,6 +377,20 @@ public:
 		return out;
 	}
 };
+export template<class Fields, class F>
+void for_each_header_value(
+	Fields const &fields,
+	std::string_view key,
+	F &&fn) {
+	fields.for_each_value(key, std::forward<F>(fn));
+}
+export template<class Fields, class Pred>
+[[nodiscard]] bool any_header_value(
+	Fields const &fields,
+	std::string_view key,
+	Pred &&pred) {
+	return fields.any_value(key, std::forward<Pred>(pred));
+}
 export namespace conflux::http {
 
 [[nodiscard]] constexpr std::string_view trim_http_whitespace(
