@@ -833,7 +833,7 @@ function(conflux_add_header_component_smoke_targets)
         conflux_apply_header_smoke_warnings(conflux_header_smoke_runtime)
     endif()
 
-    if(CONFLUX_HAS_DB STREQUAL "true")
+    if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
         file(WRITE "${_smoke_dir}/pg.cxx" "#include <conflux/pg/connection.hxx>\nint main() { return 0; }\n")
         add_library(conflux_header_smoke_pg OBJECT "${_smoke_dir}/pg.cxx")
         conflux_apply_header_generated_build_policy(conflux_header_smoke_pg)
