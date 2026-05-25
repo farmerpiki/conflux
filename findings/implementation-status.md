@@ -557,3 +557,16 @@ those reviews.
   support optional fields|app handlers can receive aggregate form
   params|aggregate form params support optional fields)"` completed after
   tightening the remaining facade extractor problem JSON assertions: 8/8 passed.
+- Final re-check after the remaining structured problem-code assertion cleanup:
+  `cmake --build --preset release-clang-libcxx` completed.
+- Final re-check after the remaining structured problem-code assertion cleanup:
+  `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed: 1950/1950
+  passed, with only configured skips.
+- Final build-system quality re-evaluation completed: `scripts/check-package-config.sh`
+  and `scripts/check-package-smoke-liburing-free.sh` passed.
+- Final build-system quality re-evaluation confirmed
+  `CONFLUX_INTERFACE_MODE=HEADER_INTERFACE`,
+  `CONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON`, and
+  `CONFLUX_SIMD_SELECTION=RUNTIME` still fail configure with the intended
+  unsupported runtime-SIMD diagnostic.
