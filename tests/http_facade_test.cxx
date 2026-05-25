@@ -2238,10 +2238,9 @@ TEST_CASE(
 	req.body = R"({"value":"ok"})";
 
 	auto missing = http::router(app).dispatch(req);
-	CHECK(missing.status == kHttpBadRequest);
-	CHECK(missing.content_type == "application/problem+json");
-	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
-	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
+	auto missing_doc = require_json_body(missing, kHttpBadRequest);
+	check_json_string_at(missing_doc, "/code", "unsupported_content_type");
+	check_json_string_at(missing_doc, "/expected", "application/json");
 
 	req.headers["content-type"] = "application/json";
 	auto ok = http::router(app).dispatch(req);
@@ -2260,11 +2259,10 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":)";
 	auto malformed = http::router(app).dispatch(req);
-	CHECK(malformed.status == kHttpBadRequest);
-	CHECK(malformed.content_type == "application/problem+json");
-	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
-	CHECK(malformed.text_body().find(R"("stage":"parse")") != std::string_view::npos);
-	CHECK(malformed.text_body().find(R"("kind":"unexpected_eof")") != std::string_view::npos);
+	auto malformed_doc = require_json_body(malformed, kHttpBadRequest);
+	check_json_string_at(malformed_doc, "/code", "json.decode.type_mismatch");
+	check_json_string_at(malformed_doc, "/stage", "parse");
+	check_json_string_at(malformed_doc, "/kind", "unexpected_eof");
 	CHECK(malformed.text_body().find(R"("source":)") != std::string_view::npos);
 
 	auto routes = app.routes();
@@ -2289,10 +2287,9 @@ TEST_CASE(
 	req.body = R"({"value":"ok"})";
 
 	auto missing = http::router(app).dispatch(req);
-	CHECK(missing.status == kHttpBadRequest);
-	CHECK(missing.content_type == "application/problem+json");
-	CHECK(missing.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
-	CHECK(missing.text_body().find(R"("expected":"application/json")") != std::string_view::npos);
+	auto missing_doc = require_json_body(missing, kHttpBadRequest);
+	check_json_string_at(missing_doc, "/code", "unsupported_content_type");
+	check_json_string_at(missing_doc, "/expected", "application/json");
 
 	req.headers["content-type"] = "application/json";
 	auto ok = http::router(app).dispatch(req);
@@ -2311,9 +2308,8 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":)";
 	auto malformed = http::router(app).dispatch(req);
-	CHECK(malformed.status == kHttpBadRequest);
-	CHECK(malformed.content_type == "application/problem+json");
-	CHECK(malformed.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string_view::npos);
+	auto malformed_doc = require_json_body(malformed, kHttpBadRequest);
+	check_json_string_at(malformed_doc, "/code", "json.decode.type_mismatch");
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
@@ -2335,9 +2331,8 @@ TEST_CASE(
 	req.body = R"({"value":"too large"})";
 
 	auto too_large = http::router(app).dispatch(req);
-	CHECK(too_large.status == kHttpRequestEntityTooLarge);
-	CHECK(too_large.content_type == "application/problem+json");
-	CHECK(too_large.text_body().find(R"("code":"body_too_large")") != std::string_view::npos);
+	auto too_large_doc = require_json_body(too_large, kHttpRequestEntityTooLarge);
+	check_json_string_at(too_large_doc, "/code", "body_too_large");
 }
 
 TEST_CASE(
@@ -2356,9 +2351,8 @@ TEST_CASE(
 	req.body = R"([{"op":"add","path":"/name","value":"Ada"}])";
 
 	auto wrong = http::router(app).dispatch(req);
-	CHECK(wrong.status == kHttpBadRequest);
-	CHECK(wrong.content_type == "application/problem+json");
-	CHECK(wrong.text_body().find(R"("code":"unsupported_content_type")") != std::string_view::npos);
+	auto wrong_doc = require_json_body(wrong, kHttpBadRequest);
+	check_json_string_at(wrong_doc, "/code", "unsupported_content_type");
 
 	req.headers["content-type"] = "application/json-patch+json";
 	auto ok = http::router(app).dispatch(req);
@@ -2375,10 +2369,9 @@ TEST_CASE(
 	req.headers["content-type"] = "application/json-patch+json";
 	req.body = R"([{"path":"/name","value":"Ada"}])";
 	auto invalid = http::router(app).dispatch(req);
-	CHECK(invalid.status == kHttpBadRequest);
-	CHECK(invalid.content_type == "application/problem+json");
-	CHECK(invalid.text_body().find(R"("code":"patch_op_missing")") != std::string_view::npos);
-	CHECK(invalid.text_body().find(R"("stage":"json_patch")") != std::string_view::npos);
+	auto invalid_doc = require_json_body(invalid, kHttpBadRequest);
+	check_json_string_at(invalid_doc, "/code", "patch_op_missing");
+	check_json_string_at(invalid_doc, "/stage", "json_patch");
 
 	auto spec = app.openapi_spec("Patch API", "1.0");
 	CHECK(spec.find("application/json-patch+json") != std::string::npos);
@@ -2449,8 +2442,8 @@ TEST_CASE(
 	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.status_text == "Content Too Large");
-	CHECK(too_large.content_type == "application/problem+json");
-	CHECK(too_large.text_body().find(R"("code":"body_too_large")") != std::string_view::npos);
+	auto too_large_doc = require_json_body(too_large, kHttpRequestEntityTooLarge);
+	check_json_string_at(too_large_doc, "/code", "body_too_large");
 }
 
 TEST_CASE(

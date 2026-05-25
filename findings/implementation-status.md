@@ -133,6 +133,10 @@ those reviews.
   response schemas, grouped methods, auth policy, and route-local policy
   metadata. This exposed and fixed a renderer bug where operation objects were
   not closed before the next method/path entry.
+- `findings/5.md`: accepted another part of the problem JSON weak-assertion gap.
+  Facade JSON body, JSON document, route-local body-limit, and JsonPatch
+  rejection tests now parse problem bodies and assert exact JSON-pointer fields
+  for `code`, `stage`, `kind`, and `expected`.
 
 ## Accepted backlog
 
@@ -504,3 +508,12 @@ those reviews.
   policies|includes route-local policy metadata)|http facade: app route metadata
   records JSON responses|http facade: app openapi snapshot covers typed route
   policies"` completed after the OpenAPI assertion/renderer update: 8/8 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after tightening facade JSON extractor
+  problem assertions.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (JSON body routes validate content type|JSON document extractor
+  parses request body|JSON document extractor honors app body limit|JsonPatch
+  extractor validates content type and patch shape|JSON body routes enforce
+  route-local body limits)"` completed after tightening facade JSON extractor
+  problem assertions: 5/5 passed.
