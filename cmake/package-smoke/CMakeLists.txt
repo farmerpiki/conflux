@@ -653,13 +653,21 @@ int main() { return 0; }
     elseif(_component STREQUAL "http")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
             conflux_add_component_smoke(http http [[
-import conflux.net.http;
-int main() { return 0; }
+import conflux.http;
+int main() {
+    auto app = conflux::http::app();
+    app.get("/health", [] { return conflux::http::text("ok"); }).name("health.check");
+    return app.routes().empty() ? 1 : 0;
+}
 ]])
         else()
             conflux_add_component_smoke(http http [[
 #include <conflux/http.hpp>
-int main() { return 0; }
+int main() {
+    auto app = conflux::http::app();
+    app.get("/health", [] { return conflux::http::text("ok"); }).name("health.check");
+    return app.routes().empty() ? 1 : 0;
+}
 ]])
         endif()
 	elseif(_component STREQUAL "file_io_sync")

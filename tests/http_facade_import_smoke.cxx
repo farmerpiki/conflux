@@ -1,7 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 import conflux.http;
-import conflux.net.http.server_types;
 import std;
 
 namespace http = conflux::http;

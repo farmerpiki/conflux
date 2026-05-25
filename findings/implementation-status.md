@@ -45,6 +45,10 @@ those reviews.
 - `findings/7.md`: accepted the route-level App rate-limit eviction issue.
   Route-local rate limiting now uses the same LRU-bounded string map strategy as
   the middleware limiter instead of erasing an arbitrary unordered-map entry.
+- `findings/5.md`: accepted the HTTP façade/package smoke purity issues.
+  Package HTTP module smoke now imports `conflux.http` and exercises
+  `http::app()`/`http::text()` instead of importing `conflux.net.http`; the
+  façade import smoke no longer imports internal server types.
 
 ## Accepted backlog
 
@@ -64,8 +68,9 @@ those reviews.
 - `findings/4.md`: response gather-send, response storage normalization, and
   middleware allocation reduction. Accepted as performance backlog requiring
   benchmarks and isolated changes.
-- `findings/5.md`: remaining compile-fail/package/API smoke coverage gaps.
-  Accepted as test backlog; not required for the current runtime fixes.
+- `findings/5.md`: remaining compile-fail wiring, API surface symbol smoke, and
+  structured-output assertion gaps stay accepted test backlog. HTTP package
+  smoke and façade import purity are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -114,3 +119,9 @@ those reviews.
   conflux_http_facade_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: route rate limit"` completed: 2/2 passed.
+- `scripts/check-package-config.sh` completed after the HTTP package smoke
+  change.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_import_smoke` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: public import smoke"` completed.
