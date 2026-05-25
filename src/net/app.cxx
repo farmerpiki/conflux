@@ -1661,6 +1661,23 @@ public:
 		apply_return_metadata<Return>(route_metadata_.back());
 	}
 
+#if CONFLUX_HAS_JSON
+	template<class ContentTypePredicate>
+	static void validate_json_body_request(
+		RequestView const &req,
+		ContentTypePredicate content_type_ok,
+		std::size_t max_body_size,
+		AppJsonOptions const &json_options) {
+		if (!content_type_ok(req.header("content-type"))) {
+			throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
+		}
+		auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
+		if (limit != 0 && req.body.size() > limit) {
+			throw ExtractorFailure{detail::json_body_too_large_problem()};
+		}
+	}
+#endif
+
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
@@ -1818,28 +1835,14 @@ public:
 			return OwnedBodyBytes{.value = std::string{req.body}};
 #if CONFLUX_HAS_JSON
 		} else if constexpr (detail::JsonDocumentArg<Clean>) {
-			auto content_type = req.header("content-type");
-			if (!detail::content_type_is_json_request(content_type)) {
-				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
-			}
-			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
-			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{detail::json_body_too_large_problem()};
-			}
+			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size, json_options);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
 			}
 			return JsonDocument{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonPatchArg<Clean>) {
-			auto content_type = req.header("content-type");
-			if (!detail::content_type_is_json_patch(content_type)) {
-				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
-			}
-			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
-			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{detail::json_body_too_large_problem()};
-			}
+			validate_json_body_request(req, detail::content_type_is_json_patch, max_body_size, json_options);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
@@ -1849,14 +1852,7 @@ public:
 			}
 			return JsonPatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::MergePatchArg<Clean>) {
-			auto content_type = req.header("content-type");
-			if (!detail::content_type_is_merge_patch(content_type)) {
-				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
-			}
-			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
-			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{detail::json_body_too_large_problem()};
-			}
+			validate_json_body_request(req, detail::content_type_is_merge_patch, max_body_size, json_options);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
@@ -1864,14 +1860,7 @@ public:
 			return MergePatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using BodyValue = typename detail::JsonType<Clean>::type;
-			auto content_type = req.header("content-type");
-			if (!detail::content_type_is_json_request(content_type)) {
-				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
-			}
-			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
-			if (limit != 0 && req.body.size() > limit) {
-				throw ExtractorFailure{detail::json_body_too_large_problem()};
-			}
+			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size, json_options);
 			auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 				req.body,
 				json_options.decode);

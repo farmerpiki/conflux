@@ -42,6 +42,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
   keys with the same parse/format path as the middleware limiter; full store
   unification is deferred to avoid exposing middleware internals as public app
   API.
+- `findings/6.md` P2 JSON extractor body parsing repetition: complete. JSON
+  body content-type and max-body-size checks now share a private helper while
+  leaving document/patch/merge-patch/typed decode branches explicit.
 
 ## Verification
 
@@ -94,6 +97,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   normalization.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: route rate limit"` completed: 3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after centralizing JSON extractor body
+  gate checks.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade:.*json|http json:"` completed: 7/7 passed.
 
 ## Accepted / In Scope
 
