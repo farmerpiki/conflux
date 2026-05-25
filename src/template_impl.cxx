@@ -353,42 +353,11 @@ static bool outer_pair_wraps(
 	char close) noexcept {
 	return s.size() >= 2 && s.front() == open && find_matching_pair(s, 0, open, close) == s.size() - 1;
 }
-static std::size_t find_top_level_token(
+template<typename Match>
+static std::size_t find_top_level_match(
 	std::string_view haystack,
-	std::string_view needle) noexcept {
-	int depth = 0;
-	bool in_str = false;
-	char quote = 0;
-	for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
-		char const c = haystack[i];
-		if (in_str) {
-			if (c == quote && (i == 0 || haystack[i - 1] != '\\')) {
-				in_str = false;
-			}
-			continue;
-		}
-		if (is_quote(c)) {
-			in_str = true;
-			quote = c;
-			continue;
-		}
-		if (c == '(' || c == '[' || c == '{') {
-			++depth;
-			continue;
-		}
-		if (c == ')' || c == ']' || c == '}') {
-			--depth;
-			continue;
-		}
-		if (depth == 0 && haystack.substr(i, needle.size()) == needle) {
-			return i;
-		}
-	}
-	return std::string_view::npos;
-}
-static std::size_t find_top_level_char(
-	std::string_view haystack,
-	char needle) noexcept {
+	std::size_t max_width,
+	Match match) noexcept {
 	int depth = 0;
 	bool in_str = false;
 	char quote = 0;
@@ -413,11 +382,23 @@ static std::size_t find_top_level_char(
 			--depth;
 			continue;
 		}
-		if (depth == 0 && c == needle) {
+		if (depth == 0 && i + max_width <= haystack.size() && match(i)) {
 			return i;
 		}
 	}
 	return std::string_view::npos;
+}
+static std::size_t find_top_level_token(
+	std::string_view haystack,
+	std::string_view needle) noexcept {
+	return find_top_level_match(haystack, needle.size(), [&](std::size_t i) noexcept {
+		return haystack.substr(i, needle.size()) == needle;
+	});
+}
+static std::size_t find_top_level_char(
+	std::string_view haystack,
+	char needle) noexcept {
+	return find_top_level_match(haystack, 1, [&](std::size_t i) noexcept { return haystack[i] == needle; });
 }
 static CompiledExprPtr compile_expr_ptr(
 	std::string const &expr) {
@@ -1310,39 +1291,8 @@ TmplValue Environment::Impl::eval_expr(
 				{ " > ", 5},
 				{" in ", 6}
             };
-			auto find_top_level = [&](std::string_view haystack, std::string_view needle) -> std::size_t {
-				int d = 0;
-				bool in_s3 = false;
-				char sq3 = 0;
-				for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
-					char const c3 = haystack[i];
-					if (in_s3) {
-						if (c3 == sq3) {
-							in_s3 = false;
-						}
-						continue;
-					}
-					if (c3 == '"' || c3 == '\'') {
-						in_s3 = true;
-						sq3 = c3;
-						continue;
-					}
-					if (c3 == '(' || c3 == '[') {
-						++d;
-						continue;
-					}
-					if (c3 == ')' || c3 == ']') {
-						--d;
-						continue;
-					}
-					if (d == 0 && haystack.substr(i, needle.size()) == needle) {
-						return i;
-					}
-				}
-				return std::string_view::npos;
-			};
 			for (auto &[op, code]: ops) {
-				auto p = find_top_level(b, op);
+				auto p = find_top_level_token(b, op);
 				if (p != std::string_view::npos) {
 					auto left = eval_expr(b.substr(0, p), context);
 					auto right = eval_expr(b.substr(p + op.size()), context);
