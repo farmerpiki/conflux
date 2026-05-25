@@ -38,10 +38,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   Borrowed, copied, and moved input setup now share private storage-preparation
   helpers while preserving the explicit public overloads that document ownership.
 - `findings/6.md` P1 route-level App rate-limit drift: complete for the
-  accepted behavioral drift fix. Route-level
-  rate limits now canonicalize IP keys with the same parse/format path as the
-  middleware limiter; full store unification is deferred to avoid exposing
-  middleware internals as public app API.
+  accepted behavioral drift fix. Route-level rate limits now canonicalize IP
+  keys with the same parse/format path as the middleware limiter; full store
+  unification is deferred to avoid exposing middleware internals as public app
+  API.
 
 ## Verification
 
@@ -110,3 +110,21 @@ Current review set: `findings/1.md` through `findings/7.md` after
   lazy/ranges changes from `findings/1.md` require representative benchmark
   coverage first. If no benchmark exists for a path, add one before evaluating a
   performance implementation.
+- `findings/7.md` P0 DB off-owner lease return waiter wakeup: deferred for a
+  focused owner-thread marshalling design. The pool is owner-thread-affine and
+  queued waiter state is not protected for off-owner mutation; the current
+  minimum safe behavior closes the returned connection and releases capacity,
+  but correctly waking waiters requires posting cleanup back to the owner rather
+  than touching waiter queues from the destructor thread.
+- `findings/7.md` P1 route timeout API consistency for async handlers: deferred
+  for matched-route metadata propagation through the context dispatch chain.
+  Applying timeout only after the task completes would not enforce the deferred
+  deadline; the safe fix needs the matched route timeout available at
+  `router_defer_http_task(...)`, including context-middleware paths.
+- `findings/5.md` P0 curated HTTP surface tightening, typed status return
+  redesign, body helper collapse, typed auth extractors, and middleware API
+  unification are deferred as broad API/architecture changes rather than
+  bounded correctness patches.
+- `findings/6.md` P1 full route-pattern model unification and App/Router
+  OpenAPI renderer unification are deferred as larger router/app metadata
+  rewrites.
