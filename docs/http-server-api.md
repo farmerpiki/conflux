@@ -505,6 +505,10 @@ PATCH content type in OpenAPI metadata.
 
 Handlers can be synchronous or coroutine-based. Prefer `Request` /
 `RequestView`; accepting `OwnedRequest` explicitly materializes an owned copy.
+Both sync and async handler bodies start on the HTTP ring thread. Conflux does
+not silently offload blocking work: disk I/O, DNS, DB calls, client HTTP,
+sleeps, and heavy CPU work must move through an explicit async API or an
+explicit worker/offload path.
 
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
