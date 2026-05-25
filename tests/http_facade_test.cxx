@@ -1291,6 +1291,24 @@ TEST_CASE(
 	CHECK(second.status == 429);
 	CHECK(second.headers["Retry-After"] == "60");
 }
+
+TEST_CASE(
+	"http facade: route rate limit canonicalizes IP keys",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/limited";
+	req.remote_addr = "0:0:0:0:0:0:0:1";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "::1";
+	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+}
+
 TEST_CASE(
 	"http facade: route rate limit evicts least recently used client",
 	"[http.facade]") {

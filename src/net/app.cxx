@@ -210,7 +210,9 @@ class App {
 		}
 
 		auto const now = std::chrono::steady_clock::now();
-		auto const key = req.remote_addr.empty() ? std::string{"unknown"} : std::string{req.remote_addr};
+		auto const key = req.remote_addr.empty() ?
+							 std::string{"unknown"} :
+							 parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
 		auto retry_after = static_cast<unsigned>(policy.options.window.count());
 
 		{

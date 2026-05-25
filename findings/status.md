@@ -37,6 +37,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/2.md` P0 JSON parse ownership/storage preparation: complete.
   Borrowed, copied, and moved input setup now share private storage-preparation
   helpers while preserving the explicit public overloads that document ownership.
+- `findings/6.md` P1 route-level App rate-limit drift: complete for the
+  accepted behavioral drift fix. Route-level
+  rate limits now canonicalize IP keys with the same parse/format path as the
+  middleware limiter; full store unification is deferred to avoid exposing
+  middleware internals as public app API.
 
 ## Verification
 
@@ -84,6 +89,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   completed after centralizing JSON input preparation.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "json:"` completed: 204/204 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after route rate-limit key
+  normalization.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: route rate limit"` completed: 3/3 passed.
 
 ## Accepted / In Scope
 
