@@ -167,9 +167,9 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http facade: stream helper writes buffered response bodies",
+	"http facade: buffered stream helper writes buffered response bodies",
 	"[http.facade]") {
-	auto response = http::stream(
+	auto response = http::buffered_stream(
 		[](http::StreamSink &out) {
 			out.write("alpha");
 			out.write(":");
@@ -2352,15 +2352,10 @@ TEST_CASE(
 		out << "file-body";
 	}
 
-	auto response = http::file(path, "text/plain");
+	auto response = http::blocking_file_response(path, "text/plain");
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "text/plain");
 	CHECK(response.text_body() == "file-body");
-
-	auto explicit_blocking = http::blocking_file_response(path, "text/plain");
-	CHECK(explicit_blocking.status == kHttpOk);
-	CHECK(explicit_blocking.content_type == "text/plain");
-	CHECK(explicit_blocking.text_body() == "file-body");
 }
 
 TEST_CASE(

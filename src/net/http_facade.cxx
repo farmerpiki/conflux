@@ -97,13 +97,6 @@ template<class F>
 	return Response::with_body(std::move(sink.body), std::move(content_type));
 }
 
-template<class F>
-[[nodiscard]] Response stream(
-	F &&writer,
-	std::string content_type = "application/octet-stream") {
-	return buffered_stream(std::forward<F>(writer), std::move(content_type));
-}
-
 [[nodiscard]] Response created(
 	std::string_view body,
 	std::string_view content_type = "text/plain; charset=utf-8") {

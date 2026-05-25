@@ -131,7 +131,6 @@ void response_helpers_compile() {
 	(void)http::html("<p>ok</p>");
 	(void)http::no_content();
 	(void)http::redirect("/next");
-	(void)http::stream([](http::StreamSink &sink) { sink.write("chunk"); });
 	(void)http::buffered_stream([](http::StreamSink &sink) { sink.write("chunk"); });
 	(void)http::json(Payload{.value = "ok"});
 	(void)http::created(Payload{.value = "ok"});

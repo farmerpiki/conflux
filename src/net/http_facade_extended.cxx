@@ -42,12 +42,6 @@ concept Middleware = ::Middleware<F>;
 	return Response::with_body(std::move(*body), std::move(content_type));
 }
 
-[[nodiscard]] Response file(
-	std::filesystem::path const &path,
-	std::string content_type = "application/octet-stream") {
-	return blocking_file_response(path, std::move(content_type));
-}
-
 [[nodiscard]] Router::Handler openapi_handler(
 	App const &app,
 	std::string_view title = "API",
