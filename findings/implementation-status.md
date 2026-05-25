@@ -312,3 +312,15 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "build/package-config|build/header-component-smoke|build/public-module-import-smoke|api-surface/import-(curated|extended|complete|selected)"`
   completed after the App/auth module dependency change: 7/7 passed.
+- findings/7 manual response factory cleanup: partially complete. `Response`
+  now has a `not_modified(etag)` factory and ETag middleware uses it. Other
+  noted call sites were left unchanged where switching to an existing factory
+  would alter body/content-type behavior.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_response
+  conflux_http_policy conflux_http_response_tests conflux_tests` completed
+  after the `Response::not_modified` cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "etag:"` completed after the `Response::not_modified` cleanup: 11/11 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "response:"` completed after the `Response::not_modified` cleanup: 9/9
+  passed.

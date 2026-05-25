@@ -190,6 +190,12 @@ TEST_CASE(
 		CHECK(resp.status_text == "No Content");
 	}
 	{
+		auto resp = Response::not_modified(R"("abc")");
+		CHECK(resp.status == kHttpNotModified);
+		CHECK(resp.status_text == "Not Modified");
+		CHECK(resp.headers["etag"] == R"("abc")");
+	}
+	{
 		auto ch = std::make_shared<SseChannel>();
 		auto resp = Response::sse(ch);
 		CHECK(resp.status == kHttpOk);

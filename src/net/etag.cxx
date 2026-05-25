@@ -33,9 +33,7 @@ bool weak_match(
 }
 Response not_modified(
 	std::string_view etag) {
-	Response r{.status = 304, .status_text = "Not Modified"};
-	r.headers["ETag"] = std::string{etag};
-	return r;
+	return Response::not_modified(etag);
 }
 
 } // namespace etag_detail

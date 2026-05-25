@@ -529,6 +529,14 @@ export struct Response {
 		return r;
 	}
 	[[nodiscard]] static Response no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
+	[[nodiscard]] static Response not_modified(
+		std::string_view etag = {}) {
+		Response r{.status = kHttpNotModified, .status_text = "Not Modified"};
+		if (!etag.empty()) {
+			r.headers["ETag"] = std::string{etag};
+		}
+		return r;
+	}
 	[[nodiscard]] static Response content_too_large() {
 		Response r;
 		r.status = kHttpRequestEntityTooLarge;
