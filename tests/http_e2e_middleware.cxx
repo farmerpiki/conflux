@@ -2943,20 +2943,20 @@ TEST_CASE(
 	REQUIRE(result.error() == "audience mismatch");
 }
 TEST_CASE(
-	"jwt_decode: malformed audience A with leading comma does not match") {
+	"jwt_decode: malformed audience array is rejected as invalid JSON") {
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "expected", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"x","aud":[,"expected"]})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error() == "audience mismatch");
+	REQUIRE(result.error().starts_with("invalid payload JSON:"));
 }
 TEST_CASE(
-	"jwt_decode: unterminated alg std::string is rejected") {
+	"jwt_decode: malformed header JSON is rejected") {
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
 	auto token = make_jwt_with_header(R"({"alg":"HS256)", R"({"sub":"x"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("HS256") != std::string::npos);
+	REQUIRE(result.error().starts_with("invalid header JSON:"));
 }
 TEST_CASE(
 	"jwt_decode: malformed numeric claims are rejected") {

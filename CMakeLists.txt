@@ -1282,6 +1282,12 @@ target_link_libraries(conflux_http_auth
     PUBLIC  conflux_utils
     PUBLIC  conflux_net_config
 )
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    if(NOT TARGET conflux_json)
+        message(FATAL_ERROR "conflux: TLS JWT auth requires CONFLUX_BUILD_JSON")
+    endif()
+    target_link_libraries(conflux_http_auth PUBLIC conflux_json)
+endif()
 string(TOUPPER "${CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER}" CONFLUX_ARGON2_PROVIDER_UPPER)
 if(NOT CONFLUX_ARGON2_PROVIDER_UPPER MATCHES "^(AUTO|SYSTEM|RUNTIME|OFF)$")
     message(FATAL_ERROR

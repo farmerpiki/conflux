@@ -251,6 +251,39 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"jwt: registered claims use strict JSON decoding",
+	"[jwt][auth][security]") {
+	std::string const secret = "strict-json-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	auto decoded = jwt_decode(jwt_sign(R"({"sub":"user\u0031","iss":"issuer\u002dA"})", secret), opts);
+	REQUIRE(decoded.has_value());
+	CHECK(decoded->sub == "user1");
+	CHECK(decoded->iss == "issuer-A");
+
+	opts.audience = "api-v1";
+	auto audience = jwt_decode(jwt_sign(R"({"sub":"u","aud":["api\u002dv1"]})", secret), opts);
+	REQUIRE(audience.has_value());
+}
+
+TEST_CASE(
+	"jwt: unicode-escaped duplicate registered claim is rejected",
+	"[jwt][auth][security]") {
+	std::string const secret = "strict-json-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	auto result = jwt_decode(jwt_sign(R"({"sub":"victim","\u0073ub":"attacker"})", secret), opts);
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error() == "duplicate sub claim");
+}
+
+TEST_CASE(
 	"jwt: adversarial missing and huge timestamp claims are rejected by strict policy",
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";

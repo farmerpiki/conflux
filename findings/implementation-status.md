@@ -263,3 +263,36 @@ those reviews.
   "decode/reflection/direct/wide16"` completed. The new wide16 row ran at 2204
   ns median with 1.00 allocation/iteration.
 - `scripts/check-optimized-presets.sh` completed after the P2996 preset fix.
+- findings/7 JWT parser cleanup: complete. JWT header/payload parsing now uses
+  the shared strict JSON parser instead of local ad hoc string scanning, while
+  keeping payload claim parsing after signature verification. This preserves the
+  small-token/no-extra-copy path by borrowing from the decoded header/payload
+  strings and lets the JSON module own duplicate-key, escape, and number
+  semantics.
+- `cmake --preset release-clang-libcxx`, then `cmake --build --preset
+  release-clang-libcxx --target conflux_http_auth conflux_jwt_tests`, completed
+  after the JWT parser cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "jwt:"` completed after the JWT parser cleanup: 20/20 passed.
+- Fresh full `cmake --build --preset release-clang-libcxx` completed after
+  the JWT parser cleanup.
+- First full `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest
+  --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure` exposed two
+  stale JWT tests that still expected the old permissive scanner to continue
+  after malformed JSON. The tests now assert the stricter shared-parser
+  contract: malformed signed JWT header/payload JSON is rejected as invalid
+  JSON.
+- Re-run full `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest
+  --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed
+  after that test alignment: 1947/1947 passed.
+- Build-system re-evaluation before considering the build fixes complete found
+  that `conflux_http_auth` should only link `conflux_json` when TLS/JWT is
+  compiled. The dependency is now conditional on `CONFLUX_HAS_TLS`, with an
+  explicit configure error if JWT auth is requested without the JSON target.
+- `cmake --preset release-clang-libcxx`, then `cmake --build --preset
+  release-clang-libcxx --target conflux_http_auth conflux_jwt_tests
+  conflux_tests`, completed after the conditional auth/json dependency fix.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "jwt:|jwt_decode: malformed audience array is rejected as invalid
+  JSON|jwt_decode: malformed header JSON is rejected|build/package-config|build/header-component-smoke"`
+  completed after the build-system re-evaluation fix: 24/24 passed.

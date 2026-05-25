@@ -10,6 +10,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 import conflux.net.config;
+import conflux.json;
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -43,198 +44,83 @@ export struct JwtOptions {
 
 namespace {
 
-bool is_json_ws(
-	char c) noexcept {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-std::size_t skip_json_ws(
-	std::string_view json,
-	std::size_t pos) {
-	auto rest = json.substr(pos);
-	auto it = std::ranges::find_if_not(rest, is_json_ws);
-	return pos + static_cast<std::size_t>(std::ranges::distance(rest.begin(), it));
-}
-// Locate the position of the value after `"key":` in a JSON object, skipping
-// whitespace after the colon. Returns std::string_view::npos on miss.
-std::size_t json_value_pos(
-	std::string_view json,
-	std::string_view key) {
-	std::size_t pos = 0;
-	while (true) {
-		pos = json.find('"', pos);
-		if (pos == std::string_view::npos) {
-			return std::string_view::npos;
+std::string jwt_json_error(
+	JsonError const &err,
+	std::string_view segment) {
+	static constexpr std::string_view kDuplicatePrefix = "duplicate member: ";
+	if (err.code == JsonIssueCode::duplicate_member) {
+		if (err.member_name) {
+			return std::format("duplicate {} claim", *err.member_name);
 		}
-		auto const key_begin = pos + 1;
-		auto const key_end = key_begin + key.size();
-		if (key_end < json.size() && json[key_end] == '"' && json.substr(key_begin, key.size()) == key) {
-			pos = key_end + 1;
-			break;
+		if (err.message.starts_with(kDuplicatePrefix)) {
+			return std::format("duplicate {} claim", std::string_view{err.message}.substr(kDuplicatePrefix.size()));
 		}
-		pos = key_begin;
+		return "duplicate claim";
 	}
-	pos = skip_json_ws(json, pos);
-	if (pos >= json.size() || json[pos] != ':') {
-		return std::string_view::npos;
-	}
-	++pos;
-	return skip_json_ws(json, pos);
+	return std::format("invalid {} JSON: {}", segment, err.message);
 }
-// Minimal JSON std::string extractor: find the std::string value of `"key"` in a JSON object.
-// Handles basic escaping but not full Unicode escapes — sufficient for JWT claims.
+std::expected<Document, std::string> parse_jwt_json(
+	std::string_view input,
+	std::string_view segment) {
+	auto parsed = conflux::json::parse(input);
+	if (!parsed) {
+		return std::unexpected{jwt_json_error(parsed.error(), segment)};
+	}
+	if (!parsed->root().as_object()) {
+		return std::unexpected{std::format("{} must be a JSON object", segment)};
+	}
+	return std::expected<Document, std::string>{std::in_place, std::move(*parsed)};
+}
 std::string_view json_string(
-	std::string_view json,
+	ObjectView const &obj,
 	std::string_view key) {
-	auto pos = json_value_pos(json, key);
-	if (pos >= json.size() || json[pos] != '"') {
+	auto value = obj.find_member(key);
+	if (!value) {
 		return {};
 	}
-	++pos;
-	auto end = pos;
-	while (end < json.size()) {
-		if (json[end] == '"') {
-			return json.substr(pos, end - pos);
-		}
-		if (json[end] == '\\') {
-			++end;
-			if (end >= json.size()) {
-				return {};
-			}
-		}
-		++end;
+	auto str = value->as_string();
+	if (!str) {
+		return {};
 	}
-	return {};
+	return *str;
 }
-// Minimal JSON number extractor: find std::int64_t value of `"key"`.
-std::optional<std::int64_t> json_int_at(
-	std::string_view json,
-	std::size_t pos) {
-	if (pos >= json.size()) {
+std::optional<std::int64_t> json_int(
+	ObjectView const &obj,
+	std::string_view key) {
+	auto value = obj.find_member(key);
+	if (!value) {
 		return std::nullopt;
 	}
-	std::int64_t val{};
-	auto const *jend = std::ranges::next(json.data(), ssize(json));
-	auto const *jpos = json.data() + pos;
-	auto [ptr, ec] = std::from_chars(jpos, jend, val);
-	if (ec != std::errc{} || ptr == jpos) {
+	auto number = value->as_i64();
+	if (!number) {
 		return std::nullopt;
 	}
-	return val;
+	return *number;
+}
+bool json_has_member(
+	ObjectView const &obj,
+	std::string_view key) {
+	return obj.find_member(key).has_value();
 }
 bool json_array_contains_string(
-	std::string_view json,
+	ObjectView const &obj,
 	std::string_view key,
 	std::string_view value) {
-	auto pos = json_value_pos(json, key);
-	if (pos >= json.size() || json[pos] != '[') {
+	auto member = obj.find_member(key);
+	if (!member) {
 		return false;
 	}
-	++pos;
-	bool first = true;
-	bool matched = false;
-	while (pos < json.size()) {
-		pos = skip_json_ws(json, pos);
-		if (pos >= json.size()) {
-			return false;
+	auto array = member->as_array();
+	if (!array) {
+		return false;
+	}
+	for (auto element: array->elements()) {
+		auto str = element.as_string();
+		if (str && *str == value) {
+			return true;
 		}
-		if (json[pos] == ']') {
-			return matched;
-		}
-		if (!first) {
-			if (json[pos] != ',') {
-				return false;
-			}
-			++pos;
-			pos = skip_json_ws(json, pos);
-			if (pos >= json.size() || json[pos] == ']') {
-				return false;
-			}
-		}
-		if (json[pos] != '"') {
-			return false;
-		}
-		first = false;
-		++pos;
-		auto const start = pos;
-		while (pos < json.size() && json[pos] != '"') {
-			if (json[pos] == '\\') {
-				++pos;
-			}
-			++pos;
-		}
-		if (pos >= json.size()) {
-			return false;
-		}
-		if (json.substr(start, pos - start) == value) {
-			matched = true;
-		}
-		++pos;
 	}
 	return false;
-}
-std::size_t json_top_level_key_count(
-	std::string_view json,
-	std::string_view key) {
-	auto const first = skip_json_ws(json, 0);
-	if (first >= json.size() || json[first] != '{') {
-		return 0;
-	}
-	std::size_t count = 0;
-	std::size_t depth = 0;
-	char previous_sig = 0;
-	for (std::size_t pos = first; pos < json.size(); ++pos) {
-		char const c = json[pos];
-		if (c == '"') {
-			auto const str_start = pos + 1;
-			auto end = str_start;
-			while (end < json.size()) {
-				if (json[end] == '"') {
-					break;
-				}
-				if (json[end] == '\\') {
-					++end;
-				}
-				++end;
-			}
-			if (end >= json.size()) {
-				return count;
-			}
-			auto const after = skip_json_ws(json, end + 1);
-			if (depth == 1
-				&& (previous_sig == '{' || previous_sig == ',')
-				&& after < json.size()
-				&& json[after] == ':'
-				&& json.substr(str_start, end - str_start) == key) {
-				++count;
-			}
-			pos = end;
-			previous_sig = '"';
-			continue;
-		}
-		if (is_json_ws(c)) {
-			continue;
-		}
-		if (c == '{' || c == '[') {
-			++depth;
-		} else if (c == '}' || c == ']') {
-			if (depth == 0) {
-				return count;
-			}
-			--depth;
-		}
-		previous_sig = c;
-	}
-	return count;
-}
-std::optional<std::string_view> first_duplicate_jwt_claim(
-	std::string_view json) {
-	static constexpr std::array<std::string_view, 7> kClaims = {"sub", "iss", "jti", "exp", "nbf", "iat", "aud"};
-	for (auto claim: kClaims) {
-		if (json_top_level_key_count(json, claim) > 1) {
-			return claim;
-		}
-	}
-	return std::nullopt;
 }
 // Constant-time std::byte comparison (avoids timing side-channel on signature).
 bool ct_equal(
@@ -355,10 +241,12 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	if (header.empty()) {
 		return std::unexpected{"invalid header encoding"};
 	}
-	if (json_top_level_key_count(header, "alg") > 1) {
-		return std::unexpected{"duplicate alg claim"};
+	auto header_doc = parse_jwt_json(header, "header");
+	if (!header_doc) {
+		return std::unexpected{header_doc.error()};
 	}
-	if (json_string(header, "alg") != "HS256") {
+	auto header_obj = header_doc->root().as_object();
+	if (json_string(*header_obj, "alg") != "HS256") {
 		return std::unexpected{"unsupported algorithm (only HS256 supported)"};
 	}
 
@@ -379,29 +267,28 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	if (!jwt_detail::signature_matches(signing_input, sig_claimed, opts.secrets)) {
 		return std::unexpected{"signature verification failed"};
 	}
-	if (auto dup = first_duplicate_jwt_claim(payload)) {
-		return std::unexpected{std::format("duplicate {} claim", *dup)};
+	auto payload_doc = parse_jwt_json(payload, "payload");
+	if (!payload_doc) {
+		return std::unexpected{payload_doc.error()};
 	}
+	auto payload_obj = payload_doc->root().as_object();
 
 	// Extract standard claims.
 	JwtClaims claims{};
 	claims.raw = payload;
-	claims.sub = std::string{json_string(payload, "sub")};
-	claims.iss = std::string{json_string(payload, "iss")};
-	claims.jti = std::string{json_string(payload, "jti")};
-	auto const exp_pos = json_value_pos(payload, "exp");
-	auto const nbf_pos = json_value_pos(payload, "nbf");
-	auto const iat_pos = json_value_pos(payload, "iat");
-	auto exp = json_int_at(payload, exp_pos);
-	auto nbf = json_int_at(payload, nbf_pos);
-	auto iat = json_int_at(payload, iat_pos);
-	if (exp_pos != std::string_view::npos && (!exp || *exp < 0)) {
+	claims.sub = std::string{json_string(*payload_obj, "sub")};
+	claims.iss = std::string{json_string(*payload_obj, "iss")};
+	claims.jti = std::string{json_string(*payload_obj, "jti")};
+	auto exp = json_int(*payload_obj, "exp");
+	auto nbf = json_int(*payload_obj, "nbf");
+	auto iat = json_int(*payload_obj, "iat");
+	if (json_has_member(*payload_obj, "exp") && (!exp || *exp < 0)) {
 		return std::unexpected{"invalid exp claim"};
 	}
-	if (nbf_pos != std::string_view::npos && (!nbf || *nbf < 0)) {
+	if (json_has_member(*payload_obj, "nbf") && (!nbf || *nbf < 0)) {
 		return std::unexpected{"invalid nbf claim"};
 	}
-	if (iat_pos != std::string_view::npos && (!iat || *iat < 0)) {
+	if (json_has_member(*payload_obj, "iat") && (!iat || *iat < 0)) {
 		return std::unexpected{"invalid iat claim"};
 	}
 	claims.exp = exp.value_or(0);
@@ -451,10 +338,10 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 		return std::unexpected{std::format("issuer mismatch: got '{}', want '{}'", claims.iss, opts.issuer)};
 	}
 	if (!opts.audience.empty()) {
-		auto aud_str = json_string(payload, "aud");
+		auto aud_str = json_string(*payload_obj, "aud");
 		bool aud_match = aud_str == opts.audience;
 		if (!aud_match) {
-			aud_match = json_array_contains_string(payload, "aud", opts.audience);
+			aud_match = json_array_contains_string(*payload_obj, "aud", opts.audience);
 		}
 		if (!aud_match) {
 			return std::unexpected{"audience mismatch"};
