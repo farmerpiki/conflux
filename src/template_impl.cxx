@@ -1879,11 +1879,9 @@ TmplValue Environment::Impl::apply_filter(
 					}
 				} else if (test == "in") {
 					if (test_val.is_array()) {
-						for (auto const &tv: test_val.as_array()) {
-							if (*v == tv) {
-								result.push_back(item);
-								break;
-							}
+						auto const &values = test_val.as_array();
+						if (std::ranges::find(values, *v) != values.end()) {
+							result.push_back(item);
 						}
 					}
 				}
