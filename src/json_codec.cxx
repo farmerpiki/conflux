@@ -1449,6 +1449,21 @@ template<class T>
 	return nullptr;
 }
 
+template<class T>
+[[nodiscard]] bool is_json_member_name(
+	std::string_view key) {
+	constexpr auto members = JsonMembers<T>::members();
+	using MembersTuple = std::remove_cvref_t<decltype(members)>;
+	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
+	if constexpr (member_count > kJsonMemberLinearLookupLimit) {
+		return find_json_member_lookup_entry<T>(key) != nullptr;
+	} else {
+		bool found = false;
+		apply([&](auto const &...ms) { ((found = found || key == jm_member(ms).name), ...); }, members);
+		return found;
+	}
+}
+
 template<class DecodeValue>
 std::expected<void, JsonError> decode_known_member_value(
 	JsonReader &r,
@@ -2391,9 +2406,8 @@ std::expected<T, JsonError> decode_with_frames(
 		}
 		if (opts.unknown_members == UnknownMemberPolicy::reject) {
 			for (auto const &[name, val]: obj->members()) {
-				bool found = false;
-				apply([&](auto const &...ms) { ((found = found || name == jm_member(ms).name), ...); }, members);
-				if (!found) {
+				(void)val;
+				if (!is_json_member_name<T>(name)) {
 					return std::unexpected(
 						JsonError{
 							.stage = JsonStage::decode,
