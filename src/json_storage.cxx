@@ -56,6 +56,7 @@ JsonParseStorageStats DocumentStorage::storage_stats() const noexcept {
 ObjHashTable *ObjHashTable::create(
 	std::uint32_t capacity,
 	std::uint32_t member_count,
+	std::uint64_t hash_seed,
 	std::pmr::memory_resource *mr) noexcept {
 	std::size_t const bytes =
 		sizeof(ObjHashTable) + sizeof(ObjHashSlot) * capacity + sizeof(char const *) * member_count;
@@ -66,7 +67,7 @@ ObjHashTable *ObjHashTable::create(
 	if (mem == nullptr) {
 		return nullptr;
 	}
-	auto *t = ::new (mem) ObjHashTable{capacity, member_count, mr};
+	auto *t = ::new (mem) ObjHashTable{capacity, member_count, hash_seed, mr};
 	std::fill_n(t->slots_data(), capacity, ObjHashSlot{});
 	return t;
 }

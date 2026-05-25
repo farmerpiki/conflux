@@ -502,6 +502,7 @@ static_assert(sizeof(ObjHashSlot) == 8);
 struct ObjHashTable {
 	std::uint32_t capacity;
 	std::uint32_t member_count;
+	std::uint64_t hash_seed;
 	std::pmr::memory_resource *mr;
 	[[nodiscard]] ObjHashSlot *slots_data() noexcept {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -524,6 +525,7 @@ struct ObjHashTable {
 	static ObjHashTable *create(
 		std::uint32_t capacity,
 		std::uint32_t member_count,
+		std::uint64_t hash_seed,
 		std::pmr::memory_resource *mr = std::pmr::new_delete_resource()) noexcept;
 	static void destroy(ObjHashTable *t) noexcept;
 };
@@ -690,7 +692,6 @@ struct DocumentStorage {
 	std::string_view input_view;
 	std::uint32_t root_node{0};
 	std::uint32_t bom_prefix_bytes{0};
-	std::uint64_t hash_seed_{detail::make_hash_seed()};
 	std::pmr::memory_resource *hash_mr_{std::pmr::new_delete_resource()};
 	JsonParseStorageStats parse_stats{};
 	DocumentStorage()
@@ -1438,7 +1439,7 @@ namespace detail {
 	std::size_t mem_start,
 	std::size_t mem_count,
 	std::string_view name) noexcept {
-	auto const h = hash_name(name, storage->hash_seed_);
+	auto const h = hash_name(name, ht.hash_seed);
 	std::uint32_t const mask = ht.capacity - 1;
 	std::uint32_t slot = h & mask;
 	auto const *slots = ht.slots_data();
@@ -1475,7 +1476,7 @@ namespace detail {
 		auto const sv = storage->member_name(m);
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		ptr_cache[i] = sv.data(); // Item C: cache pointer in ptr_cache (arena stable post-parse)
-		auto const h = hash_name(sv, storage->hash_seed_);
+		auto const h = hash_name(sv, ht.hash_seed);
 		std::uint32_t slot = h & mask;
 		bool inserted = false;
 		for (std::uint32_t probe = 0; probe < kProbeChainMax; ++probe) {

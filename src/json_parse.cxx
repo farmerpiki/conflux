@@ -909,7 +909,11 @@ struct TreeBuilder {
 					&& len >= kHashThreshold) {
 					std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(len));
 					if (cap > 0) {
-						ObjHashTable *ht = ObjHashTable::create(cap, static_cast<std::uint32_t>(len), store.hash_mr_);
+						ObjHashTable *ht = ObjHashTable::create(
+							cap,
+							static_cast<std::uint32_t>(len),
+							detail::make_hash_seed(),
+							store.hash_mr_);
 						if (ht != nullptr) {
 							if (detail::build_table(*ht, &store, ms, len)) {
 								store.nodes[obj_node_idx].hash_idx_raw =
@@ -951,8 +955,11 @@ struct TreeBuilder {
 						&& len2 >= kHashThreshold) {
 						std::uint32_t const cap2 = detail::clamped_capacity(static_cast<std::uint32_t>(len2));
 						if (cap2 > 0) {
-							ObjHashTable *ht2 =
-								ObjHashTable::create(cap2, static_cast<std::uint32_t>(len2), store.hash_mr_);
+							ObjHashTable *ht2 = ObjHashTable::create(
+								cap2,
+								static_cast<std::uint32_t>(len2),
+								detail::make_hash_seed(),
+								store.hash_mr_);
 							if (ht2 != nullptr) {
 								if (detail::build_table(*ht2, &store, ms2, len2)) {
 									store.nodes[obj2].hash_idx_raw =

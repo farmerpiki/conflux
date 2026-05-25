@@ -287,7 +287,11 @@ std::optional<NodeRef> ObjectView::find_member(
 		bool build_ok = false;
 		ObjHashTable *owned = nullptr;
 		if (cap > 0) {
-			owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(mem_count_), storage_->hash_mr_);
+			owned = ObjHashTable::create(
+				cap,
+				static_cast<std::uint32_t>(mem_count_),
+				detail::make_hash_seed(),
+				storage_->hash_mr_);
 			if (owned != nullptr && detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
 				ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
 				if (ref.compare_exchange_strong(
@@ -603,7 +607,11 @@ bool NodeIdentityEqual::operator ()(
 					.code = JsonIssueCode::resource_exhausted,
 					.message = "object exceeds std::hash-index std::byte budget"});
 		}
-		owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(ov.mem_count_), storage->hash_mr_);
+		owned = ObjHashTable::create(
+			cap,
+			static_cast<std::uint32_t>(ov.mem_count_),
+			detail::make_hash_seed(),
+			storage->hash_mr_);
 		if (owned == nullptr) {
 			stash_failure_sentinel();
 			return std::unexpected(
