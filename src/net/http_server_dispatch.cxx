@@ -222,10 +222,6 @@ void dispatch_request(
 	std::vector<UploadedFile> files;
 	std::string_view body;
 
-	if (!target.query_suffix.empty()) {
-		parse_urlencoded(target.query, query);
-	}
-
 	CommonHeaderSummary common_headers;
 	headers.reserve(parsed.headers.size());
 	for (auto const &[name, field_value]: parsed.headers) {
@@ -353,21 +349,7 @@ void dispatch_request(
 
 	conn.expect_continue_sent = false;
 
-	if (content_type_is_form_urlencoded(common_headers.content_type)) {
-		parse_urlencoded(body, form);
-	}
-
-	auto ct_header = common_headers.content_type;
-	if (content_type_is_multipart_form_data(ct_header)) {
-		auto boundary = extract_param(ct_header, "boundary");
-		if (!boundary.empty()) {
-			parse_multipart(body, boundary, form, files);
-		}
-	}
-
-	if (auto cookie = common_headers.cookie; !cookie.empty()) {
-		parse_cookies(cookie, cookies);
-	}
+	populate_request_parts(target, headers, body, query, form, cookies, files);
 
 	{
 		bool keep_alive = (version == "HTTP/1.1");

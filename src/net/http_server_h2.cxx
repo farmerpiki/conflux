@@ -577,22 +577,14 @@ int Ring::h2_on_frame_recv_cb(
 	std::string_view const version = "HTTP/2";
 	std::string_view const body = request_lease->body;
 	HttpFieldsView const params;
-	if (!target.query_suffix.empty()) {
-		parse_urlencoded(target.query, request_lease->query);
-	}
-	if (content_type_is_form_urlencoded(request_lease->headers["content-type"])) {
-		parse_urlencoded(body, request_lease->form);
-	}
-	auto ct_header = request_lease->headers["content-type"];
-	if (content_type_is_multipart_form_data(ct_header)) {
-		auto boundary = extract_param(ct_header, "boundary");
-		if (!boundary.empty()) {
-			parse_multipart(body, boundary, request_lease->form, request_lease->files);
-		}
-	}
-	if (auto cookie = request_lease->headers["cookie"]; !cookie.empty()) {
-		parse_cookies(cookie, request_lease->cookies);
-	}
+	populate_request_parts(
+		target,
+		request_lease->headers,
+		body,
+		request_lease->query,
+		request_lease->form,
+		request_lease->cookies,
+		request_lease->files);
 
 	RequestView const req{
 		method,

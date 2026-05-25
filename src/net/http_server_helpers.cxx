@@ -348,6 +348,7 @@ export void parse_cookies(
 		pos = sep + 1;
 	}
 }
+
 export [[nodiscard]] bool has_connection_token(
 	HttpFieldsView const &headers,
 	std::string_view wanted) {
@@ -526,5 +527,33 @@ export void parse_multipart(
 			form.emplace_back(name, content);
 		}
 		pos = next_boundary->delim_pos;
+	}
+}
+
+export void populate_request_parts(
+	conflux::http::PathQueryView const &target,
+	HttpFieldsView const &headers,
+	std::string_view body,
+	HttpFieldsView &query,
+	HttpFieldsView &form,
+	HttpFieldsView &cookies,
+	std::vector<UploadedFile> &files) {
+	if (!target.query_suffix.empty()) {
+		parse_urlencoded(target.query, query);
+	}
+
+	auto const content_type = headers["content-type"];
+	if (content_type_is_form_urlencoded(content_type)) {
+		parse_urlencoded(body, form);
+	}
+	if (content_type_is_multipart_form_data(content_type)) {
+		auto const boundary = extract_param(content_type, "boundary");
+		if (!boundary.empty()) {
+			parse_multipart(body, boundary, form, files);
+		}
+	}
+
+	if (auto const cookie = headers["cookie"]; !cookie.empty()) {
+		parse_cookies(cookie, cookies);
 	}
 }

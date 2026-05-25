@@ -24,6 +24,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
   `for_each_value_until(...)` and the free `for_each_header_value_until(...)`
   wrapper, and migrated HTTP/1 connection/expect/transfer-encoding predicates
   to the stop-aware callbacks.
+- `findings/6.md` P1 H1/H2 request derived-field drift: complete. Added shared
+  `populate_request_parts(...)` for query, form, multipart, cookie, and uploaded
+  file population, and routed both HTTP/1 and HTTP/2 dispatch through it.
 
 ## Verification
 
@@ -50,6 +53,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "HttpFields zero-allocation value callbacks|http_server_helpers: (connection
   tokens|expect and transfer-encoding)"` completed: 3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_server
+  conflux_tests conflux_h2_external` completed after H1/H2 request-parts
+  population cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "multipart/form-data|query param|Cookie header|h2: (POST body is echoed|GET
+  with path param echoes name|GET /ping returns 200)"` completed: 22/22 passed.
 
 ## Accepted / In Scope
 
