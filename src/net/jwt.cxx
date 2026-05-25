@@ -271,18 +271,6 @@ bool ct_equal(
 } // namespace
 namespace jwt_detail {
 
-std::optional<std::string_view> bearer_token(
-	std::string_view auth) noexcept {
-	static constexpr std::string_view kScheme = "Bearer";
-	if (auth.size() <= kScheme.size() || auth[kScheme.size()] != ' ') {
-		return std::nullopt;
-	}
-	if (!conflux::http::ascii_iequals(auth.substr(0, kScheme.size()), kScheme)) {
-		return std::nullopt;
-	}
-	return auth.substr(kScheme.size() + 1);
-}
-
 [[nodiscard]] std::expected<void, std::string> validate_jwt_secrets(
 	ResolvedSecretRotation const &secrets) {
 	return validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
@@ -538,11 +526,11 @@ export Router::Middleware jwt_middleware(
 		};
 
 		auto auth = req.headers["authorization"];
-		auto token = jwt_detail::bearer_token(auth);
+		auto token = conflux::http::credentials_for_auth_scheme(auth, "Bearer");
 		if (!token) {
 			return unauthorized("Bearer");
 		}
-		auto result = jwt_decode(trim(*token), opts);
+		auto result = jwt_decode(*token, opts);
 		if (!result) {
 			return unauthorized(std::format(R"(Bearer error="invalid_token", error_description="{}")", result.error()));
 		}

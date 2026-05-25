@@ -175,7 +175,7 @@ class App {
 		if (policy.empty()) {
 			return std::nullopt;
 		}
-		auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
+		auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
 		if (!token || token->empty()) {
 			return Response::unauthorized("Bearer");
 		}
@@ -1705,10 +1705,10 @@ public:
 		} else if constexpr (detail::TraceContextArg<Clean>) {
 			return TraceContext{.traceparent = req.header("traceparent")};
 		} else if constexpr (detail::BearerArg<Clean>) {
-			auto token = detail::credentials_for_scheme(req.header("authorization"), "Bearer");
+			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
 			return Bearer{.token = token.value_or(std::string_view{})};
 		} else if constexpr (detail::BasicAuthArg<Clean>) {
-			auto credentials = detail::credentials_for_scheme(req.header("authorization"), "Basic");
+			auto credentials = credentials_for_auth_scheme(req.header("authorization"), "Basic");
 			if (!credentials) {
 				return BasicAuth{};
 			}

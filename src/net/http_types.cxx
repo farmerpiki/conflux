@@ -384,6 +384,18 @@ bool for_each_comma_token(
 	return true;
 }
 
+[[nodiscard]] constexpr std::optional<std::string_view> credentials_for_auth_scheme(
+	std::string_view authorization,
+	std::string_view scheme) noexcept {
+	if (authorization.size() <= scheme.size() || authorization[scheme.size()] != ' ') {
+		return std::nullopt;
+	}
+	if (!ascii_ci_equal(authorization.substr(0, scheme.size()), scheme)) {
+		return std::nullopt;
+	}
+	return trim_http_whitespace(authorization.substr(scheme.size() + 1));
+}
+
 // ─── errors ──────────────────────────────────────────────────────────────────
 
 enum class HttpErrorKind : std::uint8_t {

@@ -62,18 +62,6 @@ struct FailedAuthState {
 		: store(std::max<std::size_t>(max_attempts, 1)) {}
 };
 
-std::optional<std::string_view> credentials_for_scheme(
-	std::string_view auth,
-	std::string_view scheme) noexcept {
-	if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
-		return std::nullopt;
-	}
-	if (!conflux::http::ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
-		return std::nullopt;
-	}
-	return auth.substr(scheme.size() + 1);
-}
-
 [[nodiscard]] std::string failed_auth_key(
 	RequestView const &req) {
 	if (req.remote_addr.empty()) {
@@ -483,15 +471,14 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	RequestView const &req,
 	std::string_view scope = "api-token") {
-	auto credentials = auth_detail::credentials_for_scheme(req.headers["authorization"], "Bearer");
+	auto credentials = conflux::http::credentials_for_auth_scheme(req.headers["authorization"], "Bearer");
 	if (!credentials) {
 		return std::nullopt;
 	}
-	auto token = trim(*credentials);
-	if (token.empty()) {
+	if (credentials->empty()) {
 		return std::nullopt;
 	}
-	auto digest = sha256(to_unsigned_span(token));
+	auto digest = sha256(to_unsigned_span(*credentials));
 	return auth_throttle_key(scope, base64url_encode(digest));
 }
 
@@ -539,7 +526,7 @@ Router::Middleware basic_auth_middleware(
 		}
 
 		auto auth = req.headers["authorization"];
-		auto credentials = auth_detail::credentials_for_scheme(auth, "Basic");
+		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Basic");
 		if (!credentials) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
@@ -577,12 +564,11 @@ Router::Middleware bearer_auth_middleware(
 	return [v = std::decay_t<Validator>(
 				std::forward<Validator>(validator))](RequestView const &req, Router::Handler const &next) -> Response {
 		auto auth = req.headers["authorization"];
-		auto credentials = auth_detail::credentials_for_scheme(auth, "Bearer");
+		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Bearer");
 		if (!credentials) {
 			return auth_detail::unauthorized("Bearer");
 		}
-		auto token = trim(*credentials);
-		if (!v(token)) {
+		if (!v(*credentials)) {
 			return auth_detail::unauthorized("Bearer");
 		}
 		return next(req);

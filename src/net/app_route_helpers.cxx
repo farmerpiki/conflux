@@ -170,16 +170,4 @@ template<FixedString Path, std::size_t Index>
 	return out;
 }
 
-[[nodiscard]] std::optional<std::string_view> credentials_for_scheme(
-	std::string_view auth,
-	std::string_view scheme) noexcept {
-	if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
-		return std::nullopt;
-	}
-	if (!ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
-		return std::nullopt;
-	}
-	return conflux::http::trim_http_whitespace(auth.substr(scheme.size() + 1));
-}
-
 } // namespace conflux::http::detail
