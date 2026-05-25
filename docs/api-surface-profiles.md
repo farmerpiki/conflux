@@ -57,8 +57,8 @@ import conflux.http;       // explicit HTTP app façade
 
 The aggregate `conflux` target is currently available for feature sets that
 build the HTTP aggregate target. Core-only and JSON-only builds should continue
-to use explicit leaf imports such as `conflux.types`, `conflux.json`, or
-`conflux.file_io_sync` until a deliberately narrow aggregate target is added.
+to use explicit leaf imports such as `conflux.core`, `conflux.types`,
+`conflux.json`, or `conflux.file_io_sync`.
 
 Header-mode generation may physically emit `<conflux/curated.hxx>`,
 `<conflux/extended.hxx>`, and `<conflux/complete.hxx>` even in narrower builds.
@@ -69,6 +69,7 @@ corresponding aggregate surface for the configured feature set.
 
 | Surface area | Curated | Extended | Complete |
 |---|---:|---:|---:|
+| `conflux.core` narrow core aggregate | yes | yes | yes |
 | `conflux.features` | yes | yes | yes |
 | `conflux.types` | no, pending alias policy | no, pending alias policy | no, pending alias policy |
 | `conflux.http` façade | yes, when built | yes | yes |
