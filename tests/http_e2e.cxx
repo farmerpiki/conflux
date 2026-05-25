@@ -907,6 +907,24 @@ std::string extract_body(
 	}
 	return std::string{resp.substr(pos + 4)};
 }
+void check_problem_code(
+	std::string_view resp,
+	std::string_view code) {
+	auto doc = conflux::json::parse_copy(extract_body(resp));
+	REQUIRE(doc.has_value());
+
+	auto code_node = doc->root().at_pointer("/code");
+	REQUIRE(code_node.has_value());
+	auto code_value = code_node->as_string();
+	REQUIRE(code_value.has_value());
+	CHECK(*code_value == code);
+
+	auto diagnostic_node = doc->root().at_pointer("/diagnostic_code");
+	REQUIRE(diagnostic_node.has_value());
+	auto diagnostic_value = diagnostic_node->as_string();
+	REQUIRE(diagnostic_value.has_value());
+	CHECK(*diagnostic_value == code);
+}
 // Extract the value of a named cookie from a Set-Cookie header list.
 // Looks for "Set-Cookie: <name>=<value>; ..." lines.
 std::string extract_set_cookie(
@@ -1666,8 +1684,7 @@ TEST_CASE(
 	auto timeout_response = read_one_response(fd);
 	::close(fd);
 	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 Request Timeout"));
-	CHECK(timeout_response.find(R"("code":"body_timeout")") != std::string::npos);
-	CHECK(timeout_response.find(R"("diagnostic_code":"body_timeout")") != std::string::npos);
+	check_problem_code(timeout_response, "body_timeout");
 }
 TEST_CASE(
 	"POST with unsupported Expect returns 417") {

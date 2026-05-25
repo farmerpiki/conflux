@@ -141,6 +141,10 @@ those reviews.
   substring checks. Form extractor, required/optional alias, aggregate
   QueryParams, and aggregate FormParams rejection tests now parse problem bodies
   and assert exact JSON-pointer fields.
+- `findings/5.md`: accepted another bounded part of the structured problem JSON
+  assertion gap. HTTP/1 slowloris/header-timeout, partial-body timeout, and
+  Expect: 100-continue body-timeout e2e tests now parse the problem response
+  body as JSON and assert exact `code` and `diagnostic_code` fields.
 
 ## Accepted backlog
 
@@ -230,6 +234,11 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "api-surface/import-(curated|extended|complete|selected)"` completed: 4/4
   passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tests
+  conflux_http_slowloris_e2e` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "slowloris|partial request body|Expect: 100-continue times out"` completed:
+  3/3 passed.
 - `cmake --build --preset release-clang-libcxx --target
   conflux_http_overflow_stress_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R

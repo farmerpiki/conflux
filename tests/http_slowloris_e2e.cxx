@@ -6,6 +6,7 @@
 #include <thread>
 
 import std;
+import conflux.json;
 import conflux.net.config;
 import conflux.net.http_server;
 import conflux.net.router;
@@ -13,6 +14,39 @@ import conflux.tests.support;
 
 using namespace conflux::tests;
 namespace chttp = conflux::http;
+
+namespace {
+
+std::string response_body(
+	std::string_view response) {
+	auto const pos = response.find("\r\n\r\n");
+	if (pos == std::string_view::npos) {
+		return {};
+	}
+	return std::string{response.substr(pos + 4)};
+}
+
+void check_problem_code(
+	std::string const &response,
+	std::string_view code) {
+	CHECK(response.find("application/problem+json") != std::string::npos);
+	auto doc = conflux::json::parse_copy(response_body(response));
+	REQUIRE(doc.has_value());
+
+	auto code_node = doc->root().at_pointer("/code");
+	REQUIRE(code_node.has_value());
+	auto code_value = code_node->as_string();
+	REQUIRE(code_value.has_value());
+	CHECK(*code_value == code);
+
+	auto diagnostic_node = doc->root().at_pointer("/diagnostic_code");
+	REQUIRE(diagnostic_node.has_value());
+	auto diagnostic_value = diagnostic_node->as_string();
+	REQUIRE(diagnostic_value.has_value());
+	CHECK(*diagnostic_value == code);
+}
+
+} // namespace
 
 TEST_CASE(
 	"HTTP/1 slowloris incomplete headers return 408 and metric",
@@ -42,9 +76,7 @@ TEST_CASE(
 
 	auto response = client.read_one_response();
 	REQUIRE(response.starts_with("HTTP/1.1 408 Request Timeout"));
-	CHECK(response.find("application/problem+json") != std::string::npos);
-	CHECK(response.find(R"("code":"header_timeout")") != std::string::npos);
-	CHECK(response.find(R"("diagnostic_code":"header_timeout")") != std::string::npos);
+	check_problem_code(response, "header_timeout");
 
 	auto const metrics = srv.metrics();
 	CHECK(metrics.rejections.header_timeout >= 1);
@@ -78,9 +110,7 @@ TEST_CASE(
 
 	auto response = client.read_one_response();
 	REQUIRE(response.starts_with("HTTP/1.1 408 Request Timeout"));
-	CHECK(response.find("application/problem+json") != std::string::npos);
-	CHECK(response.find(R"("code":"body_timeout")") != std::string::npos);
-	CHECK(response.find(R"("diagnostic_code":"body_timeout")") != std::string::npos);
+	check_problem_code(response, "body_timeout");
 
 	auto const metrics = srv.metrics();
 	CHECK(metrics.rejections.body_timeout >= 1);
