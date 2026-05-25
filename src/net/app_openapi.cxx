@@ -3,6 +3,7 @@ export module conflux.net.app.openapi;
 import std;
 import conflux.net.http.types;
 import conflux.net.http.response;
+import conflux.net.http.json_string;
 import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
@@ -29,17 +30,6 @@ struct AppOpenApiRoute {
 	std::string response_schema;
 	bool problem_response{};
 };
-
-[[nodiscard]] std::string openapi_json_str(
-	std::string_view value) {
-#if CONFLUX_HAS_JSON
-	auto dumped = dump_direct(value);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-#endif
-	return json_string_fallback(value);
-}
 
 [[nodiscard]] std::string openapi_method_key(
 	std::string_view method) {
@@ -74,9 +64,9 @@ struct AppOpenApiRoute {
 	std::string_view version) {
 	std::string out;
 	out += R"({"openapi":"3.0.0","info":{"title":)";
-	out += openapi_json_str(title);
+	out += json_string(title);
 	out += R"(,"version":)";
-	out += openapi_json_str(version);
+	out += json_string(version);
 	out += R"(})";
 	bool has_auth_policy = false;
 	for (auto const &route: routes) {
@@ -104,28 +94,28 @@ struct AppOpenApiRoute {
 		if (path_index != 0) {
 			out += ',';
 		}
-		out += openapi_json_str(path);
+		out += json_string(path);
 		out += ":{";
 		for (std::size_t route_index = 0; route_index < path_routes.size(); ++route_index) {
 			auto const &route = *path_routes[route_index];
 			if (route_index != 0) {
 				out += ',';
 			}
-			out += openapi_json_str(openapi_method_key(route.method));
+			out += json_string(openapi_method_key(route.method));
 			out += ":{";
 			if (!route.name.empty()) {
 				out += R"("operationId":)";
-				out += openapi_json_str(route.name);
+				out += json_string(route.name);
 				out += ',';
 			}
 			if (!route.openapi_summary.empty()) {
 				out += R"("summary":)";
-				out += openapi_json_str(route.openapi_summary);
+				out += json_string(route.openapi_summary);
 				out += ',';
 			}
 			if (!route.auth_policy.empty()) {
 				out += R"("security":[{"bearerAuth":[]}],"x-auth-policy":)";
-				out += openapi_json_str(route.auth_policy);
+				out += json_string(route.auth_policy);
 				out += ',';
 			}
 			if (route.timeout.count() != 0) {
@@ -135,7 +125,7 @@ struct AppOpenApiRoute {
 			}
 			if (!route.rate_limit.empty()) {
 				out += R"("x-rate-limit":)";
-				out += openapi_json_str(route.rate_limit);
+				out += json_string(route.rate_limit);
 				out += ',';
 			}
 			if (route.max_body_size != 0) {
@@ -154,7 +144,7 @@ struct AppOpenApiRoute {
 					out += ',';
 				}
 				out += R"({"name":)";
-				out += openapi_json_str(route.path_params[i]);
+				out += json_string(route.path_params[i]);
 				out += R"(,"in":"path","required":true,"schema":)";
 				if (auto type = route.path_param_types.find(route.path_params[i]);
 					type != route.path_param_types.end()) {
@@ -171,7 +161,7 @@ struct AppOpenApiRoute {
 					if (i != 0) {
 						out += ',';
 					}
-					out += openapi_json_str(route.consumes[i]);
+					out += json_string(route.consumes[i]);
 					out += R"(:{"schema":)";
 					out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
 					out += "}";
@@ -179,16 +169,16 @@ struct AppOpenApiRoute {
 				out += "}}";
 			}
 			out += R"(,"responses":{)";
-			out += openapi_json_str(std::to_string(route.success_status));
+			out += json_string(std::to_string(route.success_status));
 			out += R"(:{"description":)";
-			out += openapi_json_str(route.success_status == kHttpCreated ? "Created" : "OK");
+			out += json_string(route.success_status == kHttpCreated ? "Created" : "OK");
 			if (!route.produces.empty()) {
 				out += R"(,"content":{)";
 				for (std::size_t i = 0; i < route.produces.size(); ++i) {
 					if (i != 0) {
 						out += ',';
 					}
-					out += openapi_json_str(route.produces[i]);
+					out += json_string(route.produces[i]);
 					out += R"(:{"schema":)";
 					out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
 					out += "}";

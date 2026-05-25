@@ -5,23 +5,13 @@ import conflux.net.app.types;
 import conflux.net.http.types;
 import conflux.net.http.response;
 import conflux.net.http.server_types;
+import conflux.net.http.json_string;
 import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
 #endif
 
 export namespace conflux::http::detail {
-
-[[nodiscard]] std::string field_problem_json_string(
-	std::string_view value) {
-#if CONFLUX_HAS_JSON
-	auto dumped = dump_direct(value);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-#endif
-	return json_string_fallback(value);
-}
 
 template<class Arg>
 [[nodiscard]] auto field_problem(
@@ -38,11 +28,11 @@ template<class Arg>
 	}();
 	auto body = std::format(
 		R"({{"code":"invalid_field","extractor":{},"source":{},"name":{},"kind":{},"detail":{}}})",
-		field_problem_json_string(extractor),
-		field_problem_json_string(http_field_source_name(err.source)),
-		field_problem_json_string(err.name),
-		field_problem_json_string(kind),
-		field_problem_json_string(err.message));
+		json_string(extractor),
+		json_string(http_field_source_name(err.source)),
+		json_string(err.name),
+		json_string(kind),
+		json_string(err.message));
 	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 

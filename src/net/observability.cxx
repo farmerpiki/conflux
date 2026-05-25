@@ -6,14 +6,12 @@ export module conflux.net.observability;
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.net.http.json_string;
 import conflux.net.router;
 import conflux.net.request_id;
 import conflux.net.tracing;
 import conflux.utils;
 import conflux.work;
-#if CONFLUX_HAS_JSON
-import conflux.json;
-#endif
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
 #endif
@@ -109,17 +107,6 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	return std::string{kUnmatchedRoute};
 }
 
-[[nodiscard]] std::string json_string(
-	std::string_view s) {
-#if CONFLUX_HAS_JSON
-	auto dumped = dump_direct(s);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-#endif
-	return json_string_fallback(s);
-}
-
 [[nodiscard]] std::vector<std::string> sensitive_headers(
 	ObservabilityOptions const &opts) {
 	std::vector<std::string> out{
@@ -162,7 +149,7 @@ void append_headers_json(
 		}
 		first = false;
 		auto const logged = (redact && is_sensitive(sensitive, name)) ? kRedacted : value;
-		out += std::format(R"({}:{})", json_string(name), json_string(logged));
+		out += std::format(R"({}:{})", detail::json_string(name), detail::json_string(logged));
 	}
 	out += '}';
 }
@@ -179,19 +166,19 @@ void append_headers_json(
 	auto const ms = std::chrono::duration<double, std::milli>(elapsed).count();
 	std::string line = std::format(
 		R"({{"event":"http_request","service":{},"request_id":{},"trace_id":{},"method":{},"path":{},"route":{},"status":{},"status_class":{},"duration_ms":{},"bytes_in":{},"bytes_out":{},"remote_addr":{},"user_agent":{},"rejection_reason":null}})",
-		json_string(opts.service_name),
-		json_string(request_id),
-		json_string(traceparent),
-		json_string(upper_method(req.method)),
-		json_string(path_without_query(req, opts.log_query_string)),
-		json_string(route),
+		detail::json_string(opts.service_name),
+		detail::json_string(request_id),
+		detail::json_string(traceparent),
+		detail::json_string(upper_method(req.method)),
+		detail::json_string(path_without_query(req, opts.log_query_string)),
+		detail::json_string(route),
 		resp.status,
-		json_string(status_class(resp.status)),
+		detail::json_string(status_class(resp.status)),
 		ms,
 		req.body.size(),
 		resp.content_length(),
-		json_string(req.remote_addr),
-		json_string(req.header("user-agent")));
+		detail::json_string(req.remote_addr),
+		detail::json_string(req.header("user-agent")));
 	line.pop_back();
 	if (opts.log_request_headers) {
 		append_headers_json(line, "request_headers", req.headers, sensitive, opts.redact_sensitive_headers);

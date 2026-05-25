@@ -2,31 +2,18 @@ export module conflux.http:problem;
 
 import std;
 import conflux.net.http.response;
+import conflux.net.http.json_string;
 import conflux.net.app;
 import conflux.utils;
-#if CONFLUX_HAS_JSON
-import conflux.json;
-#endif
 
 export namespace conflux::http::problem {
-
-[[nodiscard]] std::string json_string(
-	std::string_view value) {
-#if CONFLUX_HAS_JSON
-	auto dumped = dump_direct(value);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-#endif
-	return json_string_fallback(value);
-}
 
 [[nodiscard]] Problem make(
 	int status,
 	std::string_view status_text,
 	std::string_view code,
 	std::string_view detail) {
-	auto body = std::format(R"({{"code":{},"detail":{}}})", json_string(code), json_string(detail));
+	auto body = std::format(R"({{"code":{},"detail":{}}})", detail::json_string(code), detail::json_string(detail));
 	auto response = Response::json(std::move(body), status, std::string{status_text});
 	response.content_type = "application/problem+json";
 	return Problem{.response = std::move(response), .code = std::string{code}, .detail = std::string{detail}};

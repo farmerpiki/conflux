@@ -5,12 +5,10 @@
 export module conflux.net.openapi;
 import std;
 import conflux.types;
+import conflux.net.http.json_string;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
-#if CONFLUX_HAS_JSON
-import conflux.json;
-#endif
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
 // Returns a JSON string (not pretty-printed).
@@ -32,21 +30,11 @@ export std::string openapi_spec(
 		it->second.push_back(info);
 	}
 
-	auto json_str = [](std::string_view value) -> std::string {
-#if CONFLUX_HAS_JSON
-		auto dumped = dump_direct(value);
-		if (dumped) {
-			return std::move(*dumped);
-		}
-#endif
-		return json_string_fallback(value);
-	};
-
 	std::string out;
 	out += R"({"openapi":"3.0.0","info":{"title":)";
-	out += json_str(title);
+	out += conflux::http::detail::json_string(title);
 	out += R"(,"version":)";
-	out += json_str(version);
+	out += conflux::http::detail::json_string(version);
 	out += R"(},"paths":{)";
 
 	bool first_path = true;
@@ -57,7 +45,7 @@ export std::string openapi_spec(
 		}
 		first_path = false;
 
-		out += json_str(path);
+		out += conflux::http::detail::json_string(path);
 		out += ":{";
 
 		bool first_method = true;
@@ -70,7 +58,7 @@ export std::string openapi_spec(
 			// method key must be lowercase.
 			std::string method_lower = ascii_lower(info.method);
 
-			out += json_str(method_lower);
+			out += conflux::http::detail::json_string(method_lower);
 			out += R"(:{"parameters":[)";
 
 			bool first_param = true;
@@ -80,7 +68,7 @@ export std::string openapi_spec(
 				}
 				first_param = false;
 				out += R"({"name":)";
-				out += json_str(param);
+				out += conflux::http::detail::json_string(param);
 				out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
 			}
 			out += R"(],"responses":{"200":{"description":"OK"}}})";

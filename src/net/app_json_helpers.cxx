@@ -5,6 +5,7 @@ export module conflux.net.app.json_helpers;
 import std;
 import conflux.net.http.types;
 import conflux.net.http.response;
+import conflux.net.http.json_string;
 import conflux.utils;
 #if CONFLUX_HAS_JSON
 import conflux.json;
@@ -67,15 +68,6 @@ template<class T>
 	} else {
 		return R"({"type":"object"})";
 	}
-}
-
-[[nodiscard]] std::string json_problem_string(
-	std::string_view value) {
-	auto dumped = dump_direct(value);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-	return json_string_fallback(value);
 }
 
 [[nodiscard]] std::string_view json_error_stage_name(
@@ -151,11 +143,11 @@ template<class T>
 	conflux::json::boundary::Error const &err) {
 	std::string body = std::format(
 		R"({{"code":"json.decode.type_mismatch","stage":{},"kind":{},"detail":{})",
-		json_problem_string(json_error_stage_name(err.stage)),
-		json_problem_string(json_error_code_name(err.code)),
-		json_problem_string(err.message));
+		json_string(json_error_stage_name(err.stage)),
+		json_string(json_error_code_name(err.code)),
+		json_string(err.message));
 	if (err.member_name) {
-		body += std::format(R"(,"member":{})", json_problem_string(*err.member_name));
+		body += std::format(R"(,"member":{})", json_string(*err.member_name));
 	}
 	if (err.source) {
 		body += std::format(
@@ -172,19 +164,19 @@ template<class T>
 	JsonError const &err) {
 	std::string body = std::format(
 		R"({{"code":{},"stage":"json_patch","detail":{})",
-		json_problem_string(json_issue_code_name(err.code)),
-		json_problem_string(err.message));
+		json_string(json_issue_code_name(err.code)),
+		json_string(err.message));
 	if (err.operation_index) {
 		body += std::format(R"(,"operation_index":{})", *err.operation_index);
 	}
 	if (err.operation) {
-		body += std::format(R"(,"operation":{})", json_problem_string(*err.operation));
+		body += std::format(R"(,"operation":{})", json_string(*err.operation));
 	}
 	if (err.pointer) {
-		body += std::format(R"(,"path":{})", json_problem_string(*err.pointer));
+		body += std::format(R"(,"path":{})", json_string(*err.pointer));
 	}
 	if (err.from_pointer) {
-		body += std::format(R"(,"from":{})", json_problem_string(*err.from_pointer));
+		body += std::format(R"(,"from":{})", json_string(*err.from_pointer));
 	}
 	body += "}";
 	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");

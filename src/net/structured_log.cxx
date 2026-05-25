@@ -12,11 +12,9 @@ import std;
 import conflux.types;
 import conflux.file_io_sync;
 import conflux.net.http.types;
+import conflux.net.http.json_string;
 import conflux.net.router;
 import conflux.utils;
-#if CONFLUX_HAS_JSON
-import conflux.json;
-#endif
 export struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
 	std::string log_file;
@@ -27,17 +25,6 @@ export struct StructuredLogOptions {
 	std::string app_name;
 };
 namespace structured_log_detail {
-
-std::string json_string(
-	std::string_view s) {
-#if CONFLUX_HAS_JSON
-	auto dumped = dump_direct(s);
-	if (dumped) {
-		return std::move(*dumped);
-	}
-#endif
-	return json_string_fallback(s);
-}
 
 } // namespace structured_log_detail
 // LogSink at module scope (not anonymous namespace) so std::make_shared<LogSink> works.
@@ -129,15 +116,15 @@ export Router::Middleware structured_log_middleware(
 
 		auto line = std::format(
 			R"({{"ts":{},"method":{},"path":{},"status":{},"bytes":{},"elapsed_ms":{},"remote":{}{}}})",
-			structured_log_detail::json_string(ts),
-			structured_log_detail::json_string(req.method),
-			structured_log_detail::json_string(req.path),
+			conflux::http::detail::json_string(ts),
+			conflux::http::detail::json_string(req.method),
+			conflux::http::detail::json_string(req.path),
 			resp.status,
 			resp.content_length(),
 			ms,
-			structured_log_detail::json_string(req.remote_addr),
+			conflux::http::detail::json_string(req.remote_addr),
 			app_name.empty() ? std::string{} :
-							   std::format(R"(,"app":{})", structured_log_detail::json_string(app_name)));
+							   std::format(R"(,"app":{})", conflux::http::detail::json_string(app_name)));
 		sink->write(line);
 		return resp;
 	};

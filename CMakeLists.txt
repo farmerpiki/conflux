@@ -466,6 +466,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
             BASE_DIRS "${CONFLUX_SRC_ROOT}"
             FILES
             ${CONFLUX_SRC_ROOT}/net/http_types.cxx
+            ${CONFLUX_SRC_ROOT}/net/http_json_string.cxx
             ${CONFLUX_SRC_ROOT}/net/http_request.cxx
             ${CONFLUX_SRC_ROOT}/net/server_types.cxx
     )
