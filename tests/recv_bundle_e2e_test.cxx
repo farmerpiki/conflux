@@ -62,6 +62,14 @@ void send_and_abort(
 	::close(fd);
 }
 
+void require_ping_response(
+	std::string const &resp) {
+	auto const header_end = resp.find("\r\n\r\n");
+	REQUIRE(header_end != std::string::npos);
+	CHECK(resp.starts_with("HTTP/1.1 200 OK\r\n"));
+	CHECK(resp.substr(header_end + 4) == R"({"status":"ok"})");
+}
+
 } // namespace
 // Test 14: buf_ring survives rapid connect-send-close flood
 // 80 abrupt connections each consume a recv buffer; the ring has only 32 slots.
@@ -87,8 +95,7 @@ TEST_CASE(
 	// Ring must still be operational: 4 full round-trips succeed.
 	for (int i = 0; i < 4; ++i) {
 		std::string const resp = http_get_on(port, "/api/ping");
-		CHECK(resp.find("200 OK") != std::string::npos);
-		CHECK(resp.find("\"status\":\"ok\"") != std::string::npos);
+		require_ping_response(resp);
 	}
 }
 TEST_CASE(
@@ -107,7 +114,6 @@ TEST_CASE(
 
 	for (int i = 0; i < 4; ++i) {
 		std::string const resp = http_get_on(port, "/api/ping");
-		CHECK(resp.find("200 OK") != std::string::npos);
-		CHECK(resp.find("\"status\":\"ok\"") != std::string::npos);
+		require_ping_response(resp);
 	}
 }

@@ -66,6 +66,9 @@ those reviews.
 - `findings/5.md`: accepted the SSE weak assertion gap. TLS, HTTP/2, and
   libcurl SSE tests now assert exact finite event-stream bodies instead of
   substring presence.
+- `findings/5.md`: accepted the recv-bundle e2e weak assertion gap. The final
+  liveness checks now validate the HTTP status line and exact JSON body instead
+  of substring presence.
 
 ## Accepted backlog
 
@@ -88,7 +91,8 @@ those reviews.
 - `findings/5.md`: remaining compile-fail wiring and structured-output
   assertion gaps stay accepted test backlog. HTTP package smoke, façade import
   purity, API surface symbol smokes, CQ-overflow status tightening, and SSE
-  exact stream assertions are complete above.
+  exact stream assertions, and recv-bundle exact response assertions are
+  complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -154,6 +158,10 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "SSE (streams all events|send_event delivers typed event|delivers all events
   over HTTP/2|short stream closes cleanly)"` completed: 5/5 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_recv_bundle_e2e_tests` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "recv_bundle.e2e"` completed: 2/2 passed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.
