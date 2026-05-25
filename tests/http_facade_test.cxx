@@ -1674,6 +1674,16 @@ TEST_CASE(
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
 
+	req.headers["content-type"] = "application/json; charset=utf-8";
+	auto with_params = http::router(app).dispatch(req);
+	CHECK(with_params.status == kHttpOk);
+
+	req.headers["content-type"] = "application/jsonp";
+	auto jsonp = http::router(app).dispatch(req);
+	CHECK(jsonp.status == kHttpBadRequest);
+	CHECK(jsonp.content_type == "application/problem+json");
+
+	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":)";
 	auto malformed = http::router(app).dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
@@ -1715,6 +1725,16 @@ TEST_CASE(
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
 
+	req.headers["content-type"] = "application/problem+json; charset=utf-8";
+	auto problem_with_params = http::router(app).dispatch(req);
+	CHECK(problem_with_params.status == kHttpOk);
+
+	req.headers["content-type"] = "application/jsonp";
+	auto jsonp = http::router(app).dispatch(req);
+	CHECK(jsonp.status == kHttpBadRequest);
+	CHECK(jsonp.content_type == "application/problem+json");
+
+	req.headers["content-type"] = "application/json";
 	req.body = R"({"value":)";
 	auto malformed = http::router(app).dispatch(req);
 	CHECK(malformed.status == kHttpBadRequest);
@@ -1770,6 +1790,15 @@ TEST_CASE(
 	auto ok = http::router(app).dispatch(req);
 	CHECK(ok.status == kHttpNoContent);
 
+	req.headers["content-type"] = "application/json-patch+json; charset=utf-8";
+	auto with_params = http::router(app).dispatch(req);
+	CHECK(with_params.status == kHttpNoContent);
+
+	req.headers["content-type"] = "application/json-patch+jsonp";
+	auto jsonp = http::router(app).dispatch(req);
+	CHECK(jsonp.status == kHttpBadRequest);
+
+	req.headers["content-type"] = "application/json-patch+json";
 	req.body = R"([{"path":"/name","value":"Ada"}])";
 	auto invalid = http::router(app).dispatch(req);
 	CHECK(invalid.status == kHttpBadRequest);
@@ -1809,6 +1838,15 @@ TEST_CASE(
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"a":1})");
 
+	req.headers["content-type"] = "application/merge-patch+json; charset=utf-8";
+	auto with_params = http::router(app).dispatch(req);
+	CHECK(with_params.status == kHttpOk);
+
+	req.headers["content-type"] = "application/merge-patch+jsonp";
+	auto jsonp = http::router(app).dispatch(req);
+	CHECK(jsonp.status == kHttpBadRequest);
+
+	req.headers["content-type"] = "application/merge-patch+json";
 	req.body = R"({"long":true})";
 	auto too_large = http::router(app).dispatch(req);
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);

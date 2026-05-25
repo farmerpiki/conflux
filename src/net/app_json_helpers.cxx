@@ -3,6 +3,7 @@ module;
 export module conflux.net.app.json_helpers;
 
 import std;
+import conflux.net.http.types;
 import conflux.net.http.response;
 import conflux.utils;
 #if CONFLUX_HAS_JSON
@@ -13,6 +14,44 @@ import conflux.net.http.native_json;
 export namespace conflux::http::detail {
 
 #if CONFLUX_HAS_JSON
+[[nodiscard]] std::string_view content_type_media_type(
+	std::string_view content_type) noexcept {
+	auto const semi = content_type.find(';');
+	auto const media_type = semi == std::string_view::npos ? content_type : content_type.substr(0, semi);
+	return conflux::http::trim_http_whitespace(media_type);
+}
+
+[[nodiscard]] bool content_type_matches(
+	std::string_view content_type,
+	std::string_view expected) noexcept {
+	return conflux::http::ascii_iequals(content_type_media_type(content_type), expected);
+}
+
+[[nodiscard]] bool content_type_is_json(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "application/json");
+}
+
+[[nodiscard]] bool content_type_is_problem_json(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "application/problem+json");
+}
+
+[[nodiscard]] bool content_type_is_json_request(
+	std::string_view content_type) noexcept {
+	return content_type_is_json(content_type) || content_type_is_problem_json(content_type);
+}
+
+[[nodiscard]] bool content_type_is_json_patch(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "application/json-patch+json");
+}
+
+[[nodiscard]] bool content_type_is_merge_patch(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "application/merge-patch+json");
+}
+
 template<class T>
 [[nodiscard]] std::string schema_json_or_object() {
 	if constexpr (requires { schema_for<std::remove_cvref_t<T>>(); }) {

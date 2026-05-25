@@ -1633,8 +1633,7 @@ public:
 #if CONFLUX_HAS_JSON
 		} else if constexpr (detail::JsonDocumentArg<Clean>) {
 			auto content_type = req.header("content-type");
-			if (!content_type.starts_with("application/json")
-				&& !content_type.starts_with("application/problem+json")) {
+			if (!detail::content_type_is_json_request(content_type)) {
 				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
@@ -1648,7 +1647,7 @@ public:
 			return JsonDocument{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonPatchArg<Clean>) {
 			auto content_type = req.header("content-type");
-			if (!content_type.starts_with("application/json-patch+json")) {
+			if (!detail::content_type_is_json_patch(content_type)) {
 				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
@@ -1665,7 +1664,7 @@ public:
 			return JsonPatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::MergePatchArg<Clean>) {
 			auto content_type = req.header("content-type");
-			if (!content_type.starts_with("application/merge-patch+json")) {
+			if (!detail::content_type_is_merge_patch(content_type)) {
 				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
@@ -1680,8 +1679,7 @@ public:
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using BodyValue = typename detail::JsonType<Clean>::type;
 			auto content_type = req.header("content-type");
-			if (!content_type.starts_with("application/json")
-				&& !content_type.starts_with("application/problem+json")) {
+			if (!detail::content_type_is_json_request(content_type)) {
 				throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
 			}
 			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
@@ -2198,8 +2196,7 @@ public:
 					return *std::move(limited);
 				}
 				auto content_type = req.header("content-type");
-				if (!content_type.starts_with("application/json")
-					&& !content_type.starts_with("application/problem+json")) {
+				if (!detail::content_type_is_json_request(content_type)) {
 					return detail::unsupported_json_content_type_problem();
 				}
 				auto const limit = *max_body_size != 0 ? *max_body_size : json_options->max_body_size;
