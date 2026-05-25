@@ -316,6 +316,22 @@ Current review set: `findings/1.md` through `findings/7.md` after
   performance-sensitive lazy/ranges changes from `findings/1.md` require
   representative benchmark coverage first. If no benchmark exists for a path,
   add one before evaluating a performance implementation.
+- `findings/3.md` P0/P1 default `Response` status/content-type ownership:
+  investigated but not accepted. A `ResponseString` static-or-owned field
+  candidate is preserved as
+  `/tmp/gcc-16/bench-artifacts/20260525T-response-string-perf/response-string-candidate.patch`.
+  Integrated `http_app_path` allocation smoke did not improve (`get_ping`
+  stayed at 6 allocations / 800 bytes per request; `json_small` stayed at
+  5 allocations / 784 bytes per request). Compare-bins showed small p50 wins
+  but weak/mixed tails: `get_ping` base run `1029`, candidate run `1030`,
+  artifact `/tmp/gcc-16/bench-artifacts/20260525T183808Z-compare-bins`,
+  p50 342.89 -> 334.69 ns/iter (-2.39%), p99 -0.71%; `json_small` base run
+  `1031`, candidate run `1032`, artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T183842Z-compare-bins`, p50
+  334.14 -> 325.01 ns/iter (-2.73%), p99 +2.09%. Filtered `perf stat` for
+  `get_ping` under `/tmp/gcc-16/bench-artifacts/20260525T-response-string-perf`
+  showed slightly lower cycles but higher instructions and cache activity, so
+  the patch was reverted rather than kept.
 - `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
   lifetime/cancel refactor rather than a bounded dedup patch. The repeated
   wait loops are exactly where cancellation and ownership can drift, but a safe
