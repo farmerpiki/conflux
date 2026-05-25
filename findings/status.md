@@ -30,6 +30,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/6.md` P1 sync/async client redirect drift: complete. Redirect
   request construction now lives in `client_wire::follow_redirect_request(...)`
   and both sync and async clients call it.
+- `findings/7.md` P1 `JsonArena::reset()` hash-index resource loss: complete.
+  `JsonArena` now retains the selected hash-index memory resource and recreates
+  `DocumentStorage` with it after explicit reset; the existing counting-resource
+  test now exercises warm-member-index allocation after reset.
 
 ## Verification
 
@@ -68,6 +72,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: follow_redirects|http client async: async_send follows relative
   redirects"` completed: 4/4 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
+  completed after preserving the `JsonArena` hash-index resource across reset.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "JsonArena hash index allocations use the injected resource"` completed: 1/1
+  passed.
 
 ## Accepted / In Scope
 

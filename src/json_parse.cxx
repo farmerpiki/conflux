@@ -1226,7 +1226,7 @@ void JsonArena::reset() noexcept {
 	++generation_;
 	storage_ = nullptr; // ~DocumentStorage: pmr dealloc is no-op on monotonic
 	mbr_.release(); // actually frees the slab
-	storage_ = std::make_unique<DocumentStorage>(&mbr_);
+	storage_ = std::make_unique<DocumentStorage>(&mbr_, hash_index_resource_);
 }
 namespace conflux::json {
 
