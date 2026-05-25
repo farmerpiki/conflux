@@ -626,7 +626,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(4))));
 		return out;
 	}
-	static std::vector<std::pair<std::string, CompiledCompareOp>> const ops = {
+	static constexpr auto ops = std::to_array<std::pair<std::string_view, CompiledCompareOp>>({
 		{" == ", CompiledCompareOp::eq},
 		{" != ", CompiledCompareOp::ne},
 		{" <= ", CompiledCompareOp::le},
@@ -634,7 +634,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 		{ " < ", CompiledCompareOp::lt},
 		{ " > ", CompiledCompareOp::gt},
 		{" in ", CompiledCompareOp::in},
-	};
+	});
 	for (auto const &[op, code]: ops) {
 		if (auto p = find_top_level_token(b, op); p != std::string_view::npos) {
 			CompiledBaseExpr out;
@@ -1282,15 +1282,15 @@ TmplValue Environment::Impl::eval_expr(
 		}
 
 		{
-			static std::vector<std::pair<std::string, int>> const ops = {
+			static constexpr auto ops = std::to_array<std::pair<std::string_view, int>>({
 				{" == ", 0},
 				{" != ", 1},
 				{" <= ", 2},
 				{" >= ", 3},
 				{ " < ", 4},
 				{ " > ", 5},
-				{" in ", 6}
-            };
+				{" in ", 6},
+			});
 			for (auto &[op, code]: ops) {
 				auto p = find_top_level_token(b, op);
 				if (p != std::string_view::npos) {

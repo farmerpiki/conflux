@@ -34,6 +34,10 @@ those reviews.
   `DocumentStorage::reset()` now destroys warmed object hash tables and clears
   external borrowed-pointer slots before reuse; `ValueBuilder::reset()` and
   `JsonArena` reuse paths use that helper.
+- `findings/2.md`: accepted the fixed template operator table allocation
+  cleanup. Compile-time and runtime comparison-operator descriptor tables now
+  use `constexpr std::array` with `std::string_view` literals instead of
+  first-use dynamic vectors.
 
 ## Accepted backlog
 
