@@ -76,6 +76,42 @@ struct Created {
 		response.headers[name] = std::string{value};
 		return std::move(*this);
 	}
+
+	[[nodiscard]] Created location(
+		std::string value) && {
+		response.headers["Location"] = std::move(value);
+		return std::move(*this);
+	}
+
+	[[nodiscard]] Created location(
+		std::string_view value) && {
+		response.headers["Location"] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] Created location(
+		char const *value) && {
+		response.headers["Location"] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] Created content_type(
+		std::string value) && {
+		response.content_type = std::move(value);
+		return std::move(*this);
+	}
+
+	[[nodiscard]] Created content_type(
+		std::string_view value) && {
+		response.content_type = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] Created content_type(
+		char const *value) && {
+		response.content_type = std::string{value};
+		return std::move(*this);
+	}
 };
 
 template<class T>

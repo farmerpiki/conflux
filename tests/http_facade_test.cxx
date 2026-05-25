@@ -2021,9 +2021,10 @@ TEST_CASE(
 	CHECK(redirect.status == kHttpFound);
 	CHECK(redirect.headers["Location"] == "/next");
 
-	auto created = http::into_response(http::created(FacadeAnswer{.value = "made"}).header("Location", "/answers/1"));
+	auto created = http::into_response(
+		http::created(FacadeAnswer{.value = "made"}).location("/answers/1").content_type("application/vnd.test+json"));
 	CHECK(created.status == kHttpCreated);
-	CHECK(created.content_type == "application/json");
+	CHECK(created.content_type == "application/vnd.test+json");
 	CHECK(created.headers["Location"] == "/answers/1");
 	CHECK(created.text_body() == R"({"value":"made"})");
 }
