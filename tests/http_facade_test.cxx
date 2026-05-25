@@ -1427,8 +1427,9 @@ TEST_CASE(
 	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "application/json");
-	CHECK(response.text_body().find(R"("title":"Facade API")") != std::string_view::npos);
-	CHECK(response.text_body().find(R"("operationId":"health.check")") != std::string_view::npos);
+	auto doc = require_json_text(std::string{response.text_body()});
+	check_json_string_at(doc, "/info/title", "Facade API");
+	check_json_string_at(doc, "/paths/~1health/get/operationId", "health.check");
 }
 
 TEST_CASE(
@@ -1445,8 +1446,9 @@ TEST_CASE(
 	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "application/json");
-	CHECK(response.text_body().find(R"("title":"Mounted API")") != std::string_view::npos);
-	CHECK(response.text_body().find(R"("operationId":"health.check")") != std::string_view::npos);
+	auto doc = require_json_text(std::string{response.text_body()});
+	check_json_string_at(doc, "/info/title", "Mounted API");
+	check_json_string_at(doc, "/paths/~1health/get/operationId", "health.check");
 }
 
 TEST_CASE(
@@ -1917,10 +1919,10 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBasicAuth"});
-	auto const spec = app.openapi_spec("Auth", "1.0");
-	CHECK(
-		spec.find("\"securitySchemes\":{\"basicAuth\":{\"type\":\"http\",\"scheme\":\"basic\"}}") != std::string::npos);
-	CHECK(spec.find("\"security\":[{\"basicAuth\":[]}]") != std::string::npos);
+	auto doc = require_json_text(app.openapi_spec("Auth", "1.0"));
+	check_json_string_at(doc, "/components/securitySchemes/basicAuth/type", "http");
+	check_json_string_at(doc, "/components/securitySchemes/basicAuth/scheme", "basic");
+	REQUIRE(require_json_pointer(doc, "/paths/~1basic/get/security/0/basicAuth").as_array().has_value());
 }
 
 TEST_CASE(
@@ -2413,9 +2415,22 @@ TEST_CASE(
 	check_json_string_at(invalid_doc, "/code", "patch_op_missing");
 	check_json_string_at(invalid_doc, "/stage", "json_patch");
 
-	auto spec = app.openapi_spec("Patch API", "1.0");
-	CHECK(spec.find("application/json-patch+json") != std::string::npos);
-	CHECK(spec.find(R"("required":["op","path"])") != std::string::npos);
+	auto spec = require_json_text(app.openapi_spec("Patch API", "1.0"));
+	REQUIRE(require_json_pointer(spec, "/paths/~1patch/patch/requestBody/content/application~1json-patch+json/schema")
+				.as_object()
+				.has_value());
+	auto required = require_json_pointer(
+		spec,
+		"/paths/~1patch/patch/requestBody/content/application~1json-patch+json/schema/items/required");
+	REQUIRE(required.as_array().has_value());
+	check_json_string_at(
+		spec,
+		"/paths/~1patch/patch/requestBody/content/application~1json-patch+json/schema/items/required/0",
+		"op");
+	check_json_string_at(
+		spec,
+		"/paths/~1patch/patch/requestBody/content/application~1json-patch+json/schema/items/required/1",
+		"path");
 }
 
 TEST_CASE(
@@ -2459,8 +2474,10 @@ TEST_CASE(
 	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 	CHECK(too_large.content_type == "application/problem+json");
 
-	auto spec = app.openapi_spec("Merge API", "1.0");
-	CHECK(spec.find("application/merge-patch+json") != std::string::npos);
+	auto spec = require_json_text(app.openapi_spec("Merge API", "1.0"));
+	REQUIRE(require_json_pointer(spec, "/paths/~1merge/patch/requestBody/content/application~1merge-patch+json/schema")
+				.as_object()
+				.has_value());
 }
 
 TEST_CASE(

@@ -64,6 +64,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/4.md` P1 TLS/OpenSSL ALPN weak status checks: complete. Sequential
   `s_client` and ALPN fallback tests now assert the parsed HTTP status code is
   `200` in addition to checking the expected response body.
+- `findings/4.md` P1 OpenAPI substring checks: complete. Served OpenAPI
+  metadata tests and remaining auth/patch/merge OpenAPI checks now parse the
+  spec JSON and assert fields by JSON pointer instead of relying on substrings.
 
 ## Verification
 
@@ -162,6 +165,14 @@ Current review set: `findings/1.md` through `findings/7.md` after
   "ext/openssl: multiple sequential s_client connections all succeed|tls/alpn:
   (http/1.1 ALPN is accepted|unknown ALPN falls back without breaking h1)"`
   completed: 3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after strengthening OpenAPI JSON
+  assertions.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (app openapi handler serves metadata spec|app openapi mounts
+  metadata route|required basic auth extractor rejects missing credentials|JsonPatch
+  extractor validates content type and patch shape|MergePatch extractor
+  validates content type and body limit)"` completed: 5/5 passed.
 
 ## Accepted / In Scope
 
