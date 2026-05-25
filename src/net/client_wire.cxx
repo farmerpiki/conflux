@@ -164,6 +164,34 @@ void append_header_line(
 	return false;
 }
 
+template<class F>
+void for_each_effective_request_header(
+	HttpFields const &default_headers,
+	HttpFields const &request_headers,
+	F &&fn) {
+	std::size_t default_index = 0;
+	for (auto const &[k, v]: default_headers) {
+		if (!serializable_request_header(k)) {
+			++default_index;
+			continue;
+		}
+		auto const override = find_request_override(default_headers, request_headers, k);
+		if (override) {
+			if (!default_has_prior_key(default_headers, default_index)) {
+				fn(k, *override);
+			}
+		} else {
+			fn(k, v);
+		}
+		++default_index;
+	}
+	for (auto const &[k, v]: request_headers) {
+		if (serializable_request_header(k) && !request_matches_default(default_headers, k)) {
+			fn(k, v);
+		}
+	}
+}
+
 [[nodiscard]] std::size_t estimate_request_wire_size(
 	ClientRequest const &req,
 	HttpFields const &default_headers,
@@ -176,16 +204,9 @@ void append_header_line(
 				  - 1
 				  + host_header_value_size(url, caller_host)
 				  + 2;
-	for (auto const &[k, v]: default_headers) {
-		if (serializable_request_header(k)) {
-			n += k.size() + 2 + v.size() + 2;
-		}
-	}
-	for (auto const &[k, v]: req.headers()) {
-		if (serializable_request_header(k)) {
-			n += k.size() + 2 + v.size() + 2;
-		}
-	}
+	for_each_effective_request_header(default_headers, req.headers(), [&n](std::string_view k, std::string_view v) {
+		n += k.size() + 2 + v.size() + 2;
+	});
 	n += sizeof("Connection: close\r\n") - 1;
 	if (!req.body().empty()) {
 		n += sizeof("Content-Length: \r\n") - 1 + decimal_size(req.body().size());
@@ -433,27 +454,9 @@ ChunkedDecodeStatus decode_chunked_prefix(
 	append_host_header_value(wire, url, caller_host);
 	wire += "\r\n";
 
-	std::size_t default_index = 0;
-	for (auto const &[k, v]: default_headers) {
-		if (!serializable_request_header(k)) {
-			++default_index;
-			continue;
-		}
-		auto const override = find_request_override(default_headers, req.headers(), k);
-		if (override) {
-			if (!default_has_prior_key(default_headers, default_index)) {
-				append_header_line(wire, k, *override);
-			}
-		} else {
-			append_header_line(wire, k, v);
-		}
-		++default_index;
-	}
-	for (auto const &[k, v]: req.headers()) {
-		if (serializable_request_header(k) && !request_matches_default(default_headers, k)) {
-			append_header_line(wire, k, v);
-		}
-	}
+	for_each_effective_request_header(default_headers, req.headers(), [&wire](std::string_view k, std::string_view v) {
+		append_header_line(wire, k, v);
+	});
 	wire += "Connection: close\r\n";
 	if (!req.body().empty()) {
 		wire += "Content-Length: ";

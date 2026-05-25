@@ -52,7 +52,7 @@ struct HttpClientOptions {
 	std::size_t max_header_bytes{64 * 1024};
 	std::size_t max_body_bytes{16 * 1024 * 1024};
 	std::size_t max_buffered_bytes{4 * 1024 * 1024};
-	HttpFields default_headers{};
+	HttpFields default_headers = HttpFields(true);
 	void *resolver{nullptr}; // conflux::net::dns::Resolver*; void* avoids exporting dns types
 };
 

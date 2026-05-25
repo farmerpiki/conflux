@@ -1282,6 +1282,26 @@ TEST_CASE(
 	CHECK(with_headers->head.headers["x-another"] == "world");
 }
 TEST_CASE(
+	"http client: request headers override default headers once") {
+	ensure_server();
+	HttpClientOptions opts{};
+	opts.default_headers["X-Test-Header"] = "default";
+	HttpClient client{opts};
+
+	auto default_response = client.blocking_send(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/echo-header", g_test_port)));
+	REQUIRE(default_response);
+	CHECK(default_response->head.status == 200);
+	CHECK(default_response->body == "default");
+
+	auto override_response = client.blocking_send(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/echo-header", g_test_port))
+			.header("x-test-header", "override"));
+	REQUIRE(override_response);
+	CHECK(override_response->head.status == 200);
+	CHECK(override_response->body == "override");
+}
+TEST_CASE(
 	"http client: convenience client POST sends body and content type") {
 	ensure_server();
 	HttpClient client{};
