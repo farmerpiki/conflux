@@ -253,6 +253,36 @@ Current review set: `findings/1.md` through `findings/7.md` after
   lazy/ranges changes from `findings/1.md` require representative benchmark
   coverage first. If no benchmark exists for a path, add one before evaluating a
   performance implementation.
+- `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
+  lifetime/cancel refactor rather than a bounded dedup patch. The repeated
+  wait loops are exactly where cancellation and ownership can drift, but a safe
+  shared pump needs a separate design pass over ring ownership, timeout CQEs,
+  and blocking/task entry contracts.
+- `findings/2.md` P0 HTTP client response body state: partially completed for
+  redirect construction and chunked decoding. Remaining body/read-state
+  unification is deferred until it can be designed with the io_uring/client
+  pump work, because plain/TLS/sync/async ownership and body-limit behavior are
+  coupled.
+- `findings/2.md` P1 HTTP benchmark/server fixtures: deferred until the
+  non-performance cleanup backlog is closed. It remains a candidate before any
+  performance work so compare-bins/perf runs exercise realistic server/client
+  paths rather than unit-level loops.
+- `findings/2.md` P1 SIMD stdx/std26 backend algorithm deduplication:
+  perf-gated. Do not centralize these hot algorithms until generated assembly
+  and representative benchmarks prove the helper shape does not pessimize the
+  selected backend.
+- `findings/2.md` P1 App/Group route verb boilerplate: deferred until the
+  route/extractor API model stabilizes. It is API-shape cleanup, and helper
+  families now could hide rather than reduce the pending route model changes.
+- `findings/2.md` P2 CMake target/module declaration helpers: deferred while
+  header/module/profile/package behavior is still moving; a helper now would
+  risk obscuring feature-guard edge cases.
+- `findings/2.md` P2 HTTP server partition prelude and advanced example JSON
+  diagnostics: rejected for current scope. The server prelude repetition is
+  cosmetic and module-fragile, and example duplication is acceptable until the
+  release examples/docs pass.
+- `findings/2.md` P2 DB timeout/current-reader plumbing: rejected as
+  standalone work. Only revisit if the DB deadline/cancel surface grows.
 - `findings/7.md` P0 DB off-owner lease return waiter wakeup: deferred for a
   focused owner-thread marshalling design. The pool is owner-thread-affine and
   queued waiter state is not protected for off-owner mutation; the current
@@ -268,6 +298,29 @@ Current review set: `findings/1.md` through `findings/7.md` after
   redesign, body helper collapse, typed auth extractors, and middleware API
   unification are deferred as broad API/architecture changes rather than
   bounded correctness patches.
+- `findings/5.md` P1 Query/Form typed extractor metadata, SSE/WebSocket route
+  API unification, blocking-first client ergonomics, canonical run/listen
+  vocabulary, human state/extractor diagnostics, and broader typed status
+  helpers are deferred as ergonomic API-shape work. They should be revisited
+  with the curated HTTP/Response split instead of patched piecemeal.
+- `findings/5.md` P2 streaming uploads remain explicitly deferred; keep the
+  bounded in-memory body contract until the public body/transport split is
+  designed.
 - `findings/6.md` P1 full route-pattern model unification and App/Router
   OpenAPI renderer unification are deferred as larger router/app metadata
   rewrites.
+- `findings/7.md` P0 module-mode `release-core` target graph cleanup is
+  deferred as a build graph/profile architecture split. Header-mode core is
+  already checked; module-mode requires deciding whether `net.config`,
+  `file_io_sync`, direct-slot-pool, and SIMD support are public core support or
+  should move behind narrower profile targets.
+- `findings/7.md` P1 standalone DB hidden singleton cancel pool is deferred for
+  explicit API policy. Removing it or making it opt-in changes direct
+  connection ergonomics and needs a public cancellation-worker story.
+- `findings/7.md` P2 manifest-driven API profiles, slim common `Response`
+  object, and docs/examples release-proof work are deferred until after the
+  curated HTTP/transport split and profile wrappers stabilize.
+- `findings/4.md` P2 HTTP facade API snapshot internals and package-smoke
+  parity defaults are not changed in this pass. Pure facade import smokes now
+  exist, and package/profile default policy should be handled in the packaging
+  release gate rather than folded into unrelated correctness patches.
