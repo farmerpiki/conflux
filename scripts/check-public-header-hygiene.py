@@ -54,7 +54,7 @@ def selected(headers: list[str], skip_headers: set[str], skip_prefixes: tuple[st
     return [h for h in headers if h not in skip_headers and not h.startswith(skip_prefixes)]
 
 
-def check_core_header(path: Path, rel: str, errors: list[str]) -> None:
+def check_public_header(path: Path, rel: str, check_optional_dependencies: bool, errors: list[str]) -> None:
     text = path.read_text(encoding='utf-8')
     for lineno, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
@@ -63,7 +63,7 @@ def check_core_header(path: Path, rel: str, errors: list[str]) -> None:
         macro = MACRO_RE.match(line)
         if macro and not macro.group(1).startswith('CONFLUX_'):
             errors.append(f'{rel}:{lineno}: non-CONFLUX public macro leaked: {macro.group(1)}')
-        if OPTIONAL_INCLUDE_RE.match(line):
+        if check_optional_dependencies and OPTIONAL_INCLUDE_RE.match(line):
             errors.append(f'{rel}:{lineno}: core/public convenience header pulls optional dependency: {stripped}')
 
 
@@ -79,18 +79,21 @@ def main() -> int:
     selected_set = set(headers)
     errors: list[str] = []
 
-    for rel in sorted(CORE_PUBLIC_HEADERS & selected_set):
+    for rel in sorted(headers):
         path = args.include_dir / rel
         if not path.exists():
             errors.append(f'{rel}: expected public header missing from generated include tree')
             continue
-        check_core_header(path, rel, errors)
+        check_public_header(path, rel, rel in CORE_PUBLIC_HEADERS, errors)
 
     if errors:
         for err in errors:
             print(f'public-header-hygiene: {err}', file=sys.stderr)
         return 1
-    print(f'public-header-hygiene: checked {len(CORE_PUBLIC_HEADERS & selected_set)} core public headers')
+    print(
+        'public-header-hygiene: checked '
+        f'{len(headers)} public headers; {len(CORE_PUBLIC_HEADERS & selected_set)} core dependency guards'
+    )
     return 0
 
 

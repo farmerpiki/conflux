@@ -50,6 +50,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   `make_rejection_response(...)` and `note_rejection(...)` from
   `http_server_helpers`, leaving connection formatting and observability hooks
   local to each emitter.
+- `findings/7.md` P1 public header hygiene coverage: complete. The hygiene
+  checker now applies public shorthand-alias and macro leakage checks to every
+  selected generated public header from the active manifest, while retaining the
+  optional-dependency include guard for the core convenience header subset.
 
 ## Verification
 
@@ -114,6 +118,17 @@ Current review set: `findings/1.md` through `findings/7.md` after
   "parser: rejection metrics count classified HTTP/1
   rejects|body_timeout|header_timeout|http_server_helpers:"` completed: 15/15
   passed.
+- `python3 scripts/check-public-header-hygiene.py --manifest
+  /tmp/gcc-16/header-component-smoke/http-api/generated/bridge/module_header_bridge_manifest.json
+  --include-dir /tmp/gcc-16/header-component-smoke/http-api/generated/bridge/include`
+  completed: checked 133 public headers and 11 core dependency guards.
+- `cmake --build /tmp/gcc-16/header-component-smoke/http-api --target
+  conflux_header_smoke_public_hygiene` completed after regenerating the header
+  bridge: checked 135 public headers and 11 core dependency guards.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_header_smoke_public_hygiene` was checked and is not a valid target in
+  the release module profile; the header-component-smoke profile owns this
+  header-only target.
 
 ## Accepted / In Scope
 
