@@ -346,3 +346,12 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "examples/(compile|quickstart-policy|public-policy|e2e-quickstart)"`
   completed after the quickstart update: 8/8 passed.
+- findings/8 quickstart JSON CRUD mutex-in-handler concern: partially
+  addressed. The quickstart now labels its mutex-protected store as toy
+  in-memory storage and points real services toward async DB or explicit
+  offload. A fuller replacement example remains backlog.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_quickstart_json_crud` completed after the quickstart storage note.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "examples/e2e-quickstart_json_crud|examples/compile"` completed after the
+  quickstart storage note: 2/2 passed.

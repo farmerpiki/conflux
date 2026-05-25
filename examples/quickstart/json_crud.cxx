@@ -18,6 +18,8 @@ struct CreateTodo {
 };
 
 struct TodoStore {
+	// Toy in-memory storage for the quickstart. Real services should use an
+	// async database or explicitly offload blocking storage work.
 	std::mutex mu;
 	std::vector<Todo> todos;
 	std::int64_t next_id{1};
