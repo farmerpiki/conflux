@@ -117,6 +117,10 @@ those reviews.
   typed `CreatedBody<T>` wrapper that erases to `Response` at runtime while
   preserving `T` for OpenAPI response schema inference, including fluent header,
   location, and content-type customization.
+- `findings/6.md`: accepted a bounded response/cookie builder ergonomics
+  subset. `CookieBuilder` and the facade `http::cookie(...)` helper now build
+  typed cookie attributes and feed the existing `Response::set_cookie` storage
+  path, avoiding any change to response formatting or send behavior.
 
 ## Accepted backlog
 
@@ -143,7 +147,8 @@ those reviews.
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
   RequiredBasicAuth OpenAPI scheme metadata and first-contact run spelling are
   complete above. Created-response schema metadata is complete above for the
-  existing JSON body helper; broader typed status wrappers remain backlog.
+  existing JSON body helper, and the cookie-builder subset is complete above;
+  broader typed status wrappers remain backlog.
 - `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
   cleanup remain accepted backlog. Content-Type media-type parsing,
@@ -456,3 +461,10 @@ those reviews.
   helpers keep explicit metadata|http facade: app openapi spec includes JSON
   request bodies|http facade: app openapi snapshot covers typed route policies"`
   completed after the typed created-response metadata update: 3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_response
+  conflux_http_app conflux_http_response_tests conflux_http_facade_tests`
+  completed after the cookie-builder update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http response: set_cookie and append_vary preserve HTTP header semantics|http
+  facade: response helpers cover redirect and created JSON|http facade: public
+  import smoke"` completed after the cookie-builder update: 3/3 passed.

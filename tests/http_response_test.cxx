@@ -88,9 +88,17 @@ TEST_CASE(
 	Response resp;
 	resp.set_cookie("session", "abc", "Path=/; HttpOnly");
 	resp.set_cookie("theme", "dark");
-	CHECK(resp.set_cookies.size() == 2);
+	resp.set_cookie(
+		CookieBuilder{"remember", "yes"}
+			.path("/")
+			.http_only()
+			.secure()
+			.same_site(SameSite::Lax)
+			.max_age(std::chrono::hours{1}));
+	CHECK(resp.set_cookies.size() == 3);
 	CHECK(resp.set_cookies[0] == "session=abc; Path=/; HttpOnly");
 	CHECK(resp.set_cookies[1] == "theme=dark");
+	CHECK(resp.set_cookies[2] == "remember=yes; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600");
 
 	resp.append_vary("Origin");
 	resp.append_vary("origin");

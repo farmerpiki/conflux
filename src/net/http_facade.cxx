@@ -26,6 +26,8 @@ import conflux.net.metrics;
 export namespace conflux::http {
 
 using Config = ::Config;
+using CookieBuilder = ::CookieBuilder;
+using SameSite = ::SameSite;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
 using ::RunStatus;
@@ -87,6 +89,12 @@ using AsyncNext = ::Router::AsyncNext;
 [[nodiscard]] Response sse(
 	std::shared_ptr<SseChannel> channel) {
 	return Response::sse(std::move(channel));
+}
+
+[[nodiscard]] CookieBuilder cookie(
+	std::string_view name,
+	std::string_view value) {
+	return CookieBuilder{name, value};
 }
 
 struct StreamSink {

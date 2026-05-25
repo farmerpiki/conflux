@@ -2490,6 +2490,12 @@ TEST_CASE(
 	CHECK(created.content_type == "application/vnd.test+json");
 	CHECK(created.headers["Location"] == "/answers/1");
 	CHECK(created.text_body() == R"({"value":"made"})");
+
+	auto cookie = http::cookie("session", "abc").path("/").http_only().same_site(http::SameSite::Strict);
+	Response response;
+	response.set_cookie(std::move(cookie));
+	REQUIRE(response.set_cookies.size() == 1);
+	CHECK(response.set_cookies[0] == "session=abc; Path=/; HttpOnly; SameSite=Strict");
 }
 
 TEST_CASE(

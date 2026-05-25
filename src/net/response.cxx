@@ -37,6 +37,135 @@ export enum class StreamedFileResult : std::uint8_t {
 	failed,
 };
 
+export enum class SameSite : std::uint8_t {
+	Lax,
+	Strict,
+	None,
+};
+
+[[nodiscard]] constexpr std::string_view same_site_token(
+	SameSite value) noexcept {
+	switch (value) {
+	case SameSite::Lax   : return "Lax";
+	case SameSite::Strict: return "Strict";
+	case SameSite::None  : return "None";
+	}
+	return "Lax";
+}
+
+export struct CookieBuilder {
+	std::string name;
+	std::string value;
+	std::string attributes;
+
+	CookieBuilder(
+		std::string_view cookie_name,
+		std::string_view cookie_value)
+		: name(cookie_name)
+		, value(cookie_value) {}
+
+	CookieBuilder &attribute(
+		std::string_view attr) & {
+		if (attr.empty()) {
+			return *this;
+		}
+		if (!attributes.empty()) {
+			attributes += "; ";
+		}
+		attributes += attr;
+		return *this;
+	}
+
+	CookieBuilder attribute(
+		std::string_view attr) && {
+		attribute(attr);
+		return std::move(*this);
+	}
+
+	CookieBuilder &path(
+		std::string_view path_value) & {
+		attribute(std::format("Path={}", path_value));
+		return *this;
+	}
+
+	CookieBuilder path(
+		std::string_view path_value) && {
+		path(path_value);
+		return std::move(*this);
+	}
+
+	CookieBuilder &domain(
+		std::string_view domain_value) & {
+		attribute(std::format("Domain={}", domain_value));
+		return *this;
+	}
+
+	CookieBuilder domain(
+		std::string_view domain_value) && {
+		domain(domain_value);
+		return std::move(*this);
+	}
+
+	CookieBuilder &http_only() & {
+		attribute("HttpOnly");
+		return *this;
+	}
+
+	CookieBuilder http_only() && {
+		http_only();
+		return std::move(*this);
+	}
+
+	CookieBuilder &secure() & {
+		attribute("Secure");
+		return *this;
+	}
+
+	CookieBuilder secure() && {
+		secure();
+		return std::move(*this);
+	}
+
+	CookieBuilder &same_site(
+		SameSite value) & {
+		attribute(std::format("SameSite={}", same_site_token(value)));
+		return *this;
+	}
+
+	CookieBuilder same_site(
+		SameSite value) && {
+		same_site(value);
+		return std::move(*this);
+	}
+
+	template<class Rep, class Period>
+	CookieBuilder &max_age(
+		std::chrono::duration<Rep, Period> age) & {
+		auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(age).count();
+		attribute(std::format("Max-Age={}", seconds));
+		return *this;
+	}
+
+	template<class Rep, class Period>
+	CookieBuilder max_age(
+		std::chrono::duration<Rep, Period> age) && {
+		max_age(age);
+		return std::move(*this);
+	}
+
+	CookieBuilder &expires(
+		std::string_view http_date) & {
+		attribute(std::format("Expires={}", http_date));
+		return *this;
+	}
+
+	CookieBuilder expires(
+		std::string_view http_date) && {
+		expires(http_date);
+		return std::move(*this);
+	}
+};
+
 // Carrier for a file about to be streamed through io_uring (splice on plain,
 // fixed-buffer read on TLS). Owns a FileHandle — send dispatch consumes it and
 // issues a close_async on the owning ring when the stream finishes.
@@ -557,6 +686,10 @@ export struct Response {
 			set_cookies.push_back(std::format("{}={}; {}", name, cookie_value, attributes));
 		}
 		return *this;
+	}
+	Response &set_cookie(
+		CookieBuilder cookie) {
+		return set_cookie(cookie.name, cookie.value, cookie.attributes);
 	}
 	void append_vary(
 		std::string_view token) {
