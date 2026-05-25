@@ -444,6 +444,145 @@ std::expected<Document, JsonError> ValueBuilder::finish() && {
 // ObjectBuilder member insert helpers
 // ---------------------------------------------------------------------------
 
+static std::expected<void, JsonError> array_active_or_error(
+	ChildFrame const &frame) {
+	if (!frame.committed && (frame.state != nullptr) && (frame.state->active_depth == frame.depth)) {
+		return {};
+	}
+	return std::unexpected(
+		JsonError{
+			.stage = JsonStage::build,
+			.code = JsonIssueCode::constraint_violation,
+			.message = frame.committed ? "ArrayBuilder already committed" : "child builder already active"});
+}
+
+static std::size_t push_node(
+	BuilderState &state,
+	Node node) {
+	state.store.nodes.push_back(node);
+	return state.store.nodes.size() - 1;
+}
+
+static std::size_t push_owned_string_node(
+	BuilderState &state,
+	std::string_view value) {
+	std::size_t const off = state.built_input.size();
+	state.built_input.append(value.data(), value.size());
+	return push_node(
+		state,
+		detail::make_string(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(value.size()),
+			kStorageInputView));
+}
+
+static std::size_t push_borrowed_string_node(
+	BuilderState &state,
+	std::string_view value) {
+	std::uint32_t const val_ptr_idx = static_cast<std::uint32_t>(state.store.external_ptrs_.size());
+	state.store.external_ptrs_.push_back(value.data());
+	return push_node(
+		state,
+		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
+}
+
+static std::expected<std::size_t, JsonError> push_number_lexeme_node(
+	BuilderState &state,
+	std::string_view lexeme) {
+	if (!validate_number_lexeme(lexeme)) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::invalid_number,
+				.message = std::format("invalid number lexeme: {}", lexeme)});
+	}
+	std::size_t const off = state.built_input.size();
+	state.built_input.append(lexeme.data(), lexeme.size());
+	auto node = detail::build_number_node_from_lexeme(
+		static_cast<std::uint32_t>(off),
+		static_cast<std::uint32_t>(lexeme.size()),
+		kStorageInputView | kRawJsonSlice,
+		lexeme);
+	if (!node) {
+		return std::unexpected(std::move(node).error());
+	}
+	return push_node(state, *node);
+}
+
+static std::size_t push_i64_node(
+	BuilderState &state,
+	std::int64_t value) {
+	std::size_t const off = state.built_input.size();
+	std::array<char, 22> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	state.built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
+	std::size_t const len = state.built_input.size() - off;
+	return push_node(
+		state,
+		detail::make_number_int(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(len),
+			kStorageInputView | kRawJsonSlice,
+			value));
+}
+
+static std::size_t push_u64_node(
+	BuilderState &state,
+	std::uint64_t value) {
+	std::size_t const off = state.built_input.size();
+	std::array<char, 22> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	state.built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
+	std::size_t const len = state.built_input.size() - off;
+	if (value <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+		return push_node(
+			state,
+			detail::make_number_int(
+				static_cast<std::uint32_t>(off),
+				static_cast<std::uint32_t>(len),
+				kStorageInputView | kRawJsonSlice,
+				static_cast<std::int64_t>(value)));
+	}
+	return push_node(
+		state,
+		detail::make_number_uint(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(len),
+			kStorageInputView | kRawJsonSlice,
+			value));
+}
+
+static std::expected<std::size_t, JsonError> push_f64_node(
+	BuilderState &state,
+	double value,
+	std::string_view label) {
+	if (!std::isfinite(value)) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::number_out_of_range,
+				.message = std::format("{} requires finite value", label)});
+	}
+	std::size_t const off = state.built_input.size();
+	std::array<char, 32> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	state.built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
+	std::size_t const len = state.built_input.size() - off;
+	std::string_view const lex = std::string_view{state.built_input.data() + off, len};
+	bool const is_int = lex.find_first_of(".eE") == std::string_view::npos;
+	return push_node(
+		state,
+		detail::make_number_f64(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(len),
+			kStorageInputView | kRawJsonSlice,
+			value,
+			is_int));
+}
+
 std::expected<void, JsonError> ObjectBuilder::do_insert_node(
 	std::string_view name,
 	std::size_t node_idx) {
@@ -493,8 +632,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_null(
 		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back(detail::make_null());
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, push_node(*st, detail::make_null()));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_bool(
 	std::string_view name,
@@ -503,8 +641,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_bool(
 		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back(detail::make_bool(v));
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, push_node(*st, detail::make_bool(v)));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_string(
 	std::string_view name,
@@ -513,14 +650,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_string(
 		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	st->built_input.append(value.data(), value.size());
-	st->store.nodes.push_back(
-		detail::make_string(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(value.size()),
-			kStorageInputView));
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, push_owned_string_node(*st, value));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_string_checked(
 	std::string_view name,
@@ -562,14 +692,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
 		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	st->built_input.append(value.data(), value.size());
-	st->store.nodes.push_back(
-		detail::make_string(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(value.size()),
-			kStorageInputView));
-	return do_insert_node_view(name, st->store.nodes.size() - 1);
+	return do_insert_node_view(name, push_owned_string_node(*st, value));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
 	std::string_view name,
@@ -578,11 +701,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
 		return ok;
 	}
 	auto *st = frame_.state;
-	std::uint32_t const val_ptr_idx = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
-	st->store.external_ptrs_.push_back(value.data());
-	st->store.nodes.push_back(
-		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
-	return do_insert_node_view(name, st->store.nodes.size() - 1);
+	return do_insert_node_view(name, push_borrowed_string_node(*st, value));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_number(
 	std::string_view name,
@@ -590,26 +709,12 @@ std::expected<void, JsonError> ObjectBuilder::insert_number(
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
-	if (!validate_number_lexeme(lexeme)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::invalid_number,
-				.message = std::format("invalid number lexeme: {}", lexeme)});
-	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	st->built_input.append(lexeme.data(), lexeme.size());
-	auto node = detail::build_number_node_from_lexeme(
-		static_cast<std::uint32_t>(off),
-		static_cast<std::uint32_t>(lexeme.size()),
-		kStorageInputView | kRawJsonSlice,
-		lexeme);
-	if (!node) {
-		return std::unexpected(std::move(node).error());
+	auto node_idx = push_number_lexeme_node(*st, lexeme);
+	if (!node_idx) {
+		return std::unexpected(std::move(node_idx).error());
 	}
-	st->store.nodes.push_back(*node);
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, *node_idx);
 }
 std::expected<void, JsonError> ObjectBuilder::insert_i64(
 	std::string_view name,
@@ -618,19 +723,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_i64(
 		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 22> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	st->store.nodes.push_back(
-		detail::make_number_int(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(len),
-			kStorageInputView | kRawJsonSlice,
-			v));
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, push_i64_node(*st, v));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_u64(
 	std::string_view name,
@@ -639,28 +732,7 @@ std::expected<void, JsonError> ObjectBuilder::insert_u64(
 		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 22> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	if (v <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-		st->store.nodes.push_back(
-			detail::make_number_int(
-				static_cast<std::uint32_t>(off),
-				static_cast<std::uint32_t>(len),
-				kStorageInputView | kRawJsonSlice,
-				static_cast<std::int64_t>(v)));
-	} else {
-		st->store.nodes.push_back(
-			detail::make_number_uint(
-				static_cast<std::uint32_t>(off),
-				static_cast<std::uint32_t>(len),
-				kStorageInputView | kRawJsonSlice,
-				v));
-	}
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	return do_insert_node(name, push_u64_node(*st, v));
 }
 std::expected<void, JsonError> ObjectBuilder::insert_f64(
 	std::string_view name,
@@ -668,30 +740,12 @@ std::expected<void, JsonError> ObjectBuilder::insert_f64(
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
-	if (!std::isfinite(v)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::number_out_of_range,
-				.message = "insert_f64 requires finite value"});
-	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 32> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	std::string_view const lex = std::string_view{st->built_input.data() + off, len};
-	bool const is_int = lex.find_first_of(".eE") == std::string_view::npos;
-	st->store.nodes.push_back(
-		detail::make_number_f64(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(len),
-			kStorageInputView | kRawJsonSlice,
-			v,
-			is_int));
-	return do_insert_node(name, st->store.nodes.size() - 1);
+	auto node_idx = push_f64_node(*st, v, "insert_f64");
+	if (!node_idx) {
+		return std::unexpected(std::move(node_idx).error());
+	}
+	return do_insert_node(name, *node_idx);
 }
 std::expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	std::string_view name) {
@@ -760,50 +814,29 @@ std::expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 // ---------------------------------------------------------------------------
 
 std::expected<void, JsonError> ArrayBuilder::append_null() {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back(detail::make_null());
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_node(*st, detail::make_null()));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_bool(
 	bool v) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back(detail::make_bool(v));
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_node(*st, detail::make_bool(v)));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_string(
 	std::string_view value) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	st->built_input.append(value.data(), value.size());
-	st->store.nodes.push_back(
-		detail::make_string(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(value.size()),
-			kStorageInputView));
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_owned_string_node(*st, value));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_string_checked(
@@ -840,153 +873,60 @@ std::expected<void, JsonError> ArrayBuilder::append_string_checked(
 }
 std::expected<void, JsonError> ArrayBuilder::append_string_borrowed(
 	std::string_view value) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::uint32_t const val_ptr_idx = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
-	st->store.external_ptrs_.push_back(value.data());
-	st->store.nodes.push_back(
-		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_borrowed_string_node(*st, value));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_number(
 	std::string_view lexeme) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
-	}
-	if (!validate_number_lexeme(lexeme)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::invalid_number,
-				.message = std::format("invalid number lexeme: {}", lexeme)});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	st->built_input.append(lexeme.data(), lexeme.size());
-	auto node = detail::build_number_node_from_lexeme(
-		static_cast<std::uint32_t>(off),
-		static_cast<std::uint32_t>(lexeme.size()),
-		kStorageInputView | kRawJsonSlice,
-		lexeme);
-	if (!node) {
-		return std::unexpected(std::move(node).error());
+	auto node_idx = push_number_lexeme_node(*st, lexeme);
+	if (!node_idx) {
+		return std::unexpected(std::move(node_idx).error());
 	}
-	st->store.nodes.push_back(*node);
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(*node_idx);
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_i64(
 	std::int64_t v) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 22> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	st->store.nodes.push_back(
-		detail::make_number_int(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(len),
-			kStorageInputView | kRawJsonSlice,
-			v));
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_i64_node(*st, v));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_u64(
 	std::uint64_t v) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 22> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	if (v <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-		st->store.nodes.push_back(
-			detail::make_number_int(
-				static_cast<std::uint32_t>(off),
-				static_cast<std::uint32_t>(len),
-				kStorageInputView | kRawJsonSlice,
-				static_cast<std::int64_t>(v)));
-	} else {
-		st->store.nodes.push_back(
-			detail::make_number_uint(
-				static_cast<std::uint32_t>(off),
-				static_cast<std::uint32_t>(len),
-				kStorageInputView | kRawJsonSlice,
-				v));
-	}
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(push_u64_node(*st, v));
 	return {};
 }
 std::expected<void, JsonError> ArrayBuilder::append_f64(
 	double v) {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
-	}
-	if (!std::isfinite(v)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::number_out_of_range,
-				.message = "append_f64 requires finite value"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return ok;
 	}
 	auto *st = frame_.state;
-	std::size_t const off = st->built_input.size();
-	std::array<char, 32> buf{};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	auto [p, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
-	std::size_t const len = st->built_input.size() - off;
-	std::string_view const lex = std::string_view{st->built_input.data() + off, len};
-	bool const is_int = lex.find_first_of(".eE") == std::string_view::npos;
-	st->store.nodes.push_back(
-		detail::make_number_f64(
-			static_cast<std::uint32_t>(off),
-			static_cast<std::uint32_t>(len),
-			kStorageInputView | kRawJsonSlice,
-			v,
-			is_int));
-	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	auto node_idx = push_f64_node(*st, v, "append_f64");
+	if (!node_idx) {
+		return std::unexpected(std::move(node_idx).error());
+	}
+	frame_.local_children.push_back(*node_idx);
 	return {};
 }
 std::expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return std::unexpected(std::move(ok).error());
 	}
 	auto *st = frame_.state;
 	std::size_t const child_depth = frame_.depth + 1;
@@ -1000,12 +940,8 @@ std::expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
 	return child;
 }
 std::expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
-	if (!arr_check_active(frame_)) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	if (auto ok = array_active_or_error(frame_); !ok) {
+		return std::unexpected(std::move(ok).error());
 	}
 	auto *st = frame_.state;
 	std::size_t const child_depth = frame_.depth + 1;
