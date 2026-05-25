@@ -137,6 +137,10 @@ those reviews.
   Facade JSON body, JSON document, route-local body-limit, and JsonPatch
   rejection tests now parse problem bodies and assert exact JSON-pointer fields
   for `code`, `stage`, `kind`, and `expected`.
+- `findings/5.md`: accepted the remaining facade extractor problem JSON
+  substring checks. Form extractor, required/optional alias, aggregate
+  QueryParams, and aggregate FormParams rejection tests now parse problem bodies
+  and assert exact JSON-pointer fields.
 
 ## Accepted backlog
 
@@ -517,3 +521,14 @@ those reviews.
   extractor validates content type and patch shape|JSON body routes enforce
   route-local body limits)"` completed after tightening facade JSON extractor
   problem assertions: 5/5 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after tightening the remaining facade
+  extractor problem JSON assertions.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (required and optional field extractor aliases share typed
+  parsing|app handlers can receive form extractors|form extractors support
+  optional scalar values|required and optional form extractor aliases share typed
+  parsing|app handlers can receive aggregate query params|aggregate query params
+  support optional fields|app handlers can receive aggregate form
+  params|aggregate form params support optional fields)"` completed after
+  tightening the remaining facade extractor problem JSON assertions: 8/8 passed.

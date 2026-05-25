@@ -1986,9 +1986,9 @@ TEST_CASE(
 
 	req.query.clear();
 	auto missing = http::router(app).dispatch(req);
-	CHECK(missing.status == kHttpBadRequest);
-	CHECK(missing.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
-	CHECK(missing.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_doc = require_json_body(missing, kHttpBadRequest);
+	check_json_string_at(missing_doc, "/extractor", "Query");
+	check_json_string_at(missing_doc, "/kind", "missing");
 }
 
 TEST_CASE(
@@ -2062,11 +2062,10 @@ TEST_CASE(
 
 	req.form["age"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "Form");
+	check_json_string_at(bad_doc, "/name", "age");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 }
 
 TEST_CASE(
@@ -2088,11 +2087,10 @@ TEST_CASE(
 
 	req.form["age"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "Form");
+	check_json_string_at(bad_doc, "/name", "age");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 }
 
 TEST_CASE(
@@ -2117,9 +2115,9 @@ TEST_CASE(
 
 	req.form.clear();
 	auto missing = http::router(app).dispatch(req);
-	CHECK(missing.status == kHttpBadRequest);
-	CHECK(missing.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
-	CHECK(missing.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_doc = require_json_body(missing, kHttpBadRequest);
+	check_json_string_at(missing_doc, "/extractor", "Form");
+	check_json_string_at(missing_doc, "/kind", "missing");
 }
 
 TEST_CASE(
@@ -2139,10 +2137,9 @@ TEST_CASE(
 
 	req.query["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "QueryParams");
+	check_json_string_at(bad_doc, "/name", "page");
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
@@ -2168,10 +2165,10 @@ TEST_CASE(
 
 	req.query["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "QueryParams");
+	check_json_string_at(bad_doc, "/name", "page");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 }
 
 TEST_CASE(
@@ -2191,10 +2188,9 @@ TEST_CASE(
 
 	req.form["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "FormParams");
+	check_json_string_at(bad_doc, "/name", "page");
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
@@ -2220,10 +2216,10 @@ TEST_CASE(
 
 	req.form["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "FormParams");
+	check_json_string_at(bad_doc, "/name", "page");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 }
 
 TEST_CASE(
