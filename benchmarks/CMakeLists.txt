@@ -78,10 +78,10 @@ if(TARGET conflux_uring AND TARGET conflux_socket_io AND TARGET conflux_direct_s
         PRIVATE bench_common conflux_uring conflux_socket_io conflux_direct_slot_pool conflux_options)
 endif()
 
-if(TARGET conflux_uring_timeout AND TARGET conflux_uring AND TARGET conflux_work)
+if(TARGET conflux_uring_timeout AND TARGET conflux_uring AND TARGET conflux_work AND TARGET bench_io_common)
     conflux_add_recordable_benchmark(conflux_uring_timeout_bench uring_timeout_bench.cxx)
     target_link_libraries(conflux_uring_timeout_bench
-        PRIVATE bench_common conflux_uring_timeout conflux_uring conflux_work conflux_options)
+        PRIVATE bench_io_common conflux_uring_timeout conflux_uring conflux_work conflux_options)
 endif()
 
 if(TARGET conflux_uring AND TARGET conflux_work)

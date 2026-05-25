@@ -6,8 +6,6 @@
 
 #include <fcntl.h>
 #include <liburing.h>
-#include <stdlib.h>
-#include <unistd.h>
 
 import std;
 import conflux.types;
@@ -21,90 +19,10 @@ using namespace std::string_view_literals;
 
 namespace {
 
-struct Config {
-	std::size_t iterations = 20000;
-	std::size_t warmup = 1000;
-	std::size_t depth = 64;
-	std::size_t chunk = 4096;
-	std::string config_name;
-	bool json_out = false;
-};
-
-Config parse_args(
-	std::span<char *> args) {
-	Config cfg;
-	for (std::size_t i = 1; i < args.size(); ++i) {
-		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--depth" && i + 1 < args.size()) {
-			cfg.depth = bench_parse_sz(args[++i]);
-		} else if (a == "--chunk" && i + 1 < args.size()) {
-			cfg.chunk = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
-		}
-	}
-	cfg.depth = std::max<std::size_t>(1, cfg.depth);
-	cfg.chunk = std::max<std::size_t>(1, cfg.chunk);
-	return cfg;
-}
-
-struct TempFile {
-	std::string path = std::format("/tmp/conflux_sqe_storm_{}_XXXXXX", ::getpid());
-	int fd = -1;
-
-	TempFile() {
-		fd = ::mkstemp(path.data());
-		if (fd < 0) {
-			throw std::runtime_error{"mkstemp failed"};
-		}
-	}
-	~TempFile() {
-		if (fd >= 0) {
-			::close(fd);
-		}
-		if (!path.empty()) {
-			::unlink(path.c_str());
-		}
-	}
-	TempFile(TempFile const &) = delete;
-	TempFile &operator =(TempFile const &) = delete;
-};
-
-void fill_file(
-	TempFile &file,
-	std::size_t bytes) {
-	if (::ftruncate(file.fd, 0) != 0) {
-		throw std::runtime_error{"ftruncate reset failed"};
-	}
-	std::vector<std::byte> buf(1U << 20U);
-	std::mt19937_64 rng{0x51E57ULL};
-	for (auto &b: buf) {
-		b = static_cast<std::byte>(rng() & 0xFFU);
-	}
-	std::size_t left = bytes;
-	while (left > 0) {
-		std::size_t const n = std::min(left, buf.size());
-		ssize_t const rc = ::write(file.fd, buf.data(), n);
-		if (rc <= 0) {
-			throw std::runtime_error{"seed write failed"};
-		}
-		left -= static_cast<std::size_t>(rc);
-	}
-	if (::fsync(file.fd) != 0) {
-		throw std::runtime_error{"seed fsync failed"};
-	}
-}
-
 BenchStats bench_read_storm(
 	FileReader &files,
 	FileHandle const &fh,
-	Config const &cfg,
+	BenchUringFileConfig const &cfg,
 	std::vector<std::vector<std::byte>> &buffers,
 	bool warmup) {
 	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
@@ -136,7 +54,7 @@ BenchStats bench_read_storm(
 BenchStats bench_write_storm(
 	FileReader &files,
 	FileHandle const &fh,
-	Config const &cfg,
+	BenchUringFileConfig const &cfg,
 	std::vector<std::vector<std::byte>> const &buffers,
 	bool warmup) {
 	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
@@ -175,14 +93,14 @@ int main(
 		argv,
 		R"({"name":"file_io_sqe_storm","parser":"standard","configs":[{"name":"depth_64_4k","extra":{"depth":64,"chunk":4096},"target_ms":500,"max_iterations":20000,"calibration_iterations":4,"args":["--depth","64","--chunk","4096","--config-name","depth_64_4k","--iterations","0","--warmup","0"]},{"name":"depth_128_4k","extra":{"depth":128,"chunk":4096},"target_ms":500,"max_iterations":10000,"calibration_iterations":4,"args":["--depth","128","--chunk","4096","--config-name","depth_128_4k","--iterations","0","--warmup","0"]}]})");
 
-	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_uring_file_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::vector<std::vector<std::byte>> buffers(cfg.depth, std::vector<std::byte>(cfg.chunk));
 	for (std::size_t i = 0; i < buffers.size(); ++i) {
 		std::ranges::fill(buffers[i], static_cast<std::byte>(i & 0xFFU));
 	}
 
-	TempFile file;
-	fill_file(file, cfg.depth * cfg.chunk);
+	BenchTempFile file{"conflux_sqe_storm"};
+	bench_fill_temp_file(file, cfg.depth * cfg.chunk, 0x51E57ULL);
 
 	::io_uring ring{};
 	if (::io_uring_queue_init(static_cast<unsigned>(std::max<std::size_t>(256, cfg.depth * 2U)), &ring, 0) < 0) {

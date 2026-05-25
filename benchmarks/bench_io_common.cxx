@@ -1,6 +1,8 @@
 module;
 #include <cerrno>
 #include <liburing.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 export module bench_io_common;
 
@@ -8,11 +10,95 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
+import bench_common;
 
 export [[nodiscard]] constexpr std::uint64_t bench_pack_ud(
 	std::uint32_t slot,
 	std::uint32_t gen) noexcept {
 	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
+}
+
+export struct BenchUringFileConfig {
+	std::size_t iterations = 20000;
+	std::size_t warmup = 1000;
+	std::size_t depth = 64;
+	std::size_t chunk = 4096;
+	std::string config_name;
+	bool json_out = false;
+};
+
+export [[nodiscard]] BenchUringFileConfig bench_parse_uring_file_args(
+	std::span<char *> args) {
+	BenchUringFileConfig cfg;
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view const a = args[i];
+		if (a == "--iterations" && i + 1 < args.size()) {
+			cfg.iterations = bench_parse_sz(args[++i]);
+		} else if (a == "--warmup" && i + 1 < args.size()) {
+			cfg.warmup = bench_parse_sz(args[++i]);
+		} else if (a == "--depth" && i + 1 < args.size()) {
+			cfg.depth = bench_parse_sz(args[++i]);
+		} else if (a == "--chunk" && i + 1 < args.size()) {
+			cfg.chunk = bench_parse_sz(args[++i]);
+		} else if (a == "--config-name" && i + 1 < args.size()) {
+			cfg.config_name = args[++i];
+		} else if (a == "--json") {
+			cfg.json_out = true;
+		}
+	}
+	cfg.depth = std::max<std::size_t>(1, cfg.depth);
+	cfg.chunk = std::max<std::size_t>(1, cfg.chunk);
+	return cfg;
+}
+
+export struct BenchTempFile {
+	std::string path;
+	int fd = -1;
+
+	explicit BenchTempFile(
+		std::string_view prefix)
+		: path{std::format("/tmp/{}_{}_XXXXXX", prefix, ::getpid())} {
+		fd = ::mkstemp(path.data());
+		if (fd < 0) {
+			throw std::runtime_error{"mkstemp failed"};
+		}
+	}
+	~BenchTempFile() {
+		if (fd >= 0) {
+			::close(fd);
+		}
+		if (!path.empty()) {
+			::unlink(path.c_str());
+		}
+	}
+	BenchTempFile(BenchTempFile const &) = delete;
+	BenchTempFile &operator =(BenchTempFile const &) = delete;
+};
+
+export void bench_fill_temp_file(
+	BenchTempFile &file,
+	std::size_t bytes,
+	std::uint64_t seed) {
+	if (::ftruncate(file.fd, 0) != 0) {
+		throw std::runtime_error{"ftruncate reset failed"};
+	}
+	std::vector<std::byte> buf(1U << 20U);
+	std::mt19937_64 rng{seed};
+	for (auto &b: buf) {
+		b = static_cast<std::byte>(rng() & 0xFFU);
+	}
+	std::size_t left = bytes;
+	while (left > 0) {
+		std::size_t const n = std::min(left, buf.size());
+		ssize_t const rc = ::write(file.fd, buf.data(), n);
+		if (rc <= 0) {
+			throw std::runtime_error{"seed write failed"};
+		}
+		left -= static_cast<std::size_t>(rc);
+	}
+	if (::fsync(file.fd) != 0) {
+		throw std::runtime_error{"seed fsync failed"};
+	}
 }
 
 export template<typename T>
@@ -77,6 +163,72 @@ export inline void bench_pump_until_count(
 			if (done.load(std::memory_order_acquire) >= target) {
 				break;
 			}
+		}
+	}
+}
+
+export inline void bench_dispatch_cqes(
+	::io_uring &ring,
+	CompletionTable &completions,
+	std::size_t expected) {
+	std::size_t completed = 0;
+	while (completed < expected) {
+		::io_uring_cqe *cqe = nullptr;
+		int rc = ::io_uring_submit_and_wait(&ring, 1);
+		if (rc >= 0) {
+			rc = ::io_uring_peek_cqe(&ring, &cqe);
+		}
+		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+			continue;
+		}
+		if (rc < 0 || cqe == nullptr) {
+			throw std::runtime_error{std::format("submit_and_wait rc={}", rc)};
+		}
+		std::array<::io_uring_cqe *, 128> batch{};
+		for (;;) {
+			unsigned const n = ::io_uring_peek_batch_cqe(&ring, batch.data(), static_cast<unsigned>(batch.size()));
+			if (n == 0) {
+				break;
+			}
+			for (unsigned i = 0; i < n; ++i) {
+				auto const *c = batch[static_cast<std::size_t>(i)];
+				auto const slot = static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU);
+				auto const gen = static_cast<std::uint32_t>(c->user_data >> 32U);
+				completions.dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
+			}
+			::io_uring_cq_advance(&ring, n);
+			completed += n;
+		}
+	}
+}
+
+export inline void bench_drain_raw_cqes(
+	::io_uring &ring,
+	std::size_t expected) {
+	std::size_t completed = 0;
+	while (completed < expected) {
+		::io_uring_cqe *cqe = nullptr;
+		int rc = ::io_uring_submit_and_wait(&ring, 1);
+		if (rc == -EINTR) {
+			continue;
+		}
+		if (rc >= 0) {
+			rc = ::io_uring_peek_cqe(&ring, &cqe);
+		}
+		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+			continue;
+		}
+		if (rc < 0 || cqe == nullptr) {
+			throw std::runtime_error{std::format("raw submit_and_wait rc={}", rc)};
+		}
+		std::array<::io_uring_cqe *, 128> batch{};
+		for (;;) {
+			unsigned const n = ::io_uring_peek_batch_cqe(&ring, batch.data(), static_cast<unsigned>(batch.size()));
+			if (n == 0) {
+				break;
+			}
+			::io_uring_cq_advance(&ring, n);
+			completed += n;
 		}
 	}
 }

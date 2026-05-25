@@ -1647,7 +1647,7 @@ struct TaskFrameFreeNode {
 };
 struct TaskFrameBucket {
 	std::size_t payload_size = 0;
-	mutex mtx{};
+	std::mutex mtx{};
 	TaskFrameFreeNode *free = nullptr;
 };
 [[nodiscard]] constexpr std::size_t align_frame_bytes(

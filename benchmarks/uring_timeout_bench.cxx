@@ -13,17 +13,12 @@ import conflux.uring.completion;
 import conflux.uring.timeout;
 
 import bench_common;
+import bench_io_common;
 
 using namespace std::string_view_literals;
 namespace root = conflux::work::root;
 
 namespace {
-
-constexpr std::uint64_t pack_ud(
-	std::uint32_t slot,
-	std::uint32_t gen) noexcept {
-	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-}
 
 struct Config {
 	std::size_t iterations = 20000;
@@ -54,72 +49,6 @@ Config parse_args(
 	return cfg;
 }
 
-void pump_all(
-	io_uring &ring,
-	CompletionTable &completions,
-	std::size_t expected) {
-	std::size_t completed = 0;
-	while (completed < expected) {
-		::io_uring_cqe *cqe = nullptr;
-		int rc = ::io_uring_submit_and_wait(&ring, 1);
-		if (rc >= 0) {
-			rc = ::io_uring_peek_cqe(&ring, &cqe);
-		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
-			continue;
-		}
-		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{std::format("submit_and_wait rc={}", rc)};
-		}
-		std::array<::io_uring_cqe *, 128> batch{};
-		for (;;) {
-			unsigned const n = ::io_uring_peek_batch_cqe(&ring, batch.data(), static_cast<unsigned>(batch.size()));
-			if (n == 0) {
-				break;
-			}
-			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<std::size_t>(i)];
-				auto const slot = static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU);
-				auto const gen = static_cast<std::uint32_t>(c->user_data >> 32U);
-				completions.dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
-			}
-			::io_uring_cq_advance(&ring, n);
-			completed += n;
-		}
-	}
-}
-
-void drain_raw_cqes(
-	io_uring &ring,
-	std::size_t expected) {
-	std::size_t completed = 0;
-	while (completed < expected) {
-		::io_uring_cqe *cqe = nullptr;
-		int rc = ::io_uring_submit_and_wait(&ring, 1);
-		if (rc == -EINTR) {
-			continue;
-		}
-		if (rc >= 0) {
-			rc = ::io_uring_peek_cqe(&ring, &cqe);
-		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
-			continue;
-		}
-		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{std::format("raw submit_and_wait rc={}", rc)};
-		}
-		std::array<::io_uring_cqe *, 128> batch{};
-		for (;;) {
-			unsigned const n = ::io_uring_peek_batch_cqe(&ring, batch.data(), static_cast<unsigned>(batch.size()));
-			if (n == 0) {
-				break;
-			}
-			::io_uring_cq_advance(&ring, n);
-			completed += n;
-		}
-	}
-}
-
 void submit_nops(
 	io_uring &ring,
 	std::size_t count) {
@@ -148,7 +77,7 @@ BenchStats bench_nop_submit_cqe(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		submit_nops(ring, cfg.depth);
-		drain_raw_cqes(ring, cfg.depth);
+		bench_drain_raw_cqes(ring, cfg.depth);
 	}
 	auto const elapsed = bench_now_ns() - t0;
 	std::size_t const ops = batches * cfg.depth;
@@ -171,10 +100,10 @@ BenchStats bench_timeout_remove_miss(
 				conflux::uring::async_timeout_remove(
 					&ring,
 					completions,
-					[](std::uint32_t slot, std::uint32_t gen) noexcept { return pack_ud(slot, gen); },
+					[](std::uint32_t slot, std::uint32_t gen) noexcept { return bench_pack_ud(slot, gen); },
 					tag++));
 		}
-		pump_all(ring, completions, cfg.depth);
+		bench_dispatch_cqes(ring, completions, cfg.depth);
 		for (auto &task: tasks) {
 			auto outcome = root::blocking_join(std::move(task));
 			if (outcome.is_failure()) {
