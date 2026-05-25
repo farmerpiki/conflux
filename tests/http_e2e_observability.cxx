@@ -1463,51 +1463,82 @@ TEST_CASE(
 // openapi_spec
 // ---------------------------------------------------------------------------
 
+namespace {
+
+Document parse_openapi_spec(
+	std::string spec) {
+	auto doc = conflux::json::parse_copy(std::move(spec));
+	REQUIRE(doc.has_value());
+	return std::move(*doc);
+}
+
+NodeRef require_json_pointer(
+	Document const &doc,
+	std::string_view pointer) {
+	auto node = doc.root().at_pointer(pointer);
+	REQUIRE(node.has_value());
+	return *node;
+}
+
+void check_json_string_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::string_view expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+
+} // namespace
+
 TEST_CASE(
 	"openapi: spec contains openapi 3.0.0 root key") {
 	Router router;
 	router.get("/hello/{name}", [](Request const &) { return Response::text(""); });
 	router.post("/items", [](Request const &) { return Response::text(""); });
-	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("openapi":"3.0.0")") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router, "Test API", "0.1.0"));
+	check_json_string_at(doc, "/openapi", "3.0.0");
 }
 TEST_CASE(
 	"openapi: spec includes registered path with path parameter") {
 	Router router;
 	router.get("/hello/{name}", [](Request const &) { return Response::text(""); });
-	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("/hello/{name}")") != std::string::npos);
-	REQUIRE(spec.find(R"("name":"name")") != std::string::npos);
-	REQUIRE(spec.find(R"("in":"path")") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router, "Test API", "0.1.0"));
+	REQUIRE(require_json_pointer(doc, "/paths/~1hello~1{name}/get").as_object().has_value());
+	check_json_string_at(doc, "/paths/~1hello~1{name}/get/parameters/0/name", "name");
+	check_json_string_at(doc, "/paths/~1hello~1{name}/get/parameters/0/in", "path");
 }
 TEST_CASE(
 	"openapi: spec includes title and version from arguments") {
 	Router router;
 	router.get("/", [](Request const &) { return Response::text(""); });
-	auto spec = openapi_spec(router, "My Service", "2.3.4");
-	REQUIRE(spec.find(R"("title":"My Service")") != std::string::npos);
-	REQUIRE(spec.find(R"("version":"2.3.4")") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router, "My Service", "2.3.4"));
+	check_json_string_at(doc, "/info/title", "My Service");
+	check_json_string_at(doc, "/info/version", "2.3.4");
 }
 TEST_CASE(
 	"openapi: spec includes method in lowercase") {
 	Router router;
 	router.post("/items", [](Request const &) { return Response::text(""); });
-	auto spec = openapi_spec(router);
-	REQUIRE(spec.find(R"("post":)") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router));
+	REQUIRE(require_json_pointer(doc, "/paths/~1items/post").as_object().has_value());
 }
 TEST_CASE(
 	"openapi: title with special characters is properly JSON-escaped") {
 	Router router;
 	router.get("/", [](Request const &) { return Response::text(""); });
-	auto spec = openapi_spec(router, R"(My "API" & More)");
-	REQUIRE(spec.find(R"("title":"My \"API\" & More")") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router, R"(My "API" & More)"));
+	check_json_string_at(doc, "/info/title", R"(My "API" & More)");
 }
 TEST_CASE(
 	"openapi: empty router produces valid paths object") {
 	Router router;
-	auto spec = openapi_spec(router, "Empty", "0.0.1");
-	REQUIRE(spec.find(R"("paths":{})") != std::string::npos);
-	REQUIRE(spec.find(R"("title":"Empty")") != std::string::npos);
+	auto doc = parse_openapi_spec(openapi_spec(router, "Empty", "0.0.1"));
+	auto paths = require_json_pointer(doc, "/paths").as_object();
+	REQUIRE(paths.has_value());
+	CHECK(paths->size() == 0);
+	check_json_string_at(doc, "/info/title", "Empty");
 }
 TEST_CASE(
 	"openapi_handler_protected: wrong bearer token returns 401") {
@@ -1526,7 +1557,8 @@ TEST_CASE(
 	auto resp_ok = http_get_on(port, "/openapi.json", "Authorization: Bearer apikey\r\n");
 	REQUIRE(resp_ok.starts_with("HTTP/1.1 200"));
 	REQUIRE(resp_ok.find("application/json") != std::string::npos);
-	REQUIRE(resp_ok.find(R"("openapi":"3.0.0")") != std::string::npos);
+	auto doc = parse_openapi_spec(extract_body(resp_ok));
+	check_json_string_at(doc, "/openapi", "3.0.0");
 }
 namespace {
 

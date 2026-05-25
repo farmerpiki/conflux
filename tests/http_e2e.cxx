@@ -20,6 +20,7 @@ import std;
 import conflux.types;
 
 import conflux.crypto;
+import conflux.json;
 import conflux.net.app.defer;
 import conflux.net.async_client;
 import conflux.http.extended;
