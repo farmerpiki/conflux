@@ -157,10 +157,8 @@ public:
 		}
 		return enqueued;
 	}
-	// Zero-copy intent: caller owns the backing buffer and is responsible for
-	// keeping it alive until the frame is flushed to the socket. Currently
-	// copies into the queue; when the queue migrates to std::string_view storage this
-	// contract becomes a hard lifetime requirement.
+	// Copy-safe view overload: callers may mutate or release the source buffer
+	// immediately after this returns.
 	[[nodiscard]] bool send_view(
 		std::string_view frame) {
 		return send(std::string{frame});

@@ -324,3 +324,16 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "response:"` completed after the `Response::not_modified` cleanup: 9/9
   passed.
+- findings/8 `SseChannel::send_view` lifetime trap: complete. The API now
+  documents `send_view` as permanently copy-safe, and the test suite verifies
+  the queued frame is unaffected when the caller mutates the source string after
+  `send_view` returns.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_realtime
+  conflux_http_response_tests` completed after the SSE copy-safety contract
+  update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http response: non-text body setters"` completed after the SSE copy-safety
+  contract update: 1/1 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "docs/(release-docs|first-contact-public-dialect|package-docs)|docs/planning-state"`
+  completed after the SSE docs update: 4/4 passed.

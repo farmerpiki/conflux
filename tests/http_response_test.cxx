@@ -242,6 +242,12 @@ TEST_CASE(
 	CHECK_FALSE(drop_newest->send("5"));
 	CHECK(drop_newest->pressure_metrics().dropped_newest == 1);
 
+	SseChannel view_channel;
+	std::string frame = "data: before\n\n";
+	CHECK(view_channel.send_view(frame));
+	frame.assign("data: after\n\n");
+	CHECK(view_channel.drain() == "data: before\n\n");
+
 	auto drop_oldest = std::make_shared<SseChannel>(4, SseOverflowPolicy::DropOldest);
 	CHECK(drop_oldest->overflow_policy_vocabulary() == OverflowPolicy::drop_oldest);
 	CHECK(drop_oldest->send("1234"));

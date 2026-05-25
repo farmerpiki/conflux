@@ -659,6 +659,7 @@ enum class SseOverflowPolicy { DropNewest, DropOldest, Disconnect };
 class SseChannel {
 public:
     bool send(std::string frame);
+    // Copies `frame`; the caller may release or mutate the source immediately.
     bool send_view(std::string_view frame);
     bool send_event(std::string_view type, std::string_view data);
     void on_close(std::function<void()> callback);
