@@ -451,6 +451,14 @@ else()
     message(FATAL_ERROR "conflux: internal SIMD selection resolution failed")
 endif()
 
+if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
+        AND CONFLUX_HEADER_INTERFACE_WITH_SOURCES
+        AND _conflux_simd_selection_runtime)
+    message(FATAL_ERROR
+        "conflux: CONFLUX_SIMD_SELECTION=RUNTIME is not supported with "
+        "HEADER_INTERFACE_WITH_SOURCES yet; use DIRECT or MODULE_INTERFACE")
+endif()
+
 set(_conflux_cpu_feature_probes_runtime OFF)
 if(_conflux_simd_selection_runtime)
     set(_conflux_cpu_feature_probes_runtime ON)

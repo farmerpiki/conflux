@@ -2,6 +2,7 @@ export module conflux.net.cache_control;
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.router;
 export struct CacheRule {
 	// MIME prefix to match (e.g. "image/", "text/css", "application/json").
@@ -33,11 +34,7 @@ export Router::Middleware cache_control_middleware(
 			return resp;
 		}
 
-		std::string_view const ct = resp.content_type;
-		// Strip parameters (e.g. "; charset=utf-8") for matching.
-		auto semi = ct.find(';');
-		auto mime = (semi == std::string_view::npos) ? ct : ct.substr(0, semi);
-		mime = conflux::http::trim_http_whitespace(mime);
+		auto const mime = content_type_media_type(resp.content_type);
 
 		for (auto const &rule: opts.rules) {
 			if (rule.mime_prefix.empty() || mime.starts_with(rule.mime_prefix)) {

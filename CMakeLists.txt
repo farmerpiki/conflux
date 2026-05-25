@@ -1253,6 +1253,7 @@ target_sources(conflux_http_policy
 )
 target_link_libraries(conflux_http_policy
     PRIVATE conflux_options
+    PUBLIC  conflux_http_parse_helpers
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )
@@ -1474,6 +1475,7 @@ target_sources(conflux_http_compression
 )
 target_link_libraries(conflux_http_compression
     PRIVATE conflux_options
+    PUBLIC  conflux_http_parse_helpers
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )

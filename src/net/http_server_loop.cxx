@@ -115,19 +115,20 @@ Ring::~Ring() {
 
 [[nodiscard]] std::shared_ptr<std::string> Ring::acquire_request_buffer() {
 	std::string initial;
+	auto pool = request_buffer_pool;
 	{
-		std::scoped_lock lock{request_buffer_pool_mutex};
-		if (!request_buffer_pool.empty()) {
-			initial = std::move(request_buffer_pool.back());
-			request_buffer_pool.pop_back();
+		std::scoped_lock lock{pool->mutex};
+		if (!pool->buffers.empty()) {
+			initial = std::move(pool->buffers.back());
+			pool->buffers.pop_back();
 		}
 	}
 	auto *storage = new std::string{std::move(initial)};
-	return std::shared_ptr<std::string>{storage, [this](std::string *ptr) noexcept {
+	return std::shared_ptr<std::string>{storage, [pool = std::move(pool)](std::string *ptr) noexcept {
 											ptr->clear();
 											{
-												std::scoped_lock lock{request_buffer_pool_mutex};
-												request_buffer_pool.push_back(std::move(*ptr));
+												std::scoped_lock lock{pool->mutex};
+												pool->buffers.push_back(std::move(*ptr));
 											}
 											delete ptr;
 										}};

@@ -10,6 +10,7 @@ import std.compat;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http1_parser;
+import conflux.net.http.parse_helpers;
 import conflux.net.http_server_helpers;
 import conflux.utils;
 import :state;
@@ -24,6 +25,10 @@ struct CommonHeaderSummary {
 	std::string_view content_length;
 	std::string_view content_type;
 	std::string_view cookie;
+	bool has_host{};
+	bool has_content_length{};
+	bool has_content_type{};
+	bool has_cookie{};
 	bool connection_close{};
 	bool connection_keep_alive{};
 	bool expect_continue{};
@@ -36,15 +41,17 @@ void note_common_header(
 	std::string_view field_value) {
 	if (conflux::http::ascii_iequals(name, "host")) {
 		++summary.host_count;
-		if (summary.host.empty()) {
+		if (!summary.has_host) {
 			summary.host = field_value;
+			summary.has_host = true;
 		}
 		return;
 	}
 	if (conflux::http::ascii_iequals(name, "content-length")) {
 		++summary.content_length_count;
-		if (summary.content_length.empty()) {
+		if (!summary.has_content_length) {
 			summary.content_length = field_value;
+			summary.has_content_length = true;
 		}
 		return;
 	}
@@ -53,14 +60,16 @@ void note_common_header(
 		return;
 	}
 	if (conflux::http::ascii_iequals(name, "content-type")) {
-		if (summary.content_type.empty()) {
+		if (!summary.has_content_type) {
 			summary.content_type = field_value;
+			summary.has_content_type = true;
 		}
 		return;
 	}
 	if (conflux::http::ascii_iequals(name, "cookie")) {
-		if (summary.cookie.empty()) {
+		if (!summary.has_cookie) {
 			summary.cookie = field_value;
+			summary.has_cookie = true;
 		}
 		return;
 	}
@@ -344,12 +353,12 @@ void dispatch_request(
 
 	conn.expect_continue_sent = false;
 
-	if (common_headers.content_type.starts_with("application/x-www-form-urlencoded")) {
+	if (content_type_is_form_urlencoded(common_headers.content_type)) {
 		parse_urlencoded(body, form);
 	}
 
 	auto ct_header = common_headers.content_type;
-	if (ct_header.starts_with("multipart/form-data")) {
+	if (content_type_is_multipart_form_data(ct_header)) {
 		auto boundary = extract_param(ct_header, "boundary");
 		if (!boundary.empty()) {
 			parse_multipart(body, boundary, form, files);

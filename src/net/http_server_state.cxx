@@ -171,6 +171,10 @@ struct RecvComp {
 	std::uint32_t gen;
 	conflux::uring::CqeFlags flags;
 };
+struct RequestBufferPool {
+	std::mutex mutex{};
+	std::vector<std::string> buffers{};
+};
 inline constexpr std::size_t FD_TABLE_RESERVE = 4096;
 inline constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
 #if CONFLUX_HAS_HTTP2
@@ -383,8 +387,7 @@ struct Ring {
 	sockaddr_in6 client_addr{};
 	socklen_t client_addr_len = sizeof(client_addr);
 
-	std::mutex request_buffer_pool_mutex{};
-	std::vector<std::string> request_buffer_pool{};
+	std::shared_ptr<RequestBufferPool> request_buffer_pool{std::make_shared<RequestBufferPool>()};
 	std::string request_tail_scratch{};
 	std::vector<Conn> fd_table{};
 	std::vector<RecvComp> recvs{};

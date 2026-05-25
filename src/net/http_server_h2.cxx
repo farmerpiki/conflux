@@ -34,6 +34,7 @@ import conflux.net.direct_slot_pool;
 import conflux.net.vhost;
 import conflux.net.config;
 import conflux.net.http1_parser;
+import conflux.net.http.parse_helpers;
 import conflux.net.http_server_helpers;
 import conflux.net.http_server_config;
 import conflux.uring;
@@ -579,11 +580,11 @@ int Ring::h2_on_frame_recv_cb(
 	if (!target.query_suffix.empty()) {
 		parse_urlencoded(target.query, request_lease->query);
 	}
-	if (request_lease->headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
+	if (content_type_is_form_urlencoded(request_lease->headers["content-type"])) {
 		parse_urlencoded(body, request_lease->form);
 	}
 	auto ct_header = request_lease->headers["content-type"];
-	if (ct_header.starts_with("multipart/form-data")) {
+	if (content_type_is_multipart_form_data(ct_header)) {
 		auto boundary = extract_param(ct_header, "boundary");
 		if (!boundary.empty()) {
 			parse_multipart(body, boundary, request_lease->form, request_lease->files);

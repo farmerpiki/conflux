@@ -13,6 +13,36 @@ export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
 export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
+export [[nodiscard]] std::string_view content_type_media_type(
+	std::string_view content_type) noexcept {
+	auto const semi = content_type.find(';');
+	auto const media_type = semi == std::string_view::npos ? content_type : content_type.substr(0, semi);
+	return conflux::http::trim_http_whitespace(media_type);
+}
+
+export [[nodiscard]] bool content_type_matches(
+	std::string_view content_type,
+	std::string_view expected) noexcept {
+	return conflux::http::ascii_iequals(content_type_media_type(content_type), expected);
+}
+
+export [[nodiscard]] bool content_type_is_form_urlencoded(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "application/x-www-form-urlencoded");
+}
+
+export [[nodiscard]] bool content_type_is_multipart_form_data(
+	std::string_view content_type) noexcept {
+	return content_type_matches(content_type, "multipart/form-data");
+}
+
+export [[nodiscard]] bool content_type_is_json_like(
+	std::string_view content_type) noexcept {
+	auto const media_type = content_type_media_type(content_type);
+	return conflux::http::ascii_iequals(media_type, "application/json")
+		|| (media_type.ends_with("+json") && media_type.find('/') != std::string_view::npos);
+}
+
 export void parse_urlencoded(
 	std::string_view data,
 	HttpFieldsView &out) {

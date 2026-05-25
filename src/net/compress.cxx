@@ -22,6 +22,7 @@ import conflux.net.compress.backend.zlibng;
 import conflux.net.compress.backend.isal;
 #endif
 import conflux.net.http.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.router;
 import conflux.utils;
 export struct CompressOptions {
@@ -126,11 +127,12 @@ bool zstd_supported() noexcept {
 }
 bool is_compressible(
 	std::string_view content_type) {
-	return content_type.starts_with("text/")
-		|| content_type.starts_with("application/json")
-		|| content_type.starts_with("application/xml")
-		|| content_type.starts_with("application/javascript")
-		|| content_type.starts_with("image/svg+xml");
+	auto const media_type = content_type_media_type(content_type);
+	return media_type.starts_with("text/")
+		|| content_type_is_json_like(media_type)
+		|| conflux::http::ascii_iequals(media_type, "application/xml")
+		|| conflux::http::ascii_iequals(media_type, "application/javascript")
+		|| conflux::http::ascii_iequals(media_type, "image/svg+xml");
 }
 struct DynamicEncodingQs {
 	float gzip{-1.0F};

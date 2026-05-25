@@ -79,6 +79,23 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
 				std::string_view const effective_method =
 					(is_head && route.method == "GET") ? std::string_view{"GET"} : req.method;
+				if (route.has_exact_path
+					&& !observe_route
+					&& matched_params.empty()
+					&& effective_method == req.method) {
+					try {
+						auto resp = route.handler(req);
+						if (is_head) {
+							resp.head_only = true;
+						}
+						return resp;
+					} catch (std::exception const &ex) {
+						return error_handler ? error_handler(req, ex) : Response::internal_error(ex.what());
+					} catch (...) {
+						return error_handler ? error_handler(req, std::runtime_error{"unknown std::exception"}) :
+											   Response::internal_error();
+					}
+				}
 				auto all_params = req.params;
 				for (auto const &[k, v]: matched_params) {
 					if (!all_params.get(k)) {
@@ -196,8 +213,11 @@ export template<typename ContextRouteRange, typename Ctx>
 					all_params.emplace_back(k, v);
 				}
 			}
-			std::string pattern{route.path_pattern};
-			all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
+			std::string pattern;
+			if (observe_route) {
+				pattern = route.path_pattern;
+				all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
+			}
 			RequestView const matched_view{
 				req.method,
 				req.path,

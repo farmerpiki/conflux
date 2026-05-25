@@ -4,6 +4,7 @@ export module conflux.net.app.json_helpers;
 
 import std;
 import conflux.net.http.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.response;
 import conflux.net.http.json_string;
 import conflux.utils;
@@ -17,15 +18,13 @@ export namespace conflux::http::detail {
 #if CONFLUX_HAS_JSON
 [[nodiscard]] std::string_view content_type_media_type(
 	std::string_view content_type) noexcept {
-	auto const semi = content_type.find(';');
-	auto const media_type = semi == std::string_view::npos ? content_type : content_type.substr(0, semi);
-	return conflux::http::trim_http_whitespace(media_type);
+	return ::content_type_media_type(content_type);
 }
 
 [[nodiscard]] bool content_type_matches(
 	std::string_view content_type,
 	std::string_view expected) noexcept {
-	return conflux::http::ascii_iequals(content_type_media_type(content_type), expected);
+	return ::content_type_matches(content_type, expected);
 }
 
 [[nodiscard]] bool content_type_is_json(
