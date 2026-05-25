@@ -430,6 +430,65 @@ conflux_add_header_test_compile_targets()
 conflux_add_header_compile_fail_tests()
 conflux_add_header_benchmark_compile_targets()
 
+function(conflux_install_generated_header_file relpath)
+    set(_source "${CONFLUX_GENERATED_INCLUDE_DIR}/${relpath}")
+    if(NOT EXISTS "${_source}")
+        return()
+    endif()
+    get_filename_component(_dest_dir "${relpath}" DIRECTORY)
+    if(_dest_dir)
+        install(FILES "${_source}"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${_dest_dir}")
+    else()
+        install(FILES "${_source}"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    endif()
+endfunction()
+
+function(conflux_install_generated_header_component name)
+    conflux_install_generated_header_file("conflux/${name}.hxx")
+    if(EXISTS "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${name}")
+        set(_install_args
+            DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${name}/"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux/${name}")
+        if(name STREQUAL "json" AND NOT TARGET conflux_json_reflect)
+            list(APPEND _install_args
+                PATTERN "reflect.hxx" EXCLUDE
+                PATTERN "reflect_provider.hxx" EXCLUDE)
+        endif()
+        install(${_install_args})
+    endif()
+endfunction()
+
+function(conflux_install_registered_public_headers)
+    conflux_install_generated_header_file("conflux.hxx")
+    conflux_install_generated_header_file("conflux/config.hxx")
+    conflux_install_generated_header_file("conflux/features.hxx")
+
+    foreach(_component IN LISTS CONFLUX_PACKAGE_COMPONENTS)
+        conflux_install_generated_header_component("${_component}")
+    endforeach()
+
+    get_property(_hpp_names GLOBAL PROPERTY CONFLUX_HEADER_PUBLIC_HPP_NAMES)
+    foreach(_hpp_name IN LISTS _hpp_names)
+        set(_hpp_source "${CONFLUX_PUBLIC_HPP_DIR}/${_hpp_name}.hpp")
+        if(EXISTS "${_hpp_source}")
+            install(FILES "${_hpp_source}"
+                DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
+        endif()
+        conflux_install_generated_header_file("conflux/${_hpp_name}.hxx")
+    endforeach()
+
+    set(_conflux_hpp "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp")
+    if(EXISTS "${_conflux_hpp}")
+        install(FILES "${_conflux_hpp}"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
+    endif()
+
+    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
+endfunction()
+
 conflux_any_target_links_item(CONFLUX_INSTALL_NEEDS_LIBURING
     PkgConfig::LIBURING
     ${CONFLUX_HEADER_INSTALL_TARGETS})
@@ -463,56 +522,12 @@ install(FILES
     ${CONFLUX_SRC_ROOT}/conflux/detail/discard.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail
 )
-if(CONFLUX_USE_MOCK_LIBURING)
-    install(FILES
-        "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/config.hxx"
-        "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/features.hxx"
-        "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/types.hxx"
-        "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/file_io_sync.hxx"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/types/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/types)
-    if(CONFLUX_WANT_JSON)
-        install(FILES
-            "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json.hxx"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
-        install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/json/"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/json
-            PATTERN "reflect.hxx" EXCLUDE
-            PATTERN "reflect_provider.hxx" EXCLUDE)
-    endif()
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
-elseif(CONFLUX_HAS_DB STREQUAL "true")
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-else()
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        PATTERN "pg" EXCLUDE
-        PATTERN "pg.hxx" EXCLUDE
-        PATTERN "db.hxx" EXCLUDE)
-endif()
+conflux_install_registered_public_headers()
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
-if(CONFLUX_USE_MOCK_LIBURING)
-    install(FILES
-        "${CONFLUX_PUBLIC_HPP_DIR}/config.hpp"
-        "${CONFLUX_PUBLIC_HPP_DIR}/types.hpp"
-        "${CONFLUX_PUBLIC_HPP_DIR}/file_io_sync.hpp"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
-    if(CONFLUX_WANT_JSON)
-        install(FILES
-            "${CONFLUX_PUBLIC_HPP_DIR}/json.hpp"
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux)
-    endif()
-else()
-    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-endif()
 foreach(_target IN LISTS CONFLUX_HEADER_INSTALL_TARGETS)
     get_target_property(_export_name ${_target} EXPORT_NAME)
     install(EXPORT confluxTargets-${_export_name}
