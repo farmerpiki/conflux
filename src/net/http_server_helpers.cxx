@@ -285,45 +285,31 @@ export [[nodiscard]] std::string format_http_chunk(
 export [[nodiscard]] std::string_view extract_param(
 	std::string_view header,
 	std::string_view param_name) {
-	std::size_t pos = 0;
-	while (pos <= header.size()) {
-		auto const sep = header.find(';', pos);
-		auto segment = trim(sep == std::string_view::npos ? header.substr(pos) : header.substr(pos, sep - pos));
-
-		if (auto const eq = segment.find('='); eq != std::string_view::npos) {
-			auto const key = trim(segment.substr(0, eq));
-			auto value = trim(segment.substr(eq + 1));
-			if (conflux::http::ascii_iequals(key, param_name)) {
-				if (value.empty()) {
-					return {};
-				}
-				if (value.front() != '"') {
-					return value;
-				}
-				value.remove_prefix(1);
-				bool escaped = false;
-				for (std::size_t i = 0; i < value.size(); ++i) {
-					char const c = value[i];
-					if (escaped) {
-						escaped = false;
-						continue;
-					}
-					if (c == '\\') {
-						escaped = true;
-						continue;
-					}
-					if (c == '"') {
-						return value.substr(0, i);
-					}
-				}
-				return value;
+	for (auto const param: conflux::http::header_params(header)) {
+		if (!param.has_value || !conflux::http::ascii_iequals(param.name, param_name)) {
+			continue;
+		}
+		auto value = trim(param.value);
+		if (value.empty() || value.front() != '"') {
+			return value;
+		}
+		value.remove_prefix(1);
+		bool escaped = false;
+		for (std::size_t i = 0; i < value.size(); ++i) {
+			char const c = value[i];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (c == '\\') {
+				escaped = true;
+				continue;
+			}
+			if (c == '"') {
+				return value.substr(0, i);
 			}
 		}
-
-		if (sep == std::string_view::npos) {
-			break;
-		}
-		pos = sep + 1;
+		return value;
 	}
 	return {};
 }

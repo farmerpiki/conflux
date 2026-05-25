@@ -1920,6 +1920,17 @@ TEST_CASE(
 	REQUIRE(json.find("\"content_type\":\"text/plain\"") != std::string::npos);
 	REQUIRE(json.find("\"size\":17") != std::string::npos);
 }
+
+TEST_CASE(
+	"multipart/form-data quoted semicolon filename is preserved") {
+	auto body = make_multipart_file("semiBnd", "upload", "hello;semi.txt", "text/plain", "file content here");
+	auto ct = std::string{"multipart/form-data; boundary=semiBnd"};
+	auto resp = http_post("/api/multipart-file", ct, body);
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	auto json = extract_body(resp);
+	REQUIRE(json.find("\"filename\":\"hello;semi.txt\"") != std::string::npos);
+}
+
 TEST_CASE(
 	"multipart/form-data file part survives async suspension") {
 	auto body = make_multipart_file("asyncBnd", "upload", "async.txt", "text/plain", "async file content");

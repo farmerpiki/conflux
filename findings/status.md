@@ -11,6 +11,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   pointer, and recursively check that secret values are absent. The quote
   escaping case now sends an actual quote-bearing request target over a raw TCP
   request instead of testing `/q`.
+- `findings/6.md` P0 multipart/header parameter extraction: complete for the
+  quoted-semicolon parsing defect. `extract_param(...)` now delegates segment
+  splitting to the shared `header_params(...)` parser, preserving semicolons
+  inside quoted parameter values without introducing lazy ranges or extra copies
+  for ordinary token/quoted values.
 
 ## Verification
 
@@ -19,6 +24,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "structured_log:|observability golden e2e|http facade: observability"`
   completed: 10/10 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_server_helpers_tests conflux_tests` completed after multipart
+  parameter extraction cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http_server_helpers: header parameter extraction|multipart/form-data quoted
+  semicolon filename"` completed: 2/2 passed.
 
 ## Accepted / In Scope
 

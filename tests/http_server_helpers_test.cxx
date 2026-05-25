@@ -113,6 +113,8 @@ TEST_CASE(
 	CHECK(extract_param("form-data; filename=only-file.txt", "name").empty());
 	CHECK(extract_param("form-data; x-name=wrong; name=right", "name") == "right");
 	CHECK(extract_param("form-data; NAME=upper", "name") == "upper");
+	CHECK(extract_param(R"(form-data; name="upload"; filename="a;b.txt")", "filename") == "a;b.txt");
+	CHECK(extract_param(R"(multipart/form-data; boundary="abc;123"; charset=utf-8)", "boundary") == "abc;123");
 }
 
 TEST_CASE(
