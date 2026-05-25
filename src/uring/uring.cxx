@@ -614,6 +614,7 @@ export namespace conflux::runtime {
 		return std::unexpected{std::move(issue)};
 	}
 	caps.io_uring = true;
+	#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 	auto const uring_caps = conflux::uring::detect_caps(*ring);
 	caps.sqpoll = ring->is_sqpoll();
 	caps.single_issuer = true;
@@ -628,6 +629,7 @@ export namespace conflux::runtime {
 	caps.fixed_buffers = true;
 	caps.send_zc = uring_caps.send_zc;
 	caps.recv_zc = uring_caps.recv_zc;
+	#endif
 	caps.openat2 = true;
 	struct rlimit limit{};
 	if (::getrlimit(RLIMIT_MEMLOCK, &limit) == 0) {

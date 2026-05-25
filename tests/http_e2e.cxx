@@ -161,9 +161,11 @@ TEST_CASE(
 	CHECK(infos[1].path_params[0] == "id");
 
 	auto routes = app.routes();
-	REQUIRE(routes.size() == 1);
-	CHECK(routes[0].path == "/jobs/{id}");
-	CHECK(routes[0].handler_kind == "context");
+	REQUIRE(routes.size() == 2);
+	CHECK(routes[0].path == "/reports/{id}");
+	CHECK(routes[0].handler_kind == "app");
+	CHECK(routes[1].path == "/jobs/{id}");
+	CHECK(routes[1].handler_kind == "context");
 }
 
 void ensure_server() {

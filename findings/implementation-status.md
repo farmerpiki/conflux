@@ -187,3 +187,14 @@ those reviews.
   conflux_http_facade_import_smoke` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: public import smoke"` completed.
+- Build-system re-evaluation after the latest build fixes found a generated
+  header-surface regression where reduced API surfaces pulled in declarations
+  requiring hidden `IoUringCaps`/`detect_caps` symbols. The fix keeps the
+  curated/extended hiding contract and gates only cap-dependent transitive
+  socket/runtime declarations in header mode.
+- `ctest --test-dir build/release-clang-libcxx --output-on-failure -R
+  "build/header-component-smoke"` completed: 1/1 passed.
+- `cmake --build --preset release-clang-libcxx` completed after the final
+  build fixes.
+- `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  build/release-clang-libcxx --output-on-failure` completed: 1940/1940 passed.
