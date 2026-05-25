@@ -216,6 +216,13 @@ next_ws:;
 		std::uint32_t len;
 		std::uint8_t flags; // kStorageInputView | kRawJsonSlice for zero-copy, 0 for escaped
 	};
+	void ensure_string_arena_decode_capacity() {
+		std::size_t const needed = store.input_view.size();
+		if (store.string_arena.capacity() < needed) {
+			store.string_arena.reserve(needed);
+			store.parse_stats.string_arena_reserve_bytes = needed;
+		}
+	}
 	// Phase 2: fast path scans for `"` or `\` without copying. On `\`, copies
 	// the prefix to escape_arena and continues with the escape-decoding loop;
 	// the result then lives in escape_arena with flags = 0.
@@ -244,6 +251,7 @@ next_ws:;
 			}
 			if (c == '\\') {
 				// Slow path: copy bytes seen so far to escape_arena, then keep decoding.
+				ensure_string_arena_decode_capacity();
 				std::size_t const arena_off = store.string_arena.size();
 				store.string_arena.append(src.data() + start_pos, pos - start_pos);
 				return parse_str_decode_tail(arena_off);
@@ -369,6 +377,7 @@ next_ws:;
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_str_body_sq() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
+		ensure_string_arena_decode_capacity();
 		std::size_t const arena_off = store.string_arena.size();
 		while (pos < src.size()) {
 			auto const c = static_cast<unsigned char>(src[pos]);
@@ -720,16 +729,39 @@ struct TreeBuilder {
 	// object actually exceeds the linear-scan window — typical configs
 	// (small flat objects) pay zero std::hash-table cost.
 	static constexpr std::size_t kDedupLinearMax = 8;
+	struct MemberNameKey {
+		std::uint32_t off{};
+		std::uint32_t len{};
+		std::uint8_t flags{};
+	};
+	struct MemberNameHash {
+		DocumentStorage const *store{};
+		[[nodiscard]] std::size_t operator ()(
+			MemberNameKey key) const noexcept {
+			return std::hash<std::string_view>{}(store->bytes_at(key.off, key.len, key.flags));
+		}
+	};
+	struct MemberNameEq {
+		DocumentStorage const *store{};
+		[[nodiscard]] bool operator ()(
+			MemberNameKey lhs,
+			MemberNameKey rhs) const noexcept {
+			return store->bytes_at(lhs.off, lhs.len, lhs.flags) == store->bytes_at(rhs.off, rhs.len, rhs.flags);
+		}
+	};
+	using MemberNameSet = std::unordered_set<MemberNameKey, MemberNameHash, MemberNameEq>;
+
 	[[nodiscard]] bool dedup_member_present(
 		std::size_t members_start,
-		std::string_view name,
-		std::optional<std::unordered_set<std::string_view>> const &seen_hash) const {
+		MemberNameKey name,
+		std::optional<MemberNameSet> const &seen_hash) const {
 		if (seen_hash.has_value()) {
 			return seen_hash->contains(name);
 		}
 		for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 			auto const &m = staging_members[i];
-			if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)) == name) {
+			if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags))
+				== store.bytes_at(name.off, name.len, name.flags)) {
 				return true;
 			}
 		}
@@ -769,7 +801,7 @@ struct TreeBuilder {
 		std::size_t const members_start = staging_members.size();
 		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
 		// std::hash set is built once and reused for the remainder of this object.
-		std::optional<std::unordered_set<std::string_view>> seen_hash;
+		std::optional<MemberNameSet> seen_hash;
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			if (auto ok = skip_ws_checked(); !ok) {
@@ -798,8 +830,9 @@ struct TreeBuilder {
 				staging_members.resize(members_start);
 				return std::unexpected(std::move(parsed_name).error());
 			}
+			MemberNameKey const name_key{.off = parsed_name->off, .len = parsed_name->len, .flags = parsed_name->flags};
 			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
+			bool const is_dup = dedup_member_present(members_start, name_key, seen_hash);
 			if (is_dup) {
 				++store.parse_stats.duplicate_member_hits;
 			}
@@ -809,7 +842,7 @@ struct TreeBuilder {
 					mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
 			}
 			if (!is_dup && seen_hash.has_value()) {
-				seen_hash->insert(name_sv);
+				seen_hash->insert(name_key);
 				++store.parse_stats.duplicate_hash_inserts;
 			}
 
@@ -867,7 +900,7 @@ struct TreeBuilder {
 				// Promote linear → std::hash once we cross the threshold.
 				std::size_t const cur_count = staging_members.size() - members_start;
 				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
-					seen_hash.emplace();
+					seen_hash.emplace(0, MemberNameHash{&store}, MemberNameEq{&store});
 					++store.parse_stats.duplicate_hash_promotions;
 					std::size_t reserve_count = cur_count;
 					if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
@@ -877,7 +910,7 @@ struct TreeBuilder {
 					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 						seen_hash->insert(
-							store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)));
+							MemberNameKey{m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)});
 						++store.parse_stats.duplicate_hash_inserts;
 					}
 				}
@@ -1032,9 +1065,8 @@ struct TreeBuilder {
 	store.nodes.reserve(reserve_n);
 	store.array_children.reserve(reserve_n);
 	store.object_members.reserve(reserve_n);
-	store.string_arena.reserve(store.input_view.size());
 	store.parse_stats.input_bytes = store.input_view.size();
-	store.parse_stats.string_arena_reserve_bytes = store.input_view.size();
+	store.parse_stats.string_arena_reserve_bytes = 0;
 
 	TreeBuilder tb{
 		.tok =
@@ -1094,14 +1126,8 @@ struct TreeBuilder {
 	storage->nodes.reserve(reserve_n);
 	storage->array_children.reserve(reserve_n);
 	storage->object_members.reserve(reserve_n);
-	// Reserve string_arena up-front so it never reallocates mid-parse.
-	// The dedup std::hash set in parse_object stores SVs into string_arena;
-	// any realloc would dangle them (TSan UAF, json.cxx:2598). Decoded
-	// strings are always ≤ input size (escapes only ever shrink), so the
-	// input length is a safe upper bound.
-	storage_ref.string_arena.reserve(storage_ref.input_view.size());
 	storage_ref.parse_stats.input_bytes = storage_ref.input_view.size();
-	storage_ref.parse_stats.string_arena_reserve_bytes = storage_ref.input_view.size();
+	storage_ref.parse_stats.string_arena_reserve_bytes = 0;
 
 	TreeBuilder tb{
 		.tok =

@@ -3034,8 +3034,8 @@ TEST_CASE(
 	REQUIRE(doc.has_value());
 	auto stats = doc->parse_storage_stats();
 	CHECK(stats.input_bytes == js.size());
-	CHECK(stats.string_arena_reserve_bytes == js.size());
-	CHECK(stats.string_arena_capacity >= js.size());
+	CHECK(stats.string_arena_reserve_bytes == 0);
+	CHECK(stats.string_arena_capacity >= stats.string_arena_size);
 	CHECK(stats.duplicate_hash_promotions == 1);
 	CHECK(stats.duplicate_hash_inserts >= 10);
 	CHECK(stats.duplicate_member_hits == 1);

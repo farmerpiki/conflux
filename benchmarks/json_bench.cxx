@@ -1044,45 +1044,45 @@ void bench_direct_wide_object_matrix() {
 	JsonDecodeOptions ignore_unknown;
 	ignore_unknown.unknown_members = UnknownMemberPolicy::ignore;
 
-	print_alloc_row(
-		"decode/manual/reader/direct/wide08/all_known",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchWide8>(wide8)); }, 100, 500, 1, wide8.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide16/all_known",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchWide16>(wide16)); }, 100, 500, 1, wide16.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide32/all_known",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchWide32>(wide32)); }, 100, 500, 1, wide32.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide64/all_known",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchWide64>(wide64)); }, 100, 500, 1, wide64.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide96/all_known",
-		measure_alloc([&] { require_decode(decode_borrowed<BenchWide96>(wide96)); }, 100, 500, 1, wide96.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide32/unknown_ignore",
-		measure_alloc(
+	run_alloc_row("decode/manual/reader/direct/wide08/all_known", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchWide8>(wide8)); }, 100, 500, 1, wide8.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide16/all_known", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchWide16>(wide16)); }, 100, 500, 1, wide16.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide32/all_known", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchWide32>(wide32)); }, 100, 500, 1, wide32.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide64/all_known", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchWide64>(wide64)); }, 100, 500, 1, wide64.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide96/all_known", [&] {
+		return measure_alloc([&] { require_decode(decode_borrowed<BenchWide96>(wide96)); }, 100, 500, 1, wide96.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide32/unknown_ignore", [&] {
+		return measure_alloc(
 			[&] { require_decode(decode_borrowed<BenchWide32>(wide32_unknown, {}, ignore_unknown)); },
 			100,
 			500,
 			1,
-			wide32_unknown.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide64/unknown_ignore",
-		measure_alloc(
+			wide32_unknown.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide64/unknown_ignore", [&] {
+		return measure_alloc(
 			[&] { require_decode(decode_borrowed<BenchWide64>(wide64_unknown, {}, ignore_unknown)); },
 			100,
 			500,
 			1,
-			wide64_unknown.size()));
-	print_alloc_row(
-		"decode/manual/reader/direct/wide96/unknown_ignore",
-		measure_alloc(
+			wide64_unknown.size());
+	});
+	run_alloc_row("decode/manual/reader/direct/wide96/unknown_ignore", [&] {
+		return measure_alloc(
 			[&] { require_decode(decode_borrowed<BenchWide96>(wide96_unknown, {}, ignore_unknown)); },
 			100,
 			500,
 			1,
-			wide96_unknown.size()));
+			wide96_unknown.size());
+	});
 }
 
 void bench_parse_small(
@@ -1992,7 +1992,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}],"filters":["--filter SUBSTR"]})");
+		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_csv = cfg.json_out;
 	g_filters = cfg.filters;

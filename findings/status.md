@@ -309,6 +309,34 @@ Current review set: `findings/1.md` through `findings/7.md` after
   directory. Per request, instructions fell from about 20332 to 17971
   (-11.62%), cycles from about 7089 to 6497 (-8.35%), branches from about 4251
   to 3750 (-11.79%), and cache references from about 651 to 399 (-38.71%).
+- `findings/3.md` P1 JSON parser string arena full-input reserve: completed.
+  The parser no longer reserves the full input size before every parse. Object
+  duplicate-key hashing stores stable member name offsets instead of
+  `std::string_view`s into `string_arena`, so borrowed-string parses can keep
+  avoiding copies without relying on arena pointer stability. Escaped/decoded
+  string paths lazily reserve the old upper bound only when decoded storage is
+  actually needed. `benchmarks/json_bench.cxx` now exposes compare-bins configs
+  for `parse_large`, `parse_long_strings`, and `parse_escape_heavy`, and fixes
+  the direct wide-object rows to respect `--filter`.
+- Evidence: compare-bins artifacts
+  `/tmp/gcc-16/bench-artifacts/20260525T194110Z-compare-bins`,
+  `/tmp/gcc-16/bench-artifacts/20260525T194139Z-compare-bins`, and
+  `/tmp/gcc-16/bench-artifacts/20260525T194207Z-compare-bins`, base/candidate
+  runs `1071`/`1072`, `1073`/`1074`, and `1075`/`1076`: `parse_long_strings`
+  best 53891 -> 32170 ns/iter (-21721 ns, -40.31%), p10 54682 -> 32671
+  ns/iter (-22011 ns, -40.25%), p50 -40.25%, p99 -40.81%; `parse_large`
+  best 961389 -> 952152 ns/iter (-9237 ns, -0.96%), p10 -7935 ns (-0.81%),
+  p50 -0.81%, p99 -1.74%; `parse_escape_heavy` best 1145554 -> 472104
+  ns/iter (-673450 ns, -58.79%), p10 -676255 ns (-58.80%), p50 -58.80%,
+  p99 -58.69%.
+- Isolated `perf stat` for `parse_long_strings` is preserved under
+  `/tmp/gcc-16/bench-artifacts/20260525T-json-arena-lazy-reserve-perf`.
+  Instructions fell from about 309.1M to 298.3M (-3.52%), L1-dcache load
+  misses from about 2.73M to 2.19M (-19.51%), and dTLB load misses from about
+  50.9k to 9.2k (-81.97%). Multiplexed cycles/branches/cache-reference counts
+  rose in that perf-stat run, so the acceptance evidence is the repeated
+  isolated compare-bins wall-time set plus the lower instructions/TLB/L1 miss
+  counters.
 - `findings/3.md` P0 middleware per-request function-wrapper allocation:
   completed for the bounded shared wrapper cost by adding inline storage to
   `CloneableFunction`. The one-shot `next` state still uses shared ownership
