@@ -111,7 +111,7 @@ public:
 
 	root::Task<Lease> acquire();
 	void close() noexcept;
-	[[nodiscard]] std::size_t total() const noexcept { return total_; }
+	[[nodiscard]] std::size_t total() const noexcept { return total_.load(std::memory_order_acquire); }
 	[[nodiscard]] std::size_t idle() const noexcept { return idle_.size(); }
 
 private:
@@ -130,7 +130,7 @@ private:
 	std::thread::id owner_{};
 	std::vector<std::shared_ptr<Connection>> idle_{};
 	std::deque<std::shared_ptr<Waiter>> waiters_{};
-	std::size_t total_{0};
+	std::atomic_size_t total_{0};
 	bool closed_{false};
 };
 export template<class Body>
@@ -250,7 +250,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 		return std::move(task);
 	}
 	if (total_ < cfg_.max_connections) {
-		++total_;
+		total_.fetch_add(1, std::memory_order_acq_rel);
 		auto self = shared_from_this();
 		[](std::shared_ptr<Pool> self,
 		   std::shared_ptr<root::TaskSource<Lease>> shared_src,
@@ -258,13 +258,13 @@ root::Task<Pool::Lease> Pool::acquire() {
 			try {
 				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
-					--self->total_;
+					self->total_.fetch_sub(1, std::memory_order_acq_rel);
 					auto _ = shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 					co_return;
 				}
 				self->dispatch_lease_(shared_src, std::move(conn));
 			} catch (...) {
-				--self->total_;
+				self->total_.fetch_sub(1, std::memory_order_acq_rel);
 				auto _ = shared_src->try_set_exception(std::current_exception());
 			}
 		}(self, shared_src, Connection::connect(cfg_.conn))
@@ -308,6 +308,7 @@ void Pool::return_(
 	if (std::this_thread::get_id() != owner_) {
 		if (conn) {
 			conn->close();
+			total_.fetch_sub(1, std::memory_order_acq_rel);
 		}
 		return;
 	}
@@ -316,7 +317,7 @@ void Pool::return_(
 			conn->close();
 		}
 		if (total_ > 0) {
-			--total_;
+			total_.fetch_sub(1, std::memory_order_acq_rel);
 		}
 	} else {
 		idle_.push_back(std::move(conn));
@@ -341,18 +342,18 @@ void Pool::try_dispatch_waiters_() {
 }
 void Pool::grow_if_needed_() {
 	while (total_ < cfg_.min_connections) {
-		++total_;
+		total_.fetch_add(1, std::memory_order_acq_rel);
 		auto self = shared_from_this();
 		[](std::shared_ptr<Pool> self, root::Task<std::shared_ptr<Connection>> conn_task) -> root::Task<void> {
 			try {
 				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
-					--self->total_;
+					self->total_.fetch_sub(1, std::memory_order_acq_rel);
 					co_return;
 				}
 				self->idle_.push_back(std::move(conn));
 				self->try_dispatch_waiters_();
-			} catch (...) { --self->total_; }
+			} catch (...) { self->total_.fetch_sub(1, std::memory_order_acq_rel); }
 		}(self, Connection::connect(cfg_.conn))
 																								 .detach();
 	}
@@ -379,7 +380,7 @@ void Pool::dispatch_lease_(
 				co_await std::move(on_acq_task);
 				if (self->closed_) {
 					conn->close();
-					--self->total_;
+					self->total_.fetch_sub(1, std::memory_order_acq_rel);
 					auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
 					co_return;
 				}
@@ -389,18 +390,18 @@ void Pool::dispatch_lease_(
                 });
 			} catch (Cancelled const &) {
 				conn->close();
-				--self->total_;
+				self->total_.fetch_sub(1, std::memory_order_acq_rel);
 				auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
 			} catch (...) {
 				conn->close();
-				--self->total_;
+				self->total_.fetch_sub(1, std::memory_order_acq_rel);
 				auto _ = src->try_set_exception(std::current_exception());
 			}
 		}(self, src, conn, cfg_.on_acquire(*conn))
 												.detach();
 	} catch (...) {
 		conn->close();
-		--self->total_;
+		self->total_.fetch_sub(1, std::memory_order_acq_rel);
 		auto _ = src->try_set_exception(std::current_exception());
 	}
 }

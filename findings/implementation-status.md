@@ -83,6 +83,11 @@ those reviews.
   q-value scanning without materializing strings; compression negotiation,
   static precompressed negotiation, and response-cache Cache-Control parsing use
   the shared view parser.
+- `findings/8.md`: accepted the DB pool off-owner lease capacity leak. Off-owner
+  lease destruction now closes the physical connection and decrements the
+  pool's total connection count atomically, so a later owner-thread acquire can
+  create replacement capacity instead of treating the closed connection as still
+  live.
 
 ## Accepted backlog
 
@@ -114,10 +119,10 @@ those reviews.
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
   cleanup remain accepted backlog. Content-Type media-type parsing and
   route-level rate-limit eviction are complete above.
-- `findings/8.md`: curated HTTP facade split, DB pool off-owner return handling,
-  release-core target graph cleanup, direct DB cancel-pool exposure, SSE
-  send-view semantics, header hygiene, and manifest cleanup. Accepted backlog;
-  several are intentionally larger ownership/API changes.
+- `findings/8.md`: curated HTTP facade split, release-core target graph cleanup,
+  direct DB cancel-pool exposure, SSE send-view semantics, header hygiene, and
+  manifest cleanup. Accepted backlog; several are intentionally larger
+  ownership/API changes. The DB pool off-owner capacity leak is complete above.
 - `findings/9.md`: public header warnings remain accepted follow-up validation
   work; runtime SIMD configure behavior, mock package smoke behavior, JSON reset
   lifetime coverage, and crypto detail hiding are complete above.
@@ -225,3 +230,8 @@ those reviews.
   "response_cache:|cache_control:|static file|compression matrix|file_io http
   e2e|build/header-component-smoke"` completed after the shared HTTP parameter
   parser change: 49/49 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_pg
+  conflux_db_integration` completed after the DB pool off-owner capacity fix.
+- `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure -R "db: pool"`
+  completed after the DB pool fix: 5/5 passed.

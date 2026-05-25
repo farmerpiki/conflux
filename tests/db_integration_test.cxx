@@ -507,6 +507,43 @@ TEST_CASE(
 	pool->close();
 }
 TEST_CASE(
+	"db: pool off-owner lease drop releases capacity",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 1,
+		.acquire_timeout = std::chrono::seconds{5},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> held{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(held);
+	CHECK(pool->total() == 1);
+
+	std::jthread off_owner_drop{[lease = std::move(held)]() mutable { lease.reset(); }};
+	off_owner_drop.join();
+
+	CHECK(pool->total() == 0);
+	CHECK(pool->idle() == 0);
+
+	std::optional<Pool::Lease> recovered{block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(recovered);
+	auto r = block_on(fx->reader, (*recovered)->query("SELECT 8::int8"), std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 8);
+
+	recovered.reset();
+	pool->close();
+}
+TEST_CASE(
 	"db: pool queued acquire cancellation completes and does not consume next lease",
 	"[db][integration][pressure]") {
 	auto ci = conninfo();
