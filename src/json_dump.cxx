@@ -282,32 +282,34 @@ void dump_node(
 		{
 			out += '{';
 			if (n.len > 0) {
+				auto dump_member = [&](auto const &m, std::string_view name) {
+					if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
+						dump_str_raw(name, out);
+					} else {
+						dump_str(name, out, opts.ascii_only);
+					}
+					out += opts.pretty ? ": " : ":";
+					dump_node(store, m.val_node, opts, depth + 1, out);
+				};
 				// R3 — only allocate the order V when sorting; the
 				// unsorted path iterates members in source order directly.
 				if (opts.sort_object_keys) {
-					std::vector<std::size_t> order(n.len);
-					iota(order.begin(), order.end(), 0);
-					sort(order.begin(), order.end(), [&](std::size_t x, std::size_t y) {
+					std::vector<std::pair<std::string_view, std::size_t>> order;
+					order.reserve(n.len);
+					for (std::size_t i = 0; i < n.len; ++i) {
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &mx = store.object_members[n.off + x];
-						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &my = store.object_members[n.off + y];
-						return store.member_name(mx) < store.member_name(my);
-					});
+						auto const &m = store.object_members[n.off + i];
+						order.emplace_back(store.member_name(m), i);
+					}
+					std::ranges::sort(order, {}, &std::pair<std::string_view, std::size_t>::first);
 					for (std::size_t i = 0; i < n.len; ++i) {
 						if (i > 0) {
 							out += ',';
 						}
 						indent(depth + 1);
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &m = store.object_members[n.off + order[i]];
-						if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
-							dump_str_raw(store.member_name(m), out);
-						} else {
-							dump_str(store.member_name(m), out, opts.ascii_only);
-						}
-						out += opts.pretty ? ": " : ":";
-						dump_node(store, m.val_node, opts, depth + 1, out);
+						auto const &m = store.object_members[n.off + order[i].second];
+						dump_member(m, order[i].first);
 					}
 				} else {
 					for (std::size_t i = 0; i < n.len; ++i) {
@@ -317,13 +319,7 @@ void dump_node(
 						indent(depth + 1);
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 						auto const &m = store.object_members[n.off + i];
-						if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
-							dump_str_raw(store.member_name(m), out);
-						} else {
-							dump_str(store.member_name(m), out, opts.ascii_only);
-						}
-						out += opts.pretty ? ": " : ":";
-						dump_node(store, m.val_node, opts, depth + 1, out);
+						dump_member(m, store.member_name(m));
 					}
 				}
 				indent(depth);
