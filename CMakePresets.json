@@ -399,7 +399,8 @@
         "CONFLUX_ENABLE_TSAN": "OFF",
         "CONFLUX_ENABLE_LTO": "OFF",
         "CONFLUX_BUILD_TESTS": "OFF",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "ON",
+        "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
       }
     },
     {
@@ -413,7 +414,8 @@
         "CONFLUX_ENABLE_TSAN": "OFF",
         "CONFLUX_ENABLE_LTO": "OFF",
         "CONFLUX_BUILD_TESTS": "OFF",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "ON",
+        "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
       }
     },
     {
