@@ -195,6 +195,41 @@ if(TARGET conflux::umbrella AND NOT TARGET conflux::conflux)
         INTERFACE_LINK_LIBRARIES conflux::umbrella)
 endif()
 
+function(_conflux_append_surface_definition out_var macro value)
+    set(_defs ${${out_var}})
+    list(APPEND _defs "CONFLUX_SURFACE_HAS_${macro}=${value}")
+    set(${out_var} "${_defs}" PARENT_SCOPE)
+endfunction()
+
+set(_conflux_installed_surface_definitions
+    CONFLUX_SURFACE_HAS_FEATURES=1)
+foreach(_conflux_component IN LISTS conflux_VISIBLE_COMPONENTS)
+    string(TOUPPER "${_conflux_component}" _conflux_surface_macro)
+    list(APPEND _conflux_installed_surface_definitions
+        "CONFLUX_SURFACE_HAS_${_conflux_surface_macro}=1")
+endforeach()
+if("http" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions HTTP_FACADE 1)
+endif()
+if("template" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions TEMPLATES 1)
+endif()
+if("pg" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions DB 1)
+endif()
+if("db" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions DB_COMPAT 1)
+endif()
+if(TARGET conflux::headers)
+    target_compile_definitions(conflux::headers INTERFACE
+        ${_conflux_installed_surface_definitions})
+endif()
+unset(_conflux_installed_surface_definitions)
+
 foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)
     _conflux_component_target(_conflux_component_target "${_conflux_component}")
 
