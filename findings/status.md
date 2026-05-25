@@ -237,6 +237,17 @@ Current review set: `findings/1.md` through `findings/7.md` after
   conflux_template_tests` completed after the template parser scanner cleanup.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "template:"` completed: 51/51 passed.
+- Full release verification after the build-fix pass:
+  `cmake --build --preset release-clang-libcxx` completed. Initial full CTest
+  exposed four HTTP/1 rejection status-line regressions where timeout/Expect
+  responses had correct numeric status and problem bodies but empty reason
+  phrases. After adding the missing `408 Request Timeout` and
+  `417 Expectation Failed` response reason mappings, targeted verification
+  passed for the affected HTTP/1 Expect/slowloris tests and the response status
+  table test. Final
+  `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed: 1953/1953
+  passed, 7 skipped.
 
 ## Accepted / In Scope
 

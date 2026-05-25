@@ -406,8 +406,10 @@ export struct Response {
 		case kHttpForbidden                  : return "Forbidden";
 		case kHttpNotFound                   : return "Not Found";
 		case kHttpMethodNotAllowed           : return "Method Not Allowed";
+		case 408                             : return "Request Timeout";
 		case kHttpRequestEntityTooLarge      : return "Content Too Large";
 		case kHttpUriTooLong                 : return "URI Too Long";
+		case 417                             : return "Expectation Failed";
 		case kHttpRangeNotSatisfiable        : return "Range Not Satisfiable";
 		case kHttpUnprocessableEntity        : return "Unprocessable Entity";
 		case kHttpRequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";

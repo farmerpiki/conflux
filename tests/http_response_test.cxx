@@ -48,6 +48,8 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::Response, Response>);
 
 	CHECK(Response::status_text_for(kHttpBadRequest) == "Bad Request");
+	CHECK(Response::status_text_for(408) == "Request Timeout");
+	CHECK(Response::status_text_for(417) == "Expectation Failed");
 	CHECK(Response::status_text_for(599).empty());
 
 	auto text = chttp::Response::text("bad", kHttpBadRequest);
