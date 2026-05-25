@@ -308,6 +308,8 @@ template<class T>
 struct State {
 	T *value{};
 
+	[[nodiscard]] constexpr explicit operator bool() const noexcept { return value != nullptr; }
+	[[nodiscard]] constexpr T *try_get() const noexcept { return value; }
 	[[nodiscard]] constexpr T &get() const noexcept { return *value; }
 	[[nodiscard]] constexpr T &operator *() const noexcept { return *value; }
 	[[nodiscard]] constexpr T *operator ->() const noexcept { return value; }

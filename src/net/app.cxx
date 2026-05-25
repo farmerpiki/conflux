@@ -1549,7 +1549,7 @@ public:
 			using StateValue = typename detail::StateType<Clean>::type;
 			auto const it = states.find(std::type_index{typeid(StateValue)});
 			if (it == states.end()) {
-				return State<StateValue>{};
+				throw ExtractorFailure{Response::internal_error("missing app state")};
 			}
 			return State<StateValue>{.value = static_cast<StateValue *>(it->second.get())};
 		} else if constexpr (detail::PathArg<Clean>) {
