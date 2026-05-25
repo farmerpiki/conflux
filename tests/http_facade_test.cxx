@@ -145,6 +145,35 @@ struct JsonMembers<FacadeTodoList> {
 	static constexpr std::string_view type_name() { return "FacadeTodoList"; }
 };
 
+Document require_json_body(
+	Response const &response,
+	int status,
+	std::string_view content_type = "application/problem+json") {
+	CHECK(response.status == status);
+	CHECK(response.content_type == content_type);
+	auto doc = conflux::json::parse_copy(std::string{response.text_body()});
+	REQUIRE(doc.has_value());
+	return std::move(*doc);
+}
+
+NodeRef require_json_pointer(
+	Document const &doc,
+	std::string_view pointer) {
+	auto node = doc.root().at_pointer(pointer);
+	REQUIRE(node.has_value());
+	return *node;
+}
+
+void check_json_string_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::string_view expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+
 TEST_CASE(
 	"http facade: app state stores borrowed and shared typed state",
 	"[http.facade]") {
@@ -1537,10 +1566,9 @@ TEST_CASE(
 
 	req.path = "/todos/nope";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().contains(R"("extractor":"Path")"));
-	CHECK(bad.text_body().contains(R"("name":"id")"));
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "Path");
+	check_json_string_at(bad_doc, "/name", "id");
 }
 
 TEST_CASE(
@@ -1858,11 +1886,10 @@ TEST_CASE(
 
 	req.query["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "Query");
+	check_json_string_at(bad_doc, "/name", "page");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 #ifndef NDEBUG
 	CHECK(bad.text_body().find(R"("target":)") != std::string_view::npos);
 #endif
@@ -1898,11 +1925,10 @@ TEST_CASE(
 
 	req.query["page"] = "bad";
 	auto bad = http::router(app).dispatch(req);
-	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
-	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+	auto bad_doc = require_json_body(bad, kHttpBadRequest);
+	check_json_string_at(bad_doc, "/extractor", "Query");
+	check_json_string_at(bad_doc, "/name", "page");
+	check_json_string_at(bad_doc, "/kind", "invalid");
 }
 
 TEST_CASE(
@@ -1959,34 +1985,34 @@ TEST_CASE(
 
 	req.query.clear();
 	auto missing_query = http::router(app).dispatch(req);
-	CHECK(missing_query.status == kHttpBadRequest);
-	CHECK(missing_query.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
-	CHECK(missing_query.text_body().find(R"("name":"q")") != std::string_view::npos);
-	CHECK(missing_query.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_query_doc = require_json_body(missing_query, kHttpBadRequest);
+	check_json_string_at(missing_query_doc, "/extractor", "Query");
+	check_json_string_at(missing_query_doc, "/name", "q");
+	check_json_string_at(missing_query_doc, "/kind", "missing");
 
 	req.query["q"] = "";
 	req.headers.clear();
 	auto missing_header = http::router(app).dispatch(req);
-	CHECK(missing_header.status == kHttpBadRequest);
-	CHECK(missing_header.text_body().find(R"("extractor":"Header")") != std::string_view::npos);
-	CHECK(missing_header.text_body().find(R"("name":"x-token")") != std::string_view::npos);
-	CHECK(missing_header.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_header_doc = require_json_body(missing_header, kHttpBadRequest);
+	check_json_string_at(missing_header_doc, "/extractor", "Header");
+	check_json_string_at(missing_header_doc, "/name", "x-token");
+	check_json_string_at(missing_header_doc, "/kind", "missing");
 
 	req.headers["x-token"] = "";
 	req.cookies.clear();
 	auto missing_cookie = http::router(app).dispatch(req);
-	CHECK(missing_cookie.status == kHttpBadRequest);
-	CHECK(missing_cookie.text_body().find(R"("extractor":"Cookie")") != std::string_view::npos);
-	CHECK(missing_cookie.text_body().find(R"("name":"session")") != std::string_view::npos);
-	CHECK(missing_cookie.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_cookie_doc = require_json_body(missing_cookie, kHttpBadRequest);
+	check_json_string_at(missing_cookie_doc, "/extractor", "Cookie");
+	check_json_string_at(missing_cookie_doc, "/name", "session");
+	check_json_string_at(missing_cookie_doc, "/kind", "missing");
 
 	req.cookies["session"] = "";
 	req.form.clear();
 	auto missing_form = http::router(app).dispatch(req);
-	CHECK(missing_form.status == kHttpBadRequest);
-	CHECK(missing_form.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
-	CHECK(missing_form.text_body().find(R"("name":"name")") != std::string_view::npos);
-	CHECK(missing_form.text_body().find(R"("kind":"missing")") != std::string_view::npos);
+	auto missing_form_doc = require_json_body(missing_form, kHttpBadRequest);
+	check_json_string_at(missing_form_doc, "/extractor", "Form");
+	check_json_string_at(missing_form_doc, "/name", "name");
+	check_json_string_at(missing_form_doc, "/kind", "missing");
 }
 
 TEST_CASE(

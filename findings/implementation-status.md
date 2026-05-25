@@ -122,6 +122,11 @@ those reviews.
   typed cookie attributes and feed the existing `Response::set_cookie` storage
   path, avoiding any change to response formatting or send behavior. The
   HTTP API and cost/lifetime docs cover the new helper.
+- `findings/5.md`: accepted part of the problem JSON weak-assertion gap.
+  Facade extractor/problem-response tests now parse response bodies as JSON and
+  assert exact JSON-pointer fields for representative path, typed field, and
+  required field rejection cases. Broader e2e problem/log JSON assertion cleanup
+  remains accepted test backlog.
 
 ## Accepted backlog
 
@@ -142,7 +147,8 @@ those reviews.
 - `findings/5.md`: remaining structured-output assertion gaps stay accepted
   test backlog. HTTP package smoke, façade import purity, API surface symbol
   smokes, compile-fail wiring, CQ-overflow status tightening, SSE exact stream
-  assertions, and recv-bundle exact response assertions are complete above.
+  assertions, recv-bundle exact response assertions, and representative facade
+  problem JSON assertions are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -472,3 +478,14 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "docs/(release-docs|first-contact-public-dialect|package-docs)|docs/planning-state"`
   completed after documenting the cookie builder: 4/4 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after tightening facade problem JSON
+  assertions.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: typed field extractors parse scalars and reject malformed
+  values|http facade: typed field extractors support optional scalar values|http
+  facade: required string-like field extractors reject absence"` completed after
+  tightening facade problem JSON assertions: 3/3 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: fixed typed routes pass path params as plain handler arguments"`
+  completed after tightening facade problem JSON assertions: 1/1 passed.
