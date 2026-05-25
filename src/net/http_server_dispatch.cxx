@@ -16,6 +16,88 @@ import :state;
 
 namespace {
 
+struct CommonHeaderSummary {
+	std::size_t host_count{};
+	std::size_t content_length_count{};
+	std::size_t transfer_encoding_count{};
+	std::string_view host;
+	std::string_view content_length;
+	std::string_view content_type;
+	std::string_view cookie;
+	bool connection_close{};
+	bool connection_keep_alive{};
+	bool expect_continue{};
+	bool expect_unsupported{};
+};
+
+void note_common_header(
+	CommonHeaderSummary &summary,
+	std::string_view name,
+	std::string_view field_value) {
+	if (conflux::http::ascii_iequals(name, "host")) {
+		++summary.host_count;
+		if (summary.host.empty()) {
+			summary.host = field_value;
+		}
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "content-length")) {
+		++summary.content_length_count;
+		if (summary.content_length.empty()) {
+			summary.content_length = field_value;
+		}
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "transfer-encoding")) {
+		++summary.transfer_encoding_count;
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "content-type")) {
+		if (summary.content_type.empty()) {
+			summary.content_type = field_value;
+		}
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "cookie")) {
+		if (summary.cookie.empty()) {
+			summary.cookie = field_value;
+		}
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "connection")) {
+		if (conflux::http::header_token_contains(field_value, "close")) {
+			summary.connection_close = true;
+		}
+		if (conflux::http::header_token_contains(field_value, "keep-alive")) {
+			summary.connection_keep_alive = true;
+		}
+		return;
+	}
+	if (conflux::http::ascii_iequals(name, "expect")) {
+		for (auto const token: conflux::http::header_tokens(field_value)) {
+			if (token.empty()) {
+				continue;
+			}
+			if (!conflux::http::ascii_iequals(token, "100-continue")) {
+				summary.expect_unsupported = true;
+				break;
+			}
+			summary.expect_continue = true;
+		}
+	}
+}
+
+[[nodiscard]] ExpectState common_expect_state(
+	CommonHeaderSummary const &summary) noexcept {
+	if (summary.expect_unsupported) {
+		return ExpectState::unsupported;
+	}
+	if (summary.expect_continue) {
+		return ExpectState::continue_100;
+	}
+	return ExpectState::none;
+}
+
 void note_rejection(
 	HttpRejectionMetrics &metrics,
 	HttpRejectReason reason) noexcept {
@@ -135,13 +217,15 @@ void dispatch_request(
 		parse_urlencoded(target.query, query);
 	}
 
+	CommonHeaderSummary common_headers;
 	headers.reserve(parsed.headers.size());
 	for (auto const &[name, field_value]: parsed.headers) {
 		headers.emplace_back(name, field_value);
+		note_common_header(common_headers, name, field_value);
 	}
 
 	if (version == "HTTP/1.1") {
-		auto const host_count = headers.count("host");
+		auto const host_count = common_headers.host_count;
 		if (host_count == 0) {
 			emit_rejection(conn, raw, ring, HttpRejectReason::missing_host, ring.alt_svc_header);
 			return;
@@ -153,7 +237,7 @@ void dispatch_request(
 	}
 
 	if (http_redirect_to_https && !conn.is_tls) {
-		auto host = headers["host"];
+		auto host = common_headers.host;
 		auto const host_bare = conflux::http::host_without_port_or_ipv6_brackets(host);
 		std::string_view canonical_host;
 		for (auto const &h: https_redirect_hosts) {
@@ -185,8 +269,8 @@ void dispatch_request(
 	auto body_start = header_end + 4;
 	std::size_t body_stream_bytes = 0;
 
-	auto const content_length_count = headers.count("content-length");
-	auto const transfer_encoding_count = headers.count("transfer-encoding");
+	auto const content_length_count = common_headers.content_length_count;
+	auto const transfer_encoding_count = common_headers.transfer_encoding_count;
 	if (content_length_count != 0 && transfer_encoding_count != 0) {
 		emit_rejection(conn, raw, ring, HttpRejectReason::content_length_with_transfer_encoding, ring.alt_svc_header);
 		return;
@@ -204,7 +288,7 @@ void dispatch_request(
 		return;
 	}
 
-	auto const expect_state = parse_expect_header(headers);
+	auto const expect_state = common_expect_state(common_headers);
 	if (expect_state == ExpectState::unsupported) {
 		emit_rejection(conn, raw, ring, HttpRejectReason::expectation_failed, ring.alt_svc_header);
 		return;
@@ -218,7 +302,7 @@ void dispatch_request(
 	};
 
 	if (content_length_count != 0) {
-		auto cl = headers.get("content-length").value_or(std::string_view{});
+		auto cl = common_headers.content_length;
 		std::size_t content_length{};
 		auto const *cl_end = std::ranges::next(cl.data(), ssize(cl));
 		auto [ptr, ec] = std::from_chars(cl.data(), cl_end, content_length);
@@ -260,11 +344,11 @@ void dispatch_request(
 
 	conn.expect_continue_sent = false;
 
-	if (headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
+	if (common_headers.content_type.starts_with("application/x-www-form-urlencoded")) {
 		parse_urlencoded(body, form);
 	}
 
-	auto ct_header = headers["content-type"];
+	auto ct_header = common_headers.content_type;
 	if (ct_header.starts_with("multipart/form-data")) {
 		auto boundary = extract_param(ct_header, "boundary");
 		if (!boundary.empty()) {
@@ -272,15 +356,15 @@ void dispatch_request(
 		}
 	}
 
-	if (auto cookie = headers["cookie"]; !cookie.empty()) {
+	if (auto cookie = common_headers.cookie; !cookie.empty()) {
 		parse_cookies(cookie, cookies);
 	}
 
 	{
 		bool keep_alive = (version == "HTTP/1.1");
-		if (has_connection_token(headers, "close")) {
+		if (common_headers.connection_close) {
 			keep_alive = false;
-		} else if (has_connection_token(headers, "keep-alive")) {
+		} else if (common_headers.connection_keep_alive) {
 			keep_alive = true;
 		}
 		conn.close_after_send = !keep_alive;
