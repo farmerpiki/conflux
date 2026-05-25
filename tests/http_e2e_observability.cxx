@@ -1142,10 +1142,11 @@ TEST_CASE(
 		REQUIRE(n > 0);
 		log_content.assign(buf.data(), static_cast<std::size_t>(n));
 	}
-	REQUIRE(log_content.find(R"("method":"GET")") != std::string::npos);
-	REQUIRE(log_content.find(R"("path":"/ping")") != std::string::npos);
-	REQUIRE(log_content.find(R"("status":200)") != std::string::npos);
-	REQUIRE(log_content.find(R"("app":"test")") != std::string::npos);
+	auto const doc = require_json_text(log_content);
+	check_json_string_at(doc, "/method", "GET");
+	check_json_string_at(doc, "/path", "/ping");
+	check_json_u64_at(doc, "/status", 200);
+	check_json_string_at(doc, "/app", "test");
 }
 TEST_CASE(
 	"structured_log: no app_name omits app field") {
@@ -1176,8 +1177,9 @@ TEST_CASE(
 		log_content.assign(buf.data(), static_cast<std::size_t>(n));
 	}
 	::unlink(path);
-	REQUIRE(log_content.find("\"app\"") == std::string::npos);
-	REQUIRE(log_content.find(R"("path":"/x")") != std::string::npos);
+	auto const doc = require_json_text(log_content);
+	check_json_absent_at(doc, "/app");
+	check_json_string_at(doc, "/path", "/x");
 }
 TEST_CASE(
 	"structured_log: path with double-quote is JSON-escaped in log") {
@@ -1190,12 +1192,18 @@ TEST_CASE(
 	Config cfg = mw_config();
 	Router router;
 	router.use(structured_log_middleware({.log_file = path, .app_name = "test"}));
-	// Register a route that matches a path containing a percent-encoded quote.
-	router.get("/q", [](Request const &) { return Response::text("ok"); });
+	router.get("/{*path}", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
-	// GET /q?x=1 — path itself is safe; verify basic log integrity.
-	auto resp = http_get_on(srv.port(), "/q");
+	LocalTcpClient client{srv.port()};
+	client.set_recv_timeout(std::chrono::seconds{5});
+	std::string_view const raw_request =
+		"GET /q\" HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Connection: close\r\n"
+		"\r\n";
+	REQUIRE(client.send(raw_request, MSG_NOSIGNAL) == static_cast<ssize_t>(raw_request.size()));
+	auto resp = client.read_one_response();
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
@@ -1210,10 +1218,9 @@ TEST_CASE(
 		log_content.assign(buf.data(), static_cast<std::size_t>(n));
 	}
 	::unlink(path);
-	// "app" field must be present since app_name is set.
-	REQUIRE(log_content.find(R"("app":"test")") != std::string::npos);
-	// Log line must be valid JSON-like (outer braces present).
-	REQUIRE(log_content.front() == '{');
+	auto const doc = require_json_text(log_content);
+	check_json_string_at(doc, "/app", "test");
+	check_json_string_at(doc, "/path", "/q\"");
 }
 // ---------------------------------------------------------------------------
 // tracing_middleware
@@ -1470,24 +1477,6 @@ Document parse_openapi_spec(
 	auto doc = conflux::json::parse_copy(std::move(spec));
 	REQUIRE(doc.has_value());
 	return std::move(*doc);
-}
-
-NodeRef require_json_pointer(
-	Document const &doc,
-	std::string_view pointer) {
-	auto node = doc.root().at_pointer(pointer);
-	REQUIRE(node.has_value());
-	return *node;
-}
-
-void check_json_string_at(
-	Document const &doc,
-	std::string_view pointer,
-	std::string_view expected) {
-	auto node = require_json_pointer(doc, pointer);
-	auto value = node.as_string();
-	REQUIRE(value.has_value());
-	CHECK(*value == expected);
 }
 
 void check_parser_problem_code(

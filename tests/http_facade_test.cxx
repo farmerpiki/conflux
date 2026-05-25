@@ -190,6 +190,29 @@ void check_json_u64_at(
 	CHECK(*value == expected);
 }
 
+void check_json_contains_no_secret(
+	NodeRef node,
+	std::span<std::string_view const> secrets) {
+	if (auto value = node.as_string(); value.has_value()) {
+		for (auto secret: secrets) {
+			CHECK_FALSE(value->contains(secret));
+		}
+	}
+	if (auto object = node.as_object(); object.has_value()) {
+		for (auto const &[name, value]: object->members()) {
+			for (auto secret: secrets) {
+				CHECK_FALSE(name.contains(secret));
+			}
+			check_json_contains_no_secret(value, secrets);
+		}
+	}
+	if (auto array = node.as_array(); array.has_value()) {
+		for (auto value: array->elements()) {
+			check_json_contains_no_secret(value, secrets);
+		}
+	}
+}
+
 TEST_CASE(
 	"http facade: app state stores borrowed and shared typed state",
 	"[http.facade]") {
@@ -638,13 +661,14 @@ TEST_CASE(
 	CHECK(response.headers.get("X-Request-ID").has_value());
 	CHECK(response.headers.get("Traceparent").has_value());
 	REQUIRE(logs.size() == 1);
-	CHECK(logs[0].contains(R"("service":"api")"));
-	CHECK(logs[0].contains(R"("route":"/items/{id}")"));
-	CHECK(logs[0].contains(R"("path":"/items/42")"));
-	CHECK_FALSE(logs[0].contains("debug=true"));
-	CHECK(logs[0].contains(R"("Authorization":"<redacted>")"));
-	CHECK(logs[0].contains(R"("X-Secret":"<redacted>")"));
-	CHECK_FALSE(logs[0].contains("Bearer secret"));
+	auto const log_doc = require_json_text(logs[0]);
+	check_json_string_at(log_doc, "/service", "api");
+	check_json_string_at(log_doc, "/route", "/items/{id}");
+	check_json_string_at(log_doc, "/path", "/items/42");
+	check_json_string_at(log_doc, "/request_headers/Authorization", "<redacted>");
+	check_json_string_at(log_doc, "/request_headers/X-Secret", "<redacted>");
+	std::array<std::string_view, 2> const secrets{"debug=true", "Bearer secret"};
+	check_json_contains_no_secret(log_doc.root(), secrets);
 
 	Request metrics_req;
 	metrics_req.method = "GET";
@@ -693,8 +717,10 @@ TEST_CASE(
 	auto missing = http::router(app).dispatch(req);
 	CHECK(missing.status == kHttpNotFound);
 	REQUIRE(logs.size() == 1);
-	CHECK(logs[0].contains(R"("route":"<unmatched>")"));
-	CHECK_FALSE(logs[0].contains("token=secret"));
+	auto const log_doc = require_json_text(logs[0]);
+	check_json_string_at(log_doc, "/route", "<unmatched>");
+	std::array<std::string_view, 1> const secrets{"token=secret"};
+	check_json_contains_no_secret(log_doc.root(), secrets);
 
 	Request metrics_req;
 	metrics_req.method = "GET";

@@ -3,6 +3,7 @@
 #include <cctype>
 
 import std;
+import conflux.json;
 import conflux.net.app;
 import conflux.net.config;
 import conflux.net.http_server;
@@ -92,6 +93,64 @@ void require_log_count_at_least(
 		std::this_thread::sleep_for(std::chrono::milliseconds{10});
 	}
 	REQUIRE(snapshot_logs(mu, logs).size() >= count);
+}
+
+Document require_json_text(
+	std::string_view text) {
+	auto doc = conflux::json::parse_copy(std::string{text});
+	REQUIRE(doc.has_value());
+	return std::move(*doc);
+}
+
+NodeRef require_json_pointer(
+	Document const &doc,
+	std::string_view pointer) {
+	auto node = doc.root().at_pointer(pointer);
+	REQUIRE(node.has_value());
+	return *node;
+}
+
+void check_json_string_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::string_view expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+
+void check_json_u64_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::uint64_t expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_u64();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+
+void check_json_contains_no_secret(
+	NodeRef node,
+	std::span<std::string_view const> secrets) {
+	if (auto value = node.as_string(); value.has_value()) {
+		for (auto secret: secrets) {
+			CHECK_FALSE(value->contains(secret));
+		}
+	}
+	if (auto object = node.as_object(); object.has_value()) {
+		for (auto const &[name, value]: object->members()) {
+			for (auto secret: secrets) {
+				CHECK_FALSE(name.contains(secret));
+			}
+			check_json_contains_no_secret(value, secrets);
+		}
+	}
+	if (auto array = node.as_array(); array.has_value()) {
+		for (auto value: array->elements()) {
+			check_json_contains_no_secret(value, secrets);
+		}
+	}
 }
 
 class ScopedAppServer {
@@ -192,29 +251,23 @@ TEST_CASE(
 	require_log_count_at_least(logs_mu, logs, 2);
 	auto const lines = snapshot_logs(logs_mu, logs);
 	REQUIRE(lines.size() >= 2);
-	auto const &line = lines.front();
-	CHECK(line.contains(R"("event":"http_request")"));
-	CHECK(line.contains(R"("service":"golden-api")"));
-	CHECK(line.contains(R"("request_id":"golden-request-id")"));
-	CHECK(line.contains(R"("trace_id":")"));
-	CHECK(line.contains("4bf92f3577b34da6a3ce929d0e0e4736"));
-	CHECK(line.contains(R"("method":"GET")"));
-	CHECK(line.contains(R"("path":"/users/42")"));
-	CHECK(line.contains(R"("route":"/users/{id}")"));
-	CHECK(line.contains(R"("status":200)"));
-	CHECK(line.contains(R"("status_class":"2xx")"));
-	CHECK(line.contains(R"("user_agent":"golden-test")"));
-	bool const has_authorization_redacted =
-		line.contains(R"("authorization":"<redacted>")") || line.contains(R"("Authorization":"<redacted>")");
-	bool const has_cookie_redacted =
-		line.contains(R"("cookie":"<redacted>")") || line.contains(R"("Cookie":"<redacted>")");
-	CHECK(has_authorization_redacted);
-	CHECK(has_cookie_redacted);
-	CHECK(line.contains("<redacted>"));
-	CHECK(line.find("request-secret") == std::string::npos);
-	CHECK(line.find("cookie-secret") == std::string::npos);
-	CHECK(line.find("custom-secret") == std::string::npos);
-	CHECK(line.find("response-secret") == std::string::npos);
-	CHECK(line.find("debug=request-secret") == std::string::npos);
-	CHECK(line.find("__conflux-route-pattern") == std::string::npos);
+	auto const first_doc = require_json_text(lines.front());
+	check_json_string_at(first_doc, "/event", "http_request");
+	check_json_string_at(first_doc, "/service", "golden-api");
+	check_json_string_at(first_doc, "/request_id", "golden-request-id");
+	check_json_string_at(first_doc, "/trace_id", first_trace);
+	check_json_string_at(first_doc, "/method", "GET");
+	check_json_string_at(first_doc, "/path", "/users/42");
+	check_json_string_at(first_doc, "/route", "/users/{id}");
+	check_json_u64_at(first_doc, "/status", 200);
+	check_json_string_at(first_doc, "/status_class", "2xx");
+	check_json_string_at(first_doc, "/user_agent", "golden-test");
+	check_json_string_at(first_doc, "/request_headers/Authorization", "<redacted>");
+	check_json_string_at(first_doc, "/request_headers/Cookie", "<redacted>");
+	check_json_string_at(first_doc, "/request_headers/X-Secret", "<redacted>");
+	check_json_string_at(first_doc, "/response_headers/X-Secret-Response", "<redacted>");
+	std::array<std::string_view, 5> const
+		secrets{"request-secret", "cookie-secret", "custom-secret", "response-secret", "debug=request-secret"};
+	check_json_contains_no_secret(first_doc.root(), secrets);
+	CHECK_FALSE(first_doc.root().at_pointer("/response_headers/__conflux-route-pattern").has_value());
 }

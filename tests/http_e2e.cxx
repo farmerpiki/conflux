@@ -925,6 +925,42 @@ void check_problem_code(
 	REQUIRE(diagnostic_value.has_value());
 	CHECK(*diagnostic_value == code);
 }
+Document require_json_text(
+	std::string_view text) {
+	auto doc = conflux::json::parse_copy(std::string{text});
+	REQUIRE(doc.has_value());
+	return std::move(*doc);
+}
+NodeRef require_json_pointer(
+	Document const &doc,
+	std::string_view pointer) {
+	auto node = doc.root().at_pointer(pointer);
+	REQUIRE(node.has_value());
+	return *node;
+}
+void check_json_string_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::string_view expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+void check_json_u64_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::uint64_t expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_u64();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+void check_json_absent_at(
+	Document const &doc,
+	std::string_view pointer) {
+	CHECK_FALSE(doc.root().at_pointer(pointer).has_value());
+}
 // Extract the value of a named cookie from a Set-Cookie header list.
 // Looks for "Set-Cookie: <name>=<value>; ..." lines.
 std::string extract_set_cookie(
