@@ -69,6 +69,30 @@ protected:
 		return self.case_insensitive_ ? ascii_ci_equal(a, b) : a == b;
 	}
 
+	template<typename Self, class F>
+	void for_each_matching(
+		this Self const &self,
+		std::string_view key,
+		F &&fn) {
+		for (auto const &[k, v]: self.data_) {
+			if (self.key_eq(k, key)) {
+				fn(v);
+			}
+		}
+	}
+
+	template<typename Self>
+	[[nodiscard]] std::optional<std::string_view> first_matching(
+		this Self const &self,
+		std::string_view key) noexcept {
+		for (auto const &[k, v]: self.data_) {
+			if (self.key_eq(k, key)) {
+				return std::string_view{v};
+			}
+		}
+		return std::nullopt;
+	}
+
 public:
 	template<typename Self>
 	[[nodiscard]] bool case_insensitive(
@@ -86,24 +110,14 @@ public:
 	[[nodiscard]] std::optional<std::string_view> get(
 		this Self const &self,
 		std::string_view key) noexcept {
-		for (auto const &[k, v]: self.data_) {
-			if (self.key_eq(k, key)) {
-				return std::string_view{v};
-			}
-		}
-		return std::nullopt;
+		return self.first_matching(key);
 	}
 	template<typename Self>
 	[[nodiscard]] std::size_t count(
 		this Self const &self,
 		std::string_view key) noexcept {
 		std::size_t n = 0;
-		for (auto const &[k, v]: self.data_) {
-			(void)v;
-			if (self.key_eq(k, key)) {
-				++n;
-			}
-		}
+		self.for_each_matching(key, [&n](auto const &) { ++n; });
 		return n;
 	}
 	template<typename Self>
@@ -111,23 +125,14 @@ public:
 		this Self const &self,
 		std::string_view key) {
 		std::vector<std::string_view> out;
-		for (auto const &[k, v]: self.data_) {
-			if (self.key_eq(k, key)) {
-				out.push_back(v);
-			}
-		}
+		self.for_each_matching(key, [&out](auto const &value) { out.push_back(value); });
 		return out;
 	}
 	template<typename Self>
 	[[nodiscard]] bool contains(
 		this Self const &self,
 		std::string_view key) noexcept {
-		for (auto const &[k, v]: self.data_) {
-			if (self.key_eq(k, key)) {
-				return true;
-			}
-		}
-		return false;
+		return self.first_matching(key).has_value();
 	}
 	template<typename Self>
 	[[nodiscard]] std::string_view value_or(
