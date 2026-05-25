@@ -110,6 +110,7 @@ inline std::uint64_t fnv1a64(
 export struct ConnectParams {
 	std::string conninfo{};
 	std::chrono::milliseconds connect_deadline{std::chrono::seconds{15}};
+	std::shared_ptr<WorkPool> cancel_pool{};
 };
 export struct QueryOptions {
 	std::optional<std::chrono::milliseconds> deadline{};
@@ -270,9 +271,11 @@ public:
 private:
 	Connection(
 		PGConnPtr conn,
-		FileReader *reader) noexcept
+		FileReader *reader,
+		std::shared_ptr<WorkPool> cancel_pool) noexcept
 		: conn_{std::move(conn)}
 		, reader_{reader}
+		, cancel_pool_{std::move(cancel_pool)}
 		, owner_{std::this_thread::get_id()} {}
 	void enqueue_job_(std::function<void()> job);
 	void start_next_();
@@ -309,6 +312,7 @@ private:
 
 	PGConnPtr conn_;
 	FileReader *reader_{nullptr};
+	std::shared_ptr<WorkPool> cancel_pool_{};
 	std::thread::id owner_{};
 	bool closed_{false};
 	bool in_flight_{false};
@@ -371,6 +375,7 @@ namespace detail {
 struct ConnectState : std::enable_shared_from_this<ConnectState> {
 	PGConnPtr conn{};
 	FileReader *reader{nullptr};
+	std::shared_ptr<WorkPool> cancel_pool{};
 	std::shared_ptr<root::TaskSource<std::shared_ptr<Connection>>> dst{};
 	std::chrono::steady_clock::time_point deadline{};
 	void start() {
@@ -400,7 +405,7 @@ struct ConnectState : std::enable_shared_from_this<ConnectState> {
 						std::make_exception_ptr(from_conn(conn.get(), "conflux.pg: PQsetnonblocking")));
 					return;
 				}
-				auto c = std::shared_ptr<Connection>(new Connection{std::move(conn), reader});
+				auto c = std::shared_ptr<Connection>(new Connection{std::move(conn), reader, std::move(cancel_pool)});
 				// P11b: pin client_encoding to UTF-8 before publishing.
 				auto outer = dst;
 				auto conn_sp = c;
@@ -464,9 +469,12 @@ struct PGcancelDeleter {
 	}
 };
 using PGcancelPtr = std::unique_ptr<PGcancel, PGcancelDeleter>;
-inline WorkPool &cancel_pool() {
+inline WorkPool &default_cancel_pool() {
 	static WorkPool pool{WorkPoolOptions{.threads = 1}};
 	return pool;
+}
+inline std::shared_ptr<WorkPool> default_cancel_pool_ref() {
+	return std::shared_ptr<WorkPool>{std::shared_ptr<void>{}, &default_cancel_pool()};
 }
 
 } // namespace detail
@@ -495,6 +503,7 @@ root::Task<std::shared_ptr<Connection>> Connection::connect(
 	auto st = std::make_shared<detail::ConnectState>();
 	st->conn = std::move(conn);
 	st->reader = reader;
+	st->cancel_pool = params.cancel_pool != nullptr ? params.cancel_pool : detail::default_cancel_pool_ref();
 	st->dst = shared_src;
 	st->deadline = std::chrono::steady_clock::now() + params.connect_deadline;
 	st->start();
@@ -919,7 +928,10 @@ root::Task<void> Connection::cancel_inflight(
 	return std::move(task);
 }
 root::Task<void> Connection::cancel_inflight() {
-	return cancel_inflight(detail::cancel_pool());
+	if (cancel_pool_ == nullptr) {
+		cancel_pool_ = detail::default_cancel_pool_ref();
+	}
+	return cancel_inflight(*cancel_pool_);
 }
 root::Task<Result> Connection::query(
 	std::string_view sql,

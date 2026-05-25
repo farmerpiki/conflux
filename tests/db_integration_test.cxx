@@ -712,7 +712,7 @@ TEST_CASE(
 	std::filesystem::remove_all(root, ec);
 }
 TEST_CASE(
-	"db: cancel_inflight zero-arg uses process-wide cancel pool",
+	"db: cancel_inflight zero-arg uses connection cancel pool",
 	"[db][integration]") {
 	auto ci = conninfo();
 	if (!ci) {
@@ -761,6 +761,42 @@ TEST_CASE(
 		(void)block_on(fx->reader, conn->query("SELECT pg_sleep(10)", Params{}, opts), std::chrono::seconds{30});
 		FAIL("expected deadline cancellation");
 	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); }
+}
+
+TEST_CASE(
+	"db: ConnectParams can share an explicit cancel pool",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto cancel_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	ConnectParams params{.conninfo = *ci, .cancel_pool = cancel_pool};
+	auto conn = block_on(fx->reader, Connection::connect(params), std::chrono::seconds{30});
+
+	std::atomic_flag done{};
+	std::exception_ptr err;
+	[](std::atomic_flag *d, std::exception_ptr *e, decltype(conn->query("")) qt) -> Task<void> {
+		try {
+			co_await std::move(qt);
+		} catch (...) { *e = std::current_exception(); }
+		d->test_and_set(std::memory_order_release);
+	}(&done, &err, conn->query("SELECT pg_sleep(10)"))
+																						.detach();
+
+	std::this_thread::sleep_for(std::chrono::milliseconds{100});
+	block_on(fx->reader, conn->cancel_inflight(), std::chrono::seconds{30});
+	pump_until(fx->reader, done, std::chrono::seconds{10});
+
+	REQUIRE(err);
+	try {
+		rethrow_exception(err);
+	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); } catch (...) {
+		FAIL("expected PgError");
+	}
 }
 TEST_CASE(
 	"db: exec_cached auto-prepares on first call and reuses on second",

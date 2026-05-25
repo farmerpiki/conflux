@@ -211,6 +211,9 @@ auto with_transaction(
 
 std::shared_ptr<Pool> Pool::create(
 	PoolConfig cfg) {
+	if (cfg.conn.cancel_pool == nullptr) {
+		cfg.conn.cancel_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	}
 	auto p = std::shared_ptr<Pool>(new Pool{std::move(cfg)});
 	p->grow_if_needed_();
 	return p;
