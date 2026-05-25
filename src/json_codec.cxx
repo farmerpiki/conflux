@@ -665,6 +665,49 @@ std::expected<T, JsonError> decode(
 	JsonDecodeOptions const &opts = {}) {
 	return decode<T>(d.root(), opts);
 }
+
+template<class T>
+std::expected<T, JsonError> NodeRef::as(
+	JsonDecodeOptions const &opts) const {
+	return decode<T>(*this, opts);
+}
+
+template<class T>
+std::expected<T, JsonError> ObjectView::required(
+	std::string_view name,
+	JsonDecodeOptions const &opts) const {
+	auto node = member(name);
+	if (!node) {
+		return std::unexpected(std::move(node).error());
+	}
+	return decode<T>(*node, opts);
+}
+
+template<class T>
+std::expected<std::optional<T>, JsonError> ObjectView::optional(
+	std::string_view name,
+	JsonDecodeOptions const &opts) const {
+	auto node = find_member(name);
+	if (!node) {
+		return std::optional<T>{};
+	}
+	auto value = decode<T>(*node, opts);
+	if (!value) {
+		return std::unexpected(std::move(value).error());
+	}
+	return std::optional<T>{std::move(*value)};
+}
+
+template<class T>
+std::expected<T, JsonError> Document::get(
+	std::string_view pointer,
+	JsonDecodeOptions const &opts) const {
+	auto node = root().at_pointer(pointer);
+	if (!node) {
+		return std::unexpected(std::move(node).error());
+	}
+	return decode<T>(*node, opts);
+}
 // Built-in JsonCodec specializations.
 
 template<>

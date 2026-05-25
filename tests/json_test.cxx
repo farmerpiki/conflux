@@ -282,6 +282,36 @@ TEST_CASE(
 	CHECK_FALSE(res.has_value());
 	CHECK(res.error().code == JsonIssueCode::missing_member);
 }
+
+TEST_CASE(
+	"json: DOM convenience getters decode typed values",
+	"[json][codec]") {
+	auto doc = parse(R"({"user":{"id":42,"name":"alice"}})");
+	REQUIRE(doc.has_value());
+
+	auto id = doc->get<std::uint64_t>("/user/id");
+	REQUIRE(id.has_value());
+	CHECK(*id == 42UZ);
+
+	auto user_node = doc->root().as_object()->member("user");
+	REQUIRE(user_node.has_value());
+	auto obj = user_node->as_object();
+	REQUIRE(obj.has_value());
+	auto name = obj->required<std::string_view>("name");
+	REQUIRE(name.has_value());
+	CHECK(*name == "alice");
+
+	auto missing = obj->optional<std::uint64_t>("missing");
+	REQUIRE(missing.has_value());
+	CHECK_FALSE(missing->has_value());
+
+	auto node = obj->member("id");
+	REQUIRE(node.has_value());
+	auto direct = node->as<std::uint64_t>();
+	REQUIRE(direct.has_value());
+	CHECK(*direct == 42UZ);
+}
+
 TEST_CASE(
 	"json: reject duplicate object keys",
 	"[json]") {

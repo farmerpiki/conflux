@@ -1366,6 +1366,8 @@ public:
 	[[nodiscard]] std::expected<std::int64_t, JsonError> as_i64() const;
 	[[nodiscard]] std::expected<std::uint64_t, JsonError> as_u64() const;
 	[[nodiscard]] std::expected<double, JsonError> as_double() const;
+	template<class T>
+	[[nodiscard]] std::expected<T, JsonError> as(JsonDecodeOptions const &opts = {}) const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at(JsonPath const &path) const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at_pointer(std::string_view pointer) const;
 };
@@ -1525,6 +1527,11 @@ public:
 	[[nodiscard]] std::size_t size() const noexcept { return mem_count_; }
 	[[nodiscard]] std::optional<NodeRef> find_member(std::string_view name) const noexcept;
 	[[nodiscard]] std::expected<NodeRef, JsonError> member(std::string_view name) const;
+	template<class T>
+	[[nodiscard]] std::expected<T, JsonError> required(std::string_view name, JsonDecodeOptions const &opts = {}) const;
+	template<class T>
+	[[nodiscard]] std::expected<std::optional<T>, JsonError>
+	optional(std::string_view name, JsonDecodeOptions const &opts = {}) const;
 	[[nodiscard]] ObjectMemberRange members() const noexcept;
 };
 export class ArrayView {
@@ -1695,6 +1702,8 @@ public:
 		assert(storage_ && "Document::root() called on empty Document");
 		return NodeRef{storage_.get(), storage_->root_node};
 	}
+	template<class T>
+	[[nodiscard]] std::expected<T, JsonError> get(std::string_view pointer, JsonDecodeOptions const &opts = {}) const;
 	[[nodiscard]] std::expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
 	// Pre-build std::hash index for the given object node (idempotent, std::thread-safe).
 	[[nodiscard]] std::expected<void, JsonError> warm_member_index(NodeRef node) const;
