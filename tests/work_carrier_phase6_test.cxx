@@ -185,7 +185,7 @@ TEST_CASE(
 		rethrow_exception(out.failure().error);
 	} catch (carrier::AggregateError const &) {
 		FAIL("single failure must not produce AggregateError");
-	} catch (std::runtime_error const &) { CHECK(true); }
+	} catch (std::runtime_error const &ex) { CHECK(std::string_view{ex.what()} == "sole"); }
 }
 TEST_CASE(
 	"phase6c: when_all single B failure returns original cause unwrapped",
@@ -197,7 +197,7 @@ TEST_CASE(
 		rethrow_exception(out.failure().error);
 	} catch (carrier::AggregateError const &) {
 		FAIL("single failure must not produce AggregateError");
-	} catch (std::runtime_error const &) { CHECK(true); }
+	} catch (std::runtime_error const &ex) { CHECK(std::string_view{ex.what()} == "sole"); }
 }
 TEST_CASE(
 	"phase6c: when_all A failure B cancelled returns A failure",

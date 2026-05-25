@@ -54,6 +54,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
   checker now applies public shorthand-alias and macro leakage checks to every
   selected generated public header from the active manifest, while retaining the
   optional-dependency include guard for the core convenience header subset.
+- `findings/4.md` P2 work-carrier single-failure checks: complete. The
+  `when_all` single-failure tests now assert the original runtime-error message
+  instead of accepting any `std::runtime_error`.
 
 ## Verification
 
@@ -129,6 +132,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
   conflux_header_smoke_public_hygiene` was checked and is not a valid target in
   the release module profile; the header-component-smoke profile owns this
   header-only target.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_work_carrier_phase6_tests` completed after strengthening
+  single-failure cause checks.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "phase6c: when_all single .* failure returns original cause unwrapped"`
+  completed: 2/2 passed.
 
 ## Accepted / In Scope
 
