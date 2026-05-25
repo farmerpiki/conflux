@@ -1660,6 +1660,47 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: required bearer extractor rejects missing authorization",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/bearer", [](http::RequiredBearer bearer) { return http::text(bearer.get()); });
+
+	Request req;
+	req.method = "GET";
+	req.path = "/bearer";
+
+	auto missing = http::router(app).dispatch(req);
+	CHECK(missing.status == kHttpUnauthorized);
+	CHECK(missing.headers["WWW-Authenticate"] == "Bearer");
+
+	req.headers["authorization"] = "Bearer secret";
+	auto ok = http::router(app).dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == "secret");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].auth_policy == "bearer");
+	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBearer"});
+	CHECK(app.openapi_spec("Auth", "1.0").find("\"security\":[{\"bearerAuth\":[]}]") != std::string::npos);
+}
+
+TEST_CASE(
+	"http facade: optional bearer extractor does not reject missing authorization",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/bearer", [](http::OptionalBearer bearer) { return http::text(bearer.get().value_or("none")); });
+
+	Request req;
+	req.method = "GET";
+	req.path = "/bearer";
+	CHECK(http::router(app).dispatch(req).text_body() == "none");
+
+	req.headers["authorization"] = "Bearer secret";
+	CHECK(http::router(app).dispatch(req).text_body() == "secret");
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive basic auth extractor",
 	"[http.facade]") {
 	auto app = http::app();

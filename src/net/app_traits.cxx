@@ -197,6 +197,12 @@ template<class Arg>
 concept BearerArg = std::same_as<std::remove_cvref_t<Arg>, Bearer>;
 
 template<class Arg>
+concept RequiredBearerArg = std::same_as<std::remove_cvref_t<Arg>, RequiredBearer>;
+
+template<class Arg>
+concept OptionalBearerArg = std::same_as<std::remove_cvref_t<Arg>, OptionalBearer>;
+
+template<class Arg>
 concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;
 
 template<class Arg>
@@ -271,6 +277,8 @@ consteval bool has_state_arg_impl(
 			|| ConnectionInfoArg<std::tuple_element_t<Is, Args>>
 			|| TraceContextArg<std::tuple_element_t<Is, Args>>
 			|| BearerArg<std::tuple_element_t<Is, Args>>
+			|| RequiredBearerArg<std::tuple_element_t<Is, Args>>
+			|| OptionalBearerArg<std::tuple_element_t<Is, Args>>
 			|| BasicAuthArg<std::tuple_element_t<Is, Args>>));
 }
 

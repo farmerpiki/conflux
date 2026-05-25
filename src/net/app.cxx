@@ -1579,6 +1579,9 @@ public:
 		meta.path_params = std::move(pattern.params);
 		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearer"}) && meta.auth_policy->empty()) {
+			*meta.auth_policy = "bearer";
+		}
 		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
 		if constexpr (detail::has_body_extractor<Args>()) {
 			if (std::ranges::contains(meta.extractors, std::string_view{"JsonDocument"})) {
@@ -1828,6 +1831,16 @@ public:
 		} else if constexpr (detail::BearerArg<Clean>) {
 			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
 			return Bearer{.token = token.value_or(std::string_view{})};
+		} else if constexpr (detail::RequiredBearerArg<Clean>) {
+			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
+			if (!token || token->empty()) {
+				throw ExtractorFailure{Response::unauthorized("Bearer")};
+			}
+			return RequiredBearer{.token = *token};
+		} else if constexpr (detail::OptionalBearerArg<Clean>) {
+			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
+			return OptionalBearer{
+				.token = token && !token->empty() ? std::optional<std::string_view>{*token} : std::nullopt};
 		} else if constexpr (detail::BasicAuthArg<Clean>) {
 			auto credentials = credentials_for_auth_scheme(req.header("authorization"), "Basic");
 			if (!credentials) {

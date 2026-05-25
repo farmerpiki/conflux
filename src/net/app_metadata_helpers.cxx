@@ -67,6 +67,10 @@ template<class Arg>
 		return "TraceContext";
 	} else if constexpr (BearerArg<Clean>) {
 		return "Bearer";
+	} else if constexpr (RequiredBearerArg<Clean>) {
+		return "RequiredBearer";
+	} else if constexpr (OptionalBearerArg<Clean>) {
+		return "OptionalBearer";
 	} else if constexpr (BasicAuthArg<Clean>) {
 		return "BasicAuth";
 	} else if constexpr (JsonArg<Clean>) {
