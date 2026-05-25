@@ -309,6 +309,33 @@ Current review set: `findings/1.md` through `findings/7.md` after
   directory. Per request, instructions fell from about 20332 to 17971
   (-11.62%), cycles from about 7089 to 6497 (-8.35%), branches from about 4251
   to 3750 (-11.79%), and cache references from about 651 to 399 (-38.71%).
+- `findings/3.md` P0 middleware per-request function-wrapper allocation:
+  completed for the bounded shared wrapper cost by adding inline storage to
+  `CloneableFunction`. The one-shot `next` state still uses shared ownership
+  for copied `next` handles, preserving current middleware semantics, but the
+  per-request wrapper object no longer always needs a separate heap allocation.
+  Allocation smoke improved `middleware_x4` from 27 allocations / 1648 bytes
+  per request to 18 allocations / 1760 bytes per request, and `middleware_x16`
+  from 77 allocations / 4160 bytes per request to 44 allocations / 4656 bytes
+  per request. Allocation bytes rose because the remaining heap wrapper objects
+  are larger, so acceptance is based on integrated wall-time and perf counters,
+  not allocation count alone.
+- Evidence: compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T184535Z-compare-bins`, `middleware_x4`
+  base run `1037`, candidate run `1038`: best 1112.90 -> 1095.55 ns/iter
+  (-17.35 ns, -1.56%), p10 1115.16 -> 1096.46 ns/iter (-18.70 ns, -1.68%),
+  p50 1120.72 -> 1100.02 ns/iter (-1.85%), p99 1132.41 -> 1121.01 ns/iter
+  (-1.01%). Compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T184548Z-compare-bins`, `middleware_x16`
+  base run `1039`, candidate run `1040`: best 4074.84 -> 3904.51 ns/iter
+  (-170.33 ns, -4.18%), p10 4075.31 -> 3907.24 ns/iter (-168.07 ns,
+  -4.12%), p50 4110.84 -> 3927.85 ns/iter (-4.45%), p99 4155.76 -> 4000.51
+  ns/iter (-3.74%). Filtered `perf stat` for `middleware_x16` is preserved
+  under `/tmp/gcc-16/bench-artifacts/20260525T-cloneable-function-sbo-perf`;
+  per request, instructions fell about 63674 -> 59233 (-6.97%), cycles about
+  18856 -> 18273 (-3.09%), and branches about 13130 -> 11914 (-9.26%).
+  L1/cache-reference counters worsened, so future broader middleware work
+  should still inspect layout/cache effects.
 
 ## Deferred / Perf-Gated
 
