@@ -1148,6 +1148,38 @@ struct TreeBuilder {
 
 	return make_document(std::move(storage));
 }
+
+void set_storage_input_view(
+	DocumentStorage &storage,
+	std::string_view src) noexcept {
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage.bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
+	}
+	storage.input_view = src;
+}
+
+void prepare_copied_input(
+	DocumentStorage &storage,
+	std::string_view input) {
+	storage.owned_input.assign(input);
+	set_storage_input_view(storage, storage.owned_input);
+}
+
+void prepare_moved_input(
+	DocumentStorage &storage,
+	std::string &&input) {
+	storage.owned_input = std::move(input);
+	set_storage_input_view(storage, storage.owned_input);
+}
+
+void prepare_borrowed_input(
+	DocumentStorage &storage,
+	std::string_view input) noexcept {
+	set_storage_input_view(storage, input);
+}
+
 std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	std::string_view input,
 	JsonParseOptions const &opts) {
@@ -1156,14 +1188,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	}
 	reset_storage_for_reuse();
 
-	storage_->owned_input.assign(input);
-	std::string_view src = storage_->owned_input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage_->input_view = src;
+	prepare_copied_input(*storage_, input);
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
@@ -1185,13 +1210,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 	}
 	reset_storage_for_reuse();
 
-	std::string_view src = input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage_->input_view = src;
+	prepare_borrowed_input(*storage_, input);
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
@@ -1207,14 +1226,7 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	}
 	reset_storage_for_reuse();
 
-	storage_->owned_input = std::move(input);
-	std::string_view src = storage_->owned_input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage_->input_view = src;
+	prepare_moved_input(*storage_, std::move(input));
 
 	auto r = parse_inplace(*storage_, opts);
 	if (!r) {
@@ -1240,14 +1252,7 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-	storage->owned_input.assign(input);
-	std::string_view src = storage->owned_input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage->input_view = src;
+	prepare_copied_input(*storage, input);
 
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, std::move(storage), opts);
@@ -1263,14 +1268,7 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-	storage->owned_input = std::move(input);
-	std::string_view src = storage->owned_input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage->input_view = src;
+	prepare_moved_input(*storage, std::move(input));
 
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, std::move(storage), opts);
@@ -1285,13 +1283,7 @@ std::expected<Document, JsonError> parse_borrowed(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-	std::string_view src = input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage->input_view = src;
+	prepare_borrowed_input(*storage, input);
 
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, std::move(storage), opts);
@@ -1324,14 +1316,7 @@ std::expected<Document, JsonError> parse_copy(
 		return std::unexpected(std::move(ok).error());
 	}
 	auto storage = std::make_unique<DocumentStorage>(resource);
-	storage->owned_input.assign(input);
-	std::string_view src = storage->owned_input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage->input_view = src;
+	prepare_copied_input(*storage, input);
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, std::move(storage), opts);
 }
@@ -1343,13 +1328,7 @@ std::expected<Document, JsonError> parse_borrowed(
 		return std::unexpected(std::move(ok).error());
 	}
 	auto storage = std::make_unique<DocumentStorage>(resource);
-	std::string_view src = input;
-	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
-	}
-	storage->input_view = src;
+	prepare_borrowed_input(*storage, input);
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, std::move(storage), opts);
 }

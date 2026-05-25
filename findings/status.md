@@ -34,6 +34,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
   `JsonArena` now retains the selected hash-index memory resource and recreates
   `DocumentStorage` with it after explicit reset; the existing counting-resource
   test now exercises warm-member-index allocation after reset.
+- `findings/2.md` P0 JSON parse ownership/storage preparation: complete.
+  Borrowed, copied, and moved input setup now share private storage-preparation
+  helpers while preserving the explicit public overloads that document ownership.
 
 ## Verification
 
@@ -77,6 +80,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "JsonArena hash index allocations use the injected resource"` completed: 1/1
   passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
+  completed after centralizing JSON input preparation.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "json:"` completed: 204/204 passed.
 
 ## Accepted / In Scope
 
