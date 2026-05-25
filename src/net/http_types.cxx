@@ -370,21 +370,93 @@ export namespace conflux::http {
 	return s;
 }
 
+class HeaderTokenView {
+	std::string_view header_{};
+
+	class Iterator {
+		std::string_view header_{};
+		std::size_t pos_{0};
+		std::string_view token_{};
+		bool done_{true};
+
+		void read_current() noexcept {
+			if (pos_ > header_.size()) {
+				done_ = true;
+				token_ = {};
+				return;
+			}
+			auto const comma = header_.find(',', pos_);
+			token_ = trim_http_whitespace(
+				comma == std::string_view::npos ? header_.substr(pos_) : header_.substr(pos_, comma - pos_));
+			done_ = false;
+		}
+
+	public:
+		using value_type = std::string_view;
+		using difference_type = std::ptrdiff_t;
+		using iterator_category = std::input_iterator_tag;
+
+		Iterator() = default;
+		Iterator(
+			std::string_view header,
+			std::size_t pos) noexcept
+			: header_{header}
+			, pos_{pos} {
+			read_current();
+		}
+
+		[[nodiscard]] std::string_view operator *() const noexcept { return token_; }
+		Iterator &operator ++() noexcept {
+			if (done_) {
+				return *this;
+			}
+			auto const comma = header_.find(',', pos_);
+			if (comma == std::string_view::npos) {
+				done_ = true;
+				token_ = {};
+			} else {
+				pos_ = comma + 1;
+				read_current();
+			}
+			return *this;
+		}
+		void operator ++(
+			int) noexcept {
+			++(*this);
+		}
+		[[nodiscard]] friend bool operator ==(
+			Iterator const &lhs,
+			Iterator const &rhs) noexcept {
+			return lhs.done_ == rhs.done_
+				&& (lhs.done_
+					|| (lhs.header_.data() == rhs.header_.data()
+						&& lhs.header_.size() == rhs.header_.size()
+						&& lhs.pos_ == rhs.pos_));
+		}
+	};
+
+public:
+	explicit constexpr HeaderTokenView(
+		std::string_view header) noexcept
+		: header_{header} {}
+
+	[[nodiscard]] Iterator begin() const noexcept { return Iterator{header_, 0}; }
+	[[nodiscard]] Iterator end() const noexcept { return {}; }
+};
+
+[[nodiscard]] constexpr HeaderTokenView header_tokens(
+	std::string_view header_value) noexcept {
+	return HeaderTokenView{header_value};
+}
+
 template<class Fn>
 bool for_each_comma_token(
 	std::string_view header_value,
 	Fn &&fn) {
-	for (std::size_t pos = 0; pos <= header_value.size();) {
-		auto const comma = header_value.find(',', pos);
-		auto const token = trim_http_whitespace(
-			comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+	for (auto const token: header_tokens(header_value)) {
 		if (!std::invoke(fn, token)) {
 			return false;
 		}
-		if (comma == std::string_view::npos) {
-			return true;
-		}
-		pos = comma + 1;
 	}
 	return true;
 }
@@ -726,15 +798,9 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 	if (header.empty()) {
 		return false;
 	}
-	bool found = false;
-	for_each_comma_token(header, [&](std::string_view part) {
-		if (ascii_iequals(part, token)) {
-			found = true;
-			return false;
-		}
-		return true;
+	return std::ranges::any_of(header_tokens(header), [&](std::string_view part) {
+		return ascii_iequals(part, token);
 	});
-	return found;
 }
 
 } // namespace conflux::http

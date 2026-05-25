@@ -141,7 +141,7 @@ DynamicEncodingQs header_encoding_q_values(
 	float q_star = -1.0F;
 	DynamicEncodingQs qs{};
 
-	conflux::http::for_each_comma_token(hdr, [&](std::string_view token) {
+	for (auto const token: conflux::http::header_tokens(hdr)) {
 		auto const semi = token.find(';');
 		auto const name = conflux::http::trim_http_whitespace(token.substr(0, semi));
 
@@ -163,8 +163,7 @@ DynamicEncodingQs header_encoding_q_values(
 		} else if (conflux::http::ascii_iequals(name, "zstd")) {
 			qs.zstd = std::max(qs.zstd, q);
 		}
-		return true;
-	});
+	}
 
 	if (qs.gzip < 0.0F) {
 		qs.gzip = q_star;

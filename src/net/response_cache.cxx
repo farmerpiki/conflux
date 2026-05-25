@@ -96,30 +96,24 @@ namespace response_cache_detail {
 bool cache_control_directive_contains(
 	std::string_view cc,
 	std::string_view directive) {
-	bool found = false;
-	conflux::http::for_each_comma_token(cc, [&](std::string_view part) {
+	return std::ranges::any_of(conflux::http::header_tokens(cc), [&](std::string_view part) {
 		auto const eq = part.find('=');
 		auto const name = conflux::http::trim_http_whitespace(eq == std::string_view::npos ? part : part.substr(0, eq));
-		if (conflux::http::ascii_iequals(name, directive)) {
-			found = true;
-			return false;
-		}
-		return true;
+		return conflux::http::ascii_iequals(name, directive);
 	});
-	return found;
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
 std::chrono::seconds parse_max_age(
 	std::string_view cc) {
 	std::chrono::seconds result{0};
-	conflux::http::for_each_comma_token(cc, [&](std::string_view part) {
+	for (auto const part: conflux::http::header_tokens(cc)) {
 		auto const eq = part.find('=');
 		if (eq == std::string_view::npos) {
-			return true;
+			continue;
 		}
 		auto const name = conflux::http::trim_http_whitespace(part.substr(0, eq));
 		if (!conflux::http::ascii_iequals(name, "max-age")) {
-			return true;
+			continue;
 		}
 		auto const val = conflux::http::trim_http_whitespace(part.substr(eq + 1));
 		long v = 0;
@@ -127,8 +121,8 @@ std::chrono::seconds parse_max_age(
 		if (ec == std::errc{} && ptr == val.data() + val.size()) {
 			result = std::chrono::seconds{v};
 		}
-		return false;
-	});
+		break;
+	}
 	return result;
 }
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
@@ -136,12 +130,11 @@ std::chrono::seconds parse_max_age(
 std::vector<std::string> parse_vary(
 	std::string_view vary) {
 	std::vector<std::string> out;
-	conflux::http::for_each_comma_token(vary, [&](std::string_view token) {
+	for (auto const token: conflux::http::header_tokens(vary)) {
 		if (!token.empty() && token != "*") {
 			out.push_back(ascii_lower(token));
 		}
-		return true;
-	});
+	}
 	std::ranges::sort(out);
 	auto dup = std::ranges::unique(out);
 	out.erase(dup.begin(), dup.end());

@@ -560,14 +560,10 @@ export struct Response {
 		if (conflux::http::trim_http_whitespace(current) == "*") {
 			return;
 		}
-		bool already_present = false;
-		conflux::http::for_each_comma_token(current, [&](std::string_view part) {
-			if (conflux::http::ascii_iequals(part, token)) {
-				already_present = true;
-				return false;
-			}
-			return true;
-		});
+		bool const already_present =
+			std::ranges::any_of(conflux::http::header_tokens(current), [&](std::string_view part) {
+				return conflux::http::ascii_iequals(part, token);
+			});
 		if (already_present) {
 			return;
 		}

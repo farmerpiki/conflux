@@ -388,17 +388,16 @@ export [[nodiscard]] ExpectState parse_expect_header(
 			continue;
 		}
 		bool unsupported = false;
-		conflux::http::for_each_comma_token(header_value, [&](std::string_view token) {
+		for (auto const token: conflux::http::header_tokens(header_value)) {
 			if (token.empty()) {
-				return true;
+				continue;
 			}
 			if (!conflux::http::ascii_iequals(token, "100-continue")) {
 				unsupported = true;
-				return false;
+				break;
 			}
 			saw_continue = true;
-			return true;
-		});
+		}
 		if (unsupported) {
 			return ExpectState::unsupported;
 		}
@@ -414,14 +413,13 @@ export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
 		if (!conflux::http::ascii_iequals(name, "transfer-encoding")) {
 			continue;
 		}
-		conflux::http::for_each_comma_token(header_value, [&](std::string_view token) {
+		for (auto const token: conflux::http::header_tokens(header_value)) {
 			if (token.empty() || !conflux::http::ascii_iequals(token, "chunked")) {
 				valid = false;
-				return false;
+				break;
 			}
 			++token_count;
-			return true;
-		});
+		}
 		if (!valid) {
 			return false;
 		}

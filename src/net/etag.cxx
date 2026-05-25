@@ -68,13 +68,8 @@ export Router::Middleware etag_middleware(
 		// Check If-None-Match (comma-separated list of ETags).
 		auto inm = req.headers["if-none-match"];
 		if (!inm.empty()) {
-			bool matched = false;
-			conflux::http::for_each_comma_token(inm, [&](std::string_view token) {
-				if (token == "*" || etag_detail::weak_match(token, etag)) {
-					matched = true;
-					return false;
-				}
-				return true;
+			bool const matched = std::ranges::any_of(conflux::http::header_tokens(inm), [&](std::string_view token) {
+				return token == "*" || etag_detail::weak_match(token, etag);
 			});
 			if (matched) {
 				return etag_detail::not_modified(etag);

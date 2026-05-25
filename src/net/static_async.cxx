@@ -164,7 +164,7 @@ struct StaticAcceptedEncodings {
 	StaticAcceptedEncodings out{};
 	bool seen_br = false;
 	bool seen_gzip = false;
-	conflux::http::for_each_comma_token(ae, [&](std::string_view entry) {
+	for (auto const entry: conflux::http::header_tokens(ae)) {
 		auto const semi = entry.find(';');
 		auto const coding = conflux::http::trim_http_whitespace(entry.substr(0, semi));
 		if (!seen_br && conflux::http::ascii_iequals(coding, "br")) {
@@ -174,8 +174,10 @@ struct StaticAcceptedEncodings {
 			out.gzip = static_accept_encoding_q_allows(entry, semi);
 			seen_gzip = true;
 		}
-		return !(seen_br && seen_gzip);
-	});
+		if (seen_br && seen_gzip) {
+			break;
+		}
+	}
 	return out;
 }
 
