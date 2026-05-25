@@ -47,7 +47,7 @@ int main() {
 			});
 	});
 
-	auto const status = std::move(app).run({.port = 9120});
+	auto const status = http::run_main(std::move(app), {.port = 9120});
 	pool->close();
-	return status == http::RunStatus::stopped_normally ? 0 : 1;
+	return status;
 }

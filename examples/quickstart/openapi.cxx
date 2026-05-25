@@ -21,5 +21,5 @@ int main() {
 		.openapi_summary("Health check");
 	app.get("/openapi.json", [&app] { return http::Response::json(app.openapi_spec("conflux quickstart", "0.1.0")); });
 
-	return static_cast<int>(std::move(app).run({.port = 9098}));
+	return http::run_main(std::move(app), {.port = 9098});
 }

@@ -80,5 +80,5 @@ int main() {
 			return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
 		});
 
-	return static_cast<int>(std::move(app).run({.port = 9110}));
+	return http::run_main(std::move(app), {.port = 9110});
 }

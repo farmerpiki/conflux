@@ -78,7 +78,7 @@ int main() {
 
     app.get("/", [] { return http::text("hello from conflux\n"); });
 
-    return static_cast<int>(std::move(app).run({.port = 8080}));
+    return http::run_main(std::move(app), {.port = 8080});
 }
 ```
 

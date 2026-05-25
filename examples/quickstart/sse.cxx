@@ -13,5 +13,5 @@ int main() {
 		channel->close();
 	});
 
-	return static_cast<int>(std::move(app).run({.port = 9091}));
+	return http::run_main(std::move(app), {.port = 9091});
 }
