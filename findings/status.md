@@ -61,6 +61,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
   metadata now stores path parameter type tags in ordered flat vectors instead
   of tiny `std::map` node containers; lookup sites use linear `ranges::find`
   over the small bounded route parameter set.
+- `findings/1.md` P0 route pattern parsing/storage: complete for the bounded
+  grammar-drift issue. `router_match` now owns the shared parsed route-pattern
+  result, including normalized shape, router segments, path parameter names,
+  typed parameter tags, and validation errors; app route metadata consumes that
+  parser instead of carrying a second grammar. The larger App/Router metadata
+  model unification remains deferred with `findings/6.md`.
 - `findings/4.md` P1 TLS/OpenSSL ALPN weak status checks: complete. Sequential
   `s_client` and ALPN fallback tests now assert the parsed HTTP status code is
   `200` in addition to checking the expected response body.
@@ -183,6 +189,17 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: (fixed typed routes|typed route parameter tags dispatch)"`
   completed: 3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests conflux_tests conflux_h2_external` completed after
+  moving route-pattern parsing into `router_match`.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (validate reports invalid route patterns|app groups support
+  typed route patterns|app openapi spec maps typed path parameters|fixed typed
+  routes|typed route parameter tags dispatch|validate reports positional path
+  parameter mismatch|validate reports mismatched path extractor)|router:
+  percent-encoded path param is URL-decoded|openapi: spec includes registered
+  path with path parameter|h2: (POST body is echoed|GET with path param echoes
+  name|GET /ping returns 200)"` completed: 13/13 passed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: (app openapi spec maps typed path parameters|validate reports
   mismatched path extractor|validate reports positional path parameter
@@ -248,6 +265,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
   /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed: 1953/1953
   passed, 7 skipped.
+- Final verification after the route-pattern parser unification and status
+  audit updates: `cmake --build --preset release-clang-libcxx` completed, then
+  `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed: 1953/1953
+  passed, 7 skipped.
 
 ## Accepted / In Scope
 
@@ -282,6 +304,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   perf-gated. Do not centralize these hot algorithms until generated assembly
   and representative benchmarks prove the helper shape does not pessimize the
   selected backend.
+- `findings/6.md` P1 JSON string escaping deduplication: perf-gated. The
+  canonical dumper includes SIMD safe-run scanning, while direct/reflection
+  writers are hot serialization paths. Centralizing them is reasonable only
+  with representative JSON serialization benchmarks and codegen/perf evidence
+  that the shared helper keeps or improves throughput.
 - `findings/2.md` P1 App/Group route verb boilerplate: deferred until the
   route/extractor API model stabilizes. It is API-shape cleanup, and helper
   families now could hide rather than reduce the pending route model changes.
@@ -320,6 +347,14 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/6.md` P1 full route-pattern model unification and App/Router
   OpenAPI renderer unification are deferred as larger router/app metadata
   rewrites.
+- `findings/1.md` P2 OpenAPI render-from-route-metadata-range is deferred with
+  the App/Router OpenAPI renderer unification work. It is a tooling-path
+  allocation cleanup, not a correctness or request-path issue, and the current
+  materialization is simple until the public route metadata shape settles.
+- `findings/1.md` P2 client effective-header indexing remains rejected for the
+  current default-header size. Local materialization is lifetime-safe after the
+  recent client fixes, and adding a normalized flat index only pays off if
+  default or user-extensible header sets grow.
 - `findings/7.md` P0 module-mode `release-core` target graph cleanup is
   deferred as a build graph/profile architecture split. Header-mode core is
   already checked; module-mode requires deciding whether `net.config`,

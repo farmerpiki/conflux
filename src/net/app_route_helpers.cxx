@@ -3,6 +3,7 @@ export module conflux.net.app.route_helpers;
 import std;
 import conflux.net.app.types;
 import conflux.net.http.types;
+import conflux.net.router_match;
 
 export namespace conflux::http::detail {
 
@@ -13,76 +14,15 @@ struct RoutePatternInfo {
 	std::vector<std::pair<std::string, std::string>> param_types;
 };
 
-[[nodiscard]] bool is_known_route_type_tag(
-	std::string_view tag) noexcept {
-	return tag.empty() || tag == "string" || tag == "u64" || tag == "i64" || tag == "u32" || tag == "i32";
-}
-
 [[nodiscard]] RoutePatternInfo route_pattern_info(
 	std::string_view path) {
-	RoutePatternInfo info;
-	info.shape.reserve(path.size());
-	if (path.empty() || path.front() != '/') {
-		info.error = "invalid route pattern: path must start with /";
-		return info;
-	}
-	for (std::size_t pos = 0, segment_index = 0;; ++segment_index) {
-		auto next = path.find('/', pos + 1);
-		auto segment = path.substr(pos + 1, next == std::string_view::npos ? path.size() - pos - 1 : next - pos - 1);
-		auto const open = segment.find('{');
-		auto const close = segment.find('}');
-		info.shape += '/';
-		if ((open == std::string_view::npos) != (close == std::string_view::npos) || open > close) {
-			info.error = "invalid route pattern: unmatched path parameter braces";
-			return info;
-		}
-		if (open != std::string_view::npos) {
-			if (open != 0 || close + 1 != segment.size()) {
-				info.error = "invalid route pattern: path parameter must occupy the full segment";
-				return info;
-			}
-			auto name = segment.substr(1, segment.size() - 2);
-			bool const wildcard = name.starts_with('*');
-			if (wildcard) {
-				name.remove_prefix(1);
-				if (next != std::string_view::npos) {
-					info.error = "invalid route pattern: wildcard parameter must be the final segment";
-					return info;
-				}
-			}
-			if (name.empty()) {
-				info.error = "invalid route pattern: path parameter name is empty";
-				return info;
-			}
-			std::string_view type;
-			if (auto colon = name.find(':'); colon != std::string_view::npos) {
-				type = name.substr(colon + 1);
-				name = name.substr(0, colon);
-				if (type.empty()) {
-					info.error = "invalid route pattern: path parameter type is empty";
-					return info;
-				}
-				if (!is_known_route_type_tag(type)) {
-					info.error = std::format("invalid route pattern: unknown path parameter type '{}'", type);
-					return info;
-				}
-			}
-			info.shape += wildcard ? "{*}" : "{}";
-			info.params.emplace_back(name);
-			info.param_types.emplace_back(std::string{name}, std::string{type});
-		} else {
-			info.shape += segment;
-		}
-		(void)segment_index;
-		if (next == std::string_view::npos) {
-			break;
-		}
-		pos = next;
-	}
-	if (info.shape.empty()) {
-		info.shape = "/";
-	}
-	return info;
+	auto parsed = parse_route_pattern(path);
+	return {
+		.error = std::move(parsed.error),
+		.shape = std::move(parsed.shape),
+		.params = std::move(parsed.params),
+		.param_types = std::move(parsed.param_types),
+	};
 }
 
 [[nodiscard]] std::optional<std::string> validate_path_pattern(

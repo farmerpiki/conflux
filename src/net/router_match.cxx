@@ -13,37 +13,93 @@ export struct Segment {
 	bool is_wildcard; // true -> {*name} greedy tail capture (must be last segment)
 };
 
-[[nodiscard]] std::string route_param_name(
-	std::string_view value) {
-	if (auto colon = value.find(':'); colon != std::string_view::npos) {
-		value = value.substr(0, colon);
+export struct ParsedRoutePattern {
+	std::optional<std::string> error;
+	std::string shape;
+	std::vector<Segment> segments;
+	std::vector<std::string> params;
+	std::vector<std::pair<std::string, std::string>> param_types;
+};
+
+[[nodiscard]] bool is_known_route_type_tag(
+	std::string_view tag) noexcept {
+	return tag.empty() || tag == "string" || tag == "u64" || tag == "i64" || tag == "u32" || tag == "i32";
+}
+
+export [[nodiscard]] ParsedRoutePattern parse_route_pattern(
+	std::string_view pattern) {
+	ParsedRoutePattern info;
+	info.shape.reserve(pattern.size());
+	info.segments.reserve(static_cast<std::size_t>(std::ranges::count(pattern, '/')) + 1);
+	if (pattern.empty() || pattern.front() != '/') {
+		info.error = "invalid route pattern: path must start with /";
+		return info;
 	}
-	return std::string{value};
+	info.segments.push_back({std::string{}, false, false});
+	for (std::size_t pos = 0;;) {
+		auto next = pattern.find('/', pos + 1);
+		auto segment =
+			pattern.substr(pos + 1, next == std::string_view::npos ? pattern.size() - pos - 1 : next - pos - 1);
+		auto const open = segment.find('{');
+		auto const close = segment.find('}');
+		info.shape += '/';
+		if ((open == std::string_view::npos) != (close == std::string_view::npos) || open > close) {
+			info.error = "invalid route pattern: unmatched path parameter braces";
+			return info;
+		}
+		if (open != std::string_view::npos) {
+			if (open != 0 || close + 1 != segment.size()) {
+				info.error = "invalid route pattern: path parameter must occupy the full segment";
+				return info;
+			}
+			auto name = segment.substr(1, segment.size() - 2);
+			bool const wildcard = name.starts_with('*');
+			if (wildcard) {
+				name.remove_prefix(1);
+				if (next != std::string_view::npos) {
+					info.error = "invalid route pattern: wildcard parameter must be the final segment";
+					return info;
+				}
+			}
+			if (name.empty()) {
+				info.error = "invalid route pattern: path parameter name is empty";
+				return info;
+			}
+			std::string_view type;
+			if (auto colon = name.find(':'); colon != std::string_view::npos) {
+				type = name.substr(colon + 1);
+				name = name.substr(0, colon);
+				if (type.empty()) {
+					info.error = "invalid route pattern: path parameter type is empty";
+					return info;
+				}
+				if (!is_known_route_type_tag(type)) {
+					info.error = std::format("invalid route pattern: unknown path parameter type '{}'", type);
+					return info;
+				}
+			}
+			info.shape += wildcard ? "{*}" : "{}";
+			info.segments.push_back({std::string{name}, !wildcard, wildcard});
+			info.params.emplace_back(name);
+			info.param_types.emplace_back(std::string{name}, std::string{type});
+		} else {
+			info.shape += segment;
+			info.segments.push_back({std::string{segment}, false, false});
+		}
+		if (next == std::string_view::npos) {
+			break;
+		}
+		pos = next;
+	}
+	if (info.shape.empty()) {
+		info.shape = "/";
+	}
+	return info;
 }
 
 export std::vector<Segment> parse_pattern(
 	std::string_view pattern) {
-	std::vector<Segment> segs;
-	segs.reserve(static_cast<std::size_t>(std::ranges::count(pattern, '/')) + 1);
-	std::size_t pos = 0;
-	while (true) {
-		auto next = pattern.find('/', pos);
-		auto part = (next == std::string_view::npos) ? pattern.substr(pos) : pattern.substr(pos, next - pos);
-
-		if (part.size() >= 3 && part.front() == '{' && part.back() == '}' && part[1] == '*') {
-			segs.push_back({route_param_name(part.substr(2, part.size() - 3)), false, true});
-		} else if (part.size() >= 2 && part.front() == '{' && part.back() == '}') {
-			segs.push_back({route_param_name(part.substr(1, part.size() - 2)), true, false});
-		} else {
-			segs.push_back({std::string{part}, false, false});
-		}
-
-		if (next == std::string_view::npos) {
-			break;
-		}
-		pos = next + 1;
-	}
-	return segs;
+	return parse_route_pattern(pattern).segments;
 }
 
 namespace {
