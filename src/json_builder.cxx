@@ -456,6 +456,48 @@ static std::expected<void, JsonError> array_active_or_error(
 			.message = frame.committed ? "ArrayBuilder already committed" : "child builder already active"});
 }
 
+static JsonError duplicate_member_error(
+	std::string_view name) {
+	return JsonError{
+		.stage = JsonStage::build,
+		.code = JsonIssueCode::duplicate_member,
+		.member_name = std::string{name},
+		.message = std::format("duplicate member: {}", name)};
+}
+
+static std::expected<void, JsonError> validate_utf8_for_build(
+	std::string_view value) {
+	for (std::size_t i = 0; i < value.size();) {
+		auto const c = static_cast<unsigned char>(value[i]);
+		std::size_t const seq = utf8_seq_len(c);
+		if (seq == 0) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = std::format("invalid UTF-8 std::byte at offset {}", i)});
+		}
+		if (i + seq > value.size()) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = std::format("truncated UTF-8 at offset {}", i)});
+		}
+		for (std::size_t k = 1; k < seq; ++k) {
+			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::invalid_utf8,
+						.message = std::format("invalid UTF-8 continuation at offset {}", i + k)});
+			}
+		}
+		i += seq;
+	}
+	return {};
+}
+
 static std::size_t push_node(
 	BuilderState &state,
 	Node node) {
@@ -583,23 +625,66 @@ static std::expected<std::size_t, JsonError> push_f64_node(
 			is_int));
 }
 
+static std::expected<std::size_t, JsonError> reserve_owned_member_name(
+	ChildFrame &frame,
+	std::string_view name,
+	std::size_t node_idx) {
+	bool const inserted = frame.dup_check.try_emplace(std::string{name}, node_idx).second;
+	if (!inserted) {
+		return std::unexpected(duplicate_member_error(name));
+	}
+	auto *st = frame.state;
+	std::size_t const name_off = st->built_input.size();
+	st->built_input.append(name.data(), name.size());
+	return name_off;
+}
+
+static std::expected<void, JsonError> reserve_borrowed_member_name(
+	ChildFrame &frame,
+	std::string_view name,
+	std::size_t node_idx) {
+	bool const inserted = frame.dup_check.try_emplace(std::string{name}, node_idx).second;
+	if (!inserted) {
+		return std::unexpected(duplicate_member_error(name));
+	}
+	return {};
+}
+
+static ParentSlot begin_insert_child(
+	ChildFrame &frame,
+	std::size_t name_off,
+	std::string_view name) {
+	auto *st = frame.state;
+	std::size_t const child_depth = frame.depth + 1;
+	st->active_depth = child_depth;
+	return ParentSlot{
+		.kind = ParentSlot::Kind::insert_member,
+		.name_off = name_off,
+		.name_len = name.size(),
+		.arena_start = name_off,
+		.parent_local_members = &frame.local_members};
+}
+
+static ParentSlot begin_append_child(
+	ChildFrame &frame) {
+	auto *st = frame.state;
+	std::size_t const child_depth = frame.depth + 1;
+	st->active_depth = child_depth;
+	return ParentSlot{
+		.kind = ParentSlot::Kind::append_child,
+		.arena_start = st->built_input.size(),
+		.parent_local_children = &frame.local_children};
+}
+
 std::expected<void, JsonError> ObjectBuilder::do_insert_node(
 	std::string_view name,
 	std::size_t node_idx) {
-	auto *st = frame_.state;
-	auto [it, inserted] = frame_.dup_check.try_emplace(std::string{name}, node_idx);
-	if (!inserted) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::duplicate_member,
-				.member_name = std::string{name},
-				.message = std::format("duplicate member: {}", name)});
+	auto name_off = reserve_owned_member_name(frame_, name, node_idx);
+	if (!name_off) {
+		return std::unexpected(std::move(name_off).error());
 	}
-	std::size_t const name_off = st->built_input.size();
-	st->built_input.append(name.data(), name.size());
 	frame_.local_members.push_back(
-		{static_cast<std::uint32_t>(name_off),
+		{static_cast<std::uint32_t>(*name_off),
 		 static_cast<std::uint32_t>(name.size()),
 		 static_cast<std::uint32_t>(node_idx),
 		 kStorageInputView});
@@ -608,14 +693,8 @@ std::expected<void, JsonError> ObjectBuilder::do_insert_node(
 std::expected<void, JsonError> ObjectBuilder::do_insert_node_view(
 	std::string_view name,
 	std::size_t node_idx) {
-	auto [it, inserted] = frame_.dup_check.try_emplace(std::string{name}, node_idx);
-	if (!inserted) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::duplicate_member,
-				.member_name = std::string{name},
-				.message = std::format("duplicate member: {}", name)});
+	if (auto ok = reserve_borrowed_member_name(frame_, name, node_idx); !ok) {
+		return ok;
 	}
 	MemberEntry m{};
 	m.name_off = static_cast<std::uint32_t>(frame_.local_external_ptrs_.size());
@@ -655,33 +734,8 @@ std::expected<void, JsonError> ObjectBuilder::insert_string(
 std::expected<void, JsonError> ObjectBuilder::insert_string_checked(
 	std::string_view name,
 	std::string_view value) {
-	for (std::size_t i = 0; i < value.size();) {
-		auto const c = static_cast<unsigned char>(value[i]);
-		std::size_t const seq = utf8_seq_len(c);
-		if (seq == 0) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::invalid_utf8,
-					.message = std::format("invalid UTF-8 std::byte at offset {}", i)});
-		}
-		if (i + seq > value.size()) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::invalid_utf8,
-					.message = std::format("truncated UTF-8 at offset {}", i)});
-		}
-		for (std::size_t k = 1; k < seq; ++k) {
-			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::build,
-						.code = JsonIssueCode::invalid_utf8,
-						.message = std::format("invalid UTF-8 continuation at offset {}", i + k)});
-			}
-		}
-		i += seq;
+	if (auto ok = validate_utf8_for_build(value); !ok) {
+		return ok;
 	}
 	return insert_string(name, value);
 }
@@ -752,29 +806,12 @@ std::expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	if (auto ok = check_can_insert(); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	// Duplicate check before any work (O(1) amortized via std::hash).
-	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
-	if (!inserted) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::duplicate_member,
-				.member_name = std::string{name},
-				.message = std::format("duplicate member: {}", name)});
+	auto name_off = reserve_owned_member_name(frame_, name, 0);
+	if (!name_off) {
+		return std::unexpected(std::move(name_off).error());
 	}
-	auto *st = frame_.state;
-	// Store name in arena; the member entry will be pushed when child commits.
-	std::size_t const name_off = st->built_input.size();
-	st->built_input.append(name.data(), name.size());
 	std::size_t const child_depth = frame_.depth + 1;
-	st->active_depth = child_depth;
-	ParentSlot const parent{
-		.kind = ParentSlot::Kind::insert_member,
-		.name_off = name_off,
-		.name_len = name.size(),
-		.arena_start = name_off,
-		.parent_local_members = &frame_.local_members};
-	ObjectBuilder child{st, parent};
+	ObjectBuilder child{frame_.state, begin_insert_child(frame_, *name_off, name)};
 	child.frame_.depth = child_depth;
 	return child;
 }
@@ -783,29 +820,12 @@ std::expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 	if (auto ok = check_can_insert(); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	// Duplicate check before any work (O(1) amortized via std::hash).
-	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
-	if (!inserted) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::build,
-				.code = JsonIssueCode::duplicate_member,
-				.member_name = std::string{name},
-				.message = std::format("duplicate member: {}", name)});
+	auto name_off = reserve_owned_member_name(frame_, name, 0);
+	if (!name_off) {
+		return std::unexpected(std::move(name_off).error());
 	}
-	auto *st = frame_.state;
-	// Store name in arena; the member entry will be pushed when child commits.
-	std::size_t const name_off = st->built_input.size();
-	st->built_input.append(name.data(), name.size());
 	std::size_t const child_depth = frame_.depth + 1;
-	st->active_depth = child_depth;
-	ParentSlot const parent{
-		.kind = ParentSlot::Kind::insert_member,
-		.name_off = name_off,
-		.name_len = name.size(),
-		.arena_start = name_off,
-		.parent_local_members = &frame_.local_members};
-	ArrayBuilder child{st, parent};
+	ArrayBuilder child{frame_.state, begin_insert_child(frame_, *name_off, name)};
 	child.frame_.depth = child_depth;
 	return child;
 }
@@ -841,33 +861,8 @@ std::expected<void, JsonError> ArrayBuilder::append_string(
 }
 std::expected<void, JsonError> ArrayBuilder::append_string_checked(
 	std::string_view value) {
-	for (std::size_t i = 0; i < value.size();) {
-		auto const c = static_cast<unsigned char>(value[i]);
-		std::size_t const seq = utf8_seq_len(c);
-		if (seq == 0) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::invalid_utf8,
-					.message = std::format("invalid UTF-8 std::byte at offset {}", i)});
-		}
-		if (i + seq > value.size()) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::invalid_utf8,
-					.message = std::format("truncated UTF-8 at offset {}", i)});
-		}
-		for (std::size_t k = 1; k < seq; ++k) {
-			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::build,
-						.code = JsonIssueCode::invalid_utf8,
-						.message = std::format("invalid UTF-8 continuation at offset {}", i + k)});
-			}
-		}
-		i += seq;
+	if (auto ok = validate_utf8_for_build(value); !ok) {
+		return ok;
 	}
 	return append_string(value);
 }
@@ -928,14 +923,8 @@ std::expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
 	if (auto ok = array_active_or_error(frame_); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	auto *st = frame_.state;
 	std::size_t const child_depth = frame_.depth + 1;
-	st->active_depth = child_depth;
-	ParentSlot const parent{
-		.kind = ParentSlot::Kind::append_child,
-		.arena_start = st->built_input.size(),
-		.parent_local_children = &frame_.local_children};
-	ObjectBuilder child{st, parent};
+	ObjectBuilder child{frame_.state, begin_append_child(frame_)};
 	child.frame_.depth = child_depth;
 	return child;
 }
@@ -943,14 +932,8 @@ std::expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
 	if (auto ok = array_active_or_error(frame_); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
-	auto *st = frame_.state;
 	std::size_t const child_depth = frame_.depth + 1;
-	st->active_depth = child_depth;
-	ParentSlot const parent{
-		.kind = ParentSlot::Kind::append_child,
-		.arena_start = st->built_input.size(),
-		.parent_local_children = &frame_.local_children};
-	ArrayBuilder child{st, parent};
+	ArrayBuilder child{frame_.state, begin_append_child(frame_)};
 	child.frame_.depth = child_depth;
 	return child;
 }

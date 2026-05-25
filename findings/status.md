@@ -72,6 +72,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   and work-root symbols; the complete import smoke now exercises representative
   uring, sync file I/O, socket I/O, and DNS symbols instead of only proving a
   single low-level `DirectFd` export.
+- `findings/2.md` P1 JSON builder residual duplication: complete. Checked
+  UTF-8 validation, duplicate-member error construction, member-name
+  reservation, and object/array child setup now use private builder helpers
+  while preserving the existing owned-name copy and borrowed-name pointer
+  lifetime behavior.
 
 ## Verification
 
@@ -184,6 +189,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   surface positive smokes.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "api-surface/import-(extended|complete)"` completed: 2/2 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
+  completed after the JSON builder helper extraction.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "json:"` completed: 204/204 passed after the JSON builder helper extraction.
 
 ## Accepted / In Scope
 
