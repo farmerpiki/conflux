@@ -80,6 +80,25 @@ protected:
 			}
 		}
 	}
+	template<typename Self, class F>
+	bool for_each_matching_until(
+		this Self const &self,
+		std::string_view key,
+		F &&fn) {
+		for (auto const &[k, v]: self.data_) {
+			if (!self.key_eq(k, key)) {
+				continue;
+			}
+			if constexpr (std::same_as<std::invoke_result_t<F &, std::string_view>, bool>) {
+				if (!std::invoke(fn, v)) {
+					return false;
+				}
+			} else {
+				std::invoke(fn, v);
+			}
+		}
+		return true;
+	}
 
 	template<typename Self>
 	[[nodiscard]] std::optional<std::string_view> first_matching(
@@ -135,16 +154,25 @@ public:
 		F &&fn) {
 		self.for_each_matching(key, std::forward<F>(fn));
 	}
+	template<typename Self, class F>
+	bool for_each_value_until(
+		this Self const &self,
+		std::string_view key,
+		F &&fn) {
+		return self.for_each_matching_until(key, std::forward<F>(fn));
+	}
 	template<typename Self, class Pred>
 	[[nodiscard]] bool any_value(
 		this Self const &self,
 		std::string_view key,
 		Pred &&pred) {
 		bool matched = false;
-		self.for_each_matching(key, [&](std::string_view value) {
-			if (!matched && std::invoke(pred, value)) {
+		self.for_each_matching_until(key, [&](std::string_view value) {
+			if (std::invoke(pred, value)) {
 				matched = true;
+				return false;
 			}
+			return true;
 		});
 		return matched;
 	}
@@ -383,6 +411,13 @@ void for_each_header_value(
 	std::string_view key,
 	F &&fn) {
 	fields.for_each_value(key, std::forward<F>(fn));
+}
+export template<class Fields, class F>
+bool for_each_header_value_until(
+	Fields const &fields,
+	std::string_view key,
+	F &&fn) {
+	return fields.for_each_value_until(key, std::forward<F>(fn));
 }
 export template<class Fields, class Pred>
 [[nodiscard]] bool any_header_value(

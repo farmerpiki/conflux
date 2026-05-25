@@ -351,13 +351,9 @@ export void parse_cookies(
 export [[nodiscard]] bool has_connection_token(
 	HttpFieldsView const &headers,
 	std::string_view wanted) {
-	for (auto const &[name, header_value]: headers) {
-		if (conflux::http::ascii_iequals(name, "connection")
-			&& conflux::http::header_token_contains(header_value, wanted)) {
-			return true;
-		}
-	}
-	return false;
+	return headers.any_value("connection", [&](std::string_view header_value) {
+		return conflux::http::header_token_contains(header_value, wanted);
+	});
 }
 
 export enum class ExpectState : std::uint8_t {
@@ -369,11 +365,8 @@ export enum class ExpectState : std::uint8_t {
 export [[nodiscard]] ExpectState parse_expect_header(
 	HttpFieldsView const &headers) {
 	bool saw_continue = false;
-	for (auto const &[name, header_value]: headers) {
-		if (!conflux::http::ascii_iequals(name, "expect")) {
-			continue;
-		}
-		bool unsupported = false;
+	bool unsupported = false;
+	headers.for_each_value_until("expect", [&](std::string_view header_value) {
 		for (auto const token: conflux::http::header_tokens(header_value)) {
 			if (token.empty()) {
 				continue;
@@ -385,8 +378,12 @@ export [[nodiscard]] ExpectState parse_expect_header(
 			saw_continue = true;
 		}
 		if (unsupported) {
-			return ExpectState::unsupported;
+			return false;
 		}
+		return true;
+	});
+	if (unsupported) {
+		return ExpectState::unsupported;
 	}
 	return saw_continue ? ExpectState::continue_100 : ExpectState::none;
 }
@@ -395,10 +392,7 @@ export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
 	HttpFieldsView const &headers) {
 	std::size_t token_count = 0;
 	bool valid = true;
-	for (auto const &[name, header_value]: headers) {
-		if (!conflux::http::ascii_iequals(name, "transfer-encoding")) {
-			continue;
-		}
+	headers.for_each_value_until("transfer-encoding", [&](std::string_view header_value) {
 		for (auto const token: conflux::http::header_tokens(header_value)) {
 			if (token.empty() || !conflux::http::ascii_iequals(token, "chunked")) {
 				valid = false;
@@ -406,11 +400,9 @@ export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
 			}
 			++token_count;
 		}
-		if (!valid) {
-			return false;
-		}
-	}
-	return token_count == 1;
+		return valid;
+	});
+	return valid && token_count == 1;
 }
 
 struct MultipartBoundaryMatch {

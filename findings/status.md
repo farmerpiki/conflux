@@ -20,6 +20,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   HTTP clients now drive the shared incremental chunked decoder instead of the
   separate client-only parser, preserving streaming state and moving the decoded
   body only on completion.
+- `findings/1.md` P0 stop-aware `HttpFields` matching: complete. Added
+  `for_each_value_until(...)` and the free `for_each_header_value_until(...)`
+  wrapper, and migrated HTTP/1 connection/expect/transfer-encoding predicates
+  to the stop-aware callbacks.
 
 ## Verification
 
@@ -40,6 +44,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: chunked response without trailers|http_server_helpers: chunked
   decoder"` completed: 2/2 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_core
+  conflux_http_server_helpers conflux_http_server_helpers_tests conflux_tests`
+  completed after stop-aware `HttpFields` callback cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "HttpFields zero-allocation value callbacks|http_server_helpers: (connection
+  tokens|expect and transfer-encoding)"` completed: 3/3 passed.
 
 ## Accepted / In Scope
 

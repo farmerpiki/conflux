@@ -2682,6 +2682,12 @@ TEST_CASE(
 	std::vector<std::string_view> vals;
 	f.for_each_value("SET-COOKIE", [&](std::string_view value) { vals.push_back(value); });
 	REQUIRE(vals == (std::vector<std::string_view>{"a=1", "b=2"}));
+	int visits = 0;
+	CHECK_FALSE(f.for_each_value_until("set-cookie", [&](std::string_view value) {
+		++visits;
+		return value != "a=1";
+	}));
+	CHECK(visits == 1);
 	CHECK(f.any_value("set-cookie", [](std::string_view value) { return value == "b=2"; }));
 	CHECK_FALSE(f.any_value("set-cookie", [](std::string_view value) { return value == "c=3"; }));
 
@@ -2689,6 +2695,12 @@ TEST_CASE(
 	vals.clear();
 	for_each_header_value(view, "set-cookie", [&](std::string_view value) { vals.push_back(value); });
 	REQUIRE(vals == (std::vector<std::string_view>{"a=1", "b=2"}));
+	visits = 0;
+	CHECK_FALSE(for_each_header_value_until(view, "set-cookie", [&](std::string_view value) {
+		++visits;
+		return value != "b=2";
+	}));
+	CHECK(visits == 2);
 	CHECK(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "a=1"; }));
 	CHECK_FALSE(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "z=9"; }));
 }
