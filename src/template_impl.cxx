@@ -400,6 +400,25 @@ static std::size_t find_top_level_char(
 	char needle) noexcept {
 	return find_top_level_match(haystack, 1, [&](std::size_t i) noexcept { return haystack[i] == needle; });
 }
+template<typename Fn>
+static bool split_top_level_for_each(
+	std::string_view haystack,
+	char needle,
+	Fn fn) {
+	std::size_t start = 0;
+	while (start <= haystack.size()) {
+		auto const rel = find_top_level_char(haystack.substr(start), needle);
+		auto const end = rel == std::string_view::npos ? haystack.size() : start + rel;
+		if (!std::invoke(fn, haystack.substr(start, end - start))) {
+			return false;
+		}
+		if (rel == std::string_view::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+	return true;
+}
 static CompiledExprPtr compile_expr_ptr(
 	std::string const &expr) {
 	return std::make_shared<CompiledExpr>(compile_expr(expr));
@@ -695,45 +714,10 @@ CompiledExpr compile_expr(
 		return compiled;
 	}
 	std::vector<std::string> pipe_parts;
-	{
-		std::string current;
-		int depth = 0;
-		bool in_str = false;
-		char sc = 0;
-		for (std::size_t i = 0; i < compiled.source.size(); ++i) {
-			char const c = compiled.source[i];
-			if (in_str) {
-				current += c;
-				if (c == sc && (i == 0 || compiled.source[i - 1] != '\\')) {
-					in_str = false;
-				}
-				continue;
-			}
-			if (is_quote(c)) {
-				in_str = true;
-				sc = c;
-				current += c;
-				continue;
-			}
-			if (c == '(' || c == '[' || c == '{') {
-				++depth;
-				current += c;
-				continue;
-			}
-			if (c == ')' || c == ']' || c == '}') {
-				--depth;
-				current += c;
-				continue;
-			}
-			if (c == '|' && depth == 0) {
-				pipe_parts.push_back(trim(current));
-				current.clear();
-				continue;
-			}
-			current += c;
-		}
-		pipe_parts.push_back(trim(current));
-	}
+	split_top_level_for_each(compiled.source, '|', [&](std::string_view part) {
+		pipe_parts.push_back(trim(part));
+		return true;
+	});
 	compiled.base = pipe_parts.empty() ? std::string{} : std::move(pipe_parts[0]);
 	if (auto base = compile_base_expr(compiled.base); base) {
 		compiled.compiled_base = std::make_shared<CompiledBaseExpr>(std::move(*base));
@@ -1207,72 +1191,24 @@ TmplValue Environment::Impl::eval_expr(
 		}
 
 		{
-			int depth = 0;
-			bool in_s = false;
-			char sqc = 0;
-			for (std::size_t i = 0; i < b.size(); ++i) {
-				char const c = b[i];
-				if (in_s) {
-					if (c == sqc) {
-						in_s = false;
-					}
-					continue;
+			auto const i = find_top_level_token(b, " or ");
+			if (i != std::string_view::npos) {
+				auto left = eval_expr(b.substr(0, i), context);
+				if (is_truthy(left)) {
+					return left;
 				}
-				if (c == '"' || c == '\'') {
-					in_s = true;
-					sqc = c;
-					continue;
-				}
-				if (c == '(' || c == '[') {
-					++depth;
-					continue;
-				}
-				if (c == ')' || c == ']') {
-					--depth;
-					continue;
-				}
-				if (depth == 0 && i + 4 <= b.size() && b.substr(i, 4) == " or ") {
-					auto left = eval_expr(b.substr(0, i), context);
-					if (is_truthy(left)) {
-						return left;
-					}
-					return eval_expr(b.substr(i + 4), context);
-				}
+				return eval_expr(b.substr(i + 4), context);
 			}
 		}
 
 		{
-			int depth = 0;
-			bool in_s = false;
-			char sqc = 0;
-			for (std::size_t i = 0; i < b.size(); ++i) {
-				char const c = b[i];
-				if (in_s) {
-					if (c == sqc) {
-						in_s = false;
-					}
-					continue;
+			auto const i = find_top_level_token(b, " and ");
+			if (i != std::string_view::npos) {
+				auto left = eval_expr(b.substr(0, i), context);
+				if (!is_truthy(left)) {
+					return left;
 				}
-				if (c == '"' || c == '\'') {
-					in_s = true;
-					sqc = c;
-					continue;
-				}
-				if (c == '(' || c == '[') {
-					++depth;
-					continue;
-				}
-				if (c == ')' || c == ']') {
-					--depth;
-					continue;
-				}
-				if (depth == 0 && i + 5 <= b.size() && b.substr(i, 5) == " and ") {
-					auto left = eval_expr(b.substr(0, i), context);
-					if (!is_truthy(left)) {
-						return left;
-					}
-					return eval_expr(b.substr(i + 5), context);
-				}
+				return eval_expr(b.substr(i + 5), context);
 			}
 		}
 
@@ -1493,36 +1429,7 @@ TmplValue Environment::Impl::eval_expr(
 				}
 
 				if (is_method_call) {
-					// Find matching ')' respecting nesting and std::string literals.
-					std::size_t close = std::string::npos;
-					{
-						int d = 0;
-						bool in_s2 = false;
-						char sq2 = 0;
-						for (std::size_t ci = 0; ci < remaining.size(); ++ci) {
-							char const c2 = remaining[ci];
-							if (in_s2) {
-								if (c2 == sq2) {
-									in_s2 = false;
-								}
-								continue;
-							}
-							if (c2 == '"' || c2 == '\'') {
-								in_s2 = true;
-								sq2 = c2;
-								continue;
-							}
-							if (c2 == '(') {
-								++d;
-							} else if (c2 == ')') {
-								--d;
-								if (d == 0) {
-									close = ci;
-									break;
-								}
-							}
-						}
-					}
+					auto const close = find_matching_pair(remaining, 0, '(', ')');
 					if (close == std::string::npos) {
 						return {};
 					}

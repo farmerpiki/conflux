@@ -92,6 +92,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   posted, operation, and join-handle `try_join_ready(...)` paths now share one
   checked ready-join helper for lifetime, capability, readiness, consume, and
   outcome extraction.
+- `findings/1.md` P1 template top-level parser centralization: complete.
+  Filter-pipe splitting now uses a callback top-level splitter, runtime
+  `or`/`and` dispatch uses the shared top-level token finder, and method-call
+  close-paren detection uses the shared matching-pair scanner.
 
 ## Verification
 
@@ -229,6 +233,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "carrier\\.model_a:|carrier\\.scope:|carrier\\.deadline:"` completed: 49/49
   passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_template_tests` completed after the template parser scanner cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "template:"` completed: 51/51 passed.
 
 ## Accepted / In Scope
 
