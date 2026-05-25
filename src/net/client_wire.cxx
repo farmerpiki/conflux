@@ -286,59 +286,6 @@ void accumulate_telemetry(
 	}
 }
 
-enum class ChunkedDecodeStatus : std::uint8_t {
-	complete,
-	incomplete,
-	invalid,
-};
-
-ChunkedDecodeStatus decode_chunked_prefix(
-	std::string_view encoded,
-	std::string &decoded,
-	std::size_t &consumed) {
-	for (;;) {
-		auto const line_end = encoded.find("\r\n", consumed);
-		if (line_end == std::string_view::npos) {
-			return ChunkedDecodeStatus::incomplete;
-		}
-		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
-		if (auto const semi = size_str.find(';'); semi != std::string_view::npos) {
-			size_str = trim(size_str.substr(0, semi));
-		}
-		if (size_str.empty()) {
-			return ChunkedDecodeStatus::invalid;
-		}
-		std::size_t chunk_size = 0;
-		auto const parsed = std::from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
-		if (parsed.ec != std::errc{} || parsed.ptr != size_str.data() + size_str.size()) {
-			return ChunkedDecodeStatus::invalid;
-		}
-		consumed = line_end + 2;
-		if (chunk_size == 0) {
-			for (;;) {
-				auto const eol = encoded.find("\r\n", consumed);
-				if (eol == std::string_view::npos) {
-					return ChunkedDecodeStatus::incomplete;
-				}
-				bool const empty = (eol == consumed);
-				consumed = eol + 2;
-				if (empty) {
-					return ChunkedDecodeStatus::complete;
-				}
-			}
-		}
-		if (encoded.size() < consumed + chunk_size + 2) {
-			return ChunkedDecodeStatus::incomplete;
-		}
-		decoded.append(encoded.substr(consumed, chunk_size));
-		consumed += chunk_size;
-		if (encoded.substr(consumed, 2) != "\r\n") {
-			return ChunkedDecodeStatus::invalid;
-		}
-		consumed += 2;
-	}
-}
-
 [[nodiscard]] std::expected<ParsedResponseHead, HttpError> parse_http1_response_head(
 	std::string_view headers_str,
 	std::size_t max_body_bytes) {

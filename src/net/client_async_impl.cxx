@@ -14,6 +14,7 @@ module;
 module conflux.net.async_client;
 import std;
 import conflux.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.net.client_wire;
@@ -33,6 +34,8 @@ namespace async_detail {
 using namespace conflux::http;
 namespace wroot = conflux::work::root;
 using TP = std::chrono::steady_clock::time_point;
+
+constexpr std::size_t kClientMaxChunkCount = 100000;
 
 #if CONFLUX_HAS_TLS
 [[nodiscard]] std::string tls_error_string() {
@@ -251,17 +254,18 @@ wroot::Task<bool> async_recv_chunked(
 	too_large = false;
 	decoded.clear();
 	decoded.reserve(std::min(encoded.size(), cap));
-	std::size_t consumed = 0;
+	ChunkedDecodeState chunked;
 	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
-		auto const st = client_wire::decode_chunked_prefix(encoded, decoded, consumed);
-		if (st == client_wire::ChunkedDecodeStatus::complete) {
+		auto const rc = decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
+		if (rc > 0) {
+			decoded = std::move(chunked.body);
 			co_return true;
 		}
-		if (st == client_wire::ChunkedDecodeStatus::invalid) {
+		if (rc == -1) {
 			co_return false;
 		}
-		if (decoded.size() > cap || encoded.size() > buf_cap) {
+		if (rc == -2 || chunked.body.size() > cap || encoded.size() > buf_cap) {
 			too_large = true;
 			co_return false;
 		}

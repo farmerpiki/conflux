@@ -16,6 +16,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
   splitting to the shared `header_params(...)` parser, preserving semicolons
   inside quoted parameter values without introducing lazy ranges or extra copies
   for ordinary token/quoted values.
+- `findings/6.md` P0 client chunked decoder drift: complete. Sync and async
+  HTTP clients now drive the shared incremental chunked decoder instead of the
+  separate client-only parser, preserving streaming state and moving the decoded
+  body only on completion.
 
 ## Verification
 
@@ -30,6 +34,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http_server_helpers: header parameter extraction|multipart/form-data quoted
   semicolon filename"` completed: 2/2 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_net_client
+  conflux_net_async_client conflux_tests` completed after adding the client
+  dependency on shared HTTP parse helpers and unifying chunked response decode.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http client: chunked response without trailers|http_server_helpers: chunked
+  decoder"` completed: 2/2 passed.
 
 ## Accepted / In Scope
 

@@ -1419,6 +1419,7 @@ target_sources(conflux_net_client
 )
 target_link_libraries(conflux_net_client
     PRIVATE conflux_options
+    PUBLIC  conflux_http_parse_helpers
     PUBLIC  conflux_http_core
     PUBLIC  conflux_utils
     PUBLIC  conflux_work

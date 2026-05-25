@@ -18,6 +18,7 @@ module;
 export module conflux.net.client;
 import std;
 import conflux.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.net.client_wire;
@@ -62,6 +63,8 @@ struct HttpClientOptions {
 namespace client_detail {
 
 using namespace conflux::http;
+
+constexpr std::size_t kClientMaxChunkCount = 100000;
 struct Connection {
 	int fd{-1};
 	bool use_tls{false};
@@ -439,20 +442,22 @@ bool recv_chunked(
 	too_large = false;
 	decoded.clear();
 	decoded.reserve(std::min(encoded.size(), cap));
-	std::size_t consumed = 0;
+	ChunkedDecodeState chunked;
 	for (;;) {
-		switch (client_wire::decode_chunked_prefix(encoded, decoded, consumed)) {
-		case client_wire::ChunkedDecodeStatus::complete: return true;
-		case client_wire::ChunkedDecodeStatus::invalid : return false;
-		case client_wire::ChunkedDecodeStatus::incomplete:
-			if (decoded.size() > cap || encoded.size() > buf_cap) {
-				too_large = true;
-				return false;
-			}
-			if (!recv_some(conn, encoded, timeout_sec)) {
-				return false;
-			}
-			break;
+		auto const rc = decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
+		if (rc > 0) {
+			decoded = std::move(chunked.body);
+			return true;
+		}
+		if (rc == -1) {
+			return false;
+		}
+		if (rc == -2 || chunked.body.size() > cap || encoded.size() > buf_cap) {
+			too_large = true;
+			return false;
+		}
+		if (!recv_some(conn, encoded, timeout_sec)) {
+			return false;
 		}
 	}
 }
