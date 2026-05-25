@@ -2207,7 +2207,18 @@ TEST_CASE(
 	CHECK(problem.detail == "title is required");
 	CHECK(problem.response.status == kHttpBadRequest);
 	CHECK(problem.response.content_type == "application/problem+json");
-	CHECK(problem.response.text_body() == R"({"code":"invalid_todo","detail":"title is required"})");
+	CHECK(
+		problem.response.text_body()
+		== R"({"type":"about:blank","title":"Bad Request","status":400,"detail":"title is required","code":"invalid_todo"})");
+
+	auto rich = http::problem::bad_request("invalid_user", "invalid user")
+					.type_uri("https://example.test/problems/invalid-user")
+					.instance_uri("/users")
+					.extension("trace_id", "abc")
+					.field("email", "is required");
+	CHECK(
+		rich.response.text_body()
+		== R"({"type":"https://example.test/problems/invalid-user","title":"Bad Request","status":400,"detail":"invalid user","instance":"/users","code":"invalid_user","trace_id":"abc","fields":{"email":"is required"}})");
 
 	CHECK(http::problem::not_found("missing", "not found").response.status == kHttpNotFound);
 	CHECK(http::problem::unauthorized("login_required", "sign in").response.status == kHttpUnauthorized);

@@ -7,6 +7,7 @@ import conflux.types;
 import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.http.response;
+import conflux.net.http.json_string;
 import conflux.net.http.server_types;
 #if CONFLUX_HAS_JSON
 import conflux.json;
@@ -50,7 +51,135 @@ struct AppJsonOptions {
 struct Problem {
 	Response response;
 	std::string code;
+	std::string type{"about:blank"};
+	std::string title;
 	std::string detail;
+	std::string instance;
+	std::vector<std::pair<std::string, std::string>> extensions;
+	std::vector<std::pair<std::string, std::string>> fields;
+
+	Problem &rebuild() {
+		auto body = std::string{"{"};
+		auto first = true;
+		auto append_member = [&body, &first](std::string_view name, std::string_view value) {
+			if (!first) {
+				body += ',';
+			}
+			first = false;
+			body += detail::json_string(name);
+			body += ':';
+			body += detail::json_string(value);
+		};
+		auto append_members = [&body](std::vector<std::pair<std::string, std::string>> const &members) {
+			auto first_member = true;
+			for (auto const &[name, value]: members) {
+				if (!first_member) {
+					body += ',';
+				}
+				first_member = false;
+				body += detail::json_string(name);
+				body += ':';
+				body += detail::json_string(value);
+			}
+		};
+		append_member("type", type.empty() ? std::string_view{"about:blank"} : std::string_view{type});
+		append_member("title", title);
+		if (!first) {
+			body += ',';
+		}
+		first = false;
+		body += R"("status":)";
+		body += std::to_string(response.status);
+		if (!detail.empty()) {
+			append_member("detail", detail);
+		}
+		if (!instance.empty()) {
+			append_member("instance", instance);
+		}
+		if (!code.empty()) {
+			append_member("code", code);
+		}
+		for (auto const &[name, value]: extensions) {
+			append_member(name, value);
+		}
+		if (!fields.empty()) {
+			if (!first) {
+				body += ',';
+			}
+			body += R"("fields":{)";
+			append_members(fields);
+			body += '}';
+		}
+		body += '}';
+		response.content_type = "application/problem+json";
+		response.set_text_body(std::move(body));
+		return *this;
+	}
+
+	Problem &type_uri(
+		std::string_view value) & {
+		type = std::string{value};
+		return rebuild();
+	}
+	Problem type_uri(
+		std::string_view value) && {
+		type_uri(value);
+		return std::move(*this);
+	}
+	Problem &title_text(
+		std::string_view value) & {
+		title = std::string{value};
+		return rebuild();
+	}
+	Problem title_text(
+		std::string_view value) && {
+		title_text(value);
+		return std::move(*this);
+	}
+	Problem &detail_text(
+		std::string_view value) & {
+		detail = std::string{value};
+		return rebuild();
+	}
+	Problem detail_text(
+		std::string_view value) && {
+		detail_text(value);
+		return std::move(*this);
+	}
+	Problem &instance_uri(
+		std::string_view value) & {
+		instance = std::string{value};
+		return rebuild();
+	}
+	Problem instance_uri(
+		std::string_view value) && {
+		instance_uri(value);
+		return std::move(*this);
+	}
+	Problem &extension(
+		std::string_view name,
+		std::string_view value) & {
+		extensions.emplace_back(name, value);
+		return rebuild();
+	}
+	Problem extension(
+		std::string_view name,
+		std::string_view value) && {
+		extension(name, value);
+		return std::move(*this);
+	}
+	Problem &field(
+		std::string_view name,
+		std::string_view detail) & {
+		fields.emplace_back(name, detail);
+		return rebuild();
+	}
+	Problem field(
+		std::string_view name,
+		std::string_view detail) && {
+		field(name, detail);
+		return std::move(*this);
+	}
 };
 
 struct Created {
