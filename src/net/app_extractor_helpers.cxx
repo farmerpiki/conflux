@@ -46,6 +46,17 @@ template<class T>
 	return std::move(*value);
 }
 
+template<class T>
+struct OptionalFieldType {};
+
+template<class T>
+struct OptionalFieldType<std::optional<T>> {
+	using type = T;
+};
+
+template<class T>
+concept OptionalFieldValue = requires { typename OptionalFieldType<std::remove_cvref_t<T>>::type; };
+
 [[nodiscard]] std::optional<std::pair<std::string_view, std::string_view>> path_param_at(
 	RequestView const &req,
 	std::size_t index) noexcept {

@@ -1707,6 +1707,48 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: typed field extractors support optional scalar values",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get(
+		"/items/{id}",
+		[](http::Path<"id", std::optional<std::uint64_t>> id,
+		   http::Query<"page", std::optional<std::uint32_t>> page,
+		   http::Header<"x-limit", std::optional<std::uint32_t>> limit,
+		   http::Cookie<"session", std::optional<std::uint32_t>> session) {
+			return http::text(
+				std::format(
+					"{}:{}:{}:{}",
+					id.get().value_or(0),
+					page.get().value_or(1),
+					limit.get().value_or(10),
+					session.get().value_or(99)));
+		});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/items/42";
+	req.params["id"] = "42";
+	req.query["page"] = "7";
+	req.headers["x-limit"] = "3";
+	req.cookies["session"] = "5";
+	CHECK(http::router(app).dispatch(req).text_body() == "42:7:3:5");
+
+	req.query.clear();
+	req.headers.clear();
+	req.cookies.clear();
+	CHECK(http::router(app).dispatch(req).text_body() == "42:1:10:99");
+
+	req.query["page"] = "bad";
+	auto bad = http::router(app).dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.content_type == "application/problem+json");
+	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive form extractors",
 	"[http.facade]") {
 	auto app = http::app();
@@ -1720,6 +1762,32 @@ TEST_CASE(
 	req.form["name"] = "Ada";
 	req.form["age"] = "37";
 	CHECK(http::router(app).dispatch(req).text_body() == "Ada:37");
+
+	req.form["age"] = "bad";
+	auto bad = http::router(app).dispatch(req);
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.content_type == "application/problem+json");
+	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
+	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
+}
+
+TEST_CASE(
+	"http facade: form extractors support optional scalar values",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/submit", [](http::Form<"age", std::optional<std::uint32_t>> age) {
+		return http::text(std::format("{}", age.get().value_or(0)));
+	});
+
+	Request req;
+	req.method = "POST";
+	req.path = "/submit";
+	req.form["age"] = "37";
+	CHECK(http::router(app).dispatch(req).text_body() == "37");
+
+	req.form.clear();
+	CHECK(http::router(app).dispatch(req).text_body() == "0");
 
 	req.form["age"] = "bad";
 	auto bad = http::router(app).dispatch(req);
