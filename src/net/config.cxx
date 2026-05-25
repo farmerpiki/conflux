@@ -417,6 +417,22 @@ int parse_int(
 	}
 	return result;
 }
+
+template<class T, std::size_t N, class Parser>
+bool apply_config_member_table(
+	Config &cfg,
+	std::string_view key,
+	std::string_view val,
+	std::array<std::pair<std::string_view, T Config::*>, N> const &table,
+	Parser &&parser) {
+	auto const it = std::ranges::find(table, key, &std::pair<std::string_view, T Config::*>::first);
+	if (it == table.end()) {
+		return false;
+	}
+	cfg.*(it->second) = parser(val, key);
+	return true;
+}
+
 bool apply_server_key(
 	Config &cfg,
 	std::string_view key,
@@ -427,11 +443,8 @@ bool apply_server_key(
          {"ring_entries", &Config::ring_entries},
 		 }
     };
-	for (auto const &[k, member]: kUnsignedKeys) {
-		if (key == k) {
-			cfg.*member = parse_uint<unsigned>(val, key);
-			return true;
-		}
+	if (apply_config_member_table(cfg, key, val, kUnsignedKeys, parse_uint<unsigned>)) {
+		return true;
 	}
 	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
 		{
@@ -439,11 +452,10 @@ bool apply_server_key(
          {"key_file", &Config::key_file},
 		 }
     };
-	for (auto const &[k, member]: kStringKeys) {
-		if (key == k) {
-			cfg.*member = std::string{val};
-			return true;
-		}
+	if (apply_config_member_table(cfg, key, val, kStringKeys, [](std::string_view v, std::string_view) {
+			return std::string{v};
+		})) {
+		return true;
 	}
 	if (key == "port") {
 		cfg.port = parse_uint<std::uint16_t>(val, key);
@@ -617,13 +629,9 @@ bool apply_tls_key(
          {"ciphersuites", &Config::tls_ciphersuites},
 		 }
     };
-	for (auto const &[k, member]: kStringKeys) {
-		if (key == k) {
-			cfg.*member = std::string{val};
-			return true;
-		}
-	}
-	return false;
+	return apply_config_member_table(cfg, key, val, kStringKeys, [](std::string_view v, std::string_view) {
+		return std::string{v};
+	});
 }
 bool apply_iouring_key(
 	Config &cfg,
@@ -650,11 +658,8 @@ bool apply_iouring_key(
          {"cmd_sock_setsockopt", &Config::cmd_sock_setsockopt},
 		 }
     };
-	for (auto const &[k, member]: kBoolKeys) {
-		if (key == k) {
-			cfg.*member = parse_bool(val, key);
-			return true;
-		}
+	if (apply_config_member_table(cfg, key, val, kBoolKeys, parse_bool)) {
+		return true;
 	}
 	if (key == "send_zc") {
 		if (val == "off" || val == "auto" || val == "on") {
