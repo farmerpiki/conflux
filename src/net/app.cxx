@@ -1809,6 +1809,30 @@ public:
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
+	template<class Fn, class ExtractedArgs>
+	[[nodiscard]] static conflux::work::root::Task<Response> await_app_task_response(
+		Fn &handler,
+		ExtractedArgs extracted_args
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions json_options
+#endif
+	) {
+		try {
+			auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+#if CONFLUX_HAS_JSON
+			co_return into_app_response(co_await std::move(result), json_options);
+#else
+			co_return into_app_response(co_await std::move(result));
+#endif
+		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+	}
+
+	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(
+		Response response) {
+		co_return response;
+	}
+
 	template<class Args, class Fn, std::size_t... Is>
 	[[nodiscard]] static conflux::work::root::Task<Response> invoke_fixed_route_async(
 		StateMap const &states,
@@ -1821,23 +1845,6 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
-		auto run_with_args =
-#if CONFLUX_HAS_JSON
-			[](Fn &handler, auto extracted_args, AppJsonOptions json_opts) -> conflux::work::root::Task<Response> {
-			try {
-				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
-				co_return into_app_response(co_await std::move(result), json_opts);
-			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-		};
-#else
-			[](Fn &handler, auto extracted_args) -> conflux::work::root::Task<Response> {
-			try {
-				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
-				co_return into_app_response(co_await std::move(result));
-			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-		};
-#endif
-		auto extraction_failure = [](Response response) -> conflux::work::root::Task<Response> { co_return response; };
 		return conflux::work::root::spawn(
 			[&states,
 			 &fn,
@@ -1847,9 +1854,7 @@ public:
 			 &json_options,
 			 max_body_size
 #endif
-			 ,
-			 run_with_args,
-			 extraction_failure]() mutable -> conflux::work::root::Task<Response> {
+		]() mutable -> conflux::work::root::Task<Response> {
 				try {
 					auto extracted_args = std::make_tuple(
 						make_fixed_route_arg<Args, Is>(
@@ -1862,11 +1867,13 @@ public:
 #endif
 							)...);
 #if CONFLUX_HAS_JSON
-					return run_with_args(fn, std::move(extracted_args), json_options);
+					return await_app_task_response(fn, std::move(extracted_args), json_options);
 #else
-					return run_with_args(fn, std::move(extracted_args));
+					return await_app_task_response(fn, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) { return extraction_failure(std::move(failure).response()); }
+				} catch (ExtractorFailure &failure) {
+					return extraction_failure_response(std::move(failure).response());
+				}
 			});
 	}
 
@@ -2065,23 +2072,6 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
-		auto run_with_args =
-#if CONFLUX_HAS_JSON
-			[](Fn &handler, auto extracted_args, AppJsonOptions json_opts) -> conflux::work::root::Task<Response> {
-			try {
-				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
-				co_return into_app_response(co_await std::move(result), json_opts);
-			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-		};
-#else
-			[](Fn &handler, auto extracted_args) -> conflux::work::root::Task<Response> {
-			try {
-				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
-				co_return into_app_response(co_await std::move(result));
-			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-		};
-#endif
-		auto extraction_failure = [](Response response) -> conflux::work::root::Task<Response> { co_return response; };
 		return conflux::work::root::spawn(
 			[&states,
 			 &fn,
@@ -2091,9 +2081,7 @@ public:
 			 &json_options,
 			 max_body_size
 #endif
-			 ,
-			 run_with_args,
-			 extraction_failure]() mutable -> conflux::work::root::Task<Response> {
+		]() mutable -> conflux::work::root::Task<Response> {
 				try {
 					auto extracted_args = std::make_tuple(
 						make_handler_arg<std::tuple_element_t<Is, Args>>(
@@ -2106,11 +2094,13 @@ public:
 #endif
 							)...);
 #if CONFLUX_HAS_JSON
-					return run_with_args(fn, std::move(extracted_args), json_options);
+					return await_app_task_response(fn, std::move(extracted_args), json_options);
 #else
-					return run_with_args(fn, std::move(extracted_args));
+					return await_app_task_response(fn, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) { return extraction_failure(std::move(failure).response()); }
+				} catch (ExtractorFailure &failure) {
+					return extraction_failure_response(std::move(failure).response());
+				}
 			});
 	}
 
