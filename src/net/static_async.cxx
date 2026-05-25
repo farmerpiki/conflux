@@ -138,20 +138,7 @@ void append_static_decimal(
 	if (semi == std::string_view::npos) {
 		return true;
 	}
-	auto params = entry.substr(semi + 1);
-	auto q_pos = params.find("q=");
-	if (q_pos == std::string_view::npos) {
-		q_pos = params.find("Q=");
-	}
-	if (q_pos == std::string_view::npos) {
-		return true;
-	}
-	auto qval = params.substr(q_pos + 2);
-	auto qend = qval.find_first_of(", ;");
-	if (qend != std::string_view::npos) {
-		qval = qval.substr(0, qend);
-	}
-	return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
+	return conflux::http::parse_http_q(conflux::http::header_params(entry.substr(semi + 1))).value_or(1.0F) != 0.0F;
 }
 
 struct StaticAcceptedEncodings {

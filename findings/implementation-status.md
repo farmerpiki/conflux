@@ -78,14 +78,20 @@ those reviews.
   allocation-free precomputed HMAC-SHA256 path is exposed as documented
   `conflux::crypto::HmacSha256Key`, `hmac_sha256_key`, and
   `hmac_sha256_precomputed` APIs for internal and advanced callers.
+- `findings/2.md`: accepted the shared parameterized HTTP-list parser cleanup.
+  `header_params` and `parse_http_q` now centralize semicolon-parameter and
+  q-value scanning without materializing strings; compression negotiation,
+  static precompressed negotiation, and response-cache Cache-Control parsing use
+  the shared view parser.
 
 ## Accepted backlog
 
 - `findings/2.md`: reflected JSON member lookup ergonomics/performance.
   Accepted direction, but not in this slice; needs a focused data-structure
   change and benchmarks.
-- `findings/2.md`: client effective-header materialization and public/internal
-  header callback algorithms are complete above.
+- `findings/2.md`: client effective-header materialization, public/internal
+  header callback algorithms, and shared parameterized HTTP-list parsing are
+  complete above.
 - `findings/2.md`: route-pattern/OpenAPI/template rendering deduplication.
   Accepted as design debt, but too broad for this safety/perf slice.
 - `findings/3.md`: generic io_uring sync task driver, HTTP client body state
@@ -211,3 +217,11 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "build/header-component-smoke"` completed after the crypto API adjustment:
   1/1 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_core
+  conflux_http_static_async conflux_http_compression conflux_http_policy
+  conflux_tests conflux_compression_matrix_e2e conflux_file_io_http_e2e`
+  completed after the shared HTTP parameter parser change.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "response_cache:|cache_control:|static file|compression matrix|file_io http
+  e2e|build/header-component-smoke"` completed after the shared HTTP parameter
+  parser change: 49/49 passed.

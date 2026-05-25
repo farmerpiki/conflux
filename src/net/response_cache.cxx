@@ -97,9 +97,10 @@ bool cache_control_directive_contains(
 	std::string_view cc,
 	std::string_view directive) {
 	return std::ranges::any_of(conflux::http::header_tokens(cc), [&](std::string_view part) {
-		auto const eq = part.find('=');
-		auto const name = conflux::http::trim_http_whitespace(eq == std::string_view::npos ? part : part.substr(0, eq));
-		return conflux::http::ascii_iequals(name, directive);
+		for (auto const param: conflux::http::header_params(part)) {
+			return conflux::http::ascii_iequals(param.name, directive);
+		}
+		return false;
 	});
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
@@ -107,15 +108,16 @@ std::chrono::seconds parse_max_age(
 	std::string_view cc) {
 	std::chrono::seconds result{0};
 	for (auto const part: conflux::http::header_tokens(cc)) {
-		auto const eq = part.find('=');
-		if (eq == std::string_view::npos) {
+		auto const params = conflux::http::header_params(part);
+		auto param_it = params.begin();
+		if (param_it == params.end()) {
 			continue;
 		}
-		auto const name = conflux::http::trim_http_whitespace(part.substr(0, eq));
-		if (!conflux::http::ascii_iequals(name, "max-age")) {
+		auto const param = *param_it;
+		if (!param.has_value || !conflux::http::ascii_iequals(param.name, "max-age")) {
 			continue;
 		}
-		auto const val = conflux::http::trim_http_whitespace(part.substr(eq + 1));
+		auto const val = conflux::http::trim_http_whitespace(param.value);
 		long v = 0;
 		auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
 		if (ec == std::errc{} && ptr == val.data() + val.size()) {

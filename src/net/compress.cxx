@@ -147,16 +147,10 @@ DynamicEncodingQs header_encoding_q_values(
 		auto const semi = token.find(';');
 		auto const name = conflux::http::trim_http_whitespace(token.substr(0, semi));
 
-		float q = 1.0F;
-		if (semi != std::string_view::npos) {
-			if (auto const eq = token.find('=', semi); eq != std::string_view::npos) {
-				auto const key = conflux::http::trim_http_whitespace(token.substr(semi + 1, eq - semi - 1));
-				if (conflux::http::ascii_iequals(key, "q")) {
-					auto const val = conflux::http::trim_http_whitespace(token.substr(eq + 1));
-					std::from_chars(val.data(), val.data() + val.size(), q);
-				}
-			}
-		}
+		float const q =
+			semi == std::string_view::npos ?
+				1.0F :
+				conflux::http::parse_http_q(conflux::http::header_params(token.substr(semi + 1))).value_or(1.0F);
 
 		if (name == "*") {
 			q_star = std::max(q_star, q);

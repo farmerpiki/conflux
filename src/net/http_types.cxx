@@ -483,6 +483,144 @@ public:
 	return HeaderTokenView{header_value};
 }
 
+struct HeaderParam {
+	std::string_view name{};
+	std::string_view value{};
+	bool has_value{};
+};
+
+class HeaderParamView {
+	std::string_view params_{};
+
+	[[nodiscard]] static constexpr std::size_t find_unquoted(
+		std::string_view s,
+		char needle,
+		std::size_t pos = 0) noexcept {
+		bool quoted = false;
+		bool escaped = false;
+		for (std::size_t i = pos; i < s.size(); ++i) {
+			char const c = s[i];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (quoted && c == '\\') {
+				escaped = true;
+				continue;
+			}
+			if (c == '"') {
+				quoted = !quoted;
+				continue;
+			}
+			if (!quoted && c == needle) {
+				return i;
+			}
+		}
+		return std::string_view::npos;
+	}
+
+	class Iterator {
+		std::string_view params_{};
+		std::size_t pos_{0};
+		HeaderParam param_{};
+		bool done_{true};
+
+		void read_current() noexcept {
+			while (pos_ <= params_.size()) {
+				auto const semi = find_unquoted(params_, ';', pos_);
+				auto segment = trim_http_whitespace(
+					semi == std::string_view::npos ? params_.substr(pos_) : params_.substr(pos_, semi - pos_));
+				if (semi == std::string_view::npos) {
+					pos_ = params_.size() + 1;
+				} else {
+					pos_ = semi + 1;
+				}
+				if (segment.empty()) {
+					continue;
+				}
+				auto const eq = find_unquoted(segment, '=');
+				if (eq == std::string_view::npos) {
+					param_ = HeaderParam{.name = trim_http_whitespace(segment)};
+				} else {
+					param_ = HeaderParam{
+						.name = trim_http_whitespace(segment.substr(0, eq)),
+						.value = trim_http_whitespace(segment.substr(eq + 1)),
+						.has_value = true};
+				}
+				done_ = false;
+				return;
+			}
+			done_ = true;
+			param_ = {};
+		}
+
+	public:
+		using value_type = HeaderParam;
+		using difference_type = std::ptrdiff_t;
+		using iterator_category = std::input_iterator_tag;
+
+		Iterator() = default;
+		Iterator(
+			std::string_view params,
+			std::size_t pos) noexcept
+			: params_{params}
+			, pos_{pos} {
+			read_current();
+		}
+
+		[[nodiscard]] HeaderParam operator *() const noexcept { return param_; }
+		Iterator &operator ++() noexcept {
+			if (!done_) {
+				read_current();
+			}
+			return *this;
+		}
+		void operator ++(
+			int) noexcept {
+			++(*this);
+		}
+		[[nodiscard]] friend bool operator ==(
+			Iterator const &lhs,
+			Iterator const &rhs) noexcept {
+			return lhs.done_ == rhs.done_
+				&& (lhs.done_
+					|| (lhs.params_.data() == rhs.params_.data()
+						&& lhs.params_.size() == rhs.params_.size()
+						&& lhs.pos_ == rhs.pos_));
+		}
+	};
+
+public:
+	explicit constexpr HeaderParamView(
+		std::string_view params) noexcept
+		: params_{params} {}
+
+	[[nodiscard]] Iterator begin() const noexcept { return Iterator{params_, 0}; }
+	[[nodiscard]] Iterator end() const noexcept { return {}; }
+};
+
+[[nodiscard]] constexpr HeaderParamView header_params(
+	std::string_view params) noexcept {
+	return HeaderParamView{params};
+}
+
+[[nodiscard]] inline std::optional<float> parse_http_q(
+	HeaderParamView params) noexcept {
+	for (auto const param: params) {
+		if (!param.has_value || !ascii_ci_equal(param.name, "q")) {
+			continue;
+		}
+		float q = 1.0F;
+		auto const value = trim_http_whitespace(param.value);
+		auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), q);
+		if (ec == std::errc{} && ptr == value.data() + value.size()) {
+			return q;
+		}
+		return std::nullopt;
+	}
+	return std::nullopt;
+}
+
 template<class Fn>
 bool for_each_comma_token(
 	std::string_view header_value,
