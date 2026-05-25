@@ -107,94 +107,48 @@ void append_header_line(
 	out += "\r\n";
 }
 
-[[nodiscard]] std::optional<std::string_view> find_request_override(
+struct EffectiveRequestHeader {
+	std::string_view name;
+	std::string_view value;
+	bool default_header{};
+	bool emit{true};
+};
+
+[[nodiscard]] std::vector<EffectiveRequestHeader> make_effective_request_headers(
 	HttpFields const &defaults,
-	HttpFields const &headers,
-	std::string_view default_name) noexcept {
-	std::optional<std::string_view> found{};
+	HttpFields const &headers) {
+	std::vector<EffectiveRequestHeader> out;
+	out.reserve(defaults.size() + headers.size());
+	for (auto const &[k, v]: defaults) {
+		if (serializable_request_header(k)) {
+			out.push_back(EffectiveRequestHeader{.name = k, .value = v, .default_header = true});
+		}
+	}
 	for (auto const &[k, v]: headers) {
-		if (serializable_request_header(k) && default_header_key_eq(defaults, k, default_name)) {
-			found = std::string_view{v};
-		}
-	}
-	return found;
-}
-
-[[nodiscard]] bool default_has_prior_key(
-	HttpFields const &defaults,
-	std::size_t index) noexcept {
-	std::string_view current_name;
-	bool current_found = false;
-	std::size_t i = 0;
-	for (auto const &[k, v]: defaults) {
-		(void)v;
-		if (i == index) {
-			current_name = k;
-			current_found = true;
-			break;
-		}
-		++i;
-	}
-	if (!current_found) {
-		return false;
-	}
-	i = 0;
-	for (auto const &[k, v]: defaults) {
-		(void)v;
-		if (i == index) {
-			return false;
-		}
-		if (serializable_request_header(k) && default_header_key_eq(defaults, k, current_name)) {
-			return true;
-		}
-		++i;
-	}
-	return false;
-}
-
-[[nodiscard]] bool request_matches_default(
-	HttpFields const &defaults,
-	std::string_view request_name) noexcept {
-	for (auto const &[k, v]: defaults) {
-		(void)v;
-		if (serializable_request_header(k) && default_header_key_eq(defaults, k, request_name)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-template<class F>
-void for_each_effective_request_header(
-	HttpFields const &default_headers,
-	HttpFields const &request_headers,
-	F &&fn) {
-	std::size_t default_index = 0;
-	for (auto const &[k, v]: default_headers) {
 		if (!serializable_request_header(k)) {
-			++default_index;
 			continue;
 		}
-		auto const override = find_request_override(default_headers, request_headers, k);
-		if (override) {
-			if (!default_has_prior_key(default_headers, default_index)) {
-				fn(k, *override);
+		auto match = std::ranges::find_if(out, [&](EffectiveRequestHeader const &candidate) {
+			return candidate.default_header && default_header_key_eq(defaults, candidate.name, k);
+		});
+		if (match == out.end()) {
+			out.push_back(EffectiveRequestHeader{.name = k, .value = v});
+			continue;
+		}
+		match->value = v;
+		auto const first_name = match->name;
+		for (auto it = std::next(match); it != out.end(); ++it) {
+			if (it->default_header && default_header_key_eq(defaults, it->name, first_name)) {
+				it->emit = false;
 			}
-		} else {
-			fn(k, v);
-		}
-		++default_index;
-	}
-	for (auto const &[k, v]: request_headers) {
-		if (serializable_request_header(k) && !request_matches_default(default_headers, k)) {
-			fn(k, v);
 		}
 	}
+	return out;
 }
 
 [[nodiscard]] std::size_t estimate_request_wire_size(
 	ClientRequest const &req,
-	HttpFields const &default_headers,
+	std::span<EffectiveRequestHeader const> effective_headers,
 	std::string_view caller_host) noexcept {
 	auto const &url = req.url();
 	std::size_t n = req.method().size()
@@ -204,9 +158,11 @@ void for_each_effective_request_header(
 				  - 1
 				  + host_header_value_size(url, caller_host)
 				  + 2;
-	for_each_effective_request_header(default_headers, req.headers(), [&n](std::string_view k, std::string_view v) {
-		n += k.size() + 2 + v.size() + 2;
-	});
+	for (auto const &header: effective_headers) {
+		if (header.emit) {
+			n += header.name.size() + 2 + header.value.size() + 2;
+		}
+	}
 	n += sizeof("Connection: close\r\n") - 1;
 	if (!req.body().empty()) {
 		n += sizeof("Content-Length: \r\n") - 1 + decimal_size(req.body().size());
@@ -445,8 +401,9 @@ ChunkedDecodeStatus decode_chunked_prefix(
 	using namespace client_wire_detail;
 	auto const &url = req.url();
 	auto const caller_host = req.headers()["host"];
+	auto const effective_headers = make_effective_request_headers(default_headers, req.headers());
 	std::string wire;
-	wire.reserve(estimate_request_wire_size(req, default_headers, caller_host));
+	wire.reserve(estimate_request_wire_size(req, effective_headers, caller_host));
 	wire += req.method();
 	wire += ' ';
 	append_request_target(wire, url);
@@ -454,9 +411,11 @@ ChunkedDecodeStatus decode_chunked_prefix(
 	append_host_header_value(wire, url, caller_host);
 	wire += "\r\n";
 
-	for_each_effective_request_header(default_headers, req.headers(), [&wire](std::string_view k, std::string_view v) {
-		append_header_line(wire, k, v);
-	});
+	for (auto const &header: effective_headers) {
+		if (header.emit) {
+			append_header_line(wire, header.name, header.value);
+		}
+	}
 	wire += "Connection: close\r\n";
 	if (!req.body().empty()) {
 		wire += "Content-Length: ";

@@ -38,14 +38,18 @@ those reviews.
   cleanup. Compile-time and runtime comparison-operator descriptor tables now
   use `constexpr std::array` with `std::string_view` literals instead of
   first-use dynamic vectors.
+- `findings/2.md`: accepted the client request-header overlay materialization
+  cleanup. HTTP/1 client request building now constructs effective headers once
+  as local `string_view` entries into existing request/default header storage,
+  then reuses that vector for reserve sizing and serialization.
 
 ## Accepted backlog
 
 - `findings/2.md`: reflected JSON member lookup ergonomics/performance.
   Accepted direction, but not in this slice; needs a focused data-structure
   change and benchmarks.
-- `findings/2.md`: client effective-header materialization and header callback
-  algorithm cleanup. Accepted direction; keep as bounded follow-up work.
+- `findings/2.md`: public/internal header callback algorithms remain accepted
+  follow-up work. Client effective-header materialization is complete above.
 - `findings/2.md`: route-pattern/OpenAPI/template rendering deduplication.
   Accepted as design debt, but too broad for this safety/perf slice.
 - `findings/3.md`: generic io_uring sync task driver, HTTP client body state
@@ -94,3 +98,12 @@ those reviews.
   completed.
 - `/tmp/gcc-16/release-clang-libcxx/tests/conflux_json_tests
   "[json][builder][lifetime],[phase5]"` completed.
+- `cmake --build --preset release-clang-libcxx --target conflux_template_tests`
+  completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "template:"` completed: 51/51 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tests`
+  completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http client: request headers override default headers once|http client: GET
+  /api/ping returns 200"` completed.
