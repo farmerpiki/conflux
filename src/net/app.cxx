@@ -1632,8 +1632,15 @@ public:
 			return;
 		}
 		using Clean = typename detail::ResponseMetadataType<Return>::type;
-		if constexpr (std::same_as<Clean, Created>) {
+		if constexpr (std::same_as<Clean, Created> || detail::CreatedBodyArg<Clean>) {
 			meta.success_status = kHttpCreated;
+		}
+		if constexpr (detail::CreatedBodyArg<Clean>) {
+			meta.produces = {"application/json"};
+#if CONFLUX_HAS_JSON
+			using JsonValue = typename detail::CreatedBodyType<Clean>::type;
+			meta.response_schema = detail::schema_json_or_object<JsonValue>();
+#endif
 		}
 		if constexpr (detail::JsonArg<Clean>) {
 			meta.produces = {"application/json"};

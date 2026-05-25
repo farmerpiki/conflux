@@ -126,20 +126,20 @@ template<class T>
 }
 
 template<class T>
-[[nodiscard]] Created created(
+[[nodiscard]] CreatedBody<T> created(
 	Json<T> const &body) {
-	return Created{.response = codec::json::response_or_internal_error(body.value, kHttpCreated, "Created")};
+	return CreatedBody<T>{codec::json::response_or_internal_error(body.value, kHttpCreated, "Created")};
 }
 
 template<class T>
-[[nodiscard]] Created created(
+[[nodiscard]] CreatedBody<T> created(
 	T const &value)
 	requires conflux::json::boundary::JsonWritableProvider<
 		codec::json::DefaultJsonProvider,
 		std::remove_cvref_t<T>,
 		codec::json::detail::ResponseBodySink &>
 {
-	return Created{.response = codec::json::response_or_internal_error(value, kHttpCreated, "Created")};
+	return CreatedBody<T>{codec::json::response_or_internal_error(value, kHttpCreated, "Created")};
 }
 
 } // namespace conflux::http

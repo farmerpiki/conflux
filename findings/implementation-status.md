@@ -104,6 +104,11 @@ those reviews.
   canonical app-running spelling and use `http::exit_code(...)` explicitly when
   returning from `main`; `listen(...)` remains reserved for lifecycle examples
   that construct a server object.
+- `findings/6.md`: accepted the typed created-response schema metadata gap.
+  `http::created(Json<T>)` and JSON-writable `http::created(T)` now return a
+  typed `CreatedBody<T>` wrapper that erases to `Response` at runtime while
+  preserving `T` for OpenAPI response schema inference, including fluent header,
+  location, and content-type customization.
 
 ## Accepted backlog
 
@@ -129,7 +134,8 @@ those reviews.
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
   RequiredBasicAuth OpenAPI scheme metadata and first-contact run spelling are
-  complete above.
+  complete above. Created-response schema metadata is complete above for the
+  existing JSON body helper; broader typed status wrappers remain backlog.
 - `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
   cleanup remain accepted backlog. Content-Type media-type parsing,
@@ -428,3 +434,11 @@ those reviews.
   "examples/(compile|quickstart-policy|public-policy)|http facade: api
   snapshot|api-surface/import-(curated|extended|complete|selected)"` completed
   after the first-contact run spelling update: 7/7 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_http_facade_tests` completed after the typed created-response metadata
+  update.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: app route metadata records JSON responses|http facade: response
+  helpers keep explicit metadata|http facade: app openapi spec includes JSON
+  request bodies|http facade: app openapi snapshot covers typed route policies"`
+  completed after the typed created-response metadata update: 3/3 passed.

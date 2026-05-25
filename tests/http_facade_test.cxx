@@ -1083,6 +1083,8 @@ TEST_CASE(
 	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
 	CHECK(routes[1].produces == std::vector<std::string>{"application/json"});
 	CHECK(routes[2].success_status == kHttpCreated);
+	CHECK(routes[2].produces == std::vector<std::string>{"application/json"});
+	CHECK(routes[2].response_schema.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
 	CHECK_FALSE(routes[0].problem_response);
 	CHECK(routes[1].problem_response);
 	auto spec = app.openapi_spec();

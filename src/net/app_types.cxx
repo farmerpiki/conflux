@@ -244,6 +244,72 @@ struct Created {
 };
 
 template<class T>
+struct CreatedBody : Created {
+	using value_type = std::remove_cvref_t<T>;
+
+	constexpr explicit CreatedBody(
+		Response response)
+		: Created{.response = std::move(response)} {}
+
+	[[nodiscard]] CreatedBody header(
+		std::string_view name,
+		std::string value) && {
+		response.headers[name] = std::move(value);
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody header(
+		std::string_view name,
+		std::string_view value) && {
+		response.headers[name] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody header(
+		std::string_view name,
+		char const *value) && {
+		response.headers[name] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody location(
+		std::string value) && {
+		response.headers["Location"] = std::move(value);
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody location(
+		std::string_view value) && {
+		response.headers["Location"] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody location(
+		char const *value) && {
+		response.headers["Location"] = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody content_type(
+		std::string value) && {
+		response.content_type = std::move(value);
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody content_type(
+		std::string_view value) && {
+		response.content_type = std::string{value};
+		return std::move(*this);
+	}
+
+	[[nodiscard]] CreatedBody content_type(
+		char const *value) && {
+		response.content_type = std::string{value};
+		return std::move(*this);
+	}
+};
+
+template<class T>
 struct Json {
 	using value_type = std::remove_cvref_t<T>;
 

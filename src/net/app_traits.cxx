@@ -60,6 +60,17 @@ template<class T>
 concept JsonArg = requires { typename JsonType<std::remove_cvref_t<T>>::type; };
 
 template<class T>
+struct CreatedBodyType {};
+
+template<class T>
+struct CreatedBodyType<CreatedBody<T>> {
+	using type = T;
+};
+
+template<class T>
+concept CreatedBodyArg = requires { typename CreatedBodyType<std::remove_cvref_t<T>>::type; };
+
+template<class T>
 struct PathType {};
 
 template<FixedString Name, class T>
