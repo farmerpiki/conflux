@@ -337,6 +337,230 @@ public:
 	[[nodiscard]] std::expected<Document, JsonError> finish() &&;
 };
 export ValueBuilder value_builder();
+
+export namespace conflux::json {
+
+class ArrayWriter;
+
+class ObjectWriter {
+	ObjectBuilder *builder_{};
+	std::optional<JsonError> error_{};
+
+	template<class Expected>
+	[[nodiscard]] bool remember(
+		Expected const &result) {
+		if (!result && !error_) {
+			error_ = result.error();
+		}
+		return result.has_value();
+	}
+
+public:
+	explicit ObjectWriter(
+		ObjectBuilder &builder) noexcept
+		: builder_{&builder} {}
+
+	[[nodiscard]] std::optional<JsonError> const &error() const noexcept { return error_; }
+
+	template<class T>
+	std::expected<void, JsonError> operator ()(
+		std::string_view name,
+		T const &value) {
+		if (error_) {
+			return std::unexpected(*error_);
+		}
+		auto result = [&]() {
+			using Clean = std::remove_cvref_t<T>;
+			if constexpr (std::same_as<Clean, bool>) {
+				return builder_->insert_bool(name, value);
+			} else if constexpr (std::is_integral_v<Clean> && std::is_signed_v<Clean>) {
+				return builder_->insert_i64(name, static_cast<std::int64_t>(value));
+			} else if constexpr (std::is_integral_v<Clean> && std::is_unsigned_v<Clean>) {
+				return builder_->insert_u64(name, static_cast<std::uint64_t>(value));
+			} else if constexpr (std::is_floating_point_v<Clean>) {
+				return builder_->insert_f64(name, static_cast<double>(value));
+			} else if constexpr (std::is_convertible_v<T const &, std::string_view>) {
+				return builder_->insert_string(name, std::string_view{value});
+			} else {
+				return builder_->insert(name, value);
+			}
+		}();
+		(void)remember(result);
+		return result;
+	}
+
+	template<class F>
+	std::expected<void, JsonError> object(std::string_view name, F &&fn);
+
+	template<class F>
+	std::expected<void, JsonError> array(std::string_view name, F &&fn);
+};
+
+class ArrayWriter {
+	ArrayBuilder *builder_{};
+	std::optional<JsonError> error_{};
+
+	template<class Expected>
+	[[nodiscard]] bool remember(
+		Expected const &result) {
+		if (!result && !error_) {
+			error_ = result.error();
+		}
+		return result.has_value();
+	}
+
+public:
+	explicit ArrayWriter(
+		ArrayBuilder &builder) noexcept
+		: builder_{&builder} {}
+
+	[[nodiscard]] std::optional<JsonError> const &error() const noexcept { return error_; }
+
+	template<class T>
+	std::expected<void, JsonError> operator ()(
+		T const &value) {
+		if (error_) {
+			return std::unexpected(*error_);
+		}
+		auto result = [&]() {
+			using Clean = std::remove_cvref_t<T>;
+			if constexpr (std::same_as<Clean, bool>) {
+				return builder_->append_bool(value);
+			} else if constexpr (std::is_integral_v<Clean> && std::is_signed_v<Clean>) {
+				return builder_->append_i64(static_cast<std::int64_t>(value));
+			} else if constexpr (std::is_integral_v<Clean> && std::is_unsigned_v<Clean>) {
+				return builder_->append_u64(static_cast<std::uint64_t>(value));
+			} else if constexpr (std::is_floating_point_v<Clean>) {
+				return builder_->append_f64(static_cast<double>(value));
+			} else if constexpr (std::is_convertible_v<T const &, std::string_view>) {
+				return builder_->append_string(std::string_view{value});
+			} else {
+				return builder_->append(value);
+			}
+		}();
+		(void)remember(result);
+		return result;
+	}
+
+	template<class F>
+	std::expected<void, JsonError> object(
+		F &&fn) {
+		if (error_) {
+			return std::unexpected(*error_);
+		}
+		auto child = builder_->append_object();
+		if (!remember(child)) {
+			return std::unexpected(*error_);
+		}
+		ObjectWriter writer{*child};
+		std::invoke(std::forward<F>(fn), writer);
+		if (writer.error()) {
+			error_ = *writer.error();
+			return std::unexpected(*error_);
+		}
+		std::move(*child).commit();
+		return {};
+	}
+
+	template<class F>
+	std::expected<void, JsonError> array(
+		F &&fn) {
+		if (error_) {
+			return std::unexpected(*error_);
+		}
+		auto child = builder_->append_array();
+		if (!remember(child)) {
+			return std::unexpected(*error_);
+		}
+		ArrayWriter writer{*child};
+		std::invoke(std::forward<F>(fn), writer);
+		if (writer.error()) {
+			error_ = *writer.error();
+			return std::unexpected(*error_);
+		}
+		std::move(*child).commit();
+		return {};
+	}
+};
+
+template<class F>
+std::expected<void, JsonError> ObjectWriter::object(
+	std::string_view name,
+	F &&fn) {
+	if (error_) {
+		return std::unexpected(*error_);
+	}
+	auto child = builder_->insert_object(name);
+	if (!remember(child)) {
+		return std::unexpected(*error_);
+	}
+	ObjectWriter writer{*child};
+	std::invoke(std::forward<F>(fn), writer);
+	if (writer.error()) {
+		error_ = *writer.error();
+		return std::unexpected(*error_);
+	}
+	std::move(*child).commit();
+	return {};
+}
+
+template<class F>
+std::expected<void, JsonError> ObjectWriter::array(
+	std::string_view name,
+	F &&fn) {
+	if (error_) {
+		return std::unexpected(*error_);
+	}
+	auto child = builder_->insert_array(name);
+	if (!remember(child)) {
+		return std::unexpected(*error_);
+	}
+	ArrayWriter writer{*child};
+	std::invoke(std::forward<F>(fn), writer);
+	if (writer.error()) {
+		error_ = *writer.error();
+		return std::unexpected(*error_);
+	}
+	std::move(*child).commit();
+	return {};
+}
+
+template<class F>
+[[nodiscard]] std::expected<Document, JsonError> object(
+	F &&fn) {
+	auto builder = value_builder();
+	auto root = builder.begin_object();
+	if (!root) {
+		return std::unexpected(std::move(root).error());
+	}
+	ObjectWriter writer{*root};
+	std::invoke(std::forward<F>(fn), writer);
+	if (writer.error()) {
+		return std::unexpected(*writer.error());
+	}
+	std::move(*root).commit();
+	return std::move(builder).finish();
+}
+
+template<class F>
+[[nodiscard]] std::expected<Document, JsonError> array(
+	F &&fn) {
+	auto builder = value_builder();
+	auto root = builder.begin_array();
+	if (!root) {
+		return std::unexpected(std::move(root).error());
+	}
+	ArrayWriter writer{*root};
+	std::invoke(std::forward<F>(fn), writer);
+	if (writer.error()) {
+		return std::unexpected(*writer.error());
+	}
+	std::move(*root).commit();
+	return std::move(builder).finish();
+}
+
+} // namespace conflux::json
+
 export [[nodiscard]] std::expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
 export [[nodiscard]] std::expected<Document, JsonError> merge_patch(Document const &target, Document const &patch);
 export namespace conflux::json {

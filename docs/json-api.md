@@ -506,6 +506,23 @@ auto doc = move(b).finish();
 // {"id":42,"name":"alice","tags":["admin","user"]}
 ```
 
+For compact construction, `conflux::json::object` and `conflux::json::array`
+layer lambda sugar over the same builders:
+
+```cpp
+auto doc = conflux::json::object([](auto& obj) {
+    obj("id", 42);
+    obj("name", "alice");
+    obj.array("tags", [](auto& arr) {
+        arr("admin");
+        arr("user");
+    });
+});
+```
+
+The helper returns `expected<Document, JsonError>`. Ignored insert/append errors
+are captured by the writer and returned by the outer helper.
+
 ---
 
 ## Codec System

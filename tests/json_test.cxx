@@ -677,6 +677,30 @@ TEST_CASE(
 	CHECK(*a.element(2)->as_string() == "hi");
 	CHECK(*a.element(3)->as_number()->to_f64() == Catch::Approx(2.5));
 }
+
+TEST_CASE(
+	"json: builder lambda sugar builds nested documents",
+	"[json][builder]") {
+	auto doc = conflux::json::object([](auto &obj) {
+		obj("id", 42);
+		obj("name", "alice");
+		obj.array("tags", [](auto &arr) {
+			arr("x");
+			arr("y");
+		});
+	});
+	REQUIRE(doc.has_value());
+
+	auto root = doc->root().as_object();
+	REQUIRE(root.has_value());
+	CHECK(*root->required<std::int64_t>("id") == 42);
+	CHECK(*root->required<std::string>("name") == "alice");
+
+	auto tags = root->member("tags")->as_array();
+	REQUIRE(tags.has_value());
+	CHECK(*tags->element(0)->as_string() == "x");
+	CHECK(*tags->element(1)->as_string() == "y");
+}
 // ---------------------------------------------------------------------------
 // Builder — number from lexeme
 // ---------------------------------------------------------------------------
