@@ -63,6 +63,9 @@ those reviews.
 - `findings/5.md`: accepted the CQ-overflow stress assertion weakness. The
   stress test now accepts normal stop or explicit CQ/submit pressure statuses,
   not a generic `fatal_internal_exception`.
+- `findings/5.md`: accepted the SSE weak assertion gap. TLS, HTTP/2, and
+  libcurl SSE tests now assert exact finite event-stream bodies instead of
+  substring presence.
 
 ## Accepted backlog
 
@@ -84,8 +87,8 @@ those reviews.
   benchmarks and isolated changes.
 - `findings/5.md`: remaining compile-fail wiring and structured-output
   assertion gaps stay accepted test backlog. HTTP package smoke, façade import
-  purity, API surface symbol smokes, and CQ-overflow status tightening are
-  complete above.
+  purity, API surface symbol smokes, CQ-overflow status tightening, and SSE
+  exact stream assertions are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -146,6 +149,11 @@ those reviews.
   conflux_http_overflow_stress_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http.cq_overflow"` completed: 1/1 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tls_external
+  conflux_h2_external conflux_libcurl_external` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "SSE (streams all events|send_event delivers typed event|delivers all events
+  over HTTP/2|short stream closes cleanly)"` completed: 5/5 passed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.

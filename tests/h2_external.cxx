@@ -616,9 +616,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/events");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("data: alpha\n\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: beta\n\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: gamma\n\n") != std::string::npos);
+	REQUIRE(resp.body == "data: alpha\n\ndata: beta\n\ndata: gamma\n\n");
 	REQUIRE(resp.closed);
 }
 TEST_CASE(
@@ -633,8 +631,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/typed");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("event: update\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: payload42\n") != std::string::npos);
+	REQUIRE(resp.body == "event: update\ndata: payload42\n\n");
 	REQUIRE(resp.closed);
 }
 TEST_CASE(

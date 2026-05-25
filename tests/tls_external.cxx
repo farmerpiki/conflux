@@ -343,8 +343,7 @@ TEST_CASE(
 		std::format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
 	INFO(std::format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("data: alpha\n\n") != std::string::npos);
-	REQUIRE(body.find("data: beta\n\n") != std::string::npos);
+	REQUIRE(body == "data: alpha\n\ndata: beta\n\n");
 }
 TEST_CASE(
 	"ext/curl: SSE send_event delivers typed event") {
@@ -358,6 +357,5 @@ TEST_CASE(
 		std::format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
 	INFO(std::format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("event: update\n") != std::string::npos);
-	REQUIRE(body.find("data: payload42\n") != std::string::npos);
+	REQUIRE(body == "event: update\ndata: payload42\n\n");
 }

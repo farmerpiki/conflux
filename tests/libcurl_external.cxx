@@ -494,8 +494,7 @@ TEST_CASE(
 	CurlEasy curl;
 	auto resp =
 		curl.perform(CurlRequest{.url = https_url(fx.port(), "/events"), .http_version = CURL_HTTP_VERSION_1_1});
-	require_contains(resp, 200, "data: alpha\n\n");
-	REQUIRE(resp.body.find("data: beta\n\n") != std::string::npos);
+	require_ok(resp, 200, "data: alpha\n\ndata: beta\n\n");
 }
 
 TEST_CASE(
