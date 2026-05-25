@@ -359,6 +359,28 @@ Current review set: `findings/1.md` through `findings/7.md` after
   `get_ping` under `/tmp/gcc-16/bench-artifacts/20260525T-response-string-perf`
   showed slightly lower cycles but higher instructions and cache activity, so
   the patch was reverted rather than kept.
+- `findings/3.md` P0 HTTP/1 request dispatch double-parse/promote path:
+  investigated but not accepted. A minimal parsed-view rebase candidate is
+  preserved as
+  `/tmp/gcc-16/bench-artifacts/20260525T-http1-dispatch-reparse-candidate/http1-dispatch-rebase-candidate.patch`.
+  The candidate avoided the recursive `dispatch_request()` reparse after
+  `PartialBuf::cut_prefix()` by rebasing `ParsedRequest` views into the promoted
+  request buffer and zeroing `conn.request_bytes` because the prefix had already
+  been removed. Correctness smoke passed for HTTP core/facade tests, but
+  integrated HTTP server compare-bins did not clear the hot-path gate.
+  `pipeline_100` compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T190527Z-compare-bins`, base run `1045`,
+  candidate run `1046`: best 906402.80 -> 907041.40 ns/iter (+638.60 ns,
+  +0.07%), p10 907407.29 -> 908875.47 ns/iter (+1468.18 ns, +0.16%), p50
+  911719.75 -> 916956.45 ns/iter (+0.57%), p99 920152.02 -> 943122.63 ns/iter
+  (+2.50%). `post_echo_4k` compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T190612Z-compare-bins`, base run `1047`,
+  candidate run `1048`: best 19400.91 -> 18787.46 ns/iter (-613.45 ns,
+  -3.16%), p10 19440.25 -> 19280.55 ns/iter (-159.70 ns, -0.82%), p50
+  19983.99 -> 19752.56 ns/iter (-1.16%), but p99 regressed
+  20964.36 -> 23601.87 ns/iter (+12.58%). The patch was reverted rather than
+  kept; future work should look for a lower-overhead carry-forward of parsed
+  offsets/header summary instead of rebasing/rebuilding the view set.
 - `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
   lifetime/cancel refactor rather than a bounded dedup patch. The repeated
   wait loops are exactly where cancellation and ownership can drift, but a safe

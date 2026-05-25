@@ -423,6 +423,17 @@ struct Variant {
 	std::size_t ops_per_iter = 1;
 	std::size_t iters_override = 0;
 };
+
+[[nodiscard]] std::string_view parse_only_variant(
+	std::span<char *> args) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		if (std::string_view{args[i]} == "--only"sv && i + 1 < args.size()) {
+			return args[i + 1];
+		}
+	}
+	return {};
+}
+
 // ── Benchmark runner ────────────────────────────────────────────────────────
 
 BenchStats run_variant(
@@ -520,13 +531,15 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"target_ms":1000,"max_iterations":100,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"],"reps":1}]})");
+		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"target_ms":1000,"max_iterations":100,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"],"reps":1},{"name":"pipeline_100","extra":{"tier":"dispatch","case":"HTTP/1 pipelined GET"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","pipeline_100","--config-name","pipeline_100","--iterations","0","--warmup","0"]},{"name":"post_echo_4k","extra":{"tier":"dispatch","case":"HTTP/1 Content-Length POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_echo_4k","--config-name","post_echo_4k","--iterations","0","--warmup","0"]},{"name":"post_chunked_4k_many","extra":{"tier":"dispatch","case":"HTTP/1 chunked POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_chunked_4k_many","--config-name","post_chunked_4k_many","--iterations","0","--warmup","0"]}]})");
 
-	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	auto const argv_span = std::span{argv, static_cast<std::size_t>(argc)};
+	auto const args = bench_parse_args(argv_span);
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json = args.json_out;
 	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
+	auto const only_variant = parse_only_variant(argv_span);
 
 	// ── Start servers ─────────────────────────────────────────────────────
 
@@ -1783,6 +1796,9 @@ int main(
 	}
 
 	for (auto const &v: variants) {
+		if (!only_variant.empty() && v.name != only_variant) {
+			continue;
+		}
 		try {
 			auto const stats = run_variant(v, iters, warmup, config_name);
 			print_variant(stats, json, v.ops_per_iter);
