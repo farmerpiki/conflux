@@ -15,18 +15,11 @@ import conflux.work;
 import conflux.file_io;
 
 import bench_common;
+import bench_io_common;
 
 using namespace std::string_view_literals;
-using conflux::work::root::Task;
-namespace root = conflux::work::root;
 
 namespace {
-
-constexpr std::uint64_t pack_ud(
-	std::uint32_t slot,
-	std::uint32_t gen) noexcept {
-	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-}
 
 struct Config {
 	std::size_t iterations = 20000;
@@ -108,71 +101,6 @@ void fill_file(
 	}
 }
 
-template<typename T>
-struct JoinSlot {
-	std::atomic<std::size_t> *done{};
-	std::exception_ptr err{};
-	[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
-};
-
-template<typename T>
-void install_join(
-	root::Task<T> task,
-	std::shared_ptr<JoinSlot<T>> slot) {
-	auto handle = std::make_shared<root::TaskJoinHandle<T>>(root::into_join_handle(std::move(task)));
-	handle->control().set_on_ready_or_run([slot = std::move(slot), handle]() noexcept {
-		try {
-			auto outcome = root::blocking_join(std::move(*handle));
-			if (outcome.is_failure()) {
-				slot->err = std::move(outcome).failure().error;
-			} else if (outcome.is_cancelled()) {
-				slot->err = std::make_exception_ptr(::Cancelled{});
-			} else if constexpr (!std::is_void_v<T>) {
-				slot->value.emplace(std::move(outcome).success().value);
-			}
-		} catch (...) { slot->err = std::current_exception(); }
-		slot->done->fetch_add(1, std::memory_order_release);
-	});
-}
-
-void pump_until_count(
-	FileReader &reader,
-	std::atomic<std::size_t> &done,
-	std::size_t target) {
-	auto *ring = reader.ring();
-	auto *completions = reader.completions();
-	while (done.load(std::memory_order_acquire) < target) {
-		::io_uring_cqe *cqe = nullptr;
-		int rc = ::io_uring_submit_and_wait(ring, 1);
-		if (rc >= 0) {
-			rc = ::io_uring_peek_cqe(ring, &cqe);
-		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
-			continue;
-		}
-		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{std::format("submit_and_wait rc={}", rc)};
-		}
-		std::array<::io_uring_cqe *, 64> batch{};
-		for (;;) {
-			unsigned const n = ::io_uring_peek_batch_cqe(ring, batch.data(), static_cast<unsigned>(batch.size()));
-			if (n == 0) {
-				break;
-			}
-			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<std::size_t>(i)];
-				auto const slot = static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU);
-				auto const gen = static_cast<std::uint32_t>(c->user_data >> 32U);
-				completions->dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
-			}
-			::io_uring_cq_advance(ring, n);
-			if (done.load(std::memory_order_acquire) >= target) {
-				break;
-			}
-		}
-	}
-}
-
 BenchStats bench_read_storm(
 	FileReader &files,
 	FileHandle const &fh,
@@ -184,16 +112,12 @@ BenchStats bench_read_storm(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		std::vector<std::shared_ptr<JoinSlot<std::size_t>>> slots;
-		slots.reserve(cfg.depth);
+		auto slots = bench_make_join_slots<std::size_t>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
-			auto slot = std::make_shared<JoinSlot<std::size_t>>();
-			slot->done = &done;
 			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
-			install_join(files.read_into(fh, offset, std::span{buffers[i]}), slot);
-			slots.push_back(std::move(slot));
+			bench_install_join(files.read_into(fh, offset, std::span{buffers[i]}), slots[i]);
 		}
-		pump_until_count(files, done, cfg.depth);
+		bench_pump_until_count(files, done, cfg.depth);
 		for (auto const &slot: slots) {
 			if (slot->err) {
 				std::rethrow_exception(slot->err);
@@ -220,16 +144,12 @@ BenchStats bench_write_storm(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		std::vector<std::shared_ptr<JoinSlot<std::size_t>>> slots;
-		slots.reserve(cfg.depth);
+		auto slots = bench_make_join_slots<std::size_t>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
-			auto slot = std::make_shared<JoinSlot<std::size_t>>();
-			slot->done = &done;
 			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
-			install_join(files.write_into(fh, offset, std::span<std::byte const>{buffers[i]}), slot);
-			slots.push_back(std::move(slot));
+			bench_install_join(files.write_into(fh, offset, std::span<std::byte const>{buffers[i]}), slots[i]);
 		}
-		pump_until_count(files, done, cfg.depth);
+		bench_pump_until_count(files, done, cfg.depth);
 		for (auto const &slot: slots) {
 			if (slot->err) {
 				std::rethrow_exception(slot->err);
@@ -272,7 +192,7 @@ int main(
 
 	try {
 		CompletionTable completions{cfg.depth * 2U};
-		FileReader files{&ring, &completions, pack_ud};
+		FileReader files{&ring, &completions, bench_pack_ud};
 		auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDWR | O_CLOEXEC));
 
 		(void)bench_read_storm(files, handle, cfg, buffers, true);

@@ -15,17 +15,11 @@ import conflux.work;
 import conflux.file_io;
 
 import bench_common;
+import bench_io_common;
 
 using namespace std::string_view_literals;
-namespace root = conflux::work::root;
 
 namespace {
-
-constexpr std::uint64_t pack_ud(
-	std::uint32_t slot,
-	std::uint32_t gen) noexcept {
-	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-}
 
 struct Config {
 	std::size_t iterations = 20000;
@@ -107,85 +101,6 @@ void fill_file(
 	}
 }
 
-template<typename T>
-struct JoinSlot {
-	std::atomic<std::size_t> *done{};
-	std::exception_ptr err{};
-	[[no_unique_address]] std::optional<T> value{};
-};
-
-template<typename T>
-void install_join(
-	root::Task<T> task,
-	std::shared_ptr<JoinSlot<T>> slot) {
-	auto handle = std::make_shared<root::TaskJoinHandle<T>>(root::into_join_handle(std::move(task)));
-	handle->control().set_on_ready_or_run([slot = std::move(slot), handle]() noexcept {
-		try {
-			auto outcome = root::blocking_join(std::move(*handle));
-			if (outcome.is_failure()) {
-				slot->err = std::move(outcome).failure().error;
-			} else if (outcome.is_cancelled()) {
-				slot->err = std::make_exception_ptr(::Cancelled{});
-			} else {
-				slot->value.emplace(std::move(outcome).success().value);
-			}
-		} catch (...) { slot->err = std::current_exception(); }
-		slot->done->fetch_add(1, std::memory_order_release);
-	});
-}
-
-void pump_until_count(
-	FileReader &reader,
-	std::atomic<std::size_t> &done,
-	std::size_t target) {
-	auto *ring = reader.ring();
-	auto *completions = reader.completions();
-	while (done.load(std::memory_order_acquire) < target) {
-		::io_uring_cqe *cqe = nullptr;
-		int rc = ::io_uring_submit_and_wait(ring, 1);
-		if (rc >= 0) {
-			rc = ::io_uring_peek_cqe(ring, &cqe);
-		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
-			continue;
-		}
-		if (rc < 0 || cqe == nullptr) {
-			throw std::runtime_error{std::format("submit_and_wait rc={}", rc)};
-		}
-		std::array<::io_uring_cqe *, 64> batch{};
-		for (;;) {
-			unsigned const n = ::io_uring_peek_batch_cqe(ring, batch.data(), static_cast<unsigned>(batch.size()));
-			if (n == 0) {
-				break;
-			}
-			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<std::size_t>(i)];
-				auto const slot = static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU);
-				auto const gen = static_cast<std::uint32_t>(c->user_data >> 32U);
-				completions->dispatch(slot, gen, c->res, conflux::uring::CqeFlags{c->flags});
-			}
-			::io_uring_cq_advance(ring, n);
-			if (done.load(std::memory_order_acquire) >= target) {
-				break;
-			}
-		}
-	}
-}
-
-template<typename T>
-std::vector<std::shared_ptr<JoinSlot<T>>> make_slots(
-	std::size_t depth,
-	std::atomic<std::size_t> &done) {
-	std::vector<std::shared_ptr<JoinSlot<T>>> slots;
-	slots.reserve(depth);
-	for (std::size_t i = 0; i < depth; ++i) {
-		auto slot = std::make_shared<JoinSlot<T>>();
-		slot->done = &done;
-		slots.push_back(std::move(slot));
-	}
-	return slots;
-}
-
 BenchStats bench_read_fixed(
 	FileReader &files,
 	FileHandle const &fh,
@@ -197,16 +112,16 @@ BenchStats bench_read_fixed(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		auto slots = make_slots<FileReader::ReadFixedResult>(cfg.depth, done);
+		auto slots = bench_make_join_slots<FileReader::ReadFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = pool.try_acquire();
 			if (!buf) {
 				throw std::runtime_error{"fixed read buffer pool exhausted"};
 			}
 			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
-			install_join(files.read_fixed(fh, offset, std::move(*buf), cfg.chunk), slots[i]);
+			bench_install_join(files.read_fixed(fh, offset, std::move(*buf), cfg.chunk), slots[i]);
 		}
-		pump_until_count(files, done, cfg.depth);
+		bench_pump_until_count(files, done, cfg.depth);
 		for (auto const &slot: slots) {
 			if (slot->err) {
 				std::rethrow_exception(slot->err);
@@ -238,7 +153,7 @@ BenchStats bench_write_fixed(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		auto slots = make_slots<FileReader::WriteFixedResult>(cfg.depth, done);
+		auto slots = bench_make_join_slots<FileReader::WriteFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = pool.try_acquire();
 			if (!buf) {
@@ -246,9 +161,9 @@ BenchStats bench_write_fixed(
 			}
 			std::ranges::fill(buf->view().first(cfg.chunk), static_cast<std::byte>((batch + i) & 0xFFU));
 			auto offset = ((batch + i) % cfg.depth) * cfg.chunk;
-			install_join(files.write_fixed(fh, offset, std::move(*buf), cfg.chunk), slots[i]);
+			bench_install_join(files.write_fixed(fh, offset, std::move(*buf), cfg.chunk), slots[i]);
 		}
-		pump_until_count(files, done, cfg.depth);
+		bench_pump_until_count(files, done, cfg.depth);
 		for (auto const &slot: slots) {
 			if (slot->err) {
 				std::rethrow_exception(slot->err);
@@ -291,7 +206,7 @@ int main(
 
 	try {
 		CompletionTable completions{cfg.depth * 2U};
-		FileReader files{&ring, &completions, pack_ud};
+		FileReader files{&ring, &completions, bench_pack_ud};
 		RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
 		if (!table.ok()) {
 			throw std::runtime_error{"registered fixed buffers unsupported"};

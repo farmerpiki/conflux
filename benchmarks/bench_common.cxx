@@ -10,6 +10,7 @@ export [[nodiscard]] inline std::uint64_t bench_now_ns() noexcept {
 	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
 	return static_cast<std::uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<std::uint64_t>(ts.tv_nsec);
 }
+
 // ── arg parsing ──────────────────────────────────────────────────────────────
 
 export [[nodiscard]] inline std::size_t bench_parse_sz(
