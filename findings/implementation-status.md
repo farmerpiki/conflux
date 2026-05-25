@@ -127,6 +127,12 @@ those reviews.
   assert exact JSON-pointer fields for representative path, typed field, and
   required field rejection cases. Broader e2e problem/log JSON assertion cleanup
   remains accepted test backlog.
+- `findings/5.md`: accepted part of the HTTP facade OpenAPI substring-assertion
+  gap. Representative facade OpenAPI tests now parse generated specs and assert
+  JSON-pointer paths for route metadata, typed path parameters, JSON request and
+  response schemas, grouped methods, auth policy, and route-local policy
+  metadata. This exposed and fixed a renderer bug where operation objects were
+  not closed before the next method/path entry.
 
 ## Accepted backlog
 
@@ -148,7 +154,7 @@ those reviews.
   test backlog. HTTP package smoke, façade import purity, API surface symbol
   smokes, compile-fail wiring, CQ-overflow status tightening, SSE exact stream
   assertions, recv-bundle exact response assertions, and representative facade
-  problem JSON assertions are complete above.
+  problem JSON/OpenAPI assertions are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -489,3 +495,12 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http facade: fixed typed routes pass path params as plain handler arguments"`
   completed after tightening facade problem JSON assertions: 1/1 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_http_facade_tests` completed after tightening facade OpenAPI
+  assertions and fixing the operation-object renderer close.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: app openapi spec (uses route metadata|maps typed path
+  parameters|includes JSON request bodies|groups methods by path|includes auth
+  policies|includes route-local policy metadata)|http facade: app route metadata
+  records JSON responses|http facade: app openapi snapshot covers typed route
+  policies"` completed after the OpenAPI assertion/renderer update: 8/8 passed.

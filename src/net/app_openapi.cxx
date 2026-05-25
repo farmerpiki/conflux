@@ -236,6 +236,7 @@ struct AppOpenApiRoute {
 				out += R"(,"504":{"description":"Gateway Timeout"})";
 			}
 			out += "}";
+			out += "}";
 		}
 		out += "}";
 	}

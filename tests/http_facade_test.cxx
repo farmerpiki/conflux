@@ -145,15 +145,21 @@ struct JsonMembers<FacadeTodoList> {
 	static constexpr std::string_view type_name() { return "FacadeTodoList"; }
 };
 
+Document require_json_text(
+	std::string text) {
+	INFO(text);
+	auto doc = conflux::json::parse_copy(text);
+	REQUIRE(doc.has_value());
+	return std::move(*doc);
+}
+
 Document require_json_body(
 	Response const &response,
 	int status,
 	std::string_view content_type = "application/problem+json") {
 	CHECK(response.status == status);
 	CHECK(response.content_type == content_type);
-	auto doc = conflux::json::parse_copy(std::string{response.text_body()});
-	REQUIRE(doc.has_value());
-	return std::move(*doc);
+	return require_json_text(std::string{response.text_body()});
 }
 
 NodeRef require_json_pointer(
@@ -170,6 +176,16 @@ void check_json_string_at(
 	std::string_view expected) {
 	auto node = require_json_pointer(doc, pointer);
 	auto value = node.as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == expected);
+}
+
+void check_json_u64_at(
+	Document const &doc,
+	std::string_view pointer,
+	std::uint64_t expected) {
+	auto node = require_json_pointer(doc, pointer);
+	auto value = node.as_u64();
 	REQUIRE(value.has_value());
 	CHECK(*value == expected);
 }
@@ -1058,13 +1074,12 @@ TEST_CASE(
 		.openapi_summary("Show a user");
 
 	auto spec = app.openapi_spec("Facade API", "0.2.0");
-	CHECK(spec.find(R"("title":"Facade API")") != std::string::npos);
-	CHECK(spec.find(R"("version":"0.2.0")") != std::string::npos);
-	CHECK(spec.find(R"("/users/{id}")") != std::string::npos);
-	CHECK(spec.find(R"("get")") != std::string::npos);
-	CHECK(spec.find(R"("operationId":"users.show")") != std::string::npos);
-	CHECK(spec.find(R"("summary":"Show a user")") != std::string::npos);
-	CHECK(spec.find(R"("name":"id")") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	check_json_string_at(doc, "/info/title", "Facade API");
+	check_json_string_at(doc, "/info/version", "0.2.0");
+	check_json_string_at(doc, "/paths/~1users~1{id}/get/operationId", "users.show");
+	check_json_string_at(doc, "/paths/~1users~1{id}/get/summary", "Show a user");
+	check_json_string_at(doc, "/paths/~1users~1{id}/get/parameters/0/name", "id");
 }
 
 TEST_CASE(
@@ -1076,11 +1091,14 @@ TEST_CASE(
 	app.get<"/teams/{slug}">([](http::Path<"slug"> slug) { return http::text(slug.get()); });
 
 	auto spec = app.openapi_spec();
-	CHECK(
-		spec.find(
-			R"("name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0})")
-		!= std::string::npos);
-	CHECK(spec.find(R"("name":"slug","in":"path","required":true,"schema":{"type":"string"})") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	check_json_string_at(doc, "/paths/~1users~1{id:u64}/get/parameters/0/name", "id");
+	check_json_string_at(doc, "/paths/~1users~1{id:u64}/get/parameters/0/in", "path");
+	check_json_string_at(doc, "/paths/~1users~1{id:u64}/get/parameters/0/schema/type", "integer");
+	check_json_string_at(doc, "/paths/~1users~1{id:u64}/get/parameters/0/schema/format", "uint64");
+	check_json_u64_at(doc, "/paths/~1users~1{id:u64}/get/parameters/0/schema/minimum", 0);
+	check_json_string_at(doc, "/paths/~1teams~1{slug}/get/parameters/0/name", "slug");
+	check_json_string_at(doc, "/paths/~1teams~1{slug}/get/parameters/0/schema/type", "string");
 }
 
 TEST_CASE(
@@ -1090,11 +1108,16 @@ TEST_CASE(
 	app.post("/answers", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
 	auto spec = app.openapi_spec();
-	CHECK(spec.find(R"("requestBody")") != std::string::npos);
-	CHECK(spec.find(R"("application/json")") != std::string::npos);
-	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
-	CHECK(spec.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
-	CHECK(spec.find(R"("required":["value"])") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	REQUIRE(require_json_pointer(doc, "/paths/~1answers/post/requestBody").as_object().has_value());
+	check_json_string_at(
+		doc,
+		"/paths/~1answers/post/requestBody/content/application~1json/schema/properties/value/type",
+		"string");
+	check_json_string_at(doc, "/paths/~1answers/post/requestBody/content/application~1json/schema/required/0", "value");
+	REQUIRE(require_json_pointer(doc, "/paths/~1answers/post/requestBody/content/application~1problem+json/schema")
+				.as_object()
+				.has_value());
 }
 
 TEST_CASE(
@@ -1117,11 +1140,20 @@ TEST_CASE(
 	CHECK_FALSE(routes[0].problem_response);
 	CHECK(routes[1].problem_response);
 	auto spec = app.openapi_spec();
-	CHECK(spec.find(R"("application/json")") != std::string::npos);
-	CHECK(spec.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
-	CHECK(spec.find(R"("201":{"description":"Created")") != std::string::npos);
-	CHECK(spec.find(R"("400":{"description":"Problem")") != std::string::npos);
-	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	check_json_string_at(
+		doc,
+		"/paths/~1answer/get/responses/200/content/application~1json/schema/properties/value/type",
+		"string");
+	check_json_string_at(doc, "/paths/~1created/post/responses/201/description", "Created");
+	check_json_string_at(
+		doc,
+		"/paths/~1created/post/responses/201/content/application~1json/schema/properties/value/type",
+		"string");
+	check_json_string_at(doc, "/paths/~1expected/get/responses/400/description", "Problem");
+	REQUIRE(require_json_pointer(doc, "/paths/~1expected/get/responses/400/content/application~1problem+json/schema")
+				.as_object()
+				.has_value());
 }
 
 TEST_CASE(
@@ -1132,13 +1164,9 @@ TEST_CASE(
 	app.route("POST", "/items", [](http::BodyText) { return http::no_content(); }).name("items.create");
 
 	auto spec = app.openapi_spec();
-	auto const path_pos = spec.find(R"("/items")");
-	REQUIRE(path_pos != std::string::npos);
-	CHECK(spec.find(R"("get")", path_pos) != std::string::npos);
-	CHECK(spec.find(R"("post")", path_pos) != std::string::npos);
-	CHECK(spec.find(R"("operationId":"items.list")", path_pos) != std::string::npos);
-	CHECK(spec.find(R"("operationId":"items.create")", path_pos) != std::string::npos);
-	CHECK(spec.find(R"("/items")", path_pos + 1) == std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	check_json_string_at(doc, "/paths/~1items/get/operationId", "items.list");
+	check_json_string_at(doc, "/paths/~1items/post/operationId", "items.create");
 }
 
 TEST_CASE(
@@ -1157,7 +1185,7 @@ TEST_CASE(
 
 	CHECK(
 		app.openapi_spec("Snapshot API", "1.0.0")
-		== R"({"openapi":"3.0.0","info":{"title":"Snapshot API","version":"1.0.0"},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}},"paths":{"/widgets/{id:u64}":{"get":{"operationId":"widgets.show","summary":"Show widget","security":[{"bearerAuth":[]}],"x-auth-policy":"user","x-timeout-ms":5000,"x-rate-limit":"widgets","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}},"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}},"401":{"description":"Unauthorized"},"429":{"description":"Too Many Requests"},"504":{"description":"Gateway Timeout"}}}}})");
+		== R"({"openapi":"3.0.0","info":{"title":"Snapshot API","version":"1.0.0"},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}},"paths":{"/widgets/{id:u64}":{"get":{"operationId":"widgets.show","summary":"Show widget","security":[{"bearerAuth":[]}],"x-auth-policy":"user","x-timeout-ms":5000,"x-rate-limit":"widgets","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}},"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}},"401":{"description":"Unauthorized"},"429":{"description":"Too Many Requests"},"504":{"description":"Gateway Timeout"}}}}}})");
 }
 
 TEST_CASE(
@@ -1170,8 +1198,9 @@ TEST_CASE(
 	CHECK(
 		spec.find("\"securitySchemes\":{\"bearerAuth\":{\"type\":\"http\",\"scheme\":\"bearer\"}}")
 		!= std::string::npos);
-	CHECK(spec.find("\"security\":[{\"bearerAuth\":[]}]") != std::string::npos);
-	CHECK(spec.find("\"x-auth-policy\":\"user\"") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	REQUIRE(require_json_pointer(doc, "/paths/~1private/get/security/0/bearerAuth").as_array().has_value());
+	check_json_string_at(doc, "/paths/~1private/get/x-auth-policy", "user");
 }
 
 TEST_CASE(
@@ -1297,13 +1326,14 @@ TEST_CASE(
 		.max_body_size(4096);
 
 	auto spec = app.openapi_spec();
-	CHECK(spec.find(R"("x-timeout-ms":5000)") != std::string::npos);
-	CHECK(spec.find(R"("x-rate-limit":"uploads")") != std::string::npos);
-	CHECK(spec.find(R"("x-max-body-size":4096)") != std::string::npos);
-	CHECK(spec.find(R"("x-middleware-count":1)") != std::string::npos);
-	CHECK(spec.find(R"("401":{"description":"Unauthorized"})") != std::string::npos);
-	CHECK(spec.find(R"("429":{"description":"Too Many Requests"})") != std::string::npos);
-	CHECK(spec.find(R"("504":{"description":"Gateway Timeout"})") != std::string::npos);
+	auto doc = require_json_text(std::move(spec));
+	check_json_u64_at(doc, "/paths/~1upload/post/x-timeout-ms", 5000);
+	check_json_string_at(doc, "/paths/~1upload/post/x-rate-limit", "uploads");
+	check_json_u64_at(doc, "/paths/~1upload/post/x-max-body-size", 4096);
+	check_json_u64_at(doc, "/paths/~1upload/post/x-middleware-count", 1);
+	check_json_string_at(doc, "/paths/~1upload/post/responses/401/description", "Unauthorized");
+	check_json_string_at(doc, "/paths/~1upload/post/responses/429/description", "Too Many Requests");
+	check_json_string_at(doc, "/paths/~1upload/post/responses/504/description", "Gateway Timeout");
 }
 
 TEST_CASE(
