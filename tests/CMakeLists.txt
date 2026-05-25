@@ -39,6 +39,26 @@ function(conflux_discover_stress_tests target)
     )
 endfunction()
 
+function(conflux_add_compile_fail_test)
+    set(one_value_args TARGET SOURCE TEST)
+    set(multi_value_args LINK LABELS EXPECT)
+    cmake_parse_arguments(CF "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    if(NOT CF_TARGET OR NOT CF_SOURCE OR NOT CF_TEST OR NOT CF_LINK OR NOT CF_EXPECT)
+        message(FATAL_ERROR "conflux_add_compile_fail_test requires TARGET, SOURCE, TEST, LINK, and EXPECT")
+    endif()
+
+    add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})
+    target_link_libraries(${CF_TARGET} PRIVATE ${CF_LINK})
+    add_test(NAME ${CF_TEST}
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                ${CF_TARGET}
+                ${CF_EXPECT})
+    set_tests_properties(${CF_TEST} PROPERTIES
+        LABELS "${CF_LABELS}"
+        RUN_SERIAL TRUE)
+endfunction()
+
 function(conflux_discover_db_integration_tests target)
     set(extra_args --order lex)
     if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
@@ -83,70 +103,45 @@ if(TARGET conflux)
             RUN_SERIAL TRUE)
     endforeach()
 
-    add_library(conflux_api_surface_curated_compile_fail_workpool EXCLUDE_FROM_ALL
-        OBJECT api_surface_curated_compile_fail_workpool.cxx)
-    target_link_libraries(conflux_api_surface_curated_compile_fail_workpool
-        PRIVATE conflux conflux_options)
-    add_test(NAME api-surface/curated-hides-workpool
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_api_surface_curated_compile_fail_workpool
-                "conflux_api_surface_curated_unexpected_workpool_visible")
-    set_tests_properties(api-surface/curated-hides-workpool PROPERTIES
-        LABELS "build;api-surface;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_api_surface_curated_compile_fail_workpool
+        SOURCE api_surface_curated_compile_fail_workpool.cxx
+        TEST api-surface/curated-hides-workpool
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "conflux_api_surface_curated_unexpected_workpool_visible")
 
-    add_library(conflux_api_surface_curated_compile_fail_iouring EXCLUDE_FROM_ALL
-        OBJECT api_surface_curated_compile_fail_iouring.cxx)
-    target_link_libraries(conflux_api_surface_curated_compile_fail_iouring
-        PRIVATE conflux conflux_options)
-    add_test(NAME api-surface/curated-hides-iouring
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_api_surface_curated_compile_fail_iouring
-                "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
-    set_tests_properties(api-surface/curated-hides-iouring PROPERTIES
-        LABELS "build;api-surface;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_api_surface_curated_compile_fail_iouring
+        SOURCE api_surface_curated_compile_fail_iouring.cxx
+        TEST api-surface/curated-hides-iouring
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
 
-    add_library(conflux_api_surface_curated_compile_fail_file EXCLUDE_FROM_ALL
-        OBJECT api_surface_curated_compile_fail_file.cxx)
-    target_link_libraries(conflux_api_surface_curated_compile_fail_file
-        PRIVATE conflux conflux_options)
-    add_test(NAME api-surface/curated-hides-blocking-file
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_api_surface_curated_compile_fail_file
-                "no member named 'file' in namespace 'conflux::http'")
-    set_tests_properties(api-surface/curated-hides-blocking-file PROPERTIES
-        LABELS "build;api-surface;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_api_surface_curated_compile_fail_file
+        SOURCE api_surface_curated_compile_fail_file.cxx
+        TEST api-surface/curated-hides-blocking-file
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "no member named 'file' in namespace 'conflux::http'")
 
-    add_library(conflux_api_surface_extended_compile_fail_iouring EXCLUDE_FROM_ALL
-        OBJECT api_surface_extended_compile_fail_iouring.cxx)
-    target_link_libraries(conflux_api_surface_extended_compile_fail_iouring
-        PRIVATE conflux conflux_options)
-    add_test(NAME api-surface/extended-hides-iouring
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_api_surface_extended_compile_fail_iouring
-                "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
-    set_tests_properties(api-surface/extended-hides-iouring PROPERTIES
-        LABELS "build;api-surface;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_api_surface_extended_compile_fail_iouring
+        SOURCE api_surface_extended_compile_fail_iouring.cxx
+        TEST api-surface/extended-hides-iouring
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
 
-    add_library(conflux_api_surface_complete_compile_fail_direct_slot_pool EXCLUDE_FROM_ALL
-        OBJECT api_surface_complete_compile_fail_direct_slot_pool.cxx)
-    target_link_libraries(conflux_api_surface_complete_compile_fail_direct_slot_pool
-        PRIVATE conflux conflux_options)
-    add_test(NAME api-surface/complete-hides-direct-slot-pool
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_api_surface_complete_compile_fail_direct_slot_pool
-                "unknown type name 'DirectSlotPool'")
-    set_tests_properties(api-surface/complete-hides-direct-slot-pool PROPERTIES
-        LABELS "build;api-surface;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_api_surface_complete_compile_fail_direct_slot_pool
+        SOURCE api_surface_complete_compile_fail_direct_slot_pool.cxx
+        TEST api-surface/complete-hides-direct-slot-pool
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "unknown type name 'DirectSlotPool'")
 endif()
 
 add_executable(conflux_tests)
@@ -372,207 +367,118 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_extended_api_snapshot
         PRIVATE conflux_net_http conflux_options)
 
-    add_library(conflux_http_facade_compile_fail_raw_string EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_raw_string.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_raw_string
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_raw_string
+        SOURCE http_facade_compile_fail_raw_string.cxx
+        TEST http-facade/compile-fail-raw-string
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HTTP app handlers must not return raw strings" "use http::text(...)" "http::html(...)")
 
-    add_library(conflux_http_facade_compile_fail_raw_string_extractor EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_raw_string_extractor.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_raw_string_extractor
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_raw_string_extractor
+        SOURCE http_facade_compile_fail_raw_string_extractor.cxx
+        TEST http-facade/compile-fail-raw-string-extractor
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HTTP app handlers must not return raw strings" "use http::text(...)" "http::html(...)")
 
-    add_library(conflux_http_facade_compile_fail_json_codec EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_json_codec.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_json_codec
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_json_codec
+        SOURCE http_facade_compile_fail_json_codec.cxx
+        TEST http-facade/compile-fail-json-codec
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "http::Json<T> responses require T to be serializable"
+               "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
 
-    add_library(conflux_http_facade_compile_fail_router_alias EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_router_alias.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_router_alias
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_router_alias
+        SOURCE http_facade_compile_fail_router_alias.cxx
+        TEST http-facade/compile-fail-router-alias
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "conflux_http_facade_unexpected_router_alias_visible")
 
-    add_library(conflux_http_facade_compile_fail_route_policy_internal EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_route_policy_internal.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_route_policy_internal
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_route_policy_internal
+        SOURCE http_facade_compile_fail_route_policy_internal.cxx
+        TEST http-facade/compile-fail-route-policy-internal
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
 
-    add_library(conflux_http_facade_compile_fail_middleware_concept_alias EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_middleware_concept_alias.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_middleware_concept_alias
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_middleware_concept_alias
+        SOURCE http_facade_compile_fail_middleware_concept_alias.cxx
+        TEST http-facade/compile-fail-middleware-concept-alias
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "no member named 'Middleware' in namespace 'conflux::http'")
 
-    add_library(conflux_http_facade_compile_fail_use_async_member EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_use_async_member.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_use_async_member
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_use_async_member
+        SOURCE http_facade_compile_fail_use_async_member.cxx
+        TEST http-facade/compile-fail-use-async-member
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "use_async" "conflux::http::App")
 
-    add_library(conflux_http_facade_compile_fail_use_async_helper EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_use_async_helper.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_use_async_helper
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_use_async_helper
+        SOURCE http_facade_compile_fail_use_async_helper.cxx
+        TEST http-facade/compile-fail-use-async-helper
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "use_async")
 
-    add_library(conflux_http_facade_compile_fail_openapi_handler_member EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_openapi_handler_member.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_member
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_openapi_handler_member
+        SOURCE http_facade_compile_fail_openapi_handler_member.cxx
+        TEST http-facade/compile-fail-openapi-handler-member
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "conflux_http_facade_unexpected_openapi_handler_member_visible")
 
-    add_library(conflux_http_facade_compile_fail_router_member EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_router_member.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_router_member
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_router_member
+        SOURCE http_facade_compile_fail_router_member.cxx
+        TEST http-facade/compile-fail-router-member
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "conflux_http_facade_unexpected_router_member_visible")
 
-    add_library(conflux_http_facade_compile_fail_route_infos_member EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_route_infos_member.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_route_infos_member
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_route_infos_member
+        SOURCE http_facade_compile_fail_route_infos_member.cxx
+        TEST http-facade/compile-fail-route-infos-member
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "conflux_http_facade_unexpected_route_infos_member_visible")
 
-    add_library(conflux_http_facade_compile_fail_offload_free EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_offload_free.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_offload_free
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_offload_free
+        SOURCE http_facade_compile_fail_offload_free.cxx
+        TEST http-facade/compile-fail-offload-free
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "no member named 'offload' in namespace 'conflux::http'")
 
-    add_library(conflux_http_facade_compile_fail_openapi_handler_free EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_openapi_handler_free.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_openapi_handler_free
-        PRIVATE conflux_net_http conflux_options)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_openapi_handler_free
+        SOURCE http_facade_compile_fail_openapi_handler_free.cxx
+        TEST http-facade/compile-fail-openapi-handler-free
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "no member named 'openapi_handler' in namespace 'conflux::http'")
 
-    add_library(conflux_http_facade_compile_fail_file_free EXCLUDE_FROM_ALL
-        OBJECT http_facade_compile_fail_file_free.cxx)
-    target_link_libraries(conflux_http_facade_compile_fail_file_free
-        PRIVATE conflux_net_http conflux_options)
-
-    add_test(NAME http-facade/compile-fail-raw-string
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_raw_string
-                "HTTP app handlers must not return raw strings"
-                "use http::text(...)"
-                "http::html(...)")
-    set_tests_properties(http-facade/compile-fail-raw-string PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-raw-string-extractor
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_raw_string_extractor
-                "HTTP app handlers must not return raw strings"
-                "use http::text(...)"
-                "http::html(...)")
-    set_tests_properties(http-facade/compile-fail-raw-string-extractor PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-json-codec
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_json_codec
-                "http::Json<T> responses require T to be serializable"
-                "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
-    set_tests_properties(http-facade/compile-fail-json-codec PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-router-alias
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_router_alias
-                "conflux_http_facade_unexpected_router_alias_visible")
-    set_tests_properties(http-facade/compile-fail-router-alias PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-route-policy-internal
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_route_policy_internal
-                "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
-    set_tests_properties(http-facade/compile-fail-route-policy-internal PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-middleware-concept-alias
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_middleware_concept_alias
-                "no member named 'Middleware' in namespace 'conflux::http'")
-    set_tests_properties(http-facade/compile-fail-middleware-concept-alias PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-use-async-member
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_use_async_member
-                "use_async"
-                "conflux::http::App")
-    set_tests_properties(http-facade/compile-fail-use-async-member PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-use-async-helper
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_use_async_helper
-                "use_async")
-    set_tests_properties(http-facade/compile-fail-use-async-helper PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-openapi-handler-member
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_openapi_handler_member
-                "conflux_http_facade_unexpected_openapi_handler_member_visible")
-    set_tests_properties(http-facade/compile-fail-openapi-handler-member PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-router-member
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_router_member
-                "conflux_http_facade_unexpected_router_member_visible")
-    set_tests_properties(http-facade/compile-fail-router-member PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-route-infos-member
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_route_infos_member
-                "conflux_http_facade_unexpected_route_infos_member_visible")
-    set_tests_properties(http-facade/compile-fail-route-infos-member PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-offload-free
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_offload_free
-                "no member named 'offload' in namespace 'conflux::http'")
-    set_tests_properties(http-facade/compile-fail-offload-free PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-openapi-handler-free
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_openapi_handler_free
-                "no member named 'openapi_handler' in namespace 'conflux::http'")
-    set_tests_properties(http-facade/compile-fail-openapi-handler-free PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
-
-    add_test(NAME http-facade/compile-fail-file-free
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
-                conflux_http_facade_compile_fail_file_free
-                "declaration of 'file' must be imported from module 'conflux.net.config'")
-    set_tests_properties(http-facade/compile-fail-file-free PROPERTIES
-        LABELS "http;compile-fail"
-        RUN_SERIAL TRUE)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_file_free
+        SOURCE http_facade_compile_fail_file_free.cxx
+        TEST http-facade/compile-fail-file-free
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "declaration of 'file' must be imported from module 'conflux.net.config'")
 endif()
 
 if(TARGET conflux_http_response)
