@@ -89,6 +89,7 @@ void route_forms_compile() {
 void middleware_forms_compile() {
 	auto app = http::app();
 	app.use(http::request_id());
+	app.use(http::tracing({.propagate_in_response = false}));
 	app.use(http::trace_context({.propagate_in_response = false}));
 	app.use(http::security_headers({.hsts_max_age = 0}));
 	app.use([](http::RequestView const &req, http::Next const &next) {

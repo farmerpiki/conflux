@@ -44,6 +44,11 @@ using AsyncNext = ::Router::AsyncNext;
 	return tracing_middleware(std::move(opts));
 }
 
+[[nodiscard]] ::Router::Middleware tracing(
+	TracingOptions opts = {}) {
+	return tracing_middleware(std::move(opts));
+}
+
 [[nodiscard]] ::Router::Middleware security_headers(
 	SecurityOptions opts = {}) {
 	return security_headers_middleware(std::move(opts));
