@@ -12,22 +12,22 @@ import conflux.json;
 export namespace conflux::http::detail {
 
 struct AppOpenApiRoute {
-	std::string method;
-	std::string path;
-	std::string name;
-	std::string openapi_summary;
-	std::string auth_policy;
+	std::string_view method;
+	std::string_view path;
+	std::string_view name;
+	std::string_view openapi_summary;
+	std::string_view auth_policy;
 	std::chrono::milliseconds timeout{};
-	std::string rate_limit;
+	std::string_view rate_limit;
 	std::size_t max_body_size{};
 	std::size_t middleware_count{};
-	std::vector<std::string> path_params;
-	std::map<std::string, std::string> path_param_types;
-	std::vector<std::string> consumes;
-	std::string request_body_schema;
+	std::span<std::string const> path_params;
+	std::map<std::string, std::string> const *path_param_types{};
+	std::span<std::string const> consumes;
+	std::string_view request_body_schema;
 	int success_status{kHttpOk};
-	std::vector<std::string> produces;
-	std::string response_schema;
+	std::span<std::string const> produces;
+	std::string_view response_schema;
 	bool problem_response{};
 };
 
@@ -79,8 +79,8 @@ struct AppOpenApiRoute {
 		out += R"(,"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}})";
 	}
 	out += R"(,"paths":{)";
-	std::vector<std::string> path_order;
-	std::map<std::string, std::vector<AppOpenApiRoute const *>> routes_by_path;
+	std::vector<std::string_view> path_order;
+	std::map<std::string_view, std::vector<AppOpenApiRoute const *>> routes_by_path;
 	for (auto const &route: routes) {
 		auto [it, inserted] = routes_by_path.try_emplace(route.path);
 		if (inserted) {
@@ -146,9 +146,13 @@ struct AppOpenApiRoute {
 				out += R"({"name":)";
 				out += json_string(route.path_params[i]);
 				out += R"(,"in":"path","required":true,"schema":)";
-				if (auto type = route.path_param_types.find(route.path_params[i]);
-					type != route.path_param_types.end()) {
-					out += openapi_schema_for_path_type(type->second);
+				if (auto const *types = route.path_param_types; types != nullptr) {
+					auto const type = types->find(route.path_params[i]);
+					if (type != types->end()) {
+						out += openapi_schema_for_path_type(type->second);
+					} else {
+						out += openapi_schema_for_path_type({});
+					}
 				} else {
 					out += openapi_schema_for_path_type({});
 				}

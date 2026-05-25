@@ -1164,7 +1164,7 @@ public:
 					.max_body_size = *route.max_body_size,
 					.middleware_count = route.middleware_count,
 					.path_params = route.path_params,
-					.path_param_types = route.path_param_types,
+					.path_param_types = std::addressof(route.path_param_types),
 					.consumes = route.consumes,
 					.request_body_schema = route.request_body_schema,
 					.success_status = route.success_status,
