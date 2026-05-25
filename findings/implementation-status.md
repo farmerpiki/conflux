@@ -95,11 +95,15 @@ those reviews.
 
 ## Verification
 
-- Full `release-clang-libcxx` build completed.
-- Full `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure`
-  completed: 1940/1940 passed.
-- The explicit `HEADER_INTERFACE_WITH_SOURCES` plus runtime SIMD configure check
-  fails with the intended diagnostic.
+- Final full `release-clang-libcxx` build completed after all current-slice
+  commits.
+- Final full `ctest --test-dir /tmp/gcc-16/release-clang-libcxx
+  --output-on-failure` completed: 1941/1942 passed; `ext/libcurl/stress:
+  sequential requests` failed once with a transient TLS connect error.
+- Immediate targeted retry of `ext/libcurl/stress: sequential requests`
+  completed: 1/1 passed.
+- End-of-work re-evaluation of the explicit `HEADER_INTERFACE_WITH_SOURCES`
+  plus runtime SIMD configure check fails with the intended diagnostic.
 - `scripts/check-package-config.sh` completed.
 - `scripts/check-package-smoke-liburing-free.sh` completed.
 - `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
