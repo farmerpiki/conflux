@@ -1189,6 +1189,35 @@ TEST_CASE(
 	CHECK(second.status == 429);
 	CHECK(second.headers["Retry-After"] == "60");
 }
+TEST_CASE(
+	"http facade: route rate limit evicts least recently used client",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit(
+			"tiny",
+			http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 2});
+
+	Request req;
+	req.method = "GET";
+	req.path = "/limited";
+
+	req.remote_addr = "203.0.113.10";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+	req.remote_addr = "203.0.113.11";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "203.0.113.10";
+	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+
+	req.remote_addr = "203.0.113.12";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "203.0.113.10";
+	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+	req.remote_addr = "203.0.113.11";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+}
 
 TEST_CASE(
 	"http facade: route timeout updates deferred response deadline",

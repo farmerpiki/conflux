@@ -65,7 +65,7 @@ class App {
 		};
 
 		std::mutex mutex;
-		std::unordered_map<std::string, Bucket> buckets;
+		std::optional<conflux::support::StringLruMap<Bucket>> buckets;
 	};
 
 	struct AppRouteMetadata {
@@ -217,13 +217,14 @@ class App {
 		{
 			std::scoped_lock const lock{policy.mutex};
 			auto const max_clients = std::max<std::size_t>(policy.options.max_clients, 1);
-			if (policy.buckets.size() >= max_clients && !policy.buckets.contains(key)) {
-				policy.buckets.erase(policy.buckets.begin());
+			if (!policy.buckets) {
+				policy.buckets.emplace(max_clients);
 			}
-			auto [it, inserted] =
-				policy.buckets.try_emplace(key, AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now});
-			auto &bucket = it->second;
-			if (inserted) {
+			auto touched = policy.buckets->get_or_create(key, [capacity, now] {
+				return AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now};
+			});
+			auto &bucket = *touched.value;
+			if (touched.inserted) {
 				bucket.tokens = capacity;
 			}
 
@@ -302,6 +303,8 @@ public:
 			policy.name = std::string{value};
 			policy.options = options;
 			policy.enabled = !policy.name.empty();
+			std::scoped_lock const lock{policy.mutex};
+			policy.buckets.emplace(std::max<std::size_t>(policy.options.max_clients, 1));
 			return *this;
 		}
 

@@ -42,6 +42,9 @@ those reviews.
   cleanup. HTTP/1 client request building now constructs effective headers once
   as local `string_view` entries into existing request/default header storage,
   then reuses that vector for reserve sizing and serialization.
+- `findings/7.md`: accepted the route-level App rate-limit eviction issue.
+  Route-local rate limiting now uses the same LRU-bounded string map strategy as
+  the middleware limiter instead of erasing an arbitrary unordered-map entry.
 
 ## Accepted backlog
 
@@ -66,10 +69,10 @@ those reviews.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
-- `findings/7.md`: rate-limit eviction/duplicate behavior, JWT parser cleanup,
-  request-derived parsing cache, chunked decoder/redirect/route-pattern/OpenAPI
-  deduplication, and JSON escaping cleanup. Accepted backlog except for the
-  completed Content-Type media-type fix above.
+- `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
+  decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
+  cleanup remain accepted backlog. Content-Type media-type parsing and
+  route-level rate-limit eviction are complete above.
 - `findings/8.md`: curated HTTP facade split, DB pool off-owner return handling,
   release-core target graph cleanup, direct DB cancel-pool exposure, SSE
   send-view semantics, header hygiene, and manifest cleanup. Accepted backlog;
@@ -107,3 +110,7 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: route rate limit"` completed: 2/2 passed.
