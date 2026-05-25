@@ -17,6 +17,7 @@ import conflux.socket_io;
 struct RouteLookupIndex {
 	std::vector<std::size_t> generic{};
 	conflux::support::TransparentStringMap<std::vector<std::size_t>> by_first_literal{};
+	conflux::support::TransparentStringMap<std::size_t> exact{};
 };
 
 struct MethodRouteLookupIndex {
@@ -118,7 +119,11 @@ template<typename Fn>
 void index_route_pattern(
 	RouteLookupIndex &index,
 	std::vector<Segment> const &pattern,
+	std::string_view exact_path,
 	std::size_t route_index) {
+	if (!exact_path.empty()) {
+		index.exact.try_emplace(std::string{exact_path}, route_index);
+	}
 	if (auto key = first_literal_key(pattern)) {
 		index.by_first_literal[std::string{*key}].push_back(route_index);
 		return;
@@ -152,6 +157,7 @@ void index_route_pattern(
 }
 
 struct RouteLookupSelection {
+	std::optional<std::size_t> exact{};
 	std::vector<std::size_t> const *literal{&empty_route_indices()};
 	std::vector<std::size_t> const *generic{&empty_route_indices()};
 };
@@ -161,6 +167,9 @@ struct RouteLookupSelection {
 	std::string_view path) noexcept {
 	RouteLookupSelection selected;
 	selected.generic = &index.generic;
+	if (auto exact = index.exact.find(path); exact != index.exact.end()) {
+		selected.exact = exact->second;
+	}
 	if (auto key = first_path_key(path)) {
 		if (auto found = index.by_first_literal.find(*key); found != index.by_first_literal.end()) {
 			selected.literal = &found->second;
@@ -172,34 +181,43 @@ struct RouteLookupSelection {
 template<typename RouteT>
 struct IndexedRouteRange {
 	std::vector<RouteT> const *routes{};
+	std::optional<std::size_t> exact_index{};
 	std::vector<std::size_t> const *literal_indices{&empty_route_indices()};
 	std::vector<std::size_t> const *generic_indices{&empty_route_indices()};
 
 	struct Iterator {
 		std::vector<RouteT> const *routes{};
+		std::optional<std::size_t> exact_index{};
 		std::vector<std::size_t> const *literal_indices{};
 		std::vector<std::size_t> const *generic_indices{};
+		bool exact_done{};
 		std::size_t literal_pos{};
 		std::size_t generic_pos{};
 
 		[[nodiscard]] bool done() const noexcept {
-			return literal_pos >= literal_indices->size() && generic_pos >= generic_indices->size();
+			return (!exact_index || exact_done)
+				&& literal_pos >= literal_indices->size()
+				&& generic_pos >= generic_indices->size();
 		}
 
 		[[nodiscard]] std::size_t current_index() const noexcept {
-			if (literal_pos >= literal_indices->size()) {
-				return (*generic_indices)[generic_pos];
+			auto current = exact_index && !exact_done ? *exact_index : std::numeric_limits<std::size_t>::max();
+			if (literal_pos < literal_indices->size()) {
+				current = std::min(current, (*literal_indices)[literal_pos]);
 			}
-			if (generic_pos >= generic_indices->size()) {
-				return (*literal_indices)[literal_pos];
+			if (generic_pos < generic_indices->size()) {
+				current = std::min(current, (*generic_indices)[generic_pos]);
 			}
-			return std::min((*literal_indices)[literal_pos], (*generic_indices)[generic_pos]);
+			return current;
 		}
 
 		[[nodiscard]] RouteT const &operator *() const noexcept { return (*routes)[current_index()]; }
 
 		Iterator &operator ++() noexcept {
 			auto const current = current_index();
+			if (exact_index && !exact_done && *exact_index == current) {
+				exact_done = true;
+			}
 			if (literal_pos < literal_indices->size() && (*literal_indices)[literal_pos] == current) {
 				++literal_pos;
 			}
@@ -215,11 +233,14 @@ struct IndexedRouteRange {
 		}
 	};
 
-	[[nodiscard]] bool empty() const noexcept { return literal_indices->empty() && generic_indices->empty(); }
+	[[nodiscard]] bool empty() const noexcept {
+		return !exact_index && literal_indices->empty() && generic_indices->empty();
+	}
 
 	[[nodiscard]] Iterator begin() const noexcept {
 		return Iterator{
 			.routes = routes,
+			.exact_index = exact_index,
 			.literal_indices = literal_indices,
 			.generic_indices = generic_indices,
 		};
@@ -234,6 +255,7 @@ template<typename RouteT>
 	RouteLookupSelection selected) noexcept {
 	return IndexedRouteRange<RouteT>{
 		.routes = &routes,
+		.exact_index = selected.exact,
 		.literal_indices = selected.literal,
 		.generic_indices = selected.generic,
 	};
@@ -417,7 +439,11 @@ void Router::add_prepared(
 	auto const route_index = impl_->routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	auto path_pattern = segments_to_pattern(pattern);
-	index_route_pattern(find_or_add_method_index(impl_->route_indexes, method).routes, pattern, route_index);
+	index_route_pattern(
+		find_or_add_method_index(impl_->route_indexes, method).routes,
+		pattern,
+		has_exact_path ? path : std::string_view{},
+		route_index);
 	impl_->routes.push_back({
 		.method = std::string{method},
 		.pattern = std::move(pattern),
@@ -436,7 +462,11 @@ void Router::add_context_prepared(
 	auto const route_index = impl_->context_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	auto path_pattern = segments_to_pattern(pattern);
-	index_route_pattern(find_or_add_method_index(impl_->context_route_indexes, method).routes, pattern, route_index);
+	index_route_pattern(
+		find_or_add_method_index(impl_->context_route_indexes, method).routes,
+		pattern,
+		has_exact_path ? path : std::string_view{},
+		route_index);
 	impl_->context_routes.push_back({
 		.method = std::string{method},
 		.pattern = std::move(pattern),
@@ -474,7 +504,7 @@ void Router::sse_prepared(
 	auto const route_index = impl_->sse_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	auto path_pattern = segments_to_pattern(pattern);
-	index_route_pattern(impl_->sse_index, pattern, route_index);
+	index_route_pattern(impl_->sse_index, pattern, has_exact_path ? path : std::string_view{}, route_index);
 	impl_->sse_routes.push_back({
 		.pattern = std::move(pattern),
 		.path_pattern = std::move(path_pattern),
