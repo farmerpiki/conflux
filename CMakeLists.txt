@@ -1171,7 +1171,7 @@ target_sources(conflux_http_router_dispatch
         FILES ${CONFLUX_SRC_ROOT}/net/router_dispatch.cxx
 )
 target_compile_definitions(conflux_http_router_dispatch PRIVATE
-    $<$<BOOL:${CONFLUX_ROUTER_LAZY_ROUTE_METADATA}>:CONFLUX_ROUTER_LAZY_ROUTE_METADATA=1>)
+    CONFLUX_ROUTER_LAZY_ROUTE_METADATA=$<BOOL:${CONFLUX_ROUTER_LAZY_ROUTE_METADATA}>)
 target_link_libraries(conflux_http_router_dispatch
     PRIVATE conflux_options
     PUBLIC  conflux_types

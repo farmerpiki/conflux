@@ -12,7 +12,7 @@ import conflux.net.router_match;
 import conflux.work;
 
 #ifndef CONFLUX_ROUTER_LAZY_ROUTE_METADATA
-	#define CONFLUX_ROUTER_LAZY_ROUTE_METADATA 0
+	#define CONFLUX_ROUTER_LAZY_ROUTE_METADATA 1
 #endif
 
 export template<typename Pool, typename Handler>
