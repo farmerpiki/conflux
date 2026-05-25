@@ -87,6 +87,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   first-segment `name=value` support, then routed static Accept-Encoding,
   dynamic compression negotiation, and response-cache Cache-Control directive
   parsing through it.
+- `findings/2.md` P1 work root join facade overloads: complete for the private
+  state-check duplication. Public overloads remain explicit, while task,
+  posted, operation, and join-handle `try_join_ready(...)` paths now share one
+  checked ready-join helper for lifetime, capability, readiness, consume, and
+  outcome extraction.
 
 ## Verification
 
@@ -216,6 +221,14 @@ Current review set: `findings/1.md` through `findings/7.md` after
   "http types: header_items|http_server_helpers: header parameter
   extraction|compress:|compression matrix|static precompressed|response_cache:
   Cache-Control"` completed: 22/22 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_work_root_tests conflux_work_carrier_tests conflux_work_api_snapshot`
+  completed after the work-root ready-join helper extraction.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "work.root:"` completed: 58/58 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "carrier\\.model_a:|carrier\\.scope:|carrier\\.deadline:"` completed: 49/49
+  passed.
 
 ## Accepted / In Scope
 

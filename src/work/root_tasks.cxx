@@ -718,6 +718,40 @@ template<work_value T>
 	}
 	return std::move(*outcome);
 }
+
+template<class Joinable>
+[[nodiscard]] bool joinable_is_live(
+	Joinable const &joinable) noexcept {
+	if constexpr (requires { static_cast<bool>(joinable); }) {
+		return static_cast<bool>(joinable);
+	} else {
+		return joinable.state() == join_state::joinable;
+	}
+}
+
+template<class Joinable>
+[[nodiscard]] std::optional<Outcome<typename Joinable::value_type>> try_consume_ready_join_state_checked(
+	Joinable &joinable,
+	std::optional<CapabilityId> actual,
+	std::source_location loc) {
+	using T = typename Joinable::value_type;
+	if (!joinable_is_live(joinable)) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	auto control = joinable.control();
+	if (actual && !control.can_join_with(*actual)) [[unlikely]] {
+		raise_join_capability_mismatch(control.required_capability(), *actual, loc);
+	}
+	if (!control.ready()) {
+		return std::nullopt;
+	}
+	auto state = joinable.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return std::optional<Outcome<T>>{take_ready_outcome_or_throw(std::move(state), loc)};
+}
+
 template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join_compatibility_adapter(
 	std::shared_ptr<ControlBlockInterface<T>> state,
@@ -738,117 +772,41 @@ template<work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	if (task.state() != join_state::joinable) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!task.control().ready()) {
-		return std::nullopt;
-	}
-	auto state = task.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(task, std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Owner &owner,
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
-	if (posted.state() != join_state::joinable) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	auto control = posted.control();
-	if (!control.can_join_with(capability_id(owner))) [[unlikely]] {
-		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
-	}
-	if (!control.ready()) {
-		return std::nullopt;
-	}
-	auto state = posted.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(posted, std::optional<CapabilityId>{capability_id(owner)}, loc);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Driver &driver,
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
-	if (op.state() != join_state::joinable) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	auto control = op.control();
-	if (!control.can_join_with(capability_id(driver))) [[unlikely]] {
-		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
-	}
-	if (!control.ready()) {
-		return std::nullopt;
-	}
-	auto state = op.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(op, std::optional<CapabilityId>{capability_id(driver)}, loc);
 }
 template<work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	if (!h) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!h.control().ready()) {
-		return std::nullopt;
-	}
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(h, std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Owner &owner,
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	if (!h) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	auto control = h.control();
-	if (!control.can_join_with(capability_id(owner))) [[unlikely]] {
-		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
-	}
-	if (!control.ready()) {
-		return std::nullopt;
-	}
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(h, std::optional<CapabilityId>{capability_id(owner)}, loc);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Driver &driver,
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	if (!h) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	auto control = h.control();
-	if (!control.can_join_with(capability_id(driver))) [[unlikely]] {
-		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
-	}
-	if (!control.ready()) {
-		return std::nullopt;
-	}
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(std::move(state), loc)};
+	return detail::try_consume_ready_join_state_checked(h, std::optional<CapabilityId>{capability_id(driver)}, loc);
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> join_ready(
