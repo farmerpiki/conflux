@@ -2345,6 +2345,11 @@ TEST_CASE(
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "text/plain");
 	CHECK(response.text_body() == "file-body");
+
+	auto explicit_blocking = http::blocking_file_response(path, "text/plain");
+	CHECK(explicit_blocking.status == kHttpOk);
+	CHECK(explicit_blocking.content_type == "text/plain");
+	CHECK(explicit_blocking.text_body() == "file-body");
 }
 
 TEST_CASE(
