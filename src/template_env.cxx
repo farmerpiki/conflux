@@ -56,40 +56,41 @@ static bool node_list_has_top_level_macro(
 	}
 	return false;
 }
-static void collect_direct_node_deps(
+template<class Fn>
+static void for_each_direct_node_dep(
 	NodeList const &nodes,
-	std::vector<std::string> &deps) {
+	Fn &&fn) {
 	for (auto const &node: nodes) {
 		std::visit(
 			[&](auto const &n) {
 				using T = std::decay_t<decltype(n)>;
 				if constexpr (std::is_same_v<T, IncludeNode>) {
-					deps.push_back(n.name);
+					fn(n.name);
 				} else if constexpr (std::is_same_v<T, FromImportNode>) {
-					deps.push_back(n.file);
+					fn(n.file);
 				} else if constexpr (std::is_same_v<T, BlockNode>) {
-					collect_direct_node_deps(n.body, deps);
+					for_each_direct_node_dep(n.body, fn);
 				} else if constexpr (std::is_same_v<T, ForNode>) {
-					collect_direct_node_deps(n.body, deps);
+					for_each_direct_node_dep(n.body, fn);
 				} else if constexpr (std::is_same_v<T, IfNode>) {
 					for (auto const &branch: n.branches) {
-						collect_direct_node_deps(branch.body, deps);
+						for_each_direct_node_dep(branch.body, fn);
 					}
 				} else if constexpr (std::is_same_v<T, MacroNode>) {
-					collect_direct_node_deps(n.body, deps);
+					for_each_direct_node_dep(n.body, fn);
 				}
 			},
 			node->data);
 	}
 }
-static std::vector<std::string> collect_direct_template_deps(
-	Template const &tmpl) {
-	std::vector<std::string> deps;
+template<class Fn>
+static void for_each_direct_template_dep(
+	Template const &tmpl,
+	Fn &&fn) {
 	if (!tmpl.extends_name.empty()) {
-		deps.push_back(tmpl.extends_name);
+		fn(tmpl.extends_name);
 	}
-	collect_direct_node_deps(tmpl.nodes, deps);
-	return deps;
+	for_each_direct_node_dep(tmpl.nodes, fn);
 }
 bool Environment::Impl::extension_allowed(
 	std::filesystem::path const &path) const {
@@ -198,11 +199,11 @@ void Environment::Impl::validate_links(
 		stack.push_back(name);
 		auto it = candidate.find(name);
 		if (it != candidate.end()) {
-			for (auto const &dep: collect_direct_template_deps(it->second)) {
+			for_each_direct_template_dep(it->second, [&](std::string const &dep) {
 				if (candidate.contains(dep)) {
 					dfs(dep);
 				}
-			}
+			});
 		}
 		stack.pop_back();
 		visit_state[name] = 2;
