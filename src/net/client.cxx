@@ -464,50 +464,7 @@ bool recv_chunked(
 [[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
-	if (!client_wire::is_redirect_status(resp.head.status)) {
-		return std::nullopt;
-	}
-	auto const location = resp.head.headers["location"];
-	if (location.empty()) {
-		return std::nullopt;
-	}
-	if (!req.follows_redirects()) {
-		return std::nullopt;
-	}
-	if (req.max_redirects() <= 0) {
-		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
-	}
-	auto next_url = client_wire::resolve_redirect_target(req.url(), location);
-	if (!next_url) {
-		return std::nullopt;
-	}
-	bool const cross_origin = !client_wire::same_origin(req.url(), *next_url);
-	HttpFields next_headers{req.headers().case_insensitive()};
-	next_headers.clear();
-	for (auto const &[k, v]: req.headers()) {
-		if (ascii_iequals(k, "host")) {
-			continue;
-		}
-		if (cross_origin
-			&& (ascii_iequals(k, "authorization")
-				|| ascii_iequals(k, "cookie")
-				|| ascii_iequals(k, "proxy-authorization"))) {
-			continue;
-		}
-		next_headers.set(k, v);
-	}
-	auto builder = ClientRequest::method(req.method(), next_url->str())
-					   .headers(next_headers)
-					   .timeouts(req.timeouts())
-					   .verify_peer(req.verify_peer());
-	if (!req.body().empty()) {
-		builder.body(req.body());
-	}
-	if (!req.server_name().empty()) {
-		builder.server_name(req.server_name());
-	}
-	builder.follow_redirects(req.max_redirects() - 1);
-	return std::move(builder).build();
+	return client_wire::follow_redirect_request(req, resp.head.status, resp.head.headers);
 }
 // Core blocking transport — returns ClientResult.
 ClientResult do_blocking_request(

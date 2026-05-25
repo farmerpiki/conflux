@@ -254,6 +254,56 @@ struct ParsedResponseHead {
 	return next;
 }
 
+[[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect_request(
+	ClientRequest const &req,
+	int status,
+	HttpFields const &response_headers) {
+	if (!is_redirect_status(status)) {
+		return std::nullopt;
+	}
+	auto const location = response_headers["location"];
+	if (location.empty()) {
+		return std::nullopt;
+	}
+	if (!req.follows_redirects()) {
+		return std::nullopt;
+	}
+	if (req.max_redirects() <= 0) {
+		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
+	}
+	auto next_url = resolve_redirect_target(req.url(), location);
+	if (!next_url) {
+		return std::nullopt;
+	}
+	bool const cross_origin = !same_origin(req.url(), *next_url);
+	HttpFields next_headers{req.headers().case_insensitive()};
+	next_headers.clear();
+	for (auto const &[k, v]: req.headers()) {
+		if (ascii_iequals(k, "host")) {
+			continue;
+		}
+		if (cross_origin
+			&& (ascii_iequals(k, "authorization")
+				|| ascii_iequals(k, "cookie")
+				|| ascii_iequals(k, "proxy-authorization"))) {
+			continue;
+		}
+		next_headers.set(k, v);
+	}
+	auto builder = ClientRequest::method(req.method(), next_url->str())
+					   .headers(next_headers)
+					   .timeouts(req.timeouts())
+					   .verify_peer(req.verify_peer());
+	if (!req.body().empty()) {
+		builder.body(req.body());
+	}
+	if (!req.server_name().empty()) {
+		builder.server_name(req.server_name());
+	}
+	builder.follow_redirects(req.max_redirects() - 1);
+	return std::move(builder).build();
+}
+
 void accumulate_telemetry(
 	HttpTelemetry &total,
 	HttpTelemetry const &hop) {
