@@ -235,3 +235,8 @@ those reviews.
 - `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
   /tmp/gcc-16/release-clang-libcxx --output-on-failure -R "db: pool"`
   completed after the DB pool fix: 5/5 passed.
+- Fresh full `cmake --build --preset release-clang-libcxx` completed after
+  the shared HTTP parameter parser and DB pool off-owner capacity fixes.
+- Fresh full `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest
+  --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure` completed:
+  1945/1945 passed.
