@@ -180,6 +180,10 @@ TEST_CASE(
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "text/plain; charset=utf-8");
 	CHECK(response.text_body() == "alpha:beta");
+
+	auto explicit_buffered = http::buffered_stream([](http::StreamSink &out) { out.write("buffered"); }, "text/plain");
+	CHECK(explicit_buffered.content_type == "text/plain");
+	CHECK(explicit_buffered.text_body() == "buffered");
 }
 
 TEST_CASE(
