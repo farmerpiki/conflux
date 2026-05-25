@@ -61,6 +61,9 @@ Current review set: `findings/1.md` through `findings/7.md` after
   metadata now stores path parameter type tags in ordered flat vectors instead
   of tiny `std::map` node containers; lookup sites use linear `ranges::find`
   over the small bounded route parameter set.
+- `findings/4.md` P1 TLS/OpenSSL ALPN weak status checks: complete. Sequential
+  `s_client` and ALPN fallback tests now assert the parsed HTTP status code is
+  `200` in addition to checking the expected response body.
 
 ## Verification
 
@@ -153,6 +156,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
   mismatched path extractor|validate reports positional path parameter
   mismatch|app openapi snapshot covers typed route policies|app openapi spec
   uses route metadata)"` completed: 5/5 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tls_external`
+  completed after strengthening TLS status assertions.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "ext/openssl: multiple sequential s_client connections all succeed|tls/alpn:
+  (http/1.1 ALPN is accepted|unknown ALPN falls back without breaking h1)"`
+  completed: 3/3 passed.
 
 ## Accepted / In Scope
 

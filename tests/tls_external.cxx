@@ -258,6 +258,7 @@ TEST_CASE(
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	for (int i = 0; i < 5; ++i) {
 		auto resp = fx.sclient_get("/ping");
+		REQUIRE(first_http_status_code(resp) == "200");
 		REQUIRE(resp.find(R"({"ok":true})") != std::string::npos);
 	}
 }
@@ -313,8 +314,8 @@ TEST_CASE(
 			"printf 'GET /ping HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | "
 			"openssl s_client -connect 127.0.0.1:{} -alpn http/1.1 -quiet -ign_eof 2>/dev/null",
 			fx.port()));
-	(void)code;
-	REQUIRE(body.find("HTTP/1.") != std::string::npos);
+	INFO("openssl exit=" << code << " output=" << body);
+	REQUIRE(first_http_status_code(body) == "200");
 	REQUIRE(body.find(R"({"ok":true})") != std::string::npos);
 }
 
@@ -326,8 +327,8 @@ TEST_CASE(
 			"printf 'GET /ping HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | "
 			"openssl s_client -connect 127.0.0.1:{} -alpn conflux-unknown -quiet -ign_eof 2>/dev/null",
 			fx.port()));
-	(void)code;
-	REQUIRE(body.find("HTTP/1.") != std::string::npos);
+	INFO("openssl exit=" << code << " output=" << body);
+	REQUIRE(first_http_status_code(body) == "200");
 	REQUIRE(body.find(R"({"ok":true})") != std::string::npos);
 }
 TEST_CASE(
