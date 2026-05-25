@@ -1208,6 +1208,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi mounts metadata route",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/health", [] { return http::text("ok"); }).name("health.check");
+	(void)app.openapi("/schema.json", "Mounted API", "2.0.0");
+
+	Request req;
+	req.method = "GET";
+	req.path = "/schema.json";
+
+	auto response = http::router(app).dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.content_type == "application/json");
+	CHECK(response.text_body().find(R"("title":"Mounted API")") != std::string_view::npos);
+	CHECK(response.text_body().find(R"("operationId":"health.check")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: try_server rejects invalid app metadata",
 	"[http.facade]") {
 	auto app = http::app();

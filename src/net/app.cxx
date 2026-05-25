@@ -1076,6 +1076,17 @@ public:
 		}
 		return detail::render_openapi_spec(routes, title, version);
 	}
+	[[nodiscard]] RouteRef openapi(
+		std::string_view path = "/openapi.json",
+		std::string_view title = "API",
+		std::string_view version = "1.0.0",
+		std::source_location loc = std::source_location::current()) {
+		auto spec = openapi_spec(title, version);
+		return get(
+			path,
+			[spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); },
+			loc);
+	}
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
 		for (auto const &issue: state_issues_) {
