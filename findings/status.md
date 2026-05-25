@@ -398,6 +398,20 @@ Current review set: `findings/1.md` through `findings/7.md` after
   20144.01 -> 20543.16 ns/iter (+1.98%). The patch was reverted; future work
   should avoid replacing the single contiguous send with `writev` unless larger
   body thresholds or fixed-buffer interactions show a workload-specific win.
+- `findings/3.md` P1 context exact route no-copy fast path: investigated but
+  not accepted. Added representative `http_server` benchmark coverage for an
+  exact async context route, then tested a narrow router fast path that skipped
+  params/metadata rebuild while still passing an owned `RequestView` into the
+  coroutine frame. The implementation candidate is preserved as
+  `/tmp/gcc-16/bench-artifacts/20260525T-context-exact-fastpath-candidate/context-exact-fastpath-candidate.patch`.
+  Correctness smoke passed for focused context/facade tests, but compare-bins
+  did not clear the hot-path gate. Artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T192114Z-compare-bins`, `context_exact`
+  base run `1051`, candidate run `1052`: best 21364.68 -> 19063.17 ns/iter
+  (-2301.51 ns, -10.77%), p10 21708.95 -> 20373.92 ns/iter (-1335.03 ns,
+  -6.15%), p50 22439.49 -> 22317.96 ns/iter (-0.54%), but p99
+  23160.09 -> 26144.44 ns/iter (+12.89%). The router patch was reverted; the
+  benchmark coverage remains for future context-route experiments.
 - `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
   lifetime/cancel refactor rather than a bounded dedup patch. The repeated
   wait loops are exactly where cancellation and ownership can drift, but a safe

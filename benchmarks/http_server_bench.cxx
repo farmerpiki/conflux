@@ -333,6 +333,7 @@ Config bench_config(
 
 static auto const kGetRoot = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGetJson = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
+static auto const kGetContext = "GET /context HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGetParam = "GET /hello/world HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGetGroup = "GET /api/v2/status HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGet404 = "GET /nonexistent HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
@@ -531,7 +532,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"target_ms":1000,"max_iterations":100,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"],"reps":1},{"name":"pipeline_100","extra":{"tier":"dispatch","case":"HTTP/1 pipelined GET"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","pipeline_100","--config-name","pipeline_100","--iterations","0","--warmup","0"]},{"name":"post_echo_4k","extra":{"tier":"dispatch","case":"HTTP/1 Content-Length POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_echo_4k","--config-name","post_echo_4k","--iterations","0","--warmup","0"]},{"name":"post_chunked_4k_many","extra":{"tier":"dispatch","case":"HTTP/1 chunked POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_chunked_4k_many","--config-name","post_chunked_4k_many","--iterations","0","--warmup","0"]}]})");
+		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"target_ms":1000,"max_iterations":100,"calibration_iterations":2,"args":["--iterations","0","--warmup","0"],"reps":1},{"name":"pipeline_100","extra":{"tier":"dispatch","case":"HTTP/1 pipelined GET"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","pipeline_100","--config-name","pipeline_100","--iterations","0","--warmup","0"]},{"name":"context_exact","extra":{"tier":"dispatch","case":"HTTP/1 exact async context route"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","context_exact","--config-name","context_exact","--iterations","0","--warmup","0"]},{"name":"post_echo_4k","extra":{"tier":"dispatch","case":"HTTP/1 Content-Length POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_echo_4k","--config-name","post_echo_4k","--iterations","0","--warmup","0"]},{"name":"post_chunked_4k_many","extra":{"tier":"dispatch","case":"HTTP/1 chunked POST 4KiB"},"target_ms":500,"max_iterations":10000,"calibration_iterations":2,"args":["--only","post_chunked_4k_many","--config-name","post_chunked_4k_many","--iterations","0","--warmup","0"]}]})");
 
 	auto const argv_span = std::span{argv, static_cast<std::size_t>(argc)};
 	auto const args = bench_parse_args(argv_span);
@@ -556,6 +557,11 @@ int main(
 		return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 	});
 	plain_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
+	plain_router.get_context(
+		"/context",
+		[](RequestView const &, RequestContext const &) -> conflux::work::root::Task<Response> {
+			co_return Response::text("context");
+		});
 	plain_router.get("/hello/{name}", [](Request const &req) {
 		return Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
@@ -814,6 +820,15 @@ int main(
 		 .run =
 			 [&] {
 				 client->send_all(kGetJson);
+				 (void)client->recv_response(sb);
+			 },
+		 .teardown = plain_teardown});
+	variants.push_back(
+		{.name = "context_exact"sv,
+		 .setup = plain_setup,
+		 .run =
+			 [&] {
+				 client->send_all(kGetContext);
 				 (void)client->recv_response(sb);
 			 },
 		 .teardown = plain_teardown});
