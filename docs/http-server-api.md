@@ -633,6 +633,21 @@ JSON response bodies are explicit raw strings at this layer. Structured JSON
 serialization belongs at the call site or in `conflux.net.http.response_json`
 helpers.
 
+Typed cookie attributes can be built before appending a `Set-Cookie` header:
+
+```cpp
+auto response = http::text("ok");
+response.set_cookie(
+    http::cookie("session", id)
+        .path("/")
+        .http_only()
+        .secure()
+        .same_site(http::SameSite::Lax));
+```
+
+`http::cookie(...)` formats the attribute string for the existing
+`Response::set_cookie(...)` storage path.
+
 ---
 
 ## SSE (Server-Sent Events)

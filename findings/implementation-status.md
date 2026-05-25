@@ -120,7 +120,8 @@ those reviews.
 - `findings/6.md`: accepted a bounded response/cookie builder ergonomics
   subset. `CookieBuilder` and the facade `http::cookie(...)` helper now build
   typed cookie attributes and feed the existing `Response::set_cookie` storage
-  path, avoiding any change to response formatting or send behavior.
+  path, avoiding any change to response formatting or send behavior. The
+  HTTP API and cost/lifetime docs cover the new helper.
 
 ## Accepted backlog
 
@@ -468,3 +469,6 @@ those reviews.
   "http response: set_cookie and append_vary preserve HTTP header semantics|http
   facade: response helpers cover redirect and created JSON|http facade: public
   import smoke"` completed after the cookie-builder update: 3/3 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "docs/(release-docs|first-contact-public-dialect|package-docs)|docs/planning-state"`
+  completed after documenting the cookie builder: 4/4 passed.
