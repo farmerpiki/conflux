@@ -12,6 +12,14 @@ those reviews.
 - `findings/1.md`: accepted the request-buffer-pool lifetime issue.
   The HTTP/1 request buffer pool is now shared storage; recycled request buffers
   can outlive `Ring` when async/deferred request leases outlive the connection.
+- Async `RequestView` lease contract from the follow-up review: complete in
+  current source. HTTP/1 and HTTP/2 deferred responses pin request storage with
+  `DeferredResponse::keep_alive(...)`; H2 request bytes/fields are moved into an
+  `H2RequestLease` before dispatch and pinned into the deferred response.
+- H2 deferred timeout from the follow-up review: complete in current source. The
+  timer path scans `Ring::deferred_waits` and calls
+  `DeferredResponse::expire_if_past_deadline(now)`, so H2 deferred waits use the
+  same self-expiring 504 wakeup path as HTTP/1 deferred responses.
 - `findings/4.md`: accepted the exact no-param route dispatch overhead issue.
   Exact path matches with no params, no route observation, and no HEAD remap now
   dispatch the original `RequestView` without rebuilding params/views.
@@ -167,6 +175,12 @@ those reviews.
   `ext/libcurl/stress: parallel multi-interface mixed routes` 1/1 passed.
 - End-of-work re-evaluation of the explicit `HEADER_INTERFACE_WITH_SOURCES`
   plus runtime SIMD configure check fails with the intended diagnostic.
+- Source re-check for the follow-up async `RequestView` review confirmed the
+  current HTTP/1/H2 deferred dispatch paths pin request storage through
+  `DeferredResponse::keep_alive(...)`.
+- Source re-check for the follow-up H2 timeout review confirmed
+  `Ring::on_timer_tick()` scans `deferred_waits` and expires each deferred
+  response deadline.
 - `scripts/check-package-config.sh` completed.
 - `scripts/check-package-smoke-liburing-free.sh` completed.
 - `cmake --build --preset release-clang-libcxx --target conflux_json_tests`
