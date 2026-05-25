@@ -108,11 +108,10 @@ TEST_CASE(
 	workers.clear();
 	srv_thread.join();
 
-	// Any valid RunStatus is acceptable — the point is no crash or UB.
+	// Accept normal stop or the explicit pressure statuses this test is meant to exercise.
 	bool const valid_status = result == RunStatus::stopped_normally
 						   || result == RunStatus::fatal_cq_overflow
 						   || result == RunStatus::fatal_cq_overflow_no_nodrop
-						   || result == RunStatus::fatal_submit_wait_ebadr
-						   || result == RunStatus::fatal_internal_exception;
+						   || result == RunStatus::fatal_submit_wait_ebadr;
 	CHECK(valid_status);
 }
