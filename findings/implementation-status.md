@@ -57,6 +57,9 @@ those reviews.
   cleanup. `HttpFields` and `HttpFieldsView` now expose `for_each_value` and
   `any_value`, with free `for_each_header_value` / `any_header_value` wrappers,
   so duplicate header values can be scanned without allocating a vector.
+- `findings/5.md`: accepted the API surface import smoke weakness. Curated,
+  selected, extended, and complete import smokes now exercise representative
+  public symbols instead of only importing their profile module.
 
 ## Accepted backlog
 
@@ -76,9 +79,9 @@ those reviews.
 - `findings/4.md`: response gather-send, response storage normalization, and
   middleware allocation reduction. Accepted as performance backlog requiring
   benchmarks and isolated changes.
-- `findings/5.md`: remaining compile-fail wiring, API surface symbol smoke, and
-  structured-output assertion gaps stay accepted test backlog. HTTP package
-  smoke and façade import purity are complete above.
+- `findings/5.md`: remaining compile-fail wiring and structured-output
+  assertion gaps stay accepted test backlog. HTTP package smoke, façade import
+  purity, and API surface symbol smokes are complete above.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
@@ -127,6 +130,14 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "HttpFields zero-allocation value callbacks|HttpFields::values returns all
   entries"` completed: 2/2 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_api_surface_curated_import_smoke
+  conflux_api_surface_extended_import_smoke
+  conflux_api_surface_complete_import_smoke
+  conflux_api_surface_selected_import_smoke` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "api-surface/import-(curated|extended|complete|selected)"` completed: 4/4
+  passed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "http client: request headers override default headers once|http client: GET
   /api/ping returns 200"` completed.
