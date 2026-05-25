@@ -143,20 +143,14 @@ DynamicEncodingQs header_encoding_q_values(
 	float q_star = -1.0F;
 	DynamicEncodingQs qs{};
 
-	for (auto const token: conflux::http::header_tokens(hdr)) {
-		auto const semi = token.find(';');
-		auto const name = conflux::http::trim_http_whitespace(token.substr(0, semi));
+	for (auto const item: conflux::http::header_items(hdr)) {
+		float const q = conflux::http::parse_http_q(item.params).value_or(1.0F);
 
-		float const q =
-			semi == std::string_view::npos ?
-				1.0F :
-				conflux::http::parse_http_q(conflux::http::header_params(token.substr(semi + 1))).value_or(1.0F);
-
-		if (name == "*") {
+		if (item.name == "*") {
 			q_star = std::max(q_star, q);
-		} else if (conflux::http::ascii_iequals(name, "gzip")) {
+		} else if (conflux::http::ascii_iequals(item.name, "gzip")) {
 			qs.gzip = std::max(qs.gzip, q);
-		} else if (conflux::http::ascii_iequals(name, "zstd")) {
+		} else if (conflux::http::ascii_iequals(item.name, "zstd")) {
 			qs.zstd = std::max(qs.zstd, q);
 		}
 	}

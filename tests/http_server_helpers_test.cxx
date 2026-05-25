@@ -118,6 +118,42 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http types: header_items split item params with quoted semicolon support",
+	"[http_server_helpers]") {
+	auto items = conflux::http::header_items(R"(gzip;q=0.5; note="a;b", br; q=1)");
+	auto it = items.begin();
+	REQUIRE(it != items.end());
+	auto gzip = *it;
+	CHECK(gzip.name == "gzip");
+	CHECK_FALSE(gzip.has_value);
+	CHECK(conflux::http::parse_http_q(gzip.params) == 0.5F);
+
+	++it;
+	REQUIRE(it != items.end());
+	auto br = *it;
+	CHECK(br.name == "br");
+	CHECK_FALSE(br.has_value);
+	CHECK(conflux::http::parse_http_q(br.params) == 1.0F);
+
+	++it;
+	CHECK(it == items.end());
+
+	auto directives = conflux::http::header_items("max-age=60, no-cache");
+	auto directive_it = directives.begin();
+	REQUIRE(directive_it != directives.end());
+	auto max_age = *directive_it;
+	CHECK(max_age.name == "max-age");
+	CHECK(max_age.has_value);
+	CHECK(max_age.value == "60");
+
+	++directive_it;
+	REQUIRE(directive_it != directives.end());
+	auto no_cache = *directive_it;
+	CHECK(no_cache.name == "no-cache");
+	CHECK_FALSE(no_cache.has_value);
+}
+
+TEST_CASE(
 	"http_server_helpers: cookies parse repeated and valueless entries",
 	"[http_server_helpers]") {
 	HttpFieldsView cookies;

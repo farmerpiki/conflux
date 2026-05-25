@@ -132,15 +132,6 @@ void append_static_decimal(
 	}
 }
 
-[[nodiscard]] bool static_accept_encoding_q_allows(
-	std::string_view entry,
-	std::size_t semi) {
-	if (semi == std::string_view::npos) {
-		return true;
-	}
-	return conflux::http::parse_http_q(conflux::http::header_params(entry.substr(semi + 1))).value_or(1.0F) != 0.0F;
-}
-
 struct StaticAcceptedEncodings {
 	bool br{};
 	bool gzip{};
@@ -151,14 +142,13 @@ struct StaticAcceptedEncodings {
 	StaticAcceptedEncodings out{};
 	bool seen_br = false;
 	bool seen_gzip = false;
-	for (auto const entry: conflux::http::header_tokens(ae)) {
-		auto const semi = entry.find(';');
-		auto const coding = conflux::http::trim_http_whitespace(entry.substr(0, semi));
-		if (!seen_br && conflux::http::ascii_iequals(coding, "br")) {
-			out.br = static_accept_encoding_q_allows(entry, semi);
+	for (auto const item: conflux::http::header_items(ae)) {
+		float const q = conflux::http::parse_http_q(item.params).value_or(1.0F);
+		if (!seen_br && conflux::http::ascii_iequals(item.name, "br")) {
+			out.br = q != 0.0F;
 			seen_br = true;
-		} else if (!seen_gzip && conflux::http::ascii_iequals(coding, "gzip")) {
-			out.gzip = static_accept_encoding_q_allows(entry, semi);
+		} else if (!seen_gzip && conflux::http::ascii_iequals(item.name, "gzip")) {
+			out.gzip = q != 0.0F;
 			seen_gzip = true;
 		}
 		if (seen_br && seen_gzip) {

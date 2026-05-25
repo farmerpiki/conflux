@@ -82,6 +82,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
   use explicit indexed loops, making the constant-time path easier to audit and
   removing the only remaining `std::views::zip` dependency from the runtime
   sources.
+- `findings/1.md` P1 header item range: complete. Added loop-based
+  `header_items(...)` with shared quote-aware semicolon splitting and optional
+  first-segment `name=value` support, then routed static Accept-Encoding,
+  dynamic compression negotiation, and response-cache Cache-Control directive
+  parsing through it.
 
 ## Verification
 
@@ -204,6 +209,13 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "^(jwt:|metrics: Histogram|metrics: duration histogram appears in output)"`
   completed: 23/23 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_server_helpers_tests conflux_tests conflux_compression_matrix_e2e`
+  completed after adding shared header item parsing.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http types: header_items|http_server_helpers: header parameter
+  extraction|compress:|compression matrix|static precompressed|response_cache:
+  Cache-Control"` completed: 22/22 passed.
 
 ## Accepted / In Scope
 

@@ -442,6 +442,7 @@ export namespace conflux::http {
 class HeaderTokenView {
 	std::string_view header_{};
 
+public:
 	class Iterator {
 		std::string_view header_{};
 		std::size_t pos_{0};
@@ -504,7 +505,6 @@ class HeaderTokenView {
 		}
 	};
 
-public:
 	explicit constexpr HeaderTokenView(
 		std::string_view header) noexcept
 		: header_{header} {}
@@ -516,6 +516,33 @@ public:
 [[nodiscard]] constexpr HeaderTokenView header_tokens(
 	std::string_view header_value) noexcept {
 	return HeaderTokenView{header_value};
+}
+
+[[nodiscard]] constexpr std::size_t find_unquoted_header_delim(
+	std::string_view s,
+	char needle,
+	std::size_t pos = 0) noexcept {
+	bool quoted = false;
+	bool escaped = false;
+	for (std::size_t i = pos; i < s.size(); ++i) {
+		char const c = s[i];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (quoted && c == '\\') {
+			escaped = true;
+			continue;
+		}
+		if (c == '"') {
+			quoted = !quoted;
+			continue;
+		}
+		if (!quoted && c == needle) {
+			return i;
+		}
+	}
+	return std::string_view::npos;
 }
 
 struct HeaderParam {
@@ -531,27 +558,7 @@ class HeaderParamView {
 		std::string_view s,
 		char needle,
 		std::size_t pos = 0) noexcept {
-		bool quoted = false;
-		bool escaped = false;
-		for (std::size_t i = pos; i < s.size(); ++i) {
-			char const c = s[i];
-			if (escaped) {
-				escaped = false;
-				continue;
-			}
-			if (quoted && c == '\\') {
-				escaped = true;
-				continue;
-			}
-			if (c == '"') {
-				quoted = !quoted;
-				continue;
-			}
-			if (!quoted && c == needle) {
-				return i;
-			}
-		}
-		return std::string_view::npos;
+		return find_unquoted_header_delim(s, needle, pos);
 	}
 
 	class Iterator {
@@ -626,6 +633,7 @@ class HeaderParamView {
 	};
 
 public:
+	constexpr HeaderParamView() noexcept = default;
 	explicit constexpr HeaderParamView(
 		std::string_view params) noexcept
 		: params_{params} {}
@@ -637,6 +645,91 @@ public:
 [[nodiscard]] constexpr HeaderParamView header_params(
 	std::string_view params) noexcept {
 	return HeaderParamView{params};
+}
+
+struct HeaderItem {
+	std::string_view name{};
+	std::string_view value{};
+	bool has_value{};
+	HeaderParamView params{};
+};
+
+class HeaderItemView {
+	std::string_view header_{};
+
+	class Iterator {
+		HeaderTokenView::Iterator it_{};
+		HeaderTokenView::Iterator end_{};
+		HeaderItem item_{};
+
+		void read_current() noexcept {
+			if (it_ == end_) {
+				item_ = {};
+				return;
+			}
+			auto const token = *it_;
+			auto const semi = find_unquoted_header_delim(token, ';');
+			auto const first = trim_http_whitespace(semi == std::string_view::npos ? token : token.substr(0, semi));
+			auto const eq = find_unquoted_header_delim(first, '=');
+			std::string_view name = first;
+			std::string_view value{};
+			bool has_value = false;
+			if (eq != std::string_view::npos) {
+				name = trim_http_whitespace(first.substr(0, eq));
+				value = trim_http_whitespace(first.substr(eq + 1));
+				has_value = true;
+			}
+			item_ = HeaderItem{
+				.name = name,
+				.value = value,
+				.has_value = has_value,
+				.params = header_params(semi == std::string_view::npos ? std::string_view{} : token.substr(semi + 1))};
+		}
+
+	public:
+		using value_type = HeaderItem;
+		using difference_type = std::ptrdiff_t;
+		using iterator_category = std::input_iterator_tag;
+
+		Iterator() = default;
+		explicit Iterator(
+			std::string_view header)
+			: it_{header_tokens(header).begin()}
+			, end_{header_tokens(header).end()} {
+			read_current();
+		}
+
+		[[nodiscard]] HeaderItem operator *() const noexcept { return item_; }
+		Iterator &operator ++() noexcept {
+			if (it_ != end_) {
+				++it_;
+				read_current();
+			}
+			return *this;
+		}
+		void operator ++(
+			int) noexcept {
+			++(*this);
+		}
+		[[nodiscard]] friend bool operator ==(
+			Iterator const &lhs,
+			Iterator const &rhs) noexcept {
+			return lhs.it_ == rhs.it_;
+		}
+	};
+
+public:
+	explicit constexpr HeaderItemView(
+		std::string_view header) noexcept
+		: header_{header} {}
+
+	[[nodiscard]] Iterator begin() const noexcept { return Iterator{header_}; }
+	[[nodiscard]] Iterator end() const noexcept { return {}; }
+};
+
+[[nodiscard]] constexpr HeaderItemView header_items(
+	std::string_view header_value) noexcept {
+	return HeaderItemView{header_value};
 }
 
 [[nodiscard]] inline std::optional<float> parse_http_q(
