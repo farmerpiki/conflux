@@ -13,6 +13,11 @@ struct RoutePatternInfo {
 	std::map<std::string, std::string> param_types;
 };
 
+[[nodiscard]] bool is_known_route_type_tag(
+	std::string_view tag) noexcept {
+	return tag.empty() || tag == "string" || tag == "u64" || tag == "i64" || tag == "u32" || tag == "i32";
+}
+
 [[nodiscard]] RoutePatternInfo route_pattern_info(
 	std::string_view path) {
 	RoutePatternInfo info;
@@ -53,6 +58,14 @@ struct RoutePatternInfo {
 			if (auto colon = name.find(':'); colon != std::string_view::npos) {
 				type = name.substr(colon + 1);
 				name = name.substr(0, colon);
+				if (type.empty()) {
+					info.error = "invalid route pattern: path parameter type is empty";
+					return info;
+				}
+				if (!is_known_route_type_tag(type)) {
+					info.error = std::format("invalid route pattern: unknown path parameter type '{}'", type);
+					return info;
+				}
 			}
 			info.shape += wildcard ? "{*}" : "{}";
 			info.params.emplace_back(name);

@@ -272,6 +272,19 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports unknown typed route suffix",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/users/{id:uuid}", [] { return http::text("bad"); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].message == "invalid route pattern: unknown path parameter type 'uuid'");
+	CHECK(report.issues[0].path == "/users/{id:uuid}");
+}
+
+TEST_CASE(
 	"http facade: validate reports ambiguous same-shape routes",
 	"[http.facade]") {
 	auto app = http::app();
