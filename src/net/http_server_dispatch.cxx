@@ -443,7 +443,14 @@ void dispatch_request(
 #endif
 		conn.is_deferred = true;
 		conn.deferred_head_only = resp.head_only;
-		conn.deferred_efd = resp.deferred_response_ptr()->eventfd_fd();
+		auto deferred_response = resp.deferred_response_ptr();
+		if (request_storage) {
+			deferred_response->keep_alive(request_storage);
+		}
+		if (request_files) {
+			deferred_response->keep_alive(request_files);
+		}
+		conn.deferred_efd = deferred_response->eventfd_fd();
 		conn.deferred_response = resp.take_deferred_response();
 		conn.deferred_request_storage = std::move(request_storage);
 		if (request_files) {

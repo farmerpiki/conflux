@@ -32,11 +32,12 @@ If data must survive that lifetime or a handoff to another thread, copy it into
 `std::string`, decode it into an owning value, or convert the whole request to
 `http::OwnedRequest`.
 
-Borrowed extractors may suspend in normalized `http::App` async handlers because
-the app async dispatch path keeps the request view and matched route metadata in
-the coroutine chain. Raw router/context dispatch from caller-owned request
-storage has the caller's lifetime contract: keep that storage alive until the
-deferred response completes, or copy what the task needs.
+Borrowed extractors and `http::RequestView` may suspend only through normalized
+server/app async dispatch paths that pin the request storage for the deferred
+task lifetime and keep the view object in the coroutine chain. Raw caller-owned
+`RequestView` task dispatch has the caller's lifetime contract: keep the backing
+storage alive until the deferred response completes, or use `http::OwnedRequest`
+/ copy the fields the task needs.
 
 ## HTTP response costs
 

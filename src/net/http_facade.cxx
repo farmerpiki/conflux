@@ -2,7 +2,8 @@ export module conflux.http;
 
 export import :problem;
 export import conflux.net.app;
-import conflux.net.http.server_types;
+export import conflux.net.app.defer;
+export import conflux.net.http.server_types;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
 export import conflux.json;
@@ -27,7 +28,6 @@ export namespace conflux::http {
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
-using RequestView = ::RequestView;
 using ::RunStatus;
 using RequestContext = ::RequestContext;
 template<class T>

@@ -873,6 +873,11 @@ void Ring::handle_timer() {
 	}
 	auto req_limit = std::chrono::milliseconds{request_timeout_ms};
 	auto sniff_limit = std::chrono::milliseconds{tls_sniff_timeout_ms};
+	for (auto &[_, wait]: deferred_waits) {
+		if (wait.response) {
+			wait.response->expire_if_past_deadline(now);
+		}
+	}
 	for (auto &conn: fd_table) {
 		if (conn.fd < 0) {
 			continue;

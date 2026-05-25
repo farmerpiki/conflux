@@ -3,10 +3,12 @@ import conflux;
 
 namespace http = conflux::http;
 
-int main(int argc, char **argv) {
+int main(
+	int argc,
+	char **argv) {
 	for (int i = 1; i < argc; ++i) {
 		if (std::string_view{argv[i]} == "--bench-info") {
-			std::println(R"({"name":"import_conflux_probe","parser":"compile-only","configs":[]})");
+			std::println("{{\"name\":\"import_conflux_probe\",\"parser\":\"compile-only\",\"configs\":[]}}");
 			return 0;
 		}
 	}

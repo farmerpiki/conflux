@@ -86,9 +86,11 @@ contract from `docs/execution-model.md` and the review checklist in
 - Fast synchronous work: accept `http::RequestView` and return
   `http::Response` directly. `http::RequestView` is the first-contact sync request
   type. This code executes on the HTTP ring thread.
-- Async workflow with coroutine-style composition: accept owning `http::Request`
-  and return `http::Task<http::Response>`. Task progress is
-  executor-owned; borrowed request views must not cross suspension.
+- Async workflow with coroutine-style composition: accept `http::RequestView`
+  through normalized server/app dispatch, or owning `http::Request` when storage
+  is caller-owned or must escape dispatch. Task progress is executor-owned;
+  borrowed request views may cross suspension only when dispatch pins request
+  storage for the deferred task lifetime.
 - Blocking or heavy CPU work must be made explicit: schedule executor-owned
   work through the chosen executor, or call a raw syscall-style helper whose
   `blocking_*` name advertises calling-thread blocking behavior.

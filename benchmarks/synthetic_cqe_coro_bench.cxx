@@ -77,7 +77,7 @@ struct SyntheticIoDevice {
 				.res = static_cast<std::int32_t>(bytes),
 			});
 		++submitted;
-		return task;
+		return std::move(task);
 	}
 
 	void complete_one() {

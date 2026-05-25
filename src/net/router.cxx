@@ -409,7 +409,10 @@ private:
 				return Handler{std::forward<F>(fn)};
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
 				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
-					return defer_http_task(std::invoke(wrapped, req));
+					auto invoke_view = [](Fn &handler, RequestView view) -> conflux::work::root::Task<Response> {
+						co_return co_await std::invoke(handler, view);
+					};
+					return defer_http_task(invoke_view(wrapped, RequestView{req}));
 				}};
 			} else {
 				static_assert(
@@ -495,7 +498,19 @@ private:
 							  std::invoke(middleware, req, ctx, next)
 						  } -> std::same_as<conflux::work::root::Task<Response>>;
 					  }) {
-			return ContextMiddleware{std::forward<F>(fn)};
+			return ContextMiddleware{
+				[wrapped = Fn(std::forward<F>(fn))](
+					RequestView const &req,
+					RequestContext const &ctx,
+					ContextHandler const &next) mutable -> conflux::work::root::Task<Response> {
+					auto invoke_view = [](Fn &middleware,
+										  RequestView view,
+										  RequestContext request_ctx,
+										  ContextHandler downstream) -> conflux::work::root::Task<Response> {
+						co_return co_await std::invoke(middleware, view, request_ctx, downstream);
+					};
+					return invoke_view(wrapped, RequestView{req}, ctx, next);
+				}};
 		} else if constexpr (requires(
 								 Fn &middleware,
 								 Request const &req,

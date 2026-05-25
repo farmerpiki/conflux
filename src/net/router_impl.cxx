@@ -650,7 +650,9 @@ void Router::launch_sse_handler(
 	};
 	auto step = std::make_shared<Step>(impl_.get(), &inner);
 	step->bind_next(step);
-	return defer_http_task(step->call(req, ctx));
+	auto run_chain = [](std::shared_ptr<Step> chain, RequestView request, RequestContext request_ctx)
+		-> conflux::work::root::Task<Response> { co_return co_await chain->call(request, request_ctx); };
+	return defer_http_task(run_chain(std::move(step), RequestView{req}, ctx));
 }
 
 Router &Router::serve_static(

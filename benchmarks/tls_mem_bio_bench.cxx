@@ -5,11 +5,21 @@
 // keeps a warm client/server TLS session connected by OpenSSL memory BIO pairs
 // and measures record encode/decode for payload sizes used by static/HTTP rows.
 
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <format>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <print>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 import bench_common;
 

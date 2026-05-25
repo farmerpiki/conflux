@@ -583,6 +583,7 @@ export class DeferredResponse {
 	std::unique_ptr<Response> ready_{};
 	std::chrono::steady_clock::time_point deadline_{};
 	conflux::work::root::TaskControl cancel_ctl_{};
+	std::vector<std::shared_ptr<void const>> keep_alive_{};
 
 public:
 	static constexpr std::chrono::milliseconds kDefaultTimeout{30000};
@@ -601,6 +602,7 @@ public:
 	[[nodiscard]] std::chrono::steady_clock::time_point deadline() const;
 	void set_deadline(std::chrono::steady_clock::time_point deadline);
 	void attach_cancel(conflux::work::root::TaskControl ctl) noexcept;
+	void keep_alive(std::shared_ptr<void const> storage);
 	// Force-complete with 504 if the deadline has passed and no response is ready.
 	// Returns true if this call expired the response (i.e. the caller should expect
 	// the ready signal to fire).
@@ -662,6 +664,14 @@ void DeferredResponse::attach_cancel(
 	conflux::work::root::TaskControl ctl) noexcept {
 	std::scoped_lock const lk{mtx_};
 	cancel_ctl_ = std::move(ctl);
+}
+void DeferredResponse::keep_alive(
+	std::shared_ptr<void const> storage) {
+	if (!storage) {
+		return;
+	}
+	std::scoped_lock const lk{mtx_};
+	keep_alive_.push_back(std::move(storage));
 }
 bool DeferredResponse::expire_if_past_deadline(
 	std::chrono::steady_clock::time_point now) {

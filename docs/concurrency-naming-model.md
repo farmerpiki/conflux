@@ -33,15 +33,15 @@ Supported handler shapes:
 | Shape | Placement | Intended use |
 |---|---|---|
 | `http::Response` from `http::RequestView` or `http::Request` | ring thread | short, bounded, non-blocking work |
-| `http::Task<http::Response>` from owning `http::Request` | executor-owned task progress | workflows with explicit suspension points |
+| `http::Task<http::Response>` from normalized `http::RequestView` or owning `http::Request` | executor-owned task progress | workflows with explicit suspension points |
 | deferred/streaming response | ring-owned response handle plus explicit async writer task | chunked output, SSE-style response bodies, delayed completion |
 | explicit `http::offload(pool, ...)` or equivalent caller-owned executor handoff | chosen worker/executor | blocking or CPU-heavy work made visible at the call site |
 
-`http::RequestView` is borrowed from the active request buffer. Handlers that may
-suspend must use an owning `http::Request` so views cannot dangle across coroutine
-suspension. At the first-contact `conflux::http` API, use `http::RequestView` for
-synchronous handlers and `http::Request` for coroutine handlers or escaped request
-data.
+`http::RequestView` is borrowed from the active request buffer. It may suspend
+only through normalized server/app async dispatch paths that pin request storage
+for the deferred task lifetime and keep the view object in the coroutine chain.
+Raw caller-owned `RequestView` tasks must keep backing storage alive externally
+or use `http::OwnedRequest` / copied fields for escaped request data.
 
 Synchronous ring-thread handlers may parse headers, inspect already-buffered body
 data, build responses, update small in-memory state, enqueue explicit async work,
@@ -94,7 +94,8 @@ Reject or request redesign when a patch:
 - adds a task type or task progress path that is not executor-owned;
 - hides arbitrary synchronous HTTP handler work behind automatic worker-pool
   offload;
-- makes an `http::RequestView` coroutine handler possible across suspension;
+- makes an `http::RequestView` coroutine handler possible across suspension
+  without a dispatch-owned request-storage lease;
 - calls blocking disk, DNS, HTTP client, DB, sleep, or heavy CPU work inline from
   a ring-thread synchronous handler;
 - names an executor-owned synchronous facade `blocking_*`;
@@ -107,7 +108,8 @@ Prefer patches that:
 
 - keep synchronous HTTP handlers short and ring-local;
 - make worker-pool or executor handoff explicit at the handler call site;
-- use owning `http::Request` for async/context handlers;
+- use normalized dispatch-owned request leases for async view handlers, or
+  owning `http::Request` when storage is caller-owned or must escape dispatch;
 - isolate temporary wait bridges behind one clearly named compatibility adapter;
 - update `docs/naming-audit.md` instead of renaming unrelated surfaces.
 

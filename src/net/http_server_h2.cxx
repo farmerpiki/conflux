@@ -61,6 +61,17 @@ import :state;
 
 #if CONFLUX_HAS_HTTP2
 static constexpr std::size_t kH2PendingSendCap = std::size_t{64} * 1024;
+struct H2RequestLease {
+	std::string method{};
+	std::string path{};
+	HttpFields headers{};
+	std::string body{};
+	HttpFieldsView query{};
+	HttpFieldsView form{};
+	HttpFieldsView cookies{};
+	std::vector<UploadedFile> files{};
+};
+
 static void h2_queue_raw_rst_stream(
 	Conn &conn,
 	std::int32_t stream_id,
@@ -553,35 +564,48 @@ int Ring::h2_on_frame_recv_cb(
 		return 0;
 	}
 
-	std::string_view const method = stream.method;
-	auto const target = conflux::http::split_path_query(stream.path);
+	auto request_lease = std::make_shared<H2RequestLease>();
+	request_lease->method = std::move(stream.method);
+	request_lease->path = std::move(stream.path);
+	request_lease->headers = std::move(stream.headers);
+	request_lease->body = std::move(stream.body);
+
+	std::string_view const method = request_lease->method;
+	auto const target = conflux::http::split_path_query(request_lease->path);
 	std::string_view const path = target.path;
 	std::string_view const version = "HTTP/2";
-	std::string_view const body = stream.body;
+	std::string_view const body = request_lease->body;
 	HttpFieldsView const params;
-	HttpFieldsView query;
-	HttpFieldsView form;
-	HttpFieldsView cookies;
-	std::vector<UploadedFile> files;
 	if (!target.query_suffix.empty()) {
-		parse_urlencoded(target.query, query);
+		parse_urlencoded(target.query, request_lease->query);
 	}
-	if (stream.headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
-		parse_urlencoded(body, form);
+	if (request_lease->headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
+		parse_urlencoded(body, request_lease->form);
 	}
-	auto ct_header = stream.headers["content-type"];
+	auto ct_header = request_lease->headers["content-type"];
 	if (ct_header.starts_with("multipart/form-data")) {
 		auto boundary = extract_param(ct_header, "boundary");
 		if (!boundary.empty()) {
-			parse_multipart(body, boundary, form, files);
+			parse_multipart(body, boundary, request_lease->form, request_lease->files);
 		}
 	}
-	if (auto cookie = stream.headers["cookie"]; !cookie.empty()) {
-		parse_cookies(cookie, cookies);
+	if (auto cookie = request_lease->headers["cookie"]; !cookie.empty()) {
+		parse_cookies(cookie, request_lease->cookies);
 	}
 
-	RequestView const
-		req{method, path, version, conn.remote_addr, true, params, stream.headers, query, form, cookies, files, body};
+	RequestView const req{
+		method,
+		path,
+		version,
+		conn.remote_addr,
+		true,
+		params,
+		request_lease->headers,
+		request_lease->query,
+		request_lease->form,
+		request_lease->cookies,
+		request_lease->files,
+		body};
 
 	Response resp;
 	try {
@@ -591,7 +615,9 @@ int Ring::h2_on_frame_recv_cb(
 	}
 
 	if (resp.is_deferred()) {
-		stream.deferred_efd = resp.deferred_response_ptr()->eventfd_fd();
+		auto deferred_response = resp.deferred_response_ptr();
+		deferred_response->keep_alive(request_lease);
+		stream.deferred_efd = deferred_response->eventfd_fd();
 		ctx->ring
 			->queue_deferred_wait(ctx->fd, stream.deferred_efd, resp.take_deferred_response(), frame->hd.stream_id);
 		return 0;

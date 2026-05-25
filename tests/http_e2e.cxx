@@ -1938,6 +1938,83 @@ TEST_CASE(
 	REQUIRE(extract_body(resp) == "borrowed-body");
 }
 TEST_CASE(
+	"async request view handler survives suspension") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/async-request-view", [](chttp::RequestView req) -> chttp::Task<chttp::Response> {
+		auto [gate, source] = conflux::work::root::make_task_source<int>();
+		std::thread([source = std::move(source)] mutable {
+			std::this_thread::sleep_for(std::chrono::milliseconds{10});
+			(void)source.try_set_value(conflux::work::root::Success<int>{0});
+		}).detach();
+		(void)co_await std::move(gate);
+		co_return chttp::text(std::format("{}:{}", req.header("x-check"), req.body));
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_request_on(
+		(*server)->port(),
+		"POST",
+		"/async-request-view",
+		"text/plain",
+		"borrowed-body",
+		"X-Check: alive\r\n"
+		"Connection: close\r\n");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "alive:borrowed-body");
+}
+TEST_CASE(
+	"async middleware request view survives suspension") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.use(
+		[](chttp::RequestView req,
+		   chttp::RequestContext const &ctx,
+		   chttp::AsyncNext const &next) -> chttp::Task<chttp::Response> {
+			auto [gate, source] = conflux::work::root::make_task_source<int>();
+			std::thread([source = std::move(source)] mutable {
+				std::this_thread::sleep_for(std::chrono::milliseconds{10});
+				(void)source.try_set_value(conflux::work::root::Success<int>{0});
+			}).detach();
+			(void)co_await std::move(gate);
+			auto response = co_await next(req, ctx);
+			response.headers.set("x-async-middleware-view", std::string{req.header("x-check")});
+			co_return response;
+		});
+	app.post("/async-middleware-view", [](chttp::BodyText const &body) { return chttp::text(body.get()); });
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_request_on(
+		(*server)->port(),
+		"POST",
+		"/async-middleware-view",
+		"text/plain",
+		"borrowed-body",
+		"X-Check: alive\r\n"
+		"Connection: close\r\n");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(resp.find("x-async-middleware-view: alive") != std::string::npos);
+	REQUIRE(extract_body(resp) == "borrowed-body");
+}
+TEST_CASE(
 	"multipart/form-data parses each part exactly once") {
 	auto body =
 		make_multipart_text_and_file("countBnd", "field", "value", "upload", "hello.txt", "text/plain", "file content");

@@ -136,7 +136,7 @@ class App {
 
 	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_middlewares(
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
-		RequestView const &req,
+		RequestView req,
 		RequestContext const &ctx,
 		Router::ContextHandler inner) {
 		if (!middlewares || middlewares->empty()) {
@@ -1960,14 +1960,23 @@ public:
 		AppJsonOptions json_options
 #endif
 	) {
-		try {
-			auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+		return conflux::work::root::spawn(
+			[handler = &handler,
+			 extracted_args = std::move(extracted_args)
 #if CONFLUX_HAS_JSON
-			co_return into_app_response(co_await std::move(result), json_options);
-#else
-			co_return into_app_response(co_await std::move(result));
+				 ,
+			 json_options
 #endif
-		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+		]() mutable -> conflux::work::root::Task<Response> {
+				try {
+					auto result = std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
+#if CONFLUX_HAS_JSON
+					co_return into_app_response(co_await std::move(result), json_options);
+#else
+					co_return into_app_response(co_await std::move(result));
+#endif
+				} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+			});
 	}
 
 	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(
