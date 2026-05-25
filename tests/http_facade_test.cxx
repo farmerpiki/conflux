@@ -1423,6 +1423,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: fixed typed routes support task handlers",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/async-todos/{id:i64}">(
+		[](std::int64_t id) -> http::Task<http::Response> { co_return http::text(std::format("todo={}", id)); });
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/async-todos/{id:i64}");
+	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
+	CHECK(
+		routes[0].path_param_types
+		== std::map<std::string, std::string>{
+			{"id", "i64"}
+    });
+	CHECK(http::router(app).has_context_routes());
+	CHECK(app.validate().ok());
+}
+
+TEST_CASE(
 	"http facade: positional path extractors dispatch by capture order",
 	"[http.facade]") {
 	auto app = http::app();

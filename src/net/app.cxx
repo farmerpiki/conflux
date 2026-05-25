@@ -1809,6 +1809,67 @@ public:
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
+	template<class Args, class Fn, std::size_t... Is>
+	[[nodiscard]] static conflux::work::root::Task<Response> invoke_fixed_route_async(
+		StateMap const &states,
+		Fn &fn,
+		RequestView req,
+		std::index_sequence<Is...>
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
+		auto run_with_args =
+#if CONFLUX_HAS_JSON
+			[](Fn &handler, auto extracted_args, AppJsonOptions json_opts) -> conflux::work::root::Task<Response> {
+			try {
+				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+				co_return into_app_response(co_await std::move(result), json_opts);
+			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+		};
+#else
+			[](Fn &handler, auto extracted_args) -> conflux::work::root::Task<Response> {
+			try {
+				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
+				co_return into_app_response(co_await std::move(result));
+			} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+		};
+#endif
+		auto extraction_failure = [](Response response) -> conflux::work::root::Task<Response> { co_return response; };
+		return conflux::work::root::spawn(
+			[&states,
+			 &fn,
+			 req = std::move(req)
+#if CONFLUX_HAS_JSON
+				 ,
+			 &json_options,
+			 max_body_size
+#endif
+			 ,
+			 run_with_args,
+			 extraction_failure]() mutable -> conflux::work::root::Task<Response> {
+				try {
+					auto extracted_args = std::make_tuple(
+						make_fixed_route_arg<Args, Is>(
+							states,
+							req
+#if CONFLUX_HAS_JSON
+							,
+							json_options,
+							max_body_size
+#endif
+							)...);
+#if CONFLUX_HAS_JSON
+					return run_with_args(fn, std::move(extracted_args), json_options);
+#else
+					return run_with_args(fn, std::move(extracted_args));
+#endif
+				} catch (ExtractorFailure &failure) { return extraction_failure(std::move(failure).response()); }
+			});
+	}
+
 	template<FixedString Path, class Args, std::size_t... Is>
 	static void record_inline_path_extractors(
 		AppRouteMetadata &meta,
@@ -1826,6 +1887,14 @@ public:
 			}(),
 			...);
 	}
+
+	template<class Fn, class Args, class Indices>
+	struct ExtractedInvokeResult;
+
+	template<class Fn, class Args, std::size_t... Is>
+	struct ExtractedInvokeResult<Fn, Args, std::index_sequence<Is...>> {
+		using type = std::invoke_result_t<Fn &, std::tuple_element_t<Is, Args>...>;
+	};
 
 	template<FixedString Path, typename F>
 	[[nodiscard]] RouteRef add_fixed_route(
@@ -1846,40 +1915,43 @@ public:
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		auto scoped_middlewares = current_group_middlewares();
-		router_.add(
-			method,
-			Path.view(),
-			[states = states_,
-			 auth_policy,
-			 rate_limit,
-			 timeout,
-			 scoped_middlewares,
-			 fn = Fn(std::forward<F>(handler))
+		auto scoped_context_middlewares = current_group_context_middlewares();
+		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
+		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
+		if constexpr (detail::IsTaskResultV<Result>) {
+			router_.add_context(
+				method,
+				Path.view(),
+				[states = states_,
+				 auth_policy,
+				 rate_limit,
+				 scoped_context_middlewares,
+				 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
-				 ,
-			 max_body_size,
-			 json_options
+					 ,
+				 max_body_size,
+				 json_options
 #endif
-		](RequestView const &req) mutable {
-				Router::Handler inner = [states,
-										 auth_policy,
-										 rate_limit,
-										 timeout,
-										 &fn
+			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					Router::ContextHandler inner =
+						[states,
+						 auth_policy,
+						 rate_limit,
+						 &fn
 #if CONFLUX_HAS_JSON
-										 ,
-										 max_body_size,
-										 json_options
+						 ,
+						 max_body_size,
+						 json_options
 #endif
-				](RequestView const &inner_req) mutable {
-					if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
-						return *std::move(denied);
-					}
-					if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
-						return *std::move(limited);
-					}
-					return apply_route_timeout(
-						invoke_fixed_route<Args>(
+					](RequestView const &inner_req,
+						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+							co_return *std::move(denied);
+						}
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
+							co_return *std::move(limited);
+						}
+						co_return co_await invoke_fixed_route_async<Args>(
 							*states,
 							fn,
 							inner_req,
@@ -1889,11 +1961,64 @@ public:
 							*json_options,
 							*max_body_size
 #endif
-							),
-						*timeout);
-				};
-				return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
-			});
+						);
+					};
+					co_return co_await run_scoped_context_middlewares(
+						scoped_context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
+				});
+		} else {
+			router_.add(
+				method,
+				Path.view(),
+				[states = states_,
+				 auth_policy,
+				 rate_limit,
+				 timeout,
+				 scoped_middlewares,
+				 fn = Fn(std::forward<F>(handler))
+#if CONFLUX_HAS_JSON
+					 ,
+				 max_body_size,
+				 json_options
+#endif
+			](RequestView const &req) mutable {
+					Router::Handler inner = [states,
+											 auth_policy,
+											 rate_limit,
+											 timeout,
+											 &fn
+#if CONFLUX_HAS_JSON
+											 ,
+											 max_body_size,
+											 json_options
+#endif
+					](RequestView const &inner_req) mutable {
+						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+							return *std::move(denied);
+						}
+						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
+							return *std::move(limited);
+						}
+						return apply_route_timeout(
+							invoke_fixed_route<Args>(
+								*states,
+								fn,
+								inner_req,
+								std::make_index_sequence<std::tuple_size_v<Args>>{}
+#if CONFLUX_HAS_JSON
+								,
+								*json_options,
+								*max_body_size
+#endif
+								),
+							*timeout);
+					};
+					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
+				});
+		}
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
 
@@ -2002,14 +2127,6 @@ public:
 			record_return_metadata<Result>();
 		}
 	}
-
-	template<class Fn, class Args, class Indices>
-	struct ExtractedInvokeResult;
-
-	template<class Fn, class Args, std::size_t... Is>
-	struct ExtractedInvokeResult<Fn, Args, std::index_sequence<Is...>> {
-		using type = std::invoke_result_t<Fn &, std::tuple_element_t<Is, Args>...>;
-	};
 
 	template<typename F>
 	App &add_extracted(
