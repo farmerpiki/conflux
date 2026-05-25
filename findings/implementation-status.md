@@ -94,6 +94,11 @@ those reviews.
   manual `JsonMembers<T>` path for streaming key dispatch and DOM unknown-member
   rejection, while keeping the existing linear path for small reflected
   aggregates.
+- `findings/6.md`: accepted the RequiredBasicAuth OpenAPI security metadata
+  gap. Required Basic Auth extractors now advertise an OpenAPI `basicAuth`
+  security scheme without overloading route `auth_policy`, so existing route
+  policy enforcement remains bearer-compatible while Basic Auth extractor
+  metadata renders correctly.
 
 ## Accepted backlog
 
@@ -118,6 +123,7 @@ those reviews.
 - `findings/6.md`: first-contact HTTP ergonomics items such as required
   extractor semantics, form/query metadata split, typed responses, typed auth,
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
+  RequiredBasicAuth OpenAPI scheme metadata is complete above.
 - `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
   cleanup remain accepted backlog. Content-Type media-type parsing,
@@ -392,3 +398,17 @@ those reviews.
   optional field extractor aliases|http facade: typed field extractors|http
   facade: form extractors"` completed after the aggregate optional-field update:
   9/9 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_app
+  conflux_http_facade_tests` completed after the RequiredBasicAuth OpenAPI
+  metadata change.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (required bearer extractor rejects missing authorization|required
+  basic auth extractor rejects missing credentials|OpenAPI metadata includes auth
+  security scheme|OpenAPI spec renders route metadata)"` completed after the
+  RequiredBasicAuth OpenAPI metadata change: 2/2 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: app openapi (snapshot covers typed route policies|spec includes
+  auth policies|spec uses route metadata|spec includes route-local policy
+  metadata|handler serves metadata spec|mounts metadata route)|http facade: route
+  auth policy"` completed after the RequiredBasicAuth OpenAPI metadata change:
+  8/8 passed.

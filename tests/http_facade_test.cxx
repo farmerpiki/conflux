@@ -1744,7 +1744,11 @@ TEST_CASE(
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].auth_policy == "bearer");
 	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBearer"});
-	CHECK(app.openapi_spec("Auth", "1.0").find("\"security\":[{\"bearerAuth\":[]}]") != std::string::npos);
+	auto const spec = app.openapi_spec("Auth", "1.0");
+	CHECK(
+		spec.find("\"securitySchemes\":{\"bearerAuth\":{\"type\":\"http\",\"scheme\":\"bearer\"}}")
+		!= std::string::npos);
+	CHECK(spec.find("\"security\":[{\"bearerAuth\":[]}]") != std::string::npos);
 }
 
 TEST_CASE(
@@ -1809,6 +1813,10 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBasicAuth"});
+	auto const spec = app.openapi_spec("Auth", "1.0");
+	CHECK(
+		spec.find("\"securitySchemes\":{\"basicAuth\":{\"type\":\"http\",\"scheme\":\"basic\"}}") != std::string::npos);
+	CHECK(spec.find("\"security\":[{\"basicAuth\":[]}]") != std::string::npos);
 }
 
 TEST_CASE(

@@ -96,6 +96,7 @@ class App {
 		std::shared_ptr<std::chrono::milliseconds> timeout = std::make_shared<std::chrono::milliseconds>();
 		std::size_t middleware_count{};
 		std::shared_ptr<std::string> auth_policy = std::make_shared<std::string>();
+		std::string openapi_auth_scheme;
 		std::string openapi_summary;
 		bool uses_body{};
 		bool allow_get_body{};
@@ -1160,6 +1161,7 @@ public:
 					.name = route.name,
 					.openapi_summary = route.openapi_summary,
 					.auth_policy = *route.auth_policy,
+					.auth_scheme = route.openapi_auth_scheme,
 					.timeout = *route.timeout,
 					.rate_limit = route.rate_limit->name,
 					.max_body_size = *route.max_body_size,
@@ -1594,8 +1596,14 @@ public:
 		meta.path_params = std::move(pattern.params);
 		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
+		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearer"})) {
+			meta.openapi_auth_scheme = "bearer";
+		}
 		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearer"}) && meta.auth_policy->empty()) {
 			*meta.auth_policy = "bearer";
+		}
+		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBasicAuth"})) {
+			meta.openapi_auth_scheme = "basic";
 		}
 		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
 		if constexpr (detail::has_body_extractor<Args>()) {

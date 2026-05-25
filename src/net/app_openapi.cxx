@@ -17,6 +17,7 @@ struct AppOpenApiRoute {
 	std::string_view name;
 	std::string_view openapi_summary;
 	std::string_view auth_policy;
+	std::string_view auth_scheme;
 	std::chrono::milliseconds timeout{};
 	std::string_view rate_limit;
 	std::size_t max_body_size{};
@@ -58,6 +59,14 @@ struct AppOpenApiRoute {
 	return std::string{R"({"type":"string"})"};
 }
 
+[[nodiscard]] std::string_view openapi_auth_scheme_name(
+	std::string_view scheme) noexcept {
+	if (scheme == "basic") {
+		return "basicAuth";
+	}
+	return "bearerAuth";
+}
+
 [[nodiscard]] std::string render_openapi_spec(
 	std::span<AppOpenApiRoute const> routes,
 	std::string_view title,
@@ -68,15 +77,32 @@ struct AppOpenApiRoute {
 	out += R"(,"version":)";
 	out += json_string(version);
 	out += R"(})";
-	bool has_auth_policy = false;
+	bool has_bearer_auth = false;
+	bool has_basic_auth = false;
 	for (auto const &route: routes) {
-		if (!route.auth_policy.empty()) {
-			has_auth_policy = true;
-			break;
+		if (!route.auth_scheme.empty() || !route.auth_policy.empty()) {
+			auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
+			if (scheme == "basic") {
+				has_basic_auth = true;
+			} else {
+				has_bearer_auth = true;
+			}
 		}
 	}
-	if (has_auth_policy) {
-		out += R"(,"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}})";
+	if (has_bearer_auth || has_basic_auth) {
+		out += R"(,"components":{"securitySchemes":{)";
+		bool first_scheme = true;
+		if (has_bearer_auth) {
+			out += R"("bearerAuth":{"type":"http","scheme":"bearer"})";
+			first_scheme = false;
+		}
+		if (has_basic_auth) {
+			if (!first_scheme) {
+				out += ',';
+			}
+			out += R"("basicAuth":{"type":"http","scheme":"basic"})";
+		}
+		out += R"(}})";
 	}
 	out += R"(,"paths":{)";
 	std::vector<std::string_view> path_order;
@@ -113,9 +139,15 @@ struct AppOpenApiRoute {
 				out += json_string(route.openapi_summary);
 				out += ',';
 			}
-			if (!route.auth_policy.empty()) {
-				out += R"("security":[{"bearerAuth":[]}],"x-auth-policy":)";
-				out += json_string(route.auth_policy);
+			if (!route.auth_scheme.empty() || !route.auth_policy.empty()) {
+				auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
+				out += R"("security":[{)";
+				out += json_string(openapi_auth_scheme_name(scheme));
+				out += R"(:[]}])";
+				if (!route.auth_policy.empty()) {
+					out += R"(,"x-auth-policy":)";
+					out += json_string(route.auth_policy);
+				}
 				out += ',';
 			}
 			if (route.timeout.count() != 0) {
