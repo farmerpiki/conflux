@@ -218,6 +218,10 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
+[[nodiscard]] Response static_forbidden() {
+	return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+}
+
 } // namespace
 
 conflux::work::root::Task<void> do_save_static_file(
@@ -244,7 +248,7 @@ Response handle_static_get_request(
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return static_forbidden();
 		}
 
 		StaticRequest const sreq{
@@ -285,7 +289,7 @@ Response handle_static_put(
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return static_forbidden();
 		}
 		auto full_path = rd + *norm;
 		std::string_view rel_sv = std::string_view{*norm};
@@ -354,7 +358,7 @@ Response handle_static_delete(
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
-			return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+			return static_forbidden();
 		}
 		auto full_path = rd + *norm;
 		std::string_view rel_sv = std::string_view{*norm};
@@ -450,17 +454,11 @@ Response handle_static_get(
 						contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
 						contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
 				if (!dfd) {
-					return Response::html(
-						"<html><body><h1>403 Forbidden</h1></body></html>",
-						kHttpForbidden,
-						"Forbidden");
+					return static_forbidden();
 				}
 				StaticDir dir{::fdopendir(dfd.fd())};
 				if (!dir) {
-					return Response::html(
-						"<html><body><h1>403 Forbidden</h1></body></html>",
-						kHttpForbidden,
-						"Forbidden");
+					return static_forbidden();
 				}
 				(void)dfd.release();
 				std::string html;
@@ -494,7 +492,7 @@ Response handle_static_get(
 				html += "</ul></body></html>";
 				return Response::html(std::move(html));
 			} else {
-				return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+				return static_forbidden();
 			}
 		}
 
