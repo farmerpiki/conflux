@@ -145,6 +145,12 @@ those reviews.
   assertion gap. HTTP/1 slowloris/header-timeout, partial-body timeout, and
   Expect: 100-continue body-timeout e2e tests now parse the problem response
   body as JSON and assert exact `code` and `diagnostic_code` fields.
+- `findings/5.md`: accepted the parser-rejection structured-output assertion
+  cleanup. Classified HTTP/1 parser rejection e2e checks now parse
+  `application/problem+json` bodies and assert exact problem `code` fields.
+- `findings/5.md`: accepted the remaining scanned structured problem-code
+  substring check. The HTTP JSON boundary decode rejection test now parses the
+  problem body and asserts the exact `code` field.
 
 ## Accepted backlog
 
@@ -239,6 +245,16 @@ those reviews.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "slowloris|partial request body|Expect: 100-continue times out"` completed:
   3/3 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tests`
+  completed after parser-rejection assertion cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "parser: rejection metrics count classified HTTP/1 rejects"` completed: 1/1
+  passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_tests
+  conflux_http_json_tests` completed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "parser: rejection metrics count classified HTTP/1 rejects|http json: decoded
+  route helpers use boundary decode"` completed: 2/2 passed.
 - `cmake --build --preset release-clang-libcxx --target
   conflux_http_overflow_stress_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R

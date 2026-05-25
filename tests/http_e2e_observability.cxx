@@ -1490,6 +1490,15 @@ void check_json_string_at(
 	CHECK(*value == expected);
 }
 
+void check_parser_problem_code(
+	std::string_view response,
+	std::string_view code) {
+	CHECK(response.find("application/problem+json") != std::string_view::npos);
+	auto doc = conflux::json::parse_copy(extract_body(response));
+	REQUIRE(doc.has_value());
+	check_json_string_at(*doc, "/code", code);
+}
+
 } // namespace
 
 TEST_CASE(
@@ -1840,21 +1849,21 @@ TEST_CASE(
 		port,
 		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello");
 	REQUIRE(malformed_cl.starts_with("HTTP/1.1 400"));
-	REQUIRE(malformed_cl.find(R"("code":"malformed_content_length")") != std::string::npos);
+	check_parser_problem_code(malformed_cl, "malformed_content_length");
 
 	auto duplicate_cl = send_raw_bytes_on(
 		port,
 		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nContent-Length: 2\r\n"
 		"Connection: close\r\n\r\nhi");
 	REQUIRE(duplicate_cl.starts_with("HTTP/1.1 400"));
-	REQUIRE(duplicate_cl.find(R"("code":"duplicate_content_length")") != std::string::npos);
+	check_parser_problem_code(duplicate_cl, "duplicate_content_length");
 
 	auto cl_te = send_raw_bytes_on(
 		port,
 		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nTransfer-Encoding: chunked\r\n"
 		"Connection: close\r\n\r\n0\r\n\r\n");
 	REQUIRE(cl_te.starts_with("HTTP/1.1 400"));
-	REQUIRE(cl_te.find(R"("code":"content_length_with_transfer_encoding")") != std::string::npos);
+	check_parser_problem_code(cl_te, "content_length_with_transfer_encoding");
 
 	std::string long_path = "/";
 	long_path.append(9000, 'a');
@@ -1862,7 +1871,7 @@ TEST_CASE(
 		port,
 		std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", long_path));
 	REQUIRE(request_line.starts_with("HTTP/1.1 414"));
-	REQUIRE(request_line.find(R"("code":"request_line_too_large")") != std::string::npos);
+	check_parser_problem_code(request_line, "request_line_too_large");
 
 	std::string header_line_value(9000, 'v');
 	auto header_line = send_raw_bytes_on(
@@ -1871,7 +1880,7 @@ TEST_CASE(
 			"GET /echo HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n",
 			header_line_value));
 	REQUIRE(header_line.starts_with("HTTP/1.1 431"));
-	REQUIRE(header_line.find(R"("code":"header_line_too_large")") != std::string::npos);
+	check_parser_problem_code(header_line, "header_line_too_large");
 
 	std::string header_block_req = "GET /echo HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
 	for (int i = 0; i < 80; ++i) {
@@ -1880,7 +1889,7 @@ TEST_CASE(
 	header_block_req += "\r\n";
 	auto header_block = send_raw_bytes_on(port, header_block_req);
 	REQUIRE(header_block.starts_with("HTTP/1.1 431"));
-	REQUIRE(header_block.find(R"("code":"header_block_too_large")") != std::string::npos);
+	check_parser_problem_code(header_block, "header_block_too_large");
 
 	std::string too_many_headers_req = "GET /echo HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
 	for (int i = 0; i < 120; ++i) {
@@ -1889,20 +1898,20 @@ TEST_CASE(
 	too_many_headers_req += "\r\n";
 	auto too_many_headers = send_raw_bytes_on(port, too_many_headers_req);
 	REQUIRE(too_many_headers.starts_with("HTTP/1.1 431"));
-	REQUIRE(too_many_headers.find(R"("code":"too_many_headers")") != std::string::npos);
+	check_parser_problem_code(too_many_headers, "too_many_headers");
 
 	auto too_large_body = send_raw_bytes_on(
 		port,
 		"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
 	REQUIRE(too_large_body.starts_with("HTTP/1.1 413"));
-	REQUIRE(too_large_body.find(R"("code":"body_too_large")") != std::string::npos);
+	check_parser_problem_code(too_large_body, "body_too_large");
 
 	auto invalid_chunk = send_raw_bytes_on(
 		port,
 		"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
 		"z\r\nx\r\n");
 	REQUIRE(invalid_chunk.starts_with("HTTP/1.1 400"));
-	REQUIRE(invalid_chunk.find(R"("code":"invalid_chunk")") != std::string::npos);
+	check_parser_problem_code(invalid_chunk, "invalid_chunk");
 
 	srv.stop();
 	auto const metrics = srv.metrics();

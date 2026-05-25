@@ -2,6 +2,7 @@
 
 import std;
 import conflux.types;
+import conflux.json;
 import conflux.json.boundary;
 import conflux.net.http.response_json;
 import conflux.net.http.app_json;
@@ -12,6 +13,18 @@ namespace jb = conflux::json::boundary;
 namespace hj = conflux::http::codec::json;
 
 namespace {
+
+void check_problem_code(
+	Response const &response,
+	std::string_view code) {
+	auto doc = conflux::json::parse_copy(std::string{response.text_body()});
+	REQUIRE(doc.has_value());
+	auto node = doc->root().at_pointer("/code");
+	REQUIRE(node.has_value());
+	auto value = node->as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == code);
+}
 
 struct StreamingPayload {
 	int value{};
@@ -180,5 +193,5 @@ TEST_CASE(
 	auto bad = handler(RequestView{req});
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
-	CHECK(bad.text_body().find(R"("code":"json.decode.type_mismatch")") != std::string::npos);
+	check_problem_code(bad, "json.decode.type_mismatch");
 }
