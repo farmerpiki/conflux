@@ -67,6 +67,11 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/4.md` P1 OpenAPI substring checks: complete. Served OpenAPI
   metadata tests and remaining auth/patch/merge OpenAPI checks now parse the
   spec JSON and assert fields by JSON pointer instead of relying on substrings.
+- `findings/4.md` P1 API-surface positive smokes: complete. The extended
+  import smoke now exercises representative HTTP extension, OpenAPI, offload,
+  and work-root symbols; the complete import smoke now exercises representative
+  uring, sync file I/O, socket I/O, and DNS symbols instead of only proving a
+  single low-level `DirectFd` export.
 
 ## Verification
 
@@ -173,6 +178,12 @@ Current review set: `findings/1.md` through `findings/7.md` after
   metadata route|required basic auth extractor rejects missing credentials|JsonPatch
   extractor validates content type and patch shape|MergePatch extractor
   validates content type and body limit)"` completed: 5/5 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_api_surface_extended_import_smoke
+  conflux_api_surface_complete_import_smoke` completed after expanding the API
+  surface positive smokes.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "api-surface/import-(extended|complete)"` completed: 2/2 passed.
 
 ## Accepted / In Scope
 
