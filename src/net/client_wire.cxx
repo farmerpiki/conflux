@@ -198,6 +198,16 @@ void append_header_line(
 
 export namespace conflux::http::client_wire {
 
+struct ParsedResponseHead {
+	int status{502};
+	std::string status_text{};
+	HttpFields headers = HttpFields(true);
+	std::vector<std::string> set_cookies{};
+	std::size_t content_length{0};
+	bool has_content_length{false};
+	bool chunked{false};
+};
+
 [[nodiscard]] bool is_redirect_status(
 	int status) noexcept {
 	return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
@@ -350,6 +360,62 @@ ChunkedDecodeStatus decode_chunked_prefix(
 		}
 		consumed += 2;
 	}
+}
+
+[[nodiscard]] std::expected<ParsedResponseHead, HttpError> parse_http1_response_head(
+	std::string_view headers_str,
+	std::size_t max_body_bytes) {
+	ParsedResponseHead parsed;
+	auto const nl = headers_str.find("\r\n");
+	auto const status_line = (nl != std::string_view::npos) ? headers_str.substr(0, nl) : headers_str;
+	auto const sp1 = status_line.find(' ');
+	if (sp1 == std::string_view::npos) {
+		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
+	}
+	auto const rest = status_line.substr(sp1 + 1);
+	auto const sp2 = rest.find(' ');
+	auto const code_sv = (sp2 != std::string_view::npos) ? rest.substr(0, sp2) : rest;
+	int status = 0;
+	auto const [ptr, ec] = std::from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
+	if (ec != std::errc{} || status < 100 || status > 999) {
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = std::format("invalid status code '{}'", code_sv)});
+	}
+	parsed.status = status;
+	if (sp2 != std::string_view::npos) {
+		parsed.status_text = std::string{rest.substr(sp2 + 1)};
+	}
+	std::size_t pos = (nl != std::string_view::npos) ? nl + 2 : headers_str.size();
+	while (pos < headers_str.size()) {
+		auto const end = headers_str.find("\r\n", pos);
+		auto const hdr = (end != std::string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
+		auto const colon = hdr.find(':');
+		if (colon != std::string_view::npos) {
+			auto k = hdr.substr(0, colon);
+			auto v = hdr.substr(colon + 1);
+			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
+				v.remove_prefix(1);
+			}
+			if (ascii_iequals(k, "content-length")) {
+				std::from_chars(v.data(), v.data() + v.size(), parsed.content_length);
+				parsed.has_content_length = true;
+			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
+				parsed.chunked = true;
+			} else if (ascii_iequals(k, "set-cookie")) {
+				parsed.set_cookies.push_back(std::string{v});
+			} else if (!conflux::http::is_hop_by_hop_header(k)) {
+				parsed.headers.set(std::string{k}, std::string{v});
+			}
+		}
+		pos = (end != std::string_view::npos) ? end + 2 : headers_str.size();
+	}
+	if (parsed.has_content_length && parsed.content_length > max_body_bytes) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::body_too_large,
+				.message = std::format("Content-Length {} exceeds limit {}", parsed.content_length, max_body_bytes)});
+	}
+	return parsed;
 }
 
 [[nodiscard]] std::string build_http1_request_wire(

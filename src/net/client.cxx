@@ -698,67 +698,20 @@ ClientResult do_blocking_request(
 	}
 	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
 
-	// Parse status line + headers.
 	auto const headers_str = std::string_view{raw}.substr(0, header_end);
+	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body);
+	if (!parsed_head) {
+		close_conn(conn);
+		return std::unexpected(std::move(parsed_head).error());
+	}
+	auto const content_length = parsed_head->content_length;
+	auto const has_content_length = parsed_head->has_content_length;
+	auto const chunked = parsed_head->chunked;
 	ClientResponse response;
-	auto const nl = headers_str.find("\r\n");
-	auto const status_line = (nl != std::string_view::npos) ? headers_str.substr(0, nl) : headers_str;
-	auto const sp1 = status_line.find(' ');
-	if (sp1 == std::string_view::npos) {
-		close_conn(conn);
-		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
-	}
-	auto const rest = status_line.substr(sp1 + 1);
-	auto const sp2 = rest.find(' ');
-	auto const code_sv = (sp2 != std::string_view::npos) ? rest.substr(0, sp2) : rest;
-	int status = 0;
-	auto const [ptr, ec] = std::from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
-	if (ec != std::errc{} || status < 100 || status > 999) {
-		close_conn(conn);
-		return std::unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = std::format("invalid status code '{}'", code_sv)});
-	}
-	response.head.status = status;
-	if (sp2 != std::string_view::npos) {
-		response.head.status_text = std::string{rest.substr(sp2 + 1)};
-	}
-
-	std::size_t content_length = 0;
-	bool has_content_length = false;
-	bool chunked = false;
-	std::size_t pos = (nl != std::string_view::npos) ? nl + 2 : headers_str.size();
-	while (pos < headers_str.size()) {
-		auto const end = headers_str.find("\r\n", pos);
-		auto const hdr = (end != std::string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
-		auto const colon = hdr.find(':');
-		if (colon != std::string_view::npos) {
-			auto k = hdr.substr(0, colon);
-			auto v = hdr.substr(colon + 1);
-			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
-				v.remove_prefix(1);
-			}
-			if (ascii_iequals(k, "content-length")) {
-				std::from_chars(v.data(), v.data() + v.size(), content_length);
-				has_content_length = true;
-			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
-				chunked = true;
-			} else if (ascii_iequals(k, "set-cookie")) {
-				response.head.set_cookies.push_back(std::string{v});
-			} else if (!conflux::http::is_hop_by_hop_header(k)) {
-				response.head.headers.set(std::string{k}, std::string{v});
-			}
-		}
-		pos = (end != std::string_view::npos) ? end + 2 : headers_str.size();
-	}
-
-	// Validate content-length against cap.
-	if (has_content_length && content_length > max_body) {
-		close_conn(conn);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::body_too_large,
-				.message = std::format("Content-Length {} exceeds limit {}", content_length, max_body)});
-	}
+	response.head.status = parsed_head->status;
+	response.head.status_text = std::move(parsed_head->status_text);
+	response.head.headers = std::move(parsed_head->headers);
+	response.head.set_cookies = std::move(parsed_head->set_cookies);
 
 	// Receive body.
 	std::size_t const body_offset = header_end + 4;
