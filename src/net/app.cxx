@@ -14,6 +14,7 @@ import conflux.net.app.route_helpers;
 import conflux.net.app.traits;
 import conflux.types;
 import conflux.net.config;
+import conflux.net.auth;
 import conflux.net.http.types;
 import conflux.net.path;
 import conflux.net.router;
@@ -187,16 +188,11 @@ class App {
 
 	[[nodiscard]] static std::optional<BasicAuth> parse_basic_auth(
 		RequestView const &req) {
-		auto credentials = credentials_for_auth_scheme(req.header("authorization"), "Basic");
+		auto credentials = parse_basic_credentials(req.header("authorization"));
 		if (!credentials) {
 			return std::nullopt;
 		}
-		auto decoded = base64_decode(*credentials);
-		auto colon = decoded.find(':');
-		if (colon == std::string::npos) {
-			return std::nullopt;
-		}
-		return BasicAuth{.username = decoded.substr(0, colon), .password = decoded.substr(colon + 1)};
+		return BasicAuth{.username = std::move(credentials->username), .password = std::move(credentials->password)};
 	}
 
 	[[nodiscard]] static std::optional<Response> route_rate_limit_failure(

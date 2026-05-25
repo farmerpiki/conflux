@@ -120,8 +120,9 @@ those reviews.
   SSE/WS polish, and quickstart spelling. Accepted as API design backlog.
 - `findings/7.md`: JWT parser cleanup, request-derived parsing cache, chunked
   decoder/redirect/route-pattern/OpenAPI deduplication, and JSON escaping
-  cleanup remain accepted backlog. Content-Type media-type parsing and
-  route-level rate-limit eviction are complete above.
+  cleanup remain accepted backlog. Content-Type media-type parsing,
+  route-level rate-limit eviction, and Basic Auth credential parsing
+  deduplication are complete above.
 - `findings/8.md`: curated HTTP facade split, release-core target graph cleanup,
   direct DB cancel-pool exposure, SSE send-view semantics, header hygiene, and
   manifest cleanup. Accepted backlog; several are intentionally larger
@@ -296,3 +297,18 @@ those reviews.
   "jwt:|jwt_decode: malformed audience array is rejected as invalid
   JSON|jwt_decode: malformed header JSON is rejected|build/package-config|build/header-component-smoke"`
   completed after the build-system re-evaluation fix: 24/24 passed.
+- findings/7 Basic Auth parsing deduplication: complete. `conflux.net.auth`
+  now exposes `parse_basic_credentials`, and both `basic_auth_middleware` and
+  App BasicAuth extractors use the shared decode/split/validation path. This
+  preserves the existing one decoded-string allocation while removing duplicate
+  parsing logic.
+- `cmake --build --preset release-clang-libcxx --target conflux_http_auth
+  conflux_http_app conflux_tests conflux_http_facade_tests` completed after
+  the Basic Auth parsing cleanup.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "basic_auth:|http facade: app handlers can receive basic auth extractor|http
+  facade: required basic auth extractor|http facade: optional basic auth
+  extractor"` completed after the Basic Auth parsing cleanup: 11/11 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "build/package-config|build/header-component-smoke|build/public-module-import-smoke|api-surface/import-(curated|extended|complete|selected)"`
+  completed after the App/auth module dependency change: 7/7 passed.

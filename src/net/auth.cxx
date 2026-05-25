@@ -18,6 +18,25 @@ export struct BasicAuthOptions {
 	std::size_t max_failed_clients{65536};
 };
 
+export struct BasicCredentials {
+	std::string username;
+	std::string password;
+};
+
+export std::optional<BasicCredentials> parse_basic_credentials(
+	std::string_view authorization) {
+	auto credentials = conflux::http::credentials_for_auth_scheme(authorization, "Basic");
+	if (!credentials) {
+		return std::nullopt;
+	}
+	auto decoded = base64_decode(*credentials);
+	auto colon = decoded.find(':');
+	if (colon == std::string::npos) {
+		return std::nullopt;
+	}
+	return BasicCredentials{.username = decoded.substr(0, colon), .password = decoded.substr(colon + 1)};
+}
+
 namespace auth_detail {
 
 using Clock = std::chrono::steady_clock;
@@ -525,22 +544,12 @@ Router::Middleware basic_auth_middleware(
 			return auth_detail::too_many_auth_attempts(*retry_after);
 		}
 
-		auto auth = req.headers["authorization"];
-		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Basic");
+		auto credentials = parse_basic_credentials(req.headers["authorization"]);
 		if (!credentials) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
-		auto decoded = base64_decode(*credentials);
-		auto colon = decoded.find(':');
-		if (colon == std::string::npos) {
-			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
-		}
-		std::string_view const sv{decoded};
-		std::string_view const user = sv.substr(0, colon);
-		std::string_view const pass = sv.substr(colon + 1);
-		if (!v(user, pass)) {
+		if (!v(credentials->username, credentials->password)) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
