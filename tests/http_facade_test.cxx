@@ -1044,7 +1044,7 @@ TEST_CASE(
 	CHECK(routes[0].path == "/api/items/{id:u64}");
 	CHECK(
 		routes[0].path_param_types
-		== std::map<std::string, std::string>{
+		== std::vector<std::pair<std::string, std::string>>{
 			{"id", "u64"}
     });
 }
@@ -1581,7 +1581,7 @@ TEST_CASE(
 	CHECK(routes[0].extractors[0] == "Path<id>");
 	CHECK(
 		routes[0].path_param_types
-		== std::map<std::string, std::string>{
+		== std::vector<std::pair<std::string, std::string>>{
 			{"id", ""}
     });
 	CHECK(app.validate().ok());
@@ -1599,7 +1599,7 @@ TEST_CASE(
 	CHECK(routes[0].path_params == std::vector<std::string>{"id"});
 	CHECK(
 		routes[0].path_param_types
-		== std::map<std::string, std::string>{
+		== std::vector<std::pair<std::string, std::string>>{
 			{"id", "u64"}
     });
 	CHECK(app.validate().ok());
@@ -1625,7 +1625,7 @@ TEST_CASE(
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 	CHECK(
 		routes[0].path_param_types
-		== std::map<std::string, std::string>{
+		== std::vector<std::pair<std::string, std::string>>{
 			{"id", "i64"}
     });
 	CHECK(app.validate().ok());
@@ -1658,7 +1658,7 @@ TEST_CASE(
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 	CHECK(
 		routes[0].path_param_types
-		== std::map<std::string, std::string>{
+		== std::vector<std::pair<std::string, std::string>>{
 			{"id", "i64"}
     });
 	CHECK(http::router(app).has_context_routes());

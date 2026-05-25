@@ -770,7 +770,7 @@ struct AppRouteInfo {
 	std::uint_least32_t source_line{};
 	std::vector<std::string> extractors;
 	std::vector<std::string> path_params;
-	std::map<std::string, std::string> path_param_types;
+	std::vector<std::pair<std::string, std::string>> path_param_types;
 	std::size_t required_state_count{};
 	std::vector<std::string> consumes;
 	std::vector<std::string> produces;

@@ -83,7 +83,7 @@ class App {
 		std::vector<std::pair<std::string, std::string>> path_extractor_types;
 		std::vector<std::pair<std::size_t, std::string>> path_index_extractor_types;
 		std::vector<std::string> path_params;
-		std::map<std::string, std::string> path_param_types;
+		std::vector<std::pair<std::string, std::string>> path_param_types;
 		std::vector<std::type_index> required_states;
 		std::vector<std::string> consumes;
 		std::vector<std::string> produces;
@@ -1281,7 +1281,8 @@ public:
 				if (expected_type.empty()) {
 					continue;
 				}
-				auto const it = route.path_param_types.find(name);
+				auto const it =
+					std::ranges::find(route.path_param_types, name, &std::pair<std::string, std::string>::first);
 				if (it != route.path_param_types.end() && !it->second.empty() && it->second != expected_type) {
 					report.issues.push_back(
 						ValidationIssue{
@@ -1313,7 +1314,10 @@ public:
 				if (expected_type.empty()) {
 					continue;
 				}
-				auto const type_it = route.path_param_types.find(route.path_params[index]);
+				auto const type_it = std::ranges::find(
+					route.path_param_types,
+					route.path_params[index],
+					&std::pair<std::string, std::string>::first);
 				if (type_it != route.path_param_types.end()
 					&& !type_it->second.empty()
 					&& type_it->second != expected_type) {

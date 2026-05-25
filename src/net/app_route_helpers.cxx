@@ -10,7 +10,7 @@ struct RoutePatternInfo {
 	std::optional<std::string> error;
 	std::string shape;
 	std::vector<std::string> params;
-	std::map<std::string, std::string> param_types;
+	std::vector<std::pair<std::string, std::string>> param_types;
 };
 
 [[nodiscard]] bool is_known_route_type_tag(
@@ -69,7 +69,7 @@ struct RoutePatternInfo {
 			}
 			info.shape += wildcard ? "{*}" : "{}";
 			info.params.emplace_back(name);
-			info.param_types.emplace(std::string{name}, std::string{type});
+			info.param_types.emplace_back(std::string{name}, std::string{type});
 		} else {
 			info.shape += segment;
 		}
@@ -100,7 +100,7 @@ struct RoutePatternInfo {
 	return route_pattern_info(path).params;
 }
 
-[[nodiscard]] std::map<std::string, std::string> collect_path_param_types(
+[[nodiscard]] std::vector<std::pair<std::string, std::string>> collect_path_param_types(
 	std::string_view path) {
 	return route_pattern_info(path).param_types;
 }
@@ -136,7 +136,7 @@ template<FixedString Path, std::size_t Index>
 
 [[nodiscard]] std::string available_path_params_message(
 	std::vector<std::string> const &path_params,
-	std::map<std::string, std::string> const &path_param_types) {
+	std::vector<std::pair<std::string, std::string>> const &path_param_types) {
 	if (path_params.empty()) {
 		return " Available path parameters: none.";
 	}
@@ -144,7 +144,7 @@ template<FixedString Path, std::size_t Index>
 	for (auto const &name: path_params) {
 		out += ' ';
 		out += name;
-		auto const type_it = path_param_types.find(name);
+		auto const type_it = std::ranges::find(path_param_types, name, &std::pair<std::string, std::string>::first);
 		if (type_it != path_param_types.end() && !type_it->second.empty()) {
 			out += ':';
 			out += type_it->second;

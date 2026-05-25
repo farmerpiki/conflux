@@ -23,7 +23,7 @@ struct AppOpenApiRoute {
 	std::size_t max_body_size{};
 	std::size_t middleware_count{};
 	std::span<std::string const> path_params;
-	std::map<std::string, std::string> const *path_param_types{};
+	std::vector<std::pair<std::string, std::string>> const *path_param_types{};
 	std::span<std::string const> consumes;
 	std::string_view request_body_schema;
 	int success_status{kHttpOk};
@@ -179,7 +179,8 @@ struct AppOpenApiRoute {
 				out += json_string(route.path_params[i]);
 				out += R"(,"in":"path","required":true,"schema":)";
 				if (auto const *types = route.path_param_types; types != nullptr) {
-					auto const type = types->find(route.path_params[i]);
+					auto const type =
+						std::ranges::find(*types, route.path_params[i], &std::pair<std::string, std::string>::first);
 					if (type != types->end()) {
 						out += openapi_schema_for_path_type(type->second);
 					} else {

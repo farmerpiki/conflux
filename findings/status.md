@@ -57,6 +57,10 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `findings/4.md` P2 work-carrier single-failure checks: complete. The
   `when_all` single-failure tests now assert the original runtime-error message
   instead of accepting any `std::runtime_error`.
+- `findings/1.md` P1 tiny route param type storage: complete. App route
+  metadata now stores path parameter type tags in ordered flat vectors instead
+  of tiny `std::map` node containers; lookup sites use linear `ranges::find`
+  over the small bounded route parameter set.
 
 ## Verification
 
@@ -138,6 +142,17 @@ Current review set: `findings/1.md` through `findings/7.md` after
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
   "phase6c: when_all single .* failure returns original cause unwrapped"`
   completed: 2/2 passed.
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_http_facade_tests` completed after flattening route parameter type
+  metadata.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (fixed typed routes|typed route parameter tags dispatch)"`
+  completed: 3/3 passed.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "http facade: (app openapi spec maps typed path parameters|validate reports
+  mismatched path extractor|validate reports positional path parameter
+  mismatch|app openapi snapshot covers typed route policies|app openapi spec
+  uses route metadata)"` completed: 5/5 passed.
 
 ## Accepted / In Scope
 
