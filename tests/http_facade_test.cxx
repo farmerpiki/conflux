@@ -854,6 +854,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app groups join slashes safely",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api/", [](auto &group) {
+		(void)group.get("items", [] { return http::text("items"); });
+		(void)group.get("/users", [] { return http::text("users"); });
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 2);
+	CHECK(routes[0].path == "/api/items");
+	CHECK(routes[1].path == "/api/users");
+
+	Request req;
+	req.method = "GET";
+	req.path = "/api/items";
+	CHECK(http::router(app).dispatch(req).text_body() == "items");
+	req.path = "/api/users";
+	CHECK(http::router(app).dispatch(req).text_body() == "users");
+}
+
+TEST_CASE(
 	"http facade: app groups apply scoped middleware to extractor routes",
 	"[http.facade]") {
 	auto app = http::app();

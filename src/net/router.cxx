@@ -9,6 +9,7 @@ import conflux.net.router_match;
 import conflux.work;
 import conflux.utils;
 import conflux.net.config;
+import conflux.net.path;
 import conflux.socket_io;
 export import conflux.net.http.server_types;
 export import conflux.net.http.realtime;
@@ -275,10 +276,7 @@ public:
 			std::string_view method,
 			std::string_view path,
 			F &&handler) {
-			std::string full_path;
-			full_path.reserve(prefix_.size() + path.size());
-			full_path += prefix_;
-			full_path.append(path.data(), path.size());
+			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
 			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
 			return *this;
 		}
@@ -288,10 +286,7 @@ public:
 			std::string_view method,
 			std::string_view path,
 			F &&handler) {
-			std::string full_path;
-			full_path.reserve(prefix_.size() + path.size());
-			full_path += prefix_;
-			full_path.append(path.data(), path.size());
+			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
 			router_.add_context(method, full_path, wrap_context(Router::ContextHandler{std::forward<F>(handler)}));
 			return *this;
 		}

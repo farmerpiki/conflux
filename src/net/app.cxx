@@ -15,6 +15,7 @@ import conflux.net.app.traits;
 import conflux.types;
 import conflux.net.config;
 import conflux.net.http.types;
+import conflux.net.path;
 import conflux.net.router;
 import conflux.net.http_server;
 import conflux.net.observability;
@@ -933,11 +934,7 @@ public:
 
 		[[nodiscard]] std::string full_path(
 			std::string_view path) const {
-			std::string out;
-			out.reserve(prefix_.size() + path.size());
-			out += prefix_;
-			out.append(path.data(), path.size());
-			return out;
+			return detail::join_route_path(prefix_, path);
 		}
 
 		App &app_;

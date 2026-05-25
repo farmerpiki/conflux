@@ -1158,7 +1158,9 @@ add_library(conflux_http_router STATIC)
 target_sources(conflux_http_router
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/net/router.cxx
+        FILES
+            ${CONFLUX_SRC_ROOT}/net/path.cxx
+            ${CONFLUX_SRC_ROOT}/net/router.cxx
 )
 target_sources(conflux_http_router
     PRIVATE
