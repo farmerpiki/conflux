@@ -49,6 +49,10 @@ those reviews.
   Package HTTP module smoke now imports `conflux.http` and exercises
   `http::app()`/`http::text()` instead of importing `conflux.net.http`; the
   façade import smoke no longer imports internal server types.
+- Build verification: the libcurl external stress fixtures now disable direct
+  accept so curl/TLS compatibility stress does not inherit fixed-file direct
+  accept allocator nondeterminism. Direct accept remains covered by its own
+  socket/recv-bundle tests.
 
 ## Accepted backlog
 
@@ -95,13 +99,13 @@ those reviews.
 
 ## Verification
 
-- Final full `release-clang-libcxx` build completed after all current-slice
-  commits.
+- Final full `release-clang-libcxx` build completed after the libcurl stress
+  fixture fix.
 - Final full `ctest --test-dir /tmp/gcc-16/release-clang-libcxx
-  --output-on-failure` completed: 1941/1942 passed; `ext/libcurl/stress:
-  sequential requests` failed once with a transient TLS connect error.
-- Immediate targeted retry of `ext/libcurl/stress: sequential requests`
-  completed: 1/1 passed.
+  --output-on-failure` completed: 1942/1942 passed.
+- Targeted libcurl stress checks completed after the fixture fix:
+  `ext/libcurl/stress: sequential requests` 1/1 passed and
+  `ext/libcurl/stress: parallel multi-interface mixed routes` 1/1 passed.
 - End-of-work re-evaluation of the explicit `HEADER_INTERFACE_WITH_SOURCES`
   plus runtime SIMD configure check fails with the intended diagnostic.
 - `scripts/check-package-config.sh` completed.

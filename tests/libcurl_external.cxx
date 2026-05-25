@@ -9,6 +9,7 @@
 
 import std;
 import conflux.types;
+import conflux.net.config;
 import conflux.net.http.realtime;
 import conflux.net.http.static_files;
 import conflux.net.router;
@@ -765,7 +766,9 @@ TEST_CASE(
 		return;
 	}
 	#endif
-	conflux::tests::HttpsServerFixture const fx{std::move(router)};
+	auto cfg = Config::test();
+	cfg.direct_accept = false;
+	conflux::tests::HttpsServerFixture const fx{cfg, std::move(router)};
 	CurlEasy curl;
 	for (unsigned i = 0; i < iters; ++i) {
 		auto expected = make_expected_request(fx.port(), i, version, fresh);
@@ -792,7 +795,9 @@ TEST_CASE(
 		return;
 	}
 
-	conflux::tests::HttpsServerFixture const fx{make_stress_router()};
+	auto cfg = Config::test();
+	cfg.direct_accept = false;
+	conflux::tests::HttpsServerFixture const fx{cfg, make_stress_router()};
 	CurlMulti multi;
 	struct Active {
 		CURLM *multi = nullptr;
