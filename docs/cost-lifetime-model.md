@@ -17,12 +17,12 @@ materialize `http::OwnedRequest`.
 | `http::RequestView` | No | Server-owned request storage for the current dispatch | Server-owned dispatch/task lifetime | Yes, while the server-owned request remains live | No unless the server dispatch contract says so | No | No | No |
 | `http::Request` | No; alias for `http::RequestView` | Server-owned request storage for the current dispatch | Server-owned dispatch/task lifetime | Yes, while the server-owned request remains live | No unless the server dispatch contract says so | No | No | No |
 | `http::OwnedRequest` | Yes | Nothing after construction | Object lifetime | Yes | Yes, subject to normal C++ synchronization | Yes | Yes, from request buffers | Yes |
-| `http::Path<...>` | Usually no for view/scalar extraction | `req.params` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
-| `http::Query<...>` | Usually no for view/scalar extraction | `req.query` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
-| `http::Header<...>` | Usually no for view/scalar extraction | `req.headers` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
-| `http::Cookie<...>` | Usually no for view/scalar extraction | `req.cookies` | End of synchronous handler call, unless target owns | No when borrowed | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
-| `http::BodyBytes` | No for `std::span<std::byte const>` view form | Request body buffer | End of synchronous handler call, unless copied | No when borrowed | No when borrowed | Only if copied/owned | No for view form | No for view form |
-| `http::BodyText` | No for view form | Request body buffer | End of synchronous handler call, unless copied | No when borrowed | No when borrowed | Only if copied/owned | No for view form | No for view form |
+| `http::Path<...>` | Usually no for view/scalar extraction | `req.params` | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
+| `http::Query<...>` | Usually no for view/scalar extraction | `req.query` | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
+| `http::Header<...>` | Usually no for view/scalar extraction | `req.headers` | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
+| `http::Cookie<...>` | Usually no for view/scalar extraction | `req.cookies` | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | String targets copy; numeric targets parse | String copies allocate; numeric success does not |
+| `http::BodyBytes` | No for `std::span<std::byte const>` view form | Request body buffer | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | No for view form | No for view form |
+| `http::BodyText` | No for view form | Request body buffer | Server-owned dispatch/task lifetime for normalized app routes; otherwise caller-owned request lifetime | Yes for normalized app async handlers while the server-owned request remains live | No when borrowed | Only if copied/owned | No for view form | No for view form |
 | `http::Json<T>` | Depends on `T` and provider options | Request body and/or provider-owned document | Borrowed values follow input/document lifetime; owned values follow object lifetime | Only after owning decode/document materialization | Only when decoded value is thread-safe and no borrowed input escapes | Only if decoded value owns its referenced data | Provider and `T` dependent | Provider and `T` dependent |
 | `http::State<T>` | No; reference/shared access to app state | Application-owned state | State object lifetime | Yes if the state access remains valid | Yes if `T` is safe for that use | Store handles only when their ownership semantics allow it | No by default | No by default |
 | `UploadedFile` | No for `RequestView`; yes after `to_owned()` | Multipart request body and header storage | End of synchronous handler call, unless converted with `to_owned()` | No when borrowed | No when borrowed | Only after `to_owned()` or manual copy | `to_owned()` copies fields and bytes | `to_owned()` allocates |
@@ -31,6 +31,12 @@ View extractors are for inspection while the server-owned request remains live.
 If data must survive that lifetime or a handoff to another thread, copy it into
 `std::string`, decode it into an owning value, or convert the whole request to
 `http::OwnedRequest`.
+
+Borrowed extractors may suspend in normalized `http::App` async handlers because
+the app async dispatch path keeps the request view and matched route metadata in
+the coroutine chain. Raw router/context dispatch from caller-owned request
+storage has the caller's lifetime contract: keep that storage alive until the
+deferred response completes, or copy what the task needs.
 
 ## HTTP response costs
 
