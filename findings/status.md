@@ -381,6 +381,23 @@ Current review set: `findings/1.md` through `findings/7.md` after
   20964.36 -> 23601.87 ns/iter (+12.58%). The patch was reverted rather than
   kept; future work should look for a lower-overhead carry-forward of parsed
   offsets/header summary instead of rebasing/rebuilding the view set.
+- `findings/3.md` P0 response body copied into formatted response string:
+  investigated but not accepted for the lightweight plain-HTTP `writev`
+  candidate. The patch is preserved as
+  `/tmp/gcc-16/bench-artifacts/20260525T-response-body-split-candidate/response-body-writev-candidate.patch`.
+  The candidate formatted only headers into `Conn::own_response`, moved the text
+  body into connection-owned storage, and sent header/body with `writev` for
+  normal non-TLS text responses. Correctness smoke passed for targeted HTTP
+  tests, but integrated server benchmarking showed the extra send shape was
+  slower than the current contiguous response buffer for the measured 4 KiB
+  body path. Compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260525T191652Z-compare-bins`, `post_echo_4k`
+  base run `1049`, candidate run `1050`: best 16906.84 -> 19995.82 ns/iter
+  (+3088.98 ns, +18.27%), p10 18078.52 -> 20062.24 ns/iter (+1983.72 ns,
+  +10.97%), p50 19593.77 -> 20164.74 ns/iter (+2.91%), p99
+  20144.01 -> 20543.16 ns/iter (+1.98%). The patch was reverted; future work
+  should avoid replacing the single contiguous send with `writev` unless larger
+  body thresholds or fixed-buffer interactions show a workload-specific win.
 - `findings/2.md` P0 generic io_uring sync-wait/task pump: deferred as a broad
   lifetime/cancel refactor rather than a bounded dedup patch. The repeated
   wait loops are exactly where cancellation and ownership can drift, but a safe
