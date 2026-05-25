@@ -95,6 +95,13 @@ public:
 		[[nodiscard]] Connection *operator ->() const noexcept { return conn_.get(); }
 		[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
 	};
+	struct Waiter {
+		std::shared_ptr<root::TaskSource<Lease>> src;
+		std::atomic_bool active{true};
+		explicit Waiter(
+			std::shared_ptr<root::TaskSource<Lease>> s) noexcept
+			: src{std::move(s)} {}
+	};
 	static std::shared_ptr<Pool> create(PoolConfig cfg);
 	~Pool() { close(); }
 	Pool(Pool const &) = delete;
@@ -122,7 +129,7 @@ private:
 	PoolConfig cfg_{};
 	std::thread::id owner_{};
 	std::vector<std::shared_ptr<Connection>> idle_{};
-	std::deque<std::shared_ptr<root::TaskSource<Lease>>> waiters_{};
+	std::deque<std::shared_ptr<Waiter>> waiters_{};
 	std::size_t total_{0};
 	bool closed_{false};
 };
@@ -214,8 +221,9 @@ void Pool::close() noexcept {
 		return;
 	}
 	closed_ = true;
-	for (auto &src: waiters_) {
-		auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
+	for (auto &waiter: waiters_) {
+		waiter->active.store(false, std::memory_order_release);
+		auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
 	}
 	waiters_.clear();
 	idle_.clear();
@@ -260,29 +268,33 @@ root::Task<Pool::Lease> Pool::acquire() {
 																	 .detach();
 		return std::move(task);
 	}
-	waiters_.push_back(shared_src);
-	std::weak_ptr<root::TaskSource<Lease>> const weak_src{shared_src};
-	(void)shared_src->install_cancel_hook([weak_src](root::CancelReason) noexcept {
-		if (auto src = weak_src.lock()) {
-			auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
+	auto waiter = std::make_shared<Waiter>(shared_src);
+	waiters_.push_back(waiter);
+	std::weak_ptr<Waiter> const weak_waiter{waiter};
+	(void)shared_src->install_cancel_hook([weak_waiter](root::CancelReason) noexcept {
+		if (auto waiter = weak_waiter.lock()) {
+			waiter->active.store(false, std::memory_order_release);
+			auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
 		}
 	});
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
-			[](std::shared_ptr<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> root::Task<void> {
+			[](std::shared_ptr<Waiter> waiter, root::Task<void> to_task) -> root::Task<void> {
 				try {
 					co_await std::move(to_task);
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
+					if (waiter->active.exchange(false, std::memory_order_acq_rel)) {
+						auto _ = waiter->src->try_set_exception(
+							std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
+					}
 				} catch (...) { detail::ignore_best_effort_failure(); }
-			}(shared_src,
+			}(waiter,
 			  conflux::uring::async_timeout(
 				  reader->ring(),
 				  *reader->completions(),
 				  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 				  cfg_.acquire_timeout))
-																									 .detach();
+																				.detach();
 		}
 	}
 	return std::move(task);
@@ -290,6 +302,12 @@ root::Task<Pool::Lease> Pool::acquire() {
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
 	std::shared_ptr<Connection> conn) noexcept {
+	if (std::this_thread::get_id() != owner_) {
+		if (conn) {
+			conn->close();
+		}
+		return;
+	}
 	if (closed_ || !conn || !conn->ok()) {
 		if (conn) {
 			conn->close();
@@ -308,11 +326,14 @@ void Pool::return_(
 // stack cycle in steady state.
 void Pool::try_dispatch_waiters_() {
 	while (!waiters_.empty() && !idle_.empty()) {
-		auto src = std::move(waiters_.front());
+		auto waiter = std::move(waiters_.front());
 		waiters_.pop_front();
+		if (!waiter->active.exchange(false, std::memory_order_acq_rel)) {
+			continue;
+		}
 		auto conn = std::move(idle_.back());
 		idle_.pop_back();
-		dispatch_lease_(src, std::move(conn));
+		dispatch_lease_(waiter->src, std::move(conn));
 	}
 }
 void Pool::grow_if_needed_() {
