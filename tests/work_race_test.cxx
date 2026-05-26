@@ -335,6 +335,43 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: nested race cancellation cascades into inner participants",
+	"[work.race]") {
+	auto [inner_left, inner_left_src] = root::make_task_source<int>();
+	auto [inner_right, inner_right_src] = root::make_task_source<int>();
+	auto inner_left_control = inner_left.control();
+	auto inner_right_control = inner_right.control();
+	auto [outer_other, outer_other_src] = root::make_task_source<race::race_result<int>>();
+	auto outer_other_control = outer_other.control();
+
+	auto inner = race::race<int>(
+		race::race_options{},
+		race::candidate("inner-left", std::move(inner_left)),
+		race::candidate("inner-right", std::move(inner_right)));
+	auto outer = race::race<race::race_result<int>>(
+		race::race_options{},
+		race::candidate("inner", std::move(inner)),
+		race::candidate("other", std::move(outer_other)));
+
+	outer.cancel(root::CancelReason::shutdown);
+	CHECK(inner_left_control.cancel_requested());
+	CHECK(inner_right_control.cancel_requested());
+	CHECK(outer_other_control.cancel_requested());
+	CHECK(inner_left_control.cancellation_reason() == root::CancelReason::shutdown);
+	CHECK(inner_right_control.cancellation_reason() == root::CancelReason::shutdown);
+	CHECK(outer_other_control.cancellation_reason() == root::CancelReason::shutdown);
+
+	try {
+		(void)root::value(std::move(outer));
+		FAIL("outer race should be cancelled");
+	} catch (root::CancelledError const &err) { CHECK(err.reason() == root::CancelReason::shutdown); }
+
+	REQUIRE(inner_left_src.try_set_cancelled(root::CancelReason::shutdown));
+	REQUIRE(inner_right_src.try_set_cancelled(root::CancelReason::shutdown));
+	REQUIRE(outer_other_src.try_set_cancelled(root::CancelReason::shutdown));
+}
+
+TEST_CASE(
 	"work.race: registration failure cancels already-owned participants",
 	"[work.race]") {
 	auto [owned, owned_src] = root::make_task_source<int>();

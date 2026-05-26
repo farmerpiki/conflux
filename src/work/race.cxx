@@ -620,6 +620,10 @@ private:
 			if (!ps_[i].trigger && value_remaining_ > 0) {
 				--value_remaining_;
 			}
+			if (output_committed_) {
+				collect_loser_outcome_locked(i, std::move(out));
+				return;
+			}
 			process_outcome_locked(i, std::move(out), losers_to_cancel);
 			commit_now = should_commit_locked();
 			if (commit_now) {
