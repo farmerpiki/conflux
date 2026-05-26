@@ -40,10 +40,10 @@ Out of scope:
 6. Add `async_run_cancellable_on(Target&, Fn)` for sync offload bodies.
 7. Update `examples/advanced/work_race_first_responder.cxx` to use
    `async_run_cancellable_on` and ordinary `race::candidate(...)`.
-8. Add `race::task(...)` sugar after root cancellation tests are stable.
-   `race::task_on(...)` needs a module-layering decision because
-   `async_run_cancellable_on` currently lives in the `conflux.work:api`
-   partition rather than `conflux.work.race`.
+8. Add `race::task(...)` and `race::task_on(...)` sugar after root cancellation
+   tests are stable. `race::task_on(...)` is exported from the `conflux.work`
+   API partition so the lower-level `conflux.work.race` module does not depend
+   on executor APIs.
 
 ## Structured Child Binding Contract
 
@@ -93,4 +93,4 @@ control value whose lifetime is independent of the awaiter stack.
 - [x] Step 6: `async_run_cancellable_on`.
 - [x] Step 7: first-responder example update.
 - [x] Step 8: `race::task` sugar.
-- [ ] Step 8b: decide layering for `race::task_on`.
+- [x] Step 8b: `race::task_on` exported from `conflux.work`.

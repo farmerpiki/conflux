@@ -16,6 +16,7 @@ import std;
 import conflux.types;
 import conflux.small_function;
 export import conflux.work.root;
+import conflux.work.race;
 export struct Cancelled final : std::runtime_error {
 	Cancelled()
 		: std::runtime_error{"work cancelled"} {}
@@ -530,6 +531,17 @@ export template<typename Target, typename Fn>
 	}
 	return std::move(task);
 }
+export namespace conflux::work::race {
+
+template<typename Target, typename Fn>
+[[nodiscard]] auto task_on(
+	Target &target,
+	std::string_view label,
+	Fn &&fn) {
+	return candidate(label, ::async_run_cancellable_on(target, std::forward<Fn>(fn)));
+}
+
+} // namespace conflux::work::race
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a std::thread pool (not io_uring).
 export template<typename T>

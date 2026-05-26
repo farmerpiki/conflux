@@ -12,6 +12,9 @@ Use `race::candidate(label, task)` for value-producing work and
 committing a cancellation reason, such as a deadline task.
 Use `race::task(label, fn)` when authoring a cancellable task body inline; it is
 equivalent to `race::candidate(label, root::make_cancellable_task(fn))`.
+Use `race::task_on(target, label, fn)` from `conflux.work` to author a
+cancellable task body on a work target; it is equivalent to
+`race::candidate(label, async_run_cancellable_on(target, fn))`.
 
 Use `race::candidate_on(owner, label, posted)` or
 `race::candidate_on(driver, label, operation)` for owner-bound work. These

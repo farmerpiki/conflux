@@ -534,6 +534,12 @@ static_assert(std::is_same_v<
 			  decltype(race::task(std::string_view{}, [](root::Cancellation) noexcept { return 1; })),
 			  race::race_candidate<int>>);
 static_assert(std::is_same_v<
+			  decltype(race::task_on(
+				  std::declval<::WorkPool &>(),
+				  std::string_view{},
+				  [](root::Cancellation) noexcept { return 1; })),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
 			  decltype(race::candidate_on(
 				  std::declval<snapshot_root::_TestCap &>(),
 				  std::string_view{},
