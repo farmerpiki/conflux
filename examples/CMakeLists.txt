@@ -114,6 +114,9 @@ if(TARGET conflux)
     add_executable(conflux_work_join_all_example ${_conflux_examples_root}/advanced/work_join_all.cxx)
     target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
 
+    add_executable(conflux_work_race_first_responder_example ${_conflux_examples_root}/advanced/work_race_first_responder.cxx)
+    target_link_libraries(conflux_work_race_first_responder_example PRIVATE conflux conflux_options)
+
     if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
         add_executable(conflux_template_pages_example ${_conflux_examples_root}/advanced/template_pages.cxx)
         target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
