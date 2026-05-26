@@ -164,6 +164,11 @@ Current review set: `findings/1.md` through `findings/10.md` after
   --preset release-clang-libcxx` completed; `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres
   ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure`
   completed: 1953/1953 passed, 7 skipped.
+- Full release verification after the multipart parser benchmark/performance
+  pass: `git diff --check` completed; `cmake --build --preset
+  release-clang-libcxx` completed; `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres
+  ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure`
+  completed: 1953/1953 passed, 7 skipped.
 - `cmake --build --preset release-clang-libcxx --target conflux_tests
   conflux_observability_golden_e2e conflux_http_facade_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
@@ -423,6 +428,30 @@ Current review set: `findings/1.md` through `findings/10.md` after
   18856 -> 18273 (-3.09%), and branches about 13130 -> 11914 (-9.26%).
   L1/cache-reference counters worsened, so future broader middleware work
   should still inspect layout/cache effects.
+- `findings/10.md` P1 multipart parser per-part header allocation/lowercase:
+  completed with representative app-path benchmark coverage. The new
+  `http_app_path` `multipart_mixed` row parses an HTTP/1 multipart/form-data
+  request with text fields and file parts, dispatches through the router, and
+  serializes the response. `parse_multipart(...)` now builds the boundary
+  delimiter with reserve/append instead of `std::format`, and compares part
+  header names case-insensitively as views instead of materializing a lowercased
+  `std::string` for every header line.
+- Evidence: compare-bins artifact
+  `/tmp/gcc-16/bench-artifacts/20260526T041705Z-compare-bins`,
+  `multipart_mixed` base run `1077`, candidate run `1078`, 7 reps pinned to
+  CPU 2. Release-clang-libcxx wall time improved: best 2747.17 -> 2625.02
+  ns/iter (-122.15 ns, -4.45%), p10 2765.27 -> 2631.94 ns/iter (-133.33 ns,
+  -4.82%), p50 2779.70 -> 2669.97 ns/iter (-3.95%), p99 2796.09 -> 2712.24
+  ns/iter (-3.00%).
+- Filtered `perf stat` for the same row is preserved under
+  `/tmp/gcc-16/bench-artifacts/20260526T-multipart-parser-candidate`. Per
+  request, cycles fell about 12575.5 -> 12209.9 (-2.91%), instructions
+  50631.3 -> 50092.5 (-1.06%), branches 10636.5 -> 10412.1 (-2.11%),
+  branch misses 17.4 -> 15.1 (-13.04%), L1-dcache loads
+  8508.8 -> 8000.7 (-5.97%), L1-dcache load misses 3.5 -> 2.6 (-27.18%),
+  and dTLB misses also fell. Cache misses rose from about 1.3 to 1.5 per
+  request in the single perf run, so future parser work should keep cache
+  counters visible.
 
 ## Deferred / Perf-Gated
 
@@ -448,11 +477,11 @@ Current review set: `findings/1.md` through `findings/10.md` after
   overlays, observability/request-id request-local extension storage, common
   header-summary carry-forward, normal response split-send, default `Response`
   field slimming, JSON duplicate-key flat/PMR set, JSON whitespace SIMD,
-  multipart header allocation cleanup, socket/DB intrusive async state, owned
-  write buffer placement, and sink-based template rendering are deferred or
-  perf-gated. They are hot-path or architecture changes and need
-  representative compare-bins/perf evidence before acceptance; several also
-  overlap with previously preserved rejected candidates.
+  socket/DB intrusive async state, owned write buffer placement, and sink-based
+  template rendering are deferred or perf-gated. They are hot-path or
+  architecture changes and need representative compare-bins/perf evidence
+  before acceptance; several also overlap with previously preserved rejected
+  candidates.
 - Remaining hot-path performance proposals from `findings/3.md` and
   performance-sensitive lazy/ranges changes from `findings/1.md` require
   representative benchmark coverage first. If no benchmark exists for a path,

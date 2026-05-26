@@ -484,7 +484,10 @@ export void parse_multipart(
 	std::string_view boundary,
 	HttpFieldsView &form,
 	std::vector<UploadedFile> &files) {
-	std::string const delim = std::format("--{}", boundary);
+	std::string delim;
+	delim.reserve(boundary.size() + 2);
+	delim += "--";
+	delim += boundary;
 	auto first = find_multipart_boundary_line(body, delim, 0);
 	if (!first) {
 		return;
@@ -543,11 +546,11 @@ export void parse_multipart(
 			auto le = part_headers_sv.find("\r\n", h);
 			auto line = le == std::string_view::npos ? part_headers_sv.substr(h) : part_headers_sv.substr(h, le - h);
 			if (auto colon = line.find(':'); colon != std::string_view::npos) {
-				std::string const key = ascii_lower(line.substr(0, colon));
+				auto key = trim(line.substr(0, colon));
 				auto val = trim(line.substr(colon + 1));
-				if (key == "content-disposition") {
+				if (conflux::http::ascii_iequals(key, "content-disposition")) {
 					disposition = val;
-				} else if (key == "content-type") {
+				} else if (conflux::http::ascii_iequals(key, "content-type")) {
 					part_ct = val;
 				}
 			}
