@@ -55,9 +55,17 @@ struct race_winner_info {
 };
 
 template<root::work_value T>
+struct race_loser_result {
+	std::size_t index{};
+	std::string_view label{};
+	root::Outcome<T> outcome;
+};
+
+template<root::work_value T>
 struct race_result {
 	race_winner_info winner;
 	root::Outcome<T> outcome;
+	std::vector<race_loser_result<T>> loser_outcomes{};
 };
 
 struct race_aggregate_error_entry {
@@ -339,6 +347,7 @@ class race_state final : public std::enable_shared_from_this<race_state<T>> {
 	std::size_t winner_index_ = 0;
 	std::optional<root::Outcome<T>> winner_outcome_{};
 	race_winner_info winner_info_{};
+	std::vector<race_loser_result<T>> loser_outcomes_{};
 	std::vector<race_aggregate_error_entry> failures_{};
 	std::optional<root::Cancelled> first_cancel_{};
 
@@ -593,6 +602,7 @@ private:
 		root::Outcome<T> out,
 		std::vector<root::TaskControl> &losers_to_cancel) {
 		if (winner_selected_) {
+			collect_loser_outcome_locked(i, std::move(out));
 			return;
 		}
 		if (ps_[i].trigger || opts_.winner == winner_policy::first_completion || out.is_success()) {
@@ -656,6 +666,20 @@ private:
 		}
 	}
 
+	void collect_loser_outcome_locked(
+		std::size_t i,
+		root::Outcome<T> out) {
+		if (!opts_.collect_loser_outcomes || i == winner_index_) {
+			return;
+		}
+		loser_outcomes_.push_back(
+			race_loser_result<T>{
+				.index = i,
+				.label = ps_[i].label,
+				.outcome = std::move(out),
+			});
+	}
+
 	[[nodiscard]] bool should_commit_locked() const noexcept {
 		if (output_committed_ || !winner_selected_) {
 			return false;
@@ -685,6 +709,7 @@ private:
 			result_t result{
 				.winner = winner_info_,
 				.outcome = std::move(*winner_outcome_),
+				.loser_outcomes = std::move(loser_outcomes_),
 			};
 			(void)out_.try_set_value(root::Success<result_t>{std::move(result)});
 		} catch (...) { (void)out_.try_set_exception(std::current_exception()); }

@@ -58,6 +58,11 @@ after all live participants have reached terminal completion. This is the
 default because it preserves ownership and callback lifetime without detaching
 unfinished loser work.
 
+When `race_options::collect_loser_outcomes` is true, drained loser outcomes are
+included in `race_result<T>::loser_outcomes`. This is complete only for waiting
+policies such as `request_cancel_and_wait`; non-waiting policies can have late
+loser outcomes after the race result has already been returned.
+
 `loser_cleanup_policy` and `loser_cleanup_budget` are part of the public shape
 reserved for owner-bound timer integration. The current bare race primitive does
 not enforce cleanup deadlines by itself because it intentionally does not own a

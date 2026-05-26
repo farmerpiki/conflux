@@ -240,6 +240,34 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: collect_loser_outcomes records drained loser outcomes",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{
+			.losers = race::loser_policy::request_cancel_and_wait,
+			.collect_loser_outcomes = true,
+		},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{53}));
+	CHECK_FALSE(raced.control().ready());
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 53);
+	REQUIRE(out.loser_outcomes.size() == 1);
+	CHECK(out.loser_outcomes[0].index == 1);
+	CHECK(out.loser_outcomes[0].label == "loser");
+	REQUIRE(out.loser_outcomes[0].outcome.is_cancelled());
+	CHECK(out.loser_outcomes[0].outcome.cancelled().reason == root::CancelReason::requested);
+}
+
+TEST_CASE(
 	"work.race: external cancellation forwards reason to live participants",
 	"[work.race]") {
 	auto [left, left_src] = root::make_task_source<int>();

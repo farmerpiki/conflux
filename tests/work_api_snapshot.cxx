@@ -490,6 +490,8 @@ using _race_setup_error = race::race_setup_error;
 template<class T>
 using _race_result_ = race::race_result<T>;
 template<class T>
+using _race_loser_result_ = race::race_loser_result<T>;
+template<class T>
 using _race_candidate_ = race::race_candidate<T>;
 template<class T>
 using _owned_labeled_race_result_ = race::owned_labeled_race_result<T>;
