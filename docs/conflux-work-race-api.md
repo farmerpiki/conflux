@@ -11,6 +11,16 @@ Use `race::candidate(label, task)` for value-producing work and
 `race::trigger(label, task, reason)` for non-value work that should win by
 committing a cancellation reason, such as a deadline task.
 
+Socket-ring code can use `timeout_after(ring, duration)` or
+`timeout_at(ring, deadline)` from `conflux.socket_io.coro` as the trigger task:
+
+```cpp
+auto result = co_await race::race<Response>(
+    race::race_options{},
+    race::candidate("work", do_work()),
+    race::trigger("deadline", timeout_after(ring, 250ms), root::CancelReason::deadline));
+```
+
 Labels are borrowed by default. Use `race_owned_labels()` when labels are built
 dynamically or do not outlive the race result.
 

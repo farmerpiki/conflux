@@ -133,3 +133,6 @@ public:
 };
 
 export [[nodiscard]] wroot::Task<void> async_sleep_for(SocketTaskRing &ring, std::chrono::milliseconds dur);
+
+export [[nodiscard]] wroot::Task<void> timeout_after(SocketTaskRing &ring, std::chrono::milliseconds dur);
+export [[nodiscard]] wroot::Task<void> timeout_at(SocketTaskRing &ring, std::chrono::steady_clock::time_point deadline);

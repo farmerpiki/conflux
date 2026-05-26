@@ -1393,6 +1393,14 @@ TEST_CASE(
 	int const fd_after = count_proc_fds();
 	CHECK(fd_after <= fd_before + 2);
 }
+
+TEST_CASE(
+	"socket timeout helpers complete on ring owner",
+	"[timeout][uring]") {
+	auto fx = require_ring_fixture();
+	fx->run(timeout_after(fx->task_ring, std::chrono::milliseconds{1}), std::chrono::seconds{2});
+	fx->run(timeout_at(fx->task_ring, std::chrono::steady_clock::now()), std::chrono::seconds{2});
+}
 // ---------------------------------------------------------------------------
 // AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE
 // ---------------------------------------------------------------------------

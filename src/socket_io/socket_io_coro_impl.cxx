@@ -1417,3 +1417,20 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		});
 	co_await std::move(task);
 }
+
+[[nodiscard]] wroot::Task<void> timeout_after(
+	SocketTaskRing &ring,
+	std::chrono::milliseconds dur) {
+	return async_sleep_for(ring, dur);
+}
+
+[[nodiscard]] wroot::Task<void> timeout_at(
+	SocketTaskRing &ring,
+	std::chrono::steady_clock::time_point deadline) {
+	auto const now = std::chrono::steady_clock::now();
+	if (deadline <= now) {
+		co_return;
+	}
+	auto const millis = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
+	co_await async_sleep_for(ring, millis);
+}
