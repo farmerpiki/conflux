@@ -96,6 +96,9 @@ Primary admission APIs:
 template<work_value T>
 std::pair<Task<T>, TaskSource<T>> make_task_source(SubmitOptions = {});
 
+template<work_value T, typename OnCancel>
+std::pair<Task<T>, TaskSource<T>> make_cancellable_task_source(OnCancel);
+
 template<work_value T, progress_capability Owner>
 std::pair<Posted<T>, PostedSource<T>> make_posted_source(Owner&, PostOptions = {});
 
@@ -135,6 +138,13 @@ When `enable_cancellation=false`, `stop_token()` is inert (`stop_possible()==fal
 but `request_cancel()` still marks cancel-request state and runs installed hooks.
 The request can carry a `CancelReason`; old no-argument calls mean
 `CancelReason::requested`.
+
+`make_cancellable_task_source<T>(on_cancel)` is the external-producer helper for
+the common cancellable bridge shape. It creates a cancellable `Task<T>` and
+installs `on_cancel(CancelReason)` as the source cancel hook. The hook is still
+advisory: the external producer must complete the source with `try_set_value`,
+`try_set_exception`, `try_set_error`, or `try_set_cancelled` when the underlying
+operation actually finishes.
 
 ## Optional Allocation Diagnostics
 

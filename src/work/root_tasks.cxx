@@ -653,6 +653,19 @@ template<work_value T>
 	}
 	return {Task<T>::from_state(state, loc), TaskSource<T>::from_state(std::move(state))};
 }
+template<work_value T, typename OnCancel>
+	requires std::invocable<OnCancel &, CancelReason>
+[[nodiscard]] std::pair<Task<T>, TaskSource<T>> make_cancellable_task_source(
+	OnCancel on_cancel,
+	std::source_location loc = std::source_location::current()) {
+	auto out = make_task_source<T>(SubmitOptions{.enable_cancellation = true}, loc);
+	bool const installed = out.second.install_cancel_hook(
+		[on_cancel = std::move(on_cancel)](CancelReason reason) mutable { std::invoke(on_cancel, reason); });
+	if (!installed) {
+		std::terminate();
+	}
+	return out;
+}
 template<work_value T, progress_capability Owner>
 [[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,

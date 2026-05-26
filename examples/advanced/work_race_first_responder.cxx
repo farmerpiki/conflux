@@ -8,6 +8,7 @@ namespace race = conflux::work::race;
 struct SourceStats {
 	std::uint64_t wins = 0;
 	std::uint64_t failures = 0;
+	std::uint64_t cancel_requests = 0;
 	std::chrono::nanoseconds total_latency{};
 };
 
@@ -25,11 +26,17 @@ static void record_result(
 
 int main() {
 	std::unordered_map<std::string, SourceStats> stats;
+	auto &db_stats = stats["db"];
+	auto &network_stats = stats["network"];
+	auto &disk_stats = stats["disk"];
 
 	for (int key = 0; key != 9; ++key) {
-		auto [db, db_src] = root::make_task_source<int>();
-		auto [network, network_src] = root::make_task_source<int>();
-		auto [disk, disk_src] = root::make_task_source<int>();
+		auto [db, db_src] = root::make_cancellable_task_source<int>(
+			[&db_stats](root::CancelReason) noexcept { ++db_stats.cancel_requests; });
+		auto [network, network_src] = root::make_cancellable_task_source<int>(
+			[&network_stats](root::CancelReason) noexcept { ++network_stats.cancel_requests; });
+		auto [disk, disk_src] = root::make_cancellable_task_source<int>(
+			[&disk_stats](root::CancelReason) noexcept { ++disk_stats.cancel_requests; });
 
 		auto result_task = race::race<int>(
 			race::race_options{
@@ -65,6 +72,12 @@ int main() {
 	for (auto const &[name, source]: stats) {
 		auto const avg_ns =
 			source.wins == 0 ? 0 : source.total_latency.count() / static_cast<std::int64_t>(source.wins);
-		std::println("{} wins={} failures={} avg={}ns", name, source.wins, source.failures, avg_ns);
+		std::println(
+			"{} wins={} failures={} cancel_requests={} avg={}ns",
+			name,
+			source.wins,
+			source.failures,
+			source.cancel_requests,
+			avg_ns);
 	}
 }

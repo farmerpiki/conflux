@@ -118,6 +118,9 @@ static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_
 static_assert(std::is_same_v<
 			  decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{}, std::string_view{})),
 			  bool>);
+static_assert(std::is_same_v<
+			  decltype(root::make_cancellable_task_source<int>([](root::CancelReason) noexcept {})),
+			  std::pair<root::Task<int>, root::TaskSource<int>>>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
