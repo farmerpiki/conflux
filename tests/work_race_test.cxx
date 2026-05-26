@@ -159,6 +159,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: stop token trigger wins with shutdown reason",
+	"[work.race]") {
+	std::stop_source stop{};
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("value", std::move(value)),
+		race::until_stop_token(stop.get_token()));
+
+	REQUIRE(stop.request_stop());
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "stop_token");
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::shutdown);
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
+	"work.race: losing stop token trigger is cancellable",
+	"[work.race]") {
+	std::stop_source stop{};
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("value", std::move(value)),
+		race::until_stop_token(stop.get_token()));
+
+	REQUIRE(value_src.try_set_value(root::Success<int>{71}));
+
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 71);
+	CHECK(out.observation.loser_cancel_requested == 1);
+}
+
+TEST_CASE(
 	"work.race: trigger_on maps owner-bound void work to trigger",
 	"[work.race]") {
 	OwnerCap owner{};

@@ -552,6 +552,10 @@ static_assert(std::is_same_v<
 				  std::declval<root::TaskJoinHandle<void>>(),
 				  root::CancelReason::deadline)),
 			  race::race_trigger>);
+static_assert(std::is_same_v<decltype(race::until_stop_token(std::declval<std::stop_token>())), race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::until_stop_token(std::declval<std::stop_token>(), root::CancelReason::requested)),
+			  race::race_trigger>);
 static_assert(std::is_same_v<
 			  decltype(race::trigger_on(
 				  std::declval<snapshot_root::_TestCap &>(),

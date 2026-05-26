@@ -207,6 +207,52 @@ template<root::work_value T>
 	return race_trigger{.label = label, .handle = std::move(handle), .reason = reason};
 }
 
+[[nodiscard]] race_trigger until_stop_token(
+	std::stop_token token,
+	root::CancelReason reason = root::CancelReason::shutdown) {
+	struct State {
+		std::mutex mu;
+		std::condition_variable cv;
+		bool cancelled = false;
+		root::CancelReason cancel_reason = root::CancelReason::requested;
+	};
+
+	auto [task, src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = true});
+	auto state = std::make_shared<State>();
+	if (token.stop_requested()) {
+		(void)src.try_set_value();
+		return trigger("stop_token", std::move(task), reason);
+	}
+	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(src));
+	(void)shared_src->install_cancel_hook([state](root::CancelReason cancel_reason) noexcept {
+		{
+			std::scoped_lock lk{state->mu};
+			state->cancelled = true;
+			state->cancel_reason = cancel_reason;
+		}
+		state->cv.notify_one();
+	});
+	try {
+		std::thread{[state, token = std::move(token), shared_src]() mutable {
+			std::stop_callback const notify{token, [&] { state->cv.notify_one(); }};
+			root::CancelReason cancel_reason = root::CancelReason::requested;
+			bool cancelled = false;
+			{
+				std::unique_lock lk{state->mu};
+				state->cv.wait(lk, [&] { return state->cancelled || token.stop_requested(); });
+				cancelled = state->cancelled;
+				cancel_reason = state->cancel_reason;
+			}
+			if (cancelled) {
+				(void)shared_src->try_set_cancelled(cancel_reason);
+			} else {
+				(void)shared_src->try_set_value();
+			}
+		}}.detach();
+	} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
+	return trigger("stop_token", std::move(task), reason);
+}
+
 namespace detail {
 
 template<root::work_value T>
