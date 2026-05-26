@@ -443,6 +443,29 @@ public:
 		(void)out_.try_set_cancelled(reason);
 	}
 
+	void reject_unsupported_cleanup_budget() noexcept {
+		{
+			std::scoped_lock lk{mu_};
+			if (output_committed_) {
+				return;
+			}
+			output_committed_ = true;
+			for (std::size_t i = 0; i < ps_.size(); ++i) {
+				if (ps_[i].live && !ps_[i].terminal) {
+					(void)control(i).request_cancel(opts_.default_loser_reason);
+					abandon_participant_locked(i);
+					ps_[i].live = false;
+					ps_[i].terminal = true;
+				}
+			}
+			live_remaining_ = 0;
+		}
+		try {
+			(void)out_.try_set_exception(
+				std::make_exception_ptr(race_setup_error{"race: cleanup budgets require owner-bound timer support"}));
+		} catch (...) { (void)out_.try_set_exception(std::current_exception()); }
+	}
+
 private:
 	[[nodiscard]] auto control(
 		std::size_t i) noexcept {
@@ -450,6 +473,19 @@ private:
 			return std::get<root::TaskJoinHandle<void>>(ps_[i].handle).control();
 		}
 		return std::get<root::TaskJoinHandle<T>>(ps_[i].handle).control();
+	}
+
+	void abandon_participant_locked(
+		std::size_t i) noexcept {
+		if (ps_[i].trigger) {
+			(void)root::try_abandon_to(
+				std::move(std::get<root::TaskJoinHandle<void>>(ps_[i].handle)),
+				root::drop_on_abandon{});
+			return;
+		}
+		(void)root::try_abandon_to(
+			std::move(std::get<root::TaskJoinHandle<T>>(ps_[i].handle)),
+			root::drop_on_abandon{});
 	}
 
 	void fail_setup(
@@ -664,6 +700,11 @@ template<root::work_value T, class... Participants>
 	(state->add(std::forward<Participants>(participants)), ...);
 	auto out = std::move(task);
 	state->install_output_cancel_hook(std::weak_ptr<race_state<T>>{state});
+	if (opts.cleanup != loser_cleanup_policy::wait_unbounded
+		|| opts.loser_cleanup_budget != std::chrono::steady_clock::duration{}) {
+		state->reject_unsupported_cleanup_budget();
+		return out;
+	}
 	(void)state->register_all();
 	return out;
 }

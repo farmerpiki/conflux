@@ -226,6 +226,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: cleanup budget options fail visibly and abandon consumed participants",
+	"[work.race]") {
+	auto [work, work_src] = root::make_task_source<int>();
+	auto control = work.control();
+
+	auto raced = race::race<int>(
+		race::race_options{
+			.cleanup = race::loser_cleanup_policy::fail_after_cleanup_deadline,
+			.loser_cleanup_budget = std::chrono::milliseconds{1},
+		},
+		race::candidate("work", std::move(work)));
+
+	CHECK(control.cancel_requested());
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("cleanup budget should fail setup");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
+
+	REQUIRE(work_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: owned label wrapper keeps dynamic winner label alive",
 	"[work.race]") {
 	auto [left, left_src] = root::make_task_source<int>();

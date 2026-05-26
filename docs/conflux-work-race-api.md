@@ -61,7 +61,9 @@ unfinished loser work.
 `loser_cleanup_policy` and `loser_cleanup_budget` are part of the public shape
 reserved for owner-bound timer integration. The current bare race primitive does
 not enforce cleanup deadlines by itself because it intentionally does not own a
-progress domain or timer backend.
+progress domain or timer backend. Passing a cleanup budget to bare `race`
+currently fails setup visibly after requesting cancellation and abandoning
+consumed live participants to a drop sink.
 
 Blocking socket callers should use `sync_wait_socket_race(ring, task, budget)`
 from `conflux.socket_io.blocking`. It uses the same ring pump as
