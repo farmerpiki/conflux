@@ -564,6 +564,7 @@ class race_state final : public std::enable_shared_from_this<race_state<T, Parti
 	std::vector<race_loser_result<T>> loser_outcomes_{};
 	std::vector<race_aggregate_error_entry> failures_{};
 	std::optional<root::Cancelled> first_cancel_{};
+	std::size_t first_cancel_index_ = 0;
 	bool cleanup_timer_started_ = false;
 
 public:
@@ -863,23 +864,27 @@ private:
 					.error = std::move(out).failure().error,
 				});
 		} else if (out.is_cancelled() && !first_cancel_) {
+			first_cancel_index_ = i;
 			first_cancel_.emplace(std::move(out).cancelled());
 		}
 		if (value_remaining_ == 0) {
 			observation_.all_failed = true;
 			if (!failures_.empty()) {
 				if (failures_.size() == 1) {
-					select_winner_locked(i, root::Outcome<T>{root::Failure{failures_[0].error}}, losers_to_cancel);
+					select_winner_locked(
+						failures_[0].index,
+						root::Outcome<T>{root::Failure{failures_[0].error}},
+						losers_to_cancel);
 				} else {
 					select_winner_locked(
-						i,
+						failures_[0].index,
 						root::Outcome<T>{
 							root::Failure{std::make_exception_ptr(race_aggregate_error{std::move(failures_)})}},
 						losers_to_cancel);
 				}
 			} else {
 				select_winner_locked(
-					i,
+					first_cancel_ ? first_cancel_index_ : i,
 					root::Outcome<T>{
 						root::Cancelled{first_cancel_ ? first_cancel_->reason : opts_.default_loser_reason}},
 					losers_to_cancel);

@@ -149,7 +149,7 @@ TEST_CASE(
 	REQUIRE(cancelled_src.try_set_cancelled(root::CancelReason::shutdown));
 
 	auto out = root::value(std::move(raced));
-	CHECK(out.winner.index == 1);
+	CHECK(out.winner.index == 0);
 	CHECK(out.observation.all_failed);
 	REQUIRE(out.outcome.is_failure());
 	CHECK(out.outcome.failure().error == failure);
@@ -170,7 +170,7 @@ TEST_CASE(
 	REQUIRE(right_src.try_set_cancelled(root::CancelReason::shutdown));
 
 	auto out = root::value(std::move(raced));
-	CHECK(out.winner.index == 1);
+	CHECK(out.winner.index == 0);
 	CHECK(out.observation.all_failed);
 	REQUIRE(out.outcome.is_cancelled());
 	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
