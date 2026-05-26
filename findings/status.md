@@ -597,9 +597,11 @@ Current review set: `findings/1.md` through `findings/10.md` after
   built-in HTTP verbs. App, Router, and Group verb helpers now use `HttpMethod`
   overloads instead of duplicating raw verb strings, while string-method
   overloads remain available for extension methods and existing metadata APIs.
-- `findings/2.md` P2 CMake target/module declaration helpers: deferred while
-  header/module/profile/package behavior is still moving; a helper now would
-  risk obscuring feature-guard edge cases.
+- `findings/2.md` P2 CMake target/module declaration helpers is completed for
+  the repeated static-library/public-module-file-set declarations. The helper
+  keeps feature guards and target-specific link/compile policy explicit while
+  centralizing the mechanical `add_library` plus public `CXX_MODULES` file-set
+  shape.
 - `findings/2.md` P2 HTTP server partition prelude and advanced example JSON
   diagnostics: rejected for current scope. The server prelude repetition is
   cosmetic and module-fragile, and example duplication is acceptable until the

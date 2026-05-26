@@ -82,6 +82,37 @@ unset(CMAKE_REQUIRED_FLAGS)
 # Library
 # ---------------------------------------------------------------------------
 
+function(conflux_add_module_library target)
+    set(options)
+    set(one_value_args)
+    set(multi_value_args PUBLIC_MODULES PRIVATE_SOURCES)
+    cmake_parse_arguments(CONFLUX_MODULE_LIBRARY
+        "${options}"
+        "${one_value_args}"
+        "${multi_value_args}"
+        ${ARGN})
+    if(CONFLUX_MODULE_LIBRARY_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "conflux_add_module_library(${target}) got unexpected arguments: "
+            "${CONFLUX_MODULE_LIBRARY_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT CONFLUX_MODULE_LIBRARY_PUBLIC_MODULES)
+        message(FATAL_ERROR
+            "conflux_add_module_library(${target}) requires PUBLIC_MODULES")
+    endif()
+    add_library(${target} STATIC)
+    target_sources(${target}
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CONFLUX_SRC_ROOT}"
+            FILES ${CONFLUX_MODULE_LIBRARY_PUBLIC_MODULES}
+    )
+    if(CONFLUX_MODULE_LIBRARY_PRIVATE_SOURCES)
+        target_sources(${target}
+            PRIVATE ${CONFLUX_MODULE_LIBRARY_PRIVATE_SOURCES}
+        )
+    endif()
+endfunction()
+
 add_library(conflux_options INTERFACE)
 conflux_apply_compiler_options(conflux_options)
 target_include_directories(conflux_options INTERFACE
@@ -167,16 +198,13 @@ elseif(CONFLUX_ENABLE_HTTP_TRACE)
     message(STATUS "conflux: HTTP trace requested but ignored outside Debug builds")
 endif()
 
-add_library(conflux_types STATIC)
-target_compile_features(conflux_types PUBLIC cxx_std_23)
-target_sources(conflux_types
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_types
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/small_function.cxx
         ${CONFLUX_SRC_ROOT}/types.cppm
         ${CONFLUX_SRC_ROOT}/types_api.cxx
 )
+target_compile_features(conflux_types PUBLIC cxx_std_23)
 target_link_libraries(conflux_types
     PRIVATE conflux_options
 )
@@ -195,11 +223,8 @@ add_library(conflux_cpu_features STATIC ${CONFLUX_SRC_ROOT}/cpu_features.cxx)
 target_link_libraries(conflux_cpu_features PRIVATE conflux_options)
 
 if(CONFLUX_WANT_CRYPTO)
-add_library(conflux_crypto STATIC)
-target_sources(conflux_crypto
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_crypto
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/crypto.cxx
 )
 target_link_libraries(conflux_crypto
@@ -218,11 +243,8 @@ endif()
 endif()
 
 if(CONFLUX_WANT_JSON OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
-add_library(conflux_json_boundary STATIC)
-target_sources(conflux_json_boundary
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/json_boundary.cxx
+conflux_add_module_library(conflux_json_boundary
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/json_boundary.cxx
 )
 target_link_libraries(conflux_json_boundary
     PUBLIC  conflux_types
@@ -231,16 +253,13 @@ target_link_libraries(conflux_json_boundary
 endif()
 
 if(CONFLUX_WANT_JSON)
-add_library(conflux_json STATIC)
-target_compile_features(conflux_json PUBLIC cxx_std_23)
-target_sources(conflux_json
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_json
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/json.cppm
         ${CONFLUX_SRC_ROOT}/json_api.cxx
         ${CONFLUX_SRC_ROOT}/json_codec.cxx
 )
+target_compile_features(conflux_json PUBLIC cxx_std_23)
 target_sources(conflux_json
     PRIVATE
         ${CONFLUX_SRC_ROOT}/json_storage.cxx
@@ -265,11 +284,8 @@ elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
     target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
 endif()
 
-add_library(conflux_json_native_provider STATIC)
-target_sources(conflux_json_native_provider
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/json_native_provider.cxx
+conflux_add_module_library(conflux_json_native_provider
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/json_native_provider.cxx
 )
 target_link_libraries(conflux_json_native_provider
     PRIVATE conflux_options
@@ -416,14 +432,10 @@ if(CONFLUX_WANT_PROCESS AND NOT CONFLUX_WANT_RUNTIME)
 endif()
 
 if(CONFLUX_WANT_FILE_IO_SYNC)
-add_library(conflux_file_io_sync STATIC)
-target_compile_features(conflux_file_io_sync PUBLIC cxx_std_23)
-target_sources(conflux_file_io_sync
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/file_io/file_io_sync.cxx
+conflux_add_module_library(conflux_file_io_sync
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/file_io/file_io_sync.cxx
 )
+target_compile_features(conflux_file_io_sync PUBLIC cxx_std_23)
 target_link_libraries(conflux_file_io_sync
     PRIVATE conflux_options
     PUBLIC  conflux_types
@@ -431,12 +443,8 @@ target_link_libraries(conflux_file_io_sync
 endif() # CONFLUX_WANT_FILE_IO_SYNC
 
 if(CONFLUX_WANT_FILE_MAP)
-add_library(conflux_file_map STATIC)
-target_sources(conflux_file_map
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/file_io/file_map.cxx
+conflux_add_module_library(conflux_file_map
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/file_io/file_map.cxx
 )
 target_link_libraries(conflux_file_map
     PRIVATE conflux_options
@@ -445,14 +453,10 @@ target_link_libraries(conflux_file_map
 endif() # CONFLUX_WANT_FILE_MAP
 
 if(CONFLUX_WANT_JSON_FILE)
-add_library(conflux_json_file STATIC)
-target_compile_features(conflux_json_file PUBLIC cxx_std_23)
-target_sources(conflux_json_file
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/json_file.cxx
+conflux_add_module_library(conflux_json_file
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/json_file.cxx
 )
+target_compile_features(conflux_json_file PUBLIC cxx_std_23)
 target_link_libraries(conflux_json_file
     PRIVATE conflux_options
     PUBLIC  conflux_json conflux_file_io_sync
@@ -460,11 +464,8 @@ target_link_libraries(conflux_json_file
 endif() # CONFLUX_WANT_JSON_FILE
 
 if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
-    add_library(conflux_http_core STATIC)
-    target_sources(conflux_http_core
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES
+    conflux_add_module_library(conflux_http_core
+        PUBLIC_MODULES
             ${CONFLUX_SRC_ROOT}/net/http_types.cxx
             ${CONFLUX_SRC_ROOT}/net/http_json_string.cxx
             ${CONFLUX_SRC_ROOT}/net/http_request.cxx
@@ -478,11 +479,8 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
 endif()
 
 if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
-    add_library(conflux_http_json STATIC)
-    target_sources(conflux_http_json
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES ${CONFLUX_SRC_ROOT}/net/http_json.cxx
+    conflux_add_module_library(conflux_http_json
+        PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/net/http_json.cxx
     )
     target_link_libraries(conflux_http_json
         PRIVATE conflux_options
@@ -493,11 +491,8 @@ endif()
 
 if(CONFLUX_NEEDS_RUNTIME)
 
-add_library(conflux_uring_primitives STATIC)
-target_sources(conflux_uring_primitives
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_uring_primitives
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/uring/uring_fd.cxx
         ${CONFLUX_SRC_ROOT}/uring/uring_fd_compat.cxx
         ${CONFLUX_SRC_ROOT}/uring/uring_sqe.cxx
@@ -508,11 +503,8 @@ target_link_libraries(conflux_uring_primitives
     PUBLIC  PkgConfig::LIBURING
 )
 
-add_library(conflux_uring STATIC)
-target_sources(conflux_uring
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_uring
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/uring/uring.cxx
         ${CONFLUX_SRC_ROOT}/uring/flow.cxx
         ${CONFLUX_SRC_ROOT}/uring/uring_completion.cxx
@@ -525,12 +517,8 @@ target_link_libraries(conflux_uring
     PUBLIC  PkgConfig::LIBURING
 )
 
-add_library(conflux_uring_timeout STATIC)
-target_sources(conflux_uring_timeout
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/uring/uring_timeout.cxx
+conflux_add_module_library(conflux_uring_timeout
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/uring/uring_timeout.cxx
 )
 target_link_libraries(conflux_uring_timeout
     PRIVATE conflux_options
@@ -639,11 +627,8 @@ target_compile_definitions(conflux_uring
     PUBLIC CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS=$<BOOL:${CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS}>
 )
 
-add_library(conflux_work STATIC)
-target_sources(conflux_work
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_work
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/work/carrier_flags.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_model_a.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_scope.cxx
@@ -656,9 +641,7 @@ target_sources(conflux_work
         ${CONFLUX_SRC_ROOT}/work/root.cxx
         ${CONFLUX_SRC_ROOT}/work.cppm
         ${CONFLUX_SRC_ROOT}/work_api.cxx
-)
-target_sources(conflux_work
-    PRIVATE
+    PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/work_impl.cxx
 )
 target_compile_definitions(conflux_work
@@ -678,11 +661,8 @@ target_link_libraries(conflux_work
 endif() # CONFLUX_NEEDS_RUNTIME (uring + work)
 
 if(CONFLUX_WANT_PROCESS)
-add_library(conflux_process STATIC)
-target_sources(conflux_process
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/process.cxx
+conflux_add_module_library(conflux_process
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/process.cxx
 )
 target_link_libraries(conflux_process
     PRIVATE conflux_options
@@ -692,11 +672,8 @@ target_link_libraries(conflux_process
 endif() # CONFLUX_WANT_PROCESS
 
 if(CONFLUX_NEEDS_RUNTIME)
-add_library(conflux_net_io_buffer STATIC)
-target_sources(conflux_net_io_buffer
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/net/io_buffer.cxx
+conflux_add_module_library(conflux_net_io_buffer
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/net/io_buffer.cxx
 )
 target_link_libraries(conflux_net_io_buffer
     PRIVATE conflux_options
@@ -706,11 +683,8 @@ target_link_libraries(conflux_net_io_buffer
 endif() # CONFLUX_NEEDS_RUNTIME (net io buffer)
 
 if(CONFLUX_WANT_FILE_IO)
-add_library(conflux_file_io STATIC)
-target_sources(conflux_file_io
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_file_io
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/file_io/buffers.cxx
         ${CONFLUX_SRC_ROOT}/file_io/pipe_pool.cxx
         ${CONFLUX_SRC_ROOT}/file_io/reader.cxx
@@ -730,12 +704,8 @@ target_link_libraries(conflux_file_io
 endif() # CONFLUX_WANT_FILE_IO
 
 if(CONFLUX_WANT_FILE_WATCH)
-add_library(conflux_file_watch STATIC)
-target_sources(conflux_file_watch
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/file_watch.cxx
+conflux_add_module_library(conflux_file_watch
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/file_watch.cxx
 )
 target_link_libraries(conflux_file_watch
     PRIVATE conflux_options
@@ -744,15 +714,10 @@ target_link_libraries(conflux_file_watch
 endif() # CONFLUX_WANT_FILE_WATCH
 
 if(CONFLUX_WANT_TEMPLATES)
-add_library(conflux_template STATIC)
-target_sources(conflux_template
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_template
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/template.cxx
-)
-target_sources(conflux_template
-    PRIVATE
+    PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/template_env.cxx
         ${CONFLUX_SRC_ROOT}/template_impl.cxx
         ${CONFLUX_SRC_ROOT}/template_parse.cxx
@@ -773,12 +738,8 @@ target_link_libraries(conflux_template
 endif() # CONFLUX_WANT_TEMPLATES
 
 if(CONFLUX_WANT_TEMPLATES_WATCH)
-add_library(conflux_template_watch STATIC)
-target_sources(conflux_template_watch
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/template_watch.cxx
+conflux_add_module_library(conflux_template_watch
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/template_watch.cxx
 )
 target_link_libraries(conflux_template_watch
     PRIVATE conflux_options
@@ -788,17 +749,12 @@ target_link_libraries(conflux_template_watch
 endif() # CONFLUX_WANT_TEMPLATES_WATCH
 
 if(CONFLUX_WANT_SOCKET_IO)
-add_library(conflux_socket_io STATIC)
-target_sources(conflux_socket_io
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_socket_io
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_blocking.cxx
-)
-target_sources(conflux_socket_io
-    PRIVATE
+    PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/socket_io/tcp_listener.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro_impl.cxx
 )
@@ -813,14 +769,9 @@ target_link_libraries(conflux_socket_io
 endif() # CONFLUX_WANT_SOCKET_IO
 
 if(CONFLUX_NEEDS_RUNTIME)
-add_library(conflux_net_cancel STATIC)
-target_sources(conflux_net_cancel
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/net/cancel.cxx
-)
-target_sources(conflux_net_cancel
-    PRIVATE
+conflux_add_module_library(conflux_net_cancel
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/net/cancel.cxx
+    PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/net/cancel_impl.cxx
 )
 target_link_libraries(conflux_net_cancel
@@ -831,15 +782,10 @@ target_link_libraries(conflux_net_cancel
 endif() # CONFLUX_NEEDS_RUNTIME (net cancel)
 
 if(CONFLUX_WANT_DNS)
-add_library(conflux_dns STATIC)
-target_sources(conflux_dns
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
+conflux_add_module_library(conflux_dns
+    PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/net/dns/dns.cxx
-)
-target_sources(conflux_dns
-    PRIVATE
+    PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/net/dns/dns_impl.cxx
 )
 target_link_libraries(conflux_dns
