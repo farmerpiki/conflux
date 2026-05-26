@@ -47,6 +47,7 @@ struct Router::Impl {
 		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
+		std::shared_ptr<std::chrono::milliseconds> timeout{};
 		ContextHandler handler{};
 	};
 	std::vector<Route> routes{};
@@ -348,8 +349,8 @@ template<typename ImplT>
 			auto routes = indexed_route_range(
 				impl.context_routes,
 				select_method_routes(impl.context_route_indexes, route_method, path_sv));
-			if (auto task = dispatch_context_route_tasks(r, c, path_sv, routes)) {
-				auto resp = co_await std::move(*task);
+			if (auto deferred_task = dispatch_context_route_tasks(r, c, path_sv, routes)) {
+				auto resp = co_await std::move(deferred_task->task);
 				if (is_head) {
 					resp.head_only = true;
 				}
@@ -465,6 +466,14 @@ void Router::add_context_prepared(
 	std::string_view method,
 	std::string_view path,
 	ContextHandler handler) {
+	add_context_prepared(method, path, nullptr, std::move(handler));
+}
+
+void Router::add_context_prepared(
+	std::string_view method,
+	std::string_view path,
+	std::shared_ptr<std::chrono::milliseconds> timeout,
+	ContextHandler handler) {
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->context_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
@@ -480,6 +489,7 @@ void Router::add_context_prepared(
 		.path_pattern = std::move(path_pattern),
 		.exact_path = has_exact_path ? std::string{path} : std::string{},
 		.has_exact_path = has_exact_path,
+		.timeout = std::move(timeout),
 		.handler = std::move(handler),
 	});
 }
@@ -489,6 +499,14 @@ void Router::add_context_prepared(
 	std::string_view path,
 	ContextHandler handler) {
 	add_context_prepared(http_method_name(method), path, std::move(handler));
+}
+
+void Router::add_context_prepared(
+	HttpMethod method,
+	std::string_view path,
+	std::shared_ptr<std::chrono::milliseconds> timeout,
+	ContextHandler handler) {
+	add_context_prepared(http_method_name(method), path, std::move(timeout), std::move(handler));
 }
 
 void Router::use_prepared(
@@ -724,8 +742,8 @@ Router &Router::serve_static(
 		ContextHandler inner = [this, path_sv, is_head](
 								   RequestView const &r,
 								   RequestContext const &c) -> conflux::work::root::Task<Response> {
-			if (auto task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
-				auto resp = co_await std::move(*task);
+			if (auto deferred_task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
+				auto resp = co_await std::move(deferred_task->task);
 				if (is_head) {
 					resp.head_only = true;
 				}

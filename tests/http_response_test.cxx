@@ -12,6 +12,7 @@ import conflux.net.http.types;
 import conflux.file_map;
 import conflux.net.http.realtime;
 import conflux.net.http.response;
+import conflux.work;
 
 namespace chttp = conflux::http;
 
@@ -385,4 +386,99 @@ TEST_CASE(
 	REQUIRE(ready.has_value());
 	CHECK(ready->status == kHttpGatewayTimeout);
 	CHECK(ready->status_text == "Gateway Timeout");
+}
+
+TEST_CASE(
+	"http response: DeferredResponse cancellation methods propagate reasons",
+	"[http.response]") {
+	namespace root = conflux::work::root;
+
+	auto [deadline_ctl, deadline_src] = root::make_task_control_source<Response>();
+	DeferredResponse deadline{std::chrono::milliseconds{10000}};
+	deadline.attach_cancel(deadline_ctl);
+	deadline.cancel_deadline();
+	CHECK(deadline_ctl.cancel_requested());
+	REQUIRE(deadline_ctl.cancellation_reason().has_value());
+	CHECK(*deadline_ctl.cancellation_reason() == root::CancelReason::deadline);
+	(void)deadline_src.try_set_cancelled(root::CancelReason::deadline);
+
+	auto [disconnect_ctl, disconnect_src] = root::make_task_control_source<Response>();
+	DeferredResponse disconnect{std::chrono::milliseconds{10000}};
+	disconnect.attach_cancel(disconnect_ctl);
+	disconnect.cancel_disconnect();
+	CHECK(disconnect_ctl.cancel_requested());
+	REQUIRE(disconnect_ctl.cancellation_reason().has_value());
+	CHECK(*disconnect_ctl.cancellation_reason() == root::CancelReason::requested);
+	(void)disconnect_src.try_set_cancelled(root::CancelReason::requested);
+
+	auto [shutdown_ctl, shutdown_src] = root::make_task_control_source<Response>();
+	DeferredResponse shutdown{std::chrono::milliseconds{10000}};
+	shutdown.attach_cancel(shutdown_ctl);
+	shutdown.cancel_shutdown();
+	CHECK(shutdown_ctl.cancel_requested());
+	REQUIRE(shutdown_ctl.cancellation_reason().has_value());
+	CHECK(*shutdown_ctl.cancellation_reason() == root::CancelReason::shutdown);
+	(void)shutdown_src.try_set_cancelled(root::CancelReason::shutdown);
+}
+
+TEST_CASE(
+	"http response: DeferredResponse deadline expiry cancels attached task with deadline reason",
+	"[http.response]") {
+	namespace root = conflux::work::root;
+
+	auto [ctl, src] = root::make_task_control_source<Response>();
+	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	deferred.attach_cancel(ctl);
+
+	auto const now = std::chrono::steady_clock::now();
+	deferred.set_deadline(now - std::chrono::milliseconds{1});
+	REQUIRE(deferred.expire_if_past_deadline(now));
+	CHECK(ctl.cancel_requested());
+	REQUIRE(ctl.cancellation_reason().has_value());
+	CHECK(*ctl.cancellation_reason() == root::CancelReason::deadline);
+	(void)src.try_set_cancelled(root::CancelReason::deadline);
+}
+
+TEST_CASE(
+	"http response: DeferredResponse deadline expiry invokes attached task cancel hook",
+	"[http.response]") {
+	namespace root = conflux::work::root;
+
+	std::atomic<int> observed{-1};
+	auto [task, src] = root::make_cancellable_task_source<Response>([&observed](root::CancelReason reason) noexcept {
+		observed.store(static_cast<int>(reason), std::memory_order_release);
+	});
+	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	deferred.attach_cancel(task.control());
+
+	auto const now = std::chrono::steady_clock::now();
+	deferred.set_deadline(now - std::chrono::milliseconds{1});
+	REQUIRE(deferred.expire_if_past_deadline(now));
+	CHECK(observed.load(std::memory_order_acquire) == static_cast<int>(root::CancelReason::deadline));
+	(void)src.try_set_cancelled(root::CancelReason::deadline);
+}
+
+TEST_CASE(
+	"http response: DeferredResponse cancellation forwards through cancellable wrapper",
+	"[http.response]") {
+	namespace root = conflux::work::root;
+
+	std::atomic<int> observed{-1};
+	auto [child, child_src] =
+		root::make_cancellable_task_source<Response>([&observed](root::CancelReason reason) noexcept {
+			observed.store(static_cast<int>(reason), std::memory_order_release);
+		});
+	auto wrapper = root::make_cancellable_task(
+		[child = std::move(child)](root::Cancellation cancel) mutable -> root::Task<Response> {
+			(void)cancel;
+			return std::move(child);
+		});
+	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	deferred.attach_cancel(wrapper.control());
+
+	auto const now = std::chrono::steady_clock::now();
+	deferred.set_deadline(now - std::chrono::milliseconds{1});
+	REQUIRE(deferred.expire_if_past_deadline(now));
+	CHECK(observed.load(std::memory_order_acquire) == static_cast<int>(root::CancelReason::deadline));
+	(void)child_src.try_set_cancelled(root::CancelReason::deadline);
 }

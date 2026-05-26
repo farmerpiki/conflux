@@ -162,6 +162,9 @@ Ring::~Ring() {
 void Ring::clear_deferred_wait(
 	int deferred_efd) {
 	if (deferred_efd >= 0) {
+		if (auto it = deferred_waits.find(deferred_efd); it != deferred_waits.end() && it->second.response) {
+			it->second.response->cancel_disconnect();
+		}
 		deferred_waits.erase(deferred_efd);
 	}
 }
@@ -409,6 +412,9 @@ void Ring::conn_erase(
 	conn.sse_channel.reset();
 	clear_deferred_wait(conn.deferred_efd);
 	conn.deferred_efd = -1;
+	if (conn.deferred_response) {
+		conn.deferred_response->cancel_disconnect();
+	}
 	conn.deferred_response.reset();
 	conn.deferred_request_storage.reset();
 	conn.deferred_request_files.reset();
@@ -872,6 +878,9 @@ void Ring::handle_timer() {
 		++pressure_counters_.drain_deadline_hit;
 		for (auto &conn: fd_table) {
 			if (conn.fd >= 0 && !conn.closing) {
+				if (conn.deferred_response) {
+					conn.deferred_response->cancel_shutdown();
+				}
 				drain_control->forced_closed.fetch_add(1, std::memory_order_relaxed);
 				++pressure_counters_.drain_forced_close;
 				queue_close(conn.fd);
@@ -1004,6 +1013,9 @@ void Ring::handle_shutdown() {
 			}
 			if (drain != nullptr && idle) {
 				drain->idle_closed.fetch_add(1, std::memory_order_relaxed);
+			}
+			if (conn.deferred_response) {
+				conn.deferred_response->cancel_shutdown();
 			}
 			queue_close(static_cast<int>(i));
 		}

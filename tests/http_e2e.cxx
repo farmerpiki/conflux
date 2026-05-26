@@ -2038,6 +2038,45 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "alive:borrowed-body");
 }
+
+TEST_CASE(
+	"async context route timeout returns gateway timeout and cancels handler with deadline") {
+	namespace root = conflux::work::root;
+
+	std::atomic<int> observed_reason{-1};
+	Config cfg = Config::public_server();
+	cfg.rings = 1;
+	cfg.ring_entries = 64;
+	cfg.startup_banner = false;
+	Router router;
+	auto timeout = std::make_shared<std::chrono::milliseconds>(25);
+	router.add_context_with_timeout(
+		"POST",
+		"/async-timeout",
+		timeout,
+		[&observed_reason](RequestView const &, RequestContext const &) -> chttp::Task<chttp::Response> {
+			auto source_slot = std::make_shared<std::optional<root::TaskSource<chttp::Response>>>();
+			auto [task, source] = root::make_cancellable_task_source<chttp::Response>(
+				[&observed_reason, source_slot](root::CancelReason reason) noexcept {
+					observed_reason.store(static_cast<int>(reason), std::memory_order_release);
+					if (*source_slot) {
+						auto source = std::move(**source_slot);
+						source_slot->reset();
+						(void)source.try_set_cancelled(reason);
+					}
+				});
+			source_slot->emplace(std::move(source));
+			return std::move(task);
+		});
+	auto port = test_servers().start(cfg, std::move(router));
+	auto resp = conflux::tests::http_post_on(port, "/async-timeout", "text/plain", "body");
+	REQUIRE(resp.starts_with("HTTP/1.1 504 Gateway Timeout"));
+	for (int i = 0; i != 50 && observed_reason.load(std::memory_order_acquire) == -1; ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	CHECK(observed_reason.load(std::memory_order_acquire) == static_cast<int>(root::CancelReason::deadline));
+}
+
 TEST_CASE(
 	"async middleware request view survives suspension") {
 	auto app = chttp::App::default_server();

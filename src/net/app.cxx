@@ -1676,10 +1676,12 @@ public:
 		record_return_metadata<conflux::work::root::Task<Response>>();
 		auto auth_policy = route_metadata_.back().auth_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
+		auto timeout = route_metadata_.back().timeout;
 		auto scoped_context_middlewares = current_group_context_middlewares();
-		router_.add_context(
+		router_.add_context_with_timeout(
 			method,
 			path,
+			timeout,
 			[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
 				RequestView const &req,
 				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
@@ -2252,9 +2254,10 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
-			router_.add_context(
+			router_.add_context_with_timeout(
 				method,
 				Path.view(),
+				timeout,
 				[states = states_,
 				 auth_policy,
 				 rate_limit,
@@ -2466,9 +2469,10 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
-			router_.add_context(
+			router_.add_context_with_timeout(
 				method,
 				path,
+				timeout,
 				[states = states_,
 				 auth_policy,
 				 rate_limit,

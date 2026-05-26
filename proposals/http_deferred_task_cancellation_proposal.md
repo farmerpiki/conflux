@@ -134,3 +134,43 @@ Make deferred handler cancellation boring first. Once deferred handler ownership
 deadline cancellation, disconnect cancellation, and nonblocking ready completion
 are proven, build `RequestContext` and extractor ergonomics on top of those
 rules.
+
+## Implementation Status
+
+Achieved in the first implementation pass:
+
+- `DeferredResponse` exposes reasonful cancellation hooks:
+  `cancel_deadline()`, `cancel_disconnect()`, and `cancel_shutdown()`.
+- Deferred deadline expiry completes 504 and requests
+  `CancelReason::deadline` on the attached task.
+- Deferred task completion no longer uses `blocking_join()` in the ready
+  callback; it registers with `try_set_on_ready()` and extracts with
+  `join_ready()` only after readiness.
+- Already-installed ready callbacks are handled explicitly by completing the
+  deferred response with an internal error and requesting cancellation.
+- Context async route timeout is carried into defer construction through
+  `DeferredTaskOptions`.
+- `App` context/async extracted routes pass their route timeout metadata into
+  the router context route table.
+- HTTP/1 connection erase cancels active deferred response work with
+  `CancelReason::requested`.
+- H2 deferred wait clearing cancels deferred work with
+  `CancelReason::requested`.
+- Shutdown/immediate drain close paths request `CancelReason::shutdown` for
+  active deferred response work.
+- Tests cover reasonful `DeferredResponse` cancellation, deadline hook
+  propagation, cancellable wrapper forwarding, borrowed async request storage,
+  and async context route timeout returning 504 while the handler observes
+  `CancelReason::deadline`.
+
+Deferred after this pass:
+
+- Public `RequestLifetime` or extractor ergonomics.
+- Protocol timeout taxonomy.
+- Generic HTTP race wrappers.
+- Drain registry and metrics expansion.
+- `ActiveTaskCancelRelay` removal outside the route/deferred server handler
+  path.
+- Full cancellation propagation through every App-generated coroutine wrapper;
+  the first pass preserves existing borrowed-storage behavior and proves the
+  direct context/deferred route path.

@@ -4,6 +4,7 @@ export module conflux.net.router_dispatch;
 
 import std;
 import conflux.types;
+import conflux.small_function;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http.realtime;
@@ -14,6 +15,15 @@ import conflux.work;
 #ifndef CONFLUX_ROUTER_LAZY_ROUTE_METADATA
 	#define CONFLUX_ROUTER_LAZY_ROUTE_METADATA 1
 #endif
+
+export struct DeferredTaskOptions {
+	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout;
+};
+
+export struct DeferredRouteTask {
+	conflux::work::root::Task<Response> task;
+	DeferredTaskOptions options{};
+};
 
 export template<typename Pool, typename Handler>
 void router_launch_sse_handler(
@@ -31,23 +41,41 @@ void router_launch_sse_handler(
 }
 
 export Response router_defer_http_task(
-	conflux::work::root::Task<Response> task) {
-	auto deferred = std::make_shared<DeferredResponse>();
+	conflux::work::root::Task<Response> task,
+	DeferredTaskOptions options = {}) {
+	namespace wroot = conflux::work::root;
+	auto deferred = std::make_shared<DeferredResponse>(options.timeout);
 	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<Response>>(
 		conflux::work::root::into_join_handle(std::move(task)));
 	deferred->attach_cancel(jh->control());
-	jh->control().set_on_ready_or_run([deferred, jh]() noexcept {
+	auto complete_ready = [deferred, jh]() noexcept {
 		try {
-			auto outcome = conflux::work::root::blocking_join(std::move(*jh));
+			auto outcome = wroot::join_ready(std::move(*jh));
 			if (outcome.is_success()) {
 				deferred->complete(std::move(outcome).success().value);
+			} else if (outcome.is_cancelled() && outcome.cancelled().reason == wroot::CancelReason::deadline) {
+				deferred->complete(Response::gateway_timeout());
 			} else {
 				deferred->complete(Response::internal_error());
 			}
 		} catch (std::exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
 			deferred->complete(Response::internal_error());
 		}
-	});
+	};
+	auto result = jh->control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{complete_ready});
+	switch (result.status) {
+	case wroot::ReadyRegistration::installed: break;
+	case wroot::ReadyRegistration::already_ready:
+		if (result.rejected_fn) {
+			result.rejected_fn();
+		}
+		break;
+	case wroot::ReadyRegistration::already_installed:
+		(void)jh->control().request_cancel();
+		deferred->complete(Response::internal_error("task already has a ready callback"));
+		break;
+	case wroot::ReadyRegistration::empty: deferred->complete(Response::internal_error("empty async task")); break;
+	}
 	return Response::deferred(std::move(deferred));
 }
 
@@ -192,7 +220,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<conflux::work::root::Task<Response>> dispatch_context_route_tasks(
+[[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_tasks(
 	RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
@@ -231,17 +259,45 @@ export template<typename ContextRouteRange, typename Ctx>
 				req.cookies,
 				req.files,
 				req.body};
-			return [](auto handler, RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
-					   -> conflux::work::root::Task<Response> {
-				auto resp = co_await handler(req, ctx);
-				if (should_annotate) {
-					resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
-				}
-				co_return resp;
-			}(route.handler, std::move(matched_view), ctx, std::move(pattern), observe_route);
+			DeferredTaskOptions options{};
+			if (route.timeout && *route.timeout > std::chrono::milliseconds{0}) {
+				options.timeout = *route.timeout;
+			}
+			return DeferredRouteTask{
+				.task =
+					[](auto handler, RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
+					-> conflux::work::root::Task<Response> {
+					return conflux::work::root::make_cancellable_task(
+						[handler = std::move(handler),
+						 req = std::move(req),
+						 &ctx,
+						 route_pattern = std::move(route_pattern),
+						 should_annotate](
+							conflux::work::root::Cancellation) mutable -> conflux::work::root::Task<Response> {
+							if (!should_annotate) {
+								return handler(req, ctx);
+							}
+							return [](auto child, std::string route_pattern) -> conflux::work::root::Task<Response> {
+								auto resp = co_await std::move(child);
+								resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+								co_return resp;
+							}(handler(req, ctx), std::move(route_pattern));
+						});
+				}(route.handler, std::move(matched_view), ctx, std::move(pattern), observe_route),
+				.options = options,
+			};
 		}
 	}
 	return std::nullopt;
+}
+
+export template<typename ContextRouteRange, typename Ctx>
+[[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_task(
+	RequestView const &req,
+	Ctx const &ctx,
+	std::string_view path_sv,
+	ContextRouteRange const &context_routes) {
+	return dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
 }
 
 export template<typename ContextRouteRange, typename Ctx>
@@ -250,9 +306,9 @@ export template<typename ContextRouteRange, typename Ctx>
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
-	auto task = dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
-	if (!task) {
+	auto deferred_task = dispatch_context_route_task(req, ctx, path_sv, context_routes);
+	if (!deferred_task) {
 		return std::nullopt;
 	}
-	return router_defer_http_task(std::move(*task));
+	return router_defer_http_task(std::move(deferred_task->task), deferred_task->options);
 }

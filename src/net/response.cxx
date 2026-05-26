@@ -745,6 +745,10 @@ public:
 	[[nodiscard]] std::chrono::steady_clock::time_point deadline() const;
 	void set_deadline(std::chrono::steady_clock::time_point deadline);
 	void attach_cancel(conflux::work::root::TaskControl ctl) noexcept;
+	void cancel(conflux::work::root::CancelReason reason) noexcept;
+	void cancel_deadline() noexcept;
+	void cancel_disconnect() noexcept;
+	void cancel_shutdown() noexcept;
 	void keep_alive(std::shared_ptr<void const> storage);
 	// Force-complete with 504 if the deadline has passed and no response is ready.
 	// Returns true if this call expired the response (i.e. the caller should expect
@@ -808,6 +812,24 @@ void DeferredResponse::attach_cancel(
 	std::scoped_lock const lk{mtx_};
 	cancel_ctl_ = std::move(ctl);
 }
+void DeferredResponse::cancel(
+	conflux::work::root::CancelReason reason) noexcept {
+	conflux::work::root::TaskControl to_cancel;
+	{
+		std::scoped_lock const lk{mtx_};
+		to_cancel = cancel_ctl_;
+	}
+	(void)to_cancel.request_cancel(reason);
+}
+void DeferredResponse::cancel_deadline() noexcept {
+	cancel(conflux::work::root::CancelReason::deadline);
+}
+void DeferredResponse::cancel_disconnect() noexcept {
+	cancel(conflux::work::root::CancelReason::requested);
+}
+void DeferredResponse::cancel_shutdown() noexcept {
+	cancel(conflux::work::root::CancelReason::shutdown);
+}
 void DeferredResponse::keep_alive(
 	std::shared_ptr<void const> storage) {
 	if (!storage) {
@@ -830,7 +852,7 @@ bool DeferredResponse::expire_if_past_deadline(
 		ready_ = std::make_unique<Response>(Response::gateway_timeout());
 		to_cancel = std::move(cancel_ctl_);
 	}
-	auto _ = to_cancel.request_cancel();
+	auto _ = to_cancel.request_cancel(conflux::work::root::CancelReason::deadline);
 	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
 		eprintln(std::format("DeferredResponse::expire_if_past_deadline: eventfd write: {}", strerror(errno)));

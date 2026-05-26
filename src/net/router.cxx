@@ -190,11 +190,31 @@ public:
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
+	Router &add_context_with_timeout(
+		std::string_view method,
+		std::string_view path,
+		std::shared_ptr<std::chrono::milliseconds> timeout,
+		F &&handler) {
+		add_context_prepared(method, path, std::move(timeout), ContextHandler{std::forward<F>(handler)});
+		return *this;
+	}
+	template<typename F>
+		requires ContextHandlerFunction<F>
 	Router &add_context(
 		HttpMethod method,
 		std::string_view path,
 		F &&handler) {
 		add_context_prepared(method, path, ContextHandler{std::forward<F>(handler)});
+		return *this;
+	}
+	template<typename F>
+		requires ContextHandlerFunction<F>
+	Router &add_context_with_timeout(
+		HttpMethod method,
+		std::string_view path,
+		std::shared_ptr<std::chrono::milliseconds> timeout,
+		F &&handler) {
+		add_context_prepared(method, path, std::move(timeout), ContextHandler{std::forward<F>(handler)});
 		return *this;
 	}
 	template<HttpMethod Method, typename F>
@@ -455,6 +475,16 @@ private:
 	void add_prepared(HttpMethod method, std::string_view path, Handler handler);
 	void add_context_prepared(std::string_view method, std::string_view path, ContextHandler handler);
 	void add_context_prepared(HttpMethod method, std::string_view path, ContextHandler handler);
+	void add_context_prepared(
+		std::string_view method,
+		std::string_view path,
+		std::shared_ptr<std::chrono::milliseconds> timeout,
+		ContextHandler handler);
+	void add_context_prepared(
+		HttpMethod method,
+		std::string_view path,
+		std::shared_ptr<std::chrono::milliseconds> timeout,
+		ContextHandler handler);
 	void use_prepared(Middleware mw);
 	void use_context_prepared(ContextMiddleware mw);
 	void set_not_found_handler(Handler handler);
