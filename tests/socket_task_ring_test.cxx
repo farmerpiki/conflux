@@ -1395,11 +1395,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"socket timeout helpers complete on ring owner",
-	"[timeout][uring]") {
+	"socket timeout helpers complete on ring owner and preserve cancel reason",
+	"[timeout][cancel][uring]") {
 	auto fx = require_ring_fixture();
 	fx->run(timeout_after(fx->task_ring, std::chrono::milliseconds{1}), std::chrono::seconds{2});
 	fx->run(timeout_at(fx->task_ring, std::chrono::steady_clock::now()), std::chrono::seconds{2});
+
+	auto task = timeout_after(fx->task_ring, std::chrono::seconds{30});
+	auto control = task.control();
+	task.cancel(conflux::work::root::CancelReason::deadline);
+	CHECK(control.cancellation_reason() == conflux::work::root::CancelReason::deadline);
+	try {
+		fx->run(std::move(task), std::chrono::seconds{2});
+		FAIL("timeout task should be cancelled");
+	} catch (std::runtime_error const &err) { CHECK(std::string_view{err.what()} == "task cancelled"); }
 }
 // ---------------------------------------------------------------------------
 // AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE

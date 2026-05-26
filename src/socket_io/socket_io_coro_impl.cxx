@@ -1369,7 +1369,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	SocketTaskRing &ring,
 	std::chrono::milliseconds dur) {
 	if (dur.count() <= 0) {
-		co_return;
+		auto [task, src] = wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
+		(void)src.try_set_value(wroot::Success<void>{});
+		return std::move(task);
 	}
 	auto task_src_11 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_11.first);
@@ -1390,14 +1392,16 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::uint64_t const ud = ring.encode(slot, gen);
 	if (!submit_timeout_borrowed(ring.raw(), ts.get(), ud)) {
 		ring.completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
-		co_await std::move(task);
-		co_return;
+		return task;
 	}
 	auto ring_ptr = &ring;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<void>>{shared_src};
 	auto _ =
 		shared_src->install_cancel_hook([ring_ptr, ud, weak_src, cancel_reason](wroot::CancelReason reason) noexcept {
 			cancel_reason->store(reason, std::memory_order_release);
+			if (auto src = weak_src.lock()) {
+				auto _ = src->try_set_cancelled(reason);
+			}
 			if (!ring_ptr->submit_on_owner([ud, weak_src, reason](SocketTaskRing &r) noexcept {
 					auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = r.encode(cs, cg);
@@ -1415,7 +1419,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 				}
 			}
 		});
-	co_await std::move(task);
+	return task;
 }
 
 [[nodiscard]] wroot::Task<void> timeout_after(
