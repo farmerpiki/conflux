@@ -87,6 +87,13 @@ Current review set: `findings/1.md` through `findings/10.md` after
   mock-liburing package-mode notice is informational, and experimental
   import-std smoke support is opt-in instead of enabled for unrelated header
   package smokes.
+- `findings/4.md` P2 HTTP facade API snapshot internals: complete. The curated
+  facade API snapshot now imports only `conflux.http`, and a CTest guard rejects
+  lower-level `conflux.net.*`, `conflux.uring`, socket, and file-IO imports in
+  HTTP facade snapshot tests. The warning cleanup pulled in with this scope is
+  also complete: deprecated file-IO compatibility tests contain their local
+  warning handling, duplicate deprecation markup was removed, and the work
+  benchmark spin gap no longer uses deprecated volatile increments.
 - `findings/7.md` P1 public header hygiene coverage: complete. The hygiene
   checker now applies public shorthand-alias and macro leakage checks to every
   selected generated public header from the active manifest, while retaining the
@@ -644,6 +651,3 @@ Current review set: `findings/1.md` through `findings/10.md` after
 - `findings/7.md` P2 slim common `Response` object and docs/examples
   release-proof work remain deferred until after the curated HTTP/transport
   split and profile wrappers stabilize.
-- `findings/4.md` P2 HTTP facade API snapshot internals remain deferred. The
-  build-system part is covered by the checked API-surface manifest and package
-  smoke API-surface assertion.

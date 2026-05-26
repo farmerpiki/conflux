@@ -23,6 +23,7 @@ fail() {
 [[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
 [[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
+[[ -f scripts/check-http-facade-snapshot.py ]] || fail "missing HTTP facade snapshot guard"
 [[ -f scripts/check-planning-state.py ]] || fail "missing planning-state guard"
 [[ -f scripts/check-release-docs.py ]] || fail "missing release-docs guard"
 [[ -f scripts/check-package-docs.py ]] || fail "missing package-docs guard"
@@ -49,6 +50,8 @@ grep -q 'add_test(NAME build/cmake-source-files' tests/CMakeLists.txt \
     || fail "missing CMake source-file CTest guard"
 grep -q 'add_test(NAME build/component-map' tests/CMakeLists.txt \
     || fail "missing component-map CTest guard"
+grep -q 'add_test(NAME build/http-facade-snapshot' tests/CMakeLists.txt \
+    || fail "missing HTTP facade snapshot CTest guard"
 grep -q 'add_test(NAME build/package-config' tests/CMakeLists.txt \
     || fail "missing package-config CTest guard"
 grep -q 'add_test(NAME docs/planning-state' tests/CMakeLists.txt \

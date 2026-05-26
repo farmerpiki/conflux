@@ -846,8 +846,7 @@ public:
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[deprecated(
-		"use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
 	async_socket_direct(
 		int domain,
 		int type,

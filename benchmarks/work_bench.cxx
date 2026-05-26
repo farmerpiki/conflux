@@ -416,7 +416,9 @@ Case make_pool_bursty_case() {
 		.default_iterations = 10000,
 		.run = [pool] {
 			// Historical benchmark behavior: short spin gap, not OS sleep.
-			for (volatile int i = 0; i < 200; ++i) {}
+			for (int i = 0; i < 200; ++i) {
+				std::atomic_signal_fence(std::memory_order_seq_cst);
+			}
 			// Burst 8 tasks
 			auto t0 = async_run_on(*pool, [] { return 1; });
 			auto t1 = async_run_on(*pool, [] { return 2; });

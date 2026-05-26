@@ -1110,6 +1110,12 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;docs;package"
     )
 
+    add_test(NAME build/http-facade-snapshot
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-http-facade-snapshot.py")
+    set_tests_properties(build/http-facade-snapshot PROPERTIES
+        LABELS "build;http;lint"
+    )
+
     add_test(NAME build/api-surface-map
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-api-surface-map.py")
     set_tests_properties(build/api-surface-map PROPERTIES

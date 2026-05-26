@@ -1035,10 +1035,18 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
+		// These compatibility tests intentionally exercise deprecated file_io socket helpers.
+#if defined(__clang__) || defined(__GNUC__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 		handle = block_on(
 			fx->reader,
 			fx->reader.async_socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0),
 			std::chrono::seconds{5});
+#if defined(__clang__) || defined(__GNUC__)
+	#pragma GCC diagnostic pop
+#endif
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1390,7 +1398,15 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
+		// These compatibility tests intentionally exercise deprecated file_io pipe helpers.
+#if defined(__clang__) || defined(__GNUC__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 		fds = block_on(fx->reader, fx->reader.async_pipe(O_CLOEXEC), std::chrono::seconds{5});
+#if defined(__clang__) || defined(__GNUC__)
+	#pragma GCC diagnostic pop
+#endif
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}

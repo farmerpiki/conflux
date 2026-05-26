@@ -1,8 +1,6 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
-import conflux.net.http.server_types;
-import conflux.net.router;
 
 namespace http_snapshot {
 
@@ -46,11 +44,6 @@ struct JsonMembers<http_snapshot::Payload> {
 
 namespace http_snapshot {
 
-static_assert(std::same_as<http::RequestView, RequestView>);
-static_assert(std::same_as<http::Request, RequestView>);
-static_assert(std::same_as<http::OwnedRequest, Request>);
-static_assert(std::same_as<http::Response, Response>);
-static_assert(std::same_as<http::RequestContext, RequestContext>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
 void route_forms_compile() {
