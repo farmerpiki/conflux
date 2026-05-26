@@ -272,6 +272,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: fallback timeout_at trigger wins with deadline reason",
+	"[work.race]") {
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("value", std::move(value)),
+		race::timeout_at("write_timeout", std::chrono::steady_clock::now()));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "write_timeout");
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: trigger_on maps owner-bound void work to trigger",
 	"[work.race]") {
 	OwnerCap owner{};

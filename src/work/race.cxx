@@ -318,6 +318,19 @@ template<root::work_value T>
 	return timeout_after("deadline", duration, reason);
 }
 
+[[nodiscard]] race_trigger timeout_at(
+	std::string_view label,
+	std::chrono::steady_clock::time_point deadline,
+	root::CancelReason reason = root::CancelReason::deadline) {
+	return timeout_after(label, deadline - std::chrono::steady_clock::now(), reason);
+}
+
+[[nodiscard]] race_trigger timeout_at(
+	std::chrono::steady_clock::time_point deadline,
+	root::CancelReason reason = root::CancelReason::deadline) {
+	return timeout_at("deadline", deadline, reason);
+}
+
 namespace detail {
 
 template<root::work_value T>

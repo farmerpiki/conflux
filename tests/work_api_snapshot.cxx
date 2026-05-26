@@ -584,6 +584,22 @@ static_assert(std::is_same_v<
 				  root::CancelReason::deadline)),
 			  race::race_trigger>);
 static_assert(std::is_same_v<
+			  decltype(race::timeout_at(std::declval<std::chrono::steady_clock::time_point>())),
+			  race::race_trigger>);
+static_assert(
+	std::is_same_v<
+		decltype(race::timeout_at(std::declval<std::chrono::steady_clock::time_point>(), root::CancelReason::deadline)),
+		race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::timeout_at(std::string_view{}, std::declval<std::chrono::steady_clock::time_point>())),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::timeout_at(
+				  std::string_view{},
+				  std::declval<std::chrono::steady_clock::time_point>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
 			  decltype(race::trigger_on(
 				  std::declval<snapshot_root::_TestCap &>(),
 				  std::string_view{},
