@@ -10,6 +10,21 @@ namespace root = conflux::work::root;
 namespace carrier = conflux::work::carrier;
 namespace race = conflux::work::race;
 
+namespace {
+
+struct OwnerCap {};
+struct DriverCap {};
+
+} // namespace
+namespace conflux::work::root {
+
+template<>
+inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+template<>
+inline constexpr bool enable_address_capability_v<DriverCap> = true;
+
+} // namespace conflux::work::root
+
 TEST_CASE(
 	"work.race: first completion wins",
 	"[work.race]") {
@@ -29,6 +44,56 @@ TEST_CASE(
 	CHECK(out.winner.label == "fast");
 	REQUIRE(out.outcome.is_success());
 	CHECK(out.outcome.success().value == 7);
+}
+
+TEST_CASE(
+	"work.race: candidate_on joins posted participant with owner capability",
+	"[work.race]") {
+	OwnerCap owner{};
+	auto [posted, posted_src] = root::make_posted_source<int>(owner);
+	auto [task, task_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate_on(owner, "posted", std::move(posted)),
+		race::candidate("task", std::move(task)));
+
+	REQUIRE(posted_src.try_set_value(root::Success<int>{31}));
+	REQUIRE(task_src.try_set_cancelled(root::CancelReason::requested));
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "posted");
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 31);
+}
+
+TEST_CASE(
+	"work.race: candidate_on reports capability mismatch from owner-bound participant",
+	"[work.race]") {
+	OwnerCap owner{};
+	OwnerCap other{};
+	auto [posted, posted_src] = root::make_posted_source<int>(owner);
+
+	auto raced = race::race<int>(race::race_options{}, race::candidate_on(other, "posted", std::move(posted)));
+
+	REQUIRE(posted_src.try_set_value(root::Success<int>{9}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_failure());
+	CHECK_THROWS_AS(std::rethrow_exception(out.outcome.failure().error), root::JoinError);
+}
+
+TEST_CASE(
+	"work.race: candidate_on joins operation participant with driver capability",
+	"[work.race]") {
+	DriverCap driver{};
+	auto [op, op_src] = root::make_operation_source<int>(driver);
+
+	auto raced = race::race<int>(race::race_options{}, race::candidate_on(driver, "operation", std::move(op)));
+
+	REQUIRE(op_src.try_set_value(root::Success<int>{17}));
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "operation");
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 17);
 }
 
 TEST_CASE(

@@ -510,6 +510,30 @@ static_assert(std::is_same_v<
 			  decltype(race::candidate(std::string_view{}, std::declval<carrier::Chain<int>>())),
 			  race::race_candidate<int>>);
 static_assert(std::is_same_v<
+			  decltype(race::candidate_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::Posted<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::PostedJoinHandle<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::Operation<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::OperationJoinHandle<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
 			  decltype(race::trigger(std::declval<root::Task<void>>(), root::CancelReason::requested)),
 			  race::race_trigger>);
 static_assert(

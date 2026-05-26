@@ -11,6 +11,13 @@ Use `race::candidate(label, task)` for value-producing work and
 `race::trigger(label, task, reason)` for non-value work that should win by
 committing a cancellation reason, such as a deadline task.
 
+Use `race::candidate_on(owner, label, posted)` or
+`race::candidate_on(driver, label, operation)` for owner-bound work. These
+helpers adapt the handle into an ordinary task only after installing an
+exclusive ready callback, and they extract the ready outcome with
+`join_ready(owner, ...)` / `join_ready(driver, ...)` so capability checks remain
+enforced.
+
 Socket-ring code can use `timeout_after(ring, duration)` or
 `timeout_at(ring, deadline)` from `conflux.socket_io.coro` as the trigger task:
 

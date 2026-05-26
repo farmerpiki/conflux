@@ -194,6 +194,124 @@ template<root::work_value T>
 namespace detail {
 
 template<root::work_value T>
+void complete_source_from_outcome(
+	root::TaskSource<T> &src,
+	root::Outcome<T> out) noexcept {
+	if (out.is_success()) {
+		(void)src.try_set_value(std::move(out).success());
+	} else if (out.is_cancelled()) {
+		(void)src.try_set_cancelled(std::move(out).cancelled().reason);
+	} else {
+		(void)src.try_set_exception(std::move(out).failure().error);
+	}
+}
+
+template<root::progress_capability Cap, root::work_value T, class Handle>
+[[nodiscard]] root::Task<T> adapt_bound_handle(
+	Cap &cap,
+	Handle handle) {
+	struct State {
+		Cap *cap{};
+		Handle handle{};
+		std::shared_ptr<root::TaskSource<T>> src{};
+
+		void complete() noexcept {
+			try {
+				complete_source_from_outcome(*src, root::join_ready(*cap, std::move(handle)));
+			} catch (...) { (void)src->try_set_exception(std::current_exception()); }
+		}
+	};
+
+	auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = true});
+	auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(src));
+	auto state = std::make_shared<State>(State{.cap = &cap, .handle = std::move(handle), .src = shared_src});
+	(void)shared_src->install_cancel_hook(
+		[state](root::CancelReason reason) noexcept { (void)state->handle.control().request_cancel(reason); });
+	auto ready = [state]() noexcept { state->complete(); };
+	auto result = state->handle.control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{ready});
+	switch (result.status) {
+	case root::ReadyRegistration::installed: break;
+	case root::ReadyRegistration::already_ready:
+		if (result.rejected_fn) {
+			result.rejected_fn();
+		}
+		break;
+	case root::ReadyRegistration::already_installed:
+		(void)shared_src->try_set_exception(
+			std::make_exception_ptr(race_setup_error{"race: participant already has a ready callback"}));
+		break;
+	case root::ReadyRegistration::empty:
+		(void)shared_src->try_set_exception(std::make_exception_ptr(race_setup_error{"race: empty participant"}));
+		break;
+	}
+	return std::move(task);
+}
+
+} // namespace detail
+
+template<root::progress_capability Owner, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Owner &owner,
+	root::Posted<T> posted) {
+	return candidate(detail::adapt_bound_handle<Owner, T>(owner, root::into_join_handle(std::move(posted))));
+}
+
+template<root::progress_capability Owner, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Owner &owner,
+	std::string_view label,
+	root::Posted<T> posted) {
+	return candidate(label, detail::adapt_bound_handle<Owner, T>(owner, root::into_join_handle(std::move(posted))));
+}
+
+template<root::progress_capability Owner, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Owner &owner,
+	root::PostedJoinHandle<T> handle) {
+	return candidate(detail::adapt_bound_handle<Owner, T>(owner, std::move(handle)));
+}
+
+template<root::progress_capability Owner, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Owner &owner,
+	std::string_view label,
+	root::PostedJoinHandle<T> handle) {
+	return candidate(label, detail::adapt_bound_handle<Owner, T>(owner, std::move(handle)));
+}
+
+template<root::progress_capability Driver, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Driver &driver,
+	root::Operation<T> op) {
+	return candidate(detail::adapt_bound_handle<Driver, T>(driver, root::into_join_handle(std::move(op))));
+}
+
+template<root::progress_capability Driver, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Driver &driver,
+	std::string_view label,
+	root::Operation<T> op) {
+	return candidate(label, detail::adapt_bound_handle<Driver, T>(driver, root::into_join_handle(std::move(op))));
+}
+
+template<root::progress_capability Driver, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Driver &driver,
+	root::OperationJoinHandle<T> handle) {
+	return candidate(detail::adapt_bound_handle<Driver, T>(driver, std::move(handle)));
+}
+
+template<root::progress_capability Driver, root::work_value T>
+[[nodiscard]] race_candidate<T> candidate_on(
+	Driver &driver,
+	std::string_view label,
+	root::OperationJoinHandle<T> handle) {
+	return candidate(label, detail::adapt_bound_handle<Driver, T>(driver, std::move(handle)));
+}
+
+namespace detail {
+
+template<root::work_value T>
 struct participant {
 	bool trigger = false;
 	std::string_view label{};
