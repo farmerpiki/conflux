@@ -198,6 +198,48 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: leave_running keeps consumed loser owned until terminal completion",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+	auto loser_control = loser.control();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::leave_running},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{23}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 23);
+	CHECK_FALSE(loser_control.cancel_requested());
+
+	REQUIRE(loser_src.try_set_value(root::Success<int>{99}));
+}
+
+TEST_CASE(
+	"work.race: request_cancel keeps consumed loser owned after winner returns",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+	auto loser_control = loser.control();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{41}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 41);
+	CHECK(loser_control.cancel_requested());
+
+	REQUIRE(loser_src.try_set_exception(std::make_exception_ptr(std::runtime_error{"late loser failure"})));
+}
+
+TEST_CASE(
 	"work.race: external cancellation forwards reason to live participants",
 	"[work.race]") {
 	auto [left, left_src] = root::make_task_source<int>();
