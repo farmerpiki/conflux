@@ -390,6 +390,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: with_timeout accepts a fallback duration",
+	"[work.race]") {
+	auto [work, work_src] = root::make_task_source<int>();
+
+	auto raced = race::with_timeout<int>(
+		std::move(work),
+		std::chrono::milliseconds{1},
+		race::race_options{.losers = race::loser_policy::request_cancel});
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "deadline");
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+	REQUIRE(work_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: ready chain can win",
 	"[work.race]") {
 	auto [task, src] = root::make_task_source<int>();
