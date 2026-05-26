@@ -13,6 +13,7 @@ import conflux.uring;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.work;
+import conflux.work.race;
 
 namespace wroot = conflux::work::root;
 export struct SyncWaitSocketTaskTimeout final : std::runtime_error {
@@ -119,4 +120,12 @@ T block_on_socket_task(
 	} else {
 		return sync_wait_socket_task(ring, std::move(task), budget);
 	}
+}
+
+export template<typename T>
+conflux::work::race::race_result<T> sync_wait_socket_race(
+	SocketTaskRing &ring,
+	wroot::Task<conflux::work::race::race_result<T>> task,
+	std::optional<std::chrono::milliseconds> budget = std::nullopt) {
+	return sync_wait_socket_task(ring, std::move(task), budget);
 }

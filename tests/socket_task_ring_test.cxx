@@ -13,7 +13,9 @@ import conflux.types;
 import conflux.uring;
 import conflux.uring.completion;
 import conflux.work;
+import conflux.work.race;
 import conflux.socket_io;
+import conflux.socket_io.blocking;
 import conflux.socket_io.coro;
 
 namespace {
@@ -1409,6 +1411,26 @@ TEST_CASE(
 		fx->run(std::move(task), std::chrono::seconds{2});
 		FAIL("timeout task should be cancelled");
 	} catch (std::runtime_error const &err) { CHECK(std::string_view{err.what()} == "task cancelled"); }
+}
+
+TEST_CASE(
+	"sync_wait_socket_race pumps timeout trigger",
+	"[timeout][race][uring]") {
+	auto fx = require_ring_fixture();
+	auto [work, src] = conflux::work::root::make_task_source<int>();
+	auto raced = conflux::work::race::race<int>(
+		conflux::work::race::race_options{.losers = conflux::work::race::loser_policy::request_cancel},
+		conflux::work::race::candidate("work", std::move(work)),
+		conflux::work::race::trigger(
+			"deadline",
+			timeout_after(fx->task_ring, std::chrono::milliseconds{1}),
+			conflux::work::root::CancelReason::deadline));
+
+	auto result = sync_wait_socket_race(fx->task_ring, std::move(raced), std::chrono::seconds{2});
+	CHECK(result.winner.label == "deadline");
+	REQUIRE(result.outcome.is_cancelled());
+	CHECK(result.outcome.cancelled().reason == conflux::work::root::CancelReason::deadline);
+	REQUIRE(src.try_set_cancelled(conflux::work::root::CancelReason::requested));
 }
 // ---------------------------------------------------------------------------
 // AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE

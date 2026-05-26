@@ -53,6 +53,11 @@ reserved for owner-bound timer integration. The current bare race primitive does
 not enforce cleanup deadlines by itself because it intentionally does not own a
 progress domain or timer backend.
 
+Blocking socket callers should use `sync_wait_socket_race(ring, task, budget)`
+from `conflux.socket_io.blocking`. It uses the same ring pump as
+`sync_wait_socket_task`, so `request_cancel_and_wait` races can make socket
+progress while the caller is blocked.
+
 Cancelling the returned race task forwards the cancellation reason to every live
 participant and completes the race task as cancelled with the same reason.
 
