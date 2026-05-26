@@ -260,6 +260,50 @@ template<root::work_value T>
 	return trigger("stop_token", std::move(task), reason);
 }
 
+[[nodiscard]] race_trigger timeout_after(
+	std::chrono::steady_clock::duration duration,
+	root::CancelReason reason = root::CancelReason::deadline) {
+	struct State {
+		std::mutex mu;
+		std::condition_variable cv;
+		bool cancelled = false;
+		root::CancelReason cancel_reason = root::CancelReason::requested;
+	};
+
+	auto [task, src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = true});
+	if (duration <= std::chrono::steady_clock::duration{}) {
+		(void)src.try_set_value();
+		return trigger("deadline", std::move(task), reason);
+	}
+	auto state = std::make_shared<State>();
+	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(src));
+	(void)shared_src->install_cancel_hook([state](root::CancelReason cancel_reason) noexcept {
+		{
+			std::scoped_lock lk{state->mu};
+			state->cancelled = true;
+			state->cancel_reason = cancel_reason;
+		}
+		state->cv.notify_one();
+	});
+	try {
+		std::thread{[state, duration, shared_src]() mutable {
+			root::CancelReason cancel_reason = root::CancelReason::requested;
+			bool cancelled = false;
+			{
+				std::unique_lock lk{state->mu};
+				cancelled = state->cv.wait_for(lk, duration, [&] { return state->cancelled; });
+				cancel_reason = state->cancel_reason;
+			}
+			if (cancelled) {
+				(void)shared_src->try_set_cancelled(cancel_reason);
+			} else {
+				(void)shared_src->try_set_value();
+			}
+		}}.detach();
+	} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
+	return trigger("deadline", std::move(task), reason);
+}
+
 namespace detail {
 
 template<root::work_value T>

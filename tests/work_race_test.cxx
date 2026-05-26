@@ -199,6 +199,42 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: fallback timeout trigger wins with deadline reason",
+	"[work.race]") {
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("value", std::move(value)),
+		race::timeout_after(std::chrono::milliseconds{1}));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "deadline");
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
+	"work.race: losing fallback timeout trigger is cancellable",
+	"[work.race]") {
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("value", std::move(value)),
+		race::timeout_after(std::chrono::seconds{30}));
+
+	REQUIRE(value_src.try_set_value(root::Success<int>{83}));
+
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 83);
+	CHECK(out.observation.loser_cancel_requested == 1);
+}
+
+TEST_CASE(
 	"work.race: trigger_on maps owner-bound void work to trigger",
 	"[work.race]") {
 	OwnerCap owner{};

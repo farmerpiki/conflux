@@ -558,6 +558,14 @@ static_assert(std::is_same_v<
 			  decltype(race::until_stop_token(std::declval<std::stop_token>(), root::CancelReason::requested)),
 			  race::race_trigger>);
 static_assert(std::is_same_v<
+			  decltype(race::timeout_after(std::declval<std::chrono::steady_clock::duration>())),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::timeout_after(
+				  std::declval<std::chrono::steady_clock::duration>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
 			  decltype(race::trigger_on(
 				  std::declval<snapshot_root::_TestCap &>(),
 				  std::string_view{},
