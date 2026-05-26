@@ -199,6 +199,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: stop token trigger accepts a custom label",
+	"[work.race]") {
+	std::stop_source stop{};
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("value", std::move(value)),
+		race::until_stop_token("shutdown", stop.get_token()));
+
+	REQUIRE(stop.request_stop());
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "shutdown");
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::shutdown);
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: fallback timeout trigger wins with deadline reason",
 	"[work.race]") {
 	auto [value, value_src] = root::make_task_source<int>();
@@ -232,6 +252,23 @@ TEST_CASE(
 	REQUIRE(out.outcome.is_success());
 	CHECK(out.outcome.success().value == 83);
 	CHECK(out.observation.loser_cancel_requested == 1);
+}
+
+TEST_CASE(
+	"work.race: fallback timeout trigger accepts a custom label",
+	"[work.race]") {
+	auto [value, value_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("value", std::move(value)),
+		race::timeout_after("body_idle_timeout", std::chrono::milliseconds{1}));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "body_idle_timeout");
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
 }
 
 TEST_CASE(

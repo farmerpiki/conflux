@@ -44,6 +44,8 @@ Use `race::timeout_after(duration)` only as a generic fallback timeout trigger.
 It uses the same blocking fallback style; socket-ring code should prefer the
 owner-local `timeout_after(ring, duration)` helper.
 
+Both fallback helpers also accept an explicit label as their first argument.
+
 Labels are borrowed by default. Use `race_owned_labels()` when labels are built
 dynamically or do not outlive the race result.
 
