@@ -843,6 +843,9 @@ public:
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
 	[[nodiscard]] virtual std::optional<CapabilityId> required_capability() const noexcept = 0;
 	virtual bool install_cancel_hook(::conflux::detail::small_move_only_function<void(CancelReason)> fn) noexcept = 0;
+	[[nodiscard]] virtual std::uint64_t
+	bind_child_for_cancellation(std::shared_ptr<ControlBlockBase> child) noexcept = 0;
+	virtual void clear_child_for_cancellation(std::uint64_t generation) noexcept = 0;
 	[[nodiscard]] virtual ReadyRegistrationResult
 	try_set_on_ready(::conflux::detail::small_move_only_function<void()> fn) noexcept = 0;
 	[[nodiscard]] virtual ClearOnReadyStatus clear_on_ready() noexcept = 0;
@@ -888,6 +891,8 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	::conflux::detail::small_move_only_function<void(CancelReason)> hook_fn_{};
 	::conflux::detail::small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
+	std::shared_ptr<ControlBlockBase> active_child_cancel_{};
+	std::uint64_t active_child_generation_{0};
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
@@ -1004,6 +1009,7 @@ public:
 	}
 	[[nodiscard]] bool request_cancel(
 		CancelReason reason) noexcept override {
+		std::shared_ptr<ControlBlockBase> child_to_cancel{};
 		{
 			std::scoped_lock const lk{mtx_};
 			if (terminal_claimed_.load(std::memory_order_acquire)) {
@@ -1014,10 +1020,14 @@ public:
 			}
 			cancellation_reason_.store(reason, std::memory_order_relaxed);
 			cancel_requested_.store(true, std::memory_order_release);
+			child_to_cancel = active_child_cancel_;
 		}
 
 		if constexpr (EnableCancellation) {
 			auto _ = stop_source_.request_stop();
+		}
+		if (child_to_cancel) {
+			(void)child_to_cancel->request_cancel(reason);
 		}
 		invoke_requested_hook_if_needed(reason);
 		return true;
@@ -1080,6 +1090,35 @@ public:
 			} catch (...) { std::terminate(); }
 		}
 		return true;
+	}
+	[[nodiscard]] std::uint64_t bind_child_for_cancellation(
+		std::shared_ptr<ControlBlockBase> child) noexcept override {
+		if (!child) {
+			return 0;
+		}
+		CancelReason reason = CancelReason::requested;
+		bool request_child = false;
+		std::uint64_t generation = 0;
+		{
+			std::scoped_lock const lk{mtx_};
+			generation = ++active_child_generation_;
+			active_child_cancel_ = child;
+			if (cancel_requested_.load(std::memory_order_acquire)) {
+				reason = cancellation_reason_.load(std::memory_order_acquire);
+				request_child = true;
+			}
+		}
+		if (request_child) {
+			(void)child->request_cancel(reason);
+		}
+		return generation;
+	}
+	void clear_child_for_cancellation(
+		std::uint64_t generation) noexcept override {
+		std::scoped_lock const lk{mtx_};
+		if (generation != 0 && generation == active_child_generation_) {
+			active_child_cancel_.reset();
+		}
 	}
 	[[nodiscard]] bool try_set_value(
 		Success<T> success) override {
@@ -1274,6 +1313,8 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	::conflux::detail::small_move_only_function<void(CancelReason)> hook_fn_{};
 	::conflux::detail::small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
+	std::shared_ptr<ControlBlockBase> active_child_cancel_{};
+	std::uint64_t active_child_generation_{0};
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
@@ -1390,6 +1431,7 @@ public:
 	}
 	[[nodiscard]] bool request_cancel(
 		CancelReason reason) noexcept override {
+		std::shared_ptr<ControlBlockBase> child_to_cancel{};
 		{
 			std::scoped_lock const lk{mtx_};
 			if (terminal_claimed_.load(std::memory_order_acquire)) {
@@ -1400,10 +1442,14 @@ public:
 			}
 			cancellation_reason_.store(reason, std::memory_order_relaxed);
 			cancel_requested_.store(true, std::memory_order_release);
+			child_to_cancel = active_child_cancel_;
 		}
 
 		if constexpr (EnableCancellation) {
 			auto _ = stop_source_.request_stop();
+		}
+		if (child_to_cancel) {
+			(void)child_to_cancel->request_cancel(reason);
 		}
 		invoke_requested_hook_if_needed(reason);
 		return true;
@@ -1466,6 +1512,35 @@ public:
 			} catch (...) { std::terminate(); }
 		}
 		return true;
+	}
+	[[nodiscard]] std::uint64_t bind_child_for_cancellation(
+		std::shared_ptr<ControlBlockBase> child) noexcept override {
+		if (!child) {
+			return 0;
+		}
+		CancelReason reason = CancelReason::requested;
+		bool request_child = false;
+		std::uint64_t generation = 0;
+		{
+			std::scoped_lock const lk{mtx_};
+			generation = ++active_child_generation_;
+			active_child_cancel_ = child;
+			if (cancel_requested_.load(std::memory_order_acquire)) {
+				reason = cancellation_reason_.load(std::memory_order_acquire);
+				request_child = true;
+			}
+		}
+		if (request_child) {
+			(void)child->request_cancel(reason);
+		}
+		return generation;
+	}
+	void clear_child_for_cancellation(
+		std::uint64_t generation) noexcept override {
+		std::scoped_lock const lk{mtx_};
+		if (generation != 0 && generation == active_child_generation_) {
+			active_child_cancel_.reset();
+		}
 	}
 	[[nodiscard]] bool try_set_value(
 		Success<void> success = Success<void>{}) noexcept override {
@@ -1838,6 +1913,16 @@ public:
 			return ClearOnReadyStatus::not_armed;
 		}
 		return core_->clear_on_ready();
+	}
+	[[nodiscard]] std::uint64_t bind_child_for_cancellation(
+		BasicControl<ControlCategory::task> const &child) noexcept {
+		return core_ ? core_->bind_child_for_cancellation(child.core_) : 0;
+	}
+	void clear_child_for_cancellation(
+		std::uint64_t generation) noexcept {
+		if (core_) {
+			core_->clear_child_for_cancellation(generation);
+		}
 	}
 	template<class F>
 		requires std::invocable<F> && std::is_nothrow_invocable_v<F>

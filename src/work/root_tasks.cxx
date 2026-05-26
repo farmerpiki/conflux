@@ -256,7 +256,13 @@ public:
 		[[nodiscard]] BasicResult get_return_object() noexcept;
 		[[nodiscard]] std::suspend_never initial_suspend() const noexcept { return {}; }
 		[[nodiscard]] std::suspend_never final_suspend() const noexcept { return {}; }
-		void unhandled_exception() noexcept { auto _ = this->state_->try_set_exception(std::current_exception()); }
+		void unhandled_exception() noexcept {
+			try {
+				throw;
+			} catch (CancelledError const &err) {
+				auto _ = this->state_->try_set_cancelled(err.reason(), false);
+			} catch (...) { auto _ = this->state_->try_set_exception(std::current_exception()); }
+		}
 	};
 };
 template<work_value T, ControlCategory Category>
@@ -271,6 +277,76 @@ using Posted = BasicResult<T, ControlCategory::posted>;
 
 template<work_value T>
 using Operation = BasicResult<T, ControlCategory::operation>;
+
+class Cancellation {
+	TaskControl control_{};
+
+public:
+	Cancellation() = default;
+	explicit Cancellation(
+		TaskControl control) noexcept
+		: control_{std::move(control)} {}
+	[[nodiscard]] bool requested() const noexcept { return control_.cancel_requested(); }
+	[[nodiscard]] CancelReason reason(
+		CancelReason fallback = CancelReason::requested) const noexcept {
+		auto current = control_.cancellation_reason();
+		return current ? *current : fallback;
+	}
+	[[nodiscard]] std::stop_token stop_token() const noexcept { return control_.stop_token(); }
+	void throw_if_requested() const {
+		if (requested()) {
+			throw CancelledError{reason()};
+		}
+	}
+	template<work_value T>
+	class child_cancel_awaiter {
+		TaskControl parent_control_;
+		std::uint64_t generation_{};
+		detail::TaskAwaiter<T> inner_;
+		bool armed_{};
+
+	public:
+		child_cancel_awaiter(
+			Cancellation parent,
+			Task<T> task) noexcept
+			: parent_control_{std::move(parent.control_)}
+			, generation_{parent_control_.bind_child_for_cancellation(task.control())}
+			, inner_{std::move(task).operator co_await()}
+			, armed_{generation_ != 0} {}
+		child_cancel_awaiter(
+			child_cancel_awaiter &&other) noexcept
+			: parent_control_{std::move(other.parent_control_)}
+			, generation_{std::exchange(other.generation_, 0)}
+			, inner_{std::move(other.inner_)}
+			, armed_{std::exchange(other.armed_, false)} {}
+		child_cancel_awaiter &operator =(child_cancel_awaiter &&) = delete;
+		child_cancel_awaiter(child_cancel_awaiter const &) = delete;
+		child_cancel_awaiter &operator =(child_cancel_awaiter const &) = delete;
+		~child_cancel_awaiter() noexcept {
+			if (armed_) {
+				parent_control_.clear_child_for_cancellation(generation_);
+			}
+		}
+		[[nodiscard]] bool await_ready() const noexcept { return inner_.await_ready(); }
+		[[nodiscard]] bool await_suspend(
+			std::coroutine_handle<> h) noexcept {
+			return inner_.await_suspend(h);
+		}
+		decltype(auto) await_resume() {
+			if (armed_) {
+				parent_control_.clear_child_for_cancellation(generation_);
+				armed_ = false;
+			}
+			return inner_.await_resume();
+		}
+	};
+	template<work_value T>
+	[[nodiscard]] child_cancel_awaiter<T> await(
+		Task<T> task) const noexcept {
+		return child_cancel_awaiter<T>{*this, std::move(task)};
+	}
+};
+
 // JoinTask<T> — strict variant: dtor on joinable state calls std::terminate.
 // No combinators (use std::move(jt).detach_to_task() to compose).
 // Obtain via require_join(task, loc) or spawn_strict(fn, loc).
@@ -666,6 +742,50 @@ template<work_value T, typename OnCancel>
 	}
 	return out;
 }
+template<class Fn>
+using cancellable_task_result_t = std::invoke_result_t<std::decay_t<Fn> &, Cancellation>;
+
+template<class T>
+struct is_task_result : std::false_type {};
+template<work_value T>
+struct is_task_result<Task<T>> : std::true_type {
+	using value_type = T;
+};
+template<class T>
+concept task_result = is_task_result<std::remove_cvref_t<T>>::value;
+
+template<class Fn>
+concept sync_cancellable_task_body = requires { typename cancellable_task_result_t<Fn>; }
+								  && work_value<cancellable_task_result_t<Fn>>
+								  && (!task_result<cancellable_task_result_t<Fn>>)
+								  && std::invocable<std::decay_t<Fn> &, Cancellation>;
+
+template<class Fn>
+concept async_cancellable_task_body = requires {
+	typename cancellable_task_result_t<Fn>;
+} && task_result<cancellable_task_result_t<Fn>> && std::invocable<std::decay_t<Fn> &, Cancellation>;
+
+template<class Fn>
+	requires sync_cancellable_task_body<Fn>
+[[nodiscard]] auto make_cancellable_task(
+	Fn &&fn,
+	std::source_location loc = std::source_location::current()) -> Task<cancellable_task_result_t<Fn>> {
+	using fn_t = std::decay_t<Fn>;
+	using T = cancellable_task_result_t<Fn>;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = true}, loc);
+	auto cancel = Cancellation{task.control()};
+	try {
+		if constexpr (std::is_void_v<T>) {
+			std::invoke(fn_t{std::forward<Fn>(fn)}, cancel);
+			auto _ = src.try_set_value(Success<void>{});
+		} else {
+			auto _ = src.try_set_value(Success<T>{std::invoke(fn_t{std::forward<Fn>(fn)}, cancel)});
+		}
+	} catch (CancelledError const &err) { auto _ = src.try_set_cancelled(err.reason()); } catch (...) {
+		auto _ = src.try_set_exception(std::current_exception());
+	}
+	return std::move(task);
+}
 template<work_value T, progress_capability Owner>
 [[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,
@@ -888,6 +1008,47 @@ template<progress_capability Driver, work_value T>
 		raise_join_not_ready(loc);
 	}
 	return std::move(*outcome);
+}
+
+template<class Fn>
+	requires async_cancellable_task_body<Fn>
+[[nodiscard]] auto make_cancellable_task(
+	Fn &&fn,
+	std::source_location loc = std::source_location::current())
+	-> Task<typename is_task_result<std::remove_cvref_t<cancellable_task_result_t<Fn>>>::value_type> {
+	using fn_t = std::decay_t<Fn>;
+	using child_task_t = std::remove_cvref_t<cancellable_task_result_t<Fn>>;
+	using T = typename is_task_result<child_task_t>::value_type;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = true}, loc);
+	auto parent_control = task.control();
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	try {
+		auto child = std::invoke(fn_t{std::forward<Fn>(fn)}, Cancellation{parent_control});
+		auto child_handle = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(child)));
+		auto const generation = parent_control.bind_child_for_cancellation(child_handle->control());
+		child_handle->control().set_on_ready_or_run(
+			[shared_src, child_handle, parent_control, generation]() mutable noexcept {
+				parent_control.clear_child_for_cancellation(generation);
+				try {
+					auto outcome = join_ready(std::move(*child_handle));
+					std::move(outcome).visit([&](auto &&arm) {
+						using arm_t = std::remove_cvref_t<decltype(arm)>;
+						if constexpr (std::same_as<arm_t, Success<T>>) {
+							auto _ = shared_src->try_set_value(std::move(arm));
+						} else if constexpr (std::same_as<arm_t, Failure>) {
+							auto _ = shared_src->try_set_exception(std::move(arm.error));
+						} else {
+							auto _ = shared_src->try_set_cancelled(arm.reason);
+						}
+					});
+				} catch (CancelledError const &err) {
+					auto _ = shared_src->try_set_cancelled(err.reason());
+				} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+			});
+	} catch (CancelledError const &err) { auto _ = shared_src->try_set_cancelled(err.reason()); } catch (...) {
+		auto _ = shared_src->try_set_exception(std::current_exception());
+	}
+	return std::move(task);
 }
 
 template<work_value T>

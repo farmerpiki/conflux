@@ -10,6 +10,8 @@ execution.
 Use `race::candidate(label, task)` for value-producing work and
 `race::trigger(label, task, reason)` for non-value work that should win by
 committing a cancellation reason, such as a deadline task.
+Use `race::task(label, fn)` when authoring a cancellable task body inline; it is
+equivalent to `race::candidate(label, root::make_cancellable_task(fn))`.
 
 Use `race::candidate_on(owner, label, posted)` or
 `race::candidate_on(driver, label, operation)` for owner-bound work. These

@@ -499,6 +499,37 @@ export template<typename Target, typename Fn>
 	}
 	return std::move(task);
 }
+export template<typename Target, typename Fn>
+[[nodiscard]] auto async_run_cancellable_on(
+	Target &target,
+	Fn &&fn) {
+	using fn_t = std::decay_t<Fn>;
+	using T = std::invoke_result_t<fn_t &, conflux::work::root::Cancellation>;
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = true});
+	auto cancel = Cancellation{task.control()};
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	auto job = [shared_src, cancel, fn = fn_t{std::forward<Fn>(fn)}]() mutable {
+		try {
+			if (cancel.requested()) {
+				auto _ = shared_src->try_set_cancelled(cancel.reason());
+				return;
+			}
+			if constexpr (std::is_void_v<T>) {
+				fn(cancel);
+				auto _ = shared_src->try_set_value(Success<T>{});
+			} else {
+				auto _ = shared_src->try_set_value(Success<T>{fn(cancel)});
+			}
+		} catch (CancelledError const &err) { auto _ = shared_src->try_set_cancelled(err.reason()); } catch (...) {
+			auto _ = shared_src->try_set_exception(std::current_exception());
+		}
+	};
+	if (!target.enqueue(std::move(job))) {
+		auto _ = shared_src->try_set_cancelled(work_errc::cancelled_requested);
+	}
+	return std::move(task);
+}
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a std::thread pool (not io_uring).
 export template<typename T>

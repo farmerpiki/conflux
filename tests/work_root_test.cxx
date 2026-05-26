@@ -16,6 +16,16 @@ root::Task<int> await_task_value(
 	root::Task<int> task) {
 	co_return co_await std::move(task);
 }
+root::Task<int> throw_cancelled_int(
+	root::CancelReason reason) {
+	throw root::CancelledError{reason};
+	co_return 0;
+}
+root::Task<void> throw_cancelled_void(
+	root::CancelReason reason) {
+	throw root::CancelledError{reason};
+	co_return;
+}
 
 #if CONFLUX_WORK_ALLOC_STATS
 root::Task<int> stats_probe_task() {
@@ -243,6 +253,140 @@ TEST_CASE(
 	auto out = root::blocking_join(std::move(task));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work.root: CancelledError in Task<int> commits cancelled outcome",
+	"[work.root]") {
+	auto out = root::blocking_join(throw_cancelled_int(root::CancelReason::deadline));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work.root: CancelledError in Task<void> commits cancelled outcome",
+	"[work.root]") {
+	auto out = root::blocking_join(throw_cancelled_void(root::CancelReason::shutdown));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task sync body returns success",
+	"[work.root]") {
+	auto task = root::make_cancellable_task([](root::Cancellation cancel) {
+		CHECK_FALSE(cancel.requested());
+		return 42;
+	});
+	CHECK(root::value(std::move(task)) == 42);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task sync body reports ordinary exception as failure",
+	"[work.root]") {
+	auto task = root::make_cancellable_task([](root::Cancellation) -> int { throw std::runtime_error{"boom"}; });
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_failure());
+	CHECK_THROWS_AS(rethrow_exception(out.failure().error), std::runtime_error);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task sync body reports CancelledError as cancelled",
+	"[work.root]") {
+	auto task = root::make_cancellable_task(
+		[](root::Cancellation) -> int { throw root::CancelledError{root::CancelReason::deadline}; });
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task supports void sync body",
+	"[work.root]") {
+	bool ran = false;
+	auto task = root::make_cancellable_task([&ran](root::Cancellation cancel) {
+		CHECK_FALSE(cancel.stop_token().stop_requested());
+		ran = true;
+	});
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_success());
+	CHECK(ran);
+}
+TEST_CASE(
+	"work.root: Cancellation await forwards parent cancellation to child",
+	"[work.root]") {
+	auto [parent, parent_src] = root::make_task_source<int>();
+	root::Cancellation cancel{parent.control()};
+	auto [child, child_src] = root::make_task_source<int>();
+	auto child_control = child.control();
+	{
+		auto awaiter = cancel.await(std::move(child));
+		parent.cancel(root::CancelReason::shutdown);
+		CHECK(child_control.cancel_requested());
+		REQUIRE(child_control.cancellation_reason().has_value());
+		CHECK(*child_control.cancellation_reason() == root::CancelReason::shutdown);
+	}
+	REQUIRE(child_src.try_set_cancelled(root::CancelReason::shutdown));
+	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::shutdown));
+}
+TEST_CASE(
+	"work.root: Cancellation await forwards already-requested parent cancellation",
+	"[work.root]") {
+	auto [parent, parent_src] = root::make_task_source<int>();
+	parent.cancel(root::CancelReason::deadline);
+	root::Cancellation cancel{parent.control()};
+	auto [child, child_src] = root::make_task_source<int>();
+	auto child_control = child.control();
+
+	auto awaiter = cancel.await(std::move(child));
+	CHECK(child_control.cancel_requested());
+	REQUIRE(child_control.cancellation_reason().has_value());
+	CHECK(*child_control.cancellation_reason() == root::CancelReason::deadline);
+
+	REQUIRE(child_src.try_set_cancelled(root::CancelReason::deadline));
+	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::deadline));
+}
+TEST_CASE(
+	"work.root: make_cancellable_task async body flattens child success",
+	"[work.root]") {
+	auto [child, child_src] = root::make_task_source<int>();
+	auto parent = root::make_cancellable_task(
+		[child = std::move(child)](root::Cancellation) mutable { return std::move(child); });
+	CHECK_FALSE(parent.control().ready());
+	REQUIRE(child_src.try_set_value(root::Success<int>{17}));
+	CHECK(root::value(std::move(parent)) == 17);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task async body propagates child failure",
+	"[work.root]") {
+	auto [child, child_src] = root::make_task_source<int>();
+	auto parent = root::make_cancellable_task(
+		[child = std::move(child)](root::Cancellation) mutable { return std::move(child); });
+	REQUIRE(child_src.try_set_exception(std::make_exception_ptr(std::runtime_error{"boom"})));
+	auto out = root::blocking_join(std::move(parent));
+	REQUIRE(out.is_failure());
+	CHECK_THROWS_AS(rethrow_exception(out.failure().error), std::runtime_error);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task async body propagates child cancellation",
+	"[work.root]") {
+	auto [child, child_src] = root::make_task_source<int>();
+	auto parent = root::make_cancellable_task(
+		[child = std::move(child)](root::Cancellation) mutable { return std::move(child); });
+	REQUIRE(child_src.try_set_cancelled(root::CancelReason::deadline));
+	auto out = root::blocking_join(std::move(parent));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work.root: make_cancellable_task async body forwards parent cancellation to child",
+	"[work.root]") {
+	auto [child, child_src] = root::make_task_source<int>();
+	auto child_control = child.control();
+	auto parent = root::make_cancellable_task(
+		[child = std::move(child)](root::Cancellation) mutable { return std::move(child); });
+	parent.cancel(root::CancelReason::shutdown);
+	CHECK(child_control.cancel_requested());
+	REQUIRE(child_control.cancellation_reason().has_value());
+	CHECK(*child_control.cancellation_reason() == root::CancelReason::shutdown);
+	REQUIRE(child_src.try_set_cancelled(root::CancelReason::shutdown));
+	auto out = root::blocking_join(std::move(parent));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
 }
 TEST_CASE(
 	"work.root: no-cancellation admission yields inert stop_token",

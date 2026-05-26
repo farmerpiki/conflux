@@ -121,6 +121,20 @@ static_assert(std::is_same_v<
 static_assert(std::is_same_v<
 			  decltype(root::make_cancellable_task_source<int>([](root::CancelReason) noexcept {})),
 			  std::pair<root::Task<int>, root::TaskSource<int>>>);
+using _Cancellation = root::Cancellation;
+static_assert(std::is_same_v<
+			  decltype(root::make_cancellable_task([](root::Cancellation) noexcept { return 1; })),
+			  root::Task<int>>);
+static_assert(std::is_same_v<
+			  decltype(std::declval<root::Cancellation const &>().await(std::declval<root::Task<int>>())),
+			  root::Cancellation::child_cancel_awaiter<int>>);
+static_assert(std::is_same_v<
+			  decltype(root::make_cancellable_task([](root::Cancellation) -> root::Task<int> { co_return 1; })),
+			  root::Task<int>>);
+static_assert(
+	std::is_same_v<
+		decltype(async_run_cancellable_on(std::declval<::WorkPool &>(), [](root::Cancellation) noexcept { return 1; })),
+		root::Task<int>>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
@@ -515,6 +529,9 @@ static_assert(
 	std::is_same_v<decltype(race::candidate(std::declval<carrier::Chain<int>>())), race::race_candidate<int>>);
 static_assert(std::is_same_v<
 			  decltype(race::candidate(std::string_view{}, std::declval<carrier::Chain<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::task(std::string_view{}, [](root::Cancellation) noexcept { return 1; })),
 			  race::race_candidate<int>>);
 static_assert(std::is_same_v<
 			  decltype(race::candidate_on(

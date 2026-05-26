@@ -47,6 +47,63 @@ TEST_CASE(
 	CHECK(cancelled);
 }
 TEST_CASE(
+	"work: async_run_cancellable_on executes callable on pool",
+	"[work]") {
+	WorkPool pool;
+	auto result = sync_wait(async_run_cancellable_on(pool, [](root::Cancellation cancel) {
+		CHECK_FALSE(cancel.requested());
+		return 42;
+	}));
+	CHECK(result == 42);
+}
+TEST_CASE(
+	"work: async_run_cancellable_on maps CancelledError to cancelled outcome",
+	"[work]") {
+	WorkPool pool;
+	auto task = async_run_cancellable_on(pool, [](root::Cancellation) -> int {
+		throw root::CancelledError{root::CancelReason::deadline};
+	});
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work: async_run_cancellable_on queued cancellation skips body",
+	"[work]") {
+	WorkPool pool{WorkPoolOptions{.threads = 1}};
+	std::mutex mtx;
+	std::condition_variable cv;
+	bool release_worker = false;
+	bool blocker_started = false;
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		blocker_started = true;
+		cv.notify_one();
+		cv.wait(lk, [&] { return release_worker; });
+	}));
+	{
+		std::unique_lock lk{mtx};
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return blocker_started; }));
+	}
+
+	bool body_ran = false;
+	auto task = async_run_cancellable_on(pool, [&body_ran](root::Cancellation) {
+		body_ran = true;
+		return 7;
+	});
+	task.cancel(root::CancelReason::shutdown);
+	{
+		std::scoped_lock const lk{mtx};
+		release_worker = true;
+	}
+	cv.notify_one();
+
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
+	CHECK_FALSE(body_ran);
+}
+TEST_CASE(
 	"work: WorkPool raw enqueue reports thrown exception to sink",
 	"[work]") {
 	std::mutex mtx;

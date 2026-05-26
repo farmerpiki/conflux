@@ -197,6 +197,13 @@ template<root::work_value T>
 	return race_candidate<T>{.label = label, .payload = std::move(chain).release_outcome()};
 }
 
+template<class Fn>
+[[nodiscard]] auto task(
+	std::string_view label,
+	Fn &&fn) {
+	return candidate(label, root::make_cancellable_task(std::forward<Fn>(fn)));
+}
+
 [[nodiscard]] race_trigger trigger(
 	root::Task<void> task,
 	root::CancelReason reason) noexcept {

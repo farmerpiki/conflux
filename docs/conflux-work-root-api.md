@@ -99,6 +99,9 @@ std::pair<Task<T>, TaskSource<T>> make_task_source(SubmitOptions = {});
 template<work_value T, typename OnCancel>
 std::pair<Task<T>, TaskSource<T>> make_cancellable_task_source(OnCancel);
 
+template<class Fn>
+Task<T> make_cancellable_task(Fn);
+
 template<work_value T, progress_capability Owner>
 std::pair<Posted<T>, PostedSource<T>> make_posted_source(Owner&, PostOptions = {});
 
@@ -145,6 +148,23 @@ installs `on_cancel(CancelReason)` as the source cancel hook. The hook is still
 advisory: the external producer must complete the source with `try_set_value`,
 `try_set_exception`, `try_set_error`, or `try_set_cancelled` when the underlying
 operation actually finishes.
+
+`make_cancellable_task(fn)` is the task-authoring helper for bodies of shape
+`fn(Cancellation) -> T` and `fn(Cancellation) -> Task<T>`. The `Cancellation`
+view exposes `requested()`, `reason()`, `stop_token()`, `throw_if_requested()`,
+and `await(Task<T>)`. `await(child)` binds parent cancellation to the child task
+until the child reaches a terminal outcome. Returning from a sync body commits
+success, throwing `CancelledError` commits cancellation, and throwing any other
+exception commits failure. Returning a child task flattens the child outcome and
+forwards parent cancellation to that child. Long-running CPU work should use an
+executor helper such as `async_run_cancellable_on` once available, because direct
+synchronous bodies run in the caller's admission path.
+
+`async_run_cancellable_on(target, fn)` is the explicit work-pool/queue variant
+for synchronous cancellable bodies. It passes `Cancellation` to `fn`, skips the
+body if cancellation was already requested before the queued job starts, and maps
+`CancelledError` to a cancelled outcome. Running jobs remain cooperatively
+cancelled; cancellation never kills a worker thread.
 
 ## Optional Allocation Diagnostics
 
