@@ -341,6 +341,21 @@ TEST_CASE(
 	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::deadline));
 }
 TEST_CASE(
+	"work.root: Cancellation await clears active child binding",
+	"[work.root]") {
+	auto [parent, parent_src] = root::make_task_source<int>();
+	root::Cancellation cancel{parent.control()};
+	auto [child, child_src] = root::make_task_source<int>();
+	auto child_control = child.control();
+	{ auto awaiter = cancel.await(std::move(child)); }
+
+	parent.cancel(root::CancelReason::shutdown);
+	CHECK_FALSE(child_control.cancel_requested());
+
+	REQUIRE(child_src.try_set_value(root::Success<int>{1}));
+	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::shutdown));
+}
+TEST_CASE(
 	"work.root: make_cancellable_task async body flattens child success",
 	"[work.root]") {
 	auto [child, child_src] = root::make_task_source<int>();
@@ -387,6 +402,25 @@ TEST_CASE(
 	auto out = root::blocking_join(std::move(parent));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
+}
+TEST_CASE(
+	"work.root: child completion racing parent cancellation has one terminal outcome",
+	"[work.root]") {
+	for (int i = 0; i != 256; ++i) {
+		auto [child, child_src] = root::make_task_source<int>();
+		auto parent = root::make_cancellable_task(
+			[child = std::move(child)](root::Cancellation) mutable { return std::move(child); });
+
+		std::jthread cancel_parent{[&parent] { parent.cancel(root::CancelReason::shutdown); }};
+		std::jthread complete_child{[&child_src, i] { (void)child_src.try_set_value(root::Success<int>{i}); }};
+
+		cancel_parent.join();
+		complete_child.join();
+
+		auto out = root::blocking_join(std::move(parent));
+		REQUIRE(out.is_success());
+		CHECK(out.success().value == i);
+	}
 }
 TEST_CASE(
 	"work.root: no-cancellation admission yields inert stop_token",
