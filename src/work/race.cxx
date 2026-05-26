@@ -830,6 +830,10 @@ template<root::work_value T, class... Participants>
 	race_options opts,
 	Participants &&...participants) {
 	auto [task, src] = root::make_task_source<race_result<T>>(root::SubmitOptions{.enable_cancellation = true});
+	if constexpr (sizeof...(Participants) == 0) {
+		(void)src.try_set_exception(std::make_exception_ptr(race_setup_error{"race: no participants"}));
+		return std::move(task);
+	}
 	auto state = std::make_shared<race_state<T, sizeof...(Participants)>>(opts, std::move(src));
 	state->configure_storage(sizeof...(Participants));
 	(state->add(std::forward<Participants>(participants)), ...);

@@ -27,6 +27,17 @@ inline constexpr bool enable_address_capability_v<DriverCap> = true;
 } // namespace conflux::work::root
 
 TEST_CASE(
+	"work.race: empty participant list fails setup",
+	"[work.race]") {
+	auto raced = race::race<int>(race::race_options{});
+
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("race setup should fail");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
+}
+
+TEST_CASE(
 	"work.race: first completion wins",
 	"[work.race]") {
 	auto [slow, slow_src] = root::make_task_source<int>();
