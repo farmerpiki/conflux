@@ -14,6 +14,7 @@ import conflux.small_function;
 import conflux.work;
 import conflux.work.root;
 import conflux.work.carrier;
+import conflux.work.race;
 import conflux.net.io_buffer;
 // ---------------------------------------------------------------------------
 // conflux.work — outer module symbols
@@ -109,6 +110,9 @@ static_assert(
 	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(std::exception_ptr{})), bool>);
 static_assert(std::is_same_v<
 			  decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::work_errc::cancelled_requested)),
+			  bool>);
+static_assert(std::is_same_v<
+			  decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::CancelReason::deadline)),
 			  bool>);
 static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{})), bool>);
 static_assert(std::is_same_v<
@@ -296,6 +300,11 @@ using _DropOnAbandon = root::drop_on_abandon;
 using _TaskControl_ = root::detail::BasicControl<root::ControlCategory::task>;
 using _PostedControl_ = root::detail::BasicControl<root::ControlCategory::posted>;
 using _OperationControl_ = root::detail::BasicControl<root::ControlCategory::operation>;
+static_assert(
+	std::is_same_v<decltype(std::declval<root::TaskControl>().request_cancel(root::CancelReason::deadline)), bool>);
+static_assert(std::is_same_v<
+			  decltype(std::declval<root::TaskControl const>().cancellation_reason()),
+			  std::optional<root::CancelReason>>);
 
 // Diagnostic sink
 using _CarrierDiagnosticSink_ = root::CarrierDiagnosticSink;
@@ -461,6 +470,72 @@ void _e1z_into_task_check_() {
 }
 
 } // namespace snapshot_model_a
+
+namespace snapshot_race {
+namespace root = conflux::work::root;
+namespace carrier = conflux::work::carrier;
+namespace race = conflux::work::race;
+
+using _winner_policy = race::winner_policy;
+using _loser_policy = race::loser_policy;
+using _loser_cleanup_policy = race::loser_cleanup_policy;
+using _race_options = race::race_options;
+using _race_winner_kind = race::race_winner_kind;
+using _race_winner_info = race::race_winner_info;
+using _race_aggregate_error_entry = race::race_aggregate_error_entry;
+using _race_aggregate_error = race::race_aggregate_error;
+using _owned_race_aggregate_error = race::owned_race_aggregate_error;
+using _race_setup_error = race::race_setup_error;
+
+template<class T>
+using _race_result_ = race::race_result<T>;
+template<class T>
+using _race_candidate_ = race::race_candidate<T>;
+template<class T>
+using _owned_labeled_race_result_ = race::owned_labeled_race_result<T>;
+using _race_trigger = race::race_trigger;
+
+static_assert(std::is_same_v<decltype(race::candidate(std::declval<root::Task<int>>())), race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate(std::string_view{}, std::declval<root::Task<int>>())),
+			  race::race_candidate<int>>);
+static_assert(
+	std::is_same_v<decltype(race::candidate(std::declval<root::TaskJoinHandle<int>>())), race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate(std::string_view{}, std::declval<root::TaskJoinHandle<int>>())),
+			  race::race_candidate<int>>);
+static_assert(
+	std::is_same_v<decltype(race::candidate(std::declval<carrier::Chain<int>>())), race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::candidate(std::string_view{}, std::declval<carrier::Chain<int>>())),
+			  race::race_candidate<int>>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger(std::declval<root::Task<void>>(), root::CancelReason::requested)),
+			  race::race_trigger>);
+static_assert(
+	std::is_same_v<
+		decltype(race::trigger(std::string_view{}, std::declval<root::Task<void>>(), root::CancelReason::deadline)),
+		race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger(std::declval<root::TaskJoinHandle<void>>(), root::CancelReason::requested)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger(
+				  std::string_view{},
+				  std::declval<root::TaskJoinHandle<void>>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::race<int>(std::declval<race::race_candidate<int>>())),
+			  root::Task<race::race_result<int>>>);
+static_assert(std::is_same_v<
+			  decltype(race::race<int>(race::race_options{}, std::declval<race::race_candidate<int>>())),
+			  root::Task<race::race_result<int>>>);
+static_assert(std::is_same_v<
+			  decltype(race::race_owned_labels<int>(race::race_options{}, std::declval<race::race_candidate<int>>())),
+			  root::Task<race::owned_labeled_race_result<int>>>);
+
+} // namespace snapshot_race
 // ---------------------------------------------------------------------------
 // conflux.net.io_buffer (E5 — moved from conflux.work)
 // ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ public:
 	// storing the handle.
 	void track(
 		root::TaskControl ctrl) {
+		root::CancelReason reason = root::CancelReason::requested;
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
@@ -49,12 +50,14 @@ public:
 				task_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
+			reason = cancel_reason_;
 			lock.unlock();
 		}
-		auto _ = ctrl.request_cancel();
+		auto _ = ctrl.request_cancel(reason);
 	}
 	void track(
 		root::PostedControl ctrl) {
+		root::CancelReason reason = root::CancelReason::requested;
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
@@ -66,12 +69,14 @@ public:
 				posted_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
+			reason = cancel_reason_;
 			lock.unlock();
 		}
-		auto _ = ctrl.request_cancel();
+		auto _ = ctrl.request_cancel(reason);
 	}
 	void track(
 		root::OperationControl ctrl) {
+		root::CancelReason reason = root::CancelReason::requested;
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
@@ -83,9 +88,10 @@ public:
 				op_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
+			reason = cancel_reason_;
 			lock.unlock();
 		}
-		auto _ = ctrl.request_cancel();
+		auto _ = ctrl.request_cancel(reason);
 	}
 	void cancel(
 		root::CancelReason reason) noexcept {
@@ -104,13 +110,13 @@ public:
 			op.swap(op_ctrls_);
 		}
 		for (auto &c: task) {
-			auto _ = c.request_cancel();
+			auto _ = c.request_cancel(reason);
 		}
 		for (auto &c: posted) {
-			auto _ = c.request_cancel();
+			auto _ = c.request_cancel(reason);
 		}
 		for (auto &c: op) {
-			auto _ = c.request_cancel();
+			auto _ = c.request_cancel(reason);
 		}
 	}
 	[[nodiscard]] bool is_cancelled() const noexcept {

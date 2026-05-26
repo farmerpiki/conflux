@@ -657,6 +657,9 @@ target_link_libraries(conflux_work_tests PRIVATE conflux conflux_options Catch2:
 add_executable(conflux_work_root_tests work_root_test.cxx)
 target_link_libraries(conflux_work_root_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
 
+add_executable(conflux_work_race_tests work_race_test.cxx)
+target_link_libraries(conflux_work_race_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
+
 add_executable(conflux_work_carrier_tests work_carrier_test.cxx)
 target_link_libraries(conflux_work_carrier_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
 
@@ -1037,6 +1040,7 @@ else()
     conflux_discover_tests(conflux_work_tests)
 endif()
 conflux_discover_tests(conflux_work_root_tests)
+conflux_discover_tests(conflux_work_race_tests)
 conflux_discover_tests(conflux_work_carrier_tests)
 conflux_discover_tests(conflux_work_carrier_phase2_tests)
 conflux_discover_tests(conflux_work_carrier_phase3_tests)

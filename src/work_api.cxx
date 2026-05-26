@@ -570,6 +570,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	std::mutex mtx;
 	std::vector<std::exception_ptr> errors;
 	bool any_cancelled = false;
+	conflux::work::root::CancelReason cancel_reason = conflux::work::root::CancelReason::requested;
 	Slots slots;
 	std::tuple<conflux::work::root::TaskJoinHandle<Ts>...> handles;
 	conflux::work::root::TaskSource<Result> src;
@@ -582,13 +583,18 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	}
 	void cancel_all() noexcept {
 		auto keepalive = this->shared_from_this();
-		auto cancel_one = [](auto &h) noexcept { auto _ = h.control().request_cancel(); };
+		auto reason = conflux::work::root::CancelReason::requested;
+		{
+			std::scoped_lock lk{mtx};
+			reason = cancel_reason;
+		}
+		auto cancel_one = [reason](auto &h) noexcept { auto _ = h.control().request_cancel(reason); };
 		std::apply([&](auto &...hs) noexcept { (cancel_one(hs), ...); }, handles);
 	}
 	void commit() noexcept {
 		using namespace conflux::work::root;
 		if (any_cancelled) {
-			auto _ = src.try_set_cancelled(work_errc::cancelled_requested);
+			auto _ = src.try_set_cancelled(cancel_reason);
 			return;
 		}
 		if (errors.size() == 1) {
@@ -623,6 +629,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 			std::scoped_lock lk{mtx};
 			if (!any_cancelled) {
 				any_cancelled = true;
+				cancel_reason = outcome.cancelled().reason;
 				should_cancel = true;
 			}
 		}

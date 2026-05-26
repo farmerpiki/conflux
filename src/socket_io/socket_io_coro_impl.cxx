@@ -50,15 +50,23 @@ enum class StopCause : std::uint8_t {
 };
 struct IoTimeoutState {
 	std::atomic<StopCause> stop_cause{StopCause::none};
+	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 	void mark_stop(
 		StopCause cause) noexcept {
 		StopCause expected = StopCause::none;
 		stop_cause.compare_exchange_strong(expected, cause, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
+	void mark_cancel(
+		wroot::CancelReason reason) noexcept {
+		cancel_reason.store(reason, std::memory_order_release);
+		mark_stop(StopCause::user_cancel);
+	}
+	[[nodiscard]] wroot::CancelReason reason() const noexcept { return cancel_reason.load(std::memory_order_acquire); }
 };
 using RecvTimeoutState = IoTimeoutState;
 struct CloseState {
 	std::atomic_bool cancel_requested{false};
+	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 };
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
@@ -101,20 +109,22 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto task_src_1 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_1.first);
 	auto shared_src = std::move(task_src_1.second);
+	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
 	OsFd const h = st.handle.get();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src, keeper = std::move(keeper)](IoResult r) mutable {
-		try {
-			if (r.res == -ECANCELED) {
-				auto _ = shared_src->try_set_cancelled();
-				return;
-			}
-			if (r.res < 0) {
-				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: send"}));
-				return;
-			}
-			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-	});
+	auto [slot, gen] =
+		st.ring->completions().reserve([shared_src, cancel_reason, keeper = std::move(keeper)](IoResult r) mutable {
+			try {
+				if (r.res == -ECANCELED) {
+					auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
+					return;
+				}
+				if (r.res < 0) {
+					auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: send"}));
+					return;
+				}
+				auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+		});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
 	if (!submit_send_borrowed(st.ring->raw(), h, data, len, ud)) {
 		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
@@ -122,22 +132,23 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	}
 	auto ring_ptr = st.ring;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src = std::move(weak_src)](wroot::CancelReason) noexcept {
-			if (!ring_ptr->submit_on_owner([ud, weak_src](SocketTaskRing &ring) {
+	auto _ = shared_src->install_cancel_hook(
+		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
+			cancel_reason->store(reason, std::memory_order_release);
+			if (!ring_ptr->submit_on_owner([ud, weak_src, reason](SocketTaskRing &ring) {
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
 					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
 						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 						if (auto src = weak_src.lock()) {
-							auto _ = src->try_set_cancelled();
+							auto _ = src->try_set_cancelled(reason);
 						}
 						return;
 					}
 					auto _ = ring.raw().submit();
 				})) {
 				if (auto src = weak_src.lock()) {
-					auto _ = src->try_set_cancelled();
+					auto _ = src->try_set_cancelled(reason);
 				}
 			}
 		});
@@ -164,9 +175,14 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto task_src_2 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_2.first);
 	auto shared_src = std::move(task_src_2.second);
+	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
 	OsFd const h = st.handle.get();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src](IoResult r) mutable {
+	auto [slot, gen] = st.ring->completions().reserve([shared_src, cancel_reason](IoResult r) mutable {
 		try {
+			if (r.res == -ECANCELED) {
+				auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
+				return;
+			}
 			if (r.res < 0) {
 				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: recv"}));
 				return;
@@ -181,22 +197,23 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	}
 	auto ring_ptr = st.ring;
 	auto weak_src2 = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src2 = std::move(weak_src2)](wroot::CancelReason) noexcept {
-			if (!ring_ptr->submit_on_owner([ud, weak_src2](SocketTaskRing &ring) {
+	auto _ = shared_src->install_cancel_hook(
+		[ring_ptr, ud, weak_src2 = std::move(weak_src2), cancel_reason](wroot::CancelReason reason) noexcept {
+			cancel_reason->store(reason, std::memory_order_release);
+			if (!ring_ptr->submit_on_owner([ud, weak_src2, reason](SocketTaskRing &ring) {
 					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
 					std::uint64_t const cud = ring.encode(cs, cg);
 					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
 						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 						if (auto src = weak_src2.lock()) {
-							auto _ = src->try_set_cancelled();
+							auto _ = src->try_set_cancelled(reason);
 						}
 						return;
 					}
 					auto _ = ring.raw().submit();
 				})) {
 				if (auto src = weak_src2.lock()) {
-					auto _ = src->try_set_cancelled();
+					auto _ = src->try_set_cancelled(reason);
 				}
 			}
 		});
@@ -258,13 +275,14 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto task_src_4 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_4.first);
 	auto shared_src = std::move(task_src_4.second);
-	[[maybe_unused]] auto _cancel = shared_src->install_cancel_hook([cs](wroot::CancelReason) noexcept {
+	[[maybe_unused]] auto _cancel = shared_src->install_cancel_hook([cs](wroot::CancelReason reason) noexcept {
+		cs->cancel_reason.store(reason, std::memory_order_release);
 		cs->cancel_requested.store(true, std::memory_order_relaxed);
 		// No cancel SQE for close — fd released after submit; cancelling close = fd leak.
 	});
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, cs](IoResult r) mutable {
 		if (cs->cancel_requested.load(std::memory_order_relaxed)) {
-			auto _ = shared_src->try_set_cancelled();
+			auto _ = shared_src->try_set_cancelled(cs->cancel_reason.load(std::memory_order_acquire));
 		} else if (r.res < 0) {
 			auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: close"}));
 		} else {
@@ -329,7 +347,7 @@ template<class T>
 			if (r.res == -ECANCELED) {
 				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
-					auto _ = shared_src->try_set_cancelled();
+					auto _ = shared_src->try_set_cancelled(state->reason());
 				} else {
 					auto _ =
 						shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, "tcp: send timed out"}));
@@ -358,22 +376,22 @@ template<class T>
 	}
 	auto ring_ptr = st.ring;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, send_ud, weak_src, state](wroot::CancelReason) noexcept {
-		state->mark_stop(StopCause::user_cancel);
-		if (!ring_ptr->submit_on_owner([send_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, send_ud, weak_src, state](wroot::CancelReason reason) noexcept {
+		state->mark_cancel(reason);
+		if (!ring_ptr->submit_on_owner([send_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), send_ud, cancel_ud)) {
 					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto lsrc = weak_src.lock()) {
-						auto _ = lsrc->try_set_cancelled();
+						auto _ = lsrc->try_set_cancelled(state->reason());
 					}
 					return;
 				}
 				auto _ = ring_ref.raw().submit();
 			})) {
 			if (auto lsrc = weak_src.lock()) {
-				auto _ = lsrc->try_set_cancelled();
+				auto _ = lsrc->try_set_cancelled(state->reason());
 			}
 		}
 	});
@@ -476,7 +494,7 @@ template<class T>
 			if (r.res == -ECANCELED) {
 				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
-					auto _ = shared_src->try_set_cancelled();
+					auto _ = shared_src->try_set_cancelled(state->reason());
 				} else {
 					auto _ =
 						shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, "tcp: recv timed out"}));
@@ -505,22 +523,22 @@ template<class T>
 	}
 	auto ring_ptr = st.ring;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason) noexcept {
-		state->mark_stop(StopCause::user_cancel);
-		if (!ring_ptr->submit_on_owner([recv_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
+		state->mark_cancel(reason);
+		if (!ring_ptr->submit_on_owner([recv_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
 					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto src = weak_src.lock()) {
-						auto _ = src->try_set_cancelled();
+						auto _ = src->try_set_cancelled(state->reason());
 					}
 					return;
 				}
 				auto _ = ring_ref.raw().submit();
 			})) {
 			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled();
+				auto _ = src->try_set_cancelled(state->reason());
 			}
 		}
 	});
@@ -548,6 +566,7 @@ struct ConnectOp {
 	std::uint64_t connect_ud{};
 
 	std::atomic_bool cancel_requested{false};
+	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 	std::atomic<StopCause> stop_cause{StopCause::none};
 	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
@@ -562,7 +581,7 @@ struct ConnectOp {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_cancelled();
+		auto _ = src->try_set_cancelled(cancel_reason.load(std::memory_order_acquire));
 	}
 	void complete_value(
 		TcpStream v) noexcept {
@@ -608,8 +627,9 @@ struct ConnectOp {
 		}
 	}
 	void request_cancel(
-		wroot::CancelReason,
+		wroot::CancelReason reason,
 		std::shared_ptr<ConnectOp> self) noexcept {
+		cancel_reason.store(reason, std::memory_order_release);
 		stop_cause.store(StopCause::user_cancel, std::memory_order_release);
 		cancel_requested.store(true, std::memory_order_release);
 		if (!ring->submit_on_owner([self](SocketTaskRing &r) { self->cancel_on_owner(r, self); })) {
@@ -762,6 +782,7 @@ struct AcceptOp {
 	int accept_flags{SOCK_CLOEXEC | SOCK_NONBLOCK};
 	std::uint64_t accept_ud{};
 	std::atomic_bool cancel_requested{false};
+	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
 	void complete_exception(
@@ -775,7 +796,7 @@ struct AcceptOp {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_cancelled();
+		auto _ = src->try_set_cancelled(cancel_reason.load(std::memory_order_acquire));
 	}
 	void complete_value(
 		TcpStream v) noexcept {
@@ -805,8 +826,9 @@ struct AcceptOp {
 		auto _ = r.raw().submit();
 	}
 	void request_cancel(
-		wroot::CancelReason,
+		wroot::CancelReason reason,
 		std::shared_ptr<AcceptOp> self) noexcept {
+		cancel_reason.store(reason, std::memory_order_release);
 		cancel_requested.store(true, std::memory_order_release);
 		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
@@ -892,6 +914,7 @@ struct MultishotAcceptOp {
 	std::uint64_t accept_ud{};
 	std::function<wroot::Task<void>(TcpStream)> handler{};
 	std::atomic_bool cancel_requested{false};
+	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 	std::atomic_bool finalized{false};
 	[[nodiscard]] bool try_finalize() noexcept { return !finalized.exchange(true, std::memory_order_acq_rel); }
 	void complete_exception(
@@ -905,7 +928,7 @@ struct MultishotAcceptOp {
 		if (!try_finalize()) {
 			return;
 		}
-		auto _ = src->try_set_cancelled();
+		auto _ = src->try_set_cancelled(cancel_reason.load(std::memory_order_acquire));
 	}
 	void cancel_on_owner(
 		SocketTaskRing &r,
@@ -928,8 +951,9 @@ struct MultishotAcceptOp {
 		auto _ = r.raw().submit();
 	}
 	void request_cancel(
-		wroot::CancelReason,
+		wroot::CancelReason reason,
 		std::shared_ptr<MultishotAcceptOp> self) noexcept {
+		cancel_reason.store(reason, std::memory_order_release);
 		cancel_requested.store(true, std::memory_order_release);
 		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
@@ -1287,7 +1311,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 			if (r.res == -ECANCELED) {
 				auto cause = state->stop_cause.load(std::memory_order_acquire);
 				if (cause == StopCause::user_cancel) {
-					auto _ = shared_src->try_set_cancelled();
+					auto _ = shared_src->try_set_cancelled(state->reason());
 				} else {
 					auto _ =
 						shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, "udp: recv timed out"}));
@@ -1320,22 +1344,22 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	auto ring_ptr = ring_;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason) noexcept {
-		state->mark_stop(StopCause::user_cancel);
-		if (!ring_ptr->submit_on_owner([recv_ud, weak_src](SocketTaskRing &ring_ref) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
+		state->mark_cancel(reason);
+		if (!ring_ptr->submit_on_owner([recv_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
 				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
 				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
 				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
 					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
 					if (auto src = weak_src.lock()) {
-						auto _ = src->try_set_cancelled();
+						auto _ = src->try_set_cancelled(state->reason());
 					}
 					return;
 				}
 				auto _ = ring_ref.raw().submit();
 			})) {
 			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled();
+				auto _ = src->try_set_cancelled(state->reason());
 			}
 		}
 	});
@@ -1350,14 +1374,15 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	auto task_src_11 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_11.first);
 	auto shared_src = std::move(task_src_11.second);
+	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
 	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(dur);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (dur - sec).count() * 1000000LL;
-	auto [slot, gen] = ring.completions().reserve([shared_src, ts](IoResult r) mutable {
+	auto [slot, gen] = ring.completions().reserve([shared_src, ts, cancel_reason](IoResult r) mutable {
 		auto _ = ts;
 		if (r.res == -ECANCELED) {
-			auto _ = shared_src->try_set_cancelled();
+			auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
 		} else {
 			auto _ = shared_src->try_set_value(wroot::Success<void>{});
 		}
@@ -1370,23 +1395,25 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	auto ring_ptr = &ring;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<void>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, weak_src](wroot::CancelReason) noexcept {
-		if (!ring_ptr->submit_on_owner([ud, weak_src](SocketTaskRing &r) noexcept {
-				auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cud = r.encode(cs, cg);
-				if (!submit_cancel_by_ud(r.raw(), ud, cud)) {
-					r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-					if (auto src = weak_src.lock()) {
-						auto _ = src->try_set_cancelled();
+	auto _ =
+		shared_src->install_cancel_hook([ring_ptr, ud, weak_src, cancel_reason](wroot::CancelReason reason) noexcept {
+			cancel_reason->store(reason, std::memory_order_release);
+			if (!ring_ptr->submit_on_owner([ud, weak_src, reason](SocketTaskRing &r) noexcept {
+					auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
+					std::uint64_t const cud = r.encode(cs, cg);
+					if (!submit_cancel_by_ud(r.raw(), ud, cud)) {
+						r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
+						if (auto src = weak_src.lock()) {
+							auto _ = src->try_set_cancelled(reason);
+						}
+						return;
 					}
-					return;
+					auto _ = r.raw().submit();
+				})) {
+				if (auto src = weak_src.lock()) {
+					auto _ = src->try_set_cancelled(reason);
 				}
-				auto _ = r.raw().submit();
-			})) {
-			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled();
 			}
-		}
-	});
+		});
 	co_await std::move(task);
 }

@@ -834,9 +834,10 @@ public:
 	}
 	[[nodiscard]] std::source_location spawn_location() const noexcept { return spawn_loc_; }
 	virtual ~ControlBlockBase() noexcept { detail::note_control_block_deallocation(); }
-	virtual bool request_cancel() noexcept = 0;
+	virtual bool request_cancel(CancelReason reason) noexcept = 0;
 	[[nodiscard]] virtual std::stop_token stop_token() const noexcept = 0;
 	[[nodiscard]] virtual bool cancel_requested() const noexcept = 0;
+	[[nodiscard]] virtual std::optional<CancelReason> cancellation_reason() const noexcept = 0;
 	[[nodiscard]] virtual bool ready() const noexcept = 0;
 	[[nodiscard]] virtual WorkState state() const noexcept = 0;
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
@@ -876,6 +877,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	std::atomic<TerminalState> terminal_state_{TerminalState::none};
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
+	std::atomic<CancelReason> cancellation_reason_{CancelReason::requested};
 	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
@@ -902,7 +904,8 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		hook_claimed_ = true;
 		return std::move(hook_fn_);
 	}
-	void invoke_requested_hook_if_needed() noexcept {
+	void invoke_requested_hook_if_needed(
+		CancelReason reason) noexcept {
 		auto fn = claim_requested_hook_if_present();
 		if (!fn) {
 			return;
@@ -911,7 +914,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			return;
 		}
 		try {
-			fn(CancelReason::requested);
+			fn(reason);
 		} catch (...) { std::terminate(); }
 	}
 	void fire_ready_hook_if_armed_() noexcept {
@@ -999,21 +1002,24 @@ public:
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
-	[[nodiscard]] bool request_cancel() noexcept override {
-		if (terminal_claimed_.load(std::memory_order_acquire)) {
-			return false;
-		}
-
-		bool expected = false;
-		if (!cancel_requested_
-				 .compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
-			return false;
+	[[nodiscard]] bool request_cancel(
+		CancelReason reason) noexcept override {
+		{
+			std::scoped_lock const lk{mtx_};
+			if (terminal_claimed_.load(std::memory_order_acquire)) {
+				return false;
+			}
+			if (cancel_requested_.load(std::memory_order_acquire)) {
+				return false;
+			}
+			cancellation_reason_.store(reason, std::memory_order_relaxed);
+			cancel_requested_.store(true, std::memory_order_release);
 		}
 
 		if constexpr (EnableCancellation) {
 			auto _ = stop_source_.request_stop();
 		}
-		invoke_requested_hook_if_needed();
+		invoke_requested_hook_if_needed(reason);
 		return true;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept override {
@@ -1025,6 +1031,12 @@ public:
 	}
 	[[nodiscard]] bool cancel_requested() const noexcept override {
 		return cancel_requested_.load(std::memory_order_acquire);
+	}
+	[[nodiscard]] std::optional<CancelReason> cancellation_reason() const noexcept override {
+		if (!cancel_requested_.load(std::memory_order_acquire)) {
+			return std::nullopt;
+		}
+		return cancellation_reason_.load(std::memory_order_acquire);
 	}
 	[[nodiscard]] bool ready() const noexcept override {
 		return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
@@ -1064,7 +1076,7 @@ public:
 		}
 		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
 			try {
-				invoke_now(CancelReason::requested);
+				invoke_now(cancellation_reason_.load(std::memory_order_acquire));
 			} catch (...) { std::terminate(); }
 		}
 		return true;
@@ -1251,6 +1263,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	std::atomic<TerminalState> terminal_state_{TerminalState::none};
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
+	std::atomic<CancelReason> cancellation_reason_{CancelReason::requested};
 	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
@@ -1277,7 +1290,8 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		hook_claimed_ = true;
 		return std::move(hook_fn_);
 	}
-	void invoke_requested_hook_if_needed() noexcept {
+	void invoke_requested_hook_if_needed(
+		CancelReason reason) noexcept {
 		auto fn = claim_requested_hook_if_present();
 		if (!fn) {
 			return;
@@ -1286,7 +1300,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			return;
 		}
 		try {
-			fn(CancelReason::requested);
+			fn(reason);
 		} catch (...) { std::terminate(); }
 	}
 	[[nodiscard]] bool try_claim_terminal() noexcept {
@@ -1374,21 +1388,24 @@ public:
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
-	[[nodiscard]] bool request_cancel() noexcept override {
-		if (terminal_claimed_.load(std::memory_order_acquire)) {
-			return false;
-		}
-
-		bool expected = false;
-		if (!cancel_requested_
-				 .compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
-			return false;
+	[[nodiscard]] bool request_cancel(
+		CancelReason reason) noexcept override {
+		{
+			std::scoped_lock const lk{mtx_};
+			if (terminal_claimed_.load(std::memory_order_acquire)) {
+				return false;
+			}
+			if (cancel_requested_.load(std::memory_order_acquire)) {
+				return false;
+			}
+			cancellation_reason_.store(reason, std::memory_order_relaxed);
+			cancel_requested_.store(true, std::memory_order_release);
 		}
 
 		if constexpr (EnableCancellation) {
 			auto _ = stop_source_.request_stop();
 		}
-		invoke_requested_hook_if_needed();
+		invoke_requested_hook_if_needed(reason);
 		return true;
 	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept override {
@@ -1400,6 +1417,12 @@ public:
 	}
 	[[nodiscard]] bool cancel_requested() const noexcept override {
 		return cancel_requested_.load(std::memory_order_acquire);
+	}
+	[[nodiscard]] std::optional<CancelReason> cancellation_reason() const noexcept override {
+		if (!cancel_requested_.load(std::memory_order_acquire)) {
+			return std::nullopt;
+		}
+		return cancellation_reason_.load(std::memory_order_acquire);
 	}
 	[[nodiscard]] bool ready() const noexcept override {
 		return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
@@ -1439,7 +1462,7 @@ public:
 		}
 		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
 			try {
-				invoke_now(CancelReason::requested);
+				invoke_now(cancellation_reason_.load(std::memory_order_acquire));
 			} catch (...) { std::terminate(); }
 		}
 		return true;
@@ -1782,11 +1805,17 @@ public:
 	explicit BasicControl(
 		std::shared_ptr<ControlBlockBase> core) noexcept
 		: core_{std::move(core)} {}
-	[[nodiscard]] bool request_cancel() noexcept { return core_ ? core_->request_cancel() : false; }
+	[[nodiscard]] bool request_cancel(
+		CancelReason reason = CancelReason::requested) noexcept {
+		return core_ ? core_->request_cancel(reason) : false;
+	}
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
 		return core_ ? core_->stop_token() : std::stop_token{};
 	}
 	[[nodiscard]] bool cancel_requested() const noexcept { return core_ ? core_->cancel_requested() : false; }
+	[[nodiscard]] std::optional<CancelReason> cancellation_reason() const noexcept {
+		return core_ ? core_->cancellation_reason() : std::nullopt;
+	}
 	[[nodiscard]] bool ready() const noexcept { return core_ ? core_->ready() : false; }
 	[[nodiscard]] WorkState state() const noexcept { return core_ ? core_->state() : WorkState::pending; }
 	[[nodiscard]] bool can_join_with(
@@ -1893,6 +1922,10 @@ public:
 		work_errc errc = work_errc::cancelled_requested) noexcept {
 		return state_ ? state_->try_set_cancelled(errc_cancel_reason(errc), false) : false;
 	}
+	[[nodiscard]] bool try_set_cancelled(
+		CancelReason reason) noexcept {
+		return state_ ? state_->try_set_cancelled(reason, false) : false;
+	}
 	[[nodiscard]] bool try_set_error(
 		std::error_code ec) {
 		return state_ ? state_->try_set_error(ec) : false;
@@ -1966,6 +1999,10 @@ public:
 	[[nodiscard]] bool try_set_cancelled(
 		work_errc errc = work_errc::cancelled_requested) noexcept {
 		return state_ ? state_->try_set_cancelled(errc_cancel_reason(errc), false) : false;
+	}
+	[[nodiscard]] bool try_set_cancelled(
+		CancelReason reason) noexcept {
+		return state_ ? state_->try_set_cancelled(reason, false) : false;
 	}
 	[[nodiscard]] bool try_set_error(
 		std::error_code ec) {

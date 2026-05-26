@@ -636,6 +636,7 @@ conflux_add_module_library(conflux_work
         ${CONFLUX_SRC_ROOT}/work/carrier_coro.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_streams.cxx
         ${CONFLUX_SRC_ROOT}/work/carrier_timer.cxx
+        ${CONFLUX_SRC_ROOT}/work/race.cxx
         ${CONFLUX_SRC_ROOT}/work/root_core.cxx
         ${CONFLUX_SRC_ROOT}/work/root_tasks.cxx
         ${CONFLUX_SRC_ROOT}/work/root.cxx

@@ -189,7 +189,43 @@ TEST_CASE(
 	CHECK(control.request_cancel());
 	CHECK_FALSE(control.request_cancel());
 	CHECK(control.cancel_requested());
+	REQUIRE(control.cancellation_reason().has_value());
+	CHECK(*control.cancellation_reason() == root::CancelReason::requested);
 	(void)src;
+}
+TEST_CASE(
+	"work.root: request_cancel stores and forwards first reason",
+	"[work.root]") {
+	auto [control, src] = root::make_task_control_source<int>();
+	std::optional<root::CancelReason> hook_reason{};
+	REQUIRE(src.install_cancel_hook([&hook_reason](root::CancelReason reason) noexcept { hook_reason = reason; }));
+
+	CHECK(control.request_cancel(root::CancelReason::deadline));
+	CHECK_FALSE(control.request_cancel(root::CancelReason::shutdown));
+	REQUIRE(control.cancellation_reason().has_value());
+	CHECK(*control.cancellation_reason() == root::CancelReason::deadline);
+	REQUIRE(hook_reason.has_value());
+	CHECK(*hook_reason == root::CancelReason::deadline);
+}
+TEST_CASE(
+	"work.root: late cancel hook receives stored reason",
+	"[work.root]") {
+	auto [control, src] = root::make_task_control_source<int>();
+	CHECK(control.request_cancel(root::CancelReason::shutdown));
+
+	std::optional<root::CancelReason> hook_reason{};
+	REQUIRE(src.install_cancel_hook([&hook_reason](root::CancelReason reason) noexcept { hook_reason = reason; }));
+	REQUIRE(hook_reason.has_value());
+	CHECK(*hook_reason == root::CancelReason::shutdown);
+}
+TEST_CASE(
+	"work.root: source can commit cancellation by reason",
+	"[work.root]") {
+	auto [task, src] = root::make_task_source<int>();
+	REQUIRE(src.try_set_cancelled(root::CancelReason::deadline));
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::deadline);
 }
 TEST_CASE(
 	"work.root: no-cancellation admission yields inert stop_token",

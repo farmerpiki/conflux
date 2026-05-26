@@ -206,9 +206,10 @@ public:
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
 	}
-	void cancel() noexcept {
+	void cancel(
+		CancelReason reason = CancelReason::requested) noexcept {
 		if (state_js_ != join_state::empty) {
-			auto _ = control().request_cancel();
+			auto _ = control().request_cancel(reason);
 		}
 	}
 	void detach() && noexcept {
@@ -311,7 +312,10 @@ public:
 	[[nodiscard]] JoinTask &&consume() & noexcept { return std::move(*this); }
 	[[nodiscard]] JoinTask &&consume() && noexcept { return std::move(*this); }
 	[[nodiscard]] decltype(auto) control() const noexcept { return inner_.control(); }
-	void cancel() noexcept { inner_.cancel(); }
+	void cancel(
+		CancelReason reason = CancelReason::requested) noexcept {
+		inner_.cancel(reason);
+	}
 	// Downgrade to Task<T> (enables combinators). Caller accepts auto-detach.
 	[[nodiscard]] Task<T> detach_to_task() && noexcept {
 		auto out = std::move(inner_);

@@ -1,0 +1,192 @@
+// Plain TU — not a module unit.
+#include <catch2/catch_test_macros.hpp>
+
+import std;
+import conflux.work.root;
+import conflux.work.carrier;
+import conflux.work.race;
+
+namespace root = conflux::work::root;
+namespace carrier = conflux::work::carrier;
+namespace race = conflux::work::race;
+
+TEST_CASE(
+	"work.race: first completion wins",
+	"[work.race]") {
+	auto [slow, slow_src] = root::make_task_source<int>();
+	auto [fast, fast_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.winner = race::winner_policy::first_completion},
+		race::candidate("slow", std::move(slow)),
+		race::candidate("fast", std::move(fast)));
+
+	REQUIRE(fast_src.try_set_value(root::Success<int>{7}));
+	REQUIRE(slow_src.try_set_value(root::Success<int>{3}));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 1);
+	CHECK(out.winner.label == "fast");
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 7);
+}
+
+TEST_CASE(
+	"work.race: first success ignores early failure",
+	"[work.race]") {
+	auto [bad, bad_src] = root::make_task_source<int>();
+	auto [good, good_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.winner = race::winner_policy::first_success},
+		race::candidate("bad", std::move(bad)),
+		race::candidate("good", std::move(good)));
+
+	REQUIRE(bad_src.try_set_exception(std::make_exception_ptr(std::runtime_error{"bad"})));
+	CHECK_FALSE(raced.control().ready());
+
+	REQUIRE(good_src.try_set_value(root::Success<int>{42}));
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 1);
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 42);
+}
+
+TEST_CASE(
+	"work.race: trigger wins with cancellation reason",
+	"[work.race]") {
+	auto [value, value_src] = root::make_task_source<int>();
+	auto [deadline, deadline_src] = root::make_task_source<void>();
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("value", std::move(value)),
+		race::trigger("deadline", std::move(deadline), root::CancelReason::deadline));
+
+	REQUIRE(deadline_src.try_set_value());
+	REQUIRE(value_src.try_set_value(root::Success<int>{1}));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 1);
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+}
+
+TEST_CASE(
+	"work.race: ready chain can win",
+	"[work.race]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto chain = carrier::Chain<int>{root::Outcome<int>{root::Success<int>{5}}, carrier::CarrierKind::task};
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("memory", std::move(chain)),
+		race::candidate("task", std::move(task)));
+
+	REQUIRE(src.try_set_value(root::Success<int>{9}));
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 0);
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 5);
+}
+
+TEST_CASE(
+	"work.race: request_cancel cancels loser without waiting for loser terminal completion",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+	auto loser_control = loser.control();
+
+	auto raced = race::race<int>(
+		race::race_options{.losers = race::loser_policy::request_cancel},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{11}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 11);
+	CHECK(loser_control.cancel_requested());
+
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
+	"work.race: external cancellation forwards reason to live participants",
+	"[work.race]") {
+	auto [left, left_src] = root::make_task_source<int>();
+	auto [right, right_src] = root::make_task_source<int>();
+	auto left_control = left.control();
+	auto right_control = right.control();
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("left", std::move(left)),
+		race::candidate("right", std::move(right)));
+
+	raced.cancel(root::CancelReason::deadline);
+	CHECK(left_control.cancel_requested());
+	CHECK(right_control.cancel_requested());
+	CHECK(left_control.cancellation_reason() == root::CancelReason::deadline);
+	CHECK(right_control.cancellation_reason() == root::CancelReason::deadline);
+
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("race should be cancelled");
+	} catch (root::CancelledError const &err) { CHECK(err.reason() == root::CancelReason::deadline); }
+
+	REQUIRE(left_src.try_set_cancelled(root::CancelReason::deadline));
+	REQUIRE(right_src.try_set_cancelled(root::CancelReason::deadline));
+}
+
+TEST_CASE(
+	"work.race: owned label wrapper keeps dynamic winner label alive",
+	"[work.race]") {
+	auto [left, left_src] = root::make_task_source<int>();
+	auto [right, right_src] = root::make_task_source<int>();
+	std::string dynamic = "right";
+
+	auto raced = race::race_owned_labels<int>(
+		race::race_options{},
+		race::candidate("left", std::move(left)),
+		race::candidate(std::string_view{dynamic}, std::move(right)));
+
+	dynamic = "changed";
+	REQUIRE(right_src.try_set_value(root::Success<int>{12}));
+	REQUIRE(left_src.try_set_value(root::Success<int>{1}));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner_label() == "right");
+	CHECK(out.result.winner.label == "right");
+}
+
+TEST_CASE(
+	"work.race: owned label wrapper keeps aggregate failure labels alive",
+	"[work.race]") {
+	auto [left, left_src] = root::make_task_source<int>();
+	auto [right, right_src] = root::make_task_source<int>();
+	std::string left_label = "left";
+	std::string right_label = "right";
+
+	auto raced = race::race_owned_labels<int>(
+		race::race_options{.winner = race::winner_policy::first_success},
+		race::candidate(std::string_view{left_label}, std::move(left)),
+		race::candidate(std::string_view{right_label}, std::move(right)));
+
+	left_label = "changed-left";
+	right_label = "changed-right";
+	REQUIRE(left_src.try_set_exception(std::make_exception_ptr(std::runtime_error{"left failed"})));
+	REQUIRE(right_src.try_set_exception(std::make_exception_ptr(std::runtime_error{"right failed"})));
+
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.result.outcome.is_failure());
+	try {
+		std::rethrow_exception(out.result.outcome.failure().error);
+		FAIL("aggregate failure expected");
+	} catch (race::owned_race_aggregate_error const &err) {
+		REQUIRE(err.entries().size() == 2);
+		CHECK(err.entries()[0].label == "left");
+		CHECK(err.entries()[1].label == "right");
+	}
+}

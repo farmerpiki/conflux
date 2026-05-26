@@ -133,6 +133,8 @@ Options currently supported:
 
 When `enable_cancellation=false`, `stop_token()` is inert (`stop_possible()==false`),
 but `request_cancel()` still marks cancel-request state and runs installed hooks.
+The request can carry a `CancelReason`; old no-argument calls mean
+`CancelReason::requested`.
 
 ## Optional Allocation Diagnostics
 
@@ -238,6 +240,7 @@ sections or changing scheduling semantics in default builds.
 - `try_set_exception(std::exception_ptr)`
 - `try_set_error(std::error_code)` / `try_set_error(std::error_code, std::string_view)`
 - `try_set_cancelled(work_errc = work_errc::cancelled_requested)`
+- `try_set_cancelled(CancelReason)`
 - `install_cancel_hook(fn)`
 - `stop_token()`
 
@@ -254,7 +257,7 @@ Rules:
 
 `install_cancel_hook` followed by `try_set_*` on a different thread is safe.
 The cancel hook is **advisory and independent of terminal state.** A call to
-`request_cancel()` fires the hook at most once but does NOT prevent a
+`request_cancel(reason)` fires the hook at most once but does NOT prevent a
 subsequent `try_set_value` from winning the terminal state. Both can happen:
 hook fires (cancel requested) and the terminal state is success (because
 the work completed before the cancel took effect). This is by design —
@@ -263,7 +266,8 @@ fired cancel hook means the source cannot set success.
 
 Hook installation after terminal completion returns `false` and does not run the
 hook. Hook installation after a cancel request but before terminal completion runs
-the hook synchronously on the calling thread, unless a hook was already installed.
+the hook synchronously on the calling thread with the stored first cancellation
+reason, unless a hook was already installed.
 
 **`on_ready` callback and abandon:** when the producer side abandons the control
 block without calling a terminal `try_set_*` (e.g., `~TaskSource` without a set),
@@ -295,9 +299,10 @@ Cancel hooks must be noexcept. They fire synchronously on the
 
 `TaskControl` / `PostedControl` / `OperationControl` provide:
 
-- `request_cancel() -> bool`
+- `request_cancel(CancelReason = CancelReason::requested) -> bool`
 - `stop_token() -> std::stop_token`
 - `cancel_requested() -> bool`
+- `cancellation_reason() -> std::optional<CancelReason>`
 - `ready() -> bool`
 - `state() -> WorkState`
 - `can_join_with(CapabilityId) -> bool`
@@ -306,13 +311,15 @@ Cancel hooks must be noexcept. They fire synchronously on the
 - `clear_on_ready() -> ClearOnReadyStatus`
 - `set_on_ready_or_run(F&&) noexcept` (convenience: installs or runs immediately)
 
-`request_cancel()` returns `true` only for the first successful request before
-terminal completion.
+`request_cancel(reason)` returns `true` only for the first successful request
+before terminal completion. The first successful request stores `reason`;
+subsequent requests return `false` and do not change the stored reason.
 
 Cancel hook semantics:
 
 - single installed hook at most
-- first successful cancel request runs hook synchronously
+- first successful cancel request runs hook synchronously with the stored reason
+- late hook installation after a cancel request runs immediately with the stored reason
 - hook must not throw; throwing hook terminates
 
 ### Ready Callback APIs
