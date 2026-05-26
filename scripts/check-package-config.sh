@@ -64,7 +64,7 @@ grep -q 'add_test(NAME docs/release-notes' tests/CMakeLists.txt \
     || fail "missing release-notes CTest guard"
 grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' cmake/ConfluxOptions.cmake \
     || fail "missing package smoke component cache variable"
-grep -q 'add_test(NAME build/package-config-install-tree' tests/CMakeLists.txt \
+grep -q 'add_test(NAME build/package-config-install-tree' cmake/ConfluxOptions.cmake \
     || fail "missing installed-prefix package smoke CTest guard"
 grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' cmake/ConfluxOptions.cmake \
     || fail "missing package-only CTest option"
@@ -90,12 +90,14 @@ grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfa
     || fail "header generated targets must override release optimization for fast compile"
 grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in install-tree smoke CTest option"
-grep -q 'add_test(NAME build/install-tree-smoke' tests/CMakeLists.txt \
+grep -q 'add_test(NAME build/install-tree-smoke' cmake/ConfluxOptions.cmake \
 	|| fail "missing install-tree smoke CTest guard"
 grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' cmake/ConfluxOptions.cmake \
 	|| fail "HEADER_INTERFACE must disable CMake module scanning"
 grep -q '"name": "release-header-artifacts"' CMakePresets.json \
     || fail "missing release-header-artifacts preset"
+grep -A14 '"name": "release-header-artifacts"' CMakePresets.json | grep -q '"CONFLUX_FEATURE_SET": "release-json"' \
+    || fail "release-header-artifacts must pin release-json feature set"
 grep -q '"configurePreset": "release-clang-libcxx"' CMakePresets.json \
     || fail "missing release-clang-libcxx test preset"
 grep -q '"name": "release-core-install-smoke"' CMakePresets.json \
@@ -243,6 +245,27 @@ grep -q 'extra_cmake_args' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must forward extra configure args"
 grep -q 'run-package-config-smoke.sh' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must consume the installed prefix"
+grep -q 'function(conflux_add_package_config_install_tree_test source_dir build_dir)' cmake/ConfluxOptions.cmake \
+    || fail "package-config install-tree CTest must use the shared filtered argument helper"
+if grep -q 'mixed-module-header-smoke>' tests/CMakeLists.txt cmake/ConfluxHeaderInterface.cmake; then
+    fail "install-tree smoke CTest must not use generator expressions that emit empty arguments"
+fi
+grep -q 'function(conflux_add_install_tree_smoke_test source_dir)' cmake/ConfluxOptions.cmake \
+    || fail "install-tree smoke CTest must use the shared filtered argument helper"
+grep -q '_conflux_install_tree_smoke_args' cmake/ConfluxOptions.cmake \
+    || fail "install-tree smoke helper must build its command from a filtered argument list"
+grep -q 'function(conflux_escape_package_smoke_components out_var)' cmake/ConfluxOptions.cmake \
+    || fail "package smoke CTest helpers must share component-list escaping"
+grep -q 'string(REPLACE ";" "\\\\;" _conflux_escaped_components' cmake/ConfluxOptions.cmake \
+    || fail "package smoke CTest helpers must preserve component lists as one command argument"
+grep -q 'conflux_add_install_tree_smoke_test("${CMAKE_SOURCE_DIR}")' tests/CMakeLists.txt \
+    || fail "install-tree smoke CTest must use the shared filtered argument helper"
+grep -q 'conflux_add_install_tree_smoke_test("${CMAKE_CURRENT_SOURCE_DIR}")' cmake/ConfluxHeaderInterface.cmake \
+    || fail "header install-tree smoke CTest must use the shared filtered argument helper"
+grep -q 'conflux_add_package_config_install_tree_test(' tests/CMakeLists.txt \
+    || fail "package-config install-tree CTest must use the shared filtered argument helper"
+grep -q 'conflux_add_package_config_install_tree_test(' cmake/ConfluxHeaderInterface.cmake \
+    || fail "header package-config install-tree CTest must use the shared filtered argument helper"
 grep -q -- '--enable-db-smoke' scripts/run-install-tree-smoke.sh \
 	|| fail "install-tree smoke runner must forward DB-enabled package smoke"
 grep -q -- '--forbid-components' scripts/run-install-tree-smoke.sh \
@@ -269,6 +292,10 @@ grep -q 'check-release-artifact.py' scripts/stage-release-artifacts.sh \
     || fail "release artifact staging must self-check staged output"
 grep -q 'cmake --preset "$preset"' scripts/stage-release-artifacts.sh \
     || fail "release artifact staging must prefer the preset build"
+grep -q -- '--feature-set' scripts/stage-release-artifacts.sh \
+    || fail "release artifact staging must expose an explicit feature-set"
+grep -q 'CONFLUX_FEATURE_SET="\$feature_set"' scripts/stage-release-artifacts.sh \
+    || fail "release artifact staging explicit build path must pass the selected feature-set"
 grep -q 'module-header-bridge-manifest.json' scripts/stage-release-artifacts.sh \
     || fail "release artifact staging must include the bridge manifest"
 grep -q 'python_version' scripts/check-release-artifact.py \

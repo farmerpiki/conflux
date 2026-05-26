@@ -8,10 +8,11 @@ stage_dir="${tmp_root}/stage"
 tarball=""
 build_dir_set=0
 preset="release-header-artifacts"
+feature_set="release-json"
 
 usage() {
     cat <<'USAGE'
-usage: scripts/stage-release-artifacts.sh [--build-dir DIR] [--stage-dir DIR] [--tarball FILE] [--no-tarball] [--source-root DIR]
+usage: scripts/stage-release-artifacts.sh [--build-dir DIR] [--stage-dir DIR] [--tarball FILE] [--no-tarball] [--source-root DIR] [--feature-set NAME]
 
 Stages the modules-first preview release artifact shape:
   source/      tracked module sources and release docs
@@ -41,6 +42,10 @@ while (($#)); do
             ;;
         --source-root)
             root="$(cd "$2" && pwd)"
+            shift 2
+            ;;
+        --feature-set)
+            feature_set="$2"
             shift 2
             ;;
         -h|--help)
@@ -83,6 +88,7 @@ if [[ "$build_dir_set" -eq 0 && "$root" == "$(pwd)" ]]; then
 else
     cmake -S "$root" -B "$build_dir" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCONFLUX_FEATURE_SET="$feature_set" \
         -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
         -DCONFLUX_USE_MOCK_LIBURING=ON \
         -DCONFLUX_BUILD_TESTS=OFF \
@@ -122,6 +128,7 @@ fi
     printf 'build_dir=%s\n' "$build_dir"
     printf 'stage_dir=%s\n' "$stage_dir"
     printf 'primary_interface=MODULE_INTERFACE\n'
+    printf 'feature_set=%s\n' "$feature_set"
     printf 'generated_header_artifact=install/include/conflux\n'
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"

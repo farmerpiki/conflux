@@ -307,6 +307,7 @@
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-json",
         "CONFLUX_ENABLE_LTO": "OFF",
         "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
         "CONFLUX_USE_MOCK_LIBURING": "ON",

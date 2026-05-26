@@ -1198,42 +1198,12 @@ endif()
 
 if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         AND CONFLUX_PACKAGE_SMOKE_PREFIX)
-    set(_conflux_package_smoke_args
-        --source "${CMAKE_SOURCE_DIR}"
-        --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
-        --build-dir "${CMAKE_BINARY_DIR}/package-smoke"
-        --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
-    if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE)
-        list(APPEND _conflux_package_smoke_args
-            --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
-    endif()
-    if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
-        list(APPEND _conflux_package_smoke_args --mixed-module-header)
-    endif()
-    add_test(NAME build/package-config-install-tree
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
-                ${_conflux_package_smoke_args})
-    set_tests_properties(build/package-config-install-tree PROPERTIES
-        LABELS "build;package;install"
-    )
+    conflux_add_package_config_install_tree_test(
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_BINARY_DIR}/package-smoke")
 endif()
 
 if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
-    add_test(NAME build/install-tree-smoke
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/run-install-tree-smoke.sh"
-                --source "${CMAKE_SOURCE_DIR}"
-                --build-dir "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR}"
-                --prefix "${CONFLUX_INSTALL_TREE_SMOKE_PREFIX}"
-                --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
-                --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
-                --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
-                --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
-                --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
-                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}"
-                $<$<BOOL:${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}>:--mixed-module-header-smoke>
-                -- ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
-    set_tests_properties(build/install-tree-smoke PROPERTIES
-        LABELS "build;package;install"
-    )
+    conflux_add_install_tree_smoke_test("${CMAKE_SOURCE_DIR}")
 endif()

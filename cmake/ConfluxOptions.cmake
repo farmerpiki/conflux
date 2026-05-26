@@ -313,6 +313,35 @@ option(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER
     "Enable downstream package smoke with one module-import TU and one header-include TU" OFF)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
+
+function(conflux_escape_package_smoke_components out_var)
+    string(REPLACE ";" "\\;" _conflux_escaped_components
+        "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+    set(${out_var} "${_conflux_escaped_components}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_add_package_config_install_tree_test source_dir build_dir)
+    conflux_escape_package_smoke_components(_conflux_package_smoke_components)
+    set(_conflux_package_smoke_args
+        --source "${source_dir}"
+        --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
+        --build-dir "${build_dir}"
+        --components "${_conflux_package_smoke_components}")
+    if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE)
+        list(APPEND _conflux_package_smoke_args
+            --interface-mode "${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}")
+    endif()
+    if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+        list(APPEND _conflux_package_smoke_args --mixed-module-header)
+    endif()
+
+    add_test(NAME build/package-config-install-tree
+        COMMAND "${source_dir}/scripts/run-package-config-smoke.sh"
+                ${_conflux_package_smoke_args})
+    set_tests_properties(build/package-config-install-tree PROPERTIES
+        LABELS "build;package;install")
+endfunction()
+
 option(CONFLUX_RUN_INSTALL_TREE_SMOKE
     "Add an opt-in CTest that builds, installs, and consumes a fresh conflux install tree" OFF)
 set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-build" CACHE PATH
@@ -333,6 +362,34 @@ set_property(CACHE CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     MODULE_INTERFACE HEADER_INTERFACE)
 set(CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS "" CACHE STRING
     "Semicolon-separated extra CMake configure arguments for the opt-in install-tree smoke test")
+
+function(conflux_add_install_tree_smoke_test source_dir)
+    conflux_escape_package_smoke_components(_conflux_package_smoke_components)
+    set(_conflux_install_tree_smoke_args
+        --source "${source_dir}"
+        --build-dir "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR}"
+        --prefix "${CONFLUX_INSTALL_TREE_SMOKE_PREFIX}"
+        --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
+        --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
+        --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
+        --generator "${CONFLUX_INSTALL_TREE_SMOKE_GENERATOR}"
+        --interface-mode "${CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE}"
+        --components "${_conflux_package_smoke_components}")
+    if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
+        list(APPEND _conflux_install_tree_smoke_args --mixed-module-header-smoke)
+    endif()
+    if(CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS)
+        list(APPEND _conflux_install_tree_smoke_args
+            --
+            ${CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS})
+    endif()
+
+    add_test(NAME build/install-tree-smoke
+        COMMAND "${source_dir}/scripts/run-install-tree-smoke.sh"
+                ${_conflux_install_tree_smoke_args})
+    set_tests_properties(build/install-tree-smoke PROPERTIES
+        LABELS "build;package;install")
+endfunction()
 option(CONFLUX_FETCH_TEST_DEPS "Allow FetchContent downloads for test-only dependencies" OFF)
 set(CONFLUX_TEST_CATCH2_PROVIDER "SYSTEM" CACHE STRING
     "Catch2 provider for tests: FETCH builds Catch2 with the active stdlib, SYSTEM uses find_package, AUTO tries SYSTEM then FETCH")

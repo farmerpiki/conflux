@@ -13,6 +13,15 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def read_manifest(path: Path) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            entries[key] = value
+    return entries
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         fail("usage: check-release-artifact.py <stage-dir>")
@@ -37,6 +46,10 @@ def main(argv: list[str]) -> int:
     for path in required:
         if not path.exists():
             fail(f"missing {path.relative_to(stage)}")
+
+    release_manifest = read_manifest(stage / "release-artifact-manifest.txt")
+    if release_manifest.get("feature_set") != "release-json":
+        fail("release artifact must be staged with feature_set=release-json")
 
     manifest_path = stage / "artifacts" / "module-header-bridge-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
