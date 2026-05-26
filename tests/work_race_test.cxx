@@ -479,6 +479,30 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: cleanup budget does not fire after loser drains",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+	auto loser_control = loser.control();
+
+	auto raced = race::race<int>(
+		race::race_options{
+			.cleanup = race::loser_cleanup_policy::fail_after_cleanup_deadline,
+			.loser_cleanup_budget = std::chrono::milliseconds{50},
+		},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{19}));
+	CHECK(loser_control.cancel_requested());
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 19);
+}
+
+TEST_CASE(
 	"work.race: unsupported cleanup policies fail setup",
 	"[work.race]") {
 	auto [work, work_src] = root::make_task_source<int>();
