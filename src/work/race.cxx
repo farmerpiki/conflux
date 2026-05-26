@@ -377,6 +377,15 @@ public:
 		ps_.push_back(std::move(p));
 	}
 
+	void reserve(
+		std::size_t n) {
+		ps_.reserve(n);
+		failures_.reserve(n);
+		if (opts_.collect_loser_outcomes) {
+			loser_outcomes_.reserve(n > 0 ? n - 1 : 0);
+		}
+	}
+
 	void add(
 		race_trigger t) {
 		participant<T> p{
@@ -722,6 +731,7 @@ template<root::work_value T, class... Participants>
 	Participants &&...participants) {
 	auto [task, src] = root::make_task_source<race_result<T>>(root::SubmitOptions{.enable_cancellation = true});
 	auto state = std::make_shared<race_state<T>>(opts, std::move(src));
+	state->reserve(sizeof...(Participants));
 	(state->add(std::forward<Participants>(participants)), ...);
 	auto out = std::move(task);
 	state->install_output_cancel_hook(std::weak_ptr<race_state<T>>{state});
