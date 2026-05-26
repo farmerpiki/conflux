@@ -566,6 +566,18 @@ template<root::work_value T, class... Participants>
 }
 
 template<root::work_value T>
+[[nodiscard]] root::Task<race_result<T>> with_timeout(
+	root::Task<T> work,
+	root::Task<void> timeout,
+	race_options opts = {}) {
+	opts.winner = winner_policy::first_completion;
+	return race<T>(
+		opts,
+		candidate("work", std::move(work)),
+		trigger("deadline", std::move(timeout), root::CancelReason::deadline));
+}
+
+template<root::work_value T>
 struct owned_labeled_race_result {
 	race_result<T> result;
 	std::vector<std::string> labels;

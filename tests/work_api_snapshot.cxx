@@ -532,6 +532,10 @@ static_assert(std::is_same_v<
 			  decltype(race::race<int>(race::race_options{}, std::declval<race::race_candidate<int>>())),
 			  root::Task<race::race_result<int>>>);
 static_assert(std::is_same_v<
+			  decltype(race::with_timeout<
+					   int>(std::declval<root::Task<int>>(), std::declval<root::Task<void>>(), race::race_options{})),
+			  root::Task<race::race_result<int>>>);
+static_assert(std::is_same_v<
 			  decltype(race::race_owned_labels<int>(race::race_options{}, std::declval<race::race_candidate<int>>())),
 			  root::Task<race::owned_labeled_race_result<int>>>);
 

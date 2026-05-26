@@ -21,6 +21,9 @@ auto result = co_await race::race<Response>(
     race::trigger("deadline", timeout_after(ring, 250ms), root::CancelReason::deadline));
 ```
 
+For the common single-operation shape, `race::with_timeout(work, timeout_task)`
+is the same first-completion race with `"work"` and `"deadline"` labels.
+
 Labels are borrowed by default. Use `race_owned_labels()` when labels are built
 dynamically or do not outlive the race result.
 
