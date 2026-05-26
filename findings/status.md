@@ -650,6 +650,8 @@ Current review set: `findings/1.md` through `findings/10.md` after
 - `findings/7.md` P1 standalone DB hidden singleton cancel pool is deferred for
   explicit API policy. Removing it or making it opt-in changes direct
   connection ergonomics and needs a public cancellation-worker story.
-- `findings/7.md` P2 slim common `Response` object and docs/examples
-  release-proof work remain deferred until after the curated HTTP/transport
-  split and profile wrappers stabilize.
+- `findings/7.md` P2 slim common `Response` object is rejected as stale. The
+  common response path now uses the response-view/materialization split, so
+  slimming the owning `Response` type is not a pending cleanup. Docs/examples
+  release-proof work remains tracked with the release/package proof lane rather
+  than as a response-object refactor.
