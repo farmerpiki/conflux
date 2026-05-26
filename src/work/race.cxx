@@ -57,6 +57,7 @@ struct race_winner_info {
 struct race_observation {
 	std::size_t participant_count{};
 	std::size_t loser_cancel_requested{};
+	std::size_t cleanup_timeout_count{};
 	bool trigger_won = false;
 	bool all_failed = false;
 };
@@ -131,10 +132,18 @@ public:
 };
 
 class race_cleanup_error final : public root::WorkError {
+	race_observation observation_{};
+
 public:
 	explicit race_cleanup_error(
 		char const *msg)
 		: WorkError{msg} {}
+	race_cleanup_error(
+		char const *msg,
+		race_observation observation)
+		: WorkError{msg}
+		, observation_{observation} {}
+	[[nodiscard]] race_observation observation() const noexcept { return observation_; }
 };
 
 template<root::work_value T>
@@ -975,6 +984,7 @@ private:
 				return;
 			}
 			output_committed_ = true;
+			++observation_.cleanup_timeout_count;
 			for (std::size_t i = 0; i < ps_size_; ++i) {
 				if (ps_[i].live && !ps_[i].terminal) {
 					abandon_participant_locked(i);
@@ -986,7 +996,7 @@ private:
 		}
 		try {
 			(void)out_.try_set_exception(
-				std::make_exception_ptr(race_cleanup_error{"race: loser cleanup deadline expired"}));
+				std::make_exception_ptr(race_cleanup_error{"race: loser cleanup deadline expired", observation_}));
 		} catch (...) { (void)out_.try_set_exception(std::current_exception()); }
 	}
 

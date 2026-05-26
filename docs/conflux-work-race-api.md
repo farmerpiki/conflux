@@ -99,8 +99,10 @@ participant and completes the race task as cancelled with the same reason.
 ## Result Metadata
 
 `race_result<T>::observation` contains lightweight per-result counters and flags:
-participant count, loser cancellation requests, whether a trigger won, and
-whether `first_success` exhausted all value candidates without success.
+participant count, loser cancellation requests, cleanup timeout count, whether a
+trigger won, and whether `first_success` exhausted all value candidates without
+success. `race_cleanup_error` carries the same observation snapshot for cleanup
+deadline failures.
 
 ## Ownership
 

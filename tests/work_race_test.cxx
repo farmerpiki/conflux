@@ -669,7 +669,16 @@ TEST_CASE(
 	try {
 		(void)root::value(std::move(raced));
 		FAIL("cleanup budget should expire");
-	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_cleanup_error); }
+	} catch (root::FailureError const &err) {
+		try {
+			err.rethrow_cause();
+			FAIL("race cleanup error expected");
+		} catch (race::race_cleanup_error const &cleanup) {
+			CHECK(cleanup.observation().participant_count == 2);
+			CHECK(cleanup.observation().loser_cancel_requested == 1);
+			CHECK(cleanup.observation().cleanup_timeout_count == 1);
+		}
+	}
 
 	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
 }
@@ -696,6 +705,7 @@ TEST_CASE(
 	auto out = root::value(std::move(raced));
 	REQUIRE(out.outcome.is_success());
 	CHECK(out.outcome.success().value == 19);
+	CHECK(out.observation.cleanup_timeout_count == 0);
 }
 
 TEST_CASE(
