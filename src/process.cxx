@@ -210,10 +210,7 @@ std::vector<std::string> build_env(
 			continue;
 		}
 		std::string_view key{entry.data(), eq_pos + 1}; // includes '='
-		auto it = remove_if(env_strs.begin(), env_strs.end(), [&](std::string const &s) {
-			return std::string_view{s}.substr(0, key.size()) == key;
-		});
-		env_strs.erase(it, env_strs.end());
+		std::erase_if(env_strs, [&](std::string const &s) { return std::string_view{s}.substr(0, key.size()) == key; });
 		env_strs.push_back(entry);
 	}
 	return env_strs;
@@ -304,17 +301,13 @@ export std::expected<Process, std::error_code> spawn_clone(
 	// Build argv and envp now (no alloc after fork in child).
 	std::vector<char *> argv_ptrs;
 	argv_ptrs.reserve(arg_strs.size() + 1);
-	for (auto &s: arg_strs) {
-		argv_ptrs.push_back(s.data());
-	}
+	std::ranges::transform(arg_strs, std::back_inserter(argv_ptrs), [](std::string &s) { return s.data(); });
 	argv_ptrs.push_back(nullptr);
 
 	auto env_strs = build_env(opts.extra_env, opts.clear_env);
 	std::vector<char *> envp_ptrs;
 	envp_ptrs.reserve(env_strs.size() + 1);
-	for (auto &s: env_strs) {
-		envp_ptrs.push_back(s.data());
-	}
+	std::ranges::transform(env_strs, std::back_inserter(envp_ptrs), [](std::string &s) { return s.data(); });
 	envp_ptrs.push_back(nullptr);
 
 	// Set up stdio pipes.
@@ -502,9 +495,9 @@ export template<typename Target>
 	return async_run_on(target, [exe = std::move(exe), args = std::move(args), opts = std::move(opts)]() mutable {
 		std::vector<std::string_view> views;
 		views.reserve(args.size());
-		for (auto const &a: args) {
-			views.push_back(a);
-		}
+		std::ranges::transform(args, std::back_inserter(views), [](std::string const &a) {
+			return std::string_view{a};
+		});
 		return spawn(exe, views, opts);
 	});
 }
@@ -615,9 +608,9 @@ export template<typename Target>
 	return async_run_on(target, [exe = std::move(exe), args = std::move(args), opts = std::move(opts)]() mutable {
 		std::vector<std::string_view> views;
 		views.reserve(args.size());
-		for (auto const &a: args) {
-			views.push_back(a);
-		}
+		std::ranges::transform(args, std::back_inserter(views), [](std::string const &a) {
+			return std::string_view{a};
+		});
 		return run(exe, views, std::move(opts));
 	});
 }

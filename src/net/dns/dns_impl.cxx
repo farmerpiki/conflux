@@ -86,6 +86,12 @@ struct ResolvConfig {
 	}
 	return out;
 }
+void lowercase_ascii_in_place(
+	std::string &value) {
+	std::ranges::transform(value, value.begin(), [](char c) noexcept {
+		return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+	});
+}
 void parse_resolv_options(
 	std::string_view rest,
 	ResolvConfig &cfg) {
@@ -134,11 +140,7 @@ void parse_resolv_options(
 		if (token.empty()) {
 			continue;
 		}
-		for (char &c: token) {
-			if (c >= 'A' && c <= 'Z') {
-				c = static_cast<char>(c + ('a' - 'A'));
-			}
-		}
+		lowercase_ascii_in_place(token);
 		if (!token.empty() && token.back() == '.') {
 			token.pop_back();
 		}
@@ -254,11 +256,7 @@ void parse_resolv_options(
 					break;
 				}
 				std::string name{name_sv};
-				for (char &c: name) {
-					if (c >= 'A' && c <= 'Z') {
-						c += 'a' - 'A';
-					}
-				}
+				lowercase_ascii_in_place(name);
 				out[name].push_back(ep);
 			}
 		}
@@ -268,11 +266,7 @@ void parse_resolv_options(
 [[nodiscard]] std::string lowercase_ascii(
 	std::string_view value) {
 	std::string out{value};
-	for (char &c: out) {
-		if (c >= 'A' && c <= 'Z') {
-			c = static_cast<char>(c + ('a' - 'A'));
-		}
-	}
+	lowercase_ascii_in_place(out);
 	return out;
 }
 [[nodiscard]] bool same_dns_peer(
@@ -765,11 +759,7 @@ struct EndpointBatch {
 	}
 	std::vector<Endpoint> all;
 	all.reserve(v6.eps.size() + v4.eps.size());
-	auto append_all = [&all](std::vector<Endpoint> const &eps) {
-		for (auto const &ep: eps) {
-			all.push_back(ep);
-		}
-	};
+	auto append_all = [&all](std::vector<Endpoint> const &eps) { all.insert(all.end(), eps.begin(), eps.end()); };
 	if (prefer == AddressFamily::v4) {
 		append_all(v4.eps);
 		append_all(v6.eps);
@@ -1101,11 +1091,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	// /etc/hosts lookup
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
 		std::string key{host};
-		for (char &c: key) {
-			if (c >= 'A' && c <= 'Z') {
-				c += 'a' - 'A';
-			}
-		}
+		lowercase_ascii_in_place(key);
 		if (!key.empty() && key.back() == '.') {
 			key.pop_back();
 		}
@@ -1484,11 +1470,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
 		std::string key{host};
-		for (char &c: key) {
-			if (c >= 'A' && c <= 'Z') {
-				c += 'a' - 'A';
-			}
-		}
+		lowercase_ascii_in_place(key);
 		if (!key.empty() && key.back() == '.') {
 			key.pop_back();
 		}

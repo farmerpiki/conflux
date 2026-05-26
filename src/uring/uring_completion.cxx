@@ -36,6 +36,7 @@ public:
 	explicit CompletionTable(
 		std::size_t initial_capacity = 64) {
 		slots_.reserve(initial_capacity);
+		free_.reserve(initial_capacity);
 	}
 	CompletionTable(CompletionTable const &) = delete;
 	CompletionTable &operator =(CompletionTable const &) = delete;
@@ -115,12 +116,9 @@ public:
 		}
 	}
 	[[nodiscard]] bool has_pending_zc_notifications() const noexcept {
-		for (auto const &s: slots_) {
-			if (s.in_use && s.mode == SlotMode::zc_send && s.zc_seen_send) {
-				return true;
-			}
-		}
-		return false;
+		return std::ranges::any_of(slots_, [](Slot const &s) noexcept {
+			return s.in_use && s.mode == SlotMode::zc_send && s.zc_seen_send;
+		});
 	}
 	// Returns false (and cancels nothing) if ZC notification slots are pending.
 	// Caller must drain the CQ until has_pending_zc_notifications() returns false, then retry.

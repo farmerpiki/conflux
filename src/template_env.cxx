@@ -95,12 +95,7 @@ static void for_each_direct_template_dep(
 bool Environment::Impl::extension_allowed(
 	std::filesystem::path const &path) const {
 	auto ext = path.extension().string();
-	for (auto const &allowed: options.extensions) {
-		if (ext == allowed) {
-			return true;
-		}
-	}
-	return false;
+	return std::ranges::contains(options.extensions, ext);
 }
 void Environment::Impl::validate_links(
 	std::unordered_map<std::string, Template> const &candidate,

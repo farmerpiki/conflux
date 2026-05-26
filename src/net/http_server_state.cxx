@@ -656,6 +656,8 @@ struct Ring {
 	void start_response_send(int fd, Conn &conn);
 
 	void invalidate_recv_if_armed(int fd);
+	void close_listen_socket() noexcept;
+	void cancel_accept_or_defer(int fd);
 	void cancel_accept_or_defer();
 	void submit_conn_close_or_defer(int fd, std::uint32_t gen);
 	void submit_fd_shutdown_or_defer(int fd, std::uint32_t gen);

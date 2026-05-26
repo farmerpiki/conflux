@@ -66,16 +66,7 @@ std::string read_until_close_from(
 	return out;
 }
 
-std::size_t body_bytes_in_response_prefix(
-	std::string_view response) {
-	auto const header_end = response.find("\r\n\r\n");
-	if (header_end == std::string_view::npos) {
-		return 0;
-	}
-	return response.size() - (header_end + 4);
-}
-
-[[nodiscard]] bool connect_and_expect_no_service(
+[[nodiscard]] bool connect_refused(
 	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -84,17 +75,12 @@ std::size_t body_bytes_in_response_prefix(
 	addr.sin_port = htons(port);
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	auto const rc = ::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	if (rc < 0) {
-		::close(fd);
-		return true;
-	}
-	set_recv_timeout(fd, std::chrono::milliseconds{200});
-	std::string_view const probe = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-	(void)::send(fd, probe.data(), probe.size(), MSG_NOSIGNAL);
-	char byte{};
-	auto const n = ::recv(fd, &byte, 1, 0);
+	auto const connect_errno = errno;
 	::close(fd);
-	return n <= 0;
+	if (rc < 0) {
+		return connect_errno == ECONNREFUSED || connect_errno == ECONNRESET || connect_errno == ENOENT;
+	}
+	return false;
 }
 
 std::string websocket_upgrade_request() {
@@ -199,9 +185,12 @@ TEST_CASE(
 	CHECK(report->requests_finished >= 1);
 	CHECK(report->streams_closed >= 2);
 	CHECK(report->forced_closed == 0);
-	auto const large_body_bytes = body_bytes_in_response_prefix(large_headers) + large_tail.size();
-	CHECK(large_body_bytes == kLargeBodyBytes);
-	CHECK(std::ranges::all_of(large_tail, [](char c) { return c == 'x'; }));
+	auto const large_header_end = large_headers.find("\r\n\r\n");
+	REQUIRE(large_header_end != std::string::npos);
+	std::string large_body{large_headers.substr(large_header_end + 4)};
+	large_body += large_tail;
+	CHECK(large_body.size() == kLargeBodyBytes);
+	CHECK(std::ranges::all_of(large_body, [](char c) { return c == 'x'; }));
 
 	char probe{};
 	set_recv_timeout(idle.fd(), std::chrono::milliseconds{250});
@@ -211,7 +200,7 @@ TEST_CASE(
 	CHECK(sse_tail.find("0\r\n\r\n") != std::string::npos);
 	set_recv_timeout(ws.fd(), std::chrono::milliseconds{250});
 	CHECK(ws.recv(&probe, 1) <= 0);
-	CHECK(connect_and_expect_no_service(port));
+	CHECK(connect_refused(port));
 
 	auto const metrics = srv.metrics();
 	CHECK(metrics.pressure.drain_started >= 1);

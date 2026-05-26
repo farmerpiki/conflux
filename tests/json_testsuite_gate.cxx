@@ -81,5 +81,5 @@ TEST_CASE(
 		}
 	}
 	INFO("i_* files: " << files.size() << " total, " << accepted << " accepted, " << rejected << " rejected");
-	CHECK(true);
+	CHECK(accepted + rejected == files.size());
 }

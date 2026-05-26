@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <zlib.h>
+#if CONFLUX_HAS_ZSTD
+	#include <zstd.h>
+#endif
 
 import std;
 import conflux.types;
@@ -120,6 +123,22 @@ std::string gzip_compress(
 	deflateEnd(&zs);
 	return rc == Z_STREAM_END ? out : std::string{};
 }
+
+#if CONFLUX_HAS_ZSTD
+std::string zstd_decompress(
+	std::string_view compressed) {
+	unsigned long long const size = ZSTD_getFrameContentSize(compressed.data(), compressed.size());
+	if (size == ZSTD_CONTENTSIZE_ERROR || size == ZSTD_CONTENTSIZE_UNKNOWN) {
+		return {};
+	}
+	std::string out(static_cast<std::size_t>(size), '\0');
+	auto const rc = ZSTD_decompress(out.data(), out.size(), compressed.data(), compressed.size());
+	if (ZSTD_isError(rc) != 0U || rc != out.size()) {
+		return {};
+	}
+	return out;
+}
+#endif
 
 #if CONFLUX_HAS_BROTLI
 std::string brotli_compress(
@@ -248,10 +267,13 @@ TEST_CASE(
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_ZSTD
 		CHECK(header_value(resp, "Content-Encoding: ") == "zstd");
+		CHECK(zstd_decompress(body_of(resp)) == std::string(4096, 'A'));
 #elif CONFLUX_HAS_COMPRESS
 		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");
+		CHECK(gzip_decompress(body_of(resp)) == std::string(4096, 'A'));
 #else
 		CHECK(header_value(resp, "Content-Encoding: ").empty());
+		CHECK(body_of(resp) == std::string(4096, 'A'));
 #endif
 	}
 

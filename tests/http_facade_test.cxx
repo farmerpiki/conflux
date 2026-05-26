@@ -157,8 +157,8 @@ Document require_json_body(
 	Response const &response,
 	int status,
 	std::string_view content_type = "application/problem+json") {
-	CHECK(response.status == status);
-	CHECK(response.content_type == content_type);
+	REQUIRE(response.status == status);
+	REQUIRE(response.content_type == content_type);
 	return require_json_text(std::string{response.text_body()});
 }
 

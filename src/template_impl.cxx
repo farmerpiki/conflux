@@ -427,9 +427,7 @@ static std::vector<CompiledExprPtr> compile_expr_ptr_list(
 	std::vector<std::string> const &exprs) {
 	std::vector<CompiledExprPtr> out;
 	out.reserve(exprs.size());
-	for (auto const &expr: exprs) {
-		out.push_back(compile_expr_ptr(expr));
-	}
+	std::ranges::transform(exprs, std::back_inserter(out), compile_expr_ptr);
 	return out;
 }
 static std::optional<CompiledLiteral> compile_literal(

@@ -645,10 +645,31 @@ void Ring::invalidate_recv_if_armed(
 	}
 }
 
-void Ring::cancel_accept_or_defer() {
-	if (!submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0)) {
-		defer_op([this] { cancel_accept_or_defer(); });
+void Ring::cancel_accept_or_defer(
+	int fd) {
+	if (fd < 0) {
+		return;
 	}
+	if (!submit_cancel_by_ud(raw_, pack(Op::Accept, 0, fd), 0)) {
+		defer_op([this, fd] { cancel_accept_or_defer(fd); });
+	}
+}
+
+void Ring::cancel_accept_or_defer() {
+	cancel_accept_or_defer(listen_fd);
+}
+
+void Ring::close_listen_socket() noexcept {
+	if (listen_fd < 0) {
+		return;
+	}
+	int const fd = listen_fd;
+	if (listen_fixed && direct_fds_) {
+		(void)direct_fds_->install(static_cast<std::uint32_t>(fd), -1);
+		listen_fixed = false;
+	}
+	::close(fd);
+	listen_fd = -1;
 }
 
 void Ring::submit_conn_close_or_defer(
@@ -933,6 +954,7 @@ void Ring::handle_shutdown() {
 	}
 	if (drain == nullptr || drain->options.stop_accepting) {
 		cancel_accept_or_defer();
+		close_listen_socket();
 	}
 	auto const now = std::chrono::steady_clock::now();
 	for (std::size_t i = 0; i < fd_table.size(); ++i) {

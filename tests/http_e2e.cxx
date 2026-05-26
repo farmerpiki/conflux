@@ -2307,32 +2307,25 @@ TEST_CASE(
 	// Shutdown and wait for run() to return.
 	srv.stop(); // if this returns, run() exited cleanly
 
-	// Verify the server no longer services new requests on that port.
-	bool stopped = false;
-	for (int i = 0; i < 50 && !stopped; ++i) {
+	// Verify the listener is closed rather than merely accepting and delaying a response.
+	bool refused = false;
+	for (int i = 0; i < 50 && !refused; ++i) {
 		int const fd2 = ::socket(AF_INET, SOCK_STREAM, 0);
+		REQUIRE(fd2 >= 0);
 		sockaddr_in addr2{};
 		addr2.sin_family = AF_INET;
 		addr2.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr2.sin_addr);
 		int const conn_result = ::connect(fd2, reinterpret_cast<sockaddr *>(&addr2), sizeof(addr2));
+		int const connect_errno = errno;
+		::close(fd2);
 		if (conn_result < 0) {
-			::close(fd2);
-			stopped = true;
+			refused = connect_errno == ECONNREFUSED || connect_errno == ECONNRESET || connect_errno == ENOENT;
 			break;
 		}
-		std::string_view const req = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-		::send(fd2, req.data(), req.size(), 0);
-		char probe{};
-		auto n = ::recv(fd2, &probe, 1, MSG_DONTWAIT);
-		::close(fd2);
-		bool const would_block = errno == EAGAIN;
-		stopped = (n == 0) || (n < 0 && (would_block || errno == ECONNRESET));
-		if (!stopped) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
-	REQUIRE(stopped);
+	REQUIRE(refused);
 }
 
 TEST_CASE(
@@ -2382,17 +2375,12 @@ TEST_CASE(
 	addr.sin_port = htons(port);
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	auto const rc = ::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	if (rc == 0) {
-		timeval tv{.tv_sec = 0, .tv_usec = 200000};
-		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-		(void)::send(fd, "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", 59, 0);
-		char probe{};
-		auto const n = ::recv(fd, &probe, 1, 0);
-		CHECK(n <= 0);
-	} else {
-		CHECK(rc < 0);
-	}
+	auto const connect_errno = errno;
 	::close(fd);
+	REQUIRE(rc < 0);
+	bool const refused_or_reset =
+		connect_errno == ECONNREFUSED || connect_errno == ECONNRESET || connect_errno == ENOENT;
+	CHECK(refused_or_reset);
 }
 
 TEST_CASE(
@@ -2413,7 +2401,11 @@ TEST_CASE(
 	auto resp = headers + client.read_until_close();
 	CHECK(resp.starts_with("HTTP/1.1 200 OK"));
 	CHECK(resp.find("Content-Length: 524288") != std::string::npos);
-	CHECK(resp.ends_with(std::string(32, 'x')));
+	auto const header_end = resp.find("\r\n\r\n");
+	REQUIRE(header_end != std::string::npos);
+	auto const body = std::string_view{resp}.substr(header_end + 4);
+	CHECK(body.size() == 512UZ * 1024UZ);
+	CHECK(std::ranges::all_of(body, [](char c) { return c == 'x'; }));
 	CHECK(report.requests_finished >= 1);
 }
 

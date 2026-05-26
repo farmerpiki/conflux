@@ -1316,12 +1316,9 @@ struct PatchOperation {
 	if (child.size() <= parent.size()) {
 		return false;
 	}
-	for (std::size_t i = 0; i < parent.size(); ++i) {
-		if (parent[i].append != child[i].append || parent[i].text != child[i].text) {
-			return false;
-		}
-	}
-	return true;
+	return std::ranges::equal(parent, child.first(parent.size()), [](PatchToken const &lhs, PatchToken const &rhs) {
+		return lhs.append == rhs.append && lhs.text == rhs.text;
+	});
 }
 
 [[nodiscard]] std::expected<void, JsonError> write_patch_value(ValueBuilder &out, PatchValue const &value);

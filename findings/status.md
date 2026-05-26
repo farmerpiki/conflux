@@ -1,10 +1,38 @@
 # Findings status
 
-Current review set: `findings/1.md` through `findings/7.md` after
+Current review set: `findings/1.md` through `findings/10.md` after
 `71aabad remove findings`.
 
 ## Complete
 
+- `findings/8.md` non-hot algorithm/ranges cleanup batch: complete for the
+  accepted low-risk items. `extension_allowed`,
+  `has_pending_zc_notifications`, `mode_b_eligible`, JSON patch path prefix
+  checks, template expression-list builders, process env/vector construction,
+  vhost context-route detection, DB query-name validation, DNS section reads,
+  DNS ASCII lowercasing, and DNS endpoint appends now use standard algorithms
+  or bulk vector operations while preserving existing reserves and avoiding new
+  copies.
+- `findings/9.md` P0 drain/shutdown and large-body test oracles: complete.
+  Shutdown and drain tests now require the listener to refuse post-stop
+  connections instead of accepting would-block/no-quick-response as success.
+  In-flight drain response checks now parse the header boundary and verify the
+  complete response body length/content, including bytes read with the headers.
+- `findings/9.md` P0 listener close behavior exposed by the stronger tests:
+  complete. Shutdown and `drain(stop_accepting=true)` now cancel accept and
+  close the listening socket/fixed-file slot, so new client connections are
+  refused instead of being accepted and immediately idled/closed.
+- `findings/9.md` P0/P1 weak test oracle cleanup: complete for H2 pump
+  deadlines, compression negotiation bodies, facade JSON preconditions, static
+  HEAD content length, and no-op `CHECK(true)` assertions. H2 pumps now fail on
+  timeout, selected compression encodings are decoded and compared to the
+  identity body, JSON helper preconditions use `REQUIRE`, the HEAD test matches
+  an exact header line, and the probe-only tests use explicit `SUCCEED` or a
+  real count invariant.
+- `findings/10.md` P1 completion table free-list allocation: complete for the
+  cheap bounded fix. `CompletionTable` now reserves `free_` alongside
+  `slots_`, preventing the first dispatch/cancel free-list push from allocating
+  when the table was constructed with an expected capacity.
 - `findings/4.md` P0 structured-log checks: complete. Raw structured-log tests,
   the observability golden e2e, and HTTP facade observability tests now parse log
   lines as JSON, assert exact fields/types, assert redacted header fields by JSON
@@ -105,6 +133,37 @@ Current review set: `findings/1.md` through `findings/7.md` after
 
 ## Verification
 
+- `cmake --build --preset release-clang-libcxx --target
+  conflux_template_tests conflux_json_tests conflux_process_tests
+  conflux_tests conflux_work_tests conflux_db_tests conflux_dns_bridge`
+  completed after the `findings/8.md` algorithm/ranges cleanup batch.
+- `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "template:|json:.*patch|json: is_value|process:|db:|dns|uring|work\\.root|carrier\\."`
+  completed after the `findings/8.md` batch: 320/320 passed, 1 skipped.
+- `cmake --build --preset release-clang-libcxx --target conflux_tests
+  conflux_http_full_drain_contract_e2e` completed after strengthening the
+  drain/shutdown tests and closing the listener on stop/drain.
+- `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "shutdown\\(\\) stops run|drain stops new accepts|drain lets in-flight
+  response finish|drain contract stops accepts"` completed: 4/4 passed.
+- `cmake --build --preset release-clang-libcxx --target conflux_h2_external
+  conflux_compression_matrix_e2e conflux_http_facade_tests conflux_tests
+  conflux_work_carrier_phase5_tests conflux_socket_task_ring_tests
+  conflux_json_tests` completed after the remaining weak-oracle and completion
+  table fixes.
+- `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres ctest --test-dir
+  /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
+  "h2:|compression matrix|http facade:.*json|HEAD / returns same
+  headers|tcp_accept_multishot: listener destroyed|phase5c: TaskHandleAwaiter
+  destroyed|JSONTestSuite: i_|shutdown\\(\\) stops run|drain stops new
+  accepts|drain lets in-flight response finish|drain contract stops
+  accepts|uring|work\\.root|carrier\\."` completed: 161/161 passed, 1 skipped.
+- Full release verification after the `findings/8.md` through
+  `findings/10.md` pass: `git diff --check` completed; `cmake --build
+  --preset release-clang-libcxx` completed; `PG_TEST_CONNINFO=postgresql:///conflux_test?user=postgres
+  ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure`
+  completed: 1953/1953 passed, 7 skipped.
 - `cmake --build --preset release-clang-libcxx --target conflux_tests
   conflux_observability_golden_e2e conflux_http_facade_tests` completed.
 - `ctest --test-dir /tmp/gcc-16/release-clang-libcxx --output-on-failure -R
@@ -367,6 +426,33 @@ Current review set: `findings/1.md` through `findings/7.md` after
 
 ## Deferred / Perf-Gated
 
+- `findings/8.md` JSON array/object equality algorithm rewrite is deferred
+  until compile-time and representative JSON equality coverage are checked. It
+  is recursive comparison code rather than a plain local loop, and the current
+  pass kept to simple non-hot transformations with obvious allocation parity.
+- `findings/8.md` duplicate `/etc/hosts` filtering helper is deferred as a
+  larger DNS parsing cleanup. The accepted DNS changes removed repeated section
+  reads/lowercasing/append loops; rewriting the address-family filtering shape
+  should be done with resolver behavior tests focused on `/etc/hosts` edge
+  cases.
+- `findings/9.md` smuggling/close-path helper returning `{bytes, closed}` is
+  deferred for a focused observability/connection-close contract pass. The
+  current patch fixed the direct wrong-pass cases and strengthened local
+  oracles, but changing raw read helpers across close-path tests is broader
+  than this batch.
+- `findings/9.md` socket/task lifetime no-op probes remain sanitizer/probe
+  tests for now. The no-op `CHECK(true)` assertions were made explicit with
+  `SUCCEED`, but stronger lifetime-state assertions require exposing or
+  instrumenting internals that are not part of the current public contract.
+- `findings/10.md` middleware-chain precomposition, dynamic route field-view
+  overlays, observability/request-id request-local extension storage, common
+  header-summary carry-forward, normal response split-send, default `Response`
+  field slimming, JSON duplicate-key flat/PMR set, JSON whitespace SIMD,
+  multipart header allocation cleanup, socket/DB intrusive async state, owned
+  write buffer placement, and sink-based template rendering are deferred or
+  perf-gated. They are hot-path or architecture changes and need
+  representative compare-bins/perf evidence before acceptance; several also
+  overlap with previously preserved rejected candidates.
 - Remaining hot-path performance proposals from `findings/3.md` and
   performance-sensitive lazy/ranges changes from `findings/1.md` require
   representative benchmark coverage first. If no benchmark exists for a path,

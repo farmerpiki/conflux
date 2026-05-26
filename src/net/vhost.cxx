@@ -66,12 +66,8 @@ public:
 		return dispatch(RequestView{req});
 	}
 	[[nodiscard]] bool has_context_routes() const noexcept {
-		for (auto const &[h, r]: vhosts_) {
-			if (r.has_context_routes()) {
-				return true;
-			}
-		}
-		return default_ && default_->has_context_routes();
+		return std::ranges::any_of(vhosts_, [](auto const &kv) noexcept { return kv.second.has_context_routes(); })
+			|| (default_ && default_->has_context_routes());
 	}
 	[[nodiscard]] std::optional<Response> dispatch_context(
 		RequestView const &req,

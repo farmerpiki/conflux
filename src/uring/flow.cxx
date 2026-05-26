@@ -335,12 +335,9 @@ constexpr SqeFlags link_flags = sqe_flags::io_link | sqe_flags::io_hardlink;
 	if (b.ops[1].variant != LinkVariant::then_) {
 		return false;
 	}
-	for (std::uint8_t i = 2; i < b.op_count; ++i) {
-		if (b.ops[i].variant != LinkVariant::hard_) {
-			return false;
-		}
-	}
-	return true;
+	return std::ranges::all_of(
+		std::span{b.ops}.subspan(2, static_cast<std::size_t>(b.op_count) - 2),
+		[](PendingOp const &op) noexcept { return op.variant == LinkVariant::hard_; });
 }
 // ── prep helpers ──────────────────────────────────────────────────────────────
 

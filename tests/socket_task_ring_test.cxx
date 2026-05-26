@@ -1351,7 +1351,7 @@ TEST_CASE(
 		// l destroyed at end of scope — task already resolved, no UAF
 	}
 	// no crash = ASAN would have fired if UAF occurred
-	CHECK(true);
+	SUCCEED("listener destroyed after task completion without a lifetime failure");
 }
 // ---------------------------------------------------------------------------
 // AC-8: tcp_accept cancel with SQ full — retry path, no false completion

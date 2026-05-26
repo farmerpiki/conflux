@@ -534,23 +534,15 @@ export [[nodiscard]] Message decode_message(
 		pos += rdlen;
 		return rr;
 	};
+	auto append_generated = [](auto &out, std::uint16_t count, auto &&read_fn) {
+		out.reserve(count);
+		std::generate_n(std::back_inserter(out), count, std::forward<decltype(read_fn)>(read_fn));
+	};
 
-	m.questions.reserve(m.header.qdcount);
-	for (std::uint16_t i = 0; i < m.header.qdcount; ++i) {
-		m.questions.push_back(read_question());
-	}
-	m.answers.reserve(m.header.ancount);
-	for (std::uint16_t i = 0; i < m.header.ancount; ++i) {
-		m.answers.push_back(read_rr());
-	}
-	m.authority.reserve(m.header.nscount);
-	for (std::uint16_t i = 0; i < m.header.nscount; ++i) {
-		m.authority.push_back(read_rr());
-	}
-	m.additional.reserve(m.header.arcount);
-	for (std::uint16_t i = 0; i < m.header.arcount; ++i) {
-		m.additional.push_back(read_rr());
-	}
+	append_generated(m.questions, m.header.qdcount, read_question);
+	append_generated(m.answers, m.header.ancount, read_rr);
+	append_generated(m.authority, m.header.nscount, read_rr);
+	append_generated(m.additional, m.header.arcount, read_rr);
 	return m;
 }
 // Convert an A or AAAA RR into an Endpoint. Returns std::nullopt for other types.

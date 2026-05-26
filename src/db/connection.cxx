@@ -84,18 +84,14 @@ inline bool valid_query_name(
 	if (name.empty() || name == "." || name == "..") {
 		return false;
 	}
-	for (char const ch: name) {
-		if ((ch >= 'a' && ch <= 'z')
+	return std::ranges::all_of(name, [](char const ch) noexcept {
+		return (ch >= 'a' && ch <= 'z')
 			|| (ch >= 'A' && ch <= 'Z')
 			|| (ch >= '0' && ch <= '9')
 			|| ch == '_'
 			|| ch == '-'
-			|| ch == '.') {
-			continue;
-		}
-		return false;
-	}
-	return true;
+			|| ch == '.';
+	});
 }
 inline std::uint64_t fnv1a64(
 	std::string_view s) noexcept {

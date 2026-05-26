@@ -1140,7 +1140,7 @@ TEST_CASE(
 
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Content-Length must reflect the actual file size (14 bytes).
-	REQUIRE(resp.find("Content-Length: 14") != std::string::npos);
+	REQUIRE(resp.find("\r\nContent-Length: 14\r\n") != std::string::npos);
 	// Body must be empty for HEAD response.
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);

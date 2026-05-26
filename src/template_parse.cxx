@@ -13,9 +13,7 @@ static std::vector<CompiledExpr> compile_expr_list(
 	std::vector<std::string> const &exprs) {
 	std::vector<CompiledExpr> out;
 	out.reserve(exprs.size());
-	for (auto const &expr: exprs) {
-		out.push_back(compile_expr(expr));
-	}
+	std::ranges::transform(exprs, std::back_inserter(out), compile_expr);
 	return out;
 }
 

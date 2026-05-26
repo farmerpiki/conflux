@@ -185,6 +185,7 @@ struct H2Client {
 		while (!all_done() && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
 		}
+		REQUIRE(all_done());
 	}
 	std::map<std::int32_t, H2Response> responses_;
 
@@ -291,6 +292,7 @@ private:
 			responses_[sid].connection_error = true;
 			responses_[sid].error_code = goaway_error_code_;
 		}
+		REQUIRE(responses_[sid].closed);
 	}
 	// --- nghttp2 static callbacks ---
 

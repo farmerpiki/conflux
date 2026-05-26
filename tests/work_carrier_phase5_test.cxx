@@ -365,5 +365,5 @@ TEST_CASE(
 		(void)awaiter.await_ready();
 		// destroy without calling await_resume — defensive abandon fires in dtor
 	}
-	CHECK(true);
+	SUCCEED("unconsumed awaiter was destroyed without terminating");
 }
