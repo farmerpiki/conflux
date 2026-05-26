@@ -414,13 +414,14 @@ struct participant {
 	bool winner = false;
 };
 
-template<root::work_value T>
-class race_state final : public std::enable_shared_from_this<race_state<T>> {
+template<root::work_value T, std::size_t ParticipantCount>
+class race_state final : public std::enable_shared_from_this<race_state<T, ParticipantCount>> {
 	using result_t = race_result<T>;
 
 	race_options opts_;
 	root::TaskSource<result_t> out_;
-	std::vector<participant<T>> ps_;
+	std::array<participant<T>, ParticipantCount> ps_{};
+	std::size_t ps_size_ = 0;
 	std::mutex mu_;
 	std::size_t live_remaining_ = 0;
 	std::size_t value_remaining_ = 0;
@@ -443,6 +444,10 @@ public:
 
 	void add(
 		race_candidate<T> c) {
+		if (ps_size_ >= ps_.size()) {
+			fail_setup("race: too many participants");
+			return;
+		}
 		participant<T> p{
 			.trigger = false,
 			.label = c.label,
@@ -457,12 +462,11 @@ public:
 			++live_remaining_;
 		}
 		++value_remaining_;
-		ps_.push_back(std::move(p));
+		ps_[ps_size_++] = std::move(p);
 	}
 
-	void reserve(
+	void configure_storage(
 		std::size_t n) {
-		ps_.reserve(n);
 		failures_.reserve(n);
 		observation_.participant_count = n;
 		if (opts_.collect_loser_outcomes) {
@@ -472,6 +476,10 @@ public:
 
 	void add(
 		race_trigger t) {
+		if (ps_size_ >= ps_.size()) {
+			fail_setup("race: too many participants");
+			return;
+		}
 		participant<T> p{
 			.trigger = true,
 			.label = t.label,
@@ -481,11 +489,11 @@ public:
 			.live = true,
 		};
 		++live_remaining_;
-		ps_.push_back(std::move(p));
+		ps_[ps_size_++] = std::move(p);
 	}
 
 	[[nodiscard]] bool register_all() {
-		for (std::size_t i = 0; i < ps_.size(); ++i) {
+		for (std::size_t i = 0; i < ps_size_; ++i) {
 			if (!ps_[i].live) {
 				continue;
 			}
@@ -505,7 +513,7 @@ public:
 			case root::ReadyRegistration::empty: fail_setup("race: empty participant"); return false;
 			}
 		}
-		for (std::size_t i = 0; i < ps_.size(); ++i) {
+		for (std::size_t i = 0; i < ps_size_; ++i) {
 			if (ps_[i].ready_value) {
 				on_value_outcome(i, std::move(*ps_[i].ready_value));
 				ps_[i].ready_value.reset();
@@ -516,7 +524,7 @@ public:
 	}
 
 	void install_output_cancel_hook(
-		std::weak_ptr<race_state<T>> weak_self) noexcept {
+		std::weak_ptr<race_state<T, ParticipantCount>> weak_self) noexcept {
 		(void)out_.install_cancel_hook([weak_self = std::move(weak_self)](root::CancelReason reason) noexcept {
 			if (auto locked = weak_self.lock()) {
 				locked->request_cancel(reason);
@@ -533,7 +541,7 @@ public:
 				return;
 			}
 			output_committed_ = true;
-			for (std::size_t i = 0; i < ps_.size(); ++i) {
+			for (std::size_t i = 0; i < ps_size_; ++i) {
 				if (ps_[i].live && !ps_[i].terminal) {
 					to_cancel.push_back(control(i));
 				}
@@ -552,7 +560,7 @@ public:
 				return;
 			}
 			output_committed_ = true;
-			for (std::size_t i = 0; i < ps_.size(); ++i) {
+			for (std::size_t i = 0; i < ps_size_; ++i) {
 				if (ps_[i].live && !ps_[i].terminal) {
 					(void)control(i).request_cancel(opts_.default_loser_reason);
 					abandon_participant_locked(i);
@@ -598,7 +606,7 @@ private:
 				return;
 			}
 			output_committed_ = true;
-			for (std::size_t i = 0; i < ps_.size(); ++i) {
+			for (std::size_t i = 0; i < ps_size_; ++i) {
 				if (ps_[i].live && !ps_[i].terminal) {
 					(void)control(i).request_cancel(opts_.default_loser_reason);
 					abandon_participant_locked(i);
@@ -757,7 +765,7 @@ private:
 		observation_.trigger_won = ps_[i].trigger;
 		winner_outcome_.emplace(std::move(out));
 		if (opts_.losers == loser_policy::request_cancel || opts_.losers == loser_policy::request_cancel_and_wait) {
-			for (std::size_t idx = 0; idx < ps_.size(); ++idx) {
+			for (std::size_t idx = 0; idx < ps_size_; ++idx) {
 				if (idx != i && ps_[idx].live && !ps_[idx].terminal) {
 					losers_to_cancel.push_back(control(idx));
 					++observation_.loser_cancel_requested;
@@ -822,11 +830,11 @@ template<root::work_value T, class... Participants>
 	race_options opts,
 	Participants &&...participants) {
 	auto [task, src] = root::make_task_source<race_result<T>>(root::SubmitOptions{.enable_cancellation = true});
-	auto state = std::make_shared<race_state<T>>(opts, std::move(src));
-	state->reserve(sizeof...(Participants));
+	auto state = std::make_shared<race_state<T, sizeof...(Participants)>>(opts, std::move(src));
+	state->configure_storage(sizeof...(Participants));
 	(state->add(std::forward<Participants>(participants)), ...);
 	auto out = std::move(task);
-	state->install_output_cancel_hook(std::weak_ptr<race_state<T>>{state});
+	state->install_output_cancel_hook(std::weak_ptr<race_state<T, sizeof...(Participants)>>{state});
 	if (opts.cleanup != loser_cleanup_policy::wait_unbounded
 		|| opts.loser_cleanup_budget != std::chrono::steady_clock::duration{}) {
 		state->reject_unsupported_cleanup_budget();
