@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.small_function;
 import conflux.work.root;
 import conflux.work.carrier;
 import conflux.work.race;
@@ -331,6 +332,29 @@ TEST_CASE(
 
 	REQUIRE(left_src.try_set_cancelled(root::CancelReason::deadline));
 	REQUIRE(right_src.try_set_cancelled(root::CancelReason::deadline));
+}
+
+TEST_CASE(
+	"work.race: registration failure cancels already-owned participants",
+	"[work.race]") {
+	auto [owned, owned_src] = root::make_task_source<int>();
+	auto owned_control = owned.control();
+	auto [shared, shared_src] = root::make_task_source<int>();
+	(void)shared.control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{[]() noexcept {}});
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("owned", std::move(owned)),
+		race::candidate("shared", std::move(shared)));
+
+	CHECK(owned_control.cancel_requested());
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("race setup should fail");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
+
+	REQUIRE(owned_src.try_set_cancelled(root::CancelReason::requested));
+	REQUIRE(shared_src.try_set_cancelled(root::CancelReason::requested));
 }
 
 TEST_CASE(

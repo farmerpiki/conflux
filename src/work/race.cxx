@@ -582,7 +582,6 @@ private:
 
 	void fail_setup(
 		char const *msg) noexcept {
-		std::vector<root::TaskControl> to_abandon;
 		{
 			std::scoped_lock lk{mu_};
 			if (output_committed_) {
@@ -591,12 +590,13 @@ private:
 			output_committed_ = true;
 			for (std::size_t i = 0; i < ps_.size(); ++i) {
 				if (ps_[i].live && !ps_[i].terminal) {
-					to_abandon.push_back(control(i));
+					(void)control(i).request_cancel(opts_.default_loser_reason);
+					abandon_participant_locked(i);
+					ps_[i].live = false;
+					ps_[i].terminal = true;
 				}
 			}
-		}
-		for (auto &ctrl: to_abandon) {
-			(void)ctrl.request_cancel(opts_.default_loser_reason);
+			live_remaining_ = 0;
 		}
 		try {
 			(void)out_.try_set_exception(std::make_exception_ptr(race_setup_error{msg}));
