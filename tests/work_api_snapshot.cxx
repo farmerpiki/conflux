@@ -487,6 +487,7 @@ using _race_aggregate_error_entry = race::race_aggregate_error_entry;
 using _race_aggregate_error = race::race_aggregate_error;
 using _owned_race_aggregate_error = race::owned_race_aggregate_error;
 using _race_setup_error = race::race_setup_error;
+using _race_cleanup_error = race::race_cleanup_error;
 
 template<class T>
 using _race_result_ = race::race_result<T>;

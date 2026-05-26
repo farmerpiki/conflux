@@ -72,12 +72,12 @@ included in `race_result<T>::loser_outcomes`. This is complete only for waiting
 policies such as `request_cancel_and_wait`; non-waiting policies can have late
 loser outcomes after the race result has already been returned.
 
-`loser_cleanup_policy` and `loser_cleanup_budget` are part of the public shape
-reserved for owner-bound timer integration. The current bare race primitive does
-not enforce cleanup deadlines by itself because it intentionally does not own a
-progress domain or timer backend. Passing a cleanup budget to bare `race`
-currently fails setup visibly after requesting cancellation and abandoning
-consumed live participants to a drop sink.
+`loser_cleanup_policy::fail_after_cleanup_deadline` starts a lightweight cleanup
+timer after a winner is selected under `request_cancel_and_wait`. If unfinished
+losers do not reach terminal completion before `loser_cleanup_budget`, the race
+fails with `race_cleanup_error` and abandons consumed live losers to a drop sink.
+Detach-style cleanup policies remain reserved for owner-bound integrations and
+fail setup visibly in bare `race`.
 
 Blocking socket callers should use `sync_wait_socket_race(ring, task, budget)`
 from `conflux.socket_io.blocking`. It uses the same ring pump as
