@@ -6,15 +6,17 @@ prefix=""
 build_dir=""
 components="core"
 interface_mode=""
+api_surface=""
 enable_db="OFF"
 forbidden_components=""
 forbidden_external_deps=""
 mixed_module_header="OFF"
 public_module_imports="OFF"
+enable_import_std="OFF"
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-package-config-smoke.sh --source <source-root> --prefix <install-prefix> [--build-dir <dir>] [--components <list>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header] [--public-module-imports]
+usage: run-package-config-smoke.sh --source <source-root> --prefix <install-prefix> [--build-dir <dir>] [--components <list>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--api-surface <curated|extended|complete>] [--enable-db] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header] [--public-module-imports] [--enable-import-std]
 
 Configures and builds the package smoke project against an installed conflux
 prefix. The component list is a semicolon-separated CMake list, for example:
@@ -49,6 +51,11 @@ while (($#)); do
             interface_mode="$2"
             shift 2
             ;;
+        --api-surface)
+            [[ $# -ge 2 ]] || { usage; exit 2; }
+            api_surface="$2"
+            shift 2
+            ;;
         --enable-db)
             enable_db="ON"
             shift
@@ -71,6 +78,10 @@ while (($#)); do
             public_module_imports="ON"
             shift
             ;;
+        --enable-import-std)
+            enable_import_std="ON"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -86,6 +97,10 @@ done
 [[ -n "$prefix" ]] || { usage; exit 2; }
 if [[ -n "$interface_mode" && "$interface_mode" != "MODULE_INTERFACE" && "$interface_mode" != "HEADER_INTERFACE" ]]; then
     printf 'run-package-config-smoke: invalid interface mode: %s\n' "$interface_mode" >&2
+    exit 2
+fi
+if [[ -n "$api_surface" && "$api_surface" != "curated" && "$api_surface" != "extended" && "$api_surface" != "complete" ]]; then
+    printf 'run-package-config-smoke: invalid API surface: %s\n' "$api_surface" >&2
     exit 2
 fi
 [[ -d "$prefix" ]] || { printf 'run-package-config-smoke: prefix does not exist: %s\n' "$prefix" >&2; exit 1; }
@@ -132,11 +147,13 @@ cmake_configure=(
     -G Ninja
     -DCMAKE_PREFIX_PATH="$prefix"
     -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$components"
+    -DCONFLUX_PACKAGE_SMOKE_API_SURFACE="$api_surface"
     -DCONFLUX_PACKAGE_SMOKE_ENABLE_DB="$enable_db"
     -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbidden_components"
     -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbidden_external_deps"
     -DCONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER="$mixed_module_header"
     -DCONFLUX_PACKAGE_SMOKE_PUBLIC_MODULE_IMPORTS="$public_module_imports"
+    -DCONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD="$enable_import_std"
 )
 if [[ -n "$interface_mode" ]]; then
     cmake_configure+=(-DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE="$interface_mode")

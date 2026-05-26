@@ -10,12 +10,13 @@ feature_set="core"
 build_type="Release"
 generator=""
 interface_mode="MODULE_INTERFACE"
+api_surface=""
 extra_cmake_args=()
 package_smoke_args=()
 
 usage() {
 	cat >&2 <<'USAGE'
-usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--enable-db-smoke] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header-smoke] [--public-module-import-smoke] [-- <extra cmake configure args>]
+usage: run-install-tree-smoke.sh [--source <source-root>] [--build-dir <dir>] [--prefix <install-prefix>] [--smoke-build-dir <dir>] [--components <list>] [--feature-set <name>] [--build-type <type>] [--generator <name>] [--interface-mode <MODULE_INTERFACE|HEADER_INTERFACE>] [--api-surface <curated|extended|complete>] [--enable-db-smoke] [--forbid-components <list>] [--forbid-external-deps <list>] [--mixed-module-header-smoke] [--public-module-import-smoke] [--enable-import-std-smoke] [-- <extra cmake configure args>]
 
 Builds and installs a fresh conflux tree, then configures, builds, links, and
 runs a downstream find_package(conflux) smoke project against that install tree.
@@ -70,6 +71,11 @@ while (($#)); do
             interface_mode="$2"
             shift 2
             ;;
+        --api-surface)
+            [[ $# -ge 2 ]] || { usage; exit 2; }
+            api_surface="$2"
+            shift 2
+            ;;
 		--enable-db-smoke)
 			package_smoke_args+=(--enable-db)
 			shift
@@ -92,6 +98,10 @@ while (($#)); do
 			package_smoke_args+=(--public-module-imports)
 			shift
 			;;
+        --enable-import-std-smoke)
+            package_smoke_args+=(--enable-import-std)
+            shift
+            ;;
         --)
             shift
             extra_cmake_args+=("$@")
@@ -118,6 +128,9 @@ fail() {
 [[ -f "$source_root/CMakeLists.txt" ]] || fail "missing CMakeLists.txt under $source_root"
 if [[ "$interface_mode" != "MODULE_INTERFACE" && "$interface_mode" != "HEADER_INTERFACE" ]]; then
     fail "invalid interface mode: $interface_mode"
+fi
+if [[ -n "$api_surface" && "$api_surface" != "curated" && "$api_surface" != "extended" && "$api_surface" != "complete" ]]; then
+    fail "invalid API surface: $api_surface"
 fi
 source_root="$(realpath -m "$source_root")"
 
@@ -150,6 +163,10 @@ cmake_configure=(
     -DCONFLUX_BUILD_BENCHMARKS=OFF
     -DCONFLUX_BUILD_FUZZ=OFF
 )
+if [[ -n "$api_surface" ]]; then
+    cmake_configure+=(-DCONFLUX_API_SURFACE="$api_surface")
+    package_smoke_args+=(--api-surface "$api_surface")
+fi
 if [[ -n "$generator" ]]; then
     cmake_configure+=(-G "$generator")
 fi

@@ -194,12 +194,24 @@ grep -q 'CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS' cmake/package-smoke/CMak
     || fail "package smoke must support negative external dependency assertions"
 grep -q 'CONFLUX_PACKAGE_SMOKE_FAST_COMPILE' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke must expose a fast-compile option"
+grep -q 'CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must make import-std experimental support opt-in"
+grep -q 'CONFLUX_PACKAGE_SMOKE_API_SURFACE' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must expose an expected API-surface assertion"
+grep -q 'CONFLUX_API_SURFACE_LEVEL != CONFLUX_API_SURFACE_' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke must compile-check installed API-surface macros"
+grep -q 'expected_api_surface=${CONFLUX_PACKAGE_SMOKE_API_SURFACE}' cmake/package-smoke/CMakeLists.txt \
+    || fail "package smoke summary must report expected API surface"
 grep -q 'conflux_apply_package_smoke_build_policy' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke targets must apply fast-compile policy"
 grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/package-smoke/CMakeLists.txt \
     || fail "header package smoke must disable module scanning"
 grep -q -- '--forbid-external-deps' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must expose negative external dependency assertions"
+grep -q -- '--api-surface' scripts/run-package-config-smoke.sh \
+    || fail "package smoke runner must expose API-surface assertions"
+grep -q -- '--enable-import-std' scripts/run-package-config-smoke.sh \
+    || fail "package smoke runner must expose import-std opt-in"
 grep -q 'found unrequested visible target' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke must reject unrequested visible targets"
 grep -q 'runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}' cmake/package-smoke/CMakeLists.txt \
@@ -218,6 +230,10 @@ grep -q 'cmake --build "\$build_dir" --target install' scripts/run-install-tree-
     || fail "install-tree smoke runner must build and install conflux"
 grep -q -- '--interface-mode' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must forward interface mode"
+grep -q -- '--api-surface' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward API surface"
+grep -q -- '--enable-import-std-smoke' scripts/run-install-tree-smoke.sh \
+    || fail "install-tree smoke runner must forward import-std smoke opt-in"
 grep -q -- '--generator' scripts/run-install-tree-smoke.sh \
     || fail "install-tree smoke runner must forward generator"
 grep -q 'extra_cmake_args' scripts/run-install-tree-smoke.sh \

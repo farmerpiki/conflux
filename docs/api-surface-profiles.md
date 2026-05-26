@@ -67,6 +67,11 @@ corresponding aggregate surface for the configured feature set.
 
 ## Profile contents
 
+Profile aggregate exports are guarded by
+[`api-surface-manifest.json`](api-surface-manifest.json). The build
+`api-surface-map` check verifies that this manifest, the aggregate facade module
+sources, this document, and [`component-map.md`](component-map.md) stay in sync.
+
 | Surface area | Curated | Extended | Complete |
 |---|---:|---:|---:|
 | `conflux.core` narrow core aggregate | yes | yes | yes |
@@ -82,6 +87,14 @@ corresponding aggregate surface for the configured feature set.
 | private detail modules, partitions, tests, benches, generated glue | no | no | no |
 
 `complete` means complete documented public surface, not private internals.
+
+Manifest-tracked exports:
+
+| Profile | Exported aggregate modules |
+|---|---|
+| `curated` | `conflux.features`, `conflux.http`, `conflux.json`, `conflux.json.file` |
+| `extended` | `conflux.curated`, `conflux.work`, `conflux.file_io_sync`, `conflux.file_map`, `conflux.json.boundary`, `conflux.json.native_provider`, `conflux.json.reflect`, `conflux.json.reflect_provider`, `conflux.net.config`, `conflux.net.http.client`, `conflux.http.extended`, `conflux.net.app`, `conflux.net.auth`, `conflux.net.cors`, `conflux.net.rate_limit`, `conflux.net.security`, `conflux.net.forwarded`, `conflux.net.request_id`, `conflux.net.ip_filter`, `conflux.net.cache_control`, `conflux.net.trailing_slash`, `conflux.net.redirect`, `conflux.net.cookie_signing`, `conflux.net.csrf`, `conflux.net.etag`, `conflux.net.response_cache`, `conflux.net.observability`, `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.metrics`, `conflux.net.openapi`, `conflux.net.vhost`, `conflux.net.jwt`, `conflux.crypto`, `conflux.templates`, `conflux.templates.watch`, `conflux.process`, `conflux.pg` |
+| `complete` | `conflux.extended`, `conflux.uring`, `conflux.uring.completion`, `conflux.uring.fd`, `conflux.uring.flow`, `conflux.uring.handle`, `conflux.uring.timeout`, `conflux.file_io`, `conflux.file_io.buffers`, `conflux.file_io.driver`, `conflux.file_io.iopoll`, `conflux.file_io.pipe_pool`, `conflux.file_io.reader`, `conflux.socket_io`, `conflux.socket_io.blocking`, `conflux.socket_io.coro`, `conflux.net.dns`, `conflux.dns_bridge`, `conflux.net.io_buffer`, `conflux.net.cancel`, `conflux.net.http`, `conflux.net.http.server`, `conflux.net.http.protocol`, `conflux.net.http.parse_helpers`, `conflux.net.router`, `conflux.net.router_dispatch`, `conflux.net.router_match`, `conflux.net.router_static`, `conflux.net.http.static_async`, `conflux.net.http.static_files`, `conflux.net.http2`, `conflux.net.http3`, `conflux.file_watch`, `conflux.net.smtp`, `conflux.db` |
 
 ## Migration notes
 

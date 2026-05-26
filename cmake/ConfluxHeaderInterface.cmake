@@ -341,7 +341,7 @@ if(_conflux_header_impl_targets)
 endif()
 set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
 if(CONFLUX_USE_MOCK_LIBURING)
-    message(WARNING
+    message(STATUS
         "conflux: mock liburing is enabled; runtime/http installed package components are disabled because they are compile-only in this build.")
 endif()
 set(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS FALSE)

@@ -78,6 +78,15 @@ Current review set: `findings/1.md` through `findings/10.md` after
   `make_rejection_response(...)` and `note_rejection(...)` from
   `http_server_helpers`, leaving connection formatting and observability hooks
   local to each emitter.
+- `findings/7.md` P2 and `findings/4.md` P2 build/API-surface
+  maintainability scope: complete. Aggregate API profile exports now have a
+  manifest checked against facade module sources, profile docs, and the
+  component map. Package smoke can assert the installed API surface, the
+  install-tree smoke forwards that expectation, and the package-config guard
+  keeps those lanes wired. The package-smoke warning cleanup is also covered:
+  mock-liburing package-mode notice is informational, and experimental
+  import-std smoke support is opt-in instead of enabled for unrelated header
+  package smokes.
 - `findings/7.md` P1 public header hygiene coverage: complete. The hygiene
   checker now applies public shorthand-alias and macro leakage checks to every
   selected generated public header from the active manifest, while retaining the
@@ -632,10 +641,9 @@ Current review set: `findings/1.md` through `findings/10.md` after
 - `findings/7.md` P1 standalone DB hidden singleton cancel pool is deferred for
   explicit API policy. Removing it or making it opt-in changes direct
   connection ergonomics and needs a public cancellation-worker story.
-- `findings/7.md` P2 manifest-driven API profiles, slim common `Response`
-  object, and docs/examples release-proof work are deferred until after the
-  curated HTTP/transport split and profile wrappers stabilize.
-- `findings/4.md` P2 HTTP facade API snapshot internals and package-smoke
-  parity defaults are not changed in this pass. Pure facade import smokes now
-  exist, and package/profile default policy should be handled in the packaging
-  release gate rather than folded into unrelated correctness patches.
+- `findings/7.md` P2 slim common `Response` object and docs/examples
+  release-proof work remain deferred until after the curated HTTP/transport
+  split and profile wrappers stabilize.
+- `findings/4.md` P2 HTTP facade API snapshot internals remain deferred. The
+  build-system part is covered by the checked API-surface manifest and package
+  smoke API-surface assertion.

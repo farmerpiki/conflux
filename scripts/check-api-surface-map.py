@@ -2,12 +2,15 @@
 """Fail when API-surface profile exports drift from docs/component-map.md."""
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
+PROFILE_DOC = ROOT / "docs" / "api-surface-profiles.md"
+PROFILE_MANIFEST = ROOT / "docs" / "api-surface-manifest.json"
 PROFILE_SOURCES = {
     "curated": ROOT / "src" / "facade" / "conflux_curated.cxx",
     "extended": ROOT / "src" / "facade" / "conflux_extended.cxx",
@@ -61,12 +64,44 @@ def profile_exports() -> dict[str, set[str]]:
     return exports
 
 
+def manifest_exports() -> dict[str, set[str]]:
+    data = json.loads(PROFILE_MANIFEST.read_text(encoding="utf-8"))
+    profiles = data.get("profiles")
+    if not isinstance(profiles, dict):
+        raise ValueError("api-surface manifest must contain object key `profiles`")
+    out: dict[str, set[str]] = {}
+    for profile in PROFILE_SOURCES:
+        modules = profiles.get(profile)
+        if not isinstance(modules, list) or not all(isinstance(item, str) for item in modules):
+            raise ValueError(f"api-surface manifest profile `{profile}` must be a list of module names")
+        out[profile] = set(modules)
+    return out
+
+
+def documented_profile_modules() -> set[str]:
+    return set(IMPORT_RE.findall(PROFILE_DOC.read_text(encoding="utf-8")))
+
+
 def main() -> int:
     failures: list[str] = []
     surfaces = documented_surfaces()
     exports = profile_exports()
+    manifest = manifest_exports()
+    documented_profiles = documented_profile_modules()
 
     for profile, modules in exports.items():
+        expected = manifest[profile]
+        if modules != expected:
+            for module in sorted(expected - modules):
+                failures.append(
+                    f"{PROFILE_SOURCES[profile].relative_to(ROOT)} is missing manifest export `{module}`"
+                )
+            for module in sorted(modules - expected):
+                failures.append(
+                    f"{PROFILE_SOURCES[profile].relative_to(ROOT)} exports `{module}` not listed in "
+                    f"{PROFILE_MANIFEST.relative_to(ROOT)}"
+                )
+
         profile_rank = SURFACE_RANK[profile]
         for module in sorted(modules - PROFILE_MODULES):
             surface = surfaces.get(module)
@@ -80,6 +115,14 @@ def main() -> int:
                 failures.append(
                     f"{PROFILE_SOURCES[profile].relative_to(ROOT)} exports `{module}` "
                     f"from `{profile}`, but component-map classifies it as `{surface}`"
+                )
+
+    for profile, modules in manifest.items():
+        for module in sorted(modules - PROFILE_MODULES):
+            if module not in documented_profiles:
+                failures.append(
+                    f"{PROFILE_MANIFEST.relative_to(ROOT)} lists `{module}` for `{profile}`, but "
+                    f"{PROFILE_DOC.relative_to(ROOT)} does not mention it"
                 )
 
     if failures:

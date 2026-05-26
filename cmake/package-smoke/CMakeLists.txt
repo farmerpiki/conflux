@@ -1,15 +1,19 @@
 cmake_minimum_required(VERSION 3.30)
 
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.3.0")
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.3")
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.0")
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "a9e1cf81-9932-4810-974b-6eccaf14e457")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.31.8")
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30.0")
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
+option(CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD
+    "Enable CMake's experimental import-std support for package smoke projects that consume import-std install trees" OFF)
+if(CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.3.0")
+        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
+    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.3")
+        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
+    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.0")
+        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "a9e1cf81-9932-4810-974b-6eccaf14e457")
+    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.31.8")
+        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
+    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30.0")
+        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
+    endif()
 endif()
 
 project(conflux_package_smoke LANGUAGES CXX)
@@ -18,6 +22,8 @@ set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
     "Semicolon-separated conflux components to require from the install tree")
 set(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE "" CACHE STRING
     "Expected installed interface mode, or empty to accept the package mode")
+set(CONFLUX_PACKAGE_SMOKE_API_SURFACE "" CACHE STRING
+    "Expected installed aggregate API surface, or empty to skip the check")
 set(CONFLUX_PACKAGE_SMOKE_ENABLE_DB OFF CACHE BOOL
     "Enable DB component smoke lanes when the installed package exposes DB targets")
 set(CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS "" CACHE STRING
@@ -35,6 +41,8 @@ option(CONFLUX_PACKAGE_SMOKE_PUBLIC_MODULE_IMPORTS
     "Compile one downstream import-only TU for each public module file set exposed by requested package targets" OFF)
 set_property(CACHE CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE PROPERTY STRINGS
     "" MODULE_INTERFACE HEADER_INTERFACE)
+set_property(CACHE CONFLUX_PACKAGE_SMOKE_API_SURFACE PROPERTY STRINGS
+    "" curated extended complete)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,10 +64,30 @@ if(CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE
     message(FATAL_ERROR
         "package smoke expected ${CONFLUX_PACKAGE_SMOKE_INTERFACE_MODE}, got ${CONFLUX_INTERFACE_MODE}")
 endif()
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
+        AND CONFLUX_USE_IMPORT_STD
+        AND NOT CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD)
+    message(FATAL_ERROR
+        "Installed package uses import std; rerun package smoke with "
+        "CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD=ON to opt into CMake's experimental support.")
+endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
 	set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
 	set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+endif()
+
+set(_conflux_package_smoke_api_surface_check "")
+if(CONFLUX_PACKAGE_SMOKE_API_SURFACE)
+	if(NOT CONFLUX_PACKAGE_SMOKE_API_SURFACE MATCHES "^(curated|extended|complete)$")
+		message(FATAL_ERROR
+			"CONFLUX_PACKAGE_SMOKE_API_SURFACE must be curated, extended, complete, or empty")
+	endif()
+	string(TOUPPER "${CONFLUX_PACKAGE_SMOKE_API_SURFACE}" _conflux_expected_surface_upper)
+	string(APPEND _conflux_package_smoke_api_surface_check
+		"#if CONFLUX_API_SURFACE_LEVEL != CONFLUX_API_SURFACE_${_conflux_expected_surface_upper}\n"
+		"#error \"installed conflux API surface does not match CONFLUX_PACKAGE_SMOKE_API_SURFACE\"\n"
+		"#endif\n")
 endif()
 
 set(_conflux_package_smoke_linked_apis ${CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS})
@@ -175,6 +203,7 @@ file(WRITE "${_conflux_smoke_summary}"
     "visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}\n"
     "resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}\n"
     "interface_mode=${CONFLUX_INTERFACE_MODE}\n"
+    "expected_api_surface=${CONFLUX_PACKAGE_SMOKE_API_SURFACE}\n"
     "use_import_std=${CONFLUX_USE_IMPORT_STD}\n"
     "package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}\n"
     "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}\n"
@@ -202,7 +231,7 @@ endfunction()
 
 set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND CONFLUX_USE_IMPORT_STD)
-    file(WRITE "${_conflux_package_smoke_source}" [[
+    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
 import std;
 import conflux.types;
 
@@ -220,7 +249,7 @@ int main() {
 }
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-    file(WRITE "${_conflux_package_smoke_source}" [[
+    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -242,7 +271,7 @@ int main() {
 }
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
-    file(WRITE "${_conflux_package_smoke_source}" [[
+    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
 #include <conflux/types.hpp>
 
 #include <cstddef>
