@@ -134,6 +134,49 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: first success returns single failure when remaining values cancel",
+	"[work.race]") {
+	auto [bad, bad_src] = root::make_task_source<int>();
+	auto [cancelled, cancelled_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.winner = race::winner_policy::first_success},
+		race::candidate("bad", std::move(bad)),
+		race::candidate("cancelled", std::move(cancelled)));
+
+	auto failure = std::make_exception_ptr(std::runtime_error{"bad"});
+	REQUIRE(bad_src.try_set_exception(failure));
+	REQUIRE(cancelled_src.try_set_cancelled(root::CancelReason::shutdown));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 1);
+	CHECK(out.observation.all_failed);
+	REQUIRE(out.outcome.is_failure());
+	CHECK(out.outcome.failure().error == failure);
+}
+
+TEST_CASE(
+	"work.race: first success all-cancelled preserves first cancellation reason",
+	"[work.race]") {
+	auto [left, left_src] = root::make_task_source<int>();
+	auto [right, right_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{.winner = race::winner_policy::first_success},
+		race::candidate("left", std::move(left)),
+		race::candidate("right", std::move(right)));
+
+	REQUIRE(left_src.try_set_cancelled(root::CancelReason::deadline));
+	REQUIRE(right_src.try_set_cancelled(root::CancelReason::shutdown));
+
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.index == 1);
+	CHECK(out.observation.all_failed);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+}
+
+TEST_CASE(
 	"work.race: trigger wins with cancellation reason",
 	"[work.race]") {
 	auto [value, value_src] = root::make_task_source<int>();
