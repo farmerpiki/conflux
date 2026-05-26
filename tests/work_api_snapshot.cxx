@@ -482,6 +482,7 @@ using _loser_cleanup_policy = race::loser_cleanup_policy;
 using _race_options = race::race_options;
 using _race_winner_kind = race::race_winner_kind;
 using _race_winner_info = race::race_winner_info;
+using _race_observation = race::race_observation;
 using _race_aggregate_error_entry = race::race_aggregate_error_entry;
 using _race_aggregate_error = race::race_aggregate_error;
 using _owned_race_aggregate_error = race::owned_race_aggregate_error;

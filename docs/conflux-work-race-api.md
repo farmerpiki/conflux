@@ -82,6 +82,12 @@ progress while the caller is blocked.
 Cancelling the returned race task forwards the cancellation reason to every live
 participant and completes the race task as cancelled with the same reason.
 
+## Result Metadata
+
+`race_result<T>::observation` contains lightweight per-result counters and flags:
+participant count, loser cancellation requests, whether a trigger won, and
+whether `first_success` exhausted all value candidates without success.
+
 ## Ownership
 
 The base API is allocation-light and borrows labels. `race_owned_labels()` copies

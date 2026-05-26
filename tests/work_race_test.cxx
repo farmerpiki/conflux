@@ -43,6 +43,10 @@ TEST_CASE(
 	auto out = root::value(std::move(raced));
 	CHECK(out.winner.index == 1);
 	CHECK(out.winner.label == "fast");
+	CHECK(out.observation.participant_count == 2);
+	CHECK(out.observation.loser_cancel_requested == 1);
+	CHECK_FALSE(out.observation.trigger_won);
+	CHECK_FALSE(out.observation.all_failed);
 	REQUIRE(out.outcome.is_success());
 	CHECK(out.outcome.success().value == 7);
 }
@@ -135,6 +139,10 @@ TEST_CASE(
 	auto out = root::value(std::move(raced));
 	CHECK(out.winner.index == 1);
 	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	CHECK(out.observation.participant_count == 2);
+	CHECK(out.observation.loser_cancel_requested == 1);
+	CHECK(out.observation.trigger_won);
+	CHECK_FALSE(out.observation.all_failed);
 	REQUIRE(out.outcome.is_cancelled());
 	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
 }
@@ -457,6 +465,8 @@ TEST_CASE(
 
 	auto out = root::value(std::move(raced));
 	REQUIRE(out.result.outcome.is_failure());
+	CHECK(out.result.observation.participant_count == 2);
+	CHECK(out.result.observation.all_failed);
 	try {
 		std::rethrow_exception(out.result.outcome.failure().error);
 		FAIL("aggregate failure expected");

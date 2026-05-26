@@ -54,6 +54,13 @@ struct race_winner_info {
 	std::chrono::nanoseconds latency{};
 };
 
+struct race_observation {
+	std::size_t participant_count{};
+	std::size_t loser_cancel_requested{};
+	bool trigger_won = false;
+	bool all_failed = false;
+};
+
 template<root::work_value T>
 struct race_loser_result {
 	std::size_t index{};
@@ -65,6 +72,7 @@ template<root::work_value T>
 struct race_result {
 	race_winner_info winner;
 	root::Outcome<T> outcome;
+	race_observation observation{};
 	std::vector<race_loser_result<T>> loser_outcomes{};
 };
 
@@ -421,6 +429,7 @@ class race_state final : public std::enable_shared_from_this<race_state<T>> {
 	std::size_t winner_index_ = 0;
 	std::optional<root::Outcome<T>> winner_outcome_{};
 	race_winner_info winner_info_{};
+	race_observation observation_{};
 	std::vector<race_loser_result<T>> loser_outcomes_{};
 	std::vector<race_aggregate_error_entry> failures_{};
 	std::optional<root::Cancelled> first_cancel_{};
@@ -455,6 +464,7 @@ public:
 		std::size_t n) {
 		ps_.reserve(n);
 		failures_.reserve(n);
+		observation_.participant_count = n;
 		if (opts_.collect_loser_outcomes) {
 			loser_outcomes_.reserve(n > 0 ? n - 1 : 0);
 		}
@@ -707,6 +717,7 @@ private:
 			first_cancel_.emplace(std::move(out).cancelled());
 		}
 		if (value_remaining_ == 0) {
+			observation_.all_failed = true;
 			if (!failures_.empty()) {
 				if (failures_.size() == 1) {
 					select_winner_locked(i, root::Outcome<T>{root::Failure{failures_[0].error}}, losers_to_cancel);
@@ -743,11 +754,13 @@ private:
 														   std::chrono::steady_clock::now() - ps_[i].started) :
 													   std::chrono::nanoseconds{},
 		};
+		observation_.trigger_won = ps_[i].trigger;
 		winner_outcome_.emplace(std::move(out));
 		if (opts_.losers == loser_policy::request_cancel || opts_.losers == loser_policy::request_cancel_and_wait) {
 			for (std::size_t idx = 0; idx < ps_.size(); ++idx) {
 				if (idx != i && ps_[idx].live && !ps_[idx].terminal) {
 					losers_to_cancel.push_back(control(idx));
+					++observation_.loser_cancel_requested;
 				}
 			}
 		}
@@ -796,6 +809,7 @@ private:
 			result_t result{
 				.winner = winner_info_,
 				.outcome = std::move(*winner_outcome_),
+				.observation = observation_,
 				.loser_outcomes = std::move(loser_outcomes_),
 			};
 			(void)out_.try_set_value(root::Success<result_t>{std::move(result)});
