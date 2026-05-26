@@ -76,48 +76,70 @@ concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, Ne
 export template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
 
+export enum class HttpMethod : std::uint8_t {
+	get,
+	post,
+	put,
+	patch,
+	delete_,
+	options,
+};
+
+export [[nodiscard]] constexpr std::string_view http_method_name(
+	HttpMethod method) noexcept {
+	switch (method) {
+	case HttpMethod::get    : return "GET";
+	case HttpMethod::post   : return "POST";
+	case HttpMethod::put    : return "PUT";
+	case HttpMethod::patch  : return "PATCH";
+	case HttpMethod::delete_: return "DELETE";
+	case HttpMethod::options: return "OPTIONS";
+	}
+	return "GET";
+}
+
 struct RouteVerbAccessors {
 	template<typename Self, typename F>
 	Self &get(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("GET", path, std::forward<F>(handler));
+		return self.add(HttpMethod::get, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &post(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("POST", path, std::forward<F>(handler));
+		return self.add(HttpMethod::post, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &put(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("PUT", path, std::forward<F>(handler));
+		return self.add(HttpMethod::put, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &patch(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("PATCH", path, std::forward<F>(handler));
+		return self.add(HttpMethod::patch, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &del(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("DELETE", path, std::forward<F>(handler));
+		return self.add(HttpMethod::delete_, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &options(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add("OPTIONS", path, std::forward<F>(handler));
+		return self.add(HttpMethod::options, path, std::forward<F>(handler));
 	}
 };
 
@@ -150,6 +172,14 @@ public:
 		return *this;
 	}
 	template<typename F>
+	Router &add(
+		HttpMethod method,
+		std::string_view path,
+		F &&handler) {
+		add_prepared(method, path, make_handler(std::forward<F>(handler)));
+		return *this;
+	}
+	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &add_context(
 		std::string_view method,
@@ -160,45 +190,61 @@ public:
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
+	Router &add_context(
+		HttpMethod method,
+		std::string_view path,
+		F &&handler) {
+		add_context_prepared(method, path, ContextHandler{std::forward<F>(handler)});
+		return *this;
+	}
+	template<HttpMethod Method, typename F>
+		requires ContextHandlerFunction<F>
+	Router &add_method_context(
+		std::string_view path,
+		F &&handler) {
+		return add_context(Method, path, std::forward<F>(handler));
+	}
+	template<typename F>
+		requires ContextHandlerFunction<F>
 	Router &get_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("GET", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::get>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &post_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("POST", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::post>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &put_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("PUT", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::put>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &patch_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("PATCH", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::patch>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &del_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("DELETE", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::delete_>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &options_context(
 		std::string_view path,
 		F &&handler) {
-		return add_context("OPTIONS", path, std::forward<F>(handler));
+		return add_method_context<HttpMethod::options>(path, std::forward<F>(handler));
 	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 	[[nodiscard]] bool has_context_routes() const noexcept;
@@ -281,6 +327,15 @@ public:
 			return *this;
 		}
 		template<typename F>
+		Group &add(
+			HttpMethod method,
+			std::string_view path,
+			F &&handler) {
+			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
+			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
+			return *this;
+		}
+		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &add_context(
 			std::string_view method,
@@ -292,45 +347,62 @@ public:
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
+		Group &add_context(
+			HttpMethod method,
+			std::string_view path,
+			F &&handler) {
+			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
+			router_.add_context(method, full_path, wrap_context(Router::ContextHandler{std::forward<F>(handler)}));
+			return *this;
+		}
+		template<HttpMethod Method, typename F>
+			requires ContextHandlerFunction<F>
+		Group &add_method_context(
+			std::string_view path,
+			F &&handler) {
+			return add_context(Method, path, std::forward<F>(handler));
+		}
+		template<typename F>
+			requires ContextHandlerFunction<F>
 		Group &get_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("GET", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::get>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &post_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("POST", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::post>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &put_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("PUT", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::put>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &patch_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("PATCH", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::patch>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &del_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("DELETE", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::delete_>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &options_context(
 			std::string_view path,
 			F &&handler) {
-			return add_context("OPTIONS", path, std::forward<F>(handler));
+			return add_method_context<HttpMethod::options>(path, std::forward<F>(handler));
 		}
 
 	private:
@@ -380,7 +452,9 @@ private:
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
 	void add_prepared(std::string_view method, std::string_view path, Handler handler);
+	void add_prepared(HttpMethod method, std::string_view path, Handler handler);
 	void add_context_prepared(std::string_view method, std::string_view path, ContextHandler handler);
+	void add_context_prepared(HttpMethod method, std::string_view path, ContextHandler handler);
 	void use_prepared(Middleware mw);
 	void use_context_prepared(ContextMiddleware mw);
 	void set_not_found_handler(Handler handler);

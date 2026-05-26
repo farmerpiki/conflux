@@ -263,6 +263,59 @@ void parse_resolv_options(
 	} catch (...) { ignore_best_effort_dns_failure(); }
 	return out;
 }
+void set_endpoint_port(
+	Endpoint &ep,
+	std::uint16_t port) noexcept {
+	if (ep.family == AddressFamily::v4) {
+		reinterpret_cast<::sockaddr_in *>(&ep.addr)->sin_port = htons(port);
+	} else if (ep.family == AddressFamily::v6) {
+		reinterpret_cast<::sockaddr_in6 *>(&ep.addr)->sin6_port = htons(port);
+	}
+}
+[[nodiscard]] bool endpoint_family_allowed(
+	Endpoint const &ep,
+	ResolveOptions const &opts) noexcept {
+	return (ep.family == AddressFamily::v4 && opts.allow_v4) || (ep.family == AddressFamily::v6 && opts.allow_v6);
+}
+[[nodiscard]] std::vector<Endpoint> hosts_endpoints_for_options(
+	std::vector<Endpoint> const &cached,
+	std::uint16_t port,
+	ResolveOptions const &opts) {
+	std::vector<Endpoint> eps;
+	eps.reserve(cached.size());
+	for (auto const &ep: cached) {
+		if (!endpoint_family_allowed(ep, opts)) {
+			continue;
+		}
+		auto e = ep;
+		set_endpoint_port(e, port);
+		eps.push_back(e);
+	}
+	return eps;
+}
+[[nodiscard]] std::optional<ResolveResult> hosts_lookup_result(
+	std::unordered_map<std::string, std::vector<Endpoint>> const &hosts_cache,
+	std::string_view host,
+	std::uint16_t port,
+	ResolveOptions const &opts) {
+	std::string key{host};
+	lowercase_ascii_in_place(key);
+	if (!key.empty() && key.back() == '.') {
+		key.pop_back();
+	}
+	auto const it = hosts_cache.find(key);
+	if (it == hosts_cache.end()) {
+		return std::nullopt;
+	}
+	auto eps = hosts_endpoints_for_options(it->second, port, opts);
+	if (eps.empty()) {
+		return std::nullopt;
+	}
+	ResolveResult r;
+	r.endpoints = std::move(eps);
+	r.from_hosts_file = true;
+	return r;
+}
 [[nodiscard]] std::string lowercase_ascii(
 	std::string_view value) {
 	std::string out{value};
@@ -1090,34 +1143,11 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	// /etc/hosts lookup
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		std::string key{host};
-		lowercase_ascii_in_place(key);
-		if (!key.empty() && key.back() == '.') {
-			key.pop_back();
-		}
-		auto it = impl_->hosts_cache.find(key);
-		if (it != impl_->hosts_cache.end()) {
-			std::vector<Endpoint> eps;
-			for (auto const &ep: it->second) {
-				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
-					auto e = ep;
-					reinterpret_cast<::sockaddr_in *>(&e.addr)->sin_port = htons(port);
-					eps.push_back(e);
-				} else if (ep.family == AddressFamily::v6 && effective_opts.allow_v6) {
-					auto e = ep;
-					reinterpret_cast<::sockaddr_in6 *>(&e.addr)->sin6_port = htons(port);
-					eps.push_back(e);
-				}
-			}
-			if (!eps.empty()) {
-				auto [task, raw_src] =
-					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-				ResolveResult r;
-				r.endpoints = std::move(eps);
-				r.from_hosts_file = true;
-				auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(r)});
-				return std::move(task);
-			}
+		if (auto hosts_result = hosts_lookup_result(impl_->hosts_cache, host, port, effective_opts); hosts_result) {
+			auto [task, raw_src] =
+				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+			auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(*hosts_result)});
+			return std::move(task);
 		}
 	}
 
@@ -1469,31 +1499,8 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		std::string key{host};
-		lowercase_ascii_in_place(key);
-		if (!key.empty() && key.back() == '.') {
-			key.pop_back();
-		}
-		auto it = impl_->hosts_cache.find(key);
-		if (it != impl_->hosts_cache.end()) {
-			std::vector<Endpoint> eps;
-			for (auto const &ep: it->second) {
-				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
-					auto e = ep;
-					reinterpret_cast<::sockaddr_in *>(&e.addr)->sin_port = htons(port);
-					eps.push_back(e);
-				} else if (ep.family == AddressFamily::v6 && effective_opts.allow_v6) {
-					auto e = ep;
-					reinterpret_cast<::sockaddr_in6 *>(&e.addr)->sin6_port = htons(port);
-					eps.push_back(e);
-				}
-			}
-			if (!eps.empty()) {
-				ResolveResult r;
-				r.endpoints = std::move(eps);
-				r.from_hosts_file = true;
-				return r;
-			}
+		if (auto hosts_result = hosts_lookup_result(impl_->hosts_cache, host, port, effective_opts); hosts_result) {
+			return *std::move(hosts_result);
 		}
 	}
 

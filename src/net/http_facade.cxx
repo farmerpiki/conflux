@@ -30,6 +30,7 @@ using CookieBuilder = ::CookieBuilder;
 using SameSite = ::SameSite;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
+using HttpMethod = ::HttpMethod;
 using ::RunStatus;
 using RequestContext = ::RequestContext;
 template<class T>

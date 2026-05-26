@@ -475,11 +475,10 @@ Current review set: `findings/1.md` through `findings/10.md` after
   until compile-time and representative JSON equality coverage are checked. It
   is recursive comparison code rather than a plain local loop, and the current
   pass kept to simple non-hot transformations with obvious allocation parity.
-- `findings/8.md` duplicate `/etc/hosts` filtering helper is deferred as a
-  larger DNS parsing cleanup. The accepted DNS changes removed repeated section
-  reads/lowercasing/append loops; rewriting the address-family filtering shape
-  should be done with resolver behavior tests focused on `/etc/hosts` edge
-  cases.
+- `findings/8.md` duplicate `/etc/hosts` filtering helper is completed. The
+  blocking and async resolver paths now share the same lowercase/trailing-dot
+  lookup, address-family filtering, port rewrite, and `from_hosts_file`
+  construction helper.
 - `findings/9.md` smuggling/close-path helper returning `{bytes, closed}` is
   deferred for a focused observability/connection-close contract pass. The
   current patch fixed the direct wrong-pass cases and strengthened local
@@ -594,9 +593,10 @@ Current review set: `findings/1.md` through `findings/10.md` after
   writers are hot serialization paths. Centralizing them is reasonable only
   with representative JSON serialization benchmarks and codegen/perf evidence
   that the shared helper keeps or improves throughput.
-- `findings/2.md` P1 App/Group route verb boilerplate: deferred until the
-  route/extractor API model stabilizes. It is API-shape cleanup, and helper
-  families now could hide rather than reduce the pending route model changes.
+- `findings/2.md` P1 App/Group route verb boilerplate is completed for the
+  built-in HTTP verbs. App, Router, and Group verb helpers now use `HttpMethod`
+  overloads instead of duplicating raw verb strings, while string-method
+  overloads remain available for extension methods and existing metadata APIs.
 - `findings/2.md` P2 CMake target/module declaration helpers: deferred while
   header/module/profile/package behavior is still moving; a helper now would
   risk obscuring feature-guard edge cases.

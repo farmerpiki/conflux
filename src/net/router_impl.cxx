@@ -454,6 +454,13 @@ void Router::add_prepared(
 	});
 }
 
+void Router::add_prepared(
+	HttpMethod method,
+	std::string_view path,
+	Handler handler) {
+	add_prepared(http_method_name(method), path, std::move(handler));
+}
+
 void Router::add_context_prepared(
 	std::string_view method,
 	std::string_view path,
@@ -475,6 +482,13 @@ void Router::add_context_prepared(
 		.has_exact_path = has_exact_path,
 		.handler = std::move(handler),
 	});
+}
+
+void Router::add_context_prepared(
+	HttpMethod method,
+	std::string_view path,
+	ContextHandler handler) {
+	add_context_prepared(http_method_name(method), path, std::move(handler));
 }
 
 void Router::use_prepared(
@@ -537,7 +551,7 @@ Router &Router::set_static_file_cache(
 Router &Router::ws_prepared(
 	std::string_view path,
 	WsHandler handler) {
-	add_prepared("GET", path, Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
+	add_prepared(HttpMethod::get, path, Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
 					 if (!ws_detail::is_valid_handshake(req)) {
 						 return Response::bad_request();
 					 }
@@ -665,12 +679,12 @@ Router &Router::serve_static(
 		sopts,
 		impl_->static_file_cache,
 		impl_->static_cache);
-	add_prepared("GET", routes.pattern, std::move(routes.get));
+	add_prepared(HttpMethod::get, routes.pattern, std::move(routes.get));
 	if (routes.put) {
-		add_prepared("PUT", routes.pattern, std::move(*routes.put));
+		add_prepared(HttpMethod::put, routes.pattern, std::move(*routes.put));
 	}
 	if (routes.del) {
-		add_prepared("DELETE", routes.pattern, std::move(*routes.del));
+		add_prepared(HttpMethod::delete_, routes.pattern, std::move(*routes.del));
 	}
 	return *this;
 }
