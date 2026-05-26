@@ -317,6 +317,80 @@ template<root::progress_capability Driver, root::work_value T>
 	return candidate(label, detail::adapt_bound_handle<Driver, T>(driver, std::move(handle)));
 }
 
+template<root::progress_capability Owner>
+[[nodiscard]] race_trigger trigger_on(
+	Owner &owner,
+	root::Posted<void> posted,
+	root::CancelReason reason) {
+	return trigger(detail::adapt_bound_handle<Owner, void>(owner, root::into_join_handle(std::move(posted))), reason);
+}
+
+template<root::progress_capability Owner>
+[[nodiscard]] race_trigger trigger_on(
+	Owner &owner,
+	std::string_view label,
+	root::Posted<void> posted,
+	root::CancelReason reason) {
+	return trigger(
+		label,
+		detail::adapt_bound_handle<Owner, void>(owner, root::into_join_handle(std::move(posted))),
+		reason);
+}
+
+template<root::progress_capability Owner>
+[[nodiscard]] race_trigger trigger_on(
+	Owner &owner,
+	root::PostedJoinHandle<void> handle,
+	root::CancelReason reason) {
+	return trigger(detail::adapt_bound_handle<Owner, void>(owner, std::move(handle)), reason);
+}
+
+template<root::progress_capability Owner>
+[[nodiscard]] race_trigger trigger_on(
+	Owner &owner,
+	std::string_view label,
+	root::PostedJoinHandle<void> handle,
+	root::CancelReason reason) {
+	return trigger(label, detail::adapt_bound_handle<Owner, void>(owner, std::move(handle)), reason);
+}
+
+template<root::progress_capability Driver>
+[[nodiscard]] race_trigger trigger_on(
+	Driver &driver,
+	root::Operation<void> op,
+	root::CancelReason reason) {
+	return trigger(detail::adapt_bound_handle<Driver, void>(driver, root::into_join_handle(std::move(op))), reason);
+}
+
+template<root::progress_capability Driver>
+[[nodiscard]] race_trigger trigger_on(
+	Driver &driver,
+	std::string_view label,
+	root::Operation<void> op,
+	root::CancelReason reason) {
+	return trigger(
+		label,
+		detail::adapt_bound_handle<Driver, void>(driver, root::into_join_handle(std::move(op))),
+		reason);
+}
+
+template<root::progress_capability Driver>
+[[nodiscard]] race_trigger trigger_on(
+	Driver &driver,
+	root::OperationJoinHandle<void> handle,
+	root::CancelReason reason) {
+	return trigger(detail::adapt_bound_handle<Driver, void>(driver, std::move(handle)), reason);
+}
+
+template<root::progress_capability Driver>
+[[nodiscard]] race_trigger trigger_on(
+	Driver &driver,
+	std::string_view label,
+	root::OperationJoinHandle<void> handle,
+	root::CancelReason reason) {
+	return trigger(label, detail::adapt_bound_handle<Driver, void>(driver, std::move(handle)), reason);
+}
+
 namespace detail {
 
 template<root::work_value T>

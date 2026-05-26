@@ -139,6 +139,44 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: trigger_on maps owner-bound void work to trigger",
+	"[work.race]") {
+	OwnerCap owner{};
+	auto [value, value_src] = root::make_task_source<int>();
+	auto [deadline, deadline_src] = root::make_posted_source<void>(owner);
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("value", std::move(value)),
+		race::trigger_on(owner, "deadline", std::move(deadline), root::CancelReason::deadline));
+
+	REQUIRE(deadline_src.try_set_value());
+	REQUIRE(value_src.try_set_cancelled(root::CancelReason::requested));
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "deadline");
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+}
+
+TEST_CASE(
+	"work.race: trigger_on reports owner-bound capability mismatch",
+	"[work.race]") {
+	OwnerCap owner{};
+	OwnerCap other{};
+	auto [posted, posted_src] = root::make_posted_source<void>(owner);
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::trigger_on(other, "deadline", std::move(posted), root::CancelReason::deadline));
+
+	REQUIRE(posted_src.try_set_value());
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_failure());
+	CHECK_THROWS_AS(std::rethrow_exception(out.outcome.failure().error), root::JoinError);
+}
+
+TEST_CASE(
 	"work.race: with_timeout maps timeout task to deadline trigger",
 	"[work.race]") {
 	auto [work, work_src] = root::make_task_source<int>();

@@ -552,6 +552,34 @@ static_assert(std::is_same_v<
 				  root::CancelReason::deadline)),
 			  race::race_trigger>);
 static_assert(std::is_same_v<
+			  decltype(race::trigger_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::Posted<void>>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::PostedJoinHandle<void>>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::Operation<void>>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
+			  decltype(race::trigger_on(
+				  std::declval<snapshot_root::_TestCap &>(),
+				  std::string_view{},
+				  std::declval<root::OperationJoinHandle<void>>(),
+				  root::CancelReason::deadline)),
+			  race::race_trigger>);
+static_assert(std::is_same_v<
 			  decltype(race::race<int>(std::declval<race::race_candidate<int>>())),
 			  root::Task<race::race_result<int>>>);
 static_assert(std::is_same_v<

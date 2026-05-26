@@ -18,6 +18,10 @@ exclusive ready callback, and they extract the ready outcome with
 `join_ready(owner, ...)` / `join_ready(driver, ...)` so capability checks remain
 enforced.
 
+Use `race::trigger_on(owner, label, posted_void, reason)` or
+`race::trigger_on(driver, label, operation_void, reason)` for owner-bound trigger
+participants.
+
 Socket-ring code can use `timeout_after(ring, duration)` or
 `timeout_at(ring, deadline)` from `conflux.socket_io.coro` as the trigger task:
 
