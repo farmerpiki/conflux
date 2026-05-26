@@ -426,6 +426,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: empty moved participant fails setup",
+	"[work.race]") {
+	auto [owned, owned_src] = root::make_task_source<int>();
+	auto owned_control = owned.control();
+	root::TaskJoinHandle<int> empty{};
+
+	auto raced = race::race<int>(
+		race::race_options{},
+		race::candidate("owned", std::move(owned)),
+		race::candidate("empty", std::move(empty)));
+
+	CHECK(owned_control.cancel_requested());
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("race setup should fail");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
+
+	REQUIRE(owned_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: request_cancel cancels loser without waiting for loser terminal completion",
 	"[work.race]") {
 	auto [winner, winner_src] = root::make_task_source<int>();
@@ -444,6 +465,30 @@ TEST_CASE(
 	CHECK(loser_control.cancel_requested());
 
 	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
+	"work.race: configured loser cancellation reason is forwarded",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+	auto loser_control = loser.control();
+
+	auto raced = race::race<int>(
+		race::race_options{
+			.losers = race::loser_policy::request_cancel,
+			.default_loser_reason = root::CancelReason::shutdown,
+		},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{11}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(loser_control.cancel_requested());
+	CHECK(loser_control.cancellation_reason() == root::CancelReason::shutdown);
+
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::shutdown));
 }
 
 TEST_CASE(
