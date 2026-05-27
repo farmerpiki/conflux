@@ -86,12 +86,6 @@ struct ResolvConfig {
 	}
 	return out;
 }
-void lowercase_ascii_in_place(
-	std::string &value) {
-	std::ranges::transform(value, value.begin(), [](char c) noexcept {
-		return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
-	});
-}
 void parse_resolv_options(
 	std::string_view rest,
 	ResolvConfig &cfg) {
@@ -140,7 +134,7 @@ void parse_resolv_options(
 		if (token.empty()) {
 			continue;
 		}
-		lowercase_ascii_in_place(token);
+		ascii_lower_inplace(token);
 		if (!token.empty() && token.back() == '.') {
 			token.pop_back();
 		}
@@ -256,7 +250,7 @@ void parse_resolv_options(
 					break;
 				}
 				std::string name{name_sv};
-				lowercase_ascii_in_place(name);
+				ascii_lower_inplace(name);
 				out[name].push_back(ep);
 			}
 		}
@@ -299,7 +293,7 @@ void set_endpoint_port(
 	std::uint16_t port,
 	ResolveOptions const &opts) {
 	std::string key{host};
-	lowercase_ascii_in_place(key);
+	ascii_lower_inplace(key);
 	if (!key.empty() && key.back() == '.') {
 		key.pop_back();
 	}
@@ -318,9 +312,7 @@ void set_endpoint_port(
 }
 [[nodiscard]] std::string lowercase_ascii(
 	std::string_view value) {
-	std::string out{value};
-	lowercase_ascii_in_place(out);
-	return out;
+	return ascii_lower(value);
 }
 [[nodiscard]] bool same_dns_peer(
 	::sockaddr_storage const &actual,

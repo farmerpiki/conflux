@@ -1021,10 +1021,7 @@ std::expected<Url, UrlError> Url::parse(
 	}
 
 	Url url;
-	url.scheme.resize(scheme_end);
-	for (std::size_t i = 0; i < scheme_end; ++i) {
-		url.scheme[i] = static_cast<char>(tolower(static_cast<unsigned char>(input[i])));
-	}
+	url.scheme = ascii_lower(input.substr(0, scheme_end));
 
 	if (url.scheme != "http" && url.scheme != "https") {
 		return std::unexpected(

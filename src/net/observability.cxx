@@ -78,9 +78,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 
 [[nodiscard]] std::string upper_method(
 	std::string_view method) {
-	std::string out{method};
-	std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-	return out;
+	return ascii_upper(method);
 }
 
 [[nodiscard]] std::string path_without_query(
@@ -120,9 +118,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 		"x-auth-token",
 		"x-csrf-token"};
 	for (auto header: opts.extra_sensitive_headers) {
-		std::ranges::transform(header, header.begin(), [](unsigned char c) {
-			return static_cast<char>(std::tolower(c));
-		});
+		ascii_lower_inplace(header);
 		out.push_back(std::move(header));
 	}
 	return out;
@@ -131,9 +127,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 [[nodiscard]] bool is_sensitive(
 	std::vector<std::string> const &headers,
 	std::string_view name) {
-	std::string lower{name};
-	std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	return std::ranges::contains(headers, lower);
+	return std::ranges::contains(headers, ascii_lower(name));
 }
 
 void append_headers_json(

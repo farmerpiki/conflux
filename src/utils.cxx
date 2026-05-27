@@ -676,6 +676,19 @@ export std::string ascii_lower(
 	ascii_lower_inplace(out);
 	return out;
 }
+export void ascii_upper_inplace(
+	std::span<char> s) noexcept {
+	for (auto &c: s) {
+		unsigned char const u = static_cast<unsigned char>(c);
+		c = static_cast<char>(u >= 'a' && u <= 'z' ? u & ~0x20U : u);
+	}
+}
+export std::string ascii_upper(
+	std::string_view s) {
+	std::string out{s};
+	ascii_upper_inplace(out);
+	return out;
+}
 // Trim leading/trailing ASCII whitespace (space, tab, CR, LF).
 export std::string_view trim(
 	std::string_view s) noexcept {

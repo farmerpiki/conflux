@@ -70,7 +70,7 @@ TEST_CASE(
 	CHECK(url_decode_path("").empty());
 }
 // ---------------------------------------------------------------------------
-// ascii_lower / ascii_lower_inplace
+// ascii_lower / ascii_lower_inplace / ascii_upper / ascii_upper_inplace
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -89,6 +89,18 @@ TEST_CASE(
 	std::string s{"FOO"};
 	ascii_lower_inplace(s);
 	CHECK(s == "foo");
+}
+TEST_CASE(
+	"utils: ascii_upper converts lowercase",
+	"[utils]") {
+	CHECK(ascii_upper("Hello World") == "HELLO WORLD");
+}
+TEST_CASE(
+	"utils: ascii_upper_inplace modifies in-place",
+	"[utils]") {
+	std::string s{"foo"};
+	ascii_upper_inplace(s);
+	CHECK(s == "FOO");
 }
 // ---------------------------------------------------------------------------
 // trim

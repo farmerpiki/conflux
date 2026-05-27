@@ -34,12 +34,7 @@ struct AppOpenApiRoute {
 
 [[nodiscard]] std::string openapi_method_key(
 	std::string_view method) {
-	std::string out;
-	out.reserve(method.size());
-	for (char const ch: method) {
-		out += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-	}
-	return out;
+	return ascii_lower(method);
 }
 
 [[nodiscard]] std::string openapi_schema_for_path_type(
