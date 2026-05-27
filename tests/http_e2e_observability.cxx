@@ -1487,6 +1487,35 @@ TEST_CASE(
 	CHECK(vhost.resolved_work_pool("other.example.com").get() == shared_pool.get());
 }
 TEST_CASE(
+	"router: work pool is created only for websocket or sse routes") {
+	Router plain;
+	CHECK_FALSE(plain.work_pool());
+
+	Router sse;
+	sse.sse("/events", [](RequestView const &, std::shared_ptr<conflux::http::SseChannel> const &) {});
+	CHECK(sse.work_pool());
+
+	Router ws;
+	ws.ws("/ws", [](RequestView const &, conflux::http::WsConn &) {});
+	CHECK(ws.work_pool());
+}
+TEST_CASE(
+	"vhost: default construction does not allocate work pool") {
+	VHostRouter vhost;
+	CHECK_FALSE(vhost.work_pool());
+
+	Router plain;
+	vhost.add("plain.example.com", std::move(plain));
+	CHECK_FALSE(vhost.resolved_work_pool("plain.example.com"));
+
+	Router sse;
+	sse.sse("/events", [](RequestView const &, std::shared_ptr<conflux::http::SseChannel> const &) {});
+	auto sse_pool = sse.work_pool();
+	REQUIRE(sse_pool);
+	vhost.add("sse.example.com", std::move(sse));
+	CHECK(vhost.resolved_work_pool("sse.example.com").get() == sse_pool.get());
+}
+TEST_CASE(
 	"vhost: rebinding work pool updates existing subrouters") {
 	Router api_router;
 	Router def_router;

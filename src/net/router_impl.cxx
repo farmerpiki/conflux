@@ -60,9 +60,16 @@ struct Router::Impl {
 	std::vector<ContextMiddleware> context_middlewares{};
 	Handler not_found_handler{};
 	ErrorHandler error_handler{};
-	std::shared_ptr<WorkPool> work_pool{std::make_shared<WorkPool>()};
+	std::shared_ptr<WorkPool> work_pool{};
 	StaticCacheStore static_cache{};
 	conflux::http::StaticFileCacheConfig static_file_cache{};
+
+	[[nodiscard]] std::shared_ptr<WorkPool> ensure_work_pool() {
+		if (work_pool == nullptr) {
+			work_pool = std::make_shared<WorkPool>();
+		}
+		return work_pool;
+	}
 };
 
 namespace {
@@ -545,6 +552,7 @@ void Router::set_error_handler(
 void Router::sse_prepared(
 	std::string_view path,
 	SseHandler handler) {
+	(void)impl_->ensure_work_pool();
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->sse_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
@@ -582,6 +590,7 @@ Router &Router::set_static_file_cache(
 Router &Router::ws_prepared(
 	std::string_view path,
 	WsHandler handler) {
+	(void)impl_->ensure_work_pool();
 	add_prepared(
 		conflux::http::HttpMethod::get,
 		path,

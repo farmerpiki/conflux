@@ -17,14 +17,18 @@ public:
 	VHostRouter &add(
 		std::string host,
 		Router router) {
-		router.set_work_pool(work_pool_);
+		if (work_pool_ != nullptr) {
+			router.set_work_pool(work_pool_);
+		}
 		vhosts_.emplace(ascii_lower(host), std::move(router));
 		return *this;
 	}
 	// Default Router for hosts with no explicit match.
 	VHostRouter &set_default(
 		Router router) {
-		router.set_work_pool(work_pool_);
+		if (work_pool_ != nullptr) {
+			router.set_work_pool(work_pool_);
+		}
 		default_ = std::make_unique<Router>(std::move(router));
 		return *this;
 	}
@@ -86,5 +90,5 @@ public:
 private:
 	std::unordered_map<std::string, Router> vhosts_;
 	std::unique_ptr<Router> default_;
-	std::shared_ptr<WorkPool> work_pool_{std::make_shared<WorkPool>()};
+	std::shared_ptr<WorkPool> work_pool_{};
 };
