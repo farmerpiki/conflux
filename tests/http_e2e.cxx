@@ -399,10 +399,22 @@ void ensure_redirect_follow_servers() {
 					std::string{req.headers["proxy-authorization"]},
 					std::string{req.headers["host"]}));
 		});
+		auto echo_redirect = [](Request const &req) {
+			return Response::text(
+				std::format(
+					"method={}\nbody={}\ncontent-type={}",
+					req.method,
+					req.body,
+					std::string{req.headers["content-type"]}));
+		};
+		source.get("/echo-redirect", echo_redirect);
+		source.post("/echo-redirect", echo_redirect);
 		source.get("/same", [](Request const &) { return Response::redirect("/echo-headers"); });
 		source.get("/cross", [](Request const &) {
 			return Response::redirect(std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
+		source.post("/see-other", [](Request const &) { return Response::redirect("/echo-redirect", 303); });
+		source.post("/temporary", [](Request const &) { return Response::redirect("/echo-redirect", 307); });
 		source.get("/loop", [](Request const &) { return Response::redirect("/loop"); });
 		source.get("/async-start", [](Request const &) { return Response::redirect("/async-final"); });
 		source.get("/async-final", [](Request const &) { return Response::text("async-ok"); });
@@ -1506,6 +1518,37 @@ TEST_CASE(
 	CHECK(response->body.find("session=abc") == std::string::npos);
 	CHECK(response->body.find("Basic proxy") == std::string::npos);
 	CHECK(response->body.find(std::format("host=127.0.0.1:{}", g_redirect_follow_target_port)) != std::string::npos);
+}
+TEST_CASE(
+	"http client: follow_redirects converts 303 to GET without body") {
+	ensure_redirect_follow_servers();
+	HttpClient client{};
+	auto response = client.blocking_send(
+		chttp::ClientRequest::post(std::format("http://127.0.0.1:{}/see-other", g_redirect_follow_source_port))
+			.content_type("text/plain")
+			.body("payload")
+			.follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("method=GET") != std::string::npos);
+	CHECK(response->body.find("body=") != std::string::npos);
+	CHECK(response->body.find("body=payload") == std::string::npos);
+	CHECK(response->body.find("content-type=text/plain") == std::string::npos);
+}
+TEST_CASE(
+	"http client: follow_redirects preserves method and body for 307") {
+	ensure_redirect_follow_servers();
+	HttpClient client{};
+	auto response = client.blocking_send(
+		chttp::ClientRequest::post(std::format("http://127.0.0.1:{}/temporary", g_redirect_follow_source_port))
+			.content_type("text/plain")
+			.body("payload")
+			.follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("method=POST") != std::string::npos);
+	CHECK(response->body.find("body=payload") != std::string::npos);
+	CHECK(response->body.find("content-type=text/plain") != std::string::npos);
 }
 TEST_CASE(
 	"http client: follow_redirects reports redirect limit exhaustion") {

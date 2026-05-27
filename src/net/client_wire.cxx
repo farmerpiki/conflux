@@ -303,6 +303,7 @@ struct ParsedResponseHead {
 		return std::nullopt;
 	}
 	bool const cross_origin = !same_origin(req.url(), *next_url);
+	bool const drop_body = status == 303;
 	HttpFields next_headers{req.headers().case_insensitive()};
 	next_headers.clear();
 	for (auto const &[k, v]: req.headers()) {
@@ -315,13 +316,16 @@ struct ParsedResponseHead {
 				|| ascii_iequals(k, "proxy-authorization"))) {
 			continue;
 		}
+		if (drop_body && (ascii_iequals(k, "content-length") || ascii_iequals(k, "content-type"))) {
+			continue;
+		}
 		next_headers.set(k, v);
 	}
-	auto builder = ClientRequest::method(req.method(), next_url->str())
+	auto builder = ClientRequest::method(drop_body ? "GET" : req.method(), next_url->str())
 					   .headers(next_headers)
 					   .timeouts(req.timeouts())
 					   .verify_peer(req.verify_peer());
-	if (!req.body().empty()) {
+	if (!drop_body && !req.body().empty()) {
 		builder.body(req.body());
 	}
 	if (!req.server_name().empty()) {
