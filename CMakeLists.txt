@@ -444,7 +444,9 @@ endif() # CONFLUX_WANT_FILE_IO_SYNC
 
 if(CONFLUX_WANT_FILE_MAP)
 conflux_add_module_library(conflux_file_map
-    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/file_io/file_map.cxx
+    PUBLIC_MODULES
+        ${CONFLUX_SRC_ROOT}/file_io/file_map_types.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/file_map.cxx
 )
 target_link_libraries(conflux_file_map
     PRIVATE conflux_options
@@ -1018,7 +1020,6 @@ target_link_libraries(conflux_http_response
     PRIVATE conflux_options
     PUBLIC  conflux_types
     PUBLIC  conflux_work
-    PUBLIC  conflux_file_io
     PUBLIC  conflux_file_map
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_realtime

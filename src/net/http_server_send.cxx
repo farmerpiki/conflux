@@ -188,6 +188,13 @@ void Ring::start_streamed_body(
 	}
 	auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 	auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
+	auto *file_handle = conn.streamed_file->handle.get_if<FileHandle>();
+	if (file_handle == nullptr) {
+		conn.streamed_file->notify_failed();
+		conn.streamed_file.reset();
+		queue_close(fd);
+		return;
+	}
 	conn.streamed_splice_in_flight = true;
 	++static_file_counters_.splice_submits;
 	auto const conn_gen = conn.gen;
@@ -196,7 +203,7 @@ void Ring::start_streamed_body(
 		fd,
 		conn_gen,
 		files->splice_to_fd(
-			*conn.streamed_file->handle,
+			*file_handle,
 			off,
 			static_cast<std::size_t>(remaining),
 			fd,
@@ -226,10 +233,17 @@ void Ring::start_streamed_tls_chunk(
 	auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
 	auto const want = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf->size()));
 	FixedBuffer b = std::move(*buf);
+	auto *file_handle = conn.streamed_file->handle.get_if<FileHandle>();
+	if (file_handle == nullptr) {
+		conn.streamed_file->notify_failed();
+		conn.streamed_file.reset();
+		queue_close(fd);
+		return;
+	}
 	auto const conn_gen = conn.gen;
 	conn.streamed_splice_in_flight = true;
 	++static_file_counters_.tls_read_fixed_submits;
-	auto &fh = *conn.streamed_file->handle;
+	auto &fh = *file_handle;
 	do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, std::move(b), want)).detach();
 }
 

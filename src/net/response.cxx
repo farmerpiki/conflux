@@ -8,8 +8,7 @@ export module conflux.net.http.response;
 import std;
 import conflux.types;
 import conflux.work;
-import conflux.file_map;
-import conflux.uring.handle;
+import conflux.file_map.types;
 export import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.http.realtime;
@@ -52,6 +51,23 @@ export enum class SameSite : std::uint8_t {
 	}
 	return "Lax";
 }
+
+export struct StreamedFileHandle {
+	std::shared_ptr<void> storage{};
+
+	template<class Handle>
+	[[nodiscard]] static StreamedFileHandle from(
+		std::shared_ptr<Handle> handle) noexcept {
+		return StreamedFileHandle{.storage = std::move(handle)};
+	}
+
+	template<class Handle>
+	[[nodiscard]] Handle *get_if() const noexcept {
+		return static_cast<Handle *>(storage.get());
+	}
+
+	[[nodiscard]] explicit operator bool() const noexcept { return storage != nullptr; }
+};
 
 export struct CookieBuilder {
 	std::string name;
@@ -167,10 +183,11 @@ export struct CookieBuilder {
 };
 
 // Carrier for a file about to be streamed through io_uring (splice on plain,
-// fixed-buffer read on TLS). Owns a FileHandle — send dispatch consumes it and
-// issues a close_async on the owning ring when the stream finishes.
+// fixed-buffer read on TLS). Owns an internal file handle; send dispatch
+// consumes it and issues a close_async on the owning ring when the stream
+// finishes.
 export struct StreamedFile {
-	std::shared_ptr<FileHandle> handle;
+	StreamedFileHandle handle{};
 	std::uint64_t send_offset{};
 	std::uint64_t send_size{};
 	// total file size — needed for Content-Range and range-validation paths.

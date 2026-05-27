@@ -638,6 +638,10 @@ struct ObservabilityMiddleware {
 	return HttpServerObservabilityHooks{
 		.rejection =
 			[state = middleware.state](HttpRejectReason reason, int status) {
+#if !CONFLUX_HAS_METRICS
+				static_cast<void>(reason);
+				static_cast<void>(status);
+#endif
 				if (state && state->options.rejection_metrics) {
 #if CONFLUX_HAS_METRICS
 					if (state->registry) {

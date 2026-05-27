@@ -153,7 +153,6 @@ export class BufferRing {
 	std::size_t buf_size_{};
 	std::uint32_t count_{};
 	std::uint16_t group_id_{};
-	std::size_t slab_sz_{};
 	std::vector<std::uint16_t> ring_order_;
 	std::vector<std::uint32_t> id_pos_;
 	std::vector<std::uint32_t> bundle_saved_pos_;
@@ -219,9 +218,9 @@ public:
 			throw std::runtime_error{"BufferRing invalid options"};
 		}
 		static_assert(conflux::uring::buf_ring_flags::has_inc, "IOU_PBUF_RING_INC required");
-		slab_sz_ = static_cast<std::size_t>(count_) * buf_size_;
-		std::size_t const aligned_sz = (slab_sz_ + 4095) & ~std::size_t{4095};
-		if (aligned_sz < slab_sz_) {
+		std::size_t const slab_sz = static_cast<std::size_t>(count_) * buf_size_;
+		std::size_t const aligned_sz = (slab_sz + 4095) & ~std::size_t{4095};
+		if (aligned_sz < slab_sz) {
 			throw std::runtime_error{"BufferRing allocation overflow"};
 		}
 		auto *raw = static_cast<std::byte *>(::aligned_alloc(4096, aligned_sz));
@@ -230,8 +229,8 @@ public:
 		}
 		slab_.reset(raw);
 		if (opts.huge_pages) {
-			::madvise(raw, slab_sz_, MADV_HUGEPAGE);
-			::madvise(raw, slab_sz_, MADV_DONTFORK);
+			::madvise(raw, slab_sz, MADV_HUGEPAGE);
+			::madvise(raw, slab_sz, MADV_DONTFORK);
 		}
 		unsigned const ring_flags = mode_ == BufferRingMode::incremental ? conflux::uring::buf_ring_flags::inc : 0u;
 		auto built = conflux::uring::BufRing::setup(
