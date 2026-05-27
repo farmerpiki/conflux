@@ -61,6 +61,44 @@ struct CloseState {
 	std::atomic_bool cancel_requested{false};
 	std::atomic<wroot::CancelReason> cancel_reason{wroot::CancelReason::requested};
 };
+
+[[nodiscard]] std::shared_ptr<__kernel_timespec> make_kernel_timespec(
+	std::chrono::milliseconds timeout) {
+	auto ts = std::make_shared<__kernel_timespec>();
+	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
+	ts->tv_sec = sec.count();
+	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
+	return ts;
+}
+
+template<class T>
+void complete_cancel_fallback(
+	std::weak_ptr<wroot::TaskSource<T>> const &weak_src,
+	wroot::CancelReason reason) noexcept {
+	if (auto src = weak_src.lock()) {
+		auto _ = src->try_set_cancelled(reason);
+	}
+}
+
+template<class T>
+void submit_cancel_for_ud(
+	SocketTaskRing *ring_ptr,
+	std::uint64_t user_data,
+	std::weak_ptr<wroot::TaskSource<T>> weak_src,
+	wroot::CancelReason reason) noexcept {
+	if (!ring_ptr->submit_on_owner([user_data, weak_src = std::move(weak_src), reason](SocketTaskRing &ring) noexcept {
+			auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
+			std::uint64_t const cancel_ud = ring.encode(slot, gen);
+			if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
+				ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
+				complete_cancel_fallback(weak_src, reason);
+				return;
+			}
+			auto _ = ring.raw().submit();
+		})) {
+		complete_cancel_fallback(weak_src, reason);
+	}
+}
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState {
@@ -125,22 +163,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto _ = shared_src->install_cancel_hook(
 		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
 			cancel_reason->store(reason, std::memory_order_release);
-			if (!ring_ptr->submit_on_owner([ud, weak_src, reason](SocketTaskRing &ring) {
-					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
-					std::uint64_t const cud = ring.encode(cs, cg);
-					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
-						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-						if (auto src = weak_src.lock()) {
-							auto _ = src->try_set_cancelled(reason);
-						}
-						return;
-					}
-					auto _ = ring.raw().submit();
-				})) {
-				if (auto src = weak_src.lock()) {
-					auto _ = src->try_set_cancelled(reason);
-				}
-			}
+			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
 		});
 	return task;
 }
@@ -187,22 +210,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto _ = shared_src->install_cancel_hook(
 		[ring_ptr, ud, weak_src2 = std::move(weak_src2), cancel_reason](wroot::CancelReason reason) noexcept {
 			cancel_reason->store(reason, std::memory_order_release);
-			if (!ring_ptr->submit_on_owner([ud, weak_src2, reason](SocketTaskRing &ring) {
-					auto [cs, cg] = ring.completions().reserve([](IoResult) noexcept {});
-					std::uint64_t const cud = ring.encode(cs, cg);
-					if (!submit_cancel_by_ud(ring.raw(), ud, cud)) {
-						ring.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-						if (auto src = weak_src2.lock()) {
-							auto _ = src->try_set_cancelled(reason);
-						}
-						return;
-					}
-					auto _ = ring.raw().submit();
-				})) {
-				if (auto src = weak_src2.lock()) {
-					auto _ = src->try_set_cancelled(reason);
-				}
-			}
+			submit_cancel_for_ud(ring_ptr, ud, weak_src2, reason);
 		});
 	return task;
 }
@@ -316,10 +324,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto task = std::move(task_src_5.first);
 	auto shared_src = std::move(task_src_5.second);
 	OsFd const h = st.handle.get();
-	auto ts = std::make_shared<__kernel_timespec>();
-	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
-	ts->tv_sec = sec.count();
-	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
+	auto ts = make_kernel_timespec(timeout);
 	auto state = std::make_shared<IoTimeoutState>();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
 		try {
@@ -357,22 +362,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, send_ud, weak_src, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		if (!ring_ptr->submit_on_owner([send_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
-				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
-				if (!submit_cancel_by_ud(ring_ref.raw(), send_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-					if (auto lsrc = weak_src.lock()) {
-						auto _ = lsrc->try_set_cancelled(state->reason());
-					}
-					return;
-				}
-				auto _ = ring_ref.raw().submit();
-			})) {
-			if (auto lsrc = weak_src.lock()) {
-				auto _ = lsrc->try_set_cancelled(state->reason());
-			}
-		}
+		submit_cancel_for_ud(ring_ptr, send_ud, weak_src, state->reason());
 	});
 	return task;
 }
@@ -463,10 +453,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto task = std::move(task_src_6.first);
 	auto shared_src = std::move(task_src_6.second);
 	OsFd const h = st.handle.get();
-	auto ts = std::make_shared<__kernel_timespec>();
-	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
-	ts->tv_sec = sec.count();
-	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
+	auto ts = make_kernel_timespec(timeout);
 	auto state = std::make_shared<RecvTimeoutState>();
 	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
 		try {
@@ -504,22 +491,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		if (!ring_ptr->submit_on_owner([recv_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
-				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
-				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-					if (auto src = weak_src.lock()) {
-						auto _ = src->try_set_cancelled(state->reason());
-					}
-					return;
-				}
-				auto _ = ring_ref.raw().submit();
-			})) {
-			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled(state->reason());
-			}
-		}
+		submit_cancel_for_ud(ring_ptr, recv_ud, weak_src, state->reason());
 	});
 	return task;
 }
@@ -1281,10 +1253,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	holder->msg.msg_namelen = sizeof(holder->from);
 	holder->msg.msg_iov = &holder->iov;
 	holder->msg.msg_iovlen = 1;
-	auto ts = std::make_shared<__kernel_timespec>();
-	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
-	ts->tv_sec = sec.count();
-	ts->tv_nsec = (timeout - sec).count() * 1000000LL;
+	auto ts = make_kernel_timespec(timeout);
 	auto state = std::make_shared<RecvTimeoutState>();
 	auto [slot, gen] = ring_->completions().reserve([shared_src, holder, state](IoResult r) mutable {
 		try {
@@ -1326,22 +1295,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	auto weak_src = std::weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
 	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		if (!ring_ptr->submit_on_owner([recv_ud, weak_src, state](SocketTaskRing &ring_ref) noexcept {
-				auto [cs, cg] = ring_ref.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cancel_ud = ring_ref.encode(cs, cg);
-				if (!submit_cancel_by_ud(ring_ref.raw(), recv_ud, cancel_ud)) {
-					ring_ref.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-					if (auto src = weak_src.lock()) {
-						auto _ = src->try_set_cancelled(state->reason());
-					}
-					return;
-				}
-				auto _ = ring_ref.raw().submit();
-			})) {
-			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled(state->reason());
-			}
-		}
+		submit_cancel_for_ud(ring_ptr, recv_ud, weak_src, state->reason());
 	});
 	return task;
 }
@@ -1357,10 +1311,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	auto task = std::move(task_src_11.first);
 	auto shared_src = std::move(task_src_11.second);
 	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
-	auto ts = std::make_shared<__kernel_timespec>();
-	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(dur);
-	ts->tv_sec = sec.count();
-	ts->tv_nsec = (dur - sec).count() * 1000000LL;
+	auto ts = make_kernel_timespec(dur);
 	auto [slot, gen] = ring.completions().reserve([shared_src, ts, cancel_reason](IoResult r) mutable {
 		auto _ = ts;
 		if (r.res == -ECANCELED) {
@@ -1379,25 +1330,8 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	auto _ =
 		shared_src->install_cancel_hook([ring_ptr, ud, weak_src, cancel_reason](wroot::CancelReason reason) noexcept {
 			cancel_reason->store(reason, std::memory_order_release);
-			if (auto src = weak_src.lock()) {
-				auto _ = src->try_set_cancelled(reason);
-			}
-			if (!ring_ptr->submit_on_owner([ud, weak_src, reason](SocketTaskRing &r) noexcept {
-					auto [cs, cg] = r.completions().reserve([](IoResult) noexcept {});
-					std::uint64_t const cud = r.encode(cs, cg);
-					if (!submit_cancel_by_ud(r.raw(), ud, cud)) {
-						r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-						if (auto src = weak_src.lock()) {
-							auto _ = src->try_set_cancelled(reason);
-						}
-						return;
-					}
-					auto _ = r.raw().submit();
-				})) {
-				if (auto src = weak_src.lock()) {
-					auto _ = src->try_set_cancelled(reason);
-				}
-			}
+			complete_cancel_fallback(weak_src, reason);
+			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
 		});
 	return task;
 }
