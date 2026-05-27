@@ -176,6 +176,16 @@ TEST_CASE(
 	CHECK_THROWS_AS(rethrow_exception(out.failure().error), root::WorkError);
 }
 TEST_CASE(
+	"phase6c: when_all_fast_fail dual failure returns first failure",
+	"[phase6c]") {
+	auto combined = carrier::when_all_fast_fail(make_failure("first"), make_failure("second"));
+	auto out = std::move(combined).release_outcome();
+	REQUIRE(out.is_failure());
+	try {
+		rethrow_exception(out.failure().error);
+	} catch (std::runtime_error const &ex) { CHECK(std::string_view{ex.what()} == "first"); }
+}
+TEST_CASE(
 	"phase6c: when_all single A failure returns original cause unwrapped",
 	"[phase6c]") {
 	auto combined = carrier::when_all(make_failure("sole"), make_success(1));

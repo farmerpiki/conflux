@@ -464,9 +464,26 @@ template<root::work_value A, root::work_value B>
 [[nodiscard]] auto when_all_fast_fail(
 	Chain<A> &&a,
 	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
-	// TODO(phase-6): wire cancel-sibling hook once 5c async path lands;
-	// currently identical to when_all
-	return when_all(std::move(a), std::move(b));
+	using T = std::tuple<A, B>;
+	auto out_a = std::move(a).release_outcome();
+	if (out_a.is_failure()) {
+		return Chain<T>{root::Outcome<T>{std::move(out_a).failure()}, CarrierKind::task};
+	}
+	if (out_a.is_cancelled()) {
+		return Chain<T>{root::Outcome<T>{std::move(out_a).cancelled()}, CarrierKind::task};
+	}
+
+	auto out_b = std::move(b).release_outcome();
+	if (out_b.is_failure()) {
+		return Chain<T>{root::Outcome<T>{std::move(out_b).failure()}, CarrierKind::task};
+	}
+	if (out_b.is_cancelled()) {
+		return Chain<T>{root::Outcome<T>{std::move(out_b).cancelled()}, CarrierKind::task};
+	}
+
+	return Chain<T>{
+		root::Outcome<T>{root::Success<T>{T{std::move(out_a).success().value, std::move(out_b).success().value}}},
+		CarrierKind::task};
 }
 template<root::work_value T>
 	requires(!std::same_as<T, void>)
