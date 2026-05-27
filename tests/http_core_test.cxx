@@ -203,8 +203,8 @@ TEST_CASE(
 
 	auto bad = req.query_as<std::int32_t>("bad");
 	REQUIRE_FALSE(bad.has_value());
-	CHECK(bad.error().kind == HttpFieldErrorKind::invalid);
-	CHECK(bad.error().source == HttpFieldSource::query);
+	CHECK(bad.error().kind == chttp::HttpFieldErrorKind::invalid);
+	CHECK(bad.error().source == chttp::HttpFieldSource::query);
 	CHECK(bad.error().name == "bad");
 }
 
@@ -230,8 +230,8 @@ TEST_CASE(
 
 	auto missing = req.param_as<std::uint32_t>("id");
 	REQUIRE_FALSE(missing.has_value());
-	CHECK(missing.error().kind == HttpFieldErrorKind::missing);
-	CHECK(missing.error().source == HttpFieldSource::params);
+	CHECK(missing.error().kind == chttp::HttpFieldErrorKind::missing);
+	CHECK(missing.error().source == chttp::HttpFieldSource::params);
 }
 
 TEST_CASE(

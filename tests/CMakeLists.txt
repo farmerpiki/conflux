@@ -525,6 +525,30 @@ if(TARGET conflux_net_http)
         EXPECT "SendZcMetrics")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_field_source
+        SOURCE http_facade_compile_fail_global_http_field_source.cxx
+        TEST http-facade/compile-fail-global-http-field-source
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpFieldSource")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_field_error_kind
+        SOURCE http_facade_compile_fail_global_http_field_error_kind.cxx
+        TEST http-facade/compile-fail-global-http-field-error-kind
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpFieldErrorKind")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_field_error
+        SOURCE http_facade_compile_fail_global_http_field_error.cxx
+        TEST http-facade/compile-fail-global-http-field-error
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpFieldError")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_sse_channel
         SOURCE http_facade_compile_fail_global_sse_channel.cxx
         TEST http-facade/compile-fail-global-sse-channel

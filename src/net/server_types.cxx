@@ -485,7 +485,9 @@ export struct UploadedFile {
 	}
 };
 
-export enum class HttpFieldSource : std::uint8_t {
+export namespace conflux::http {
+
+enum class HttpFieldSource : std::uint8_t {
 	params,
 	headers,
 	query,
@@ -493,14 +495,14 @@ export enum class HttpFieldSource : std::uint8_t {
 	cookies,
 };
 
-export enum class HttpFieldErrorKind : std::uint8_t {
+enum class HttpFieldErrorKind : std::uint8_t {
 	missing,
 	empty,
 	invalid,
 	out_of_range,
 };
 
-export struct HttpFieldError {
+struct HttpFieldError {
 	HttpFieldErrorKind kind{HttpFieldErrorKind::invalid};
 	HttpFieldSource source{HttpFieldSource::query};
 	std::string name{};
@@ -508,7 +510,7 @@ export struct HttpFieldError {
 	std::string message{};
 };
 
-export [[nodiscard]] std::string_view http_field_source_name(
+[[nodiscard]] std::string_view http_field_source_name(
 	HttpFieldSource source) noexcept {
 	switch (source) {
 	case HttpFieldSource::params : return "params";
@@ -547,10 +549,10 @@ export [[nodiscard]] std::string_view http_field_source_name(
 	};
 }
 
-export template<typename>
+template<typename>
 inline constexpr bool kHttpFieldDependentFalse = false;
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] std::expected<T, HttpFieldError> parse_http_field_value(
 	std::string_view value,
 	HttpFieldSource source,
@@ -644,7 +646,7 @@ template<typename Fields, typename T>
 	return std::optional<T>{std::move(*parsed)};
 }
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] std::expected<T, HttpFieldError> http_field_as(
 	HttpFields const &fields,
 	HttpFieldSource source,
@@ -652,7 +654,7 @@ export template<typename T>
 	return http_field_as_impl<HttpFields, T>(fields, source, name);
 }
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] std::expected<T, HttpFieldError> http_field_as(
 	HttpFieldsView const &fields,
 	HttpFieldSource source,
@@ -660,7 +662,7 @@ export template<typename T>
 	return http_field_as_impl<HttpFieldsView, T>(fields, source, name);
 }
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] std::expected<std::optional<T>, HttpFieldError> http_field_optional_as(
 	HttpFields const &fields,
 	HttpFieldSource source,
@@ -668,13 +670,15 @@ export template<typename T>
 	return http_field_optional_as_impl<HttpFields, T>(fields, source, name);
 }
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] std::expected<std::optional<T>, HttpFieldError> http_field_optional_as(
 	HttpFieldsView const &fields,
 	HttpFieldSource source,
 	std::string_view name) {
 	return http_field_optional_as_impl<HttpFieldsView, T>(fields, source, name);
 }
+
+} // namespace conflux::http
 
 struct HttpRequestFieldAccessors {
 	template<typename Self>
@@ -708,64 +712,64 @@ struct HttpRequestFieldAccessors {
 		return self.cookies[name];
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<T, HttpFieldError> param_as(
+	[[nodiscard]] std::expected<T, conflux::http::HttpFieldError> param_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_as<T>(self.params, HttpFieldSource::params, name);
+		return conflux::http::http_field_as<T>(self.params, conflux::http::HttpFieldSource::params, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<T, HttpFieldError> header_as(
+	[[nodiscard]] std::expected<T, conflux::http::HttpFieldError> header_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_as<T>(self.headers, HttpFieldSource::headers, name);
+		return conflux::http::http_field_as<T>(self.headers, conflux::http::HttpFieldSource::headers, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<T, HttpFieldError> query_as(
+	[[nodiscard]] std::expected<T, conflux::http::HttpFieldError> query_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_as<T>(self.query, HttpFieldSource::query, name);
+		return conflux::http::http_field_as<T>(self.query, conflux::http::HttpFieldSource::query, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<T, HttpFieldError> form_as(
+	[[nodiscard]] std::expected<T, conflux::http::HttpFieldError> form_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_as<T>(self.form, HttpFieldSource::form, name);
+		return conflux::http::http_field_as<T>(self.form, conflux::http::HttpFieldSource::form, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<T, HttpFieldError> cookie_as(
+	[[nodiscard]] std::expected<T, conflux::http::HttpFieldError> cookie_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_as<T>(self.cookies, HttpFieldSource::cookies, name);
+		return conflux::http::http_field_as<T>(self.cookies, conflux::http::HttpFieldSource::cookies, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<std::optional<T>, HttpFieldError> optional_param_as(
+	[[nodiscard]] std::expected<std::optional<T>, conflux::http::HttpFieldError> optional_param_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_optional_as<T>(self.params, HttpFieldSource::params, name);
+		return conflux::http::http_field_optional_as<T>(self.params, conflux::http::HttpFieldSource::params, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<std::optional<T>, HttpFieldError> optional_header_as(
+	[[nodiscard]] std::expected<std::optional<T>, conflux::http::HttpFieldError> optional_header_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_optional_as<T>(self.headers, HttpFieldSource::headers, name);
+		return conflux::http::http_field_optional_as<T>(self.headers, conflux::http::HttpFieldSource::headers, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<std::optional<T>, HttpFieldError> optional_query_as(
+	[[nodiscard]] std::expected<std::optional<T>, conflux::http::HttpFieldError> optional_query_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_optional_as<T>(self.query, HttpFieldSource::query, name);
+		return conflux::http::http_field_optional_as<T>(self.query, conflux::http::HttpFieldSource::query, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<std::optional<T>, HttpFieldError> optional_form_as(
+	[[nodiscard]] std::expected<std::optional<T>, conflux::http::HttpFieldError> optional_form_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_optional_as<T>(self.form, HttpFieldSource::form, name);
+		return conflux::http::http_field_optional_as<T>(self.form, conflux::http::HttpFieldSource::form, name);
 	}
 	template<typename T, typename Self>
-	[[nodiscard]] std::expected<std::optional<T>, HttpFieldError> optional_cookie_as(
+	[[nodiscard]] std::expected<std::optional<T>, conflux::http::HttpFieldError> optional_cookie_as(
 		this Self const &self,
 		std::string_view name) {
-		return http_field_optional_as<T>(self.cookies, HttpFieldSource::cookies, name);
+		return conflux::http::http_field_optional_as<T>(self.cookies, conflux::http::HttpFieldSource::cookies, name);
 	}
 };
 
@@ -867,9 +871,6 @@ using RequestView = ::RequestView;
 using OwnedRequest = ::Request;
 using Request = RequestView;
 using UploadedFile = ::UploadedFile;
-using FieldSource = ::HttpFieldSource;
-using FieldErrorKind = ::HttpFieldErrorKind;
-using FieldError = ::HttpFieldError;
 
 } // namespace conflux::http
 
