@@ -58,8 +58,12 @@ struct Problem {
 	std::string instance{};
 	std::vector<std::pair<std::string, std::string>> extensions{};
 	std::vector<std::pair<std::string, std::string>> fields{};
+	bool dirty{true};
 
 	Problem &rebuild() {
+		if (!dirty) {
+			return *this;
+		}
 		auto body = std::string{"{"};
 		auto first = true;
 		auto append_member = [&body, &first](std::string_view name, std::string_view value) {
@@ -114,6 +118,7 @@ struct Problem {
 		body += '}';
 		response.content_type = "application/problem+json";
 		response.set_text_body(std::move(body));
+		dirty = false;
 		return *this;
 	}
 
@@ -121,28 +126,28 @@ struct Problem {
 		this auto &&self,
 		std::string_view value) {
 		self.type = std::string{value};
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] auto &&title_text(
 		this auto &&self,
 		std::string_view value) {
 		self.title = std::string{value};
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] auto &&detail_text(
 		this auto &&self,
 		std::string_view value) {
 		self.detail = std::string{value};
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] auto &&instance_uri(
 		this auto &&self,
 		std::string_view value) {
 		self.instance = std::string{value};
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] auto &&extension(
@@ -150,7 +155,7 @@ struct Problem {
 		std::string_view name,
 		std::string_view value) {
 		self.extensions.emplace_back(name, value);
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] auto &&field(
@@ -158,7 +163,7 @@ struct Problem {
 		std::string_view name,
 		std::string_view detail) {
 		self.fields.emplace_back(name, detail);
-		self.rebuild();
+		self.dirty = true;
 		return std::forward<decltype(self)>(self);
 	}
 };

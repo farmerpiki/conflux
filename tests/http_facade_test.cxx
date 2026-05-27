@@ -2684,9 +2684,15 @@ TEST_CASE(
 					.instance_uri("/users")
 					.extension("trace_id", "abc")
 					.field("email", "is required");
+	rich.rebuild();
 	CHECK(
 		rich.response.text_body()
 		== R"({"type":"https://example.test/problems/invalid-user","title":"Bad Request","status":400,"detail":"invalid user","instance":"/users","code":"invalid_user","trace_id":"abc","fields":{"email":"is required"}})");
+	auto converted =
+		http::into_response(http::problem::bad_request("invalid_user", "invalid user").field("name", "is required"));
+	CHECK(
+		converted.text_body()
+		== R"({"type":"about:blank","title":"Bad Request","status":400,"detail":"invalid user","code":"invalid_user","fields":{"name":"is required"}})");
 
 	CHECK(http::problem::not_found("missing", "not found").response.status == kHttpNotFound);
 	CHECK(http::problem::unauthorized("login_required", "sign in").response.status == kHttpUnauthorized);

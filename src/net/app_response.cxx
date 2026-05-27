@@ -29,6 +29,7 @@ inline constexpr bool kDependentFalse = false;
 
 [[nodiscard]] inline Response into_response(
 	Problem problem) {
+	problem.rebuild();
 	return std::move(problem.response);
 }
 
