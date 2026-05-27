@@ -46,6 +46,6 @@ int main() {
 		return http::text(std::format("slow path completed\nrequest_id={}\n", request_id.get()));
 	});
 
-	auto const status = http::run(std::move(app), {.port = 9095});
+	auto const status = std::move(app).run({.port = 9095});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

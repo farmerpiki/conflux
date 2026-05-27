@@ -43,6 +43,6 @@ int main() {
 
 	app.get("/api/ping", [] { return http::json(StatusReply{.status = "ok", .server = "conflux"}); });
 
-	auto const status = http::run(std::move(app), {.port = 9090});
+	auto const status = std::move(app).run({.port = 9090});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

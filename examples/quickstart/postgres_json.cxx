@@ -34,10 +34,10 @@ int main() {
 		.min_connections = 1,
 		.max_connections = 4,
 	});
-	app.state(pool);
+	app.state_shared(pool);
 
-	app.get("/db/status", [](http::State<std::shared_ptr<pg::Pool>> pool) -> http::Task<http::Json<DbStatus>> {
-		auto lease = co_await (*pool)->acquire();
+	app.get("/db/status", [](http::State<pg::Pool> pool) -> http::Task<http::Json<DbStatus>> {
+		auto lease = co_await pool->acquire();
 		auto rows =
 			co_await lease->query("SELECT current_database() AS database, pg_backend_pid()::int8 AS backend_pid");
 		co_return http::json(
@@ -47,7 +47,7 @@ int main() {
 			});
 	});
 
-	auto const status = http::run(std::move(app), {.port = 9120});
+	auto const status = std::move(app).run({.port = 9120});
 	pool->close();
 	return http::exit_code(status);
 }

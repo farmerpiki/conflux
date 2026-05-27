@@ -40,5 +40,5 @@ int main() {
 	app.get("/", [] { return http::redirect("/assets/"); });
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	return http::exit_code(http::run(std::move(app), {.port = 9095}));
+	return http::exit_code(std::move(app).run({.port = 9095}));
 }

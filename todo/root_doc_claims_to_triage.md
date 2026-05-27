@@ -27,8 +27,9 @@ Checked against the current repository snapshot and
   `docs/json-boundary-guide.md`, `docs/json-reflect.md`, and
   `tests/json_test.cxx`.
 - HTTP client limitations are intentionally documented in
-  `docs/conflux-http-client-api.md`, but one doc/source drift remains around
-  `HttpClientOptions::max_buffered_bytes`.
+  `docs/conflux-http-client-api.md`; the earlier
+  `HttpClientOptions::max_buffered_bytes` doc/source drift is resolved. The
+  option is documented and implemented as the transient dechunk buffering cap.
 - Work cancellation/deadline/composition basics are documented and tested in
   `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md`, and
   `tests/work_*`.

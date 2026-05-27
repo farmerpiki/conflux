@@ -70,7 +70,7 @@ copy/allocation/lifetime model are covered by the first-contact docs above.
 ## Small HTTP app
 
 ```cpp
-import conflux.http;
+import conflux;
 import std;
 
 namespace http = conflux::http;
@@ -80,7 +80,7 @@ int main() {
 
     app.get("/", [] { return http::text("hello from conflux\n"); });
 
-    return http::exit_code(http::run(std::move(app), {.port = 8080}));
+    return http::exit_code(std::move(app).run({.port = 8080}));
 }
 ```
 
@@ -121,7 +121,8 @@ that the environment permits `io_uring`:
 ```sh
 cmake --preset debug-gcc-stdcxx
 cmake --build --preset debug-gcc-stdcxx --target conflux_work_tests
-./scripts/run-build-artifact.sh /tmp/gcc-16/debug-gcc-stdcxx/tests/conflux_work_tests
+BUILD_DIR=/tmp/conflux/debug-gcc-stdcxx
+./scripts/run-build-artifact.sh "$BUILD_DIR/tests/conflux_work_tests"
 ```
 
 If `io_uring_queue_init` or `io_uring_queue_init_params` fails, the host does

@@ -81,7 +81,7 @@ scripts/stage-release-artifacts.sh \
 Installed liburing-free package smoke from outside the source tree. This is the
 required generated-header artifact lane for mock-liburing installs; mock
 liburing is compile evidence for the build tree and does not publish
-runtime/http package components.
+real-liburing runtime-facing/http package components.
 
 ```sh
 cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
@@ -189,7 +189,7 @@ links to immutable proof runs.
   `scripts/check-package-docs.py`, and `scripts/check-release-notes.py`.
 - Mock-liburing HEADER_INTERFACE installs are internal generated-header artifact
   evidence. They must request `core;types;json;file_io_sync` availability, with
-  the smoke compile lane using `core;json;file_io_sync`, not runtime/http.
+  the smoke compile lane using `core;json;file_io_sync`, not runtime-facing/http components.
 - `CONFLUX_API_SURFACE=curated|extended|complete` smoke behavior is validated by the
   selected aggregate lane; core/json-only builds use explicit leaf imports because
   aggregate re-exports are feature-lane dependent and not used to gate component
@@ -199,7 +199,7 @@ links to immutable proof runs.
   released header interface must always ship implementation sources or stop
   advertising implementation-backed components.
 - `CONFLUX_USE_MOCK_LIBURING=ON` remains only as build-tree/generated-header
-  compile evidence. Remove it before public preview; released runtime/http lanes
+  compile evidence. Remove it before public preview; released runtime-facing/http lanes
   must use real liburing or be absent from the package.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests

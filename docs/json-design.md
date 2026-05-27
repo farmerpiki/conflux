@@ -30,9 +30,9 @@ Removal condition: delete `CLocaleHolder`, `strtod_l`, and this exception once
 the supported libstdc++/libc++ matrix provides `from_chars` behavior that fully
 passes the number overflow/underflow gate without the locale fallback.
 
-## Parser/DOM prototype policy
+## Parser/DOM policy
 
-`json/parser-dom-design` introduced an explicit prototype policy surface in
+`json/parser-dom-design` introduced an explicit preview policy surface in
 `conflux.json`: `JsonDomPolicy` plus `parse_dom(...)` overloads. The policy names
 the architecture that future parser rewrites must preserve:
 

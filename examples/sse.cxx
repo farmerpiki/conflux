@@ -25,6 +25,6 @@ int main() {
 		ch->close();
 	});
 
-	auto const status = http::run(std::move(app), {.port = 9091});
+	auto const status = std::move(app).run({.port = 9091});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

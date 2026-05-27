@@ -38,7 +38,6 @@
 
 - `benchmarks/README.md`
 - `benchmarks/reproducibility.md`
-- `benchmarks/reproducibility.md`
 
 ## Maintainer Internals
 

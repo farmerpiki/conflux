@@ -176,7 +176,7 @@ int main() {
 		http::SseChannel::kDefaultMaxQueueBytes,
 		conflux::http::SseOverflowPolicy::DropNewest);
 
-	app.state(todos);
+	app.state_shared(todos);
 	app.use(request_id_middleware());
 	app.use(metrics_middleware(metrics));
 	app.use(security_headers_middleware({
@@ -189,23 +189,22 @@ int main() {
 	app.get("/health", [] { return http::text("ok"); });
 	app.get("/", [] { return http::json(TodoList{}); });
 
-	app.get("/todos", [](http::State<std::shared_ptr<TodoService>> todos) { return (*todos)->list(); });
+	app.get("/todos", [](http::State<TodoService> todos) { return todos->list(); });
 
-	app.get<"/todos/{id:i64}">([](http::Path<"id", std::int64_t> id, http::State<std::shared_ptr<TodoService>> todos) {
-		return (*todos)->get(id.get());
-	});
+	app.get<"/todos/{id:i64}">(
+		[](http::Path<"id", std::int64_t> id, http::State<TodoService> todos) { return todos->get(id.get()); });
 
 	app.post<"/todos/{id:i64}/done">(
-		[](http::Path<"id", std::int64_t> id, http::State<std::shared_ptr<TodoService>> todos) {
-			return (*todos)->mark_done(id.get());
-		});
+		[](http::Path<"id", std::int64_t> id, http::State<TodoService> todos) { return todos->mark_done(id.get()); });
 
-	app.post("/todos", [events](http::Json<CreateTodo> const &body, http::State<std::shared_ptr<TodoService>> todos) {
-		if (body->title.empty()) {
-			return http::into_response(http::problem::bad_request("invalid_todo", "title is required"));
-		}
-		return (*todos)->create(body->title, events);
-	});
+	app.post(
+		"/todos",
+		[events](http::Json<CreateTodo> const &body, http::State<TodoService> todos) -> http::Result<http::Response> {
+			if (body->title.empty()) {
+				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
+			}
+			return todos->create(body->title, events);
+		});
 
 	app.get("/events", [events] { return http::sse(events); });
 
@@ -213,7 +212,7 @@ int main() {
 	metrics_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
 	app.get("/metrics", metrics_handler_protected(metrics, std::move(metrics_auth)));
 
-	auto server = std::move(app).listen({.port = 9105});
+	auto server = std::move(app).prepare_server({.port = 9105});
 	if (!server) {
 		std::println(std::cerr, "server setup failed: {}", server.error());
 		return 1;

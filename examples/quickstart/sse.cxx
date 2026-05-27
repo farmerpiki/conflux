@@ -13,5 +13,5 @@ int main() {
 		channel->close();
 	});
 
-	return http::exit_code(http::run(std::move(app), {.port = 9091}));
+	return http::exit_code(std::move(app).run({.port = 9091}));
 }

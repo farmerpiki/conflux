@@ -30,7 +30,7 @@ int main() {
 	app.get("/health", [] { return http::text("ok"); });
 	app.get("/events", [events] { return http::sse(events); });
 
-	auto server = std::move(app).listen({.port = 8080});
+	auto server = std::move(app).prepare_server({.port = 8080});
 	if (!server) {
 		std::println(std::cerr, "server setup failed: {}", server.error());
 		return 1;

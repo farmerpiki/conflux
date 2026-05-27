@@ -59,6 +59,6 @@ int main() {
 				age.get()));
 	});
 
-	auto const status = http::run(std::move(app), {.port = 9092});
+	auto const status = std::move(app).run({.port = 9092});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

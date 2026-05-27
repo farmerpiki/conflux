@@ -1484,7 +1484,18 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http facade: listen validates before creating server",
+	"http facade: prepare_server validates before creating server",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
+
+	auto server = std::move(app).prepare_server();
+	REQUIRE_FALSE(server.has_value());
+	CHECK(server.error() == "GET /needs-state [app.state.missing]: missing app state");
+}
+
+TEST_CASE(
+	"http facade: listen remains prepare_server compatibility alias",
 	"[http.facade]") {
 	auto app = http::app();
 	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });

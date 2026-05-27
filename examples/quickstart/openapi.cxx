@@ -21,5 +21,5 @@ int main() {
 		.openapi_summary("Health check");
 	(void)app.openapi("/openapi.json", "conflux quickstart", "0.1.0");
 
-	return http::exit_code(http::run(std::move(app), {.port = 9098}));
+	return http::exit_code(std::move(app).run({.port = 9098}));
 }

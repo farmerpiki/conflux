@@ -8,8 +8,8 @@
 ## Quick start
 
 ```cpp
+import conflux;
 import std;
-import conflux.http;
 
 namespace http = conflux::http;
 
@@ -19,7 +19,7 @@ int main() {
         return http::text("hello world");
     });
 
-    return http::exit_code(http::run(std::move(app), {.port = 8080}));
+    return http::exit_code(std::move(app).run({.port = 8080}));
 }
 ```
 
@@ -45,7 +45,7 @@ if (!server) {
 return static_cast<int>((*server)->run());
 ```
 
-The `App` facade mirrors this with `try_server()` and `try_run()`.
+The `App` facade mirrors this with `prepare_server()`, `try_server()`, and `try_run()`.
 
 ```cpp
 auto status = std::move(app).try_run({.port = 8080});
@@ -563,9 +563,11 @@ auto report = server.drain(opts);
 
 `shutdown()` remains the convenience wrapper for ordinary stop requests.
 `app.run(...)`, `app.try_run(...)`, and `http::run(...)` keep their existing
-behavior. `app.listen(...)` still returns a constructed `HttpServer` through the
-fallible setup path; call `run()` on another thread when a controller thread
-needs to call `port()`, `metrics()`, `drain()`, or `shutdown()`.
+behavior. `app.prepare_server(...)` returns a constructed `HttpServer` through
+the fallible setup path without binding/listening until `run()` is called; use it
+when a controller thread needs to call `port()`, `metrics()`, `drain()`, or
+`shutdown()`. `app.listen(...)` remains a compatibility alias for
+`prepare_server(...)`.
 
 | Situation | Default behavior | Config knob | Metric |
 |---|---|---|---|

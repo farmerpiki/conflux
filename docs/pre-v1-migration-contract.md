@@ -118,7 +118,7 @@ int main() {
 		co_return http::text("context-ok");
 	});
 
-	return http::exit_code(http::run(std::move(app), {.port = 9090}));
+	return http::exit_code(std::move(app).run({.port = 9090}));
 }
 ```
 
@@ -164,6 +164,6 @@ int main() {
 	app.config().slow_handler_diagnostics = true;
 	app.config().slow_handler_warn_ms = 10;
 	app.get("/ping", [](http::RequestView const &) { return http::text("ok"); });
-	return http::exit_code(http::run(std::move(app), {.port = 9090}));
+	return http::exit_code(std::move(app).run({.port = 9090}));
 }
 ```

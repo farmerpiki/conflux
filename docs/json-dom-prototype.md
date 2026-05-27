@@ -1,12 +1,12 @@
-# JSON parser/DOM prototype design
+# JSON parser/DOM policy design
 
-Status: design/prototype slice for `json/parser-dom-design`.
+Status: preview policy slice for `json/parser-dom-design` with historical branch notes.
 
 This document records the parser/DOM shape that future implementation branches
 should preserve. It deliberately does **not** start a full tokenizer or DOM
 rewrite. The current code already has the required seams: borrowed documents,
 PMR-injected documents, `JsonArena`, `JsonReader`, and boundary-provider traits.
-The prototype layer in `conflux.json` names those choices through `JsonDomPolicy`
+The policy layer in `conflux.json` names those choices through `JsonDomPolicy`
 and `parse_dom(...)` wrappers so later parser work can replace internals without
 changing route/app JSON boundaries.
 
@@ -29,7 +29,7 @@ changing route/app JSON boundaries.
 - No JSON Pointer/Patch/schema expansion.
 - No route/app code changes beyond using the existing boundary traits.
 
-## Public prototype surface
+## Public policy surface
 
 `conflux.json` now exports:
 

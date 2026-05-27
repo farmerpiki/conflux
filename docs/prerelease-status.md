@@ -8,7 +8,7 @@ replacement for the release checklist.
 - `core`
 - `json`
 - `file_io_sync`
-- `http` and `runtime` only from real-liburing installs
+- `http` and runtime-facing components such as `work` only from real-liburing installs
 - `db` only when DB is enabled and libpq is available
 
 ## Interface Modes
@@ -25,10 +25,11 @@ hand-maintained source.
 
 Mock liburing header installs publish only `core`, `types`, `json`, and
 `file_io_sync` as internal compile evidence for generated header artifacts. They
-intentionally do not publish `runtime` or `http`.
+intentionally do not publish real-liburing runtime-facing components such
+as `work` or `http`.
 
-Real-liburing installs may publish `runtime` and `http`; consumers must be able
-to find `liburing` through `pkg-config`.
+Real-liburing installs may publish runtime-facing components such as `work`
+and `http`; consumers must be able to find `liburing` through `pkg-config`.
 
 DB-off installs must not ship generated `db`/`pg` headers and must not advertise
 `db` or `pg` package components.
@@ -53,8 +54,8 @@ from a source/API shape that will not be tagged.
 ## Known Unsupported Areas
 
 - non-Linux platforms
-- runtime/http packages built only with mock liburing
-- arbitrary C++26 module toolchains outside the checked presets
+- runtime-facing/http packages built only with mock liburing
+- arbitrary C++ module toolchains outside the checked presets
 - benchmark claims without same-machine artifacts
 
 ## Cheap Checks
