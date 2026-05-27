@@ -493,16 +493,21 @@ def starts_multiline_function_definition(lines: list[str], index: int) -> bool:
         return False
     if PROBABLE_FUNCTION_LINE_RE.match(line) is None:
         return False
+    paren_depth = line.count("(") - line.count(")")
     for next_line in lines[index + 1 :]:
-        probe = next_line.strip()
-        if not probe:
-            continue
-        semicolon_pos = probe.find(";")
-        brace_pos = probe.find("{")
-        if brace_pos != -1 and (semicolon_pos == -1 or brace_pos < semicolon_pos):
-            return True
-        if semicolon_pos != -1:
-            return False
+        for char in next_line:
+            if char == "(":
+                paren_depth += 1
+                continue
+            if char == ")":
+                paren_depth -= 1
+                continue
+            if paren_depth > 0:
+                continue
+            if char == "{":
+                return True
+            if char == ";":
+                return False
     return False
 
 
