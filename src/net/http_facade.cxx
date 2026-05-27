@@ -25,7 +25,6 @@ import conflux.net.metrics;
 
 export namespace conflux::http {
 
-using Config = ::Config;
 template<class T>
 using Task = conflux::work::Task<T>;
 using Next = ::Router::Handler;

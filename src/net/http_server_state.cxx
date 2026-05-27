@@ -222,7 +222,7 @@ void dispatch_request(
 	std::size_t max_body_size,
 	bool http_redirect_to_https,
 	std::vector<std::string> const &https_redirect_hosts,
-	ParserLimits const &limits,
+	conflux::http::ParserLimits const &limits,
 	std::shared_ptr<std::string> request_storage = {});
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
 struct alignas(
@@ -447,7 +447,7 @@ struct Ring {
 	std::uint32_t slow_handler_warn_ms = 25; // set from Config before run_loop()
 	bool http_redirect_to_https = false; // set from Config before run_loop()
 	std::vector<std::string> https_redirect_hosts{}; // set from Config before run_loop()
-	ParserLimits parser_limits{}; // set from Config before run_loop()
+	conflux::http::ParserLimits parser_limits{}; // set from Config before run_loop()
 	std::string alt_svc_header{}; // "h3=\":443\"; ma=86400" when h3 enabled; empty otherwise
 
 	int shutdown_efd = -1; // set by HttpServer before run_loop(); not owned

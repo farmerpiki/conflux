@@ -43,8 +43,8 @@ export std::string sign_cookie(
 }
 export std::expected<std::string, std::string> sign_cookie(
 	std::string_view value,
-	ResolvedSecretRotation const &secrets) {
-	if (auto valid = validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
+	conflux::http::ResolvedSecretRotation const &secrets) {
+	if (auto valid = conflux::http::validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
 		return std::unexpected{valid.error()};
 	}
 	return sign_cookie(value, secrets.active);
@@ -66,7 +66,7 @@ export std::optional<std::string> verify_cookie(
 }
 export std::optional<std::string> verify_cookie(
 	std::string_view signed_value,
-	ResolvedSecretRotation const &secrets) {
+	conflux::http::ResolvedSecretRotation const &secrets) {
 	auto dot = signed_value.rfind('.');
 	if (dot == std::string_view::npos) {
 		return std::nullopt;
@@ -84,16 +84,16 @@ export std::optional<std::string> verify_cookie(
 	return std::nullopt;
 }
 export struct CookieSigningOptions {
-	ResolvedSecretRotation secrets{};
+	conflux::http::ResolvedSecretRotation secrets{};
 	// When true, cookies arriving with invalid signatures are stripped (set to empty).
 	bool strip_invalid{true};
 };
 
 export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
-	AuthSecretsConfig const &cfg,
+	conflux::http::AuthSecretsConfig const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
-	auto secrets = resolve_secret_rotation(cfg.cookie, "cookie", required);
+	auto secrets = conflux::http::resolve_secret_rotation(cfg.cookie, "cookie", required);
 	if (!secrets) {
 		return std::unexpected{secrets.error()};
 	}
@@ -102,7 +102,7 @@ export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_sig
 }
 
 export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
 	return cookie_signing_options_from_config(cfg.auth_secrets, std::move(base), required);
@@ -114,7 +114,8 @@ export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_sig
 // On failure: if strip_invalid=true the cookie is cleared; otherwise it is passed as-is.
 export Router::Middleware cookie_signing_middleware(
 	CookieSigningOptions opts) {
-	if (auto valid = validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes); !valid) {
+	if (auto valid = conflux::http::validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes);
+		!valid) {
 		throw std::invalid_argument{valid.error()};
 	}
 	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {

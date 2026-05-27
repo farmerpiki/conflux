@@ -132,7 +132,7 @@ void dispatch_request(
 	std::size_t max_body_size,
 	bool http_redirect_to_https,
 	std::vector<std::string> const &https_redirect_hosts,
-	ParserLimits const &limits,
+	conflux::http::ParserLimits const &limits,
 	std::shared_ptr<std::string> request_storage) {
 	conn.has_response = false;
 	conn.written = 0;

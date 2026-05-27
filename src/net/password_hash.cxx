@@ -624,15 +624,16 @@ export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
 }
 
 export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
-	AuthSecretsConfig const &cfg,
+	conflux::http::AuthSecretsConfig const &cfg,
 	bool required = true) {
-	auto secret = resolve_secret_source(cfg.password_verifier_secret, "password_verifier_secret", required);
+	auto secret =
+		conflux::http::resolve_secret_source(cfg.password_verifier_secret, "password_verifier_secret", required);
 	if (!secret) {
 		return std::unexpected{secret.error()};
 	}
 	PasswordHashSecrets out{.verifier_secret = std::move(*secret)};
 	if (!out.verifier_secret.empty()) {
-		if (auto valid = validate_secret_bytes(
+		if (auto valid = conflux::http::validate_secret_bytes(
 				out.verifier_secret,
 				"password_verifier_secret",
 				cfg.password_verifier_min_secret_bytes);
@@ -644,7 +645,7 @@ export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_ha
 }
 
 export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	bool required = true) {
 	return password_hash_secrets_from_config(cfg.auth_secrets, required);
 }

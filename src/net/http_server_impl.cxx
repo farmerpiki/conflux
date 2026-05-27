@@ -117,13 +117,13 @@ void add_metrics(
 }
 
 [[nodiscard]] std::optional<std::string> startup_config_error(
-	Config const &cfg) {
-	auto config_issues = validate_config(cfg);
+	conflux::http::Config const &cfg) {
+	auto config_issues = conflux::http::validate_config(cfg);
 	if (!config_issues.empty()) {
-		return config_issue_summary(config_issues.front());
+		return conflux::http::config_issue_summary(config_issues.front());
 	}
 	if (auto caps = conflux::runtime::detect_capabilities()) {
-		auto capability_issues = validate_config_capabilities(cfg, *caps);
+		auto capability_issues = conflux::http::validate_config_capabilities(cfg, *caps);
 		if (cfg.feature_fallback == conflux::runtime::FeatureFallback::fail_fast && !capability_issues.empty()) {
 			auto const &issue = capability_issues.front();
 			return std::format("capability.{}: {}", issue.feature, issue.message);
@@ -135,7 +135,7 @@ void add_metrics(
 }
 
 struct HttpServer::Impl {
-	Config cfg{};
+	conflux::http::Config cfg{};
 	unsigned rings{};
 	std::uint32_t uring_flags{};
 	Router router;
@@ -164,7 +164,7 @@ struct HttpServer::Impl {
 };
 
 void HttpServer::initialize(
-	Config const &cfg) {
+	conflux::http::Config const &cfg) {
 	impl_->cfg = cfg;
 	impl_->rings = cfg.rings == 0 ? std::thread::hardware_concurrency() : cfg.rings;
 	impl_->uring_flags = build_uring_flags(cfg);
@@ -232,7 +232,7 @@ void HttpServer::initialize(
 }
 
 HttpServer::HttpServer(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	Router &&router)
 	: impl_(new Impl{}) {
 	impl_->router = std::move(router);
@@ -240,7 +240,7 @@ HttpServer::HttpServer(
 }
 
 HttpServer::HttpServer(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	VHostRouter &&vhost_router)
 	: impl_(new Impl{}) {
 	impl_->use_vhost = true;
@@ -258,7 +258,7 @@ HttpServer::~HttpServer() {
 }
 
 std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	Router &&router) {
 	if (auto error = startup_config_error(cfg)) {
 		return std::unexpected{std::move(*error)};
@@ -271,7 +271,7 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 }
 
 std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	VHostRouter &&vhost_router) {
 	if (auto error = startup_config_error(cfg)) {
 		return std::unexpected{std::move(*error)};
@@ -548,9 +548,9 @@ void HttpServer::shutdown() {
 			out += line.text;
 			out += '\n';
 		}
-		auto issues = validate_config_capabilities(impl_->cfg, *caps);
+		auto issues = conflux::http::validate_config_capabilities(impl_->cfg, *caps);
 		out += "\nFallbacks:\n";
-		out += std::format("  policy={}\n", feature_fallback_string(impl_->cfg.feature_fallback));
+		out += std::format("  policy={}\n", conflux::http::feature_fallback_string(impl_->cfg.feature_fallback));
 		if (impl_->cfg.feature_fallback == conflux::runtime::FeatureFallback::silent_fallback && !issues.empty()) {
 			out += "  suppressed\n";
 		} else if (issues.empty()) {

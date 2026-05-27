@@ -25,7 +25,7 @@ export struct JwtClaims {
 	std::string raw{}; // full decoded payload JSON (for custom claims)
 };
 export struct JwtOptions {
-	ResolvedSecretRotation secrets{}; // active HMAC-SHA256 secret plus previous rotation secrets
+	conflux::http::ResolvedSecretRotation secrets{}; // active HMAC-SHA256 secret plus previous rotation secrets
 	std::string issuer{}; // std::expected iss claim; "" = skip check
 	std::string audience{}; // std::expected aud claim; "" = skip check
 	bool verify_exp{true}; // reject expired tokens when an exp claim is present
@@ -158,8 +158,8 @@ bool ct_equal(
 namespace jwt_detail {
 
 [[nodiscard]] std::expected<void, std::string> validate_jwt_secrets(
-	ResolvedSecretRotation const &secrets) {
-	return validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
+	conflux::http::ResolvedSecretRotation const &secrets) {
+	return conflux::http::validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
 }
 
 [[nodiscard]] std::array<unsigned char, 32> jwt_signature(
@@ -171,7 +171,7 @@ namespace jwt_detail {
 [[nodiscard]] bool signature_matches(
 	std::string_view signing_input,
 	std::string const &sig_claimed,
-	ResolvedSecretRotation const &secrets) {
+	conflux::http::ResolvedSecretRotation const &secrets) {
 	auto expected_signature = jwt_signature(secrets.active, signing_input);
 	if (ct_equal(to_unsigned_span(sig_claimed), std::span{expected_signature.data(), expected_signature.size()})) {
 		return true;
@@ -194,10 +194,10 @@ export std::string jwt_sign(std::string_view payload_json, std::string_view secr
 export std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
 
 export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
-	AuthSecretsConfig const &cfg,
+	conflux::http::AuthSecretsConfig const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
-	auto secrets = resolve_secret_rotation(cfg.jwt, "jwt", required);
+	auto secrets = conflux::http::resolve_secret_rotation(cfg.jwt, "jwt", required);
 	if (!secrets) {
 		return std::unexpected{secrets.error()};
 	}
@@ -206,7 +206,7 @@ export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_con
 }
 
 export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
 	return jwt_options_from_config(cfg.auth_secrets, std::move(base), required);

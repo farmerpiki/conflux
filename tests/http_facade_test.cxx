@@ -14,9 +14,13 @@ import conflux.net.router;
 import conflux.work;
 
 namespace http = conflux::http;
+using conflux::http::ConfigIssueCode;
+using conflux::http::SecretSource;
+using conflux::http::SecretSourceKind;
+using conflux::http::VirtualHost;
 
 static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
-static_assert(std::same_as<http::Config, Config>);
+static_assert(std::same_as<http::Config, conflux::http::Config>);
 static_assert(std::same_as<http::DrainOptions, DrainOptions>);
 static_assert(std::same_as<http::DrainReport, DrainReport>);
 static_assert(std::same_as<http::DrainStreamPolicy, DrainStreamPolicy>);

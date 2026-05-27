@@ -65,6 +65,9 @@ import conflux.net.tls;
 import conflux.tests.support;
 import conflux.work;
 
+using conflux::http::Config;
+using conflux::http::ParserLimits;
+using conflux::http::single_secret_rotation;
 using namespace conflux::tests;
 
 TEST_CASE(

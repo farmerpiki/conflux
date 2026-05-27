@@ -62,7 +62,7 @@ struct Router::Impl {
 	ErrorHandler error_handler{};
 	std::shared_ptr<WorkPool> work_pool{std::make_shared<WorkPool>()};
 	StaticCacheStore static_cache{};
-	StaticFileCacheConfig static_file_cache{};
+	conflux::http::StaticFileCacheConfig static_file_cache{};
 };
 
 namespace {
@@ -413,7 +413,7 @@ Router::Router()
 	: impl_(std::make_unique<Impl>()) {}
 
 Router::Router(
-	Config const &cfg)
+	conflux::http::Config const &cfg)
 	: impl_(std::make_unique<Impl>()) {
 	impl_->static_file_cache = cfg.static_file_cache;
 }
@@ -559,7 +559,7 @@ Router &Router::set_work_pool(
 }
 
 Router &Router::set_static_file_cache(
-	StaticFileCacheConfig cfg) {
+	conflux::http::StaticFileCacheConfig cfg) {
 	impl_->static_file_cache = cfg;
 	return *this;
 }

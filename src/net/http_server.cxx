@@ -10,17 +10,17 @@ import conflux.net.config;
 export class HttpServer {
 	struct Impl;
 	Impl *impl_{};
-	void initialize(Config const &cfg);
+	void initialize(conflux::http::Config const &cfg);
 
 public:
-	explicit HttpServer(Config const &cfg, Router &&router);
-	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
+	explicit HttpServer(conflux::http::Config const &cfg, Router &&router);
+	explicit HttpServer(conflux::http::Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
 	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
-	try_create(Config const &cfg, Router &&router);
+	try_create(conflux::http::Config const &cfg, Router &&router);
 	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
-	try_create(Config const &cfg, VHostRouter &&vhost_router);
+	try_create(conflux::http::Config const &cfg, VHostRouter &&vhost_router);
 
 	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
 	void request_shutdown() noexcept;

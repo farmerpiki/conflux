@@ -10,24 +10,26 @@ import std.compat;
 import conflux.file_io_sync;
 import conflux.utils;
 
-export constexpr std::uint16_t kConfigDefaultPort = 9090;
-export constexpr unsigned kConfigDefaultRingEntries = 1024;
-export constexpr std::size_t kConfigDefaultMaxBodySize = std::size_t{1024} * 1024;
-export constexpr std::uint32_t kConfigDefaultRequestTimeoutMs = 30000;
-export constexpr std::uint32_t kConfigDefaultTlsSniffTimeoutMs = 10000;
-export constexpr std::size_t kConfigDefaultMaxRequestLineSize = std::size_t{8} * 1024;
-export constexpr std::size_t kConfigDefaultMaxHeaderLineSize = std::size_t{8} * 1024;
-export constexpr std::size_t kConfigDefaultMaxHeaders = 100;
-export constexpr std::size_t kConfigDefaultMaxHeaderBlockSize = std::size_t{64} * 1024;
-export constexpr std::size_t kConfigDefaultMaxChunks = 100000;
-export struct ParserLimits {
+export namespace conflux::http {
+
+constexpr std::uint16_t kConfigDefaultPort = 9090;
+constexpr unsigned kConfigDefaultRingEntries = 1024;
+constexpr std::size_t kConfigDefaultMaxBodySize = std::size_t{1024} * 1024;
+constexpr std::uint32_t kConfigDefaultRequestTimeoutMs = 30000;
+constexpr std::uint32_t kConfigDefaultTlsSniffTimeoutMs = 10000;
+constexpr std::size_t kConfigDefaultMaxRequestLineSize = std::size_t{8} * 1024;
+constexpr std::size_t kConfigDefaultMaxHeaderLineSize = std::size_t{8} * 1024;
+constexpr std::size_t kConfigDefaultMaxHeaders = 100;
+constexpr std::size_t kConfigDefaultMaxHeaderBlockSize = std::size_t{64} * 1024;
+constexpr std::size_t kConfigDefaultMaxChunks = 100000;
+struct ParserLimits {
 	std::size_t max_request_line_size = kConfigDefaultMaxRequestLineSize;
 	std::size_t max_header_line_size = kConfigDefaultMaxHeaderLineSize;
 	std::size_t max_headers = kConfigDefaultMaxHeaders;
 	std::size_t max_header_block_size = kConfigDefaultMaxHeaderBlockSize;
 	std::size_t max_chunks = kConfigDefaultMaxChunks;
 };
-export struct Http3Config {
+struct Http3Config {
 	bool enabled = false;
 	std::uint32_t idle_timeout_ms = 30000;
 	std::size_t max_streams_bidi = 100;
@@ -39,40 +41,40 @@ export struct Http3Config {
 	// Streams whose DATA exceeds this are reset with H3_REQUEST_REJECTED.
 	size_t max_body_size = kConfigDefaultMaxBodySize;
 };
-export struct StaticFileCacheConfig {
+struct StaticFileCacheConfig {
 	bool enabled = false;
 	std::size_t small_file_max_bytes = std::size_t{64} * 1024;
 	std::size_t max_total_bytes = std::size_t{16} * 1024 * 1024;
 };
 
-export enum class SecretSourceKind {
+enum class SecretSourceKind {
 	unset,
 	literal,
 	environment,
 	file,
 };
-export struct SecretSource {
+struct SecretSource {
 	SecretSourceKind kind{SecretSourceKind::unset};
 	std::string value{};
 };
-export struct SecretRotationConfig {
+struct SecretRotationConfig {
 	SecretSource active{};
 	std::vector<SecretSource> previous{};
 	std::size_t min_secret_bytes{16};
 };
-export struct AuthSecretsConfig {
+struct AuthSecretsConfig {
 	SecretSource password_verifier_secret{};
 	std::size_t password_verifier_min_secret_bytes{16};
 	SecretRotationConfig jwt{};
 	SecretRotationConfig cookie{};
 	SecretRotationConfig session{};
 };
-export struct ResolvedSecretRotation {
+struct ResolvedSecretRotation {
 	std::string active{};
 	std::vector<std::string> previous{};
 	std::size_t min_secret_bytes{16};
 };
-export enum class ConfigIssueCode {
+enum class ConfigIssueCode {
 	unknown_section,
 	unknown_key,
 	invalid_value,
@@ -82,7 +84,7 @@ export enum class ConfigIssueCode {
 	secret_would_be_logged,
 	deprecated_key,
 };
-export struct ConfigIssue {
+struct ConfigIssue {
 	ConfigIssueCode code{ConfigIssueCode::invalid_value};
 	std::string file{};
 	std::size_t line{};
@@ -95,13 +97,13 @@ export struct ConfigIssue {
 // Per-hostname TLS credentials for SNI virtual hosting.
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
 // server switches to the certificate/key P from this struct.
-export struct VirtualHost {
+struct VirtualHost {
 	std::string hostname{}; // SNI hostname to match
 	std::string cert_file{}; // PEM certificate chain for this host
 	std::string key_file{}; // PEM private key for this host
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
-export struct Config {
+struct Config {
 	[[nodiscard]] static Config public_server() {
 		Config cfg{};
 		cfg.strict_config = true;
@@ -259,25 +261,29 @@ export struct Config {
 	[[nodiscard]] std::string to_json_redacted() const;
 };
 
-export [[nodiscard]] ResolvedSecretRotation single_secret_rotation(
+[[nodiscard]] ResolvedSecretRotation single_secret_rotation(
 	std::string_view active,
 	std::size_t min_secret_bytes = 16) {
 	return {.active = std::string{active}, .previous = {}, .min_secret_bytes = min_secret_bytes};
 }
 
-export [[nodiscard]] bool secret_source_configured(
+[[nodiscard]] bool secret_source_configured(
 	SecretSource const &src) noexcept {
 	return src.kind != SecretSourceKind::unset;
 }
 
-namespace {
+} // namespace conflux::http
+
+namespace conflux::http { namespace {
 
 std::expected<std::string, int>
 read_text_file_local(std::string_view path, std::size_t max_bytes = std::size_t{16} * 1024 * 1024);
 
-} // namespace
+}} // namespace conflux::http
 
-export [[nodiscard]] std::expected<std::string, std::string> resolve_secret_source(
+export namespace conflux::http {
+
+[[nodiscard]] std::expected<std::string, std::string> resolve_secret_source(
 	SecretSource const &src,
 	std::string_view name,
 	bool required = true) {
@@ -318,7 +324,7 @@ export [[nodiscard]] std::expected<std::string, std::string> resolve_secret_sour
 	return std::unexpected{std::format("auth secret '{}': unsupported source kind", name)};
 }
 
-export [[nodiscard]] std::expected<void, std::string> validate_secret_bytes(
+[[nodiscard]] std::expected<void, std::string> validate_secret_bytes(
 	std::string_view secret,
 	std::string_view name,
 	std::size_t min_bytes) {
@@ -332,7 +338,7 @@ export [[nodiscard]] std::expected<void, std::string> validate_secret_bytes(
 	return {};
 }
 
-export [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
+[[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
 	SecretRotationConfig const &cfg,
 	std::string_view name,
 	bool required = true) {
@@ -362,7 +368,9 @@ export [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_
 	return out;
 }
 
-namespace {
+} // namespace conflux::http
+
+namespace conflux::http { namespace {
 
 std::expected<std::string, int> read_text_file_local(
 	std::string_view path,
@@ -795,9 +803,11 @@ ParseResult parse_ini_contents(
 	return ParseResult{.cfg = std::move(cfg), .issues = std::move(issues)};
 }
 
-} // namespace
+}} // namespace conflux::http
 
-export [[nodiscard]] std::string config_issue_code_string(
+export namespace conflux::http {
+
+[[nodiscard]] std::string config_issue_code_string(
 	ConfigIssueCode code) {
 	switch (code) {
 	case ConfigIssueCode::unknown_section       : return "config.unknown_section";
@@ -812,7 +822,7 @@ export [[nodiscard]] std::string config_issue_code_string(
 	return "config.invalid_value";
 }
 
-export [[nodiscard]] std::string config_issue_summary(
+[[nodiscard]] std::string config_issue_summary(
 	ConfigIssue const &issue) {
 	auto out = std::format(
 		"{} file={} line={} section={} key={}",
@@ -833,7 +843,7 @@ export [[nodiscard]] std::string config_issue_summary(
 	return out;
 }
 
-export [[nodiscard]] std::vector<ConfigIssue> validate_config(
+[[nodiscard]] std::vector<ConfigIssue> validate_config(
 	Config const &cfg,
 	std::string_view file = {}) {
 	std::vector<ConfigIssue> issues;
@@ -896,7 +906,7 @@ export [[nodiscard]] std::vector<ConfigIssue> validate_config(
 	return issues;
 }
 
-export [[nodiscard]] std::vector<ConfigIssue> unsafe_config_issues(
+[[nodiscard]] std::vector<ConfigIssue> unsafe_config_issues(
 	Config const &cfg,
 	std::string_view file = {}) {
 	std::vector<ConfigIssue> issues;
@@ -933,7 +943,7 @@ export [[nodiscard]] std::vector<ConfigIssue> unsafe_config_issues(
 	return issues;
 }
 
-export [[nodiscard]] std::vector<conflux::runtime::CapabilityIssue> validate_config_capabilities(
+[[nodiscard]] std::vector<conflux::runtime::CapabilityIssue> validate_config_capabilities(
 	Config const &cfg,
 	conflux::runtime::RuntimeCapabilities const &caps) {
 	std::vector<conflux::runtime::CapabilityIssue> issues;
@@ -985,7 +995,7 @@ export [[nodiscard]] std::vector<conflux::runtime::CapabilityIssue> validate_con
 	return issues;
 }
 
-export [[nodiscard]] std::string feature_fallback_string(
+[[nodiscard]] std::string feature_fallback_string(
 	conflux::runtime::FeatureFallback policy) {
 	switch (policy) {
 	case conflux::runtime::FeatureFallback::fail_fast        : return "fail_fast";
@@ -1029,7 +1039,7 @@ std::string Config::to_json_redacted() const {
 		strict_config ? "true" : "false");
 }
 
-export [[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
+[[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
 	char const *path) {
 	auto contents = read_text_file_local(std::string_view{path});
 	if (!contents) {
@@ -1046,7 +1056,7 @@ export [[nodiscard]] std::expected<Config, std::string> config_from_ini_checked(
 	}
 }
 
-export [[nodiscard]] std::expected<Config, std::vector<ConfigIssue>> config_from_ini_checked(
+[[nodiscard]] std::expected<Config, std::vector<ConfigIssue>> config_from_ini_checked(
 	char const *path,
 	bool strict) {
 	auto contents = read_text_file_local(std::string_view{path});
@@ -1068,13 +1078,13 @@ export [[nodiscard]] std::expected<Config, std::vector<ConfigIssue>> config_from
 	return std::move(parsed.cfg);
 }
 
-export [[nodiscard]] std::expected<Config, std::string> try_config_from_ini(
+[[nodiscard]] std::expected<Config, std::string> try_config_from_ini(
 	char const *path) {
 	return config_from_ini_checked(path);
 }
 
 // Throws std::runtime_error on parse / IO failure.
-export Config config_from_ini(
+Config config_from_ini(
 	char const *path) {
 	auto cfg = config_from_ini_checked(path);
 	if (!cfg) {
@@ -1082,3 +1092,5 @@ export Config config_from_ini(
 	}
 	return std::move(*cfg);
 }
+
+} // namespace conflux::http

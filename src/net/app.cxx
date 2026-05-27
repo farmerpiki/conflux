@@ -323,9 +323,9 @@ public:
 		std::size_t index_;
 	};
 
-	[[nodiscard]] static App default_server() { return App{Config::public_server()}; }
+	[[nodiscard]] static App default_server() { return App{conflux::http::Config::public_server()}; }
 	explicit App(
-		Config cfg = Config::public_server())
+		conflux::http::Config cfg = conflux::http::Config::public_server())
 		: cfg_(std::move(cfg))
 		, router_(cfg_)
 		, states_(std::make_shared<StateMap>())
@@ -1178,8 +1178,8 @@ public:
 		}
 		return *this;
 	}
-	[[nodiscard]] Config &config() { return cfg_; }
-	[[nodiscard]] Config const &config() const { return cfg_; }
+	[[nodiscard]] conflux::http::Config &config() { return cfg_; }
+	[[nodiscard]] conflux::http::Config const &config() const { return cfg_; }
 	friend Router &router(App &app) noexcept;
 	friend Router const &router(App const &app) noexcept;
 	friend std::vector<RouteInfo> route_infos(App const &app);
@@ -1317,9 +1317,9 @@ public:
 			report.issues.push_back(
 				ValidationIssue{.code = "app.validation", .message = issue, .method = "APP", .path = "state"});
 		}
-		report.config_issues = validate_config(cfg_);
+		report.config_issues = conflux::http::validate_config(cfg_);
 		if (auto caps = conflux::runtime::detect_capabilities()) {
-			report.capability_issues = validate_config_capabilities(cfg_, *caps);
+			report.capability_issues = conflux::http::validate_config_capabilities(cfg_, *caps);
 			report.capability_issues_block_startup =
 				cfg_.feature_fallback == conflux::runtime::FeatureFallback::fail_fast
 				&& !report.capability_issues.empty();
@@ -2717,7 +2717,7 @@ public:
 	}
 
 private:
-	Config cfg_;
+	conflux::http::Config cfg_;
 	Router router_;
 	std::shared_ptr<StateMap> states_;
 	std::vector<std::string> state_issues_;
@@ -2749,7 +2749,7 @@ private:
 }
 
 [[nodiscard]] App app(
-	Config cfg = Config::public_server()) {
+	conflux::http::Config cfg = conflux::http::Config::public_server()) {
 	return App{std::move(cfg)};
 }
 

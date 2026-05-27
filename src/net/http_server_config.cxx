@@ -28,7 +28,7 @@ std::string format_flag_list(
 } // namespace
 
 export [[gnu::pure]] std::uint32_t build_uring_flags(
-	Config const &c) {
+	conflux::http::Config const &c) {
 	auto f = conflux::uring::SetupFlags{};
 	if (c.single_issuer) {
 		f |= conflux::uring::setup_flags::single_issuer;
@@ -63,7 +63,7 @@ export [[nodiscard]] std::optional<conflux::uring::SetupFlags> next_uring_setup_
 }
 
 export [[nodiscard]] std::uint32_t wq_fd_for_ring(
-	Config const &c,
+	conflux::http::Config const &c,
 	unsigned i,
 	int parent_ring_fd) {
 	if (!c.attach_wq || i == 0 || parent_ring_fd < 0) {
@@ -78,7 +78,7 @@ export [[nodiscard]] std::string setup_flags_str(
 }
 
 export [[nodiscard]] std::string flags_str(
-	Config const &c) {
+	conflux::http::Config const &c) {
 	return format_flag_list('|', [&](auto app) {
 		if (c.single_issuer) {
 			app("SINGLE_ISSUER");

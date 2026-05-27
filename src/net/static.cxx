@@ -17,7 +17,7 @@ export struct StaticOptions {
 	std::shared_ptr<WorkPool> offload_pool{};
 	// Small static file cache. Disabled by default to preserve existing memory
 	// behavior unless callers opt in via Config/Router defaults or per route.
-	StaticFileCacheConfig file_cache{};
+	conflux::http::StaticFileCacheConfig file_cache{};
 	bool allow_put{false};
 	bool allow_delete{false};
 };

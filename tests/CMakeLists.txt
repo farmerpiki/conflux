@@ -461,6 +461,30 @@ if(TARGET conflux_net_http)
         EXPECT "RunStatus")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_config
+        SOURCE http_facade_compile_fail_global_config.cxx
+        TEST http-facade/compile-fail-global-config
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Config")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_parser_limits
+        SOURCE http_facade_compile_fail_global_parser_limits.cxx
+        TEST http-facade/compile-fail-global-parser-limits
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ParserLimits")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_config_issue
+        SOURCE http_facade_compile_fail_global_config_issue.cxx
+        TEST http-facade/compile-fail-global-config-issue
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ConfigIssue")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_sse_channel
         SOURCE http_facade_compile_fail_global_sse_channel.cxx
         TEST http-facade/compile-fail-global-sse-channel

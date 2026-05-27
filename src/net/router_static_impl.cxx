@@ -16,7 +16,7 @@ import conflux.file_io_sync;
 	std::string_view url_prefix,
 	std::string root_dir,
 	StaticOptions const &sopts,
-	StaticFileCacheConfig const &static_file_cache,
+	conflux::http::StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache) {
 	while (!root_dir.empty() && root_dir.back() == '/') {
 		root_dir.pop_back();

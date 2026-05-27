@@ -187,7 +187,7 @@ public:
 	using WsHandler = CloneableFunction<void(RequestView const &, conflux::http::WsConn &)>;
 	using ErrorHandler = CloneableFunction<Response(RequestView const &, std::exception const &)>;
 	Router();
-	explicit Router(Config const &cfg);
+	explicit Router(conflux::http::Config const &cfg);
 	~Router();
 	Router(Router const &) = delete;
 	Router &operator =(Router const &) = delete;
@@ -338,7 +338,7 @@ public:
 	}
 	Router &set_work_pool(std::shared_ptr<WorkPool> pool);
 	[[nodiscard]] std::shared_ptr<WorkPool> work_pool() const;
-	Router &set_static_file_cache(StaticFileCacheConfig cfg);
+	Router &set_static_file_cache(conflux::http::StaticFileCacheConfig cfg);
 	// Register a WebSocket upgrade handler. GET requests with a valid Upgrade: websocket
 	// handshake are upgraded to WebSocket; the handler runs on the router's work pool.
 	template<typename F>

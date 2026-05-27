@@ -616,7 +616,7 @@ export class Http3Listener {
 public:
 	Http3Listener(
 		Router const *router,
-		Http3Config const &cfg,
+		conflux::http::Http3Config const &cfg,
 		std::uint16_t port,
 		SSL_CTX *ssl_ctx)
 		: router_(router)
@@ -1189,7 +1189,7 @@ public:
 
 private:
 	Router const *router_;
-	Http3Config cfg_;
+	conflux::http::Http3Config cfg_;
 	std::uint16_t port_;
 	SSL_CTX *ssl_ctx_;
 	int udp_fd_{-1};

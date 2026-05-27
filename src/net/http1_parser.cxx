@@ -58,7 +58,7 @@ export namespace conflux::http1 {
 
 ParseStatus parse_request(
 	std::string_view raw,
-	ParserLimits const &limits,
+	conflux::http::ParserLimits const &limits,
 	ParsedRequest &out) {
 	out.headers.clear();
 

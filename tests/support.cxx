@@ -271,7 +271,7 @@ class TestServerRegistry {
 
 public:
 	std::uint16_t start(
-		Config const &cfg,
+		conflux::http::Config const &cfg,
 		Router router) {
 		// TLS server probing in wait_for_server() triggers SIGPIPE without this.
 		(void)::signal(SIGPIPE, SIG_IGN);
@@ -286,7 +286,7 @@ public:
 		return port;
 	}
 	std::uint16_t start(
-		Config const &cfg,
+		conflux::http::Config const &cfg,
 		VHostRouter vhost_router) {
 		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = std::make_shared<HttpServer>(cfg, std::move(vhost_router));
@@ -320,7 +320,7 @@ class ScopedTestServer {
 
 public:
 	ScopedTestServer(
-		Config const &cfg,
+		conflux::http::Config const &cfg,
 		Router router)
 		: server_([&] {
 			auto local_cfg = cfg;
@@ -352,8 +352,8 @@ public:
 	ScopedTestServer(ScopedTestServer &&) = delete;
 	ScopedTestServer &operator =(ScopedTestServer &&) = delete;
 };
-[[nodiscard]] Config mw_config() {
-	Config cfg{};
+[[nodiscard]] conflux::http::Config mw_config() {
+	conflux::http::Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
 	cfg.ring_entries = 256;
@@ -370,7 +370,7 @@ public:
 	return cfg;
 }
 std::uint16_t start_mw_server(
-	Config const &cfg,
+	conflux::http::Config const &cfg,
 	Router router) {
 	return test_servers().start(cfg, std::move(router));
 }

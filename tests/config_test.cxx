@@ -8,6 +8,22 @@ import conflux.uring;
 import conflux.net.config;
 import conflux.net.http_server_config;
 
+using conflux::http::Config;
+using conflux::http::config_from_ini;
+using conflux::http::config_from_ini_checked;
+using conflux::http::ConfigIssue;
+using conflux::http::ConfigIssueCode;
+using conflux::http::kConfigDefaultMaxBodySize;
+using conflux::http::kConfigDefaultMaxHeaders;
+using conflux::http::kConfigDefaultRequestTimeoutMs;
+using conflux::http::kConfigDefaultTlsSniffTimeoutMs;
+using conflux::http::SecretSource;
+using conflux::http::SecretSourceKind;
+using conflux::http::try_config_from_ini;
+using conflux::http::unsafe_config_issues;
+using conflux::http::validate_config;
+using conflux::http::validate_config_capabilities;
+
 namespace {
 
 class TempIni {

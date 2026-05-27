@@ -670,7 +670,7 @@ struct ValidationIssue {
 
 struct ValidationReport {
 	std::vector<ValidationIssue> issues;
-	std::vector<ConfigIssue> config_issues;
+	std::vector<conflux::http::ConfigIssue> config_issues;
 	std::vector<conflux::runtime::CapabilityIssue> capability_issues;
 	bool capability_issues_block_startup = false;
 
@@ -694,7 +694,7 @@ struct ValidationReport {
 			append(std::format("{} {} [{}]: {}", issue.method, issue.path, code, issue.message));
 		}
 		for (auto const &issue: config_issues) {
-			append(config_issue_summary(issue));
+			append(conflux::http::config_issue_summary(issue));
 		}
 		for (auto const &issue: capability_issues) {
 			append(std::format("capability.{}: {}", issue.feature, issue.message));
@@ -724,7 +724,7 @@ struct ValidationReport {
 			append(std::move(line));
 		}
 		for (auto const &issue: config_issues) {
-			append(config_issue_summary(issue));
+			append(conflux::http::config_issue_summary(issue));
 		}
 		for (auto const &issue: capability_issues) {
 			append(std::format("capability.{}: {} {}", issue.feature, issue.message, issue.hint));

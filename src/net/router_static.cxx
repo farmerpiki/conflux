@@ -21,5 +21,5 @@ export [[nodiscard]] StaticRouteRegistration make_static_route_registration(
 	std::string_view url_prefix,
 	std::string root_dir,
 	StaticOptions const &sopts,
-	StaticFileCacheConfig const &static_file_cache,
+	conflux::http::StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache);
