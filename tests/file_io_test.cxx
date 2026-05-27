@@ -849,7 +849,7 @@ TEST_CASE(
 	::unlink(dst_path.c_str());
 }
 TEST_CASE(
-	"file_io: async_fadvise succeeds on a regular file",
+	"file_io: async_fadvise submits or reports known kernel fadvise error",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -868,7 +868,7 @@ TEST_CASE(
 	CHECK(passed); // EBADF acceptable on some kernel versions for fadvise via io_uring
 }
 TEST_CASE(
-	"file_io: async_madvise on mapped memory succeeds",
+	"file_io: async_madvise submits or reports known kernel madvise error",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
