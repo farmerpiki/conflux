@@ -493,6 +493,31 @@ Raw router path patterns support `{param}` segment captures and `*` wildcards.
 Raw handlers can inspect captures through `req.params`; fixed-string app
 routes should prefer typed captures.
 
+Typed query, header, cookie, and form extractors make requiredness explicit.
+Use `RequiredQuery`, `RequiredHeader`, `RequiredCookie`, and `RequiredForm`
+when a missing field should reject the request. Use `OptionalQuery`,
+`OptionalHeader`, `OptionalCookie`, and `OptionalForm` when absence is allowed.
+The shorter `Query`, `Header`, `Cookie`, and `Form` spellings remain available
+as low-ceremony shorthands, but their missing-field behavior depends on the
+target type: string-view targets produce an empty view, scalar targets fail
+conversion, and `std::optional<T>` targets produce `std::nullopt`. Public docs
+and examples should prefer the explicit required/optional aliases whenever the
+route contract matters.
+
+```cpp
+app.get(
+    "/search",
+    [](http::RequiredQuery<"q"> q,
+       http::OptionalQuery<"page", std::uint32_t> page,
+       http::OptionalHeader<"x-trace-id"> trace_id) {
+        auto const page_number = page.value_or(1);
+        return http::text(std::format("q={} page={} trace={}\n",
+                                      q.get(),
+                                      page_number,
+                                      trace_id.value_or("none")));
+    });
+```
+
 The public concepts are intended for user helpers and diagnostics. The HTTP
 server owns the request storage for the dispatch lifetime; handlers,
 middleware, async context routes, and extractors receive `http::Request` /

@@ -32,7 +32,7 @@ int main() {
 	});
 
 	// GET /search?q=...&lang=...
-	app.get("/search", [](http::Query<"q"> q, http::Query<"lang"> lang) {
+	app.get("/search", [](http::RequiredQuery<"q"> q, http::OptionalQuery<"lang"> lang) {
 		return http::html(
 			std::format(
 				"<html><body>"
@@ -41,12 +41,12 @@ int main() {
 				"<p>Language filter: <strong>{}</strong></p>"
 				"<p><a href='/'>back</a></p>"
 				"</body></html>",
-				q.get().empty() ? "(none)" : q.get(),
-				lang.get().empty() ? "any" : lang.get()));
+				q.get(),
+				lang.value_or("any")));
 	});
 
 	// POST /submit  body: name=...&age=...
-	app.post("/submit", [](http::Form<"name"> name, http::Form<"age", std::uint32_t> age) {
+	app.post("/submit", [](http::RequiredForm<"name"> name, http::RequiredForm<"age", std::uint32_t> age) {
 		return http::html(
 			std::format(
 				"<html><body>"
