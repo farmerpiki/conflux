@@ -105,16 +105,6 @@ inline UniqueSslCtx make_server_ctx(
 	}
 	return ctx;
 }
-inline std::string ascii_lower_local(
-	std::string_view s) {
-	std::string out{s};
-	for (auto &c: out) {
-		if (c >= 'A' && c <= 'Z') {
-			c = static_cast<char>(c + 32);
-		}
-	}
-	return out;
-}
 inline int sni_callback(
 	SSL *ssl,
 	int * /*alert*/,
@@ -124,7 +114,7 @@ inline int sni_callback(
 		return SSL_TLSEXT_ERR_OK;
 	}
 	auto &vhosts = *static_cast<std::unordered_map<std::string, UniqueSslCtx> *>(user_data);
-	auto const it = vhosts.find(ascii_lower_local(name));
+	auto const it = vhosts.find(ascii_lower(name));
 	if (it != vhosts.end()) {
 		SSL_set_SSL_CTX(ssl, it->second.get());
 	}
@@ -170,7 +160,7 @@ public:
 	void add_vhost(
 		std::string_view hostname,
 		TlsServerOptions const &opts) {
-		vhost_ctxs_.emplace(tls_detail::ascii_lower_local(hostname), tls_detail::make_server_ctx(opts));
+		vhost_ctxs_.emplace(ascii_lower(hostname), tls_detail::make_server_ctx(opts));
 	}
 	// Install SNI servername callback dispatching to vhost contexts. No-op if
 	// no vhosts were added. Caller must keep this TlsServerContext alive while
