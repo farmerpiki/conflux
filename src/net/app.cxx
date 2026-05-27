@@ -95,7 +95,7 @@ class App {
 		std::shared_ptr<AppRouteRateLimit> rate_limit = std::make_shared<AppRouteRateLimit>();
 		std::shared_ptr<std::chrono::milliseconds> timeout = std::make_shared<std::chrono::milliseconds>();
 		std::size_t middleware_count{};
-		std::shared_ptr<std::string> auth_policy = std::make_shared<std::string>();
+		std::shared_ptr<std::string> bearer_token_policy = std::make_shared<std::string>();
 		std::string openapi_auth_scheme{};
 		std::string openapi_summary{};
 		bool uses_body{};
@@ -304,9 +304,9 @@ public:
 			return *this;
 		}
 
-		RouteRef &auth_policy(
+		RouteRef &require_bearer_token(
 			std::string_view value) {
-			*metadata().auth_policy = std::string{value};
+			*metadata().bearer_token_policy = std::string{value};
 			return *this;
 		}
 
@@ -355,7 +355,7 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
-			auto auth_policy = route_metadata_.back().auth_policy;
+			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
 			auto scoped_middlewares = current_group_middlewares();
@@ -365,7 +365,7 @@ public:
 			router_.add(
 				method,
 				path,
-				[auth_policy,
+				[bearer_token_policy,
 				 rate_limit,
 				 timeout,
 				 scoped_middlewares,
@@ -373,14 +373,14 @@ public:
 				 json_options,
 #endif
 				 fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [auth_policy,
+					Router::Handler inner = [bearer_token_policy,
 											 rate_limit,
 											 timeout,
 #if CONFLUX_HAS_JSON
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -401,7 +401,7 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
-			auto auth_policy = route_metadata_.back().auth_policy;
+			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
 			auto scoped_middlewares = current_group_middlewares();
@@ -411,7 +411,7 @@ public:
 			router_.add(
 				method,
 				path,
-				[auth_policy,
+				[bearer_token_policy,
 				 rate_limit,
 				 timeout,
 				 scoped_middlewares,
@@ -419,14 +419,14 @@ public:
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [auth_policy,
+					Router::Handler inner = [bearer_token_policy,
 											 rate_limit,
 											 timeout,
 #if CONFLUX_HAS_JSON
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -447,7 +447,7 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<::Request>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, ::Request const &>>();
-			auto auth_policy = route_metadata_.back().auth_policy;
+			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
 			auto scoped_middlewares = current_group_middlewares();
@@ -457,7 +457,7 @@ public:
 			router_.add(
 				method,
 				path,
-				[auth_policy,
+				[bearer_token_policy,
 				 rate_limit,
 				 timeout,
 				 scoped_middlewares,
@@ -465,14 +465,14 @@ public:
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [auth_policy,
+					Router::Handler inner = [bearer_token_policy,
 											 rate_limit,
 											 timeout,
 #if CONFLUX_HAS_JSON
 											 json_options,
 #endif
 											 &fn](RequestView const &inner_req) mutable {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -1021,9 +1021,9 @@ public:
 			rate_limit_ = GroupRateLimit{.name = std::string{value}, .options = options};
 			return *this;
 		}
-		Group &auth_policy(
+		Group &require_bearer_token(
 			std::string_view value) {
-			auth_policy_ = std::string{value};
+			bearer_token_policy_ = std::string{value};
 			return *this;
 		}
 		template<typename F>
@@ -1134,7 +1134,7 @@ public:
 			, max_body_size_(parent.max_body_size_)
 			, timeout_(parent.timeout_)
 			, rate_limit_(parent.rate_limit_)
-			, auth_policy_(parent.auth_policy_) {}
+			, bearer_token_policy_(parent.bearer_token_policy_) {}
 
 		[[nodiscard]] std::string full_path(
 			std::string_view path) const {
@@ -1151,8 +1151,8 @@ public:
 			if (rate_limit_) {
 				route.rate_limit(rate_limit_->name, rate_limit_->options);
 			}
-			if (auth_policy_) {
-				route.auth_policy(*auth_policy_);
+			if (bearer_token_policy_) {
+				route.require_bearer_token(*bearer_token_policy_);
 			}
 		}
 
@@ -1163,7 +1163,7 @@ public:
 		std::optional<std::size_t> max_body_size_;
 		std::optional<std::chrono::milliseconds> timeout_;
 		std::optional<GroupRateLimit> rate_limit_;
-		std::optional<std::string> auth_policy_;
+		std::optional<std::string> bearer_token_policy_;
 	};
 
 	template<typename F>
@@ -1209,7 +1209,7 @@ public:
 					.timeout = *route.timeout,
 					.middleware_count = route.middleware_count,
 					.rate_limit = route.rate_limit->name,
-					.auth_policy = *route.auth_policy,
+					.bearer_token_policy = *route.bearer_token_policy,
 					.openapi_summary = route.openapi_summary,
 					.allow_get_body = route.allow_get_body});
 		}
@@ -1250,8 +1250,8 @@ public:
 			if (!route.rate_limit->name.empty()) {
 				out += std::format(" rate_limit={}", route.rate_limit->name);
 			}
-			if (!route.auth_policy->empty()) {
-				out += std::format(" auth={}", *route.auth_policy);
+			if (!route.bearer_token_policy->empty()) {
+				out += std::format(" bearer_token={}", *route.bearer_token_policy);
 			}
 			if (!route.extractors.empty()) {
 				out += " ";
@@ -1283,7 +1283,7 @@ public:
 					.path = route.path,
 					.name = route.name,
 					.openapi_summary = route.openapi_summary,
-					.auth_policy = *route.auth_policy,
+					.bearer_token_policy = *route.bearer_token_policy,
 					.auth_scheme = route.openapi_auth_scheme,
 					.timeout = *route.timeout,
 					.rate_limit = route.rate_limit->name,
@@ -1669,7 +1669,7 @@ public:
 		using Fn = std::decay_t<F>;
 		record_route_metadata<std::tuple<RequestView>>(method, path, "context", loc);
 		record_return_metadata<conflux::work::root::Task<Response>>();
-		auto auth_policy = route_metadata_.back().auth_policy;
+		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		auto scoped_context_middlewares = current_group_context_middlewares();
@@ -1677,14 +1677,14 @@ public:
 			method,
 			path,
 			timeout,
-			[auth_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
+			[bearer_token_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
 				RequestView const &req,
 				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 				Router::ContextHandler inner =
-					[auth_policy, rate_limit, &fn](
+					[bearer_token_policy, rate_limit, &fn](
 						RequestView const &inner_req,
 						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
-					if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+					if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 						co_return *std::move(denied);
 					}
 					if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -1729,8 +1729,8 @@ public:
 			meta.openapi_auth_scheme = "bearer";
 		}
 		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearerToken"})
-			&& meta.auth_policy->empty()) {
-			*meta.auth_policy = "bearer";
+			&& meta.bearer_token_policy->empty()) {
+			*meta.bearer_token_policy = "bearer";
 		}
 		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBasicAuth"})) {
 			meta.openapi_auth_scheme = "basic";
@@ -2242,7 +2242,7 @@ public:
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 #endif
-		auto auth_policy = route_metadata_.back().auth_policy;
+		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		auto scoped_middlewares = current_group_middlewares();
@@ -2255,7 +2255,7 @@ public:
 				Path.view(),
 				timeout,
 				[states = states_,
-				 auth_policy,
+				 bearer_token_policy,
 				 rate_limit,
 				 scoped_context_middlewares,
 				 fn = Fn(std::forward<F>(handler))
@@ -2267,7 +2267,7 @@ public:
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					Router::ContextHandler inner =
 						[states,
-						 auth_policy,
+						 bearer_token_policy,
 						 rate_limit,
 						 &fn
 #if CONFLUX_HAS_JSON
@@ -2277,7 +2277,7 @@ public:
 #endif
 					](RequestView const &inner_req,
 						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							co_return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -2306,7 +2306,7 @@ public:
 				method,
 				Path.view(),
 				[states = states_,
-				 auth_policy,
+				 bearer_token_policy,
 				 rate_limit,
 				 timeout,
 				 scoped_middlewares,
@@ -2318,7 +2318,7 @@ public:
 #endif
 			](RequestView const &req) mutable {
 					Router::Handler inner = [states,
-											 auth_policy,
+											 bearer_token_policy,
 											 rate_limit,
 											 timeout,
 											 &fn
@@ -2328,7 +2328,7 @@ public:
 											 json_options
 #endif
 					](RequestView const &inner_req) mutable {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -2457,7 +2457,7 @@ public:
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 #endif
-		auto auth_policy = route_metadata_.back().auth_policy;
+		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		auto scoped_middlewares = current_group_middlewares();
@@ -2470,7 +2470,7 @@ public:
 				path,
 				timeout,
 				[states = states_,
-				 auth_policy,
+				 bearer_token_policy,
 				 rate_limit,
 				 scoped_context_middlewares,
 				 fn = Fn(std::forward<F>(handler))
@@ -2482,7 +2482,7 @@ public:
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					Router::ContextHandler inner =
 						[states,
-						 auth_policy,
+						 bearer_token_policy,
 						 rate_limit,
 						 &fn
 #if CONFLUX_HAS_JSON
@@ -2492,7 +2492,7 @@ public:
 #endif
 					](RequestView const &inner_req,
 						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							co_return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -2521,7 +2521,7 @@ public:
 				method,
 				path,
 				[states = states_,
-				 auth_policy,
+				 bearer_token_policy,
 				 rate_limit,
 				 timeout,
 				 scoped_middlewares,
@@ -2533,7 +2533,7 @@ public:
 #endif
 			](RequestView const &req) mutable {
 					Router::Handler inner = [states,
-											 auth_policy,
+											 bearer_token_policy,
 											 rate_limit,
 											 timeout,
 											 &fn
@@ -2543,7 +2543,7 @@ public:
 											 json_options
 #endif
 					](RequestView const &inner_req) mutable {
-						if (auto denied = route_auth_failure(*auth_policy, inner_req)) {
+						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
@@ -2616,21 +2616,21 @@ public:
 		route_metadata_.back().request_body_schema = detail::schema_json_or_object<BodyValue>();
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
-		auto auth_policy = route_metadata_.back().auth_policy;
+		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
 		auto timeout = route_metadata_.back().timeout;
 		router_.add(
 			method,
 			path,
 			[states = states_,
-			 auth_policy,
+			 bearer_token_policy,
 			 rate_limit,
 			 timeout,
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = decode_opts,
 			 max_body_size,
 			 json_options](RequestView const &req) mutable -> Response {
-				if (auto denied = route_auth_failure(*auth_policy, req)) {
+				if (auto denied = route_auth_failure(*bearer_token_policy, req)) {
 					return *std::move(denied);
 				}
 				if (auto limited = route_rate_limit_failure(*rate_limit, req)) {

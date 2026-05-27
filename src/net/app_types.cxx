@@ -754,7 +754,7 @@ struct AppRouteInfo {
 	std::chrono::milliseconds timeout{};
 	std::size_t middleware_count{};
 	std::string rate_limit;
-	std::string auth_policy;
+	std::string bearer_token_policy;
 	std::string openapi_summary;
 	bool allow_get_body{};
 };

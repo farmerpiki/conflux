@@ -16,7 +16,7 @@ struct AppOpenApiRoute {
 	std::string_view path;
 	std::string_view name;
 	std::string_view openapi_summary;
-	std::string_view auth_policy;
+	std::string_view bearer_token_policy;
 	std::string_view auth_scheme;
 	std::chrono::milliseconds timeout{};
 	std::string_view rate_limit;
@@ -80,7 +80,7 @@ struct AppOpenApiRoute {
 	bool has_bearer_auth = false;
 	bool has_basic_auth = false;
 	for (auto const &route: routes) {
-		if (!route.auth_scheme.empty() || !route.auth_policy.empty()) {
+		if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
 			auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
 			if (scheme == "basic") {
 				has_basic_auth = true;
@@ -139,14 +139,14 @@ struct AppOpenApiRoute {
 				out += json_string(route.openapi_summary);
 				out += ',';
 			}
-			if (!route.auth_scheme.empty() || !route.auth_policy.empty()) {
+			if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
 				auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
 				out += R"("security":[{)";
 				out += json_string(openapi_auth_scheme_name(scheme));
 				out += R"(:[]}])";
-				if (!route.auth_policy.empty()) {
-					out += R"(,"x-auth-policy":)";
-					out += json_string(route.auth_policy);
+				if (!route.bearer_token_policy.empty()) {
+					out += R"(,"x-bearer-token-policy":)";
+					out += json_string(route.bearer_token_policy);
 				}
 				out += ',';
 			}
@@ -227,7 +227,7 @@ struct AppOpenApiRoute {
 				out +=
 					R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
 			}
-			if (!route.auth_policy.empty()) {
+			if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
 				out += R"(,"401":{"description":"Unauthorized"})";
 			}
 			if (!route.rate_limit.empty()) {

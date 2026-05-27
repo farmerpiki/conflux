@@ -677,6 +677,14 @@ if(TARGET conflux_net_http)
         EXPECT "use_async")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_auth_policy_member
+        SOURCE http_facade_compile_fail_auth_policy_member.cxx
+        TEST http-facade/compile-fail-auth-policy-member
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_policy")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_openapi_handler_member
         SOURCE http_facade_compile_fail_openapi_handler_member.cxx
         TEST http-facade/compile-fail-openapi-handler-member

@@ -594,7 +594,7 @@ TEST_CASE(
 		.max_body_size(1024 * 1024)
 		.timeout(std::chrono::seconds{5})
 		.rate_limit("uploads")
-		.auth_policy("user")
+		.require_bearer_token("user")
 		.openapi_summary("Upload a small body");
 
 	auto routes = app.routes();
@@ -605,11 +605,12 @@ TEST_CASE(
 	CHECK(routes[0].max_body_size == 1024 * 1024);
 	CHECK(routes[0].timeout == std::chrono::seconds{5});
 	CHECK(routes[0].rate_limit == "uploads");
-	CHECK(routes[0].auth_policy == "user");
+	CHECK(routes[0].bearer_token_policy == "user");
 	CHECK(routes[0].openapi_summary == "Upload a small body");
 	CHECK(
 		app.route_table()
-		== "POST /upload [app] name=upload.create max_body=1048576 timeout=5000ms rate_limit=uploads auth=user BodyText");
+		== "POST /upload [app] name=upload.create max_body=1048576 timeout=5000ms rate_limit=uploads "
+		   "bearer_token=user BodyText");
 }
 
 TEST_CASE(
@@ -1054,7 +1055,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.group("/api", [](auto &api) {
-		api.auth_policy("user")
+		api.require_bearer_token("user")
 			.rate_limit("api", {.requests = 1, .window = std::chrono::seconds{60}})
 			.timeout(std::chrono::milliseconds{250})
 			.max_body_size(32);
@@ -1066,7 +1067,7 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].path == "/api/v1/items");
-	CHECK(routes[0].auth_policy == "user");
+	CHECK(routes[0].bearer_token_policy == "user");
 	CHECK(routes[0].rate_limit == "api");
 	CHECK(routes[0].timeout == std::chrono::milliseconds{250});
 	CHECK(routes[0].max_body_size == 32);
@@ -1205,20 +1206,20 @@ TEST_CASE(
 		   })
 		.name("widgets.show")
 		.openapi_summary("Show widget")
-		.auth_policy("user")
+		.require_bearer_token("user")
 		.rate_limit("widgets")
 		.timeout(std::chrono::seconds{5});
 
 	CHECK(
 		app.openapi_spec("Snapshot API", "1.0.0")
-		== R"({"openapi":"3.0.0","info":{"title":"Snapshot API","version":"1.0.0"},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}},"paths":{"/widgets/{id:u64}":{"get":{"operationId":"widgets.show","summary":"Show widget","security":[{"bearerAuth":[]}],"x-auth-policy":"user","x-timeout-ms":5000,"x-rate-limit":"widgets","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}},"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}},"401":{"description":"Unauthorized"},"429":{"description":"Too Many Requests"},"504":{"description":"Gateway Timeout"}}}}}})");
+		== R"({"openapi":"3.0.0","info":{"title":"Snapshot API","version":"1.0.0"},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}},"paths":{"/widgets/{id:u64}":{"get":{"operationId":"widgets.show","summary":"Show widget","security":[{"bearerAuth":[]}],"x-bearer-token-policy":"user","x-timeout-ms":5000,"x-rate-limit":"widgets","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}},"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}},"401":{"description":"Unauthorized"},"429":{"description":"Too Many Requests"},"504":{"description":"Gateway Timeout"}}}}}})");
 }
 
 TEST_CASE(
 	"http facade: app openapi spec includes auth policies",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/private", [] { return http::no_content(); }).auth_policy("user");
+	app.get("/private", [] { return http::no_content(); }).require_bearer_token("user");
 
 	auto spec = app.openapi_spec();
 	CHECK(
@@ -1226,14 +1227,14 @@ TEST_CASE(
 		!= std::string::npos);
 	auto doc = require_json_text(std::move(spec));
 	REQUIRE(require_json_pointer(doc, "/paths/~1private/get/security/0/bearerAuth").as_array().has_value());
-	check_json_string_at(doc, "/paths/~1private/get/x-auth-policy", "user");
+	check_json_string_at(doc, "/paths/~1private/get/x-bearer-token-policy", "user");
 }
 
 TEST_CASE(
 	"http facade: route auth policy requires bearer credentials",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/private", [] { return http::text("secret"); }).auth_policy("user");
+	app.get("/private", [] { return http::text("secret"); }).require_bearer_token("user");
 
 	Request req;
 	req.method = "GET";
@@ -1256,7 +1257,7 @@ TEST_CASE(
 	std::string secret = "state-secret";
 	app.state(secret);
 	app.get("/private-state", [](http::State<std::string> state) { return http::text(state.get()); })
-		.auth_policy("user");
+		.require_bearer_token("user");
 
 	Request req;
 	req.method = "GET";
@@ -1366,7 +1367,7 @@ TEST_CASE(
 	app.post("/upload", [](http::BodyText) { return http::no_content(); })
 		.timeout(std::chrono::seconds{5})
 		.rate_limit("uploads")
-		.auth_policy("user")
+		.require_bearer_token("user")
 		.max_body_size(4096);
 
 	auto spec = app.openapi_spec();
@@ -1848,7 +1849,7 @@ TEST_CASE(
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
-	CHECK(routes[0].auth_policy == "bearer");
+	CHECK(routes[0].bearer_token_policy == "bearer");
 	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBearerToken"});
 	auto const spec = app.openapi_spec("Auth", "1.0");
 	CHECK(
