@@ -107,6 +107,7 @@ struct Config {
 	[[nodiscard]] static Config public_server() {
 		Config cfg{};
 		cfg.strict_config = true;
+		cfg.slow_handler_diagnostics = true;
 		return cfg;
 	}
 	[[nodiscard]] static Config development() {

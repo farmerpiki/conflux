@@ -142,10 +142,11 @@ Preferred explicit options:
   Executor-owned non-coroutine chains should use `sync_*`; coroutine APIs should
   use `async_*`.
 
-Synchronous handlers are supported on-ring, and ring-thread blocking can be
-surfaced with opt-in diagnostics:
+Synchronous handlers are supported on-ring, and ring-thread blocking is surfaced
+by the public-server preset:
 
-- `Config::slow_handler_diagnostics` (default `false`)
+- `Config::slow_handler_diagnostics` (default `false`, enabled by
+  `Config::public_server()` and `Config::development()`)
 - `Config::slow_handler_warn_ms` (default `25`)
 
 When enabled, requests whose synchronous handler execution time crosses the

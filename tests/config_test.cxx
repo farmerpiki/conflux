@@ -59,6 +59,7 @@ TEST_CASE(
 	"[net.config]") {
 	auto public_cfg = Config::public_server();
 	CHECK(public_cfg.strict_config);
+	CHECK(public_cfg.slow_handler_diagnostics);
 	CHECK(public_cfg.max_body_size == kConfigDefaultMaxBodySize);
 	CHECK(public_cfg.request_timeout_ms == kConfigDefaultRequestTimeoutMs);
 	CHECK(public_cfg.tls_sniff_timeout_ms == kConfigDefaultTlsSniffTimeoutMs);
