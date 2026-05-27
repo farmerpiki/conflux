@@ -237,13 +237,13 @@ template<class Arg>
 concept TraceContextArg = std::same_as<std::remove_cvref_t<Arg>, TraceContext>;
 
 template<class Arg>
-concept BearerArg = std::same_as<std::remove_cvref_t<Arg>, Bearer>;
+concept BearerArg = std::same_as<std::remove_cvref_t<Arg>, BearerToken>;
 
 template<class Arg>
-concept RequiredBearerArg = std::same_as<std::remove_cvref_t<Arg>, RequiredBearer>;
+concept RequiredBearerArg = std::same_as<std::remove_cvref_t<Arg>, RequiredBearerToken>;
 
 template<class Arg>
-concept OptionalBearerArg = std::same_as<std::remove_cvref_t<Arg>, OptionalBearer>;
+concept OptionalBearerArg = std::same_as<std::remove_cvref_t<Arg>, OptionalBearerToken>;
 
 template<class Arg>
 concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;

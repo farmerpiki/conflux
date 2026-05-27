@@ -1725,10 +1725,11 @@ public:
 		meta.path_params = std::move(pattern.params);
 		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
-		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearer"})) {
+		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearerToken"})) {
 			meta.openapi_auth_scheme = "bearer";
 		}
-		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearer"}) && meta.auth_policy->empty()) {
+		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBearerToken"})
+			&& meta.auth_policy->empty()) {
 			*meta.auth_policy = "bearer";
 		}
 		if (std::ranges::contains(meta.extractors, std::string_view{"RequiredBasicAuth"})) {
@@ -2016,17 +2017,16 @@ public:
 			return TraceContext{.traceparent = req.header("traceparent")};
 		} else if constexpr (detail::BearerArg<Clean>) {
 			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
-			return Bearer{.token = token.value_or(std::string_view{})};
+			return Clean{.token = token.value_or(std::string_view{})};
 		} else if constexpr (detail::RequiredBearerArg<Clean>) {
 			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
 			if (!token || token->empty()) {
 				throw ExtractorFailure{Response::unauthorized("Bearer")};
 			}
-			return RequiredBearer{.token = *token};
+			return Clean{.token = *token};
 		} else if constexpr (detail::OptionalBearerArg<Clean>) {
 			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
-			return OptionalBearer{
-				.token = token && !token->empty() ? std::optional<std::string_view>{*token} : std::nullopt};
+			return Clean{.token = token && !token->empty() ? std::optional<std::string_view>{*token} : std::nullopt};
 		} else if constexpr (detail::BasicAuthArg<Clean>) {
 			return parse_basic_auth(req).value_or(BasicAuth{});
 		} else if constexpr (detail::RequiredBasicAuthArg<Clean>) {
@@ -2044,8 +2044,9 @@ public:
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
 				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::Json<T>, http::JsonDocument, "
 				"http::JsonPatch, http::MergePatch, http::BodyBytes, http::OwnedBodyBytes, http::Multipart, "
-				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::Bearer, http::RequiredBearer, "
-				"http::OptionalBearer, http::BasicAuth, http::RequiredBasicAuth, http::OptionalBasicAuth, "
+				"http::RequestId, http::ConnectionInfo, http::TraceContext, http::BearerToken, "
+				"http::RequiredBearerToken, http::OptionalBearerToken, http::BasicAuth, http::RequiredBasicAuth, "
+				"http::OptionalBasicAuth, "
 				"or http::State<T>");
 		}
 	}

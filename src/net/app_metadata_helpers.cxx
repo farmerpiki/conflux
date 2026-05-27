@@ -66,11 +66,11 @@ template<class Arg>
 	} else if constexpr (TraceContextArg<Clean>) {
 		return "TraceContext";
 	} else if constexpr (BearerArg<Clean>) {
-		return "Bearer";
+		return "BearerToken";
 	} else if constexpr (RequiredBearerArg<Clean>) {
-		return "RequiredBearer";
+		return "RequiredBearerToken";
 	} else if constexpr (OptionalBearerArg<Clean>) {
-		return "OptionalBearer";
+		return "OptionalBearerToken";
 	} else if constexpr (BasicAuthArg<Clean>) {
 		return "BasicAuth";
 	} else if constexpr (RequiredBasicAuthArg<Clean>) {

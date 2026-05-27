@@ -1810,7 +1810,7 @@ TEST_CASE(
 	"http facade: app handlers can receive bearer auth extractor",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/bearer", [](http::Bearer bearer) { return http::text(bearer.get()); });
+	app.get("/bearer", [](http::BearerToken bearer) { return http::text(bearer.get()); });
 
 	Request req;
 	req.method = "GET";
@@ -1824,14 +1824,14 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	REQUIRE(routes[0].extractors.size() == 1);
-	CHECK(routes[0].extractors[0] == "Bearer");
+	CHECK(routes[0].extractors[0] == "BearerToken");
 }
 
 TEST_CASE(
 	"http facade: required bearer extractor rejects missing authorization",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/bearer", [](http::RequiredBearer bearer) { return http::text(bearer.get()); });
+	app.get("/bearer", [](http::RequiredBearerToken bearer) { return http::text(bearer.get()); });
 
 	Request req;
 	req.method = "GET";
@@ -1849,7 +1849,7 @@ TEST_CASE(
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].auth_policy == "bearer");
-	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBearer"});
+	CHECK(routes[0].extractors == std::vector<std::string>{"RequiredBearerToken"});
 	auto const spec = app.openapi_spec("Auth", "1.0");
 	CHECK(
 		spec.find("\"securitySchemes\":{\"bearerAuth\":{\"type\":\"http\",\"scheme\":\"bearer\"}}")
@@ -1861,7 +1861,7 @@ TEST_CASE(
 	"http facade: optional bearer extractor does not reject missing authorization",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/bearer", [](http::OptionalBearer bearer) { return http::text(bearer.get().value_or("none")); });
+	app.get("/bearer", [](http::OptionalBearerToken bearer) { return http::text(bearer.get().value_or("none")); });
 
 	Request req;
 	req.method = "GET";
