@@ -5,6 +5,7 @@ benchmark-results
 AGENTS.md
 research
 findings
+coding_standards
 __pycache__/
 *.orig
 *.rej
