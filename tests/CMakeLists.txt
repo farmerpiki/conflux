@@ -421,6 +421,14 @@ if(TARGET conflux_net_http)
         EXPECT "RequiredBearer")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_cookie_builder
+        SOURCE http_facade_compile_fail_global_cookie_builder.cxx
+        TEST http-facade/compile-fail-global-cookie-builder
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "CookieBuilder")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization

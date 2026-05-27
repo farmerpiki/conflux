@@ -36,7 +36,9 @@ export enum class StreamedFileResult : std::uint8_t {
 	failed,
 };
 
-export enum class SameSite : std::uint8_t {
+export namespace conflux::http {
+
+enum class SameSite : std::uint8_t {
 	Lax,
 	Strict,
 	None,
@@ -51,6 +53,8 @@ export enum class SameSite : std::uint8_t {
 	}
 	return "Lax";
 }
+
+} // namespace conflux::http
 
 export struct StreamedFileHandle {
 	std::shared_ptr<void> storage{};
@@ -69,7 +73,9 @@ export struct StreamedFileHandle {
 	[[nodiscard]] explicit operator bool() const noexcept { return storage != nullptr; }
 };
 
-export struct CookieBuilder {
+export namespace conflux::http {
+
+struct CookieBuilder {
 	std::string name;
 	std::string value;
 	std::string attributes;
@@ -181,6 +187,8 @@ export struct CookieBuilder {
 		return std::move(*this);
 	}
 };
+
+} // namespace conflux::http
 
 // Carrier for a file about to be streamed through io_uring (splice on plain,
 // fixed-buffer read on TLS). Owns an internal file handle; send dispatch
@@ -707,7 +715,7 @@ export struct Response {
 		return *this;
 	}
 	Response &set_cookie(
-		CookieBuilder cookie) {
+		conflux::http::CookieBuilder cookie) {
 		return set_cookie(cookie.name, cookie.value, cookie.attributes);
 	}
 	void append_vary(

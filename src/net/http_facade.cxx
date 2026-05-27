@@ -26,8 +26,6 @@ import conflux.net.metrics;
 export namespace conflux::http {
 
 using Config = ::Config;
-using CookieBuilder = ::CookieBuilder;
-using SameSite = ::SameSite;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
 using HttpMethod = ::HttpMethod;

@@ -92,11 +92,11 @@ TEST_CASE(
 	resp.set_cookie("session", "abc", "Path=/; HttpOnly");
 	resp.set_cookie("theme", "dark");
 	resp.set_cookie(
-		CookieBuilder{"remember", "yes"}
+		chttp::CookieBuilder{"remember", "yes"}
 			.path("/")
 			.http_only()
 			.secure()
-			.same_site(SameSite::Lax)
+			.same_site(chttp::SameSite::Lax)
 			.max_age(std::chrono::hours{1}));
 	CHECK(resp.set_cookies.size() == 3);
 	CHECK(resp.set_cookies[0] == "session=abc; Path=/; HttpOnly");
