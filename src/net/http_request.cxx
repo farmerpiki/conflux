@@ -86,19 +86,17 @@ public:
 	[[nodiscard]] ClientRequest build() && { return std::move(req_); }
 	// ── verbs / URL ──────────────────────────────────────────────────────────
 
-	template<class Self>
-	Self &&method(
-		this Self &&self,
+	auto &&method(
+		this auto &&self,
 		std::string_view m) {
 		self.req_.method_ = std::string{m};
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&url(
-		this Self &&self,
+	auto &&url(
+		this auto &&self,
 		std::string_view raw) {
 		self.req_.url_ = parse_or_throw(raw);
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 	[[nodiscard]] std::expected<void, UrlError> try_url(
 		std::string_view raw) & {
@@ -109,144 +107,125 @@ public:
 		req_.url_ = std::move(*parsed);
 		return {};
 	}
-	template<class Self>
-	Self &&url(
-		this Self &&self,
+	auto &&url(
+		this auto &&self,
 		Url u) {
 		self.req_.url_ = std::move(u);
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 	// ── query ─────────────────────────────────────────────────────────────────
 
-	template<class Self>
-	Self &&query(
-		this Self &&self,
+	auto &&query(
+		this auto &&self,
 		std::string_view name,
 		std::string_view value) {
 		self.req_.url_.set_query_param(name, value);
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&query_params(
-		this Self &&self,
+	auto &&query_params(
+		this auto &&self,
 		HttpFields const &kv) {
 		for (auto const &[k, v]: kv) {
 			self.req_.url_.set_query_param(k, v);
 		}
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 	// ── headers ───────────────────────────────────────────────────────────────
 
-	template<class Self>
-	Self &&header(
-		this Self &&self,
+	auto &&header(
+		this auto &&self,
 		std::string_view name,
 		std::string_view value) {
 		self.req_.headers_.set(std::string{name}, std::string{value});
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&headers(
-		this Self &&self,
+	auto &&headers(
+		this auto &&self,
 		HttpFields const &h) {
 		for (auto const &[k, v]: h) {
 			self.req_.headers_.set(k, v);
 		}
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&bearer(
-		this Self &&self,
+	auto &&bearer(
+		this auto &&self,
 		std::string_view token) {
-		return std::forward<Self>(self).header("Authorization", std::format("Bearer {}", token));
+		return std::forward<decltype(self)>(self).header("Authorization", std::format("Bearer {}", token));
 	}
-	template<class Self>
-	Self &&basic(
-		this Self &&self,
+	auto &&basic(
+		this auto &&self,
 		std::string_view user,
 		std::string_view pass) {
 		auto const creds = std::format("{}:{}", user, pass);
 		auto const encoded = base64_encode(to_unsigned_span(creds));
-		return std::forward<Self>(self).header("Authorization", std::format("Basic {}", encoded));
+		return std::forward<decltype(self)>(self).header("Authorization", std::format("Basic {}", encoded));
 	}
-	template<class Self>
-	Self &&user_agent(
-		this Self &&self,
+	auto &&user_agent(
+		this auto &&self,
 		std::string_view ua) {
-		return std::forward<Self>(self).header("User-Agent", ua);
+		return std::forward<decltype(self)>(self).header("User-Agent", ua);
 	}
-	template<class Self>
-	Self &&accept(
-		this Self &&self,
+	auto &&accept(
+		this auto &&self,
 		std::string_view mime) {
-		return std::forward<Self>(self).header("Accept", mime);
+		return std::forward<decltype(self)>(self).header("Accept", mime);
 	}
-	template<class Self>
-	Self &&accept_json(
-		this Self &&self) {
-		return std::forward<Self>(self).accept("application/json");
+	auto &&accept_json(
+		this auto &&self) {
+		return std::forward<decltype(self)>(self).accept("application/json");
 	}
-	template<class Self>
-	Self &&content_type(
-		this Self &&self,
+	auto &&content_type(
+		this auto &&self,
 		std::string_view ct) {
-		return std::forward<Self>(self).header("Content-Type", ct);
+		return std::forward<decltype(self)>(self).header("Content-Type", ct);
 	}
-	template<class Self>
-	Self &&if_match(
-		this Self &&self,
+	auto &&if_match(
+		this auto &&self,
 		std::string_view etag) {
-		return std::forward<Self>(self).header("If-Match", etag);
+		return std::forward<decltype(self)>(self).header("If-Match", etag);
 	}
-	template<class Self>
-	Self &&if_none_match(
-		this Self &&self,
+	auto &&if_none_match(
+		this auto &&self,
 		std::string_view etag) {
-		return std::forward<Self>(self).header("If-None-Match", etag);
+		return std::forward<decltype(self)>(self).header("If-None-Match", etag);
 	}
-	template<class Self>
-	Self &&if_modified_since(
-		this Self &&self,
+	auto &&if_modified_since(
+		this auto &&self,
 		std::chrono::system_clock::time_point tp) {
-		return std::forward<Self>(self).header("If-Modified-Since", http_date(tp));
+		return std::forward<decltype(self)>(self).header("If-Modified-Since", http_date(tp));
 	}
-	template<class Self>
-	Self &&if_unmodified_since(
-		this Self &&self,
+	auto &&if_unmodified_since(
+		this auto &&self,
 		std::chrono::system_clock::time_point tp) {
-		return std::forward<Self>(self).header("If-Unmodified-Since", http_date(tp));
+		return std::forward<decltype(self)>(self).header("If-Unmodified-Since", http_date(tp));
 	}
 	// ── body ──────────────────────────────────────────────────────────────────
 	// Each body_* method asserts in debug that no prior body was set.
 	// Release builds: last-wins + header overwrite.
 
-	template<class Self>
-	Self &&body(
-		this Self &&self,
+	auto &&body(
+		this auto &&self,
 		std::string s) {
 		self.assert_single_body();
 		self.req_.body_ = std::move(s);
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&body_view(
-		this Self &&self,
+	auto &&body_view(
+		this auto &&self,
 		std::string_view sv) {
 		self.assert_single_body();
 		self.req_.body_ = std::string{sv};
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&body_json_raw(
-		this Self &&self,
+	auto &&body_json_raw(
+		this auto &&self,
 		std::string already_serialized) {
 		self.assert_single_body();
 		self.req_.body_ = std::move(already_serialized);
-		return std::forward<Self>(self).content_type("application/json");
+		return std::forward<decltype(self)>(self).content_type("application/json");
 	}
-	template<class Self>
-	Self &&body_form(
-		this Self &&self,
+	auto &&body_form(
+		this auto &&self,
 		HttpFields const &fields) {
 		self.assert_single_body();
 		std::size_t reserve_n = fields.empty() ? 0 : fields.size() - 1;
@@ -264,52 +243,46 @@ public:
 			append_url_form_encoded(encoded, v);
 		}
 		self.req_.body_ = std::move(encoded);
-		return std::forward<Self>(self).content_type("application/x-www-form-urlencoded");
+		return std::forward<decltype(self)>(self).content_type("application/x-www-form-urlencoded");
 	}
-	template<class Self>
-	Self &&clear_body(
-		this Self &&self) {
+	auto &&clear_body(
+		this auto &&self) {
 		self.req_.body_.clear();
 		self.body_set_ = false;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 	// ── execution policy ──────────────────────────────────────────────────────
 
-	template<class Self>
-	Self &&timeouts(
-		this Self &&self,
+	auto &&timeouts(
+		this auto &&self,
 		HttpTimeouts t) {
 		self.req_.timeouts_ = t;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&follow_redirects(
-		this Self &&self,
+	auto &&follow_redirects(
+		this auto &&self,
 		int max_redirects = 10) {
 		self.req_.max_redirects_ = max_redirects;
 		self.req_.follow_redirects_ = true;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&disable_redirects(
-		this Self &&self) {
+	auto &&disable_redirects(
+		this auto &&self) {
 		self.req_.max_redirects_ = 0;
 		self.req_.follow_redirects_ = false;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&verify_peer(
-		this Self &&self,
+	auto &&verify_peer(
+		this auto &&self,
 		bool v) {
 		self.req_.verify_peer_ = v;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	Self &&server_name(
-		this Self &&self,
+	auto &&server_name(
+		this auto &&self,
 		std::string_view sni) {
 		self.req_.server_name_ = std::string{sni};
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 };
 // ─── Static factory implementations ──────────────────────────────────────────
