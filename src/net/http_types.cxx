@@ -206,25 +206,13 @@ public:
 		this Self const &self) noexcept {
 		return self.data_.size();
 	}
-	template<typename Self>
 	[[nodiscard]] auto begin(
-		this Self &self) {
-		return self.data_.begin();
+		this auto &&self) {
+		return std::forward<decltype(self)>(self).data_.begin();
 	}
-	template<typename Self>
 	[[nodiscard]] auto end(
-		this Self &self) {
-		return self.data_.end();
-	}
-	template<typename Self>
-	[[nodiscard]] auto begin(
-		this Self const &self) {
-		return self.data_.begin();
-	}
-	template<typename Self>
-	[[nodiscard]] auto end(
-		this Self const &self) {
-		return self.data_.end();
+		this auto &&self) {
+		return std::forward<decltype(self)>(self).data_.end();
 	}
 };
 
