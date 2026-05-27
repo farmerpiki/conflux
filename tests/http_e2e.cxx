@@ -13,6 +13,7 @@
 	#include <openssl/ssl.h>
 #endif
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <zlib.h>
 

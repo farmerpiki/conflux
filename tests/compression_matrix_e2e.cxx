@@ -397,3 +397,41 @@ TEST_CASE(
 		CHECK(body_of(resp) == identity);
 	}
 }
+
+TEST_CASE(
+	"compression matrix: static PUT invalidates cached precompressed sidecars",
+	"[compression][http][e2e][static]") {
+	TempDir dir{"/tmp/conflux_static_sidecar_cache_XXXXXX"};
+	std::string const old_identity = "old-body";
+	std::string const new_identity = "new-body";
+	auto old_gzip = gzip_compress(old_identity);
+	auto new_gzip = gzip_compress(new_identity);
+	REQUIRE(!old_gzip.empty());
+	REQUIRE(!new_gzip.empty());
+	dir.write("asset.txt", old_identity);
+	dir.write("asset.txt.gz", old_gzip);
+
+	Config cfg = mw_config();
+	Router router;
+	StaticOptions sopts{};
+	sopts.allow_put = true;
+	sopts.file_cache.enabled = true;
+	sopts.file_cache.small_file_max_bytes = 1024 * 1024;
+	sopts.file_cache.max_total_bytes = 1024 * 1024;
+	router.serve_static("/static", dir.path(), sopts);
+	ScopedTestServer const server{cfg, std::move(router)};
+
+	auto first = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: gzip\r\n");
+	REQUIRE(first.starts_with("HTTP/1.1 200 OK"));
+	CHECK(header_value(first, "Content-Encoding: ") == "gzip");
+	CHECK(gzip_decompress(body_of(first)) == old_identity);
+
+	dir.write("asset.txt.gz", new_gzip);
+	auto put = http_request_on(server.port(), "PUT", "/static/asset.txt", "text/plain", new_identity);
+	REQUIRE(put.starts_with("HTTP/1.1 204 No Content"));
+
+	auto second = http_get_on(server.port(), "/static/asset.txt", "Accept-Encoding: gzip\r\n");
+	REQUIRE(second.starts_with("HTTP/1.1 200 OK"));
+	CHECK(header_value(second, "Content-Encoding: ") == "gzip");
+	CHECK(gzip_decompress(body_of(second)) == new_identity);
+}

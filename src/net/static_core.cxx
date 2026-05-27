@@ -176,6 +176,12 @@ export struct StaticCacheStore {
 		evict(path, "br");
 		evict(path, "gzip");
 	}
+	void evict_path_and_sidecars(
+		std::string const &path) {
+		evict_all_encodings(path);
+		evict_all_encodings(path + ".br");
+		evict_all_encodings(path + ".gz");
+	}
 };
 
 export [[nodiscard]] std::optional<std::string> normalize_static_path(

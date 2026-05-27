@@ -269,7 +269,7 @@ Response handle_static_put(
 					dr->complete(Response::internal_error());
 					return;
 				}
-				static_cache.evict_all_encodings(full_path);
+				static_cache.evict_path_and_sidecars(full_path);
 				Response resp;
 				resp.status = existed ? kHttpNoContent : kHttpCreated;
 				resp.status_text = existed ? "No Content" : "Created";
@@ -284,7 +284,7 @@ Response handle_static_put(
 		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
 			return Response::internal_error();
 		}
-		static_cache.evict_all_encodings(full_path);
+		static_cache.evict_path_and_sidecars(full_path);
 		Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
@@ -335,7 +335,7 @@ Response handle_static_delete(
 							dr->complete(err == ENOENT ? Response::not_found(full_path) : Response::internal_error());
 							return;
 						}
-						static_cache.evict_all_encodings(full_path);
+						static_cache.evict_path_and_sidecars(full_path);
 						dr->complete(Response::no_content());
 					} catch (...) { dr->complete(Response::internal_error()); }
 				});
@@ -350,7 +350,7 @@ Response handle_static_delete(
 			auto const err = errnum(unlinked);
 			return err == ENOENT ? Response::not_found(*norm) : Response::internal_error();
 		}
-		static_cache.evict_all_encodings(full_path);
+		static_cache.evict_path_and_sidecars(full_path);
 		return Response::no_content();
 	} catch (...) { return Response::internal_error(); }
 }
@@ -386,7 +386,9 @@ Response handle_static_get(
 			auto index_rel = rel_str.empty() ? std::string{"index.html"} : rel_str + "/index.html";
 			UniqueFd idx_fd{contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
 			if (idx_fd) {
-				::fstat(idx_fd.fd(), &st);
+				if (::fstat(idx_fd.fd(), &st) != 0 || !S_ISREG(st.st_mode)) {
+					return Response::not_found(file_param);
+				}
 				idx_fd.reset();
 				full_path = rd + "/" + index_rel;
 				file_param += "/index.html";
@@ -448,7 +450,7 @@ Response handle_static_get(
 				UniqueFd br_fd{contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC)};
 				if (br_fd) {
 					struct ::stat br_st{};
-					if (::fstat(br_fd.fd(), &br_st) == 0) {
+					if (::fstat(br_fd.fd(), &br_st) == 0 && S_ISREG(br_st.st_mode)) {
 						full_path = rd + "/" + br_rel;
 						st = br_st;
 						content_encoding = "br";
@@ -461,7 +463,7 @@ Response handle_static_get(
 				UniqueFd gz_fd{contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC)};
 				if (gz_fd) {
 					struct ::stat gz_st{};
-					if (::fstat(gz_fd.fd(), &gz_st) == 0) {
+					if (::fstat(gz_fd.fd(), &gz_st) == 0 && S_ISREG(gz_st.st_mode)) {
 						full_path = rd + "/" + gz_rel;
 						st = gz_st;
 						content_encoding = "gzip";
@@ -469,6 +471,9 @@ Response handle_static_get(
 					}
 				}
 			}
+		}
+		if (!S_ISREG(st.st_mode)) {
+			return static_forbidden();
 		}
 
 		// Build ETag from size + mtime.
@@ -831,7 +836,7 @@ conflux::work::root::Task<void> do_save_static_file(
 	std::string rel_path) {
 	try {
 		co_await fr->async_atomic_write(dir_fd, std::move(rel_path), std::as_bytes(std::span{*body_owned}));
-		static_cache.evict_all_encodings(*fp);
+		static_cache.evict_path_and_sidecars(*fp);
 		Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
@@ -845,7 +850,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 	conflux::work::root::Task<void> unlink_task) {
 	try {
 		co_await std::move(unlink_task);
-		static_cache.evict_all_encodings(*fp);
+		static_cache.evict_path_and_sidecars(*fp);
 		dr->complete(Response::no_content());
 	} catch (FileIoError const &e) {
 		dr->complete(e.code().value() == ENOENT ? Response::not_found(*fp) : Response::internal_error());

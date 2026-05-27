@@ -3,6 +3,7 @@ module;
 #include <fcntl.h>
 #include <linux/openat2.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -47,6 +48,11 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	if (!st) {
 		return std::unexpected{
 			FileMapError{st.error().code().value(), "file_map: fstat"}
+        };
+	}
+	if (!S_ISREG(st->mode)) {
+		return std::unexpected{
+			FileMapError{EISDIR, "file_map: not a regular file"}
         };
 	}
 	if (st->size > max_bytes) {

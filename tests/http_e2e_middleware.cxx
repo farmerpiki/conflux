@@ -761,6 +761,34 @@ TEST_CASE(
 	::rmdir(tmpdir);
 }
 TEST_CASE(
+	"static file serving: non-regular file is rejected") {
+	char tmpdir[] = "/tmp/conflux_static_fifo_XXXXXX";
+	REQUIRE(::mkdtemp(tmpdir) != nullptr);
+
+	auto fifo_path = std::string{tmpdir} + "/pipe.txt";
+	REQUIRE(::mkfifo(fifo_path.c_str(), 0600) == 0);
+
+	Config cfg{};
+	cfg.port = 0;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.single_issuer = true;
+	cfg.defer_taskrun = true;
+	cfg.coop_taskrun = true;
+	cfg.taskrun_flag = true;
+
+	Router router;
+	router.serve_static("/static", std::string{tmpdir});
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	auto resp = conflux::tests::http_get_on(srv.port(), "/static/pipe.txt");
+	REQUIRE(resp.starts_with("HTTP/1.1 403 Forbidden"));
+
+	srv.stop();
+	::unlink(fifo_path.c_str());
+	::rmdir(tmpdir);
+}
+TEST_CASE(
 	"static file serving: trailing slash root_dir works for put and delete") {
 	char tmpdir[] = "/tmp/conflux_static_slash_rw_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
