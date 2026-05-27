@@ -73,10 +73,6 @@ questions:
 - Streaming response consumption is still client-side incomplete for progressive
   rendering and client-side SSE. `ClientResponse::body` remains fully assembled;
   a callback, iterator, or body-chunk API would be the real missing surface.
-- `HttpClientOptions::max_buffered_bytes` is source-active for chunked response
-  decode buffering, but the client API doc still marks it as Phase 2/unused.
-  Fix the doc wording so it distinguishes transient dechunk buffering from a
-  public streaming/backpressure API.
 - Timeout controls exist for core phases, but poll/read/write timeouts still map
   mostly through read/write errors with `os_errno == 0`. A distinct timeout
   classification remains useful.
