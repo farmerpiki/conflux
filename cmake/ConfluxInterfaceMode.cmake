@@ -434,6 +434,8 @@ function(conflux_define_header_impl_targets)
         conflux_define_header_impl_component(conflux_header_impl_json header_impl_json
             "^conflux\.json($|[.:])")
         if(TARGET conflux_header_impl_json)
+            target_sources(conflux_header_impl_json PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/json_libc.cxx")
             conflux_link_header_impl_hash_provider(conflux_header_impl_json)
         endif()
     endif()

@@ -262,6 +262,7 @@ conflux_add_module_library(conflux_json
 target_compile_features(conflux_json PUBLIC cxx_std_23)
 target_sources(conflux_json
     PRIVATE
+        ${CONFLUX_SRC_ROOT}/json_libc.cxx
         ${CONFLUX_SRC_ROOT}/json_storage.cxx
         ${CONFLUX_SRC_ROOT}/json_number.cxx
         ${CONFLUX_SRC_ROOT}/json_reader.cxx

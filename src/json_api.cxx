@@ -1,21 +1,6 @@
 module;
 #include <cassert>
 #include <cstdint>
-#if defined(CONFLUX_INTERFACE_HEADER)
-	#include <locale.h>
-	#include <stdlib.h>
-	#include <sys/random.h>
-#else
-// stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
-// std module BMI under GCC -freflection; forward-declare what we need instead
-extern "C" {
-struct __locale_struct;
-using locale_t = __locale_struct *;
-locale_t newlocale(int, char const *, locale_t) noexcept;
-double strtod_l(char const *, char **, locale_t) noexcept;
-long getrandom(void *, unsigned long, unsigned int);
-}
-#endif
 #if defined(CONFLUX_JSON_HASH_PROVIDER_XXHASH)
 	#include <xxhash.h>
 #endif
@@ -29,6 +14,10 @@ import std;
 import std.compat;
 import conflux.types;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+
+extern "C" void *conflux_json_new_c_locale() noexcept;
+extern "C" double conflux_json_strtod_c_locale(char const *text, char **end, void *locale) noexcept;
+extern "C" std::ptrdiff_t conflux_json_getrandom(void *buffer, std::size_t length, unsigned int flags) noexcept;
 
 // ---------------------------------------------------------------------------
 // Forward declarations (exported types)
@@ -681,7 +670,7 @@ namespace detail {
 }
 [[nodiscard]] inline std::uint64_t make_hash_seed() noexcept {
 	std::uint64_t seed{};
-	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<long>(sizeof(seed))) {
+	if (conflux_json_getrandom(&seed, sizeof(seed), 0) != static_cast<std::ptrdiff_t>(sizeof(seed))) {
 		seed = reinterpret_cast<uintptr_t>(&seed) ^ UINT64_C(0x517cc1b727220a95);
 	}
 	return seed;
@@ -746,16 +735,14 @@ constexpr std::size_t kDefaultMaxInput = 128ULL * 1024 * 1024;
 constexpr std::size_t kDefaultMaxString = 64ULL * 1024 * 1024;
 namespace detail {
 
-constexpr int kLcAllMask = 8127;
-
 struct CLocaleHolder {
-	::locale_t loc;
+	void *loc;
 	bool ok;
 };
 [[nodiscard]] inline CLocaleHolder const &c_locale_holder() noexcept {
 	// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 	static CLocaleHolder const h = [] {
-		::locale_t l = ::newlocale(kLcAllMask, "C", nullptr);
+		void *l = conflux_json_new_c_locale();
 		return CLocaleHolder{l, l != nullptr};
 	}();
 	// Intentional: process-lifetime singleton, never freelocale'd.
@@ -821,7 +808,7 @@ struct ClassifiedDouble {
 		cp[n] = '\0';
 		char *end = nullptr; // NOLINT(misc-const-correctness)
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		double const v = ::strtod_l(cp, &end, lh.loc);
+		double const v = conflux_json_strtod_c_locale(cp, &end, lh.loc);
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (end != cp + n) {
 			return std::unexpected(
