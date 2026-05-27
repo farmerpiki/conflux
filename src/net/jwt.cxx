@@ -71,36 +71,24 @@ std::expected<Document, std::string> parse_jwt_json(
 	}
 	return std::expected<Document, std::string>{std::in_place, std::move(*parsed)};
 }
-std::string_view json_string(
+std::string jwt_string_claim(
 	ObjectView const &obj,
 	std::string_view key) {
-	auto value = obj.find_member(key);
-	if (!value) {
+	auto value = optional_string(obj, key);
+	if (!value || !*value) {
 		return {};
 	}
-	auto str = value->as_string();
-	if (!str) {
-		return {};
-	}
-	return *str;
+	return std::move(**value);
 }
-std::optional<std::int64_t> json_int(
+std::expected<std::optional<std::int64_t>, std::string> jwt_numeric_date_claim(
 	ObjectView const &obj,
-	std::string_view key) {
-	auto value = obj.find_member(key);
-	if (!value) {
-		return std::nullopt;
+	std::string_view key,
+	std::string_view error) {
+	auto value = obj.optional<std::int64_t>(key);
+	if (!value || (*value && **value < 0)) {
+		return std::unexpected{std::string{error}};
 	}
-	auto number = value->as_i64();
-	if (!number) {
-		return std::nullopt;
-	}
-	return *number;
-}
-bool json_has_member(
-	ObjectView const &obj,
-	std::string_view key) {
-	return obj.find_member(key).has_value();
+	return *value;
 }
 bool json_array_contains_string(
 	ObjectView const &obj,
@@ -246,7 +234,7 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 		return std::unexpected{header_doc.error()};
 	}
 	auto header_obj = header_doc->root().as_object();
-	if (json_string(*header_obj, "alg") != "HS256") {
+	if (jwt_string_claim(*header_obj, "alg") != "HS256") {
 		return std::unexpected{"unsupported algorithm (only HS256 supported)"};
 	}
 
@@ -276,24 +264,24 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	// Extract standard claims.
 	JwtClaims claims{};
 	claims.raw = payload;
-	claims.sub = std::string{json_string(*payload_obj, "sub")};
-	claims.iss = std::string{json_string(*payload_obj, "iss")};
-	claims.jti = std::string{json_string(*payload_obj, "jti")};
-	auto exp = json_int(*payload_obj, "exp");
-	auto nbf = json_int(*payload_obj, "nbf");
-	auto iat = json_int(*payload_obj, "iat");
-	if (json_has_member(*payload_obj, "exp") && (!exp || *exp < 0)) {
-		return std::unexpected{"invalid exp claim"};
+	claims.sub = jwt_string_claim(*payload_obj, "sub");
+	claims.iss = jwt_string_claim(*payload_obj, "iss");
+	claims.jti = jwt_string_claim(*payload_obj, "jti");
+	auto exp = jwt_numeric_date_claim(*payload_obj, "exp", "invalid exp claim");
+	if (!exp) {
+		return std::unexpected{exp.error()};
 	}
-	if (json_has_member(*payload_obj, "nbf") && (!nbf || *nbf < 0)) {
-		return std::unexpected{"invalid nbf claim"};
+	auto nbf = jwt_numeric_date_claim(*payload_obj, "nbf", "invalid nbf claim");
+	if (!nbf) {
+		return std::unexpected{nbf.error()};
 	}
-	if (json_has_member(*payload_obj, "iat") && (!iat || *iat < 0)) {
-		return std::unexpected{"invalid iat claim"};
+	auto iat = jwt_numeric_date_claim(*payload_obj, "iat", "invalid iat claim");
+	if (!iat) {
+		return std::unexpected{iat.error()};
 	}
-	claims.exp = exp.value_or(0);
-	claims.nbf = nbf.value_or(0);
-	claims.iat = iat.value_or(0);
+	claims.exp = exp->value_or(0);
+	claims.nbf = nbf->value_or(0);
+	claims.iat = iat->value_or(0);
 
 	// Validate claims.
 	auto const now =
@@ -338,7 +326,7 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 		return std::unexpected{std::format("issuer mismatch: got '{}', want '{}'", claims.iss, opts.issuer)};
 	}
 	if (!opts.audience.empty()) {
-		auto aud_str = json_string(*payload_obj, "aud");
+		auto aud_str = jwt_string_claim(*payload_obj, "aud");
 		bool aud_match = aud_str == opts.audience;
 		if (!aud_match) {
 			aud_match = json_array_contains_string(*payload_obj, "aud", opts.audience);
