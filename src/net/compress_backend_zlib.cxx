@@ -14,6 +14,7 @@ struct ZlibTraits {
 
 	static constexpr int ok() noexcept { return Z_OK; }
 	static constexpr int stream_end() noexcept { return Z_STREAM_END; }
+	static constexpr std::size_t max_avail() noexcept { return std::numeric_limits<uInt>::max(); }
 
 	static int init(
 		Stream &stream) {
@@ -24,7 +25,7 @@ struct ZlibTraits {
 		Stream &stream,
 		std::string_view input) {
 		stream.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(input.data()));
-		stream.avail_in = static_cast<uInt>(input.size());
+		stream.avail_in = backend_size<uInt>(input.size());
 	}
 
 	static std::size_t bound(
@@ -37,7 +38,7 @@ struct ZlibTraits {
 		Stream &stream,
 		std::string &out) {
 		stream.next_out = reinterpret_cast<Bytef *>(out.data());
-		stream.avail_out = static_cast<uInt>(out.size());
+		stream.avail_out = backend_size<uInt>(out.size());
 	}
 
 	static int deflate(

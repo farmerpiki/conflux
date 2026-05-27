@@ -331,6 +331,19 @@ TEST_CASE(
 	REQUIRE(first_http_status_code(body) == "200");
 	REQUIRE(body.find(R"({"ok":true})") != std::string::npos);
 }
+
+#if CONFLUX_HAS_HTTP3
+TEST_CASE(
+	"tls/alpn: TCP TLS does not negotiate h3") {
+	conflux::http::Config cfg = conflux::http::Config::test();
+	cfg.http3.enabled = true;
+	conflux::tests::HttpsServerFixture const fx{cfg, conflux::tests::make_external_test_router()};
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		std::format("openssl s_client -connect 127.0.0.1:{} -alpn h3 </dev/null 2>&1", fx.port()));
+	INFO("openssl exit=" << code << " output=" << body);
+	REQUIRE(body.find("ALPN protocol: h3") == std::string::npos);
+}
+#endif
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {
 	Router r;

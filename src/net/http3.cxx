@@ -50,7 +50,7 @@ export void http3_configure_alpn(
 		   unsigned char const *in,
 		   unsigned int inlen,
 		   void * /*arg*/) -> int {
-			static constexpr unsigned char kServerProtos[] = "\x02h3\x02h2\x08http/1.1";
+			static constexpr unsigned char kServerProtos[] = "\x02h3";
 			if (SSL_select_next_proto(
 					const_cast<unsigned char **>(out),
 					outlen,

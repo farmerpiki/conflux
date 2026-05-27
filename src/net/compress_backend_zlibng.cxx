@@ -14,6 +14,7 @@ struct ZlibNgTraits {
 
 	static constexpr int ok() noexcept { return Z_OK; }
 	static constexpr int stream_end() noexcept { return Z_STREAM_END; }
+	static constexpr std::size_t max_avail() noexcept { return std::numeric_limits<std::uint32_t>::max(); }
 
 	static int init(
 		Stream &stream) {
@@ -24,7 +25,7 @@ struct ZlibNgTraits {
 		Stream &stream,
 		std::string_view input) {
 		stream.next_in = reinterpret_cast<std::uint8_t const *>(input.data());
-		stream.avail_in = static_cast<std::uint32_t>(input.size());
+		stream.avail_in = backend_size<std::uint32_t>(input.size());
 	}
 
 	static std::size_t bound(
@@ -37,7 +38,7 @@ struct ZlibNgTraits {
 		Stream &stream,
 		std::string &out) {
 		stream.next_out = reinterpret_cast<std::uint8_t *>(out.data());
-		stream.avail_out = static_cast<std::uint32_t>(out.size());
+		stream.avail_out = backend_size<std::uint32_t>(out.size());
 	}
 
 	static int deflate(

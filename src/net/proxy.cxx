@@ -9,7 +9,6 @@ import conflux.socket_io;
 
 namespace wroot = conflux::work::root;
 
-// async DNS not yet ring-safe; upstream_host must be a numeric IP or opts.work_pool must be set.
 export struct ProxyOptions {
 	std::string upstream_host;
 	std::uint16_t upstream_port{80};

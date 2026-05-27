@@ -16,11 +16,19 @@ using http::HttpTimeouts;
 
 namespace proxy_detail {
 
+[[nodiscard]] static bool path_prefix_matches_segment(
+	std::string_view path,
+	std::string_view prefix) noexcept {
+	return !prefix.empty()
+		&& prefix != "/"
+		&& (path == prefix || (path.starts_with(prefix) && path[prefix.size()] == '/'));
+}
+
 [[nodiscard]] static std::string build_upstream_url(
 	std::string_view path,
 	ProxyOptions const &opts) {
 	std::string up_path{path};
-	if (!opts.path_prefix.empty() && up_path.starts_with(opts.path_prefix)) {
+	if (path_prefix_matches_segment(up_path, opts.path_prefix)) {
 		up_path.erase(0, opts.path_prefix.size());
 	}
 	if (up_path.empty()) {
@@ -46,7 +54,7 @@ namespace proxy_detail {
 	RequestView const &req,
 	ProxyOptions const &opts) {
 	for (auto const &[name, value]: req.headers) {
-		if (name == "host") {
+		if (conflux::http::ascii_iequals(name, "host")) {
 			continue;
 		}
 		if (conflux::http::is_hop_by_hop_header(name)) {

@@ -343,6 +343,7 @@ Import that module and call `decode_chunked(...)` or `decode_chunked_incremental
 Anything that depends on Phase 2:
 - **No connection pool** — each call opens & closes a socket. `pool_wait` / `reused_connection` are wired but never set.
 - **No keep-alive** — request always emits `Connection: close`.
+  Future pooling belongs in the client transport, keyed by scheme, host, port, TLS configuration, and proxy configuration. It must define keep-alive eligibility, maximum idle connections, deadline/cancellation behavior, HTTP/1.1 reuse safety, and an HTTP/2 multiplexing path before proxy code can benefit from it.
 - **No HTTP/2 or HTTP/3** — server-side modules exist but the client speaks HTTP/1.1 only. `negotiated_protocol` is hard-coded to `"https/1.1"` for TLS responses.
 - **No content-coding decode** — `gzip`/`br`/`zstd` bodies arrive un-inflated. Caller must decode (the `conflux.net.compress` module is server-side).
 - **No request streaming / chunked send** — body is buffered in full; no `Transfer-Encoding` on the wire.

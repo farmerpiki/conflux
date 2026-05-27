@@ -14,6 +14,15 @@
 import std;
 import conflux.types;
 import conflux.net.compress;
+#if CONFLUX_HAS_ISAL
+import conflux.net.compress.backend.isal;
+#endif
+#if CONFLUX_HAS_ZLIB
+import conflux.net.compress.backend.zlib;
+#endif
+#if CONFLUX_HAS_ZLIB_NG
+import conflux.net.compress.backend.zlibng;
+#endif
 import conflux.net.config;
 import conflux.net.http.realtime;
 import conflux.net.http.static_files;
@@ -231,6 +240,23 @@ struct CompressionStateGuard {
 };
 
 } // namespace
+
+TEST_CASE(
+	"compression matrix: 32-bit gzip backends reject oversize input",
+	"[compression]") {
+	[[maybe_unused]] std::string_view const oversize{
+		nullptr,
+		static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) + 1U};
+#if CONFLUX_HAS_ZLIB
+	CHECK(conflux::compress_backends::zlib_gzip_compress(oversize).empty());
+#endif
+#if CONFLUX_HAS_ZLIB_NG
+	CHECK(conflux::compress_backends::zlib_ng_gzip_compress(oversize).empty());
+#endif
+#if CONFLUX_HAS_ISAL
+	CHECK(conflux::compress_backends::isal_gzip_compress(oversize).empty());
+#endif
+}
 
 TEST_CASE(
 	"compression matrix: every configured gzip backend can serve dynamic gzip",

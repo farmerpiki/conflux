@@ -483,6 +483,90 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "localhost:9999");
 }
+
+TEST_CASE(
+	"proxy: preserve_host=false ignores mixed-case Host headers") {
+	static std::shared_ptr<ScopedTestServer> s_upstream;
+	static std::shared_ptr<ScopedTestServer> s_front;
+	static std::once_flag flag;
+	std::call_once(flag, [] {
+		auto cfg = mw_config();
+		Router upstream;
+		upstream.get("/echo", [](Request const &req) { return Response::text(std::string{req.headers["host"]}); });
+		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
+		Router front;
+		auto popts = ProxyOptions{
+			.upstream_host = "127.0.0.1",
+			.upstream_port = s_upstream->port(),
+		};
+		front.add_context(
+			"GET",
+			"/echo",
+			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
+				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
+		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
+	});
+	LocalTcpClient client1{s_front->port()};
+	(void)client1.send("GET /echo HTTP/1.1\r\nHOST: client.example\r\nConnection: close\r\n\r\n");
+	auto resp = client1.read_one_response();
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == std::format("127.0.0.1:{}", s_upstream->port()));
+	LocalTcpClient client2{s_front->port()};
+	(void)client2.send("GET /echo HTTP/1.1\r\nHoSt: client.example\r\nConnection: close\r\n\r\n");
+	resp = client2.read_one_response();
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == std::format("127.0.0.1:{}", s_upstream->port()));
+}
+
+TEST_CASE(
+	"proxy: path_prefix strips only complete path segments") {
+	static std::shared_ptr<ScopedTestServer> s_upstream;
+	static std::shared_ptr<ScopedTestServer> s_front;
+	static std::once_flag flag;
+	std::call_once(flag, [] {
+		auto cfg = mw_config();
+		Router upstream;
+		upstream.get("/", [](Request const &) { return Response::text("/"); });
+		upstream.get("/users", [](Request const &) { return Response::text("/users"); });
+		upstream.get("/api_v2/users", [](Request const &) { return Response::text("/api_v2/users"); });
+		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
+		Router front;
+		auto popts = ProxyOptions{
+			.upstream_host = "127.0.0.1",
+			.upstream_port = s_upstream->port(),
+			.path_prefix = "/api",
+		};
+		front.add_context(
+			"GET",
+			"/api",
+			[popts](RequestView const &req, chttp::RequestContext const &ctx) -> conflux::work::root::Task<Response> {
+				co_return co_await async_proxy(req, popts, ctx.ring);
+			});
+		front.add_context(
+			"GET",
+			"/api/users",
+			[popts](RequestView const &req, chttp::RequestContext const &ctx) -> conflux::work::root::Task<Response> {
+				co_return co_await async_proxy(req, popts, ctx.ring);
+			});
+		front.add_context(
+			"GET",
+			"/api_v2/users",
+			[popts](RequestView const &req, chttp::RequestContext const &ctx) -> conflux::work::root::Task<Response> {
+				co_return co_await async_proxy(req, popts, ctx.ring);
+			});
+		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
+	});
+	auto resp = http_get_on(s_front->port(), "/api");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "/");
+	resp = http_get_on(s_front->port(), "/api/users");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "/users");
+	resp = http_get_on(s_front->port(), "/api_v2/users");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "/api_v2/users");
+}
+
 TEST_CASE(
 	"proxy: appends to existing X-Forwarded-For header") {
 	static std::shared_ptr<ScopedTestServer> s_upstream;

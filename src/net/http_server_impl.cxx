@@ -158,6 +158,7 @@ struct HttpServer::Impl {
 	std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
 #endif
 #if CONFLUX_HAS_HTTP3
+	std::optional<TlsServerContext> http3_tls_ctx;
 	std::mutex http3_mu;
 	std::unique_ptr<Http3Listener> http3_listener;
 #endif
@@ -182,17 +183,14 @@ void HttpServer::initialize(
 		};
 		impl_->tls_ctx.emplace(primary_opts);
 		SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
+	#if CONFLUX_HAS_HTTP2
+		http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+	#endif
 	#if CONFLUX_HAS_HTTP3
 		if (cfg.http3.enabled) {
-			http3_configure_alpn(ctx); // prefer h3, then h2, then http/1.1
+			impl_->http3_tls_ctx.emplace(primary_opts);
+			http3_configure_alpn(impl_->http3_tls_ctx->native_handle());
 		}
-		#if CONFLUX_HAS_HTTP2
-		else {
-			http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
-		}
-		#endif
-	#elif CONFLUX_HAS_HTTP2
-		http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 	#endif
 
 		// Load per-hostname SSL_CTX for SNI virtual hosts.
@@ -415,7 +413,7 @@ void HttpServer::shutdown() {
 						impl_->wq_ring_fd_.notify_all();
 					}
 #if CONFLUX_HAS_HTTP3
-					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->tls_ctx)
+					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->http3_tls_ctx)
 						r.alt_svc_header = http3_alt_svc_value(r.bound_port, impl_->cfg.http3.alt_svc_max_age_sec);
 #endif
 
@@ -483,13 +481,13 @@ void HttpServer::shutdown() {
 		}
 
 #if CONFLUX_HAS_HTTP3
-		if (impl_->cfg.http3.enabled && impl_->tls_ctx && !impl_->use_vhost) {
+		if (impl_->cfg.http3.enabled && impl_->http3_tls_ctx && !impl_->use_vhost) {
 			std::uint16_t const h3_port = port();
 			auto listener = std::make_unique<Http3Listener>(
 				impl_->use_vhost ? nullptr : &impl_->router,
 				impl_->cfg.http3,
 				h3_port,
-				impl_->tls_ctx->native_handle());
+				impl_->http3_tls_ctx->native_handle());
 			listener->start();
 			{
 				std::scoped_lock const lk{impl_->http3_mu};
