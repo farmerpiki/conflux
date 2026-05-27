@@ -730,7 +730,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-file-free
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "declaration of 'file' must be imported from module 'conflux.net.config'")
+        EXPECT "no member named 'file' in namespace 'conflux::http'")
 endif()
 
 if(TARGET conflux_http_response)

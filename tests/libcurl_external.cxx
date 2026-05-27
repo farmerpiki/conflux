@@ -765,7 +765,7 @@ TEST_CASE(
 		return;
 	}
 	#endif
-	auto cfg = Config::test();
+	auto cfg = conflux::http::Config::test();
 	cfg.direct_accept = false;
 	conflux::tests::HttpsServerFixture const fx{cfg, std::move(router)};
 	CurlEasy curl;
@@ -794,7 +794,7 @@ TEST_CASE(
 		return;
 	}
 
-	auto cfg = Config::test();
+	auto cfg = conflux::http::Config::test();
 	cfg.direct_accept = false;
 	conflux::tests::HttpsServerFixture const fx{cfg, make_stress_router()};
 	CurlMulti multi;

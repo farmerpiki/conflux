@@ -13,6 +13,34 @@ import conflux.net.http.types;
 
 export namespace conflux::http {
 
+class RequestRingRef {
+	void *ptr_{};
+
+public:
+	RequestRingRef() noexcept = default;
+	template<class Ring>
+	explicit RequestRingRef(
+		Ring &ring) noexcept
+		: ptr_{std::addressof(ring)} {}
+	template<class Ring>
+	[[nodiscard]] Ring &as() const noexcept {
+		return *static_cast<Ring *>(ptr_);
+	}
+	template<class Ring>
+	[[nodiscard]] operator Ring &() const noexcept {
+		return as<Ring>();
+	}
+	[[nodiscard]] explicit operator bool() const noexcept { return ptr_ != nullptr; }
+};
+
+struct RequestContext {
+	RequestRingRef ring;
+};
+
+} // namespace conflux::http
+
+export namespace conflux::http {
+
 // NOLINTNEXTLINE(performance-enum-size)
 enum class RunStatus : std::uint8_t {
 	stopped_normally,

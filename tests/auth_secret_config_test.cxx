@@ -8,6 +8,9 @@ import conflux.net.password_hash;
 import conflux.net.jwt;
 import conflux.net.cookie_signing;
 
+using conflux::http::Config;
+using conflux::http::config_from_ini;
+
 namespace {
 
 class TempIni {

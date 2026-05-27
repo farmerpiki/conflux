@@ -14,6 +14,7 @@ import conflux.tests.support;
 
 using namespace conflux::tests;
 namespace chttp = conflux::http;
+using conflux::http::Config;
 
 namespace {
 

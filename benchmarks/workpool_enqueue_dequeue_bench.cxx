@@ -109,7 +109,7 @@ void print_workpool_stats(
 			std::println(
 				"  queue: enqueue={} admission_contention={} local_contention={} steal_contention={} "
 				"local_push={} inject_push={} jobs={} steal_hits={} futex_waits={} wake_futex={} "
-				"slabs={} slab_reuse={} slab_release={} token_discards={} remote_free={}/{}",
+				"token_discards={} token_take_failures={}",
 				s.queue.enqueue_attempts,
 				s.queue.admission_lock_contentions,
 				s.queue.local_lock_contentions,
@@ -120,12 +120,8 @@ void print_workpool_stats(
 				s.queue.steal_hits,
 				s.queue.futex_waits,
 				s.queue.wake_one_futex_wakes + s.queue.wake_all_futex_wakes,
-				s.queue.job_slab_allocations,
-				s.queue.job_slab_id_reuses,
-				s.queue.job_slab_releases,
 				s.queue.queue_full_token_discards,
-				s.queue.remote_free_pushes,
-				s.queue.remote_free_fallbacks);
+				s.queue.token_take_failures);
 		}
 		if (s.fairness.child_jobs != 0) {
 			std::println(
@@ -157,10 +153,7 @@ void print_workpool_stats(
 		"\"steal_hits\":{},\"jobs_run\":{},\"wake_one_calls\":{},"
 		"\"wake_one_futex_wakes\":{},\"wake_one_elided_no_parked\":{},\"wake_all_calls\":{},"
 		"\"wake_all_futex_wakes\":{},\"park_attempts\":{},\"park_recheck_skips\":{},"
-		"\"futex_waits\":{},\"job_slot_allocations\":{},\"job_slab_allocations\":{},"
-		"\"job_slab_id_reuses\":{},\"job_slab_releases\":{},\"job_allocation_failures\":{},"
-		"\"queue_full_token_discards\":{},\"remote_free_pushes\":{},\"remote_free_fallbacks\":{},"
-		"\"remote_free_drained\":{},\"token_take_failures\":{}}}}}",
+		"\"futex_waits\":{},\"queue_full_token_discards\":{},\"token_take_failures\":{}}}}}",
 		s.timing.config,
 		s.timing.variant,
 		s.timing.iterations,
@@ -202,15 +195,7 @@ void print_workpool_stats(
 		s.queue.park_attempts,
 		s.queue.park_recheck_skips,
 		s.queue.futex_waits,
-		s.queue.job_slot_allocations,
-		s.queue.job_slab_allocations,
-		s.queue.job_slab_id_reuses,
-		s.queue.job_slab_releases,
-		s.queue.job_allocation_failures,
 		s.queue.queue_full_token_discards,
-		s.queue.remote_free_pushes,
-		s.queue.remote_free_fallbacks,
-		s.queue.remote_free_drained,
 		s.queue.token_take_failures);
 }
 

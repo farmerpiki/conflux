@@ -16,6 +16,12 @@ import conflux.work;
 import bench_common;
 
 using namespace std::literals;
+using conflux::http::Config;
+using conflux::http::HttpServerMetrics;
+using conflux::http::SseChannel;
+using conflux::http::SseOverflowPolicy;
+using conflux::http::SsePressureMetrics;
+using conflux::http::WsConn;
 
 namespace {
 

@@ -6,6 +6,8 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.jwt;
 import conflux.net.config;
+
+using conflux::http::single_secret_rotation;
 // ---------------------------------------------------------------------------
 // jwt_sign (2-arg: default header)
 // ---------------------------------------------------------------------------

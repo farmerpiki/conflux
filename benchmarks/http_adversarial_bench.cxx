@@ -14,6 +14,8 @@ import conflux.net.http.server_types;
 import bench_common;
 
 using namespace std::string_view_literals;
+using conflux::http::HttpRejectReason;
+using conflux::http::ParserLimits;
 
 namespace {
 

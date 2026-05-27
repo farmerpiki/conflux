@@ -44,7 +44,7 @@ int main() {
 	});
 	hosts.set_default(std::move(fallback));
 
-	Config cfg = Config::low_latency();
+	conflux::http::Config cfg = conflux::http::Config::low_latency();
 	cfg.port = 9101;
 	std::println("virtual-host server listening on http://localhost:9101/");
 	HttpServer srv{cfg, std::move(hosts)};

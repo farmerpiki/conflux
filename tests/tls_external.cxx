@@ -190,7 +190,7 @@ TEST_CASE(
 		out << body;
 	}
 
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 	Router router;
@@ -297,7 +297,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"tls/bad-client: sniff timeout closes idle pre-handshake connection") {
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.tls_sniff_timeout_ms = 50;
 	conflux::tests::HttpsServerFixture const fx{cfg, conflux::tests::make_external_test_router()};
 	auto fd = connect_loopback(fx.port());

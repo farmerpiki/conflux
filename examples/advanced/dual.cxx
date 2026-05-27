@@ -52,7 +52,7 @@ int main() {
 		key_path.clear();
 	}
 
-	Config cfg{};
+	conflux::http::Config cfg{};
 	cfg.port = 9090;
 	cfg.rings = 0; // 0 → hardware_concurrency
 	cfg.ring_entries = 1024;

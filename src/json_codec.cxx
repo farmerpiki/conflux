@@ -1044,7 +1044,7 @@ struct conflux::json::JsonCodec<std::optional<T>> {
 	static std::expected<std::optional<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
-			if constexpr (detail::is_nullable_type<T>::value) {
+			if constexpr (::detail::is_nullable_type<T>::value) {
 				auto v = ::decode<T>(n);
 				if (!v) {
 					return std::unexpected(std::move(v).error());
@@ -1135,7 +1135,7 @@ struct conflux::json::JsonCodec<std::vector<T, Alloc>> {
 		if (!arr) {
 			return std::unexpected(std::move(arr).error());
 		}
-		return detail::decode_array_elements<Vec>(*arr);
+		return ::detail::decode_array_elements<Vec>(*arr);
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,

@@ -23,6 +23,7 @@ import conflux.net.compress;
 import conflux.tests.support;
 
 using namespace conflux::tests;
+using conflux::http::Config;
 namespace {
 
 class TempDir {

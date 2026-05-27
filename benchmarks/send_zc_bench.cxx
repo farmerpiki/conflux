@@ -20,6 +20,8 @@ import conflux.work;
 import bench_common;
 
 using namespace std::literals;
+using conflux::http::Config;
+using conflux::http::HttpServerMetrics;
 namespace {
 
 struct TempDir {

@@ -15,6 +15,11 @@ import conflux.work;
 import bench_common;
 
 using namespace std::literals;
+using conflux::http::Config;
+using conflux::http::HttpServerMetrics;
+using conflux::http::RequestContext;
+using conflux::http::SseChannel;
+using conflux::http::WsConn;
 namespace {
 
 struct TempDir {

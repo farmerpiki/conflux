@@ -14,6 +14,8 @@ import conflux.net.http;
 import bench_common;
 
 using namespace std::literals;
+using conflux::http::Config;
+using conflux::http::HttpServerMetrics;
 namespace {
 
 struct TimeoutError : std::runtime_error {

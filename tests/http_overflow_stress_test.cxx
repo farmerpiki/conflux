@@ -15,6 +15,7 @@ import conflux.net.router;
 import conflux.tests.support;
 
 using namespace conflux::tests;
+using conflux::http::Config;
 namespace {
 
 Config tiny_ring_config() {

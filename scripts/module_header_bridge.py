@@ -631,6 +631,27 @@ def namespace_is_detail(namespace: str | None) -> bool:
     return any(part == "detail" or part.endswith("_detail") for part in namespace.split("::"))
 
 
+CXX_RESERVED_WORDS = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
+    "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+    "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
+    "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
+    "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
+    "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
+    "public", "register", "reinterpret_cast", "requires", "return", "short",
+    "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+    "switch", "template", "this", "thread_local", "throw", "true", "try",
+    "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
+    "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+}
+
+
+def symbol_is_exportable_name(name: str) -> bool:
+    return name not in CXX_RESERVED_WORDS
+
+
 def symbol_is_probably_template_param(name: str) -> bool:
     return bool(re.fullmatch(r"[A-Z](?:[A-Z0-9_]{0,2})", name)) or name in {
         "T", "U", "V", "F", "M", "R", "H", "Cb", "Owner", "Driver", "Body", "Handler",
@@ -761,7 +782,7 @@ def parse_export_symbols(lines: tuple[str, ...]) -> tuple[list[ExportSymbol], li
             if pending_explicit:
                 sample = " ".join(x.strip() for x in pending_decl if x.strip())[:120]
                 warnings.append(f"could not infer exported declaration near: {sample}")
-        elif not symbol_is_probably_template_param(symbol) and symbol not in {"operator", "requires", "detail"}:
+        elif symbol_is_exportable_name(symbol) and not symbol_is_probably_template_param(symbol) and symbol != "detail":
             if not namespace_is_detail(pending_namespace):
                 symbols.append(ExportSymbol(pending_namespace, symbol))
         pending_decl = []

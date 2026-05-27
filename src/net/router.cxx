@@ -23,34 +23,6 @@ export struct RouteInfo {
 	std::string path_pattern; // OpenAPI-style path e.g. /users/{id}
 	std::vector<std::string> path_params; // captured parameter names in order
 };
-export namespace conflux::http {
-
-class RequestRingRef {
-	void *ptr_{};
-
-public:
-	RequestRingRef() noexcept = default;
-	template<class Ring>
-	explicit RequestRingRef(
-		Ring &ring) noexcept
-		: ptr_{std::addressof(ring)} {}
-	template<class Ring>
-	[[nodiscard]] Ring &as() const noexcept {
-		return *static_cast<Ring *>(ptr_);
-	}
-	template<class Ring>
-	[[nodiscard]] operator Ring &() const noexcept {
-		return as<Ring>();
-	}
-	[[nodiscard]] explicit operator bool() const noexcept { return ptr_ != nullptr; }
-};
-
-struct RequestContext {
-	RequestRingRef ring;
-};
-
-} // namespace conflux::http
-
 export using NextHandler = CloneableFunction<Response(RequestView const &)>;
 export using MiddlewareFunction = CloneableFunction<Response(RequestView const &, NextHandler const &)>;
 export using ContextNextHandler =

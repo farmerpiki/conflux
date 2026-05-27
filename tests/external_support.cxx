@@ -162,7 +162,7 @@ std::pair<std::string, std::string> write_cached_cert_files() {
 	return value == "1" || value == "true" || value == "on" || value == "yes";
 }
 void apply_external_server_env(
-	Config &cfg) {
+	conflux::http::Config &cfg) {
 	cfg.recv_bundle = env_bool("CONFLUX_TEST_RECV_BUNDLE", cfg.recv_bundle);
 	cfg.direct_accept = env_bool("CONFLUX_TEST_DIRECT_ACCEPT", cfg.direct_accept);
 	cfg.cmd_sock_setsockopt = env_bool("CONFLUX_TEST_CMD_SOCK_SOCKOPTS", cfg.cmd_sock_setsockopt);
@@ -214,9 +214,9 @@ public:
 	HttpsServerFixture &operator =(HttpsServerFixture const &) = delete;
 	explicit HttpsServerFixture(
 		Router router)
-		: HttpsServerFixture(Config::test(), std::move(router)) {}
+		: HttpsServerFixture(conflux::http::Config::test(), std::move(router)) {}
 	HttpsServerFixture(
-		Config cfg,
+		conflux::http::Config cfg,
 		Router router) {
 		generate_cert();
 
@@ -301,7 +301,7 @@ public:
 		Router router) {
 		generate_cert();
 
-		Config cfg{};
+		conflux::http::Config cfg{};
 		cfg.port = 0;
 		cfg.rings = 1;
 		cfg.ring_entries = 256;

@@ -28,6 +28,8 @@ import bench_common;
 
 using namespace std::string_view_literals;
 using namespace std::literals;
+using conflux::http::Config;
+using conflux::http::HttpServerMetrics;
 
 namespace {
 

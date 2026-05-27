@@ -32,7 +32,7 @@ int main() {
 		return 1;
 	}
 
-	Config cfg{};
+	conflux::http::Config cfg{};
 	cfg.port = 9443;
 	cfg.rings = 1;
 	cfg.ring_entries = 256;

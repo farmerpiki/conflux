@@ -424,7 +424,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.max_body_size = 8;
 	conflux::tests::HttpsServerFixture const fx{cfg, make_router()};
 	H2Client client{fx.port()};
@@ -435,7 +435,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: DATA over max body resets stream") {
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.max_body_size = 8;
 	conflux::tests::HttpsServerFixture const fx{cfg, make_router()};
 	H2Client client{fx.port()};
@@ -446,7 +446,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: header count over parser limit resets stream") {
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.parser_limits.max_headers = 16;
 	conflux::tests::HttpsServerFixture const fx{cfg, make_router()};
 	H2Client client{fx.port()};
@@ -463,7 +463,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: header list bytes over parser limit resets stream") {
-	Config cfg = Config::test();
+	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.parser_limits.max_header_block_size = 256;
 	conflux::tests::HttpsServerFixture const fx{cfg, make_router()};
 	H2Client client{fx.port()};

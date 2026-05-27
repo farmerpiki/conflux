@@ -13,6 +13,7 @@ import conflux.net.router;
 import conflux.tests.support;
 
 using namespace conflux::tests;
+using conflux::http::Config;
 namespace {
 
 // Smallest legal ring; buf_ring count = 8*4 = 32 slots.

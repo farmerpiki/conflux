@@ -138,6 +138,8 @@ void operator delete[](
 
 namespace {
 
+using conflux::http::ParserLimits;
+
 enum class PathPhase : std::uint8_t {
 	full,
 	parse,

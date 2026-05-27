@@ -6,6 +6,7 @@ import conflux.net.http1_parser;
 import bench_common;
 
 using namespace std::string_view_literals;
+using conflux::http::ParserLimits;
 
 namespace {
 
