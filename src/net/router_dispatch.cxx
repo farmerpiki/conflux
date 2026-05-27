@@ -270,7 +270,7 @@ export template<typename ContextRouteRange, typename Ctx>
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
 						 req = std::move(req),
-						 &ctx,
+						 ctx,
 						 route_pattern = std::move(route_pattern),
 						 should_annotate](
 							conflux::work::root::Cancellation) mutable -> conflux::work::root::Task<Response> {
