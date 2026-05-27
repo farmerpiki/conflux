@@ -50,9 +50,102 @@ struct IsTaskResult<conflux::work::root::Task<T>> : std::true_type {};
 template<class T>
 inline constexpr bool IsTaskResultV = IsTaskResult<std::remove_cvref_t<T>>::value;
 
+struct AppRouteVerbAccessors {
+	template<typename F>
+	auto get(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::get>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto get(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::get, Path>(std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	auto post(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::post>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto post(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::post, Path>(std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	auto put(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::put>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto put(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::put, Path>(std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	auto patch(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::patch>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto patch(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::patch, Path>(std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	auto del(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::delete_>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto del(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::delete_, Path>(std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	auto options(
+		this auto &self,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_method_route<HttpMethod::options>(path, std::forward<F>(handler), loc);
+	}
+	template<FixedString Path, typename F>
+	auto options(
+		this auto &self,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
+		return self.template add_fixed_method_route<HttpMethod::options, Path>(std::forward<F>(handler), loc);
+	}
+};
+
 } // namespace detail
 
-class App {
+class App : public detail::AppRouteVerbAccessors {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 	using ScopedMiddlewareList = std::vector<Router::Middleware>;
 	using ScopedContextMiddlewareList = std::vector<Router::ContextMiddleware>;
@@ -589,32 +682,6 @@ public:
 		std::source_location loc = std::source_location::current()) {
 		return add_context(Method, path, std::forward<F>(handler), loc);
 	}
-	template<typename F>
-	RouteRef get(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::get>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef get(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::get, Path>(std::forward<F>(handler), loc);
-	}
-	template<typename F>
-	RouteRef post(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::post>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef post(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::post, Path>(std::forward<F>(handler), loc);
-	}
 #if CONFLUX_HAS_JSON
 	App &json_options(
 		AppJsonOptions opts) {
@@ -645,19 +712,6 @@ public:
 			loc);
 	}
 #endif
-	template<typename F>
-	RouteRef put(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::put>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef put(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::put, Path>(std::forward<F>(handler), loc);
-	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
 	RouteRef put_body(
@@ -678,19 +732,6 @@ public:
 			loc);
 	}
 #endif
-	template<typename F>
-	RouteRef patch(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::patch>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef patch(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::patch, Path>(std::forward<F>(handler), loc);
-	}
 #if CONFLUX_HAS_JSON
 	template<class Body, typename F>
 	RouteRef patch_body(
@@ -715,32 +756,6 @@ public:
 			loc);
 	}
 #endif
-	template<typename F>
-	RouteRef del(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::delete_>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef del(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::delete_, Path>(std::forward<F>(handler), loc);
-	}
-	template<typename F>
-	RouteRef options(
-		std::string_view path,
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_method_route<HttpMethod::options>(path, std::forward<F>(handler), loc);
-	}
-	template<FixedString Path, typename F>
-	RouteRef options(
-		F &&handler,
-		std::source_location loc = std::source_location::current()) {
-		return add_fixed_method_route<HttpMethod::options, Path>(std::forward<F>(handler), loc);
-	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &add_context(
@@ -938,7 +953,7 @@ public:
 		return State<T>{.value = static_cast<T *>(it->second.get())};
 	}
 
-	class Group {
+	class Group : public detail::AppRouteVerbAccessors {
 	public:
 		template<typename F>
 		Group &use(
@@ -1033,84 +1048,6 @@ public:
 			Group child{*this, full_path(prefix)};
 			std::invoke(std::forward<F>(fn), child);
 			return *this;
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef get(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::get>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef get(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::get, Path>(std::forward<F>(handler), loc);
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef post(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::post>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef post(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::post, Path>(std::forward<F>(handler), loc);
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef put(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::put>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef put(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::put, Path>(std::forward<F>(handler), loc);
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef patch(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::patch>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef patch(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::patch, Path>(std::forward<F>(handler), loc);
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef del(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::delete_>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef del(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::delete_, Path>(std::forward<F>(handler), loc);
-		}
-		template<typename F>
-		[[nodiscard]] RouteRef options(
-			std::string_view path,
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_method_route<HttpMethod::options>(path, std::forward<F>(handler), loc);
-		}
-		template<FixedString Path, typename F>
-		[[nodiscard]] RouteRef options(
-			F &&handler,
-			std::source_location loc = std::source_location::current()) {
-			return add_fixed_method_route<HttpMethod::options, Path>(std::forward<F>(handler), loc);
 		}
 
 	private:
@@ -1612,7 +1549,7 @@ public:
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using Body = typename detail::JsonType<Clean>::type;
 			if constexpr (requires(Body const &value, codec::json::ResponseOptions const &opts) {
-							  { codec::json::response_or_internal_error(value, opts) } -> std::same_as<Response>;
+							  { codec::json::response_or_internal_error(value, opts) }->std::same_as<Response>;
 						  }) {
 				return codec::json::response_or_internal_error(
 					result.value,
