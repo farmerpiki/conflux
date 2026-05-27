@@ -99,8 +99,8 @@ std::pair<Task<T>, TaskSource<T>> make_task_source(SubmitOptions = {});
 template<work_value T, typename OnCancel>
 std::pair<Task<T>, TaskSource<T>> make_cancellable_task_source(OnCancel);
 
-template<class Fn>
-Task<T> make_cancellable_task(Fn);
+template<class Callable>
+Task<Value> make_cancellable_task(Callable);
 
 template<work_value T, progress_capability Owner>
 std::pair<Posted<T>, PostedSource<T>> make_posted_source(Owner&, PostOptions = {});

@@ -562,7 +562,7 @@ public:
 	RouteRef add_fixed_method_route(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add_method_route<Method>(Path.view(), std::forward<F>(handler), loc);
+		return add_fixed_route<Path>(http_method_name(Method), std::forward<F>(handler), loc);
 	}
 #if CONFLUX_HAS_JSON
 	template<HttpMethod Method, class Body, typename F>

@@ -1,5 +1,8 @@
 # Cancellable Task Authoring Plan
 
+Status: implemented historical note.
+Branch: `work/cancellable-task-authoring`
+
 ## Objective
 
 Make cancellation first-class for user-authored work tasks while keeping

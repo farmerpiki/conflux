@@ -1,5 +1,8 @@
 # HTTP Deferred Task Cancellation Integration
 
+Status: implemented historical note.
+Branch: `http/deferred-task-cancellation`
+
 ## Verdict
 
 Implement a bounded P0 integration for HTTP deferred and async handler task

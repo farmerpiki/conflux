@@ -23,6 +23,7 @@ checked against this index before implementation starts.
 | P2 | `perf/evidence-inventory` | `proposals/perf_ideas.md` | Open inventory, not a direct implementation branch. | Use it to classify benchmark/evidence gaps after checking this state index. |
 | P2 | `simd/dispatch-independence-stage1` | `proposals/simd_dispatch_independence_stage1_proposal.md` | Active Stage 1 cleanup for direct/runtime SIMD selection semantics. | Keep evidence focused on object shape and hot-call-site dispatch policy, not a larger ISA matrix. |
 | P1 | `release/proof-repo-final-evidence` | `proposals/release_proof_repo_proposal.md` | Proposed release-blocking evidence packaging lane. | Implement scripts/templates now, but defer final proof capture until release-candidate source/API/docs/benchmark shape is frozen. |
+| P1 | `work/composable-race` | `proposals/conflux_composable_race_full_proposal.md` | Active proposal, final design pass. | Implement only after root cancellation contracts and owner-local integration rules stay green under full tests. |
 | DEFERRED | `http/streaming-upload-api` | `todo/server_gaps.md`, `docs/http-server-api.md` | Explicitly deferred future server API for bounded-memory request body and multipart upload streaming. | Current HTTP server intentionally buffers accepted request bodies in memory up to `max_body_size`; arbitrary large uploads need a separate streaming/spill-to-file surface with backpressure instead of raising the body cap. Do not start before the prerelease API/docs/evidence lanes settle. |
 
 ## Historical / implemented proposals
@@ -45,6 +46,8 @@ checked against this index before implementation starts.
 | `proposals/t2_c_iopoll_ring_proposal.md` | Storage-only primitive implemented; HTTP/static adoption benchmark-gated. | Do not wire into HTTP static path until storage-read bottleneck is measured. |
 | `proposals/conflux_package_component_visibility_v3_proposal.md` | Implemented package visibility v3. | Split exports, metadata-driven component import, closure-scoped external deps, support/requestable separation, and package visibility smokes landed. |
 | `proposals/prerelease_2_day_coding_agent_plan.md` | Implemented by the prerelease readiness branch; active HEADER_INTERFACE, CONFLUX_ENABLE_DB, no_std_streams, and package-smoke checks moved to `docs/release-checklist.md`. | Treat as historical acceptance evidence. Follow-up cleanup starts from `conflux_prerelease_followup_cleanup_plan.md`. |
+| `proposals/cancellable_task_authoring_plan.md` | Implemented. | Keep as historical rationale for root cancellation, cancellable task authoring, and race example ergonomics. |
+| `proposals/http_deferred_task_cancellation_proposal.md` | Implemented. | Keep as historical rationale for bounded HTTP deferred handler task ownership and reasonful cancellation. |
 
 ## Gaps found in current docs
 

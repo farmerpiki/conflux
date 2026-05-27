@@ -100,9 +100,9 @@ cmake_for_match = cmake.replace("${CONFLUX_SRC_ROOT}/", "src/")
 failures: list[str] = []
 
 
-def calls_for(name: str) -> list[str]:
+def calls_for(command: str, name: str) -> list[str]:
     out: list[str] = []
-    needle = f"target_sources({name}"
+    needle = f"{command}({name}"
     pos = 0
     while True:
         start = cmake_for_match.find(needle, pos)
@@ -127,9 +127,9 @@ def calls_for(name: str) -> list[str]:
 
 
 def require_private_impl(target: str, path: str) -> None:
-    calls = calls_for(target)
+    calls = calls_for("target_sources", target) + calls_for("conflux_add_module_library", target)
     if not calls:
-        failures.append(f"CMakeLists.txt: missing target_sources({target} ...)")
+        failures.append(f"CMakeLists.txt: missing source registration for {target}")
         return
     public_hits = [call for call in calls if path in call and "PUBLIC FILE_SET CXX_MODULES" in call]
     if public_hits:
@@ -137,7 +137,11 @@ def require_private_impl(target: str, path: str) -> None:
             f"CMakeLists.txt: {path} is in a PUBLIC CXX_MODULES file set for {target}; "
             "fragile implementation units must stay PRIVATE"
         )
-    private_hits = [call for call in calls if path in call and re.search(r"\bPRIVATE\b", call)]
+    private_hits = [
+        call
+        for call in calls
+        if path in call and (re.search(r"\bPRIVATE\b", call) or "PRIVATE_SOURCES" in call)
+    ]
     if not private_hits:
         failures.append(
             f"CMakeLists.txt: {path} must be registered as a PRIVATE source for {target}"

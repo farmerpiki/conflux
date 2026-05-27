@@ -109,6 +109,12 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 		clear_active();
 		throw_if_cancelled();
 		co_return out;
+	} catch (wroot::CancelledError const &err) {
+		clear_active();
+		if (err.reason() == wroot::CancelReason::abandoned && is_cancelled()) {
+			throw wroot::CancelledError{wroot::CancelReason::requested};
+		}
+		throw;
 	} catch (...) {
 		clear_active();
 		throw;
@@ -123,6 +129,12 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 		clear_active();
 		throw_if_cancelled();
 		co_return;
+	} catch (wroot::CancelledError const &err) {
+		clear_active();
+		if (err.reason() == wroot::CancelReason::abandoned && is_cancelled()) {
+			throw wroot::CancelledError{wroot::CancelReason::requested};
+		}
+		throw;
 	} catch (...) {
 		clear_active();
 		throw;
