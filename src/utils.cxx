@@ -276,16 +276,22 @@ export std::string hex_encode(
 	}
 	return out;
 }
-constexpr int hex_nibble_(
+// ---------------------------------------------------------------------------
+// Hex
+// ---------------------------------------------------------------------------
+
+// Returns the numeric value of a single hex digit [0-9a-fA-F], or -1 if invalid.
+export constexpr int hex_char_to_int(
 	char c) noexcept {
+	constexpr int kLetterBase = 10;
 	if (c >= '0' && c <= '9') {
 		return c - '0';
 	}
 	if (c >= 'a' && c <= 'f') {
-		return c - 'a' + 10;
+		return c - 'a' + kLetterBase;
 	}
 	if (c >= 'A' && c <= 'F') {
-		return c - 'A' + 10;
+		return c - 'A' + kLetterBase;
 	}
 	return -1;
 }
@@ -297,8 +303,8 @@ export std::expected<std::vector<unsigned char>, std::string> hex_decode(
 	std::vector<unsigned char> out;
 	out.reserve(in.size() / 2);
 	for (std::size_t i = 0; i < in.size(); i += 2) {
-		int const hi = hex_nibble_(in[i]);
-		int const lo = hex_nibble_(in[i + 1]);
+		int const hi = hex_char_to_int(in[i]);
+		int const lo = hex_char_to_int(in[i + 1]);
 		if (hi < 0 || lo < 0) {
 			return std::unexpected(std::string{"hex_decode: invalid hex digit"});
 		}
@@ -333,25 +339,6 @@ export constexpr int kHttpGatewayTimeout = 504;
 export constexpr int kHttpNoContent = 204;
 export constexpr int kHttpPartialContent = 206;
 export constexpr int kHttpInternalServerError = 500;
-// ---------------------------------------------------------------------------
-// Hex
-// ---------------------------------------------------------------------------
-
-// Returns the numeric value of a single hex digit [0-9a-fA-F], or -1 if invalid.
-export constexpr int hex_char_to_int(
-	char c) noexcept {
-	constexpr int kLetterBase = 10;
-	if (c >= '0' && c <= '9') {
-		return c - '0';
-	}
-	if (c >= 'a' && c <= 'f') {
-		return c - 'a' + kLetterBase;
-	}
-	if (c >= 'A' && c <= 'F') {
-		return c - 'A' + kLetterBase;
-	}
-	return -1;
-}
 // ---------------------------------------------------------------------------
 // URL percent-encoding / decoding
 // ---------------------------------------------------------------------------
