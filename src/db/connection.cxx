@@ -466,12 +466,8 @@ struct PGcancelDeleter {
 	}
 };
 using PGcancelPtr = std::unique_ptr<PGcancel, PGcancelDeleter>;
-inline WorkPool &default_cancel_pool() {
-	static WorkPool pool{WorkPoolOptions{.threads = 1}};
-	return pool;
-}
-inline std::shared_ptr<WorkPool> default_cancel_pool_ref() {
-	return std::shared_ptr<WorkPool>{std::shared_ptr<void>{}, &default_cancel_pool()};
+[[nodiscard]] inline std::shared_ptr<WorkPool> make_default_cancel_pool() {
+	return std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
 }
 
 } // namespace detail
@@ -499,7 +495,7 @@ root::Task<std::shared_ptr<Connection>> Connection::connect(
 	auto st = std::make_shared<detail::ConnectState>();
 	st->conn = std::move(conn);
 	st->reader = reader;
-	st->cancel_pool = params.cancel_pool != nullptr ? params.cancel_pool : detail::default_cancel_pool_ref();
+	st->cancel_pool = params.cancel_pool != nullptr ? params.cancel_pool : detail::make_default_cancel_pool();
 	st->dst = shared_src;
 	st->deadline = std::chrono::steady_clock::now() + params.connect_deadline;
 	st->start();
@@ -918,7 +914,7 @@ root::Task<void> Connection::cancel_inflight(
 }
 root::Task<void> Connection::cancel_inflight() {
 	if (cancel_pool_ == nullptr) {
-		cancel_pool_ = detail::default_cancel_pool_ref();
+		cancel_pool_ = detail::make_default_cancel_pool();
 	}
 	return cancel_inflight(*cancel_pool_);
 }
