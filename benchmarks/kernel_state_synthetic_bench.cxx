@@ -6,7 +6,7 @@ import std;
 import conflux.types;
 import conflux.uring.completion;
 import conflux.socket_io;
-import conflux.net.direct_slot_pool;
+import conflux.net.detail.direct_slot_pool;
 
 import bench_common;
 

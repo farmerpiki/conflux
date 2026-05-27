@@ -30,7 +30,7 @@ import std.compat;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.file_map;
-import conflux.net.direct_slot_pool;
+import conflux.net.detail.direct_slot_pool;
 import conflux.net.vhost;
 import conflux.net.config;
 import conflux.net.http1_parser;

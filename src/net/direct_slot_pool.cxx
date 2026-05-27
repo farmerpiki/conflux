@@ -1,7 +1,7 @@
 module;
 #include <cassert>
 
-export module conflux.net.direct_slot_pool;
+export module conflux.net.detail.direct_slot_pool;
 import std;
 import conflux.types;
 import conflux.utils;

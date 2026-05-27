@@ -14,7 +14,7 @@ import conflux.uring.flow;
 import conflux.uring.handle;
 import conflux.socket_io;
 import bench_common;
-import conflux.net.direct_slot_pool;
+import conflux.net.detail.direct_slot_pool;
 
 using namespace std::literals;
 

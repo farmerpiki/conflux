@@ -165,5 +165,5 @@ link interfaces may need them. They are not intended as public starting points:
 | Component | Export target | Purpose |
 |---|---|---|
 | `_options` | private `_options` export | propagated compile options/definitions |
-| `_direct_slot_pool` | private `_direct_slot_pool` export | HTTP/runtime direct-slot helper |
+| `_direct_slot_pool` | private `conflux.net.detail.direct_slot_pool` export | HTTP/runtime direct-slot helper |
 | `_simd_runtime` | private `_simd_runtime` export | private selected SIMD backend symbols for static-library link interfaces |

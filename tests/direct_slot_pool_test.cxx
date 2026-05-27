@@ -4,7 +4,7 @@
 
 import std;
 import conflux.types;
-import conflux.net.direct_slot_pool;
+import conflux.net.detail.direct_slot_pool;
 namespace {
 
 constexpr std::uint32_t kCap = 8;
