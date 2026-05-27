@@ -16,8 +16,8 @@ using namespace conflux::tests;
 namespace chttp = conflux::http;
 namespace {
 
-Config backpressure_cfg() {
-	Config cfg = Config::test();
+chttp::Config backpressure_cfg() {
+	chttp::Config cfg = chttp::Config::test();
 	cfg.rings = 1;
 	cfg.ring_entries = 64;
 	cfg.single_issuer = true;
@@ -57,7 +57,7 @@ TEST_CASE(
 
 	auto const before = srv.metrics();
 	auto report = srv.drain(
-		DrainOptions{
+		chttp::DrainOptions{
 			.deadline = std::chrono::milliseconds{1},
 			.close_idle = false,
 			.finish_requests = true,
@@ -93,11 +93,11 @@ TEST_CASE(
 	REQUIRE(headers.find("Content-Type: text/event-stream") != std::string::npos);
 
 	auto report = srv.drain(
-		DrainOptions{
+		chttp::DrainOptions{
 			.deadline = std::chrono::milliseconds{2000},
 			.finish_requests = true,
 			.finish_streams = false,
-			.sse_policy = DrainStreamPolicy::close,
+			.sse_policy = chttp::DrainStreamPolicy::close,
 		});
 	CHECK_FALSE(report.deadline_hit);
 	CHECK(report.streams_closed >= 1);

@@ -20,8 +20,8 @@ namespace {
 
 constexpr std::size_t kLargeBodyBytes = 2UZ * 1024UZ * 1024UZ;
 
-Config drain_contract_cfg() {
-	Config cfg = Config::test();
+chttp::Config drain_contract_cfg() {
+	chttp::Config cfg = chttp::Config::test();
 	cfg.rings = 1;
 	cfg.ring_entries = 128;
 	cfg.single_issuer = true;
@@ -146,17 +146,17 @@ TEST_CASE(
 	auto ws_headers = ws.read_headers();
 	REQUIRE(ws_headers.starts_with("HTTP/1.1 101 Switching Protocols"));
 
-	std::optional<DrainReport> report;
+	std::optional<chttp::DrainReport> report;
 	std::thread drain_thread{[&] {
 		report = srv.drain(
-			DrainOptions{
+			chttp::DrainOptions{
 				.deadline = std::chrono::milliseconds{30000},
 				.stop_accepting = true,
 				.close_idle = true,
 				.finish_requests = true,
 				.finish_streams = false,
-				.websocket_policy = DrainStreamPolicy::close,
-				.sse_policy = DrainStreamPolicy::close,
+				.websocket_policy = chttp::DrainStreamPolicy::close,
+				.sse_policy = chttp::DrainStreamPolicy::close,
 			});
 	}};
 

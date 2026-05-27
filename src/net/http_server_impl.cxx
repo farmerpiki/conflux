@@ -304,8 +304,8 @@ void HttpServer::shutdown() {
 #endif
 }
 
-[[nodiscard]] DrainReport HttpServer::drain(
-	DrainOptions options) {
+[[nodiscard]] conflux::http::DrainReport HttpServer::drain(
+	conflux::http::DrainOptions options) {
 	if (impl_ == nullptr) {
 		return {};
 	}
@@ -329,7 +329,7 @@ void HttpServer::shutdown() {
 	if (impl_->running_.load(std::memory_order_acquire)) {
 		control.deadline_hit.store(true, std::memory_order_release);
 	}
-	return DrainReport{
+	return conflux::http::DrainReport{
 		.accepted_before_stop = control.accepted_before_stop.load(std::memory_order_acquire),
 		.idle_closed = control.idle_closed.load(std::memory_order_acquire),
 		.requests_finished = control.requests_finished.load(std::memory_order_acquire),

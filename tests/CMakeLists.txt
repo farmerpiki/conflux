@@ -485,6 +485,30 @@ if(TARGET conflux_net_http)
         EXPECT "ConfigIssue")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_drain_options
+        SOURCE http_facade_compile_fail_global_drain_options.cxx
+        TEST http-facade/compile-fail-global-drain-options
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "DrainOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_drain_report
+        SOURCE http_facade_compile_fail_global_drain_report.cxx
+        TEST http-facade/compile-fail-global-drain-report
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "DrainReport")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_drain_stream_policy
+        SOURCE http_facade_compile_fail_global_drain_stream_policy.cxx
+        TEST http-facade/compile-fail-global-drain-stream-policy
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "DrainStreamPolicy")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_sse_channel
         SOURCE http_facade_compile_fail_global_sse_channel.cxx
         TEST http-facade/compile-fail-global-sse-channel

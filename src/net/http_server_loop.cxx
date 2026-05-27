@@ -974,7 +974,7 @@ void Ring::handle_shutdown() {
 		if (conn.sse_channel) {
 			bool const close_stream = drain == nullptr
 								   || !drain->options.finish_streams
-								   || drain->options.sse_policy != DrainStreamPolicy::leave_open;
+								   || drain->options.sse_policy != conflux::http::DrainStreamPolicy::leave_open;
 			if (close_stream) {
 				conn.sse_channel->close();
 				++pressure_counters_.connections_closed_for_pressure;
@@ -1020,7 +1020,7 @@ void Ring::handle_shutdown() {
 			queue_close(static_cast<int>(i));
 		}
 	}
-	if (drain != nullptr && drain->options.websocket_policy != DrainStreamPolicy::leave_open) {
+	if (drain != nullptr && drain->options.websocket_policy != conflux::http::DrainStreamPolicy::leave_open) {
 		auto const closed = shutdown_active_ws_for_pressure();
 		drain->accepted_before_stop.fetch_add(closed, std::memory_order_relaxed);
 		pressure_counters_.websocket_closed_for_pressure += closed;

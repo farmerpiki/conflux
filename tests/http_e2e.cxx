@@ -2384,7 +2384,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("Connection: keep-alive") != std::string::npos);
 
-	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{2000}});
+	auto report = srv.drain(chttp::DrainOptions{.deadline = std::chrono::milliseconds{2000}});
 	CHECK(report.accepted_before_stop >= 1);
 	CHECK(report.idle_closed >= 1);
 	CHECK_FALSE(report.deadline_hit);
@@ -2407,7 +2407,7 @@ TEST_CASE(
 	auto before = http_get_on(port, "/ping", "Connection: close\r\n");
 	REQUIRE(before.starts_with("HTTP/1.1 200 OK"));
 
-	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{2000}});
+	auto report = srv.drain(chttp::DrainOptions{.deadline = std::chrono::milliseconds{2000}});
 	CHECK_FALSE(report.deadline_hit);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2438,7 +2438,7 @@ TEST_CASE(
 	auto headers = client.read_headers();
 	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
 
-	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{5000}, .finish_requests = true});
+	auto report = srv.drain(chttp::DrainOptions{.deadline = std::chrono::milliseconds{5000}, .finish_requests = true});
 	CHECK_FALSE(report.deadline_hit);
 	auto resp = headers + client.read_until_close();
 	CHECK(resp.starts_with("HTTP/1.1 200 OK"));
@@ -2464,7 +2464,7 @@ TEST_CASE(
 	auto resp = client.read_one_response();
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 
-	auto report = srv.drain(DrainOptions{.deadline = std::chrono::milliseconds{1}, .close_idle = false});
+	auto report = srv.drain(chttp::DrainOptions{.deadline = std::chrono::milliseconds{1}, .close_idle = false});
 	CHECK(report.deadline_hit);
 	auto metrics = srv.metrics();
 	CHECK(metrics.pressure.drain_started >= 1);

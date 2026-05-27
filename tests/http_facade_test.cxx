@@ -21,9 +21,6 @@ using conflux::http::VirtualHost;
 
 static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
 static_assert(std::same_as<http::Config, conflux::http::Config>);
-static_assert(std::same_as<http::DrainOptions, DrainOptions>);
-static_assert(std::same_as<http::DrainReport, DrainReport>);
-static_assert(std::same_as<http::DrainStreamPolicy, DrainStreamPolicy>);
 static_assert(std::same_as<http::OverflowPolicy, OverflowPolicy>);
 static_assert(std::same_as<http::PressureMetrics, HttpPressureMetrics>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);

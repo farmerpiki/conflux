@@ -338,7 +338,7 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	conflux::work::root::Task<FileReader::ReadFixedResult> read_task);
 struct Ring {
 	struct DrainControl {
-		DrainOptions options{};
+		conflux::http::DrainOptions options{};
 		std::chrono::steady_clock::time_point deadline{};
 		std::atomic_bool active{false};
 		std::atomic_bool deadline_hit{false};

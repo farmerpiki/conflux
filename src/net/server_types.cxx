@@ -316,14 +316,16 @@ export enum class OverflowPolicy : std::uint8_t {
 	backpressure,
 };
 
-export enum class DrainStreamPolicy : std::uint8_t {
+export namespace conflux::http {
+
+enum class DrainStreamPolicy : std::uint8_t {
 	close,
 	close_with_reason,
 	close_with_retry,
 	leave_open,
 };
 
-export struct DrainOptions {
+struct DrainOptions {
 	std::chrono::milliseconds deadline{30000};
 	bool stop_accepting = true;
 	bool close_idle = true;
@@ -333,7 +335,7 @@ export struct DrainOptions {
 	DrainStreamPolicy sse_policy = DrainStreamPolicy::close;
 };
 
-export struct DrainReport {
+struct DrainReport {
 	std::uint64_t accepted_before_stop = 0;
 	std::uint64_t idle_closed = 0;
 	std::uint64_t requests_finished = 0;
@@ -341,6 +343,8 @@ export struct DrainReport {
 	std::uint64_t forced_closed = 0;
 	bool deadline_hit = false;
 };
+
+} // namespace conflux::http
 
 export struct UploadedFile {
 	std::string_view name;
@@ -857,9 +861,6 @@ using RejectionMetrics = ::HttpRejectionMetrics;
 using PressureMetrics = ::HttpPressureMetrics;
 using ServerMetrics = ::HttpServerMetrics;
 using OverflowPolicy = ::OverflowPolicy;
-using DrainStreamPolicy = ::DrainStreamPolicy;
-using DrainOptions = ::DrainOptions;
-using DrainReport = ::DrainReport;
 using RequestView = ::RequestView;
 using OwnedRequest = ::Request;
 using Request = RequestView;
