@@ -308,6 +308,19 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"file_io_sync: low-level publish validates final basename",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	for (auto name: {std::string_view{""}, std::string_view{"."}, std::string_view{".."}, std::string_view{"a/b"}}) {
+		auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+		REQUIRE(tmp.has_value());
+		auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, name);
+		REQUIRE_FALSE(pub.has_value());
+		CHECK(pub.error().code().value() == EINVAL);
+	}
+}
+
+TEST_CASE(
 	"file_io_sync: blocking low-level aliases round-trip through contained file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();

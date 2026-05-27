@@ -1,4 +1,5 @@
 module;
+#include <fcntl.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <poll.h>
@@ -120,6 +121,21 @@ inline int sni_callback(
 	}
 	return SSL_TLSEXT_ERR_OK;
 }
+
+inline void set_tls_fd_nonblocking(
+	int fd) {
+	int const flags = ::fcntl(fd, F_GETFL, 0);
+	if (flags < 0) {
+		throw TlsError{"TLS: fcntl(F_GETFL) failed"};
+	}
+	if ((flags & O_NONBLOCK) != 0) {
+		return;
+	}
+	if (::fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(O_NONBLOCK))) < 0) {
+		throw TlsError{"TLS: fcntl(F_SETFL O_NONBLOCK) failed"};
+	}
+}
+
 struct ClientNameAccessors {
 	template<typename Self>
 	bool set_server_name(
@@ -214,6 +230,7 @@ public:
 		if (!ssl_) {
 			throw TlsError{"TlsStream: SSL_new failed"};
 		}
+		tls_detail::set_tls_fd_nonblocking(fd);
 		if (SSL_set_fd(ssl_.get(), fd) != 1) {
 			throw TlsError{"TlsStream: SSL_set_fd failed"};
 		}

@@ -50,6 +50,14 @@ TEST_CASE(
 	"[crypto]") {
 	CHECK(base64_decode("").empty());
 }
+TEST_CASE(
+	"crypto: base64_decode rejects malformed padding and residual bits",
+	"[crypto]") {
+	CHECK(base64_decode("A").empty());
+	CHECK(base64_decode("T=WE").empty());
+	CHECK(base64_decode("TWE=A").empty());
+	CHECK(base64_decode("TR==").empty());
+}
 // ---------------------------------------------------------------------------
 // base64url
 // ---------------------------------------------------------------------------
@@ -77,6 +85,12 @@ TEST_CASE(
 	CHECK(base64url_decode("").empty());
 	// "f" => "Zg"
 	CHECK(base64url_decode("Zg") == "f");
+}
+TEST_CASE(
+	"crypto: base64url_decode rejects malformed residual bits",
+	"[crypto]") {
+	CHECK(base64url_decode("A").empty());
+	CHECK(base64url_decode("Zh").empty());
 }
 // ---------------------------------------------------------------------------
 // SHA-1

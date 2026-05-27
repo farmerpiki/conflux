@@ -240,6 +240,26 @@ inline std::expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 	return UniqueFd{fd};
 }
 
+inline std::expected<void, FileIoSyncError> validate_publish_basename(
+	std::string_view name) noexcept {
+	if (name.empty()) {
+		return std::unexpected{
+			FileIoSyncError{EINVAL, "file_io_sync: empty publish name"}
+        };
+	}
+	if (name == "." || name == "..") {
+		return std::unexpected{
+			FileIoSyncError{EINVAL, "file_io_sync: invalid publish name"}
+        };
+	}
+	if (name.contains('/') || name.contains('\0')) {
+		return std::unexpected{
+			FileIoSyncError{EINVAL, "file_io_sync: publish name must be a basename"}
+        };
+	}
+	return {};
+}
+
 } // namespace
 struct PathParts {
 	std::string_view parent_dir;
@@ -404,6 +424,11 @@ export std::expected<void, FileIoSyncError> write_all_fd(
 				FileIoSyncError{errno, "file_io_sync: write"}
             };
 		}
+		if (n == 0) {
+			return std::unexpected{
+				FileIoSyncError{EIO, "file_io_sync: zero-length write"}
+            };
+		}
 		off += static_cast<std::size_t>(n);
 	}
 	return {};
@@ -418,6 +443,17 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 	std::string_view final_name,
 	TempPublishMode mode = TempPublishMode::replace_existing,
 	TempDurability durability = TempDurability::file_and_directory) noexcept {
+	if (auto valid = validate_publish_basename(final_name); !valid) {
+		return std::unexpected{valid.error()};
+	}
+	std::string final_str;
+	try {
+		final_str = std::string{final_name};
+	} catch (std::bad_alloc const &) {
+		return std::unexpected{
+			FileIoSyncError{ENOMEM, "file_io_sync: publish name allocation"}
+        };
+	}
 	if (auto r = do_fsync(tmp.fd(), durability); !r) {
 		return r;
 	}
@@ -439,7 +475,6 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 		tmp.disarm_staging();
 	}
 
-	std::string final_str{final_name};
 	if (mode == TempPublishMode::replace_existing) {
 		int const rc = ::renameat(parent_dir_fd, staging.c_str(), parent_dir_fd, final_str.c_str());
 		if (rc < 0) {

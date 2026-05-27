@@ -73,25 +73,44 @@ std::string b64_encode_impl(
 std::string b64_decode_impl(
 	std::string_view encoded,
 	std::span<std::int8_t const, 256> table) {
-	std::string out;
-	out.reserve(((encoded.size() * 3) / 4) + 1);
-	int bits = 0;
-	int val = 0;
-	for (char const raw: encoded) {
-		auto c = static_cast<unsigned char>(raw);
-		if (c == '=') {
-			break;
+	if (encoded.size() % 4U == 1U) {
+		return {};
+	}
+	auto const pad_pos = encoded.find('=');
+	std::size_t const payload_size = pad_pos == std::string_view::npos ? encoded.size() : pad_pos;
+	if (pad_pos != std::string_view::npos) {
+		std::size_t const padding = encoded.size() - pad_pos;
+		if (padding > 2U || encoded.size() % 4U != 0U) {
+			return {};
 		}
+		for (std::size_t i = pad_pos; i < encoded.size(); ++i) {
+			if (encoded[i] != '=') {
+				return {};
+			}
+		}
+	}
+	if (payload_size % 4U == 1U) {
+		return {};
+	}
+	std::string out;
+	out.reserve(((payload_size * 3) / 4) + 1);
+	int bits = 0;
+	std::uint32_t val = 0;
+	for (char const raw: encoded.substr(0, payload_size)) {
+		auto c = static_cast<unsigned char>(raw);
 		std::int8_t const d = table[c];
 		if (d < 0) {
 			return {};
 		}
-		val = (val << 6) | d;
+		val = (val << 6U) | static_cast<std::uint32_t>(d);
 		bits += 6;
 		if (bits >= 8) {
 			bits -= 8;
-			out += static_cast<char>((val >> bits) & 0xFF);
+			out += static_cast<char>((val >> static_cast<unsigned>(bits)) & 0xFFU);
 		}
+	}
+	if (bits > 0 && (val & ((std::uint32_t{1} << static_cast<unsigned>(bits)) - 1U)) != 0U) {
+		return {};
 	}
 	return out;
 }
