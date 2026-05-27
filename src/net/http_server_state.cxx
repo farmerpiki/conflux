@@ -289,7 +289,7 @@ struct alignas(
 	// file_io streaming path: non-null when current response streams via splice
 	// (plain HTTP) or read_fixed+SSL_write (TLS). Phase tracks whether headers
 	// have been flushed to the socket.
-	std::shared_ptr<StreamedFile> streamed_file{};
+	std::shared_ptr<conflux::http::StreamedFile> streamed_file{};
 	bool streamed_headers_sent = false;
 	std::uint64_t streamed_delivered = 0;
 	bool streamed_splice_in_flight = false;

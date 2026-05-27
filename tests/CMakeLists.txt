@@ -429,6 +429,14 @@ if(TARGET conflux_net_http)
         EXPECT "CookieBuilder")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_streamed_file
+        SOURCE http_facade_compile_fail_global_streamed_file.cxx
+        TEST http-facade/compile-fail-global-streamed-file
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "StreamedFile")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization

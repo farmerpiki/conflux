@@ -307,7 +307,7 @@ TEST_CASE(
 	CHECK(resp.take_mapped_file() == mapped);
 	CHECK_FALSE(resp.mapped_file_ptr());
 
-	auto streamed = std::make_shared<StreamedFile>();
+	auto streamed = std::make_shared<chttp::StreamedFile>();
 	streamed->send_offset = 5;
 	streamed->send_size = 77;
 	streamed->total_size = 100;
@@ -333,17 +333,17 @@ TEST_CASE(
 TEST_CASE(
 	"http response: streamed file completion callbacks run once",
 	"[http][response]") {
-	auto streamed = std::make_shared<StreamedFile>();
-	std::vector<StreamedFileResult> observed;
-	streamed->on_complete([&](StreamedFileResult result) { observed.push_back(result); });
+	auto streamed = std::make_shared<chttp::StreamedFile>();
+	std::vector<chttp::StreamedFileResult> observed;
+	streamed->on_complete([&](chttp::StreamedFileResult result) { observed.push_back(result); });
 
 	streamed->notify_complete();
 	streamed->notify_failed();
-	streamed->on_complete([&](StreamedFileResult result) { observed.push_back(result); });
+	streamed->on_complete([&](chttp::StreamedFileResult result) { observed.push_back(result); });
 
 	REQUIRE(observed.size() == 2);
-	CHECK(observed[0] == StreamedFileResult::completed);
-	CHECK(observed[1] == StreamedFileResult::completed);
+	CHECK(observed[0] == chttp::StreamedFileResult::completed);
+	CHECK(observed[1] == chttp::StreamedFileResult::completed);
 }
 
 TEST_CASE(

@@ -31,12 +31,12 @@ import conflux.net.http.realtime;
 }
 
 export class DeferredResponse; // defined after Response
-export enum class StreamedFileResult : std::uint8_t {
+export namespace conflux::http {
+
+enum class StreamedFileResult : std::uint8_t {
 	completed,
 	failed,
 };
-
-export namespace conflux::http {
 
 enum class SameSite : std::uint8_t {
 	Lax,
@@ -54,9 +54,7 @@ enum class SameSite : std::uint8_t {
 	return "Lax";
 }
 
-} // namespace conflux::http
-
-export struct StreamedFileHandle {
+struct StreamedFileHandle {
 	std::shared_ptr<void> storage{};
 
 	template<class Handle>
@@ -72,8 +70,6 @@ export struct StreamedFileHandle {
 
 	[[nodiscard]] explicit operator bool() const noexcept { return storage != nullptr; }
 };
-
-export namespace conflux::http {
 
 struct CookieBuilder {
 	std::string name;
@@ -188,13 +184,11 @@ struct CookieBuilder {
 	}
 };
 
-} // namespace conflux::http
-
 // Carrier for a file about to be streamed through io_uring (splice on plain,
 // fixed-buffer read on TLS). Owns an internal file handle; send dispatch
 // consumes it and issues a close_async on the owning ring when the stream
 // finishes.
-export struct StreamedFile {
+struct StreamedFile {
 	StreamedFileHandle handle{};
 	std::uint64_t send_offset{};
 	std::uint64_t send_size{};
@@ -247,6 +241,8 @@ export struct StreamedFile {
 	std::vector<std::function<void(StreamedFileResult)>> callbacks_;
 };
 
+} // namespace conflux::http
+
 export struct Response {
 	static constexpr std::string_view kContentTypeHtmlUtf8 = "text/html; charset=utf-8";
 	static constexpr std::string_view kContentTypeTextUtf8 = "text/plain; charset=utf-8";
@@ -269,7 +265,7 @@ export struct Response {
 		std::shared_ptr<SseChannel>,
 		std::shared_ptr<WsUpgrade>,
 		std::shared_ptr<MappedBody>,
-		std::shared_ptr<StreamedFile>,
+		std::shared_ptr<conflux::http::StreamedFile>,
 		std::shared_ptr<DeferredResponse>>;
 
 	int status = kHttpOk;
@@ -328,9 +324,9 @@ export struct Response {
 		}
 		return empty;
 	}
-	[[nodiscard]] std::shared_ptr<StreamedFile> const &streamed_file_ptr() const {
-		static std::shared_ptr<StreamedFile> const empty{};
-		if (auto const *file = get_if<std::shared_ptr<StreamedFile>>(&body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::StreamedFile> const &streamed_file_ptr() const {
+		static std::shared_ptr<conflux::http::StreamedFile> const empty{};
+		if (auto const *file = get_if<std::shared_ptr<conflux::http::StreamedFile>>(&body_payload)) {
 			return *file;
 		}
 		return empty;
@@ -360,11 +356,11 @@ export struct Response {
 		}
 		return std::move(get<std::shared_ptr<MappedBody>>(body_payload));
 	}
-	[[nodiscard]] std::shared_ptr<StreamedFile> take_streamed_file() {
-		if (!holds_alternative<std::shared_ptr<StreamedFile>>(body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::StreamedFile> take_streamed_file() {
+		if (!holds_alternative<std::shared_ptr<conflux::http::StreamedFile>>(body_payload)) {
 			return {};
 		}
-		return std::move(get<std::shared_ptr<StreamedFile>>(body_payload));
+		return std::move(get<std::shared_ptr<conflux::http::StreamedFile>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<DeferredResponse> take_deferred_response() {
 		if (!holds_alternative<std::shared_ptr<DeferredResponse>>(body_payload)) {
@@ -393,7 +389,7 @@ export struct Response {
 		body_payload = std::move(file);
 	}
 	void set_streamed_file(
-		std::shared_ptr<StreamedFile> file) {
+		std::shared_ptr<conflux::http::StreamedFile> file) {
 		body_kind = BodyKind::streamed_file;
 		body_payload = std::move(file);
 	}

@@ -850,8 +850,8 @@ conflux::work::root::Task<void> do_serve_static_file(
 	conflux::work::root::Task<FileHandle> open_task) {
 	try {
 		auto fh = co_await std::move(open_task);
-		auto streamed = std::make_shared<StreamedFile>();
-		streamed->handle = StreamedFileHandle::from(std::make_shared<FileHandle>(std::move(fh)));
+		auto streamed = std::make_shared<conflux::http::StreamedFile>();
+		streamed->handle = conflux::http::StreamedFileHandle::from(std::make_shared<FileHandle>(std::move(fh)));
 		streamed->send_offset = send_off;
 		streamed->send_size = send_sz;
 		streamed->total_size = total_size;
