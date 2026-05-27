@@ -1560,7 +1560,7 @@ TEST_CASE(
 }
 namespace {
 
-std::string send_raw_bytes(
+ReadUntilCloseResult send_raw_bytes_result(
 	std::string_view raw) {
 	ensure_server();
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1578,20 +1578,17 @@ std::string send_raw_bytes(
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	::send(fd, raw.data(), raw.size(), MSG_NOSIGNAL);
-	std::string response;
-	std::array<char, 4096> buf{};
-	for (;;) {
-		auto n = ::recv(fd, buf.data(), buf.size(), 0);
-		if (n <= 0) {
-			break;
-		}
-		response.append(buf.data(), static_cast<std::size_t>(n));
-	}
+	auto response = read_until_close_with_state(fd);
 	::close(fd);
 	return response;
 }
 
-std::string send_raw_bytes_on(
+std::string send_raw_bytes(
+	std::string_view raw) {
+	return send_raw_bytes_result(raw).bytes;
+}
+
+ReadUntilCloseResult send_raw_bytes_result_on(
 	std::uint16_t port,
 	std::string_view raw) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1609,17 +1606,15 @@ std::string send_raw_bytes_on(
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	::send(fd, raw.data(), raw.size(), MSG_NOSIGNAL);
-	std::string response;
-	std::array<char, 4096> buf{};
-	for (;;) {
-		auto n = ::recv(fd, buf.data(), buf.size(), 0);
-		if (n <= 0) {
-			break;
-		}
-		response.append(buf.data(), static_cast<std::size_t>(n));
-	}
+	auto response = read_until_close_with_state(fd);
 	::close(fd);
 	return response;
+}
+
+std::string send_raw_bytes_on(
+	std::uint16_t port,
+	std::string_view raw) {
+	return send_raw_bytes_result_on(port, raw).bytes;
 }
 
 } // namespace
@@ -1747,10 +1742,11 @@ TEST_CASE(
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nTransfer-Encoding: "
 		"chunked\r\n\r\n0\r\n\r\n"
 		"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-	auto resp = send_raw_bytes(req);
-	REQUIRE(resp.starts_with("HTTP/1.1 400"));
-	REQUIRE(resp.find("HTTP/1.1 200") == std::string::npos);
-	REQUIRE(resp.find(R"({"status":"ok"})") == std::string::npos);
+	auto resp = send_raw_bytes_result(req);
+	REQUIRE(resp.closed());
+	REQUIRE(resp.bytes.starts_with("HTTP/1.1 400"));
+	REQUIRE(resp.bytes.find("HTTP/1.1 200") == std::string::npos);
+	REQUIRE(resp.bytes.find(R"({"status":"ok"})") == std::string::npos);
 }
 TEST_CASE(
 	"parser: unsupported Transfer-Encoding returns 400") {
@@ -2388,11 +2384,9 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
 	std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-	char buf[1];
-	auto n = ::recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+	auto const end = recv_close_state(fd, MSG_DONTWAIT);
 	::close(fd);
-	bool const connection_gone = (n == 0) || (n < 0 && (errno == ECONNRESET || errno == EAGAIN));
-	REQUIRE(connection_gone);
+	REQUIRE(is_socket_closed(end));
 
 	srv.stop();
 }
@@ -2441,12 +2435,10 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	::shutdown(fd, SHUT_WR);
 
-	char buf[1];
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
-	auto n = ::recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+	auto const end = recv_close_state(fd, MSG_DONTWAIT);
 	::close(fd);
-	bool const connection_gone = (n == 0) || (n < 0 && (errno == ECONNRESET || errno == EAGAIN));
-	REQUIRE(connection_gone);
+	REQUIRE(is_socket_closed(end));
 
 	srv.stop();
 }
@@ -3402,8 +3394,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf{};
-		if (::recv(fd, &buf, 1, 0) <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);
@@ -3462,12 +3453,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf{};
-		ssize_t r;
-		do {
-			r = ::recv(fd, &buf, 1, 0);
-		} while (r > 0);
-		if (r <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);
@@ -3510,8 +3496,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf{};
-		if (::recv(fd, &buf, 1, 0) <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);
@@ -3543,12 +3528,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf{};
-		ssize_t r;
-		do {
-			r = ::recv(fd, &buf, 1, 0);
-		} while (r > 0);
-		if (r <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);
@@ -3574,12 +3554,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf{};
-		ssize_t r;
-		do {
-			r = ::recv(fd, &buf, 1, 0);
-		} while (r > 0);
-		if (r <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);
@@ -3604,12 +3579,7 @@ TEST_CASE(
 	srv.stop();
 	int closed = 0;
 	for (int fd: fds) {
-		char buf[4096];
-		ssize_t r;
-		do {
-			r = ::recv(fd, buf, sizeof(buf), 0);
-		} while (r > 0);
-		if (r <= 0) {
+		if (recv_until_closed(fd)) {
 			++closed;
 		}
 		::close(fd);

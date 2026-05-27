@@ -52,20 +52,6 @@ void shrink_recv_buffer(
 	(void)::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
 }
 
-std::string read_until_close_from(
-	int fd) {
-	std::string out;
-	std::array<char, 8192> buf{};
-	for (;;) {
-		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
-		if (n <= 0) {
-			break;
-		}
-		out.append(buf.data(), static_cast<std::size_t>(n));
-	}
-	return out;
-}
-
 [[nodiscard]] bool connect_refused(
 	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -175,9 +161,10 @@ TEST_CASE(
 	}};
 
 	std::this_thread::sleep_for(std::chrono::milliseconds{50});
-	auto large_tail = read_until_close_from(large.fd());
+	auto large_tail = read_until_close_with_state(large.fd());
 	drain_thread.join();
 	REQUIRE(report.has_value());
+	REQUIRE(large_tail.closed());
 
 	CHECK_FALSE(report->deadline_hit);
 	CHECK(report->accepted_before_stop >= 3);
@@ -188,7 +175,7 @@ TEST_CASE(
 	auto const large_header_end = large_headers.find("\r\n\r\n");
 	REQUIRE(large_header_end != std::string::npos);
 	std::string large_body{large_headers.substr(large_header_end + 4)};
-	large_body += large_tail;
+	large_body += large_tail.bytes;
 	CHECK(large_body.size() == kLargeBodyBytes);
 	CHECK(std::ranges::all_of(large_body, [](char c) { return c == 'x'; }));
 
@@ -196,10 +183,12 @@ TEST_CASE(
 	set_recv_timeout(idle.fd(), std::chrono::milliseconds{250});
 	CHECK(idle.recv(&probe, 1) == 0);
 	set_recv_timeout(sse.fd(), std::chrono::milliseconds{250});
-	auto const sse_tail = read_until_close_from(sse.fd());
-	CHECK(sse_tail.find("0\r\n\r\n") != std::string::npos);
+	auto const sse_tail = read_until_close_with_state(sse.fd());
+	CHECK(sse_tail.closed());
+	CHECK(sse_tail.bytes.find("0\r\n\r\n") != std::string::npos);
 	set_recv_timeout(ws.fd(), std::chrono::milliseconds{250});
-	CHECK(ws.recv(&probe, 1) <= 0);
+	auto const ws_close = recv_close_state(ws.fd());
+	CHECK(is_socket_closed(ws_close));
 	CHECK(connect_refused(port));
 
 	auto const metrics = srv.metrics();

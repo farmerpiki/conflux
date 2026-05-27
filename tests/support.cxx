@@ -1,5 +1,6 @@
 module;
 #include <arpa/inet.h>
+#include <cerrno>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -14,6 +15,71 @@ import conflux.net.http_server;
 import conflux.net.router;
 import conflux.net.vhost;
 export namespace conflux::tests {
+
+enum class SocketReadEnd {
+	eof,
+	reset,
+	timeout,
+	error,
+};
+
+struct ReadUntilCloseResult {
+	std::string bytes;
+	SocketReadEnd end = SocketReadEnd::eof;
+	int error = 0;
+
+	[[nodiscard]] bool closed() const noexcept;
+};
+
+[[nodiscard]] bool is_socket_closed(
+	SocketReadEnd end) noexcept {
+	return end == SocketReadEnd::eof || end == SocketReadEnd::reset;
+}
+
+bool ReadUntilCloseResult::closed() const noexcept {
+	return is_socket_closed(end);
+}
+
+[[nodiscard]] SocketReadEnd classify_recv_end(
+	ssize_t n,
+	int error) noexcept {
+	if (n == 0) {
+		return SocketReadEnd::eof;
+	}
+	if (n < 0 && error == ECONNRESET) {
+		return SocketReadEnd::reset;
+	}
+	if (n < 0 && (error == EAGAIN || error == EWOULDBLOCK)) {
+		return SocketReadEnd::timeout;
+	}
+	return SocketReadEnd::error;
+}
+
+[[nodiscard]] ReadUntilCloseResult read_until_close_with_state(
+	int fd) {
+	ReadUntilCloseResult result;
+	std::array<char, 4096> buf{};
+	for (;;) {
+		errno = 0;
+		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n <= 0) {
+			result.error = errno;
+			result.end = classify_recv_end(n, result.error);
+			break;
+		}
+		result.bytes.append(buf.data(), static_cast<std::size_t>(n));
+	}
+	return result;
+}
+
+[[nodiscard]] SocketReadEnd recv_close_state(
+	int fd,
+	int flags = 0) {
+	char byte{};
+	errno = 0;
+	auto const n = ::recv(fd, &byte, 1, flags);
+	return classify_recv_end(n, errno);
+}
 
 std::string read_one_response(
 	int fd) {
@@ -104,18 +170,7 @@ public:
 		timeval tv{.tv_sec = timeout.count(), .tv_usec = 0};
 		::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	}
-	[[nodiscard]] std::string read_until_close() const {
-		std::string response;
-		std::array<char, 4096> buf{};
-		for (;;) {
-			auto const n = recv(buf.data(), buf.size());
-			if (n <= 0) {
-				break;
-			}
-			response.append(buf.data(), static_cast<std::size_t>(n));
-		}
-		return response;
-	}
+	[[nodiscard]] std::string read_until_close() const { return read_until_close_with_state(fd_).bytes; }
 	[[nodiscard]] std::string read_one_response() const { return ::conflux::tests::read_one_response(fd_); }
 	[[nodiscard]] std::string read_headers() const {
 		std::string response;

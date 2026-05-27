@@ -68,8 +68,8 @@ TEST_CASE(
 	CHECK(metrics.pressure.drain_started == before.pressure.drain_started + 1);
 	CHECK(metrics.pressure.drain_deadline_hit == before.pressure.drain_deadline_hit + 1);
 	CHECK(metrics.pressure.drain_forced_close == before.pressure.drain_forced_close + 1);
-	char byte{};
-	CHECK(client.recv(&byte, 1) <= 0);
+	auto const close_state = recv_close_state(client.fd());
+	CHECK(is_socket_closed(close_state));
 	client.close();
 }
 

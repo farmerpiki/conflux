@@ -1318,15 +1318,11 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	// Wait up to 4 seconds for EOF from server.
-	char buf[1];
 	std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-	auto n = ::recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+	auto const close_state = recv_close_state(fd, MSG_DONTWAIT);
 	::close(fd);
 
-	// Either 0 (clean close) or -1/ECONNRESET: connection is gone.
-	bool const connection_gone = (n == 0) || (n < 0 && (errno == ECONNRESET || errno == EAGAIN));
-	REQUIRE(connection_gone);
+	REQUIRE(is_socket_closed(close_state));
 
 	// Normal request still works after a timeout reap.
 	int const fd2 = ::socket(AF_INET, SOCK_STREAM, 0);
