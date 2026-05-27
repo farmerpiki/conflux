@@ -640,10 +640,6 @@ struct OptionalBearerToken {
 	[[nodiscard]] constexpr std::optional<std::string_view> operator *() const noexcept { return token; }
 };
 
-using Bearer = BearerToken;
-using RequiredBearer = RequiredBearerToken;
-using OptionalBearer = OptionalBearerToken;
-
 struct BasicAuth {
 	std::string username;
 	std::string password;

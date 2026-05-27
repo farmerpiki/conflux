@@ -413,6 +413,14 @@ if(TARGET conflux_net_http)
                "add conflux::json::JsonCodec<T>, conflux::json::JsonMembers<T>, or reflection JSON support")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_legacy_bearer
+        SOURCE http_facade_compile_fail_legacy_bearer.cxx
+        TEST http-facade/compile-fail-legacy-bearer
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RequiredBearer")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization
