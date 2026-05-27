@@ -517,6 +517,14 @@ if(TARGET conflux_net_http)
         EXPECT "OverflowPolicy")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_metrics
+        SOURCE http_facade_compile_fail_global_send_zc_metrics.cxx
+        TEST http-facade/compile-fail-global-send-zc-metrics
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcMetrics")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_sse_channel
         SOURCE http_facade_compile_fail_global_sse_channel.cxx
         TEST http-facade/compile-fail-global-sse-channel

@@ -8,7 +8,7 @@ TEST_CASE(
 	"send_zc lifecycle: data CQE waits for notification before resubmit",
 	"[send_zc][http_server]") {
 	SendZcCqeState state{};
-	SendZcMetrics metrics{};
+	conflux::http::SendZcMetrics metrics{};
 	bool enabled = true;
 
 	auto first = observe_send_zc_cqe(
@@ -47,7 +47,7 @@ TEST_CASE(
 	"send_zc lifecycle: copied notification can disable adaptive SEND_ZC",
 	"[send_zc][http_server]") {
 	SendZcCqeState state{};
-	SendZcMetrics metrics{};
+	conflux::http::SendZcMetrics metrics{};
 	metrics.attempts = 1024;
 	metrics.bytes_requested = std::size_t{16} * 1024 * 1024;
 	metrics.notifications = 1023;
@@ -89,7 +89,7 @@ TEST_CASE(
 	"send_zc lifecycle: no-notification data CQE completes directly",
 	"[send_zc][http_server]") {
 	SendZcCqeState state{};
-	SendZcMetrics metrics{};
+	conflux::http::SendZcMetrics metrics{};
 	bool enabled = true;
 
 	auto partial = observe_send_zc_cqe(
@@ -125,7 +125,7 @@ TEST_CASE(
 	"send_zc lifecycle: error paths account ENOMEM and wait for notification when required",
 	"[send_zc][http_server]") {
 	SendZcCqeState state{};
-	SendZcMetrics metrics{};
+	conflux::http::SendZcMetrics metrics{};
 	bool enabled = true;
 
 	auto data_error = observe_send_zc_cqe(
@@ -165,7 +165,7 @@ TEST_CASE(
 	state.waiting_notification = true;
 	state.close_after_notification = true;
 	state.after_notification = SendZcPendingAction::complete_response;
-	SendZcMetrics metrics{};
+	conflux::http::SendZcMetrics metrics{};
 	bool enabled = true;
 
 	auto notif = observe_send_zc_cqe(

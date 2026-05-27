@@ -74,8 +74,10 @@ enum class Op : std::uint8_t {
 
 };
 
-struct SendZcCounters : SendZcMetrics {
-	[[nodiscard]] SendZcMetrics snapshot() const noexcept { return static_cast<SendZcMetrics const &>(*this); }
+struct SendZcCounters : conflux::http::SendZcMetrics {
+	[[nodiscard]] conflux::http::SendZcMetrics snapshot() const noexcept {
+		return static_cast<conflux::http::SendZcMetrics const &>(*this);
+	}
 };
 
 enum class ServerFatalReason : std::uint8_t {

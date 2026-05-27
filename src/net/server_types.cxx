@@ -24,7 +24,9 @@ enum class RunStatus : std::uint8_t {
 
 } // namespace conflux::http
 
-export struct SendZcMetrics {
+export namespace conflux::http {
+
+struct SendZcMetrics {
 	std::uint64_t attempts{};
 	std::uint64_t plain_attempts{};
 	std::uint64_t mapped_attempts{};
@@ -40,6 +42,8 @@ export struct SendZcMetrics {
 	std::uint64_t tls_bypass_bytes{};
 	std::uint64_t adaptive_disable_count{};
 };
+
+} // namespace conflux::http
 
 export enum class HttpRejectReason : std::uint8_t {
 	none,
@@ -202,7 +206,7 @@ export struct SendZcCqeOutcome {
 
 export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 	SendZcCqeState &state,
-	SendZcMetrics &metrics,
+	conflux::http::SendZcMetrics &metrics,
 	SendZcCqeInput input,
 	bool &send_zc_enabled) noexcept {
 	SendZcCqeOutcome out{};
@@ -283,7 +287,7 @@ export struct HttpServerMetrics {
 	std::uint64_t recv_bundle_cqes{};
 	std::uint64_t recv_bundle_slices{};
 	std::uint64_t recv_bundle_bytes{};
-	SendZcMetrics send_zc{};
+	conflux::http::SendZcMetrics send_zc{};
 	HttpRejectionMetrics rejections{};
 	struct StaticFileMetrics {
 		std::uint64_t mapped_responses{};
@@ -855,7 +859,6 @@ export struct RequestView : HttpRequestFieldAccessors {
 
 export namespace conflux::http {
 
-using SendZcMetrics = ::SendZcMetrics;
 using RejectReason = ::HttpRejectReason;
 using RejectionMetrics = ::HttpRejectionMetrics;
 using PressureMetrics = ::HttpPressureMetrics;
