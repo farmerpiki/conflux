@@ -25,6 +25,7 @@ PATTERN = re.compile(
     r"(?<![-A-Za-z0-9_])(S|SV|SP|UP|Opt|Fn|Tup|RE|EC|SZ)(?![A-Za-z0-9_])"
     r"|(?<![A-Za-z0-9_])(?:send_async|proxy_async|dispatch_async|block_on_socket_task|write_all_fd|read_all_fd)(?![A-Za-z0-9_])"
     r"|Config::benchmark\(\)"
+    r"|req\.params\[[^\]]+\]"
 )
 
 

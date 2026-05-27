@@ -323,15 +323,18 @@ struct UploadedFile {
 
 ### Query string and path parameters
 
-Parsed query parameters live in `req.query`. Matched path captures live in
-`req.params`.
+Fixed-string app routes can parse path captures directly into handler
+arguments by capture order:
 
 ```cpp
-auto name = req.params["name"];
-auto page = req.query["page"];
+app.get<"/items/{id:u64}">([](std::uint64_t id) {
+    return http::text(std::format("id={}", id));
+});
 ```
 
-For parsed scalar access, use the typed helpers on `http::RequestView` or
+Raw router handlers can inspect parsed query parameters through `req.query`
+and matched path captures through `req.params`. For parsed scalar access, use
+the typed helpers on `http::RequestView` or
 `http::OwnedRequest`. They return `std::expected<T, HttpFieldError>` and allocate error
 strings only on failure; successful numeric/bool parsing stays borrowed and
 `std::from_chars`-based.
@@ -477,9 +480,6 @@ public:
 };
 ```
 
-Path patterns support `{param}` segment captures and `*` wildcards. Captures are
-accessible through `req.params["param"]`.
-
 Fixed-string app routes can tag path parameter types and pass them directly as
 plain handler arguments by capture order:
 
@@ -488,6 +488,10 @@ app.get<"/todos/{id:i64}">([](std::int64_t id) {
     return http::text(std::format("todo={}", id));
 });
 ```
+
+Raw router path patterns support `{param}` segment captures and `*` wildcards.
+Raw handlers can inspect captures through `req.params`; fixed-string app
+routes should prefer typed captures.
 
 The public concepts are intended for user helpers and diagnostics. The HTTP
 server owns the request storage for the dispatch lifetime; handlers,
