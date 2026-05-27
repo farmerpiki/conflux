@@ -11,11 +11,11 @@ struct DbStatus {
 };
 
 template<>
-struct JsonMembers<DbStatus> {
+struct conflux::json::JsonMembers<DbStatus> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("database", &DbStatus::database),
-			json_member("backend_pid", &DbStatus::backend_pid),
+			conflux::json::json_member("database", &DbStatus::database),
+			conflux::json::json_member("backend_pid", &DbStatus::backend_pid),
 		};
 	}
 	static constexpr std::string_view type_name() { return "DbStatus"; }

@@ -439,7 +439,7 @@ expected<ObjectBuilder, JsonError> begin_object();
 expected<ArrayBuilder,  JsonError> begin_array();
 
 template<has_json_codec T>
-expected<void, JsonError>          set(T const& v);  // uses JsonCodec<T>::encode
+expected<void, JsonError>          set(T const& v);  // uses conflux::json::JsonCodec<T>::encode
 
 void                               reset()    noexcept; // discard pending value, reuse builder
 void                               discard() && noexcept;
@@ -548,9 +548,11 @@ are captured by the writer and returned by the outer helper.
 | `map<string, T>` | object |
 | `unordered_map<string, T>` | object |
 
-### `json_member` helper
+### `conflux::json::json_member` helper
 
 ```cpp
+namespace conflux::json {
+
 template<class T, class M>
 struct JsonMember {
     string_view  name;
@@ -559,13 +561,15 @@ struct JsonMember {
 
 template<class T, class M>
 constexpr JsonMember<T, M> json_member(string_view name, M T::* p);
+
+} // namespace conflux::json
 ```
 
-Convenience factory used inside `JsonMembers<T>::members()` tuples.
+Convenience factory used inside `conflux::json::JsonMembers<T>::members()` tuples.
 
-### Struct decode via `JsonMembers`
+### Struct decode via `conflux::json::JsonMembers`
 
-Specialise `JsonMembers<T>` to decode structs. Unknown members and missing
+Specialise `conflux::json::JsonMembers<T>` to decode structs. Unknown members and missing
 required members are errors. `optional<T>` fields are optional; all others
 are required. Reader-path struct decode writes supported field types directly
 into the destination field. Allocator-aware `std::basic_string<char, Traits, Alloc>`
@@ -583,11 +587,11 @@ aggregate path instead. See `json-reflect.md` and
 struct Point { int64_t x{}; int64_t y{}; };
 
 template<>
-struct JsonMembers<Point> {
+struct conflux::json::JsonMembers<Point> {
     static constexpr auto members() {
         return std::tuple{
-            json_member("x", &Point::x),
-            json_member("y", &Point::y),
+            conflux::json::json_member("x", &Point::x),
+            conflux::json::json_member("y", &Point::y),
         };
     }
     static constexpr string_view type_name() { return "Point"; }
@@ -597,14 +601,14 @@ auto doc = parse_view(R"({"x":3,"y":7})");
 auto pt  = decode<Point>(doc->root());  // expected<Point, JsonError>
 ```
 
-### Custom codec via `JsonCodec`
+### Custom codec via `conflux::json::JsonCodec`
 
-Specialise `JsonCodec<T>` for types that need custom decode/encode logic (e.g.
+Specialise `conflux::json::JsonCodec<T>` for types that need custom decode/encode logic (e.g.
 enums, types with invariants).
 
 ```cpp
 template<>
-struct JsonCodec<Color> {
+struct conflux::json::JsonCodec<Color> {
     static expected<Color, JsonError> decode(NodeRef n) {
         auto s = n.as_string();
         if (!s) return unexpected(move(s).error());
@@ -641,7 +645,7 @@ only the remaining events belonging to that value. Types without this overload
 still work through the DOM-shaped `decode(NodeRef)` fallback.
 
 `has_json_codec<T>` (concept) and `has_json_codec_v<T>` (variable template)
-are true when either `JsonMembers<T>` or `JsonCodec<T>` is specialised.
+are true when either `conflux::json::JsonMembers<T>` or `conflux::json::JsonCodec<T>` is specialised.
 
 ### Free decode helpers
 
@@ -673,7 +677,7 @@ would otherwise be destroyed before the returned value.
 
 For direct output, `write_json_direct(out, value, opts)` appends compact JSON to
 an existing string and `dump_direct(value, opts)` returns a new string. The
-native provider uses this path for eligible compact `JsonMembers<T>` values and
+native provider uses this path for eligible compact `conflux::json::JsonMembers<T>` values and
 falls back to the DOM writer for sorted or unsupported output.
 
 `JsonReader::skip_next_value()` validates the skipped value by consuming normal
@@ -772,7 +776,7 @@ Supports `==` and `<=>` comparison (null compares less than any value;
 two nulls compare equal).
 
 Decoded from JSON `null` → null state. Decoded from any non-null JSON value →
-populated state via `JsonCodec<T>::decode`.
+populated state via `conflux::json::JsonCodec<T>::decode`.
 
 ---
 
@@ -982,7 +986,7 @@ auto result = validate(data_doc->root(), schema_doc->root());
 if (!result) { /* result.error() describes the violation */ }
 ```
 
-The schema reflects the same members and types that `decode<T>` would accept. Optional fields become non-required schema properties. Custom `JsonCodec<T>` specializations are not introspected — only `JsonMembers<T>` yields a meaningful schema.
+The schema reflects the same members and types that `decode<T>` would accept. Optional fields become non-required schema properties. Custom `conflux::json::JsonCodec<T>` specializations are not introspected — only `conflux::json::JsonMembers<T>` yields a meaningful schema.
 
 ---
 

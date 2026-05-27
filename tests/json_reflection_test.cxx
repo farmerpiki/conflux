@@ -178,7 +178,7 @@ void test_reflect_direct_dump_nested() {
 void test_encode_plain_aggregate() {
 	Point p{3, 7};
 	ValueBuilder vb;
-	auto res = JsonCodec<Point>::encode(vb, p);
+	auto res = conflux::json::JsonCodec<Point>::encode(vb, p);
 	REQUIRE(res.has_value());
 	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
@@ -190,7 +190,7 @@ void test_encode_plain_aggregate() {
 void test_encode_with_name_annotation() {
 	Config cfg{.host = "srv", .port = 9000, .tls = false};
 	ValueBuilder vb;
-	auto res = JsonCodec<Config>::encode(vb, cfg);
+	auto res = conflux::json::JsonCodec<Config>::encode(vb, cfg);
 	REQUIRE(res.has_value());
 	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
@@ -201,7 +201,7 @@ void test_encode_with_name_annotation() {
 void test_encode_skip_field_absent() {
 	WithSkip w{.name = "bob", .internal_id = 55, .value = 7};
 	ValueBuilder vb;
-	auto res = JsonCodec<WithSkip>::encode(vb, w);
+	auto res = conflux::json::JsonCodec<WithSkip>::encode(vb, w);
 	REQUIRE(res.has_value());
 	auto doc = *std::move(vb).finish();
 	auto obj = *doc.root().as_object();
@@ -215,7 +215,7 @@ void test_encode_nested_aggregate() {
 		.origin = {5, 6}
     };
 	ValueBuilder vb;
-	auto res = JsonCodec<Nested>::encode(vb, n);
+	auto res = conflux::json::JsonCodec<Nested>::encode(vb, n);
 	REQUIRE(res.has_value());
 	auto doc = *std::move(vb).finish();
 	auto s = *doc.dump();
@@ -230,7 +230,7 @@ void test_encode_nested_aggregate() {
 void test_roundtrip_point() {
 	Point orig{-1, 42};
 	ValueBuilder vb;
-	auto enc = JsonCodec<Point>::encode(vb, orig);
+	auto enc = conflux::json::JsonCodec<Point>::encode(vb, orig);
 	REQUIRE(enc.has_value());
 	auto doc = *std::move(vb).finish();
 	auto rt = decode<Point>(doc);
@@ -241,7 +241,7 @@ void test_roundtrip_point() {
 void test_roundtrip_config() {
 	Config orig{.host = "example.com", .port = 443, .tls = true, .label = "staging"};
 	ValueBuilder vb;
-	auto enc = JsonCodec<Config>::encode(vb, orig);
+	auto enc = conflux::json::JsonCodec<Config>::encode(vb, orig);
 	REQUIRE(enc.has_value());
 	auto doc = *std::move(vb).finish();
 	auto rt = decode<Config>(doc);

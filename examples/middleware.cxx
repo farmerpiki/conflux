@@ -17,12 +17,12 @@ struct PingReply {
 };
 
 template<>
-struct JsonMembers<PingReply> {
+struct conflux::json::JsonMembers<PingReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("status", &PingReply::status),
-			json_member("request_id", &PingReply::request_id),
-			json_member("traceparent", &PingReply::traceparent),
+			conflux::json::json_member("status", &PingReply::status),
+			conflux::json::json_member("request_id", &PingReply::request_id),
+			conflux::json::json_member("traceparent", &PingReply::traceparent),
 		};
 	}
 };
@@ -34,12 +34,12 @@ struct ProfileReply {
 };
 
 template<>
-struct JsonMembers<ProfileReply> {
+struct conflux::json::JsonMembers<ProfileReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("user", &ProfileReply::user),
-			json_member("request_id", &ProfileReply::request_id),
-			json_member("remote_addr", &ProfileReply::remote_addr),
+			conflux::json::json_member("user", &ProfileReply::user),
+			conflux::json::json_member("request_id", &ProfileReply::request_id),
+			conflux::json::json_member("remote_addr", &ProfileReply::remote_addr),
 		};
 	}
 };
@@ -50,11 +50,11 @@ struct TokenReply {
 };
 
 template<>
-struct JsonMembers<TokenReply> {
+struct conflux::json::JsonMembers<TokenReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("token", &TokenReply::token),
-			json_member("request_id", &TokenReply::request_id),
+			conflux::json::json_member("token", &TokenReply::token),
+			conflux::json::json_member("request_id", &TokenReply::request_id),
 		};
 	}
 };

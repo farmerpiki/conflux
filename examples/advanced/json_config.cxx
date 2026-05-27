@@ -10,11 +10,11 @@ struct RateLimitConfig {
 };
 
 template<>
-struct JsonMembers<RateLimitConfig> {
+struct conflux::json::JsonMembers<RateLimitConfig> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("requests_per_minute", &RateLimitConfig::requests_per_minute),
-			json_member("burst", &RateLimitConfig::burst),
+			conflux::json::json_member("requests_per_minute", &RateLimitConfig::requests_per_minute),
+			conflux::json::json_member("burst", &RateLimitConfig::burst),
 		};
 	}
 	static constexpr std::string_view type_name() { return "RateLimitConfig"; }
@@ -29,14 +29,14 @@ struct ServiceConfig {
 };
 
 template<>
-struct JsonMembers<ServiceConfig> {
+struct conflux::json::JsonMembers<ServiceConfig> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("host", &ServiceConfig::host),
-			json_member("port", &ServiceConfig::port),
-			json_member("tls", &ServiceConfig::tls),
-			json_member("rate_limit", &ServiceConfig::rate_limit),
-			json_member("log_level", &ServiceConfig::log_level),
+			conflux::json::json_member("host", &ServiceConfig::host),
+			conflux::json::json_member("port", &ServiceConfig::port),
+			conflux::json::json_member("tls", &ServiceConfig::tls),
+			conflux::json::json_member("rate_limit", &ServiceConfig::rate_limit),
+			conflux::json::json_member("log_level", &ServiceConfig::log_level),
 		};
 	}
 	static constexpr std::string_view type_name() { return "ServiceConfig"; }

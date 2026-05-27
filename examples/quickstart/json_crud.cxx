@@ -26,26 +26,26 @@ struct TodoStore {
 };
 
 template<>
-struct JsonMembers<Todo> {
+struct conflux::json::JsonMembers<Todo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("id", &Todo::id),
-			json_member("title", &Todo::title),
-			json_member("done", &Todo::done),
+			conflux::json::json_member("id", &Todo::id),
+			conflux::json::json_member("title", &Todo::title),
+			conflux::json::json_member("done", &Todo::done),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Todo"; }
 };
 
 template<>
-struct JsonMembers<TodoList> {
-	static constexpr auto members() { return std::tuple{json_member("items", &TodoList::items)}; }
+struct conflux::json::JsonMembers<TodoList> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("items", &TodoList::items)}; }
 	static constexpr std::string_view type_name() { return "TodoList"; }
 };
 
 template<>
-struct JsonMembers<CreateTodo> {
-	static constexpr auto members() { return std::tuple{json_member("title", &CreateTodo::title)}; }
+struct conflux::json::JsonMembers<CreateTodo> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("title", &CreateTodo::title)}; }
 	static constexpr std::string_view type_name() { return "CreateTodo"; }
 };
 

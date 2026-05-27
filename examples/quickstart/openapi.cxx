@@ -6,8 +6,8 @@ struct StatusReply {
 };
 
 template<>
-struct JsonMembers<StatusReply> {
-	static constexpr auto members() { return std::tuple{json_member("status", &StatusReply::status)}; }
+struct conflux::json::JsonMembers<StatusReply> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("status", &StatusReply::status)}; }
 	static constexpr std::string_view type_name() { return "StatusReply"; }
 };
 

@@ -1,4 +1,4 @@
-// Intentionally invalid: Json<T> responses require a codec or JsonMembers<T>.
+// Intentionally invalid: Json<T> responses require a codec or conflux::json::JsonMembers<T>.
 import conflux.http;
 
 namespace http = conflux::http;

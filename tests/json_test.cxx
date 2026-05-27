@@ -1095,7 +1095,7 @@ TEST_CASE(
 	CHECK(is_value_equal_exact(da->root(), db->root()));
 }
 // ---------------------------------------------------------------------------
-// Phase 2: JsonMembers<T> — plain struct decode
+// Phase 2: conflux::json::JsonMembers<T> — plain struct decode
 // ---------------------------------------------------------------------------
 
 struct Point {
@@ -1103,11 +1103,11 @@ struct Point {
 	std::int64_t y{};
 };
 template<>
-struct JsonMembers<Point> {
+struct conflux::json::JsonMembers<Point> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("x", &Point::x),
-			json_member("y", &Point::y),
+			conflux::json::json_member("x", &Point::x),
+			conflux::json::json_member("y", &Point::y),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Point"; }
@@ -1161,7 +1161,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: JsonCodec<T> — custom enum codec
+// Phase 2: conflux::json::JsonCodec<T> — custom enum codec
 // ---------------------------------------------------------------------------
 
 enum class Color {
@@ -1170,7 +1170,7 @@ enum class Color {
 	blue,
 };
 template<>
-struct JsonCodec<Color> {
+struct conflux::json::JsonCodec<Color> {
 	static std::expected<Color, JsonError> decode(
 		NodeRef n) {
 		auto s = n.as_string();
@@ -1242,11 +1242,11 @@ struct Config {
 	std::optional<std::int64_t> optional_field{};
 };
 template<>
-struct JsonMembers<Config> {
+struct conflux::json::JsonMembers<Config> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("required_field", &Config::required_field),
-			json_member("optional_field", &Config::optional_field),
+			conflux::json::json_member("required_field", &Config::required_field),
+			conflux::json::json_member("optional_field", &Config::optional_field),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Config"; }
@@ -2284,13 +2284,13 @@ struct ThreeFieldModel {
 	std::optional<Nullable<std::int64_t>> opt_nullable_val{};
 };
 template<>
-struct JsonMembers<ThreeFieldModel> {
+struct conflux::json::JsonMembers<ThreeFieldModel> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("required_val", &ThreeFieldModel::required_val),
-			json_member("optional_val", &ThreeFieldModel::optional_val),
-			json_member("nullable_val", &ThreeFieldModel::nullable_val),
-			json_member("opt_nullable_val", &ThreeFieldModel::opt_nullable_val),
+			conflux::json::json_member("required_val", &ThreeFieldModel::required_val),
+			conflux::json::json_member("optional_val", &ThreeFieldModel::optional_val),
+			conflux::json::json_member("nullable_val", &ThreeFieldModel::nullable_val),
+			conflux::json::json_member("opt_nullable_val", &ThreeFieldModel::opt_nullable_val),
 		};
 	}
 	static constexpr std::string_view type_name() { return "ThreeFieldModel"; }
@@ -2607,10 +2607,10 @@ struct InnerData {
 	std::int64_t value{};
 };
 template<>
-struct JsonMembers<InnerData> {
+struct conflux::json::JsonMembers<InnerData> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("value", &InnerData::value),
+			conflux::json::json_member("value", &InnerData::value),
 		};
 	}
 	static constexpr std::string_view type_name() { return "InnerData"; }
@@ -2619,7 +2619,7 @@ struct OuterWithPrefix {
 	InnerData inner{};
 };
 template<>
-struct JsonCodec<OuterWithPrefix> {
+struct conflux::json::JsonCodec<OuterWithPrefix> {
 	static std::expected<OuterWithPrefix, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
@@ -3075,12 +3075,12 @@ struct Rect {
 	std::int64_t height{};
 };
 template<>
-struct JsonMembers<Rect> {
+struct conflux::json::JsonMembers<Rect> {
 	static constexpr auto members() {
 		return std::tuple{
 			make_tuple(
-				json_member("width", &Rect::width),
-				static_cast<JsonConstraintFn<std::int64_t>>(
+				conflux::json::json_member("width", &Rect::width),
+				static_cast<conflux::json::JsonConstraintFn<std::int64_t>>(
 					[](std::int64_t const &v) -> std::expected<void, JsonError> {
 						if (v <= 0) {
 							return std::unexpected(
@@ -3091,7 +3091,7 @@ struct JsonMembers<Rect> {
 						}
 						return {};
 					})),
-			json_member("height", &Rect::height),
+			conflux::json::json_member("height", &Rect::height),
 		};
 	}
 };
@@ -3123,15 +3123,15 @@ struct Inner {
 	std::int64_t val{};
 };
 template<>
-struct JsonMembers<Inner> {
-	static constexpr auto members() { return std::tuple{json_member("val", &Inner::val)}; }
+struct conflux::json::JsonMembers<Inner> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("val", &Inner::val)}; }
 };
 struct Outer {
 	Inner inner{};
 };
 template<>
-struct JsonMembers<Outer> {
-	static constexpr auto members() { return std::tuple{json_member("inner", &Outer::inner)}; }
+struct conflux::json::JsonMembers<Outer> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("inner", &Outer::inner)}; }
 };
 TEST_CASE(
 	"json: nested struct wrong type propagates full path",
@@ -3170,11 +3170,11 @@ struct P4Person {
 	std::int64_t age{};
 };
 template<>
-struct JsonMembers<P4Person> {
+struct conflux::json::JsonMembers<P4Person> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("name", &P4Person::name),
-			json_member("age", &P4Person::age),
+			conflux::json::json_member("name", &P4Person::name),
+			conflux::json::json_member("age", &P4Person::age),
 		};
 	}
 };
@@ -3183,11 +3183,11 @@ struct P4Address {
 	std::optional<std::string> city{};
 };
 template<>
-struct JsonMembers<P4Address> {
+struct conflux::json::JsonMembers<P4Address> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("street", &P4Address::street),
-			json_member("city", &P4Address::city),
+			conflux::json::json_member("street", &P4Address::street),
+			conflux::json::json_member("city", &P4Address::city),
 		};
 	}
 };
@@ -3196,11 +3196,11 @@ struct P4Nested {
 	std::int64_t score{};
 };
 template<>
-struct JsonMembers<P4Nested> {
+struct conflux::json::JsonMembers<P4Nested> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("person", &P4Nested::person),
-			json_member("score", &P4Nested::score),
+			conflux::json::json_member("person", &P4Nested::person),
+			conflux::json::json_member("score", &P4Nested::score),
 		};
 	}
 };
@@ -3212,10 +3212,10 @@ struct P4LongKey {
 	return key;
 }
 template<>
-struct JsonMembers<P4LongKey> {
+struct conflux::json::JsonMembers<P4LongKey> {
 	static auto members() {
 		return std::tuple{
-			json_member(std::string_view{p4_long_key_name()}, &P4LongKey::value),
+			conflux::json::json_member(std::string_view{p4_long_key_name()}, &P4LongKey::value),
 		};
 	}
 };
@@ -3223,10 +3223,10 @@ struct P4BorrowedName {
 	std::string_view name{};
 };
 template<>
-struct JsonMembers<P4BorrowedName> {
+struct conflux::json::JsonMembers<P4BorrowedName> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("name", &P4BorrowedName::name),
+			conflux::json::json_member("name", &P4BorrowedName::name),
 		};
 	}
 };
@@ -3237,11 +3237,11 @@ struct P4PmrPayload {
 	std::pmr::vector<std::int64_t> scores{};
 };
 template<>
-struct JsonMembers<P4PmrPayload> {
+struct conflux::json::JsonMembers<P4PmrPayload> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("name", &P4PmrPayload::name),
-			json_member("scores", &P4PmrPayload::scores),
+			conflux::json::json_member("name", &P4PmrPayload::name),
+			conflux::json::json_member("scores", &P4PmrPayload::scores),
 		};
 	}
 };
@@ -3314,42 +3314,42 @@ struct P4WideInner {
 	std::int64_t f64{};
 };
 template<>
-struct JsonMembers<P4WideInner> {
+struct conflux::json::JsonMembers<P4WideInner> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("f0", &P4WideInner::f0),   json_member("f1", &P4WideInner::f1),
-			json_member("f2", &P4WideInner::f2),   json_member("f3", &P4WideInner::f3),
-			json_member("f4", &P4WideInner::f4),   json_member("f5", &P4WideInner::f5),
-			json_member("f6", &P4WideInner::f6),   json_member("f7", &P4WideInner::f7),
-			json_member("f8", &P4WideInner::f8),   json_member("f9", &P4WideInner::f9),
-			json_member("f10", &P4WideInner::f10), json_member("f11", &P4WideInner::f11),
-			json_member("f12", &P4WideInner::f12), json_member("f13", &P4WideInner::f13),
-			json_member("f14", &P4WideInner::f14), json_member("f15", &P4WideInner::f15),
-			json_member("f16", &P4WideInner::f16), json_member("f17", &P4WideInner::f17),
-			json_member("f18", &P4WideInner::f18), json_member("f19", &P4WideInner::f19),
-			json_member("f20", &P4WideInner::f20), json_member("f21", &P4WideInner::f21),
-			json_member("f22", &P4WideInner::f22), json_member("f23", &P4WideInner::f23),
-			json_member("f24", &P4WideInner::f24), json_member("f25", &P4WideInner::f25),
-			json_member("f26", &P4WideInner::f26), json_member("f27", &P4WideInner::f27),
-			json_member("f28", &P4WideInner::f28), json_member("f29", &P4WideInner::f29),
-			json_member("f30", &P4WideInner::f30), json_member("f31", &P4WideInner::f31),
-			json_member("f32", &P4WideInner::f32), json_member("f33", &P4WideInner::f33),
-			json_member("f34", &P4WideInner::f34), json_member("f35", &P4WideInner::f35),
-			json_member("f36", &P4WideInner::f36), json_member("f37", &P4WideInner::f37),
-			json_member("f38", &P4WideInner::f38), json_member("f39", &P4WideInner::f39),
-			json_member("f40", &P4WideInner::f40), json_member("f41", &P4WideInner::f41),
-			json_member("f42", &P4WideInner::f42), json_member("f43", &P4WideInner::f43),
-			json_member("f44", &P4WideInner::f44), json_member("f45", &P4WideInner::f45),
-			json_member("f46", &P4WideInner::f46), json_member("f47", &P4WideInner::f47),
-			json_member("f48", &P4WideInner::f48), json_member("f49", &P4WideInner::f49),
-			json_member("f50", &P4WideInner::f50), json_member("f51", &P4WideInner::f51),
-			json_member("f52", &P4WideInner::f52), json_member("f53", &P4WideInner::f53),
-			json_member("f54", &P4WideInner::f54), json_member("f55", &P4WideInner::f55),
-			json_member("f56", &P4WideInner::f56), json_member("f57", &P4WideInner::f57),
-			json_member("f58", &P4WideInner::f58), json_member("f59", &P4WideInner::f59),
-			json_member("f60", &P4WideInner::f60), json_member("f61", &P4WideInner::f61),
-			json_member("f62", &P4WideInner::f62), json_member("f63", &P4WideInner::f63),
-			json_member("f64", &P4WideInner::f64),
+			conflux::json::json_member("f0", &P4WideInner::f0),   conflux::json::json_member("f1", &P4WideInner::f1),
+			conflux::json::json_member("f2", &P4WideInner::f2),   conflux::json::json_member("f3", &P4WideInner::f3),
+			conflux::json::json_member("f4", &P4WideInner::f4),   conflux::json::json_member("f5", &P4WideInner::f5),
+			conflux::json::json_member("f6", &P4WideInner::f6),   conflux::json::json_member("f7", &P4WideInner::f7),
+			conflux::json::json_member("f8", &P4WideInner::f8),   conflux::json::json_member("f9", &P4WideInner::f9),
+			conflux::json::json_member("f10", &P4WideInner::f10), conflux::json::json_member("f11", &P4WideInner::f11),
+			conflux::json::json_member("f12", &P4WideInner::f12), conflux::json::json_member("f13", &P4WideInner::f13),
+			conflux::json::json_member("f14", &P4WideInner::f14), conflux::json::json_member("f15", &P4WideInner::f15),
+			conflux::json::json_member("f16", &P4WideInner::f16), conflux::json::json_member("f17", &P4WideInner::f17),
+			conflux::json::json_member("f18", &P4WideInner::f18), conflux::json::json_member("f19", &P4WideInner::f19),
+			conflux::json::json_member("f20", &P4WideInner::f20), conflux::json::json_member("f21", &P4WideInner::f21),
+			conflux::json::json_member("f22", &P4WideInner::f22), conflux::json::json_member("f23", &P4WideInner::f23),
+			conflux::json::json_member("f24", &P4WideInner::f24), conflux::json::json_member("f25", &P4WideInner::f25),
+			conflux::json::json_member("f26", &P4WideInner::f26), conflux::json::json_member("f27", &P4WideInner::f27),
+			conflux::json::json_member("f28", &P4WideInner::f28), conflux::json::json_member("f29", &P4WideInner::f29),
+			conflux::json::json_member("f30", &P4WideInner::f30), conflux::json::json_member("f31", &P4WideInner::f31),
+			conflux::json::json_member("f32", &P4WideInner::f32), conflux::json::json_member("f33", &P4WideInner::f33),
+			conflux::json::json_member("f34", &P4WideInner::f34), conflux::json::json_member("f35", &P4WideInner::f35),
+			conflux::json::json_member("f36", &P4WideInner::f36), conflux::json::json_member("f37", &P4WideInner::f37),
+			conflux::json::json_member("f38", &P4WideInner::f38), conflux::json::json_member("f39", &P4WideInner::f39),
+			conflux::json::json_member("f40", &P4WideInner::f40), conflux::json::json_member("f41", &P4WideInner::f41),
+			conflux::json::json_member("f42", &P4WideInner::f42), conflux::json::json_member("f43", &P4WideInner::f43),
+			conflux::json::json_member("f44", &P4WideInner::f44), conflux::json::json_member("f45", &P4WideInner::f45),
+			conflux::json::json_member("f46", &P4WideInner::f46), conflux::json::json_member("f47", &P4WideInner::f47),
+			conflux::json::json_member("f48", &P4WideInner::f48), conflux::json::json_member("f49", &P4WideInner::f49),
+			conflux::json::json_member("f50", &P4WideInner::f50), conflux::json::json_member("f51", &P4WideInner::f51),
+			conflux::json::json_member("f52", &P4WideInner::f52), conflux::json::json_member("f53", &P4WideInner::f53),
+			conflux::json::json_member("f54", &P4WideInner::f54), conflux::json::json_member("f55", &P4WideInner::f55),
+			conflux::json::json_member("f56", &P4WideInner::f56), conflux::json::json_member("f57", &P4WideInner::f57),
+			conflux::json::json_member("f58", &P4WideInner::f58), conflux::json::json_member("f59", &P4WideInner::f59),
+			conflux::json::json_member("f60", &P4WideInner::f60), conflux::json::json_member("f61", &P4WideInner::f61),
+			conflux::json::json_member("f62", &P4WideInner::f62), conflux::json::json_member("f63", &P4WideInner::f63),
+			conflux::json::json_member("f64", &P4WideInner::f64),
 		};
 	}
 };
@@ -3423,43 +3423,76 @@ struct P4WideOuter {
 	std::int64_t tail{};
 };
 template<>
-struct JsonMembers<P4WideOuter> {
+struct conflux::json::JsonMembers<P4WideOuter> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("f0", &P4WideOuter::f0),     json_member("f1", &P4WideOuter::f1),
-			json_member("f2", &P4WideOuter::f2),     json_member("f3", &P4WideOuter::f3),
-			json_member("f4", &P4WideOuter::f4),     json_member("f5", &P4WideOuter::f5),
-			json_member("f6", &P4WideOuter::f6),     json_member("f7", &P4WideOuter::f7),
-			json_member("f8", &P4WideOuter::f8),     json_member("f9", &P4WideOuter::f9),
-			json_member("f10", &P4WideOuter::f10),   json_member("f11", &P4WideOuter::f11),
-			json_member("f12", &P4WideOuter::f12),   json_member("f13", &P4WideOuter::f13),
-			json_member("f14", &P4WideOuter::f14),   json_member("f15", &P4WideOuter::f15),
-			json_member("f16", &P4WideOuter::f16),   json_member("f17", &P4WideOuter::f17),
-			json_member("f18", &P4WideOuter::f18),   json_member("f19", &P4WideOuter::f19),
-			json_member("f20", &P4WideOuter::f20),   json_member("f21", &P4WideOuter::f21),
-			json_member("f22", &P4WideOuter::f22),   json_member("f23", &P4WideOuter::f23),
-			json_member("f24", &P4WideOuter::f24),   json_member("f25", &P4WideOuter::f25),
-			json_member("f26", &P4WideOuter::f26),   json_member("f27", &P4WideOuter::f27),
-			json_member("f28", &P4WideOuter::f28),   json_member("f29", &P4WideOuter::f29),
-			json_member("f30", &P4WideOuter::f30),   json_member("f31", &P4WideOuter::f31),
-			json_member("f32", &P4WideOuter::f32),   json_member("f33", &P4WideOuter::f33),
-			json_member("f34", &P4WideOuter::f34),   json_member("f35", &P4WideOuter::f35),
-			json_member("f36", &P4WideOuter::f36),   json_member("f37", &P4WideOuter::f37),
-			json_member("f38", &P4WideOuter::f38),   json_member("f39", &P4WideOuter::f39),
-			json_member("f40", &P4WideOuter::f40),   json_member("f41", &P4WideOuter::f41),
-			json_member("f42", &P4WideOuter::f42),   json_member("f43", &P4WideOuter::f43),
-			json_member("f44", &P4WideOuter::f44),   json_member("f45", &P4WideOuter::f45),
-			json_member("f46", &P4WideOuter::f46),   json_member("f47", &P4WideOuter::f47),
-			json_member("f48", &P4WideOuter::f48),   json_member("f49", &P4WideOuter::f49),
-			json_member("f50", &P4WideOuter::f50),   json_member("f51", &P4WideOuter::f51),
-			json_member("f52", &P4WideOuter::f52),   json_member("f53", &P4WideOuter::f53),
-			json_member("f54", &P4WideOuter::f54),   json_member("f55", &P4WideOuter::f55),
-			json_member("f56", &P4WideOuter::f56),   json_member("f57", &P4WideOuter::f57),
-			json_member("f58", &P4WideOuter::f58),   json_member("f59", &P4WideOuter::f59),
-			json_member("f60", &P4WideOuter::f60),   json_member("f61", &P4WideOuter::f61),
-			json_member("f62", &P4WideOuter::f62),   json_member("f63", &P4WideOuter::f63),
-			json_member("f64", &P4WideOuter::f64),   json_member("inner", &P4WideOuter::inner),
-			json_member("tail", &P4WideOuter::tail),
+			conflux::json::json_member("f0", &P4WideOuter::f0),
+			conflux::json::json_member("f1", &P4WideOuter::f1),
+			conflux::json::json_member("f2", &P4WideOuter::f2),
+			conflux::json::json_member("f3", &P4WideOuter::f3),
+			conflux::json::json_member("f4", &P4WideOuter::f4),
+			conflux::json::json_member("f5", &P4WideOuter::f5),
+			conflux::json::json_member("f6", &P4WideOuter::f6),
+			conflux::json::json_member("f7", &P4WideOuter::f7),
+			conflux::json::json_member("f8", &P4WideOuter::f8),
+			conflux::json::json_member("f9", &P4WideOuter::f9),
+			conflux::json::json_member("f10", &P4WideOuter::f10),
+			conflux::json::json_member("f11", &P4WideOuter::f11),
+			conflux::json::json_member("f12", &P4WideOuter::f12),
+			conflux::json::json_member("f13", &P4WideOuter::f13),
+			conflux::json::json_member("f14", &P4WideOuter::f14),
+			conflux::json::json_member("f15", &P4WideOuter::f15),
+			conflux::json::json_member("f16", &P4WideOuter::f16),
+			conflux::json::json_member("f17", &P4WideOuter::f17),
+			conflux::json::json_member("f18", &P4WideOuter::f18),
+			conflux::json::json_member("f19", &P4WideOuter::f19),
+			conflux::json::json_member("f20", &P4WideOuter::f20),
+			conflux::json::json_member("f21", &P4WideOuter::f21),
+			conflux::json::json_member("f22", &P4WideOuter::f22),
+			conflux::json::json_member("f23", &P4WideOuter::f23),
+			conflux::json::json_member("f24", &P4WideOuter::f24),
+			conflux::json::json_member("f25", &P4WideOuter::f25),
+			conflux::json::json_member("f26", &P4WideOuter::f26),
+			conflux::json::json_member("f27", &P4WideOuter::f27),
+			conflux::json::json_member("f28", &P4WideOuter::f28),
+			conflux::json::json_member("f29", &P4WideOuter::f29),
+			conflux::json::json_member("f30", &P4WideOuter::f30),
+			conflux::json::json_member("f31", &P4WideOuter::f31),
+			conflux::json::json_member("f32", &P4WideOuter::f32),
+			conflux::json::json_member("f33", &P4WideOuter::f33),
+			conflux::json::json_member("f34", &P4WideOuter::f34),
+			conflux::json::json_member("f35", &P4WideOuter::f35),
+			conflux::json::json_member("f36", &P4WideOuter::f36),
+			conflux::json::json_member("f37", &P4WideOuter::f37),
+			conflux::json::json_member("f38", &P4WideOuter::f38),
+			conflux::json::json_member("f39", &P4WideOuter::f39),
+			conflux::json::json_member("f40", &P4WideOuter::f40),
+			conflux::json::json_member("f41", &P4WideOuter::f41),
+			conflux::json::json_member("f42", &P4WideOuter::f42),
+			conflux::json::json_member("f43", &P4WideOuter::f43),
+			conflux::json::json_member("f44", &P4WideOuter::f44),
+			conflux::json::json_member("f45", &P4WideOuter::f45),
+			conflux::json::json_member("f46", &P4WideOuter::f46),
+			conflux::json::json_member("f47", &P4WideOuter::f47),
+			conflux::json::json_member("f48", &P4WideOuter::f48),
+			conflux::json::json_member("f49", &P4WideOuter::f49),
+			conflux::json::json_member("f50", &P4WideOuter::f50),
+			conflux::json::json_member("f51", &P4WideOuter::f51),
+			conflux::json::json_member("f52", &P4WideOuter::f52),
+			conflux::json::json_member("f53", &P4WideOuter::f53),
+			conflux::json::json_member("f54", &P4WideOuter::f54),
+			conflux::json::json_member("f55", &P4WideOuter::f55),
+			conflux::json::json_member("f56", &P4WideOuter::f56),
+			conflux::json::json_member("f57", &P4WideOuter::f57),
+			conflux::json::json_member("f58", &P4WideOuter::f58),
+			conflux::json::json_member("f59", &P4WideOuter::f59),
+			conflux::json::json_member("f60", &P4WideOuter::f60),
+			conflux::json::json_member("f61", &P4WideOuter::f61),
+			conflux::json::json_member("f62", &P4WideOuter::f62),
+			conflux::json::json_member("f63", &P4WideOuter::f63),
+			conflux::json::json_member("f64", &P4WideOuter::f64),
+			conflux::json::json_member("inner", &P4WideOuter::inner),
+			conflux::json::json_member("tail", &P4WideOuter::tail),
 		};
 	}
 };

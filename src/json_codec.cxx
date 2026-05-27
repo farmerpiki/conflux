@@ -7,15 +7,34 @@ import :api;
 // has_json_codec — forward-declared here so builders can use it in requires
 // ---------------------------------------------------------------------------
 
-export template<class M>
+export namespace conflux::json {
+
+template<class M>
 using JsonConstraintFn = std::expected<void, JsonError> (*)(M const &);
 
-export template<class T>
+template<class T>
 struct JsonMembers;
-export template<class T>
+
+template<class T>
 struct JsonCodec;
-export template<class T>
+
+template<class T>
 struct JsonBorrowedViewFields : std::false_type {};
+
+template<class T, class M>
+struct JsonMember {
+	std::string_view name;
+	M T::*pointer;
+};
+
+template<class T, class M>
+constexpr JsonMember<T, M> json_member(
+	std::string_view name,
+	M T::*p) {
+	return {name, p};
+}
+
+} // namespace conflux::json
 namespace detail {
 
 template<class T, class = void>
@@ -696,39 +715,29 @@ struct std::hash<Nullable<T>> {
 // ---------------------------------------------------------------------------
 // JsonCodec / JsonMembers / decode
 // ---------------------------------------------------------------------------
-
-export template<class T, class M>
-struct JsonMember {
-	std::string_view name;
-	M T::*pointer;
-};
-export template<class T, class M>
-constexpr JsonMember<T, M> json_member(
-	std::string_view name,
-	M T::*p) {
-	return {name, p};
-}
 namespace detail {
 
 template<class T>
 concept codec_decodes_node = requires(NodeRef root) {
-	{ JsonCodec<T>::decode(root) } -> std::same_as<std::expected<T, JsonError>>;
+	{ conflux::json::JsonCodec<T>::decode(root) } -> std::same_as<std::expected<T, JsonError>>;
 };
 
 template<class T>
 concept codec_decodes_node_with_options = requires(NodeRef root, JsonDecodeOptions const &opts) {
-	{ JsonCodec<T>::decode(root, opts) } -> std::same_as<std::expected<T, JsonError>>;
+	{ conflux::json::JsonCodec<T>::decode(root, opts) } -> std::same_as<std::expected<T, JsonError>>;
 };
 
 template<class T>
 concept codec_decodes_reader_event_with_options =
 	requires(JsonReader &reader, JsonReader::Event event, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch) {
-		{ JsonCodec<T>::decode(reader, event, opts, scratch) } -> std::same_as<std::expected<T, JsonError>>;
+		{
+			conflux::json::JsonCodec<T>::decode(reader, event, opts, scratch)
+		} -> std::same_as<std::expected<T, JsonError>>;
 	};
 
 template<class T>
 concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
-	{ JsonCodec<T>::encode(builder, value) } -> std::same_as<std::expected<void, JsonError>>;
+	{ conflux::json::JsonCodec<T>::encode(builder, value) } -> std::same_as<std::expected<void, JsonError>>;
 };
 
 template<class T>
@@ -740,34 +749,34 @@ std::expected<T, JsonError> decode_codec(
 	NodeRef root,
 	JsonDecodeOptions const &opts) {
 	if constexpr (codec_decodes_node_with_options<T>) {
-		return JsonCodec<T>::decode(root, opts);
+		return conflux::json::JsonCodec<T>::decode(root, opts);
 	} else {
-		return JsonCodec<T>::decode(root);
+		return conflux::json::JsonCodec<T>::decode(root);
 	}
 }
 template<class T>
-struct has_members_spec<T, std::void_t<decltype(JsonMembers<T>::members())>>
+struct has_members_spec<T, std::void_t<decltype(conflux::json::JsonMembers<T>::members())>>
 	: std::bool_constant<std::default_initializable<T>> {};
 // Overload set: extract JsonMember from plain or constrained member entry.
 template<class T, class M>
-[[nodiscard]] constexpr JsonMember<T, M> const &jm_member(
-	JsonMember<T, M> const &jm) noexcept {
+[[nodiscard]] constexpr conflux::json::JsonMember<T, M> const &jm_member(
+	conflux::json::JsonMember<T, M> const &jm) noexcept {
 	return jm;
 }
 template<class T, class M>
-[[nodiscard]] constexpr JsonMember<T, M> const &jm_member(
-	std::tuple<JsonMember<T, M>, JsonConstraintFn<M>> const &t) noexcept {
+[[nodiscard]] constexpr conflux::json::JsonMember<T, M> const &jm_member(
+	std::tuple<conflux::json::JsonMember<T, M>, conflux::json::JsonConstraintFn<M>> const &t) noexcept {
 	return get<0>(t);
 }
 // Overload set: extract constraint fn-ptr (nullptr = none).
 template<class T, class M>
-[[nodiscard]] constexpr JsonConstraintFn<M> jm_constraint(
-	JsonMember<T, M> const &) noexcept {
+[[nodiscard]] constexpr conflux::json::JsonConstraintFn<M> jm_constraint(
+	conflux::json::JsonMember<T, M> const &) noexcept {
 	return nullptr;
 }
 template<class T, class M>
-[[nodiscard]] constexpr JsonConstraintFn<M> jm_constraint(
-	std::tuple<JsonMember<T, M>, JsonConstraintFn<M>> const &t) noexcept {
+[[nodiscard]] constexpr conflux::json::JsonConstraintFn<M> jm_constraint(
+	std::tuple<conflux::json::JsonMember<T, M>, conflux::json::JsonConstraintFn<M>> const &t) noexcept {
 	return get<1>(t);
 }
 
@@ -779,11 +788,11 @@ struct json_member_entry_value_type {
 	using type = void;
 };
 template<class T, class M>
-struct json_member_entry_value_type<JsonMember<T, M>> {
+struct json_member_entry_value_type<conflux::json::JsonMember<T, M>> {
 	using type = M;
 };
 template<class T, class M>
-struct json_member_entry_value_type<std::tuple<JsonMember<T, M>, JsonConstraintFn<M>>> {
+struct json_member_entry_value_type<std::tuple<conflux::json::JsonMember<T, M>, conflux::json::JsonConstraintFn<M>>> {
 	using type = M;
 };
 template<class Entry>
@@ -801,7 +810,7 @@ consteval bool json_member_tuple_contains_borrowed_view(
 template<class T>
 consteval bool json_members_contain_borrowed_view() {
 	if constexpr (has_members_spec<T>::value) {
-		using MembersTuple = std::remove_cvref_t<decltype(JsonMembers<T>::members())>;
+		using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
 		return json_member_tuple_contains_borrowed_view<MembersTuple>(
 			std::make_index_sequence<std::tuple_size_v<MembersTuple>>{});
 	} else {
@@ -812,7 +821,7 @@ consteval bool json_members_contain_borrowed_view() {
 template<class T>
 struct json_contains_borrowed_view_impl
 	: std::bool_constant<
-		  JsonBorrowedViewFields<std::remove_cvref_t<T>>::value
+		  conflux::json::JsonBorrowedViewFields<std::remove_cvref_t<T>>::value
 		  || json_members_contain_borrowed_view<std::remove_cvref_t<T>>()> {};
 template<>
 struct json_contains_borrowed_view_impl<std::string_view> : std::true_type {};
@@ -836,33 +845,33 @@ inline constexpr bool json_contains_borrowed_view_v =
 
 // Built-in specializations declared here, defined below.
 template<>
-struct JsonCodec<bool>;
+struct conflux::json::JsonCodec<bool>;
 template<>
-struct JsonCodec<std::int64_t>;
+struct conflux::json::JsonCodec<std::int64_t>;
 template<>
-struct JsonCodec<std::uint64_t>;
+struct conflux::json::JsonCodec<std::uint64_t>;
 template<>
-struct JsonCodec<double>;
+struct conflux::json::JsonCodec<double>;
 template<class Traits, class Alloc>
-struct JsonCodec<std::basic_string<char, Traits, Alloc>>;
+struct conflux::json::JsonCodec<std::basic_string<char, Traits, Alloc>>;
 template<>
-struct JsonCodec<std::string_view>;
+struct conflux::json::JsonCodec<std::string_view>;
 template<class T>
-struct JsonCodec<std::optional<T>>;
+struct conflux::json::JsonCodec<std::optional<T>>;
 template<class T>
-struct JsonCodec<Nullable<T>>;
+struct conflux::json::JsonCodec<Nullable<T>>;
 template<class T, class Alloc>
-struct JsonCodec<std::vector<T, Alloc>>;
+struct conflux::json::JsonCodec<std::vector<T, Alloc>>;
 template<class T, std::size_t N>
-struct JsonCodec<std::array<T, N>>;
+struct conflux::json::JsonCodec<std::array<T, N>>;
 template<class A, class B>
-struct JsonCodec<std::pair<A, B>>;
+struct conflux::json::JsonCodec<std::pair<A, B>>;
 template<class... Ts>
-struct JsonCodec<std::tuple<Ts...>>;
+struct conflux::json::JsonCodec<std::tuple<Ts...>>;
 template<class T>
-struct JsonCodec<std::map<std::string, T>>;
+struct conflux::json::JsonCodec<std::map<std::string, T>>;
 template<class T>
-struct JsonCodec<std::unordered_map<std::string, T>>;
+struct conflux::json::JsonCodec<std::unordered_map<std::string, T>>;
 
 export template<class T>
 std::expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts = {});
@@ -935,7 +944,7 @@ std::expected<T, JsonError> Document::get(
 // Built-in JsonCodec specializations.
 
 template<>
-struct JsonCodec<bool> {
+struct conflux::json::JsonCodec<bool> {
 	static std::expected<bool, JsonError> decode(
 		NodeRef n) {
 		return n.as_bool();
@@ -948,7 +957,7 @@ struct JsonCodec<bool> {
 	static constexpr std::string_view type_name() { return "bool"; }
 };
 template<>
-struct JsonCodec<std::int64_t> {
+struct conflux::json::JsonCodec<std::int64_t> {
 	static std::expected<std::int64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
@@ -965,7 +974,7 @@ struct JsonCodec<std::int64_t> {
 	static constexpr std::string_view type_name() { return "i64"; }
 };
 template<>
-struct JsonCodec<std::uint64_t> {
+struct conflux::json::JsonCodec<std::uint64_t> {
 	static std::expected<std::uint64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
@@ -982,7 +991,7 @@ struct JsonCodec<std::uint64_t> {
 	static constexpr std::string_view type_name() { return "u64"; }
 };
 template<>
-struct JsonCodec<double> {
+struct conflux::json::JsonCodec<double> {
 	static std::expected<double, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
@@ -999,7 +1008,7 @@ struct JsonCodec<double> {
 	static constexpr std::string_view type_name() { return "double"; }
 };
 template<class Traits, class Alloc>
-struct JsonCodec<std::basic_string<char, Traits, Alloc>> {
+struct conflux::json::JsonCodec<std::basic_string<char, Traits, Alloc>> {
 	using String = std::basic_string<char, Traits, Alloc>;
 
 	static std::expected<String, JsonError> decode(
@@ -1018,7 +1027,7 @@ struct JsonCodec<std::basic_string<char, Traits, Alloc>> {
 	static constexpr std::string_view type_name() { return "string"; }
 };
 template<>
-struct JsonCodec<std::string_view> {
+struct conflux::json::JsonCodec<std::string_view> {
 	static std::expected<std::string_view, JsonError> decode(
 		NodeRef n) {
 		return n.as_string();
@@ -1031,7 +1040,7 @@ struct JsonCodec<std::string_view> {
 	static constexpr std::string_view type_name() { return "std::string_view"; }
 };
 template<class T>
-struct JsonCodec<std::optional<T>> {
+struct conflux::json::JsonCodec<std::optional<T>> {
 	static std::expected<std::optional<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
@@ -1064,12 +1073,12 @@ struct JsonCodec<std::optional<T>> {
 		if (!v) {
 			return b.set_null();
 		}
-		return JsonCodec<T>::encode(b, *v);
+		return conflux::json::JsonCodec<T>::encode(b, *v);
 	}
 	static constexpr std::string_view type_name() { return "Opt"; }
 };
 template<class T>
-struct JsonCodec<Nullable<T>> {
+struct conflux::json::JsonCodec<Nullable<T>> {
 	static std::expected<Nullable<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
@@ -1087,7 +1096,7 @@ struct JsonCodec<Nullable<T>> {
 		if (v.is_null()) {
 			return b.set_null();
 		}
-		return JsonCodec<T>::encode(b, v.value());
+		return conflux::json::JsonCodec<T>::encode(b, v.value());
 	}
 	static constexpr std::string_view type_name() { return "Nullable"; }
 };
@@ -1117,7 +1126,7 @@ std::expected<Vec, JsonError> decode_array_elements(
 
 } // namespace detail
 template<class T, class Alloc>
-struct JsonCodec<std::vector<T, Alloc>> {
+struct conflux::json::JsonCodec<std::vector<T, Alloc>> {
 	using Vec = std::vector<T, Alloc>;
 
 	static std::expected<Vec, JsonError> decode(
@@ -1147,7 +1156,7 @@ struct JsonCodec<std::vector<T, Alloc>> {
 	static constexpr std::string_view type_name() { return "V"; }
 };
 template<class T, std::size_t N>
-struct JsonCodec<std::array<T, N>> {
+struct conflux::json::JsonCodec<std::array<T, N>> {
 	static std::expected<std::array<T, N>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
@@ -1200,7 +1209,7 @@ struct JsonCodec<std::array<T, N>> {
 	static constexpr std::string_view type_name() { return "array"; }
 };
 template<class A, class B>
-struct JsonCodec<std::pair<A, B>> {
+struct conflux::json::JsonCodec<std::pair<A, B>> {
 	static std::expected<std::pair<A, B>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
@@ -1258,7 +1267,7 @@ struct JsonCodec<std::pair<A, B>> {
 	static constexpr std::string_view type_name() { return "P"; }
 };
 template<class... Ts>
-struct JsonCodec<std::tuple<Ts...>> {
+struct conflux::json::JsonCodec<std::tuple<Ts...>> {
 	static std::expected<std::tuple<Ts...>, JsonError> decode(
 		NodeRef n) {
 		auto arr = n.as_array();
@@ -1338,7 +1347,7 @@ struct JsonCodec<std::tuple<Ts...>> {
 	static constexpr std::string_view type_name() { return "Tup"; }
 };
 template<class T>
-struct JsonCodec<std::map<std::string, T>> {
+struct conflux::json::JsonCodec<std::map<std::string, T>> {
 	static std::expected<std::map<std::string, T>, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
@@ -1376,7 +1385,7 @@ struct JsonCodec<std::map<std::string, T>> {
 	static constexpr std::string_view type_name() { return "M"; }
 };
 template<class T>
-struct JsonCodec<std::unordered_map<std::string, T>> {
+struct conflux::json::JsonCodec<std::unordered_map<std::string, T>> {
 	static std::expected<std::unordered_map<std::string, T>, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
@@ -1641,7 +1650,7 @@ std::expected<void, JsonError> decode_member_by_static_index(
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
-	constexpr auto members = JsonMembers<T>::members();
+	constexpr auto members = conflux::json::JsonMembers<T>::members();
 	auto const &entry = get<I>(members);
 	auto const &m = jm_member(entry);
 	using M = std::remove_reference_t<decltype(result.*m.pointer)>;
@@ -1662,7 +1671,7 @@ std::expected<void, JsonError> decode_member_by_static_index(
 
 template<class T, std::size_t I>
 [[nodiscard]] JsonMemberLookupEntry<T> make_json_member_lookup_entry() {
-	constexpr auto members = JsonMembers<T>::members();
+	constexpr auto members = conflux::json::JsonMembers<T>::members();
 	auto const &entry = get<I>(members);
 	auto const &m = jm_member(entry);
 	return JsonMemberLookupEntry<T>{
@@ -1691,7 +1700,7 @@ template<class T, std::size_t... Is>
 
 template<class T>
 [[nodiscard]] auto const &json_member_lookup_slots() {
-	using MembersTuple = std::remove_cvref_t<decltype(JsonMembers<T>::members())>;
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
 	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
 	static auto const slots = make_json_member_lookup_slots_impl<T>(std::make_index_sequence<member_count>{});
 	return slots;
@@ -1719,7 +1728,7 @@ template<class T>
 template<class T>
 [[nodiscard]] bool is_json_member_name(
 	std::string_view key) {
-	constexpr auto members = JsonMembers<T>::members();
+	constexpr auto members = conflux::json::JsonMembers<T>::members();
 	using MembersTuple = std::remove_cvref_t<decltype(members)>;
 	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
 	if constexpr (member_count > kJsonMemberLinearLookupLimit) {
@@ -1808,7 +1817,7 @@ std::expected<void, JsonError> decode_members_from_event_into(
 				.code = JsonIssueCode::wrong_kind,
 				.message = "std::expected object"});
 	}
-	auto const members = JsonMembers<T>::members();
+	auto const members = conflux::json::JsonMembers<T>::members();
 	using MembersTuple = std::remove_cvref_t<decltype(members)>;
 	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
 	bool ok = true;
@@ -2347,9 +2356,9 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		return result;
 	} else if constexpr (codec_decodes_reader_event_with_options<T>) {
-		return JsonCodec<T>::decode(r, ev, opts, scratch);
+		return conflux::json::JsonCodec<T>::decode(r, ev, opts, scratch);
 	} else if constexpr (has_codec_spec<T>::value) {
-		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
+		// Generic fallback: re-parse as DOM and delegate to conflux::json::JsonCodec<T>::decode.
 		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
 		std::size_t const start = r.value_start_pos();
 		if (auto ok = skip_remaining_reader(r, ev); !ok) {
@@ -2614,7 +2623,7 @@ std::expected<T, JsonError> decode_with_frames(
 			return std::unexpected(std::move(obj).error());
 		}
 		T result{};
-		auto const members = JsonMembers<T>::members();
+		auto const members = conflux::json::JsonMembers<T>::members();
 		bool ok = true;
 		JsonError first_err;
 		apply(
@@ -2687,7 +2696,7 @@ std::expected<T, JsonError> decode_with_frames(
 		}
 		return result;
 	} else {
-		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
+		static_assert(false, "No conflux::json::JsonCodec<T> or conflux::json::JsonMembers<T> found for T");
 	}
 }
 
@@ -2732,7 +2741,7 @@ std::expected<void, JsonError> ObjectBuilder::insert(
 	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
-	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
+	// Spec: duplicate-name rejection happens before dispatching to conflux::json::JsonCodec<T>::encode.
 	if (frame_.dup_check.contains(name)) {
 		return std::unexpected(
 			JsonError{
@@ -2756,14 +2765,14 @@ std::expected<void, JsonError> encode_dispatch(
 	ValueBuilder &b,
 	T const &value) {
 	if constexpr (has_codec_spec<T>::value) {
-		return JsonCodec<T>::encode(b, value);
+		return conflux::json::JsonCodec<T>::encode(b, value);
 	} else if constexpr (has_members_spec<T>::value) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
 			return std::unexpected(std::move(obj_res).error());
 		}
 		auto &obj = *obj_res;
-		auto const members = JsonMembers<T>::members();
+		auto const members = conflux::json::JsonMembers<T>::members();
 		bool ok = true;
 		JsonError first_err;
 		apply(
@@ -2788,7 +2797,7 @@ std::expected<void, JsonError> encode_dispatch(
 		std::move(obj).commit();
 		return {};
 	} else {
-		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
+		static_assert(false, "No conflux::json::JsonCodec<T> or conflux::json::JsonMembers<T> found for T");
 	}
 }
 
@@ -2946,7 +2955,7 @@ std::expected<void, JsonError> direct_write_members(
 				.message = "direct writer does not support sort_object_keys"});
 	}
 	out += '{';
-	auto const members = JsonMembers<T>::members();
+	auto const members = conflux::json::JsonMembers<T>::members();
 	bool ok = true;
 	bool first = true;
 	JsonError first_err;
@@ -3059,7 +3068,9 @@ std::expected<std::string, JsonError> dump_direct(
 	std::string out;
 	if constexpr (detail::has_members_spec<std::remove_cvref_t<T>>::value) {
 		out.reserve(
-			std::tuple_size_v<std::remove_cvref_t<decltype(JsonMembers<std::remove_cvref_t<T>>::members())>> * 16);
+			std::tuple_size_v<
+				std::remove_cvref_t<decltype(conflux::json::JsonMembers<std::remove_cvref_t<T>>::members())>>
+			* 16);
 	}
 	if (auto ok = write_json_direct(out, value, opts); !ok) {
 		return std::unexpected(std::move(ok).error());
@@ -3136,7 +3147,7 @@ std::expected<Document, JsonError> schema_for() {
 	if constexpr (detail::has_members_spec<T>::value) {
 		auto props_r = schema.insert_object("properties");
 		auto &props = *props_r;
-		auto const members = JsonMembers<T>::members();
+		auto const members = conflux::json::JsonMembers<T>::members();
 		std::optional<JsonError> first_error;
 
 		apply(

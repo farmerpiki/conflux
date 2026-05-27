@@ -16,12 +16,12 @@ struct Todo {
 };
 
 template<>
-struct JsonMembers<Todo> {
+struct conflux::json::JsonMembers<Todo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("id", &Todo::id),
-			json_member("title", &Todo::title),
-			json_member("done", &Todo::done),
+			conflux::json::json_member("id", &Todo::id),
+			conflux::json::json_member("title", &Todo::title),
+			conflux::json::json_member("done", &Todo::done),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Todo"; }
@@ -32,10 +32,10 @@ struct TodoList {
 };
 
 template<>
-struct JsonMembers<TodoList> {
+struct conflux::json::JsonMembers<TodoList> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("items", &TodoList::items),
+			conflux::json::json_member("items", &TodoList::items),
 		};
 	}
 	static constexpr std::string_view type_name() { return "TodoList"; }
@@ -46,10 +46,10 @@ struct CreateTodo {
 };
 
 template<>
-struct JsonMembers<CreateTodo> {
+struct conflux::json::JsonMembers<CreateTodo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("title", &CreateTodo::title),
+			conflux::json::json_member("title", &CreateTodo::title),
 		};
 	}
 	static constexpr std::string_view type_name() { return "CreateTodo"; }
@@ -62,12 +62,12 @@ struct CreateTodoResult {
 };
 
 template<>
-struct JsonMembers<CreateTodoResult> {
+struct conflux::json::JsonMembers<CreateTodoResult> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("ok", &CreateTodoResult::ok),
-			json_member("todo", &CreateTodoResult::todo),
-			json_member("error", &CreateTodoResult::error),
+			conflux::json::json_member("ok", &CreateTodoResult::ok),
+			conflux::json::json_member("todo", &CreateTodoResult::todo),
+			conflux::json::json_member("error", &CreateTodoResult::error),
 		};
 	}
 	static constexpr std::string_view type_name() { return "CreateTodoResult"; }
@@ -79,11 +79,11 @@ struct StatusReply {
 };
 
 template<>
-struct JsonMembers<StatusReply> {
+struct conflux::json::JsonMembers<StatusReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("status", &StatusReply::status),
-			json_member("component", &StatusReply::component),
+			conflux::json::json_member("status", &StatusReply::status),
+			conflux::json::json_member("component", &StatusReply::component),
 		};
 	}
 	static constexpr std::string_view type_name() { return "StatusReply"; }

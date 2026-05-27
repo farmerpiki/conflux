@@ -119,7 +119,7 @@ template<class T, class Members, std::size_t... Is>
 template<class T>
 [[nodiscard]] T extract_query_params(
 	RequestView const &req) {
-	auto const members = JsonMembers<T>::members();
+	auto const members = conflux::json::JsonMembers<T>::members();
 	return extract_query_params_impl<T>(
 		req,
 		members,
@@ -151,7 +151,7 @@ template<class T, class Members, std::size_t... Is>
 template<class T>
 [[nodiscard]] T extract_form_params(
 	RequestView const &req) {
-	auto const members = JsonMembers<T>::members();
+	auto const members = conflux::json::JsonMembers<T>::members();
 	return extract_form_params_impl<T>(
 		req,
 		members,

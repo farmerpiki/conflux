@@ -19,8 +19,9 @@ consteval name_t name(
 struct skip {};
 
 template<class T>
-concept ReflectJsonAggregate =
-	std::is_aggregate_v<T> && std::default_initializable<T> && (!requires { JsonMembers<T>::members(); });
+concept ReflectJsonAggregate = std::is_aggregate_v<T>
+							&& std::default_initializable<T>
+							&& (!requires { conflux::json::JsonMembers<T>::members(); });
 
 } // namespace conflux::json
 // ---------------------------------------------------------------------------
@@ -868,7 +869,7 @@ template<class M>
 	} else if constexpr (has_json_codec<M>) {
 		return ::decode<M>(node, opts);
 	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
-		auto r = JsonCodec<std::int64_t>::decode(node);
+		auto r = conflux::json::JsonCodec<std::int64_t>::decode(node);
 		if (!r) {
 			return std::unexpected(std::move(r).error());
 		}
@@ -883,7 +884,7 @@ template<class M>
 		}
 		return static_cast<M>(*r);
 	} else if constexpr (std::is_unsigned_v<M> && std::integral<M>) {
-		auto r = JsonCodec<std::uint64_t>::decode(node);
+		auto r = conflux::json::JsonCodec<std::uint64_t>::decode(node);
 		if (!r) {
 			return std::unexpected(std::move(r).error());
 		}
@@ -897,7 +898,7 @@ template<class M>
 		}
 		return static_cast<M>(*r);
 	} else if constexpr (std::floating_point<M>) {
-		auto r = JsonCodec<double>::decode(node);
+		auto r = conflux::json::JsonCodec<double>::decode(node);
 		if (!r) {
 			return std::unexpected(std::move(r).error());
 		}
@@ -912,7 +913,9 @@ template<class M>
 	ObjectBuilder &obj,
 	std::string_view name,
 	M const &value) {
-	if constexpr (requires { JsonCodec<M>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>()); }) {
+	if constexpr (requires {
+					  conflux::json::JsonCodec<M>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>());
+				  }) {
 		return obj.template insert<M>(name, value);
 	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
 		return obj.insert_i64(name, static_cast<std::int64_t>(value));
@@ -929,12 +932,12 @@ template<class M>
 
 } // namespace detail
 // ---------------------------------------------------------------------------
-// JsonCodec<T> partial specialization — reflection-derived encode / decode
+// conflux::json::JsonCodec<T> partial specialization — reflection-derived encode / decode
 // ---------------------------------------------------------------------------
 
 template<class T>
 	requires conflux::json::ReflectJsonAggregate<T>
-struct JsonCodec<T> {
+struct conflux::json::JsonCodec<T> {
 	static std::expected<T, JsonError> decode(
 		NodeRef root) {
 		return decode(root, {});
@@ -998,7 +1001,7 @@ struct JsonCodec<T> {
 		}
 
 		// Unknown-member handling follows JsonDecodeOptions so reflected serde
-		// behaves like manual JsonMembers<T> codecs at app/provider boundaries.
+		// behaves like manual conflux::json::JsonMembers<T> codecs at app/provider boundaries.
 		if (opts.unknown_members == UnknownMemberPolicy::reject) {
 			for (auto const &m: obj.members()) {
 				if (!detail::is_reflect_member_name<T>(m.name)) {

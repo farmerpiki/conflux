@@ -14,11 +14,11 @@ struct CreateItem {
 };
 
 template<>
-struct JsonMembers<CreateItem> {
+struct conflux::json::JsonMembers<CreateItem> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("name", &CreateItem::name),
-			json_member("quantity", &CreateItem::quantity),
+			conflux::json::json_member("name", &CreateItem::name),
+			conflux::json::json_member("quantity", &CreateItem::quantity),
 		};
 	}
 	static constexpr std::string_view type_name() { return "CreateItem"; }
@@ -32,13 +32,13 @@ struct Item {
 };
 
 template<>
-struct JsonMembers<Item> {
+struct conflux::json::JsonMembers<Item> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("id", &Item::id),
-			json_member("name", &Item::name),
-			json_member("quantity", &Item::quantity),
-			json_member("accepted", &Item::accepted),
+			conflux::json::json_member("id", &Item::id),
+			conflux::json::json_member("name", &Item::name),
+			conflux::json::json_member("quantity", &Item::quantity),
+			conflux::json::json_member("accepted", &Item::accepted),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Item"; }

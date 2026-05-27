@@ -6,7 +6,7 @@
 **CMake flag:** `CONFLUX_JSON_REFLECT` (opt-in)  
 **Requires:** GCC 16+ with `-freflection` (P2996 static reflection)
 
-Provides automatic `JsonCodec<T>` specialization for aggregate structs via C++26
+Provides automatic `conflux::json::JsonCodec<T>` specialization for aggregate structs via C++26
 static reflection. It is provider-neutral at the HTTP/app boundary: callers that
 want reflected native JSON serde should use
 `conflux::json::boundary::NativeReflectJsonProvider` with the existing boundary
@@ -41,7 +41,7 @@ struct Point {
 };
 
 // No macro registration. Importing conflux.json.reflect makes eligible
-// aggregate structs satisfy JsonCodec<T> through P2996 reflection.
+// aggregate structs satisfy conflux::json::JsonCodec<T> through P2996 reflection.
 auto doc = conflux::json::parse_view(R"({"x":3,"y":7})");
 auto pt  = conflux::json::decode<Point>(doc->root());
 
@@ -80,7 +80,7 @@ app.post("/todos", [](http::Json<CreateTodo> const& body) {
 ```
 
 See `examples/quickstart/json_reflect_crud.cxx` for the full route set. The
-portable `examples/quickstart/json_crud.cxx` still uses `JsonMembers<T>` because
+portable `examples/quickstart/json_crud.cxx` still uses `conflux::json::JsonMembers<T>` because
 reflection is toolchain-gated.
 
 Provider-boundary usage:
@@ -138,7 +138,7 @@ encode. A skipped key present in input is treated as an unknown member and follo
 ## Decode policy
 
 Reflected codecs now support the same `JsonDecodeOptions` path as manual
-`JsonMembers<T>` codecs:
+`conflux::json::JsonMembers<T>` codecs:
 
 ```cpp
 auto pt = conflux::json::decode<Point>(
@@ -162,8 +162,8 @@ The reflection codec requires:
 
 - aggregate type
 - default-initializable type
-- no manual `JsonMembers<T>` specialization
-- member types must be supported by `JsonCodec<T>`, reflected aggregate decode,
+- no manual `conflux::json::JsonMembers<T>` specialization
+- member types must be supported by `conflux::json::JsonCodec<T>`, reflected aggregate decode,
   reflected primitive/string fallback handling, `std::optional<T>`,
   `std::vector<T>`, or fixed `std::array<T, N>`
 
@@ -172,8 +172,8 @@ directly from `JsonReader`, including nested reflected aggregates and vector or
 fixed-array members. For `copy_input = true`, the provider keeps the owning DOM
 fallback available.
 
-Non-aggregate types or types with invariants should use a manual `JsonCodec<T>`
-or `JsonMembers<T>` specialization (`json-api.md`, Codec System section).
+Non-aggregate types or types with invariants should use a manual `conflux::json::JsonCodec<T>`
+or `conflux::json::JsonMembers<T>` specialization (`json-api.md`, Codec System section).
 
 ---
 

@@ -11,12 +11,12 @@ struct RouteSample {
 };
 
 template<>
-struct JsonMembers<RouteSample> {
+struct conflux::json::JsonMembers<RouteSample> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("route", &RouteSample::route),
-			json_member("latency_us", &RouteSample::latency_us),
-			json_member("ok", &RouteSample::ok),
+			conflux::json::json_member("route", &RouteSample::route),
+			conflux::json::json_member("latency_us", &RouteSample::latency_us),
+			conflux::json::json_member("ok", &RouteSample::ok),
 		};
 	}
 	static constexpr std::string_view type_name() { return "RouteSample"; }

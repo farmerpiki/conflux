@@ -12,13 +12,13 @@ struct ApiEvent {
 };
 
 template<>
-struct JsonMembers<ApiEvent> {
+struct conflux::json::JsonMembers<ApiEvent> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("id", &ApiEvent::id),
-			json_member("type", &ApiEvent::type),
-			json_member("tokens", &ApiEvent::tokens),
-			json_member("error", &ApiEvent::error),
+			conflux::json::json_member("id", &ApiEvent::id),
+			conflux::json::json_member("type", &ApiEvent::type),
+			conflux::json::json_member("tokens", &ApiEvent::tokens),
+			conflux::json::json_member("error", &ApiEvent::error),
 		};
 	}
 	static constexpr std::string_view type_name() { return "ApiEvent"; }

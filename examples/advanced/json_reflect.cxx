@@ -34,7 +34,7 @@ static void example_encode() {
 	};
 
 	ValueBuilder vb;
-	auto enc = JsonCodec<SceneObject>::encode(vb, obj);
+	auto enc = conflux::json::JsonCodec<SceneObject>::encode(vb, obj);
 	if (!enc) {
 		std::println("encode error: {}", enc.error().message);
 		return;
@@ -72,7 +72,7 @@ static void example_roundtrip() {
 	Material orig{.name = "wood", .roughness = 0.8, .texture = "oak.jpg"};
 
 	ValueBuilder vb;
-	auto enc = JsonCodec<Material>::encode(vb, orig);
+	auto enc = conflux::json::JsonCodec<Material>::encode(vb, orig);
 	if (!enc) {
 		std::println("encode error: {}", enc.error().message);
 		return;

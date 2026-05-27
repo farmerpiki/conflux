@@ -1620,8 +1620,8 @@ public:
 			} else {
 				static_assert(
 					kDependentFalse<Body>,
-					"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or "
-					"reflection JSON support for T");
+					"http::Json<T> responses require T to be serializable; add conflux::json::JsonCodec<T>, "
+					"conflux::json::JsonMembers<T>, or reflection JSON support for T");
 			}
 		} else {
 			return into_response(std::forward<T>(result));

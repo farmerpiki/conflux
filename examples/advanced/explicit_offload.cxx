@@ -18,11 +18,11 @@ struct StatusReply {
 };
 
 template<>
-struct JsonMembers<StatusReply> {
+struct conflux::json::JsonMembers<StatusReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("status", &StatusReply::status),
-			json_member("placement", &StatusReply::placement),
+			conflux::json::json_member("status", &StatusReply::status),
+			conflux::json::json_member("placement", &StatusReply::placement),
 		};
 	}
 	static constexpr std::string_view type_name() { return "StatusReply"; }
@@ -34,11 +34,11 @@ struct HashRequest {
 };
 
 template<>
-struct JsonMembers<HashRequest> {
+struct conflux::json::JsonMembers<HashRequest> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("input", &HashRequest::input),
-			json_member("rounds", &HashRequest::rounds),
+			conflux::json::json_member("input", &HashRequest::input),
+			conflux::json::json_member("rounds", &HashRequest::rounds),
 		};
 	}
 	static constexpr std::string_view type_name() { return "HashRequest"; }
@@ -51,12 +51,12 @@ struct HashReply {
 };
 
 template<>
-struct JsonMembers<HashReply> {
+struct conflux::json::JsonMembers<HashReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("algorithm", &HashReply::algorithm),
-			json_member("rounds", &HashReply::rounds),
-			json_member("hash", &HashReply::hash),
+			conflux::json::json_member("algorithm", &HashReply::algorithm),
+			conflux::json::json_member("rounds", &HashReply::rounds),
+			conflux::json::json_member("hash", &HashReply::hash),
 		};
 	}
 	static constexpr std::string_view type_name() { return "HashReply"; }

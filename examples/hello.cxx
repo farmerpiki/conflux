@@ -12,11 +12,11 @@ struct StatusReply {
 };
 
 template<>
-struct JsonMembers<StatusReply> {
+struct conflux::json::JsonMembers<StatusReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("status", &StatusReply::status),
-			json_member("server", &StatusReply::server),
+			conflux::json::json_member("status", &StatusReply::status),
+			conflux::json::json_member("server", &StatusReply::server),
 		};
 	}
 	static constexpr std::string_view type_name() { return "StatusReply"; }

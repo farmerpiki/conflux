@@ -14,11 +14,11 @@ struct SearchParams {
 } // namespace http_snapshot
 
 template<>
-struct JsonMembers<http_snapshot::SearchParams> {
+struct conflux::json::JsonMembers<http_snapshot::SearchParams> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("q", &http_snapshot::SearchParams::q),
-			json_member("page", &http_snapshot::SearchParams::page),
+			conflux::json::json_member("q", &http_snapshot::SearchParams::q),
+			conflux::json::json_member("page", &http_snapshot::SearchParams::page),
 		};
 	}
 	static constexpr std::string_view type_name() { return "SearchParams"; }
@@ -33,10 +33,10 @@ struct Payload {
 } // namespace http_snapshot
 
 template<>
-struct JsonMembers<http_snapshot::Payload> {
+struct conflux::json::JsonMembers<http_snapshot::Payload> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("value", &http_snapshot::Payload::value),
+			conflux::json::json_member("value", &http_snapshot::Payload::value),
 		};
 	}
 	static constexpr std::string_view type_name() { return "Payload"; }

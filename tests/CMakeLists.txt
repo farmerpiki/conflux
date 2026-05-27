@@ -410,7 +410,15 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "http::Json<T> responses require T to be serializable"
-               "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
+               "add conflux::json::JsonCodec<T>, conflux::json::JsonMembers<T>, or reflection JSON support")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_global_customization
+        SOURCE json_compile_fail_global_customization.cxx
+        TEST json/compile-fail-global-customization
+        LINK conflux_json conflux_options
+        LABELS json compile-fail
+        EXPECT "no template named 'JsonMembers'")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_router_alias

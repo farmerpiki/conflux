@@ -10,12 +10,12 @@ struct ApiResponse {
 	std::optional<std::string> error;
 };
 template<>
-struct JsonMembers<ApiResponse> {
+struct conflux::json::JsonMembers<ApiResponse> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("model", &ApiResponse::model),
-			json_member("tokens", &ApiResponse::tokens),
-			json_member("error", &ApiResponse::error),
+			conflux::json::json_member("model", &ApiResponse::model),
+			conflux::json::json_member("tokens", &ApiResponse::tokens),
+			conflux::json::json_member("error", &ApiResponse::error),
 		};
 	}
 };

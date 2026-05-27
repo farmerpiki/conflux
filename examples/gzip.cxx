@@ -16,13 +16,13 @@ struct DataReply {
 };
 
 template<>
-struct JsonMembers<DataReply> {
+struct conflux::json::JsonMembers<DataReply> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("message", &DataReply::message),
-			json_member("first", &DataReply::first),
-			json_member("second", &DataReply::second),
-			json_member("third", &DataReply::third),
+			conflux::json::json_member("message", &DataReply::message),
+			conflux::json::json_member("first", &DataReply::first),
+			conflux::json::json_member("second", &DataReply::second),
+			conflux::json::json_member("third", &DataReply::third),
 		};
 	}
 };

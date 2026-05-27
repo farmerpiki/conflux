@@ -48,8 +48,8 @@ template<class T>
 	} else {
 		static_assert(
 			kDependentFalse<T>,
-			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
-			"JSON support for T");
+			"http::Json<T> responses require T to be serializable; add conflux::json::JsonCodec<T>, "
+			"conflux::json::JsonMembers<T>, or reflection JSON support for T");
 	}
 #else
 	(void)body;
@@ -68,8 +68,8 @@ template<class T>
 	} else {
 		static_assert(
 			kDependentFalse<T>,
-			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
-			"JSON support for T");
+			"http::Json<T> responses require T to be serializable; add conflux::json::JsonCodec<T>, "
+			"conflux::json::JsonMembers<T>, or reflection JSON support for T");
 	}
 #else
 	(void)body;

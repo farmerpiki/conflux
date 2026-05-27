@@ -79,7 +79,7 @@ are accessed many times per parse.
 
 ## 3. Typed Struct Decode
 
-Define a `JsonMembers<T>` specialization. The library generates encode/decode
+Define a `conflux::json::JsonMembers<T>` specialization. The library generates encode/decode
 automatically from the member map.
 
 In GCC 16+ P2996 reflection builds, plain aggregates can skip this boilerplate
@@ -94,12 +94,12 @@ struct Config {
 };
 
 template<>
-struct JsonMembers<Config> {
+struct conflux::json::JsonMembers<Config> {
     static auto members() {
         return std::make_tuple(
-            std::pair{"host", &Config::host},
-            std::pair{"port", &Config::port},
-            std::pair{"tls",  &Config::tls}
+            conflux::json::json_member("host", &Config::host),
+            conflux::json::json_member("port", &Config::port),
+            conflux::json::json_member("tls",  &Config::tls)
         );
     }
 };
@@ -130,7 +130,7 @@ auto cfg = decode<Config>(doc, opts);
 To encode back to JSON:
 
 ```cpp
-// JsonMembers<T> gives encode via ObjectBuilder internally; use make_object for
+// conflux::json::JsonMembers<T> gives encode via ObjectBuilder internally; use make_object for
 // ad-hoc construction; for struct round-trip use ValueBuilder + insert<T>:
 ValueBuilder vb;
 auto ob = *vb.begin_object();
@@ -251,7 +251,7 @@ auto doc2 = *make_object({{"role", "user"sv}, {"content", body}});
 
 `make_object` / `make_array` accept any `JsonWritable` value: `bool`, `string`
 / `string_view`-convertible, non-char integrals (→ `i64`/`u64`), floating-point,
-and any type with a `JsonCodec<T>` specialization. Character types (`char`,
+and any type with a `conflux::json::JsonCodec<T>` specialization. Character types (`char`,
 `wchar_t`, etc.) and enums without a codec are excluded.
 
 ### `ValueBuilder` — incremental construction

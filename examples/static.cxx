@@ -20,12 +20,12 @@ struct StaticInfo {
 };
 
 template<>
-struct JsonMembers<StaticInfo> {
+struct conflux::json::JsonMembers<StaticInfo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("status", &StaticInfo::status),
-			json_member("assets", &StaticInfo::assets),
-			json_member("routes", &StaticInfo::routes),
+			conflux::json::json_member("status", &StaticInfo::status),
+			conflux::json::json_member("assets", &StaticInfo::assets),
+			conflux::json::json_member("routes", &StaticInfo::routes),
 		};
 	}
 };

@@ -82,64 +82,64 @@ struct FacadeTodoStore {
 };
 
 template<>
-struct JsonMembers<FacadeAnswer> {
+struct conflux::json::JsonMembers<FacadeAnswer> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("value", &FacadeAnswer::value),
+			conflux::json::json_member("value", &FacadeAnswer::value),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeAnswer"; }
 };
 
 template<>
-struct JsonMembers<FacadeSearch> {
+struct conflux::json::JsonMembers<FacadeSearch> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("q", &FacadeSearch::q),
-			json_member("page", &FacadeSearch::page),
+			conflux::json::json_member("q", &FacadeSearch::q),
+			conflux::json::json_member("page", &FacadeSearch::page),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeSearch"; }
 };
 
 template<>
-struct JsonMembers<FacadeOptionalSearch> {
+struct conflux::json::JsonMembers<FacadeOptionalSearch> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("q", &FacadeOptionalSearch::q),
-			json_member("page", &FacadeOptionalSearch::page),
+			conflux::json::json_member("q", &FacadeOptionalSearch::q),
+			conflux::json::json_member("page", &FacadeOptionalSearch::page),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeOptionalSearch"; }
 };
 
 template<>
-struct JsonMembers<FacadeTodo> {
+struct conflux::json::JsonMembers<FacadeTodo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("id", &FacadeTodo::id),
-			json_member("title", &FacadeTodo::title),
-			json_member("done", &FacadeTodo::done),
+			conflux::json::json_member("id", &FacadeTodo::id),
+			conflux::json::json_member("title", &FacadeTodo::title),
+			conflux::json::json_member("done", &FacadeTodo::done),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeTodo"; }
 };
 
 template<>
-struct JsonMembers<FacadeCreateTodo> {
+struct conflux::json::JsonMembers<FacadeCreateTodo> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("title", &FacadeCreateTodo::title),
+			conflux::json::json_member("title", &FacadeCreateTodo::title),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeCreateTodo"; }
 };
 
 template<>
-struct JsonMembers<FacadeTodoList> {
+struct conflux::json::JsonMembers<FacadeTodoList> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("items", &FacadeTodoList::items),
+			conflux::json::json_member("items", &FacadeTodoList::items),
 		};
 	}
 	static constexpr std::string_view type_name() { return "FacadeTodoList"; }
