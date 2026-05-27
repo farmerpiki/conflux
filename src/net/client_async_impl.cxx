@@ -303,8 +303,8 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 	constexpr std::chrono::milliseconds kStagger{250};
 	auto hs = std::make_shared<HappyConnectState>();
 	hs->pending.store(static_cast<int>(endpoints.size()), std::memory_order_relaxed);
-	auto [task, raw_src] = wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto winner_src = std::make_shared<wroot::TaskSource<TcpStream>>(std::move(raw_src));
+	auto [task, winner_src] =
+		wroot::make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
 	std::weak_ptr<wroot::TaskSource<TcpStream>> weak_src{winner_src};
 	auto _ = winner_src->install_cancel_hook([hs, weak_src](wroot::CancelReason) noexcept {
 		hs->cancel_all();
@@ -794,8 +794,7 @@ namespace conflux::http {
 	SocketTaskRing &ring,
 	ClientRequest const &req) {
 	namespace wroot = conflux::work::root;
-	auto [out, raw_src] = wroot::make_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto src = std::make_shared<wroot::TaskSource<ClientResult>>(std::move(raw_src));
+	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto cancel = std::make_shared<ActiveTaskCancelRelay>();
 	std::weak_ptr<wroot::TaskSource<ClientResult>> weak_src{src};
 	auto _ = src->install_cancel_hook([cancel, weak_src](wroot::CancelReason) noexcept {

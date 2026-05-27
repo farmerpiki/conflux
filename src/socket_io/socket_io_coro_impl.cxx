@@ -21,13 +21,6 @@ import conflux.work;
 
 namespace wroot = conflux::work::root;
 
-template<class T>
-[[nodiscard]] std::pair<wroot::Task<T>, std::shared_ptr<wroot::TaskSource<T>>> make_shared_task_source(
-	wroot::SubmitOptions opts) {
-	auto pair = wroot::make_task_source<T>(opts);
-	auto src = std::make_shared<wroot::TaskSource<T>>(std::move(pair.second));
-	return {std::move(pair.first), std::move(src)};
-}
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Buffer lifetime contract for Task methods:
@@ -101,12 +94,9 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	std::shared_ptr<void> keeper) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-		auto ss = std::make_shared<wroot::TaskSource<std::size_t>>(std::move(s));
-		auto _ = ss->try_set_exception(make_exception_ptr(IoError{EBADF, "tcp: stream closed"}));
-		return std::move(t);
+		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_1 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_1 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_1.first);
 	auto shared_src = std::move(task_src_1.second);
 	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
@@ -167,12 +157,9 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	std::span<std::uint8_t> dst) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
-		auto ss = std::make_shared<wroot::TaskSource<std::size_t>>(std::move(s));
-		auto _ = ss->try_set_exception(make_exception_ptr(IoError{EBADF, "tcp: stream closed"}));
-		return std::move(t);
+		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_2 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_2 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_2.first);
 	auto shared_src = std::move(task_src_2.second);
 	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
@@ -244,7 +231,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!st.handle.valid()) {
 		co_await []() -> wroot::Task<void> { throw IoError{EBADF, "tcp: stream closed"}; }();
 	}
-	auto task_src_3 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
+	auto task_src_3 = wroot::make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_3.first);
 	auto shared_src = std::move(task_src_3.second);
 	OsFd const h = st.handle.get();
@@ -272,7 +259,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	}
 	OsFd const h = st.handle.get();
 	auto cs = std::make_shared<CloseState>();
-	auto task_src_4 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_4 = wroot::make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_4.first);
 	auto shared_src = std::move(task_src_4.second);
 	[[maybe_unused]] auto _cancel = shared_src->install_cancel_hook([cs](wroot::CancelReason reason) noexcept {
@@ -304,14 +291,6 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto _ = st.handle.release();
 	co_await std::move(task);
 }
-template<class T>
-[[nodiscard]] wroot::Task<T> make_error_task(
-	IoError e) {
-	auto [t, s] = wroot::make_task_source<T>(wroot::SubmitOptions{.enable_cancellation = false});
-	auto ss = std::make_shared<wroot::TaskSource<T>>(std::move(s));
-	auto _ = ss->try_set_exception(make_exception_ptr(std::move(e)));
-	return std::move(t);
-}
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src) {
 	std::size_t sent = 0;
@@ -331,9 +310,9 @@ template<class T>
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		return make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
+		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_5 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_5 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_5.first);
 	auto shared_src = std::move(task_src_5.second);
 	OsFd const h = st.handle.get();
@@ -478,9 +457,9 @@ template<class T>
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		return make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
+		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_6 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_6 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_6.first);
 	auto shared_src = std::move(task_src_6.second);
 	OsFd const h = st.handle.get();
@@ -741,13 +720,14 @@ struct ConnectOp {
 	socklen_t len,
 	ConnectOptions opts) {
 	if (opts.timeout.count() < 0) {
-		return make_error_task<TcpStream>(IoError{EINVAL, "tcp_connect: negative timeout"});
+		return wroot::make_error_task<TcpStream>(IoError{EINVAL, "tcp_connect: negative timeout"});
 	}
 	if (ring.opts().fd_mode == SocketFdMode::direct_required) {
-		return make_error_task<TcpStream>(IoError{ENOTSUP, "tcp_connect: direct fd not yet supported"});
+		return wroot::make_error_task<TcpStream>(IoError{ENOTSUP, "tcp_connect: direct fd not yet supported"});
 	}
 
-	auto task_src_connect = make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_connect =
+		wroot::make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_connect.first);
 	auto src = std::move(task_src_connect.second);
 
@@ -875,10 +855,10 @@ struct AcceptOp {
 	SocketTaskRing &ring,
 	AcceptOptions opts) {
 	if (ring.opts().fd_mode == SocketFdMode::direct_required) {
-		return make_error_task<TcpStream>(IoError{ENOTSUP, "tcp_accept: direct fd"});
+		return wroot::make_error_task<TcpStream>(IoError{ENOTSUP, "tcp_accept: direct fd"});
 	}
 
-	auto task_src_accept = make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_accept = wroot::make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_accept.first);
 	auto src = std::move(task_src_accept.second);
 
@@ -1053,13 +1033,13 @@ struct MultishotAcceptOp {
 	AcceptOptions opts,
 	std::function<wroot::Task<void>(TcpStream)> handler) {
 	if (ring.opts().fd_mode == SocketFdMode::direct_required) {
-		return make_error_task<void>(IoError{ENOTSUP, "tcp_accept_multishot: direct fd"});
+		return wroot::make_error_task<void>(IoError{ENOTSUP, "tcp_accept_multishot: direct fd"});
 	}
 	if (!handler) {
-		return make_error_task<void>(IoError{EINVAL, "tcp_accept_multishot: empty handler"});
+		return wroot::make_error_task<void>(IoError{EINVAL, "tcp_accept_multishot: empty handler"});
 	}
 
-	auto task_src_multishot = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_multishot = wroot::make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_multishot.first);
 	auto src = std::move(task_src_multishot.second);
 
@@ -1182,7 +1162,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
-	auto task_src_7 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
+	auto task_src_7 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_7.first);
 	auto shared_src = std::move(task_src_7.second);
 	OsFd const h = handle_.get();
@@ -1218,7 +1198,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
-	auto task_src_8 = make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
+	auto task_src_8 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_8.first);
 	auto shared_src = std::move(task_src_8.second);
 	OsFd const h = handle_.get();
@@ -1254,7 +1234,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 }
 [[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::recv_from(
 	std::span<std::uint8_t> buf) {
-	auto task_src_9 = make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = false});
+	auto task_src_9 = wroot::make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_9.first);
 	auto shared_src = std::move(task_src_9.second);
 	OsFd const h = handle_.get();
@@ -1288,9 +1268,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::span<std::uint8_t> buf,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() < 0) {
-		return make_error_task<UdpRecvResult>(IoError{EINVAL, "udp: negative timeout"});
+		return wroot::make_error_task<UdpRecvResult>(IoError{EINVAL, "udp: negative timeout"});
 	}
-	auto task_src_10 = make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_10 = wroot::make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_10.first);
 	auto shared_src = std::move(task_src_10.second);
 	OsFd const h = handle_.get();
@@ -1373,7 +1353,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		(void)src.try_set_value(wroot::Success<void>{});
 		return std::move(task);
 	}
-	auto task_src_11 = make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task_src_11 = wroot::make_shared_task_source<void>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_11.first);
 	auto shared_src = std::move(task_src_11.second);
 	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);

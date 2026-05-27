@@ -729,6 +729,45 @@ template<work_value T>
 	}
 	return {Task<T>::from_state(state, loc), TaskSource<T>::from_state(std::move(state))};
 }
+template<work_value T>
+[[nodiscard]] std::pair<Task<T>, std::shared_ptr<TaskSource<T>>> make_shared_task_source(
+	SubmitOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
+	auto [task, src] = make_task_source<T>(opts, loc);
+	return {std::move(task), std::make_shared<TaskSource<T>>(std::move(src))};
+}
+template<work_value T>
+[[nodiscard]] Task<T> make_exception_task(
+	std::exception_ptr error,
+	SubmitOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
+	auto [task, src] = make_task_source<T>(opts, loc);
+	auto _ = src.try_set_exception(std::move(error));
+	return std::move(task);
+}
+template<work_value T, class Error>
+[[nodiscard]] Task<T> make_error_task(
+	Error error,
+	SubmitOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
+	return make_exception_task<T>(std::make_exception_ptr(std::move(error)), opts, loc);
+}
+template<work_value T>
+[[nodiscard]] Task<void> bridge_task_to_source(
+	std::shared_ptr<TaskSource<T>> src,
+	Task<T> task) {
+	try {
+		if constexpr (std::is_void_v<T>) {
+			co_await std::move(task);
+			auto _ = src->try_set_value(Success<void>{});
+		} else {
+			auto value = co_await std::move(task);
+			auto _ = src->try_set_value(Success<T>{std::move(value)});
+		}
+	} catch (CancelledError const &err) { auto _ = src->try_set_cancelled(err.reason()); } catch (...) {
+		auto _ = src->try_set_exception(std::current_exception());
+	}
+}
 template<work_value T, typename OnCancel>
 	requires std::invocable<OnCancel &, CancelReason>
 [[nodiscard]] std::pair<Task<T>, TaskSource<T>> make_cancellable_task_source(
@@ -789,8 +828,8 @@ template<class Fn>
 template<work_value T, progress_capability Owner>
 [[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,
-	PostOptions opts = {},
-	std::source_location loc = std::source_location::current()) {
+	PostOptions opts,
+	std::source_location loc) {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
@@ -800,11 +839,22 @@ template<work_value T, progress_capability Owner>
 	state->set_required_capability(capability_id(owner));
 	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(std::move(state))};
 }
+template<work_value T, progress_capability Owner>
+[[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
+	Owner &owner,
+	PostOptions opts) {
+	return make_posted_source<T>(owner, opts, std::source_location::current());
+}
+template<work_value T, progress_capability Owner>
+[[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
+	Owner &owner) {
+	return make_posted_source<T>(owner, PostOptions{}, std::source_location::current());
+}
 template<work_value T, progress_capability Driver>
 [[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
 	Driver &driver,
-	OperationOptions opts = {},
-	std::source_location loc = std::source_location::current()) {
+	OperationOptions opts,
+	std::source_location loc) {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
@@ -813,6 +863,17 @@ template<work_value T, progress_capability Driver>
 	}
 	state->set_required_capability(capability_id(driver));
 	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(std::move(state))};
+}
+template<work_value T, progress_capability Driver>
+[[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
+	Driver &driver,
+	OperationOptions opts) {
+	return make_operation_source<T>(driver, opts, std::source_location::current());
+}
+template<work_value T, progress_capability Driver>
+[[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
+	Driver &driver) {
+	return make_operation_source<T>(driver, OperationOptions{}, std::source_location::current());
 }
 template<work_value T, ControlCategory C>
 [[nodiscard]] BasicJoinHandle<T, C> into_join_handle(

@@ -232,8 +232,7 @@ void Pool::close() noexcept {
 	idle_.clear();
 }
 root::Task<Pool::Lease> Pool::acquire() {
-	auto [task, raw_src] = root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Lease>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pool closed"}));
 		return std::move(task);

@@ -477,9 +477,8 @@ inline std::shared_ptr<WorkPool> default_cancel_pool_ref() {
 } // namespace detail
 root::Task<std::shared_ptr<Connection>> Connection::connect(
 	ConnectParams const &params) {
-	auto [task, raw_src] =
-		root::make_task_source<std::shared_ptr<Connection>>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<std::shared_ptr<Connection>>>(std::move(raw_src));
+	auto [task, shared_src] =
+		root::make_shared_task_source<std::shared_ptr<Connection>>(root::SubmitOptions{.enable_cancellation = false});
 	auto *reader = current_file_reader();
 	if (reader == nullptr) {
 		auto _ = shared_src->try_set_exception(
@@ -538,8 +537,7 @@ void Connection::op_done_() {
 root::Task<Result> Connection::query(
 	std::string_view sql,
 	Params params) {
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -563,8 +561,7 @@ root::Task<Result> Connection::query(
 root::Task<Result> Connection::query(
 	std::shared_ptr<std::string const> sql,
 	Params params) {
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -614,8 +611,7 @@ root::Task<void> Connection::prepare(
 	std::string_view name,
 	std::string_view sql,
 	std::span<Oid const> param_types) {
-	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -642,8 +638,7 @@ root::Task<void> Connection::prepare(
 	std::string_view name,
 	std::shared_ptr<std::string const> sql,
 	std::span<Oid const> param_types) {
-	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -691,8 +686,7 @@ void Connection::run_prepare_(
 root::Task<Result> Connection::exec_prepared(
 	std::string_view name,
 	Params params) {
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -737,20 +731,20 @@ root::Task<Result> Connection::exec_cached(
 	std::shared_ptr<StatementCache::Entry const> const &stmt,
 	Params params) {
 	if (!stmt || !stmt->sql) {
-		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+		auto [task, shared_src] =
+			root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null cached statement"}));
 		return std::move(task);
 	}
 	if (closed_ || !conn_) {
-		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+		auto [task, shared_src] =
+			root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
 	}
 	if (pipeline_mode_) {
-		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+		auto [task, shared_src] =
+			root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto _ = shared_src->try_set_exception(
 			std::make_exception_ptr(PgError{"conflux.pg: exec_cached while pipeline active"}));
 		return std::move(task);
@@ -758,8 +752,7 @@ root::Task<Result> Connection::exec_cached(
 	if (prepared_names_.contains(stmt->name)) {
 		return exec_prepared(stmt->name, std::move(params));
 	}
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto self = shared_from_this();
 	[](std::shared_ptr<Connection> self,
 	   std::shared_ptr<StatementCache::Entry const> stmt,
@@ -897,8 +890,7 @@ void Connection::drive_consume_loop_(
 }
 root::Task<void> Connection::cancel_inflight(
 	WorkPool &wpool) {
-	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	if (!conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -941,15 +933,15 @@ root::Task<Result> Connection::query(
 	if (reader == nullptr) {
 		return query(sql, std::move(params));
 	}
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto self = shared_from_this();
 	[](std::shared_ptr<root::TaskSource<Result>> src, root::Task<Result> qt) -> root::Task<void> {
 		try {
 			auto r = co_await std::move(qt);
 			auto _ = src->try_set_value(root::Success<Result>{std::move(r)});
-		} catch (Cancelled const &) {
-			auto _ = src->try_set_cancelled(root::work_errc::cancelled_requested);
+		} catch (root::CancelledError const &) {
+			auto _ = src->try_set_exception(
+				std::make_exception_ptr(PgError{"conflux.pg: query deadline exceeded", "57014"}));
 		} catch (...) { auto _ = src->try_set_exception(std::current_exception()); }
 	}(shared_src, query(sql, std::move(params)))
 																					.detach();
@@ -982,8 +974,8 @@ root::Task<Result> Connection::query(
 	return std::move(task);
 }
 root::Task<Pipeline> Connection::pipeline() {
-	auto [task, raw_src] = root::make_task_source<Pipeline>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Pipeline>>(std::move(raw_src));
+	auto [task, shared_src] =
+		root::make_shared_task_source<Pipeline>(root::SubmitOptions{.enable_cancellation = false});
 	if (closed_ || !conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: connection closed"}));
 		return std::move(task);
@@ -1009,8 +1001,7 @@ root::Task<Pipeline> Connection::pipeline() {
 root::Task<Result> Pipeline::query(
 	std::string_view sql,
 	Params params) {
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
@@ -1039,13 +1030,12 @@ root::Task<Result> Pipeline::exec_cached(
 	std::shared_ptr<StatementCache::Entry const> const &stmt,
 	Params params) {
 	if (!stmt || !stmt->sql) {
-		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+		auto [task, shared_src] =
+			root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: null cached statement"}));
 		return std::move(task);
 	}
-	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<Result>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
@@ -1072,8 +1062,7 @@ root::Task<Result> Pipeline::exec_cached(
 	return std::move(task);
 }
 root::Task<void> Pipeline::sync() {
-	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto const st = state_;
 	if (!st || st->closed || !st->conn || !st->conn->conn_) {
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline closed"}));
@@ -1485,9 +1474,8 @@ void Pipeline::close_() noexcept {
 }
 root::Task<std::shared_ptr<std::string const>> QueryCache::load_async(
 	std::string_view name) {
-	auto [task, raw_src] =
-		root::make_task_source<std::shared_ptr<std::string const>>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<root::TaskSource<std::shared_ptr<std::string const>>>(std::move(raw_src));
+	auto [task, shared_src] = root::make_shared_task_source<std::shared_ptr<std::string const>>(
+		root::SubmitOptions{.enable_cancellation = false});
 	if (!detail::valid_query_name(name)) {
 		auto _ = shared_src->try_set_exception(
 			std::make_exception_ptr(std::invalid_argument{std::format("invalid query name: {}", name)}));
