@@ -183,65 +183,107 @@ struct Problem {
 	}
 };
 
-struct Created {
+namespace detail {
+
+template<class T>
+concept response_builder_like = requires(T &self) {
+	self.response.headers;
+	self.response.content_type;
+};
+
+struct ResponseBuilderOps {
+	[[nodiscard]] auto &&header(
+		this auto &&self,
+		std::string_view name,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		self.response.headers[name] = std::move(value);
+		return std::forward<decltype(self)>(self);
+	}
+
+	[[nodiscard]] auto &&header(
+		this auto &&self,
+		std::string_view name,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).header(name, std::string{value});
+	}
+
+	[[nodiscard]] auto &&header(
+		this auto &&self,
+		std::string_view name,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).header(name, std::string{value});
+	}
+
+	[[nodiscard]] auto &&location(
+		this auto &&self,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		self.response.headers["Location"] = std::move(value);
+		return std::forward<decltype(self)>(self);
+	}
+
+	[[nodiscard]] auto &&location(
+		this auto &&self,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).location(std::string{value});
+	}
+
+	[[nodiscard]] auto &&location(
+		this auto &&self,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).location(std::string{value});
+	}
+
+	[[nodiscard]] auto &&content_type(
+		this auto &&self,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		self.response.content_type = std::move(value);
+		return std::forward<decltype(self)>(self);
+	}
+
+	[[nodiscard]] auto &&content_type(
+		this auto &&self,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).content_type(std::string{value});
+	}
+
+	[[nodiscard]] auto &&content_type(
+		this auto &&self,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		return std::forward<decltype(self)>(self).content_type(std::string{value});
+	}
+};
+
+} // namespace detail
+
+struct Created : detail::ResponseBuilderOps {
 	Response response;
-
-	[[nodiscard]] Created header(
-		std::string_view name,
-		std::string value) && {
-		response.headers[name] = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created header(
-		std::string_view name,
-		std::string_view value) && {
-		response.headers[name] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created header(
-		std::string_view name,
-		char const *value) && {
-		response.headers[name] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created location(
-		std::string value) && {
-		response.headers["Location"] = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created location(
-		std::string_view value) && {
-		response.headers["Location"] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created location(
-		char const *value) && {
-		response.headers["Location"] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created content_type(
-		std::string value) && {
-		response.content_type = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created content_type(
-		std::string_view value) && {
-		response.content_type = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] Created content_type(
-		char const *value) && {
-		response.content_type = std::string{value};
-		return std::move(*this);
-	}
 };
 
 template<class T>
@@ -251,63 +293,6 @@ struct CreatedBody : Created {
 	constexpr explicit CreatedBody(
 		Response response)
 		: Created{.response = std::move(response)} {}
-
-	[[nodiscard]] CreatedBody header(
-		std::string_view name,
-		std::string value) && {
-		response.headers[name] = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody header(
-		std::string_view name,
-		std::string_view value) && {
-		response.headers[name] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody header(
-		std::string_view name,
-		char const *value) && {
-		response.headers[name] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody location(
-		std::string value) && {
-		response.headers["Location"] = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody location(
-		std::string_view value) && {
-		response.headers["Location"] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody location(
-		char const *value) && {
-		response.headers["Location"] = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody content_type(
-		std::string value) && {
-		response.content_type = std::move(value);
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody content_type(
-		std::string_view value) && {
-		response.content_type = std::string{value};
-		return std::move(*this);
-	}
-
-	[[nodiscard]] CreatedBody content_type(
-		char const *value) && {
-		response.content_type = std::string{value};
-		return std::move(*this);
-	}
 };
 
 template<class T>
