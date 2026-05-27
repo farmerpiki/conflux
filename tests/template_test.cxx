@@ -42,6 +42,14 @@ TEST_CASE(
 	auto env = make_env();
 	CHECK(env.render_string("{{ count }}", R"({"count":42})") == "42");
 }
+TEST_CASE(
+	"template: value dump emits valid escaped JSON strings and keys",
+	"[template]") {
+	TmplValue value{TmplValue::Object{}};
+	value.set("a\nb", TmplValue{std::string{"x\b\f\x01\"\\y"}});
+
+	CHECK(value.dump() == "{\"a\\nb\":\"x\\b\\f\\u0001\\\"\\\\y\"}");
+}
 // ---------------------------------------------------------------------------
 // If / elif / else
 // ---------------------------------------------------------------------------

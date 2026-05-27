@@ -2086,9 +2086,13 @@ public:
 #endif
 	) {
 #if CONFLUX_HAS_JSON
-		co_return into_app_response(co_await std::move(result), json_options);
+		return [result = std::move(result), json_options]() mutable -> conflux::work::root::Task<Response> {
+			co_return into_app_response(co_await std::move(result), json_options);
+		}();
 #else
-		co_return into_app_response(co_await std::move(result));
+		return [result = std::move(result)]() mutable -> conflux::work::root::Task<Response> {
+			co_return into_app_response(co_await std::move(result));
+		}();
 #endif
 	}
 

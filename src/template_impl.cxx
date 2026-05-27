@@ -113,18 +113,8 @@ std::string TmplValue::dump() const {
 		return s;
 	}
 	if (is_string()) {
-		std::string out = "\"";
-		for (char const c: std::get<std::string>(data)) {
-			switch (c) {
-			case '"' : out += "\\\""; break;
-			case '\\': out += "\\\\"; break;
-			case '\n': out += "\\n"; break;
-			case '\r': out += "\\r"; break;
-			case '\t': out += "\\t"; break;
-			default  : out += c;
-			}
-		}
-		out += '"';
+		std::string out;
+		append_json_string_fallback(out, std::get<std::string>(data));
 		return out;
 	}
 	if (is_array()) {
@@ -148,9 +138,8 @@ std::string TmplValue::dump() const {
 				out += ',';
 			}
 			first = false;
-			out += '"';
-			out += k;
-			out += "\":";
+			append_json_string_fallback(out, k);
+			out += ':';
 			out += v.dump();
 		}
 		out += '}';
