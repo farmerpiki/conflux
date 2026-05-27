@@ -86,30 +86,6 @@ void append_static_html_escape(
 	}
 }
 
-void append_static_path_percent_encode(
-	std::string &out,
-	std::string_view s) {
-	static constexpr char kHex[] = "0123456789ABCDEF";
-	for (char const ch: s) {
-		auto const c = static_cast<unsigned char>(ch);
-		bool const safe = (c >= 'A' && c <= 'Z')
-					   || (c >= 'a' && c <= 'z')
-					   || (c >= '0' && c <= '9')
-					   || c == '-'
-					   || c == '_'
-					   || c == '.'
-					   || c == '~'
-					   || c == '/';
-		if (safe) {
-			out.push_back(static_cast<char>(c));
-		} else {
-			out.push_back('%');
-			out.push_back(kHex[c >> 4U]);
-			out.push_back(kHex[c & 0x0FU]);
-		}
-	}
-}
-
 template<typename T>
 void append_static_hex(
 	std::string &out,
@@ -462,7 +438,7 @@ Response handle_static_get(
 				std::ranges::sort(names);
 				for (auto const &name: names) {
 					html += "<li><a href=\"";
-					append_static_path_percent_encode(html, name);
+					append_url_percent_encoded(html, name);
 					html += "\">";
 					append_static_html_escape(html, name);
 					html += "</a></li>";
