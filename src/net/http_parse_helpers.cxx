@@ -13,6 +13,52 @@ export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
 export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
+[[nodiscard]] bool parse_chunk_size_line(
+	std::string_view size_line_raw,
+	std::size_t &chunk_size) {
+	if (size_line_raw.size() > kMaxChunkSizeLineBytes) {
+		return false;
+	}
+	auto size_digits = size_line_raw;
+	if (auto semi = size_digits.find(';'); semi != std::string_view::npos) {
+		size_digits = size_digits.substr(0, semi);
+	}
+	if (size_digits.empty() || size_digits.size() > kMaxChunkHexDigits) {
+		return false;
+	}
+
+	chunk_size = 0;
+	for (char const c: size_digits) {
+		int const d = hex_char_to_int(c);
+		if (d < 0) {
+			return false;
+		}
+		auto const digit = static_cast<std::size_t>(d);
+		std::size_t shifted = 0;
+		if (__builtin_mul_overflow(chunk_size, std::size_t{16}, &shifted)) {
+			return false;
+		}
+		if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] bool accept_chunk_trailer_line(
+	std::size_t line_bytes,
+	std::size_t &trailer_lines,
+	std::size_t &trailer_bytes) {
+	if (++trailer_lines > kMaxChunkTrailerLines) {
+		return false;
+	}
+	if (line_bytes > kMaxChunkTrailerBytes || trailer_bytes > kMaxChunkTrailerBytes - line_bytes) {
+		return false;
+	}
+	trailer_bytes += line_bytes;
+	return true;
+}
+
 export [[nodiscard]] std::string_view content_type_media_type(
 	std::string_view content_type) noexcept {
 	auto const semi = content_type.find(';');
@@ -98,35 +144,9 @@ export std::int64_t decode_chunked(
 			return 0;
 		}
 
-		auto size_line_raw = data.substr(pos, crlf - pos);
-		if (size_line_raw.size() > kMaxChunkSizeLineBytes) {
-			return -1;
-		}
-		auto size_digits = size_line_raw;
-		if (auto semi = size_digits.find(';'); semi != std::string_view::npos) {
-			size_digits = size_digits.substr(0, semi);
-		}
-		if (size_digits.empty()) {
-			return -1;
-		}
-
-		if (size_digits.size() > kMaxChunkHexDigits) {
-			return -1;
-		}
 		std::size_t chunk_size = 0;
-		for (char const c: size_digits) {
-			int const d = hex_char_to_int(c);
-			if (d < 0) {
-				return -1;
-			}
-			auto const digit = static_cast<std::size_t>(d);
-			std::size_t shifted = 0;
-			if (__builtin_mul_overflow(chunk_size, std::size_t{16}, &shifted)) {
-				return -1;
-			}
-			if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
-				return -1;
-			}
+		if (!parse_chunk_size_line(data.substr(pos, crlf - pos), chunk_size)) {
+			return -1;
 		}
 		pos = crlf + 2;
 
@@ -141,14 +161,10 @@ export std::int64_t decode_chunked(
 				if (next == pos) {
 					return static_cast<std::int64_t>(pos + 2);
 				}
-				if (++trailer_lines > kMaxChunkTrailerLines) {
-					return -1;
-				}
 				auto const line_bytes = next - pos + 2;
-				if (line_bytes > kMaxChunkTrailerBytes || trailer_bytes > kMaxChunkTrailerBytes - line_bytes) {
+				if (!accept_chunk_trailer_line(line_bytes, trailer_lines, trailer_bytes)) {
 					return -1;
 				}
-				trailer_bytes += line_bytes;
 				pos = next + 2;
 			}
 		}
@@ -226,35 +242,9 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 					return -1;
 				}
 
-				auto size_line_raw = raw.substr(st.pos, crlf - st.pos);
-				if (size_line_raw.size() > kMaxChunkSizeLineBytes) {
-					return -1;
-				}
-				auto size_digits = size_line_raw;
-				if (auto semi = size_digits.find(';'); semi != std::string_view::npos) {
-					size_digits = size_digits.substr(0, semi);
-				}
-				if (size_digits.empty()) {
-					return -1;
-				}
-
-				if (size_digits.size() > kMaxChunkHexDigits) {
-					return -1;
-				}
 				std::size_t chunk_size = 0;
-				for (char const c: size_digits) {
-					int const d = hex_char_to_int(c);
-					if (d < 0) {
-						return -1;
-					}
-					auto const digit = static_cast<std::size_t>(d);
-					std::size_t shifted = 0;
-					if (__builtin_mul_overflow(chunk_size, std::size_t{16}, &shifted)) {
-						return -1;
-					}
-					if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
-						return -1;
-					}
+				if (!parse_chunk_size_line(raw.substr(st.pos, crlf - st.pos), chunk_size)) {
+					return -1;
 				}
 
 				st.pos = crlf + 2;
@@ -308,14 +298,10 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 					st.phase = ChunkedDecodePhase::Complete;
 					return static_cast<std::int64_t>(st.pos - body_start);
 				}
-				if (++st.trailer_lines > kMaxChunkTrailerLines) {
-					return -1;
-				}
 				auto const line_bytes = next - st.pos + 2;
-				if (line_bytes > kMaxChunkTrailerBytes || st.trailer_bytes > kMaxChunkTrailerBytes - line_bytes) {
+				if (!accept_chunk_trailer_line(line_bytes, st.trailer_lines, st.trailer_bytes)) {
 					return -1;
 				}
-				st.trailer_bytes += line_bytes;
 				st.pos = next + 2;
 				break;
 			}
