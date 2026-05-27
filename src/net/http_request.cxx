@@ -4,6 +4,7 @@ module;
 
 export module conflux.net.http.request;
 import std;
+import conflux.crypto;
 import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
@@ -164,22 +165,9 @@ public:
 		this Self &&self,
 		std::string_view user,
 		std::string_view pass) {
-		// Base64-encode user:pass.
 		auto const creds = std::format("{}:{}", user, pass);
-		// Simple base64 without external lib.
-		static constexpr std::string_view kAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-		std::string b64;
-		b64.reserve(((creds.size() + 2) / 3) * 4);
-		for (std::size_t i = 0; i < creds.size(); i += 3) {
-			auto const a = static_cast<unsigned char>(creds[i]);
-			auto const b = (i + 1 < creds.size()) ? static_cast<unsigned char>(creds[i + 1]) : 0u;
-			auto const c = (i + 2 < creds.size()) ? static_cast<unsigned char>(creds[i + 2]) : 0u;
-			b64 += kAlpha[(static_cast<unsigned>(a) >> 2) & 0x3Fu];
-			b64 += kAlpha[((static_cast<unsigned>(a) << 4) | (b >> 4)) & 0x3Fu];
-			b64 += (i + 1 < creds.size()) ? kAlpha[((b << 2) | (c >> 6)) & 0x3Fu] : '=';
-			b64 += (i + 2 < creds.size()) ? kAlpha[c & 0x3Fu] : '=';
-		}
-		return std::forward<Self>(self).header("Authorization", std::format("Basic {}", b64));
+		auto const encoded = base64_encode(to_unsigned_span(creds));
+		return std::forward<Self>(self).header("Authorization", std::format("Basic {}", encoded));
 	}
 	template<class Self>
 	Self &&user_agent(

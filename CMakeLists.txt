@@ -373,6 +373,9 @@ endif()
 if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_HTTP_CORE")
 endif()
+if(CONFLUX_WANT_HTTP_CORE AND NOT CONFLUX_WANT_CRYPTO)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_CORE requires CONFLUX_BUILD_CRYPTO")
+endif()
 if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
     message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_RUNTIME")
 endif()
@@ -476,6 +479,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     )
     target_link_libraries(conflux_http_core
         PRIVATE conflux_options
+        PUBLIC  conflux_crypto
         PUBLIC  conflux_types
         PUBLIC  conflux_utils
     )
