@@ -308,15 +308,18 @@ public:
 	[[nodiscard]] bool is_success() const noexcept { return kind() == OutcomeKind::success; }
 	[[nodiscard]] bool is_failure() const noexcept { return kind() == OutcomeKind::failure; }
 	[[nodiscard]] bool is_cancelled() const noexcept { return kind() == OutcomeKind::cancelled; }
-	[[nodiscard]] success_t &success() & noexcept { return std::get<success_t>(storage_); }
-	[[nodiscard]] success_t const &success() const & noexcept { return std::get<success_t>(storage_); }
-	[[nodiscard]] success_t &&success() && noexcept { return std::get<success_t>(std::move(storage_)); }
-	[[nodiscard]] Failure &failure() & noexcept { return std::get<Failure>(storage_); }
-	[[nodiscard]] Failure const &failure() const & noexcept { return std::get<Failure>(storage_); }
-	[[nodiscard]] Failure &&failure() && noexcept { return std::get<Failure>(std::move(storage_)); }
-	[[nodiscard]] Cancelled &cancelled() & noexcept { return std::get<Cancelled>(storage_); }
-	[[nodiscard]] Cancelled const &cancelled() const & noexcept { return std::get<Cancelled>(storage_); }
-	[[nodiscard]] Cancelled &&cancelled() && noexcept { return std::get<Cancelled>(std::move(storage_)); }
+	[[nodiscard]] decltype(auto) success(
+		this auto &&self) noexcept {
+		return std::get<success_t>(std::forward<decltype(self)>(self).storage_);
+	}
+	[[nodiscard]] decltype(auto) failure(
+		this auto &&self) noexcept {
+		return std::get<Failure>(std::forward<decltype(self)>(self).storage_);
+	}
+	[[nodiscard]] decltype(auto) cancelled(
+		this auto &&self) noexcept {
+		return std::get<Cancelled>(std::forward<decltype(self)>(self).storage_);
+	}
 	template<typename F>
 		requires std::invocable<F &, success_t &>
 			  && std::invocable<F &, Failure &>
@@ -503,15 +506,18 @@ public:
 	[[nodiscard]] bool is_success() const noexcept { return kind() == OutcomeKind::success; }
 	[[nodiscard]] bool is_failure() const noexcept { return kind() == OutcomeKind::failure; }
 	[[nodiscard]] bool is_cancelled() const noexcept { return kind() == OutcomeKind::cancelled; }
-	[[nodiscard]] success_t &success() & { return std::get<success_t>(storage_); }
-	[[nodiscard]] success_t const &success() const & { return std::get<success_t>(storage_); }
-	[[nodiscard]] success_t &&success() && { return std::get<success_t>(std::move(storage_)); }
-	[[nodiscard]] Failure &failure() & { return std::get<Failure>(storage_); }
-	[[nodiscard]] Failure const &failure() const & { return std::get<Failure>(storage_); }
-	[[nodiscard]] Failure &&failure() && { return std::get<Failure>(std::move(storage_)); }
-	[[nodiscard]] Cancelled &cancelled() & { return std::get<Cancelled>(storage_); }
-	[[nodiscard]] Cancelled const &cancelled() const & { return std::get<Cancelled>(storage_); }
-	[[nodiscard]] Cancelled &&cancelled() && { return std::get<Cancelled>(std::move(storage_)); }
+	[[nodiscard]] decltype(auto) success(
+		this auto &&self) {
+		return std::get<success_t>(std::forward<decltype(self)>(self).storage_);
+	}
+	[[nodiscard]] decltype(auto) failure(
+		this auto &&self) {
+		return std::get<Failure>(std::forward<decltype(self)>(self).storage_);
+	}
+	[[nodiscard]] decltype(auto) cancelled(
+		this auto &&self) {
+		return std::get<Cancelled>(std::forward<decltype(self)>(self).storage_);
+	}
 	template<typename F>
 		requires std::invocable<F &, success_t &>
 			  && std::invocable<F &, Failure &>

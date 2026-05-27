@@ -668,9 +668,10 @@ public:
 	[[nodiscard]] constexpr bool is_null() const noexcept { return !val_.has_value(); }
 	[[nodiscard]] constexpr bool has_value() const noexcept { return val_.has_value(); }
 	[[nodiscard]] constexpr explicit operator bool() const noexcept { return has_value(); }
-	[[nodiscard]] constexpr T &value() & { return *val_; }
-	[[nodiscard]] constexpr T const &value() const & { return *val_; }
-	[[nodiscard]] constexpr T &&value() && { return std::move(*val_); }
+	[[nodiscard]] constexpr decltype(auto) value(
+		this auto &&self) {
+		return *std::forward<decltype(self)>(self).val_;
+	}
 	[[nodiscard]] constexpr T &operator *() & noexcept { return *val_; }
 	[[nodiscard]] constexpr T const &operator *() const & noexcept { return *val_; }
 	[[nodiscard]] constexpr T *operator ->() noexcept { return &*val_; }
