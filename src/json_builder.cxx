@@ -1019,28 +1019,13 @@ struct PatchOperation {
 		if (slash == std::string_view::npos) {
 			slash = pointer.size();
 		}
-		std::string token;
-		for (std::size_t i = pos; i < slash; ++i) {
-			if (pointer[i] != '~') {
-				token += pointer[i];
-				continue;
-			}
-			if (i + 1 >= slash) {
-				return std::unexpected(
-					patch_error(invalid_code, "invalid '~' escape in JSON Patch pointer", op_index, op, pointer));
-			}
-			++i;
-			if (pointer[i] == '0') {
-				token += '~';
-			} else if (pointer[i] == '1') {
-				token += '/';
-			} else {
-				return std::unexpected(
-					patch_error(invalid_code, "invalid '~' escape in JSON Patch pointer", op_index, op, pointer));
-			}
+		auto token = decode_json_pointer_token(pointer.substr(pos, slash - pos));
+		if (!token) {
+			return std::unexpected(
+				patch_error(invalid_code, "invalid '~' escape in JSON Patch pointer", op_index, op, pointer));
 		}
-		bool const append = token == "-";
-		out.push_back(PatchToken{.text = std::move(token), .append = append});
+		bool const append = *token == "-";
+		out.push_back(PatchToken{.text = std::move(*token), .append = append});
 		pos = slash + 1;
 	}
 	return out;

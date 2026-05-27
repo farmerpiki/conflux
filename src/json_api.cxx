@@ -48,6 +48,8 @@ export class JsonArena;
 export class NdjsonRange;
 export class JsonAccumulator;
 
+[[nodiscard]] std::optional<std::string> decode_json_pointer_token(std::string_view token);
+
 // ---------------------------------------------------------------------------
 // JsonKind / stage / issue code
 // ---------------------------------------------------------------------------

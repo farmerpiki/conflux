@@ -11,6 +11,30 @@ import conflux.types;
 // JsonPath::from_pointer (after JsonError definition)
 // ---------------------------------------------------------------------------
 
+std::optional<std::string> decode_json_pointer_token(
+	std::string_view token) {
+	std::string decoded;
+	decoded.reserve(token.size());
+	for (std::size_t i = 0; i < token.size(); ++i) {
+		if (token[i] != '~') {
+			decoded += token[i];
+			continue;
+		}
+		if (i + 1 >= token.size()) {
+			return std::nullopt;
+		}
+		++i;
+		if (token[i] == '0') {
+			decoded += '~';
+		} else if (token[i] == '1') {
+			decoded += '/';
+		} else {
+			return std::nullopt;
+		}
+	}
+	return decoded;
+}
+
 std::string JsonPath::to_pointer() const {
 	if (segs_.empty()) {
 		return "";
@@ -54,34 +78,15 @@ std::expected<JsonPath, JsonError> JsonPath::from_pointer(
 		if (slash == std::string_view::npos) {
 			slash = sv.size();
 		}
-		std::string name;
-		name.reserve(slash - pos);
-		for (std::size_t i = pos; i < slash; ++i) {
-			if (sv[i] == '~') {
-				if (i + 1 >= slash) {
-					return std::unexpected(
-						JsonError{
-							.stage = JsonStage::parse,
-							.code = JsonIssueCode::invalid_pointer,
-							.message = "invalid '~' escape in JSON Pointer"});
-				}
-				++i;
-				if (sv[i] == '0') {
-					name += '~';
-				} else if (sv[i] == '1') {
-					name += '/';
-				} else {
-					return std::unexpected(
-						JsonError{
-							.stage = JsonStage::parse,
-							.code = JsonIssueCode::invalid_pointer,
-							.message = "invalid '~' escape in JSON Pointer"});
-				}
-			} else {
-				name += sv[i];
-			}
+		auto name = decode_json_pointer_token(sv.substr(pos, slash - pos));
+		if (!name) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::parse,
+					.code = JsonIssueCode::invalid_pointer,
+					.message = "invalid '~' escape in JSON Pointer"});
 		}
-		result.push_member(name);
+		result.push_member(*name);
 		pos = slash + 1;
 	}
 	return result;
