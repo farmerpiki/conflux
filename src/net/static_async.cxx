@@ -5,7 +5,6 @@ module;
 #include <fcntl.h>
 #include <linux/openat2.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 module conflux.net.http.static_async;
 
@@ -31,13 +30,15 @@ int contained_static_open(
 	int flags,
 	mode_t mode = 0) noexcept {
 	std::string_view rel{relative == nullptr ? "" : relative};
-	char const *path = rel.empty() ? "." : relative;
-
-	open_how how{};
-	how.flags = static_cast<__u64>(flags | O_CLOEXEC);
-	how.mode = static_cast<__u64>(mode);
-	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-	return static_cast<int>(::syscall(SYS_openat2, root_fd, path, &how, sizeof(how)));
+	if (rel.empty() || rel == ".") {
+		return ::openat(root_fd, ".", flags | O_CLOEXEC, mode);
+	}
+	auto fd = blocking_openat_contained(root_fd, rel, flags, mode);
+	if (!fd) {
+		errno = fd.error().code().value();
+		return -1;
+	}
+	return fd->release();
 }
 
 struct StaticDir {
