@@ -1226,11 +1226,49 @@ private:
 		bool first{true};
 		bool awaiting_value{false};
 	};
+	class StateStack {
+		static constexpr std::size_t kInlineCapacity = 32;
+		std::array<StateFrame, kInlineCapacity> inline_{};
+		std::vector<StateFrame> overflow_{};
+		std::size_t size_{};
+
+	public:
+		[[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+		[[nodiscard]] std::size_t size() const noexcept { return size_; }
+		[[nodiscard]] StateFrame &back() noexcept {
+			return size_ <= kInlineCapacity ? inline_[size_ - 1U] : overflow_[size_ - kInlineCapacity - 1U];
+		}
+		[[nodiscard]] StateFrame const &back() const noexcept {
+			return size_ <= kInlineCapacity ? inline_[size_ - 1U] : overflow_[size_ - kInlineCapacity - 1U];
+		}
+		void push_back(
+			StateFrame frame) {
+			if (size_ < kInlineCapacity) {
+				inline_[size_++] = frame;
+				return;
+			}
+			overflow_.push_back(frame);
+			++size_;
+		}
+		void pop_back() noexcept {
+			if (size_ == 0) {
+				return;
+			}
+			if (size_ > kInlineCapacity) {
+				overflow_.pop_back();
+			}
+			--size_;
+		}
+		void clear() noexcept {
+			size_ = 0;
+			overflow_.clear();
+		}
+	};
 	struct Checkpoint {
 		std::size_t pos{};
 		std::size_t line{1};
 		std::size_t col{1};
-		std::vector<StateFrame> stack{};
+		StateStack stack{};
 		JsonStringToken key_token{};
 		JsonStringToken str_token{};
 		JsonNumberView num_val{std::string_view{}, 0, 0};
@@ -1244,7 +1282,7 @@ private:
 	std::size_t pos_{0};
 	std::size_t line_{1};
 	std::size_t col_{1};
-	std::vector<StateFrame> stack_;
+	StateStack stack_;
 	JsonStringToken key_token_{};
 	JsonStringToken str_token_{};
 	JsonNumberView num_val_{std::string_view{}, 0, 0};
@@ -1260,7 +1298,15 @@ private:
 	void adv(std::size_t n = 1) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
 	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
+	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme();
 	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
+	[[nodiscard]] std::expected<void, JsonError> skip_json5_identifier_key();
+	[[nodiscard]] std::expected<void, JsonError> skip_value_raw(std::size_t raw_depth);
+	[[nodiscard]] std::expected<void, JsonError> skip_array_body_raw(std::size_t raw_depth);
+	[[nodiscard]] std::expected<void, JsonError> skip_object_body_raw(std::size_t raw_depth);
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_array_elements_raw();
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw();
+	[[nodiscard]] std::expected<void, JsonError> push_frame(StateFrame frame);
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
 	[[nodiscard]] Checkpoint checkpoint() const;
 	void restore(Checkpoint checkpoint);
@@ -1280,6 +1326,9 @@ public:
 	[[nodiscard]] bool has_error() const noexcept;
 	[[nodiscard]] std::size_t pos() const noexcept;
 	[[nodiscard]] std::size_t value_start_pos() const noexcept;
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
+	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value(Event event);
 	void reset() noexcept;
 	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();
 };

@@ -117,6 +117,18 @@ inline void reflect_indent(
 	return {};
 }
 
+template<class Vector>
+[[nodiscard]] inline std::expected<void, JsonError> reflect_reserve_vector_from_remaining_array(
+	Vector &out,
+	JsonReader &reader) {
+	auto count = reader.count_remaining_array_elements();
+	if (!count) {
+		return std::unexpected(std::move(count).error());
+	}
+	out.reserve(*count);
+	return {};
+}
+
 [[nodiscard]] inline std::expected<std::string_view, JsonError> reflect_key_view(
 	JsonStringToken const &token,
 	JsonDecodeScratch &scratch) {
@@ -143,13 +155,24 @@ inline void reflect_indent(
 template<class String>
 [[nodiscard]] inline std::expected<void, JsonError> reflect_decode_string_into(
 	String &out,
-	JsonStringToken const &token) {
+	JsonStringToken const &token,
+	JsonDecodeScratch *scratch = nullptr) {
 	if (auto borrowed = token.unescaped_borrow()) {
 		out.assign(borrowed->data(), borrowed->size());
 		return {};
 	}
+	auto const needed = token.max_decoded_size();
+	if (scratch != nullptr && needed <= scratch->string_inline.size()) {
+		auto res = token.decode_into(std::span<char>{scratch->string_inline.data(), scratch->string_inline.size()});
+		if (!res) {
+			out.clear();
+			return std::unexpected(std::move(res).error());
+		}
+		out.assign(res->data(), res->size());
+		return {};
+	}
 	out.clear();
-	out.resize(token.max_decoded_size());
+	out.resize(needed);
 	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
 	if (!res) {
 		out.clear();
@@ -345,6 +368,9 @@ template<class M>
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
 		}
 		out.clear();
+		if (auto reserved = reflect_reserve_vector_from_remaining_array(out, reader); !reserved) {
+			return std::unexpected(std::move(reserved).error());
+		}
 		while (true) {
 			auto next = reader.next();
 			if (!next) {
@@ -430,7 +456,7 @@ template<class M>
 			return std::unexpected(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected string"});
 		}
-		return reflect_decode_string_into(out, reader.string_token());
+		return reflect_decode_string_into(out, reader.string_token(), scratch);
 	} else if constexpr (is_opt_refl<Raw>::value) {
 		using Inner = typename Raw::value_type;
 		if (event == Ev::null_value) {

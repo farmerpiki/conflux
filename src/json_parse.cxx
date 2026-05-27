@@ -216,12 +216,39 @@ next_ws:;
 		std::uint32_t len;
 		std::uint8_t flags; // kStorageInputView | kRawJsonSlice for zero-copy, 0 for escaped
 	};
-	void ensure_string_arena_decode_capacity() {
-		std::size_t const needed = store.input_view.size();
-		if (store.string_arena.capacity() < needed) {
-			store.string_arena.reserve(needed);
-			store.parse_stats.string_arena_reserve_bytes = needed;
+	void ensure_string_arena_decode_capacity(
+		std::size_t additional_bytes) {
+		constexpr std::size_t kInitialStringArenaReserve = 256;
+		std::size_t const wanted = store.string_arena.size() + additional_bytes;
+		if (store.string_arena.capacity() >= wanted) {
+			return;
 		}
+		std::size_t target = store.string_arena.capacity();
+		if (target < kInitialStringArenaReserve) {
+			target = kInitialStringArenaReserve;
+		}
+		while (target < wanted) {
+			if (target > std::numeric_limits<std::size_t>::max() / 2U) {
+				target = wanted;
+				break;
+			}
+			target *= 2U;
+		}
+		store.string_arena.reserve(target);
+		store.parse_stats.string_arena_reserve_bytes = std::max(store.parse_stats.string_arena_reserve_bytes, target);
+	}
+	[[nodiscard]] static constexpr std::size_t utf8_encoded_len(
+		std::uint32_t cp) noexcept {
+		if (cp < 0x80U) {
+			return 1;
+		}
+		if (cp < 0x800U) {
+			return 2;
+		}
+		if (cp < 0x10000U) {
+			return 3;
+		}
+		return 4;
 	}
 	// Phase 2: fast path scans for `"` or `\` without copying. On `\`, copies
 	// the prefix to escape_arena and continues with the escape-decoding loop;
@@ -251,7 +278,7 @@ next_ws:;
 			}
 			if (c == '\\') {
 				// Slow path: copy bytes seen so far to escape_arena, then keep decoding.
-				ensure_string_arena_decode_capacity();
+				ensure_string_arena_decode_capacity((pos - start_pos) + 32U);
 				std::size_t const arena_off = store.string_arena.size();
 				store.string_arena.append(src.data() + start_pos, pos - start_pos);
 				return parse_str_decode_tail(arena_off);
@@ -377,7 +404,7 @@ next_ws:;
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_str_body_sq() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
-		ensure_string_arena_decode_capacity();
+		ensure_string_arena_decode_capacity(std::min<std::size_t>(src.size() - pos, 256U));
 		std::size_t const arena_off = store.string_arena.size();
 		while (pos < src.size()) {
 			auto const c = static_cast<unsigned char>(src[pos]);
@@ -480,6 +507,93 @@ next_ws:;
 		}
 		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
+	[[nodiscard]] std::expected<std::uint32_t, JsonError> skip_str_body_no_store(
+		char quote) {
+		constexpr unsigned char kCtrlEnd = 0x20U;
+		std::size_t decoded_len = 0;
+		while (pos < src.size()) {
+			auto const c = static_cast<unsigned char>(src[pos]);
+			if (c == static_cast<unsigned char>(quote)) {
+				adv();
+				return static_cast<std::uint32_t>(decoded_len);
+			}
+			if (c < kCtrlEnd) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			}
+			if (c == '\\') {
+				adv();
+				if (pos >= src.size()) [[unlikely]] {
+					return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				}
+				switch (src[pos]) {
+				case '\'':
+					if (quote != '\'') [[unlikely]] {
+						return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+					}
+					++decoded_len;
+					adv();
+					break;
+				case '"':
+				case '\\':
+				case '/':
+				case 'b':
+				case 'f':
+				case 'n':
+				case 'r':
+				case 't':
+					++decoded_len;
+					adv();
+					break;
+				case 'u':
+					{
+						adv();
+						std::uint32_t cp = 0;
+						if (!hex4(cp)) [[unlikely]] {
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+						}
+						// NOLINTBEGIN(readability-magic-numbers)
+						if (cp >= 0xD800U && cp <= 0xDBFFU) {
+							if (pos + 6 > src.size() || src[pos] != '\\' || src[pos + 1] != 'u') {
+								return std::unexpected(
+									mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+							}
+							adv(2);
+							std::uint32_t lo = 0;
+							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) [[unlikely]] {
+								return std::unexpected(
+									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+							}
+							cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
+						} else if (cp >= 0xDC00U && cp <= 0xDFFFU) [[unlikely]] {
+							return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+						}
+						// NOLINTEND(readability-magic-numbers)
+						decoded_len += utf8_encoded_len(cp);
+						break;
+					}
+				default: return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+				}
+				continue;
+			}
+			std::size_t const seq = utf8_seq_len(c);
+			if (seq == 0) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 std::byte"));
+			}
+			if (pos + seq > src.size()) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			}
+			for (std::size_t k = 1; k < seq; ++k) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) [[unlikely]] {
+					return std::unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				}
+			}
+			decoded_len += seq;
+			pos += seq;
+			col += 1;
+		}
+		return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	}
+
 	// JSON5: unquoted key — [A-Za-z_$][A-Za-z0-9_$]*
 	[[nodiscard]] std::expected<ParsedStr, JsonError> parse_unquoted_key() {
 		std::size_t const start = pos;
@@ -636,6 +750,196 @@ struct TreeBuilder {
 		}
 		return std::unexpected(mk_err(JsonIssueCode::syntax_error, std::format("std::unexpected character '{}'", c)));
 	}
+	// Syntax-only value skipper used by first_wins duplicate handling. It keeps
+	// parser validation and depth/string limits, but avoids materializing ignored
+	// duplicate subtrees into DocumentStorage.
+	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
+	[[nodiscard]] std::expected<void, JsonError> skip_value(
+		std::size_t depth) {
+		if (auto ok = skip_ws_checked(); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos >= tok.src.size()) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
+		}
+		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+		}
+
+		char const c = tok.src[tok.pos];
+		if (c == '"') {
+			tok.adv();
+			auto len = tok.skip_str_body_no_store('"');
+			if (!len) [[unlikely]] {
+				return std::unexpected(std::move(len).error());
+			}
+			if (opts.max_string_size.exceeds(*len, kDefaultMaxString)) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+			}
+			return {};
+		}
+		if (c == '\'' && opts.mode == ParseMode::json5) {
+			tok.adv();
+			auto len = tok.skip_str_body_no_store('\'');
+			if (!len) [[unlikely]] {
+				return std::unexpected(std::move(len).error());
+			}
+			if (opts.max_string_size.exceeds(*len, kDefaultMaxString)) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+			}
+			return {};
+		}
+		if (c == '[') {
+			return skip_array(depth);
+		}
+		if (c == '{') {
+			return skip_object(depth);
+		}
+		if (c == 't') {
+			if (tok.src.substr(tok.pos, 4) != "true") [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			return {};
+		}
+		if (c == 'f') {
+			if (tok.src.substr(tok.pos, 5) != "false") [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(5);
+			return {};
+		}
+		if (c == 'n') {
+			if (tok.src.substr(tok.pos, 4) != "null") [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			return {};
+		}
+		if (c == '-' || (c >= '0' && c <= '9')) {
+			auto lex = tok.parse_number_lexeme();
+			if (!lex) {
+				return std::unexpected(std::move(lex).error());
+			}
+			return {};
+		}
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, std::format("std::unexpected character '{}'", c)));
+	}
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] std::expected<void, JsonError> skip_array(
+		std::size_t depth) {
+		tok.adv(); // '['
+		if (auto ok = skip_ws_checked(); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
+			tok.adv();
+			return {};
+		}
+		while (true) {
+			if (auto child = skip_value(depth + 1); !child) [[unlikely]] {
+				return child;
+			}
+			if (auto ok = skip_ws_checked(); !ok) {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
+			}
+			if (tok.src[tok.pos] == ']') {
+				tok.adv();
+				return {};
+			}
+			if (tok.src[tok.pos] != ',') {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'"));
+			}
+			tok.adv();
+			if (opts.mode == ParseMode::json5) {
+				if (auto ok = skip_ws_checked(); !ok) {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
+					tok.adv();
+					return {};
+				}
+			}
+		}
+	}
+	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
+	[[nodiscard]] std::expected<void, JsonError> skip_object(
+		std::size_t depth) {
+		tok.adv(); // '{'
+		if (auto ok = skip_ws_checked(); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+			tok.adv();
+			return {};
+		}
+		while (true) {
+			if (auto ok = skip_ws_checked(); !ok) {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+			}
+			char const key_ch = tok.src[tok.pos];
+			if (key_ch == '"') {
+				tok.adv();
+				auto key = tok.skip_str_body_no_store('"');
+				if (!key) [[unlikely]] {
+					return std::unexpected(std::move(key).error());
+				}
+			} else if (key_ch == '\'' && opts.mode == ParseMode::json5) {
+				tok.adv();
+				auto key = tok.skip_str_body_no_store('\'');
+				if (!key) [[unlikely]] {
+					return std::unexpected(std::move(key).error());
+				}
+			} else if (opts.mode == ParseMode::json5) {
+				auto key = tok.parse_unquoted_key();
+				if (!key) [[unlikely]] {
+					return std::unexpected(std::move(key).error());
+				}
+			} else [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+			}
+			if (auto ok = skip_ws_checked(); !ok) {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ':'"));
+			}
+			tok.adv();
+			if (auto val = skip_value(depth + 1); !val) [[unlikely]] {
+				return val;
+			}
+			if (auto ok = skip_ws_checked(); !ok) {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (tok.pos >= tok.src.size()) [[unlikely]] {
+				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+			}
+			if (tok.src[tok.pos] == '}') {
+				tok.adv();
+				return {};
+			}
+			if (tok.src[tok.pos] != ',') {
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
+			}
+			tok.adv();
+			if (opts.mode == ParseMode::json5) {
+				if (auto ok = skip_ws_checked(); !ok) {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+					tok.adv();
+					return {};
+				}
+			}
+		}
+	}
+
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_str_node() {
 		auto parsed = tok.parse_str_body();
 		if (!parsed) [[unlikely]] {
@@ -724,10 +1028,10 @@ struct TreeBuilder {
 			}
 		}
 	}
-	// Phase 5: linear dedup for n <= 8 (no allocation), lazy US
-	// promotion above the threshold. The set is constructed only when the
-	// object actually exceeds the linear-scan window — typical configs
-	// (small flat objects) pay zero std::hash-table cost.
+	// Phase 5: linear dedup for n <= 8 (no allocation), lazy PMR hash-index
+	// promotion above the threshold. The promoted table stores stable string
+	// descriptors plus the first staging index, so duplicate lookup and
+	// last_wins replacement avoid a second linear scan.
 	static constexpr std::size_t kDedupLinearMax = 8;
 	struct MemberNameKey {
 		std::uint32_t off{};
@@ -749,43 +1053,34 @@ struct TreeBuilder {
 			return store->bytes_at(lhs.off, lhs.len, lhs.flags) == store->bytes_at(rhs.off, rhs.len, rhs.flags);
 		}
 	};
-	using MemberNameSet = std::unordered_set<MemberNameKey, MemberNameHash, MemberNameEq>;
+	using MemberNameIndexAlloc = std::pmr::polymorphic_allocator<std::pair<MemberNameKey const, std::size_t>>;
+	using MemberNameIndex =
+		std::unordered_map<MemberNameKey, std::size_t, MemberNameHash, MemberNameEq, MemberNameIndexAlloc>;
 
-	[[nodiscard]] bool dedup_member_present(
+	[[nodiscard]] std::optional<std::size_t> dedup_member_index(
 		std::size_t members_start,
 		MemberNameKey name,
-		std::optional<MemberNameSet> const &seen_hash) const {
+		std::optional<MemberNameIndex> const &seen_hash) const {
 		if (seen_hash.has_value()) {
-			return seen_hash->contains(name);
+			auto const it = seen_hash->find(name);
+			if (it != seen_hash->end()) {
+				return it->second;
+			}
+			return std::nullopt;
 		}
 		for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 			auto const &m = staging_members[i];
 			if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags))
 				== store.bytes_at(name.off, name.len, name.flags)) {
-				return true;
+				return i;
 			}
 		}
-		return false;
+		return std::nullopt;
 	}
-	// Destroy std::hash tables in store.nodes[from..store.nodes.size()) before resize.
-	void destroy_nodes_range(
-		std::size_t from) noexcept {
-		for (std::size_t i = from; i < store.nodes.size(); ++i) {
-			auto const &n = store.nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-				ObjHashTable::destroy(n.hash_idx_raw);
-			}
-		}
-	}
+
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_object(
 		std::size_t depth) {
-		struct StorageMark {
-			std::size_t nodes;
-			std::size_t string_arena;
-			std::size_t array_children;
-			std::size_t object_members;
-		};
 		tok.adv(); // '{'
 		if (auto ok = skip_ws_checked(); !ok) {
 			return std::unexpected(std::move(ok).error());
@@ -800,8 +1095,8 @@ struct TreeBuilder {
 		// flushed to object_members at close.
 		std::size_t const members_start = staging_members.size();
 		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
-		// std::hash set is built once and reused for the remainder of this object.
-		std::optional<MemberNameSet> seen_hash;
+		// PMR hash index is built once and reused for the remainder of this object.
+		std::optional<MemberNameIndex> seen_hash;
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			if (auto ok = skip_ws_checked(); !ok) {
@@ -832,7 +1127,8 @@ struct TreeBuilder {
 			}
 			MemberNameKey const name_key{.off = parsed_name->off, .len = parsed_name->len, .flags = parsed_name->flags};
 			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			bool const is_dup = dedup_member_present(members_start, name_key, seen_hash);
+			auto const dup_index = dedup_member_index(members_start, name_key, seen_hash);
+			bool const is_dup = dup_index.has_value();
 			if (is_dup) {
 				++store.parse_stats.duplicate_member_hits;
 			}
@@ -840,10 +1136,6 @@ struct TreeBuilder {
 				staging_members.resize(members_start);
 				return std::unexpected(
 					mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
-			}
-			if (!is_dup && seen_hash.has_value()) {
-				seen_hash->insert(name_key);
-				++store.parse_stats.duplicate_hash_inserts;
 			}
 
 			if (auto ok = skip_ws_checked(); !ok) {
@@ -856,62 +1148,54 @@ struct TreeBuilder {
 			}
 			tok.adv();
 
-			// For first_wins, snapshot before parsing the duplicate value.
-			StorageMark mark{};
 			if (is_dup && dup_policy == DuplicateKeyPolicy::first_wins) {
-				mark = StorageMark{
-					store.nodes.size(),
-					store.string_arena.size(),
-					store.array_children.size(),
-					store.object_members.size()};
-			}
-
-			auto val = parse_value(depth + 1);
-			if (!val) {
-				staging_members.resize(members_start);
-				return std::unexpected(std::move(val).error());
-			}
-
-			if (is_dup) {
-				if (dup_policy == DuplicateKeyPolicy::first_wins) {
-					// Discard the newly parsed value; restore storage to mark.
-					destroy_nodes_range(mark.nodes);
-					store.nodes.resize(mark.nodes);
-					store.string_arena.resize(mark.string_arena);
-					store.array_children.resize(mark.array_children);
-					store.object_members.resize(mark.object_members);
-					++store.parse_stats.first_wins_rollbacks;
-				} else {
-					// last_wins: update the first occurrence's val_node.
-					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
-						auto &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags))
-							== name_sv) {
-							m.val_node = static_cast<std::uint32_t>(*val);
-							++store.parse_stats.last_wins_updates;
-							break;
-						}
-					}
+				if (auto skipped = skip_value(depth + 1); !skipped) {
+					staging_members.resize(members_start);
+					return std::unexpected(std::move(skipped).error());
 				}
+				++store.parse_stats.first_wins_rollbacks;
 			} else {
-				staging_members.push_back(
-					{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
+				auto val = parse_value(depth + 1);
+				if (!val) {
+					staging_members.resize(members_start);
+					return std::unexpected(std::move(val).error());
+				}
 
-				// Promote linear → std::hash once we cross the threshold.
-				std::size_t const cur_count = staging_members.size() - members_start;
-				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
-					seen_hash.emplace(0, MemberNameHash{&store}, MemberNameEq{&store});
-					++store.parse_stats.duplicate_hash_promotions;
-					std::size_t reserve_count = cur_count;
-					if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
-						reserve_count += cur_count;
-					}
-					seen_hash->reserve(reserve_count);
-					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
-						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						seen_hash->insert(
-							MemberNameKey{m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)});
+				if (is_dup) {
+					// last_wins: update the first occurrence's val_node directly.
+					auto &m = staging_members[*dup_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+					m.val_node = static_cast<std::uint32_t>(*val);
+					++store.parse_stats.last_wins_updates;
+				} else {
+					std::size_t const new_member_index = staging_members.size();
+					staging_members.push_back(
+						{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
+					if (seen_hash.has_value()) {
+						seen_hash->emplace(name_key, new_member_index);
 						++store.parse_stats.duplicate_hash_inserts;
+					}
+
+					// Promote linear → PMR hash-index once we cross the threshold.
+					std::size_t const cur_count = staging_members.size() - members_start;
+					if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
+						seen_hash.emplace(
+							0,
+							MemberNameHash{&store},
+							MemberNameEq{&store},
+							MemberNameIndexAlloc{store.hash_mr_});
+						++store.parse_stats.duplicate_hash_promotions;
+						std::size_t reserve_count = cur_count;
+						if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
+							reserve_count += cur_count;
+						}
+						seen_hash->reserve(reserve_count);
+						for (std::size_t i = members_start; i < staging_members.size(); ++i) {
+							auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+							seen_hash->emplace(
+								MemberNameKey{m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)},
+								i);
+							++store.parse_stats.duplicate_hash_inserts;
+						}
 					}
 				}
 			}

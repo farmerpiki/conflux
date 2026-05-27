@@ -3029,6 +3029,39 @@ TEST_CASE(
 	CHECK(doc.error().code == JsonIssueCode::duplicate_member);
 }
 TEST_CASE(
+	"json: first_wins skips duplicate value materialization",
+	"[json][perf]") {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	std::string js = R"({"k":"first","k":")";
+	for (std::size_t i = 0; i < 4096; ++i) {
+		js += R"(\n)";
+	}
+	js += R"(","z":1})";
+	auto doc = parse(js, opts);
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	REQUIRE(obj->find_member("k").has_value());
+	CHECK(*obj->member("k")->as_string() == "first");
+	REQUIRE(obj->find_member("z").has_value());
+	auto stats = doc->parse_storage_stats();
+	CHECK(stats.duplicate_member_hits == 1);
+	CHECK(stats.first_wins_rollbacks == 1);
+	CHECK(stats.string_arena_reserve_bytes == 0);
+}
+
+TEST_CASE(
+	"json: first_wins skipped duplicate value still validates syntax",
+	"[json][perf]") {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+	auto doc = parse(R"({"k":1,"k":[1,]})", opts);
+	REQUIRE_FALSE(doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::syntax_error);
+}
+
+TEST_CASE(
 	"json: parse storage stats report arena reserve and duplicate hash activity",
 	"[json][perf]") {
 	JsonParseOptions opts;
@@ -4072,6 +4105,20 @@ TEST_CASE(
 	CHECK(decoded.error().code == boundary::ErrorCode::invalid_value);
 }
 TEST_CASE(
+	"json: DOM JsonMembers decode uses inline path frames on success",
+	"[json][dom][perf]") {
+	auto doc = parse(R"({"x":3,"y":7})");
+	REQUIRE(doc.has_value());
+	CountingResource resource;
+	DefaultPmrResourceGuard guard{&resource};
+	auto point = decode<Point>(doc->root());
+	REQUIRE(point.has_value());
+	CHECK(point->x == 3LL);
+	CHECK(point->y == 7LL);
+	CHECK(resource.alloc_count == 0UZ);
+}
+
+TEST_CASE(
 	"phase4: decode_direct<JsonMembers> uses caller scratch for key decode",
 	"[phase4][direct]") {
 	CountingResource resource;
@@ -4095,6 +4142,100 @@ TEST_CASE(
 	REQUIRE(p.has_value());
 	CHECK(p->x == 3LL);
 	CHECK(p->y == 7LL);
+	CHECK(resource.alloc_count == 0UZ);
+}
+
+TEST_CASE(
+	"json: JsonReader counts arrays without consuming them",
+	"[json][reader][perf]") {
+	JsonReader r{R"([1,[2,3],{"x":4},5])"};
+	auto first = r.next();
+	REQUIRE(first.has_value());
+	REQUIRE(first->has_value());
+	REQUIRE(**first == JsonReader::Event::begin_array);
+	auto count = r.count_remaining_array_elements();
+	REQUIRE(count.has_value());
+	CHECK(*count == 4UZ);
+	auto value = r.next();
+	REQUIRE(value.has_value());
+	REQUIRE(value->has_value());
+	CHECK(**value == JsonReader::Event::number_value);
+	CHECK(r.number_val().to_i64() == 1LL);
+}
+
+TEST_CASE(
+	"json: vector reader decode reserves counted array size",
+	"[json][reader][perf]") {
+	CountingResource resource;
+	DefaultPmrResourceGuard guard{&resource};
+	JsonReader r{R"([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])"};
+	auto values = decode<std::pmr::vector<std::int64_t>>(r);
+	REQUIRE(values.has_value());
+	CHECK(values->size() == 16UZ);
+	CHECK(values->capacity() == 16UZ);
+	CHECK(resource.alloc_count == 1UZ);
+}
+
+TEST_CASE(
+	"json: JsonReader raw array counter validates nested syntax and restores",
+	"[json][reader][perf]") {
+	JsonReader r{R"([1,[2,],3])"};
+	auto first = r.next();
+	REQUIRE(first.has_value());
+	REQUIRE(first->has_value());
+	REQUIRE(**first == JsonReader::Event::begin_array);
+	auto count = r.count_remaining_array_elements();
+	REQUIRE_FALSE(count.has_value());
+	CHECK(count.error().code == JsonIssueCode::syntax_error);
+	auto value = r.next();
+	REQUIRE(value.has_value());
+	REQUIRE(value->has_value());
+	CHECK(**value == JsonReader::Event::number_value);
+}
+
+TEST_CASE(
+	"json: JsonReader skip_next_value raw-skips nested containers",
+	"[json][reader][perf]") {
+	JsonReader r{R"({"a":[1,{"b":2}],"c":3})"};
+	auto skipped = r.skip_next_value();
+	REQUIRE(skipped.has_value());
+	CHECK(skipped->start == 0UZ);
+	CHECK(skipped->end == r.input().size());
+	auto next = r.next();
+	REQUIRE(next.has_value());
+	CHECK_FALSE(next->has_value());
+}
+
+TEST_CASE(
+	"json: JsonReader counts object members without consuming them",
+	"[json][reader][perf]") {
+	JsonReader r{R"({"a":1,"b":[2,{"nested":3}],"c":{"d":4}})"};
+	auto first = r.next();
+	REQUIRE(first.has_value());
+	REQUIRE(first->has_value());
+	REQUIRE(**first == JsonReader::Event::begin_object);
+	auto count = r.count_remaining_object_members();
+	REQUIRE(count.has_value());
+	CHECK(*count == 3UZ);
+	auto key = r.next();
+	REQUIRE(key.has_value());
+	REQUIRE(key->has_value());
+	CHECK(**key == JsonReader::Event::key);
+	REQUIRE(r.key_token().unescaped_borrow().has_value());
+	CHECK(*r.key_token().unescaped_borrow() == "a");
+}
+
+TEST_CASE(
+	"json: escaped string member decode uses scratch inline buffer",
+	"[json][reader][perf]") {
+	CountingResource resource;
+	JsonDecodeScratch scratch;
+	scratch.reset_resource(&resource);
+	JsonReader r{R"({"name":"A\nB","age":5})"};
+	auto person = decode_direct<P4Person>(r, {}, &scratch);
+	REQUIRE(person.has_value());
+	CHECK(person->name == "A\nB");
+	CHECK(person->age == 5);
 	CHECK(resource.alloc_count == 0UZ);
 }
 TEST_CASE(
@@ -4154,6 +4295,85 @@ TEST_CASE(
 	CHECK((*v)[1].name == "B");
 	CHECK((*v)[1].age == 2LL);
 }
+
+TEST_CASE(
+	"json: dump_direct writes string-key maps without DOM builder",
+	"[json][direct][perf]") {
+	std::map<std::string, std::int64_t> ordered{
+		{"a", 1},
+		{"b", 2}
+    };
+	static_assert(JsonDirectWritable<decltype(ordered)>);
+	auto dumped = dump_direct(ordered);
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"a":1,"b":2})");
+
+	auto sorted = dump_direct(ordered, JsonDumpOptions{.sort_object_keys = true});
+	CHECK_FALSE(sorted.has_value());
+	CHECK(sorted.error().code == JsonIssueCode::invalid_value);
+}
+
+TEST_CASE(
+	"json: NativeJsonProvider direct-writes map chunks",
+	"[json][direct][boundary][perf]") {
+	std::map<std::string, std::int64_t> ordered{
+		{"a", 1},
+		{"b", 2}
+    };
+	std::string body;
+	std::size_t chunks = 0;
+	auto sink = [&](std::string_view chunk) {
+		++chunks;
+		body.append(chunk);
+	};
+	auto ok = boundary::NativeJsonProvider::write_json(ordered, {}, sink);
+	REQUIRE(ok.has_value());
+	CHECK(body == R"({"a":1,"b":2})");
+	CHECK(chunks == 1UZ);
+}
+
+TEST_CASE(
+	"json: reader decodes arithmetic vectors and string maps in-place",
+	"[json][reader][perf]") {
+	{
+		JsonReader r{R"([1,2,3])"};
+		auto values = decode<std::vector<int>>(r);
+		REQUIRE(values.has_value());
+		CHECK(*values == std::vector<int>{1, 2, 3});
+	}
+	{
+		JsonReader r{R"({"a":"x","b":"y"})"};
+		auto values = decode<std::unordered_map<std::string, std::string>>(r);
+		REQUIRE(values.has_value());
+		CHECK(values->at("a") == "x");
+		CHECK(values->at("b") == "y");
+	}
+}
+
+TEST_CASE(
+	"json: dump_direct writes arithmetic vectors and tuples",
+	"[json][direct][perf]") {
+	std::vector<int> ints{1, 2, 3};
+	static_assert(JsonDirectWritable<decltype(ints)>);
+	auto arr = dump_direct(ints);
+	REQUIRE(arr.has_value());
+	CHECK(*arr == R"([1,2,3])");
+
+	std::tuple<std::string_view, int, bool> tup{"x", 4, true};
+	static_assert(JsonDirectWritable<decltype(tup)>);
+	auto tuple_dump = dump_direct(tup);
+	REQUIRE(tuple_dump.has_value());
+	CHECK(*tuple_dump == R"(["x",4,true])");
+}
+
+TEST_CASE(
+	"json: dump_direct rejects non-finite floating point",
+	"[json][direct]") {
+	auto dumped = dump_direct(std::numeric_limits<double>::quiet_NaN());
+	CHECK_FALSE(dumped.has_value());
+	CHECK(dumped.error().code == JsonIssueCode::number_out_of_range);
+}
+
 TEST_CASE(
 	"phase4: nested direct decode reuses caller scratch for long escaped keys",
 	"[phase4][direct]") {
@@ -4351,6 +4571,57 @@ TEST_CASE(
 	CHECK((*m)["x"] == 10LL);
 	CHECK((*m)["y"] == 20LL);
 }
+TEST_CASE(
+	"json: reader unordered_map decode reserves counted object size",
+	"[json][reader][perf]") {
+	CountingResource resource;
+	DefaultPmrResourceGuard guard{&resource};
+	JsonReader r{
+		R"({"k0":0,"k1":1,"k2":2,"k3":3,"k4":4,"k5":5,"k6":6,"k7":7,"k8":8,"k9":9,"k10":10,"k11":11,"k12":12,"k13":13,"k14":14,"k15":15})"};
+	auto m = decode<std::pmr::unordered_map<std::string, std::int64_t>>(r);
+	REQUIRE(m.has_value());
+	CHECK(m->size() == 16UZ);
+	CHECK(m->bucket_count() >= 16UZ);
+	CHECK(m->at("k0") == 0LL);
+	CHECK(m->at("k15") == 15LL);
+	CHECK(resource.alloc_count <= m->size() + 1UZ);
+}
+
+TEST_CASE(
+	"json: reader map decode honors duplicate policies",
+	"[json][reader][duplicates]") {
+	{
+		JsonReader r{R"({"x":1,"x":2})"};
+		auto m = decode<std::unordered_map<std::string, std::int64_t>>(r);
+		CHECK_FALSE(m.has_value());
+		CHECK(m.error().code == JsonIssueCode::duplicate_member);
+	}
+	{
+		JsonParseOptions opts;
+		opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+		JsonReader r{R"({"x":1,"x":2})", opts};
+		auto m = decode<std::unordered_map<std::string, std::int64_t>>(r);
+		REQUIRE(m.has_value());
+		CHECK(m->at("x") == 2LL);
+	}
+	{
+		JsonParseOptions opts;
+		opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+		JsonReader r{R"({"x":1,"x":[2,3,4]})", opts};
+		auto m = decode<std::unordered_map<std::string, std::int64_t>>(r);
+		REQUIRE(m.has_value());
+		CHECK(m->at("x") == 1LL);
+	}
+	{
+		JsonParseOptions opts;
+		opts.duplicate_key = DuplicateKeyPolicy::first_wins;
+		JsonReader r{R"({"x":1,"x":[2,]})", opts};
+		auto m = decode<std::unordered_map<std::string, std::int64_t>>(r);
+		CHECK_FALSE(m.has_value());
+		CHECK(m.error().code == JsonIssueCode::syntax_error);
+	}
+}
+
 TEST_CASE(
 	"phase4: JsonReader reset restores fresh state",
 	"[phase4]") {

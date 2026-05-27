@@ -166,6 +166,29 @@ struct NativeJsonProvider {
 		return dump_json(*doc, opts);
 	}
 
+	template<class T, class Sink>
+		requires has_json_codec<std::remove_cvref_t<T>>
+	[[nodiscard]] static std::expected<void, Error> write_json(
+		T const &value,
+		DumpOptions const &opts,
+		Sink &&sink) {
+		if constexpr (JsonDirectWritable<std::remove_cvref_t<T>>) {
+			auto ok = write_json_direct_to<std::remove_cvref_t<T>>(value, detail::map_dump_options(opts), sink);
+			if (ok) {
+				return {};
+			}
+			if (!opts.sort_object_keys) {
+				return std::unexpected(detail::map_error(ok.error()));
+			}
+		}
+		auto dumped = dump_json(value, opts);
+		if (!dumped) {
+			return std::unexpected(dumped.error());
+		}
+		std::invoke(std::forward<Sink>(sink), std::string_view{*dumped});
+		return {};
+	}
+
 	template<class T>
 		requires has_json_codec<std::remove_cvref_t<T>>
 	[[nodiscard]] static std::expected<std::remove_cvref_t<T>, Error> decode_json(

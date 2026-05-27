@@ -91,14 +91,14 @@ template<class T>
 constexpr bool is_tuple_of_v = is_tuple_of<T>::value;
 template<class T>
 struct is_map_type : std::false_type {};
-template<class K, class Vt>
-struct is_map_type<std::map<K, Vt>> : std::true_type {};
+template<class Vt, class Compare, class Alloc>
+struct is_map_type<std::map<std::string, Vt, Compare, Alloc>> : std::true_type {};
 template<class T>
 constexpr bool is_map_type_v = is_map_type<T>::value;
 template<class T>
 struct is_unordered_map_type : std::false_type {};
-template<class K, class Vt>
-struct is_unordered_map_type<std::unordered_map<K, Vt>> : std::true_type {};
+template<class Vt, class Hash, class KeyEqual, class Alloc>
+struct is_unordered_map_type<std::unordered_map<std::string, Vt, Hash, KeyEqual, Alloc>> : std::true_type {};
 template<class T>
 constexpr bool is_unordered_map_type_v = is_unordered_map_type<T>::value;
 struct PathFrame {
@@ -109,6 +109,51 @@ struct PathFrame {
 	std::string_view member_name{};
 	std::size_t index{};
 };
+
+class PathFrameStack {
+	static constexpr std::size_t kInlineCapacity = 16;
+	std::array<PathFrame, kInlineCapacity> inline_{};
+	std::vector<PathFrame> overflow_{};
+	std::size_t size_{};
+
+public:
+	[[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+	[[nodiscard]] std::size_t size() const noexcept { return size_; }
+
+	void push_back(
+		PathFrame frame) {
+		if (overflow_.empty() && size_ < kInlineCapacity) {
+			inline_[size_++] = frame;
+			return;
+		}
+		if (overflow_.empty()) {
+			overflow_.reserve(kInlineCapacity * 2U);
+			overflow_.insert(overflow_.end(), inline_.begin(), inline_.begin() + static_cast<std::ptrdiff_t>(size_));
+		}
+		overflow_.push_back(frame);
+		size_ = overflow_.size();
+	}
+
+	void pop_back() noexcept {
+		if (size_ == 0) {
+			return;
+		}
+		if (!overflow_.empty()) {
+			overflow_.pop_back();
+			size_ = overflow_.size();
+			return;
+		}
+		--size_;
+	}
+
+	[[nodiscard]] std::span<PathFrame const> view() const noexcept {
+		if (!overflow_.empty()) {
+			return std::span<PathFrame const>{overflow_.data(), overflow_.size()};
+		}
+		return std::span<PathFrame const>{inline_.data(), size_};
+	}
+};
+
 [[nodiscard]] inline JsonPath materialize_path(
 	std::span<PathFrame const> frames) {
 	JsonPath p;
@@ -122,6 +167,11 @@ struct PathFrame {
 	return p;
 }
 
+[[nodiscard]] inline JsonPath materialize_path(
+	PathFrameStack const &frames) {
+	return materialize_path(frames.view());
+}
+
 } // namespace detail
 
 export template<class T>
@@ -133,14 +183,23 @@ namespace detail {
 
 template<class T>
 struct direct_writable : std::false_type {};
+template<class T>
+constexpr bool direct_writable_number_v =
+	((std::integral<T>
+	  && !std::same_as<T, bool>
+	  && !std::same_as<T, char>
+	  && !std::same_as<T, char8_t>
+	  && !std::same_as<T, signed char>
+	  && !std::same_as<T, unsigned char>
+	  && !std::same_as<T, wchar_t>
+	  && !std::same_as<T, char16_t>
+	  && !std::same_as<T, char32_t>)
+	 || std::floating_point<T>);
 template<>
 struct direct_writable<bool> : std::true_type {};
-template<>
-struct direct_writable<std::int64_t> : std::true_type {};
-template<>
-struct direct_writable<std::uint64_t> : std::true_type {};
-template<>
-struct direct_writable<double> : std::true_type {};
+template<class T>
+	requires direct_writable_number_v<T>
+struct direct_writable<T> : std::true_type {};
 template<class Traits, class Alloc>
 struct direct_writable<std::basic_string<char, Traits, Alloc>> : std::true_type {};
 template<>
@@ -153,6 +212,18 @@ template<class T, class Alloc>
 struct direct_writable<std::vector<T, Alloc>> : direct_writable<std::remove_cvref_t<T>> {};
 template<class T, std::size_t N>
 struct direct_writable<std::array<T, N>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class A, class B>
+struct direct_writable<std::pair<A, B>>
+	: std::bool_constant<
+		  direct_writable<std::remove_cvref_t<A>>::value && direct_writable<std::remove_cvref_t<B>>::value> {};
+template<class... Ts>
+struct direct_writable<std::tuple<Ts...>>
+	: std::bool_constant<(direct_writable<std::remove_cvref_t<Ts>>::value && ...)> {};
+template<class T, class Compare, class Alloc>
+struct direct_writable<std::map<std::string, T, Compare, Alloc>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T, class Hash, class KeyEqual, class Alloc>
+struct direct_writable<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>>
+	: direct_writable<std::remove_cvref_t<T>> {};
 template<class T>
 	requires has_members_spec<T>::value
 struct direct_writable<T> : std::true_type {};
@@ -869,10 +940,10 @@ template<class A, class B>
 struct conflux::json::JsonCodec<std::pair<A, B>>;
 template<class... Ts>
 struct conflux::json::JsonCodec<std::tuple<Ts...>>;
-template<class T>
-struct conflux::json::JsonCodec<std::map<std::string, T>>;
-template<class T>
-struct conflux::json::JsonCodec<std::unordered_map<std::string, T>>;
+template<class T, class Compare, class Alloc>
+struct conflux::json::JsonCodec<std::map<std::string, T, Compare, Alloc>>;
+template<class T, class Hash, class KeyEqual, class Alloc>
+struct conflux::json::JsonCodec<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>>;
 
 export template<class T>
 std::expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts = {});
@@ -1347,15 +1418,16 @@ struct conflux::json::JsonCodec<std::tuple<Ts...>> {
 	}
 	static constexpr std::string_view type_name() { return "Tup"; }
 };
-template<class T>
-struct conflux::json::JsonCodec<std::map<std::string, T>> {
-	static std::expected<std::map<std::string, T>, JsonError> decode(
+template<class T, class Compare, class Alloc>
+struct conflux::json::JsonCodec<std::map<std::string, T, Compare, Alloc>> {
+	using Map = std::map<std::string, T, Compare, Alloc>;
+	static std::expected<Map, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
 		if (!obj) {
 			return std::unexpected(std::move(obj).error());
 		}
-		std::map<std::string, T> result;
+		Map result;
 		for (auto const &[name, val]: obj->members()) {
 			auto v = ::decode<T>(val);
 			if (!v) {
@@ -1369,7 +1441,7 @@ struct conflux::json::JsonCodec<std::map<std::string, T>> {
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
-		std::map<std::string, T> const &v) {
+		Map const &v) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
 			return std::unexpected(std::move(obj_res).error());
@@ -1385,15 +1457,16 @@ struct conflux::json::JsonCodec<std::map<std::string, T>> {
 	}
 	static constexpr std::string_view type_name() { return "M"; }
 };
-template<class T>
-struct conflux::json::JsonCodec<std::unordered_map<std::string, T>> {
-	static std::expected<std::unordered_map<std::string, T>, JsonError> decode(
+template<class T, class Hash, class KeyEqual, class Alloc>
+struct conflux::json::JsonCodec<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>> {
+	using Map = std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>;
+	static std::expected<Map, JsonError> decode(
 		NodeRef n) {
 		auto obj = n.as_object();
 		if (!obj) {
 			return std::unexpected(std::move(obj).error());
 		}
-		std::unordered_map<std::string, T> result;
+		Map result;
 		result.reserve(obj->size());
 		for (auto const &[name, val]: obj->members()) {
 			auto v = ::decode<T>(val);
@@ -1408,7 +1481,7 @@ struct conflux::json::JsonCodec<std::unordered_map<std::string, T>> {
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
-		std::unordered_map<std::string, T> const &v) {
+		Map const &v) {
 		auto obj_res = b.begin_object();
 		if (!obj_res) {
 			return std::unexpected(std::move(obj_res).error());
@@ -1433,28 +1506,31 @@ namespace detail {
 [[nodiscard]] inline std::expected<void, JsonError> skip_remaining_reader(
 	JsonReader &r,
 	JsonReader::Event ev) {
-	using Ev = JsonReader::Event;
-	if (ev == Ev::string_value || ev == Ev::number_value || ev == Ev::bool_value || ev == Ev::null_value) {
-		return {};
+	return r.skip_remaining_value(ev);
+}
+
+template<class Vector>
+[[nodiscard]] inline std::expected<void, JsonError> reserve_vector_from_remaining_array(
+	Vector &out,
+	JsonReader &reader) {
+	auto count = reader.count_remaining_array_elements();
+	if (!count) {
+		return std::unexpected(std::move(count).error());
 	}
-	int depth = 1;
-	while (depth > 0) {
-		auto ne = r.next();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
+	out.reserve(*count);
+	return {};
+}
+
+template<class Map>
+[[nodiscard]] inline std::expected<void, JsonError> reserve_map_from_remaining_object(
+	Map &out,
+	JsonReader &reader) {
+	if constexpr (requires(Map &m, std::size_t n) { m.reserve(n); }) {
+		auto count = reader.count_remaining_object_members();
+		if (!count) {
+			return std::unexpected(std::move(count).error());
 		}
-		if (!*ne) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::parse,
-					.code = JsonIssueCode::unexpected_eof,
-					.message = "EOF while skipping"});
-		}
-		if (**ne == Ev::begin_object || **ne == Ev::begin_array) {
-			++depth;
-		} else if (**ne == Ev::end_object || **ne == Ev::end_array) {
-			--depth;
-		}
+		out.reserve(*count);
 	}
 	return {};
 }
@@ -1486,19 +1562,17 @@ std::expected<T, JsonError> decode_from_event(
 }
 
 template<class String>
+[[nodiscard]] inline std::expected<void, JsonError>
+decode_string_into(String &out, JsonStringToken const &token, JsonDecodeScratch *scratch = nullptr);
+
+template<class String>
 [[nodiscard]] inline std::expected<String, JsonError> string_from_token(
-	JsonStringToken const &token) {
+	JsonStringToken const &token,
+	JsonDecodeScratch *scratch = nullptr) {
 	String out;
-	if (auto borrowed = token.unescaped_borrow()) {
-		out.assign(borrowed->data(), borrowed->size());
-		return out;
+	if (auto ok = decode_string_into(out, token, scratch); !ok) {
+		return std::unexpected(std::move(ok).error());
 	}
-	out.resize(token.max_decoded_size());
-	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
-	if (!res) {
-		return std::unexpected(std::move(res).error());
-	}
-	out.resize(res->size());
 	return out;
 }
 
@@ -1533,8 +1607,10 @@ inline void set_found_bit(
 }
 
 struct JsonPresenceBits {
-	std::uint64_t inline_bits{};
+	static constexpr std::size_t kInlineWords = 4;
+	std::array<std::uint64_t, kInlineWords> inline_words{};
 	std::pmr::vector<std::uint64_t> overflow;
+	std::size_t word_count{};
 
 	explicit JsonPresenceBits(
 		std::pmr::memory_resource *resource)
@@ -1542,34 +1618,32 @@ struct JsonPresenceBits {
 
 	void reset(
 		std::size_t member_count) {
-		inline_bits = 0;
-		if (member_count > 64) {
-			overflow.assign((member_count + 63) / 64, 0);
-		} else {
+		word_count = (member_count + 63U) / 64U;
+		if (word_count <= kInlineWords) {
+			std::ranges::fill(inline_words, 0);
 			overflow.clear();
+		} else {
+			overflow.assign(word_count, 0);
 		}
 	}
 
 	[[nodiscard]] bool test(
 		std::size_t idx) const noexcept {
-		if (idx < 64) {
-			return (inline_bits & (std::uint64_t{1} << idx)) != 0;
+		auto const word = idx / 64U;
+		auto const bit = idx % 64U;
+		if (word_count <= kInlineWords) {
+			return (inline_words[word] & (std::uint64_t{1} << bit)) != 0;
 		}
-		auto const word = idx / 64;
-		auto const bit = idx % 64;
 		return word < overflow.size() && (overflow[word] & (std::uint64_t{1} << bit)) != 0;
 	}
 
 	void set(
 		std::size_t idx) {
-		if (idx < 64) {
-			inline_bits |= std::uint64_t{1} << idx;
+		auto const word = idx / 64U;
+		auto const bit = idx % 64U;
+		if (word_count <= kInlineWords) {
+			inline_words[word] |= std::uint64_t{1} << bit;
 			return;
-		}
-		auto const word = idx / 64;
-		auto const bit = idx % 64;
-		if (overflow.size() <= word) {
-			overflow.resize(word + 1, 0);
 		}
 		overflow[word] |= std::uint64_t{1} << bit;
 	}
@@ -1587,13 +1661,24 @@ struct JsonPresenceBits {
 template<class String>
 [[nodiscard]] inline std::expected<void, JsonError> decode_string_into(
 	String &out,
-	JsonStringToken const &token) {
+	JsonStringToken const &token,
+	JsonDecodeScratch *scratch) {
 	if (auto borrowed = token.unescaped_borrow()) {
 		out.assign(borrowed->data(), borrowed->size());
 		return {};
 	}
+	std::size_t const needed = token.max_decoded_size();
+	if (scratch != nullptr && needed <= scratch->string_inline.size()) {
+		auto res = token.decode_into(std::span<char>{scratch->string_inline.data(), scratch->string_inline.size()});
+		if (!res) {
+			out.clear();
+			return std::unexpected(std::move(res).error());
+		}
+		out.assign(res->data(), res->size());
+		return {};
+	}
 	out.clear();
-	out.resize(token.max_decoded_size());
+	out.resize(needed);
 	auto res = token.decode_into(std::span<char>{out.data(), out.size()});
 	if (!res) {
 		out.clear();
@@ -1782,6 +1867,101 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch);
+
+template<class Map>
+[[nodiscard]] std::expected<void, JsonError> decode_map_from_reader_into(
+	Map &out,
+	JsonReader &r,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	using Vt = typename Map::mapped_type;
+	out.clear();
+	if (auto reserved = reserve_map_from_remaining_object(out, r); !reserved) {
+		return std::unexpected(std::move(reserved).error());
+	}
+	auto const duplicate_policy = r.parse_options().duplicate_key;
+	while (true) {
+		auto ne = r.next();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::unexpected_eof,
+					.message = "EOF in object"});
+		}
+		if (**ne == Ev::end_object) {
+			return {};
+		}
+		if (**ne != Ev::key) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::syntax_error,
+					.message = "std::expected key"});
+		}
+		auto key_res = string_from_token<std::string>(r.key_token(), scratch);
+		if (!key_res) {
+			return std::unexpected(std::move(key_res).error());
+		}
+		std::string key = std::move(*key_res);
+		auto existing = out.find(key);
+		bool const duplicate = existing != out.end();
+		if (duplicate && duplicate_policy == DuplicateKeyPolicy::reject) {
+			return std::unexpected(duplicate_member_error(key));
+		}
+		auto vne = r.next();
+		if (!vne) {
+			return std::unexpected(std::move(vne).error());
+		}
+		if (!*vne) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::unexpected_eof,
+					.message = "EOF in object value"});
+		}
+		if (duplicate && duplicate_policy == DuplicateKeyPolicy::first_wins) {
+			if (auto skipped = skip_remaining_reader(r, **vne); !skipped) {
+				return std::unexpected(std::move(skipped).error());
+			}
+			continue;
+		}
+		if (duplicate) {
+			auto val = decode_from_event<Vt>(r, **vne, opts, scratch);
+			if (!val) {
+				return std::unexpected(std::move(val).error());
+			}
+			if constexpr (std::assignable_from<Vt &, Vt>) {
+				existing->second = std::move(*val);
+			} else {
+				out.erase(existing);
+				out.emplace(std::move(key), std::move(*val));
+			}
+			continue;
+		}
+		if constexpr (std::default_initializable<Vt> && requires(Map &m, std::string k) {
+						  m.try_emplace(std::move(k));
+					  }) {
+			auto [inserted_it, inserted] = out.try_emplace(std::move(key));
+			(void)inserted;
+			auto decoded = decode_into<Vt>(inserted_it->second, r, **vne, opts, scratch);
+			if (!decoded) {
+				out.erase(inserted_it);
+				return std::unexpected(std::move(decoded).error());
+			}
+		} else {
+			auto val = decode_from_event<Vt>(r, **vne, opts, scratch);
+			if (!val) {
+				return std::unexpected(std::move(val).error());
+			}
+			out.emplace(std::move(key), std::move(*val));
+		}
+	}
+}
 
 template<class T>
 std::expected<T, JsonError> decode_with_reader(
@@ -2023,7 +2203,7 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected bool"});
 		}
 		return r.bool_val();
-	} else if constexpr (std::same_as<T, std::int64_t>) {
+	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
 		if (ev != Ev::number_value) {
 			return std::unexpected(
 				JsonError{
@@ -2031,25 +2211,7 @@ std::expected<T, JsonError> decode_from_event(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected number"});
 		}
-		return r.number_val().to_i64();
-	} else if constexpr (std::same_as<T, std::uint64_t>) {
-		if (ev != Ev::number_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected number"});
-		}
-		return r.number_val().to_u64();
-	} else if constexpr (std::same_as<T, double>) {
-		if (ev != Ev::number_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected number"});
-		}
-		return r.number_val().to_f64();
+		return r.number_val().template get_as<T>();
 	} else if constexpr (is_basic_string_of_char_v<T>) {
 		if (ev != Ev::string_value) {
 			return std::unexpected(
@@ -2058,7 +2220,7 @@ std::expected<T, JsonError> decode_from_event(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected string"});
 		}
-		return string_from_token<T>(r.string_token());
+		return string_from_token<T>(r.string_token(), scratch);
 	} else if constexpr (std::same_as<T, std::string_view>) {
 		static_assert(
 			!std::same_as<T, std::string_view>,
@@ -2093,6 +2255,9 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected array"});
 		}
 		T result;
+		if (auto reserved = reserve_vector_from_remaining_array(result, r); !reserved) {
+			return std::unexpected(std::move(reserved).error());
+		}
 		while (true) {
 			auto ne = r.next();
 			if (!ne) {
@@ -2108,11 +2273,19 @@ std::expected<T, JsonError> decode_from_event(
 			if (**ne == Ev::end_array) {
 				return result;
 			}
-			auto elem = decode_from_event<E>(r, **ne, opts, scratch);
-			if (!elem) {
-				return std::unexpected(std::move(elem).error());
+			if constexpr (std::default_initializable<E>) {
+				auto &slot = result.emplace_back();
+				auto decoded = decode_into<E>(slot, r, **ne, opts, scratch);
+				if (!decoded) {
+					return std::unexpected(std::move(decoded).error());
+				}
+			} else {
+				auto elem = decode_from_event<E>(r, **ne, opts, scratch);
+				if (!elem) {
+					return std::unexpected(std::move(elem).error());
+				}
+				result.push_back(std::move(*elem));
 			}
-			result.push_back(std::move(*elem));
 		}
 	} else if constexpr (is_std_array_v<T>) {
 		using E = typename T::value_type;
@@ -2290,7 +2463,6 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		return result;
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
-		using Vt = typename T::mapped_type;
 		if (ev != Ev::begin_object) {
 			return std::unexpected(
 				JsonError{
@@ -2299,50 +2471,10 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected object"});
 		}
 		T result;
-		while (true) {
-			auto ne = r.next();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in object"});
-			}
-			if (**ne == Ev::end_object) {
-				return result;
-			}
-			if (**ne != Ev::key) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::syntax_error,
-						.message = "std::expected key"});
-			}
-			auto key_res = string_from_token<std::string>(r.key_token());
-			if (!key_res) {
-				return std::unexpected(std::move(key_res).error());
-			}
-			std::string key = std::move(*key_res);
-			auto vne = r.next();
-			if (!vne) {
-				return std::unexpected(std::move(vne).error());
-			}
-			if (!*vne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in object value"});
-			}
-			auto val = decode_from_event<Vt>(r, **vne, opts, scratch);
-			if (!val) {
-				return std::unexpected(std::move(val).error());
-			}
-			result.emplace(std::move(key), std::move(*val));
+		if (auto decoded = decode_map_from_reader_into(result, r, opts, scratch); !decoded) {
+			return std::unexpected(std::move(decoded).error());
 		}
+		return result;
 	} else if constexpr (std::same_as<T, Document>) {
 		std::size_t const start = r.value_start_pos();
 		if (auto ok = skip_remaining_reader(r, ev); !ok) {
@@ -2384,7 +2516,31 @@ std::expected<void, JsonError> decode_into(
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
-	if constexpr (is_basic_string_of_char_v<T>) {
+	if constexpr (std::same_as<T, bool>) {
+		if (ev != Ev::bool_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected bool"});
+		}
+		out = r.bool_val();
+		return {};
+	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
+		if (ev != Ev::number_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
+		}
+		auto value = r.number_val().template get_as<T>();
+		if (!value) {
+			return std::unexpected(std::move(value).error());
+		}
+		out = *value;
+		return {};
+	} else if constexpr (is_basic_string_of_char_v<T>) {
 		if (ev != Ev::string_value) {
 			return std::unexpected(
 				JsonError{
@@ -2392,7 +2548,7 @@ std::expected<void, JsonError> decode_into(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected string"});
 		}
-		return decode_string_into(out, r.string_token());
+		return decode_string_into(out, r.string_token(), scratch);
 	} else if constexpr (is_optional<T>::value) {
 		using Inner = typename T::value_type;
 		if (ev == Ev::null_value) {
@@ -2450,6 +2606,9 @@ std::expected<void, JsonError> decode_into(
 					.message = "std::expected array"});
 		}
 		out.clear();
+		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
+			return std::unexpected(std::move(reserved).error());
+		}
 		while (true) {
 			auto ne = r.next();
 			if (!ne) {
@@ -2525,6 +2684,15 @@ std::expected<void, JsonError> decode_into(
 					.message = std::format("std::expected array of length {}", N)});
 		}
 		return {};
+	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
+		if (ev != Ev::begin_object) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected object"});
+		}
+		return decode_map_from_reader_into(out, r, opts, scratch);
 	} else if constexpr (has_members_spec<T>::value) {
 		return decode_members_from_event_into<T>(out, r, ev, opts, scratch);
 	} else {
@@ -2614,7 +2782,7 @@ namespace detail {
 template<class T>
 std::expected<T, JsonError> decode_with_frames(
 	NodeRef root,
-	std::vector<PathFrame> &frames,
+	PathFrameStack &frames,
 	JsonDecodeOptions const &opts) {
 	if constexpr (has_codec_spec<T>::value) {
 		return decode_codec<T>(root, opts);
@@ -2623,20 +2791,60 @@ std::expected<T, JsonError> decode_with_frames(
 		if (!obj) {
 			return std::unexpected(std::move(obj).error());
 		}
-		T result{};
 		auto const members = conflux::json::JsonMembers<T>::members();
+		using MembersTuple = std::remove_cvref_t<decltype(members)>;
+		constexpr std::size_t kMemberCount = std::tuple_size_v<MembersTuple>;
+		std::array<NodeRef, kMemberCount> member_values{};
+		std::array<bool, kMemberCount> member_seen{};
+		bool has_unknown = false;
+		JsonError first_unknown;
+		for (auto const &member: obj->members()) {
+			bool matched = false;
+			std::size_t field_idx = 0;
+			apply(
+				[&](auto const &...entries) {
+					(([&] {
+						 std::size_t const idx = field_idx++;
+						 if (matched) {
+							 return;
+						 }
+						 auto const &m = jm_member(entries);
+						 if (member.name != m.name) {
+							 return;
+						 }
+						 matched = true;
+						 if (!member_seen[idx]) {
+							 member_values[idx] = member.value;
+							 member_seen[idx] = true;
+						 }
+					 }()),
+					 ...);
+				},
+				members);
+			if (!matched && opts.unknown_members == UnknownMemberPolicy::reject && !has_unknown) {
+				has_unknown = true;
+				first_unknown = JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.path = materialize_path(frames),
+					.member_name = std::string{member.name},
+					.message = std::format("unknown member: {}", member.name)};
+			}
+		}
+		T result{};
 		bool ok = true;
 		JsonError first_err;
+		std::size_t field_idx = 0;
 		apply(
-			[&](auto const &...ms) {
+			[&](auto const &...entries) {
 				(([&](auto const &entry) {
 					 if (!ok) {
 						 return;
 					 }
+					 std::size_t const idx = field_idx++;
 					 auto const &m = jm_member(entry);
 					 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
-					 auto val = obj->find_member(m.name);
-					 if (!val) {
+					 if (!member_seen[idx]) {
 						 if constexpr (is_optional<M>::value) {
 							 result.*m.pointer = M{};
 						 } else {
@@ -2651,7 +2859,7 @@ std::expected<T, JsonError> decode_with_frames(
 						 return;
 					 }
 					 frames.push_back({PathFrame::Kind::member, m.name, 0});
-					 auto decoded = decode_with_frames<M>(*val, frames, opts);
+					 auto decoded = decode_with_frames<M>(member_values[idx], frames, opts);
 					 if (!decoded) {
 						 ok = false;
 						 first_err = std::move(decoded).error();
@@ -2674,26 +2882,15 @@ std::expected<T, JsonError> decode_with_frames(
 							 }
 						 }
 					 }
-				 })(ms),
+				 })(entries),
 				 ...);
 			},
 			members);
 		if (!ok) {
 			return std::unexpected(std::move(first_err));
 		}
-		if (opts.unknown_members == UnknownMemberPolicy::reject) {
-			for (auto const &[name, val]: obj->members()) {
-				(void)val;
-				if (!is_json_member_name<T>(name)) {
-					return std::unexpected(
-						JsonError{
-							.stage = JsonStage::decode,
-							.code = JsonIssueCode::invalid_value,
-							.path = materialize_path(frames),
-							.member_name = std::string{name},
-							.message = std::format("unknown member: {}", name)});
-				}
-			}
+		if (has_unknown) {
+			return std::unexpected(std::move(first_unknown));
 		}
 		return result;
 	} else {
@@ -2707,8 +2904,7 @@ export template<class T>
 std::expected<T, JsonError> decode(
 	NodeRef root,
 	JsonDecodeOptions const &opts) {
-	std::vector<detail::PathFrame> frames;
-	frames.reserve(16);
+	detail::PathFrameStack frames;
 	return detail::decode_with_frames<T>(root, frames, opts);
 }
 // ---------------------------------------------------------------------------
@@ -2815,8 +3011,9 @@ std::expected<void, JsonError> ValueBuilder::set(
 
 namespace detail {
 
-inline void direct_append_u_escape(
-	std::string &out,
+template<class Out>
+void direct_append_u_escape(
+	Out &out,
 	std::uint32_t cp) {
 	static constexpr std::array<char, 16> kHex =
 		{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
@@ -2827,13 +3024,25 @@ inline void direct_append_u_escape(
 	out += kHex[cp & 0x0FU];
 }
 
-inline void direct_dump_string(
-	std::string &out,
+template<class Out>
+void direct_dump_string(
+	Out &out,
 	std::string_view sv,
 	bool ascii_only) {
 	out += '"';
+	std::size_t run_start = 0;
+	auto flush_run = [&](std::size_t end) {
+		if (end > run_start) {
+			out.append(sv.data() + run_start, end - run_start);
+		}
+	};
 	for (std::size_t i = 0; i < sv.size();) {
 		auto const c = static_cast<unsigned char>(sv[i]);
+		if (c != '"' && c != '\\' && c >= 0x20U && (!ascii_only || c < 0x80U)) {
+			++i;
+			continue;
+		}
+		flush_run(i);
 		switch (c) {
 		case '"':
 			out += "\\\"";
@@ -2891,17 +3100,17 @@ inline void direct_dump_string(
 					direct_append_u_escape(out, 0xD800U | (cp >> 10U));
 					direct_append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
 				}
-			} else {
-				out += static_cast<char>(c);
-				++i;
 			}
 		}
+		run_start = i;
 	}
+	flush_run(sv.size());
 	out += '"';
 }
 
-inline void direct_indent(
-	std::string &out,
+template<class Out>
+void direct_indent(
+	Out &out,
 	JsonDumpOptions const &opts,
 	unsigned depth) {
 	if (!opts.pretty) {
@@ -2911,13 +3120,13 @@ inline void direct_indent(
 	out.append(static_cast<std::size_t>(depth) * opts.indent, opts.indent_char);
 }
 
-template<class T>
+template<class Out, class T>
 std::expected<void, JsonError>
-direct_write_value(std::string &out, T const &value, JsonDumpOptions const &opts, unsigned depth);
+direct_write_value(Out &out, T const &value, JsonDumpOptions const &opts, unsigned depth);
 
-template<class T>
+template<class Out, class T>
 std::expected<void, JsonError> direct_write_array_like(
-	std::string &out,
+	Out &out,
 	T const &value,
 	JsonDumpOptions const &opts,
 	unsigned depth) {
@@ -2942,9 +3151,96 @@ std::expected<void, JsonError> direct_write_array_like(
 	return {};
 }
 
-template<class T>
+template<class Out, class Tuple, std::size_t... Is>
+std::expected<void, JsonError> direct_write_tuple_impl(
+	Out &out,
+	Tuple const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth,
+	std::index_sequence<Is...>) {
+	out += '[';
+	bool ok = true;
+	bool first = true;
+	JsonError first_err;
+	(([&]<std::size_t I>() {
+		 if (!ok) {
+			 return;
+		 }
+		 if (!first) {
+			 out += ',';
+		 }
+		 if (opts.pretty) {
+			 direct_indent(out, opts, depth + 1);
+		 }
+		 if (auto res = direct_write_value(out, get<I>(value), opts, depth + 1); !res) {
+			 ok = false;
+			 first_err = std::move(res).error();
+			 return;
+		 }
+		 first = false;
+	 }.template operator ()<Is>()),
+	 ...);
+	if (!ok) {
+		return std::unexpected(std::move(first_err));
+	}
+	if (opts.pretty && !first) {
+		direct_indent(out, opts, depth);
+	}
+	out += ']';
+	return {};
+}
+
+template<class Out, class Tuple>
+std::expected<void, JsonError> direct_write_tuple_like(
+	Out &out,
+	Tuple const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	using TupleRaw = std::remove_cvref_t<Tuple>;
+	return direct_write_tuple_impl(out, value, opts, depth, std::make_index_sequence<std::tuple_size_v<TupleRaw>>{});
+}
+
+template<class Out, class Map>
+std::expected<void, JsonError> direct_write_map_like(
+	Out &out,
+	Map const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	if (opts.sort_object_keys) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::dump,
+				.code = JsonIssueCode::invalid_value,
+				.message = "direct writer does not support sort_object_keys"});
+	}
+	out += '{';
+	bool first = true;
+	for (auto const &[key, val]: value) {
+		if (!first) {
+			out += ',';
+		}
+		if (opts.pretty) {
+			direct_indent(out, opts, depth + 1);
+		}
+		direct_dump_string(out, key, opts.ascii_only);
+		out += opts.pretty ? ": " : ":";
+		if (auto res = direct_write_value(out, val, opts, depth + 1); !res) {
+			auto err = std::move(res).error();
+			err.member_name = key;
+			return std::unexpected(std::move(err));
+		}
+		first = false;
+	}
+	if (opts.pretty && !first) {
+		direct_indent(out, opts, depth);
+	}
+	out += '}';
+	return {};
+}
+
+template<class Out, class T>
 std::expected<void, JsonError> direct_write_members(
-	std::string &out,
+	Out &out,
 	T const &value,
 	JsonDumpOptions const &opts,
 	unsigned depth) {
@@ -2996,9 +3292,9 @@ std::expected<void, JsonError> direct_write_members(
 	return {};
 }
 
-template<class T>
+template<class Out, class T>
 std::expected<void, JsonError> direct_write_value(
-	std::string &out,
+	Out &out,
 	T const &value,
 	JsonDumpOptions const &opts,
 	unsigned depth) {
@@ -3013,6 +3309,15 @@ std::expected<void, JsonError> direct_write_value(
 		direct_dump_string(out, value, opts.ascii_only);
 		return {};
 	} else if constexpr ((std::integral<Raw> && !std::same_as<Raw, bool>) || std::floating_point<Raw>) {
+		if constexpr (std::floating_point<Raw>) {
+			if (!std::isfinite(value)) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::dump,
+						.code = JsonIssueCode::number_out_of_range,
+						.message = "direct writer requires finite number"});
+			}
+		}
 		std::array<char, 64> buf{};
 		auto *first = buf.data();
 		auto *last = buf.data() + buf.size();
@@ -3040,12 +3345,168 @@ std::expected<void, JsonError> direct_write_value(
 		return direct_write_value(out, value.value(), opts, depth);
 	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
 		return direct_write_array_like(out, value, opts, depth);
+	} else if constexpr (is_pair_v<Raw> || is_tuple_of_v<Raw>) {
+		return direct_write_tuple_like(out, value, opts, depth);
+	} else if constexpr (is_map_type_v<Raw> || is_unordered_map_type_v<Raw>) {
+		return direct_write_map_like(out, value, opts, depth);
 	} else if constexpr (has_members_spec<Raw>::value) {
 		return direct_write_members(out, value, opts, depth);
 	} else {
 		static_assert(!std::same_as<Raw, Raw>, "No direct JSON writer support for type");
 	}
 }
+
+template<class T>
+[[nodiscard]] std::size_t direct_members_reserve_hint(
+	JsonDumpOptions const &opts) {
+	auto const members = conflux::json::JsonMembers<T>::members();
+	using MembersTuple = std::remove_cvref_t<decltype(members)>;
+	constexpr std::size_t kMemberCount = std::tuple_size_v<MembersTuple>;
+	std::size_t name_bytes = 0;
+	apply([&](auto const &...entries) { ((name_bytes += jm_member(entries).name.size()), ...); }, members);
+	std::size_t hint = 2 + name_bytes;
+	if constexpr (kMemberCount > 0) {
+		hint += kMemberCount * 20U;
+		hint += kMemberCount - 1U;
+		if (opts.pretty) {
+			hint += kMemberCount * (static_cast<std::size_t>(opts.indent) + 2U);
+		}
+	}
+	return hint;
+}
+
+template<class Map>
+[[nodiscard]] std::size_t direct_map_reserve_hint(
+	Map const &value,
+	JsonDumpOptions const &opts) {
+	std::size_t hint = 2;
+	for (auto const &[key, unused]: value) {
+		(void)unused;
+		hint += key.size() + 20U;
+	}
+	if (!value.empty()) {
+		hint += value.size() - 1U;
+		if (opts.pretty) {
+			hint += value.size() * (static_cast<std::size_t>(opts.indent) + 3U);
+		}
+	}
+	return hint;
+}
+
+template<class Seq>
+[[nodiscard]] std::size_t direct_sequence_reserve_hint(
+	Seq const &value,
+	JsonDumpOptions const &opts) {
+	std::size_t const count = value.size();
+	std::size_t hint = 2 + count * 16U;
+	if (count > 0) {
+		hint += count - 1U;
+		if (opts.pretty) {
+			hint += count * (static_cast<std::size_t>(opts.indent) + 1U);
+		}
+	}
+	return hint;
+}
+
+template<class T>
+[[nodiscard]] std::size_t direct_root_reserve_hint(
+	T const &value,
+	JsonDumpOptions const &opts) {
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (has_members_spec<Raw>::value) {
+		return direct_members_reserve_hint<Raw>(opts);
+	} else if constexpr (is_map_type_v<Raw> || is_unordered_map_type_v<Raw>) {
+		return direct_map_reserve_hint(value, opts);
+	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
+		return direct_sequence_reserve_hint(value, opts);
+	} else if constexpr (is_pair_v<Raw>) {
+		return 34U + (opts.pretty ? static_cast<std::size_t>(opts.indent) * 2U + 2U : 0U);
+	} else if constexpr (is_tuple_of_v<Raw>) {
+		return 2U + std::tuple_size_v<Raw> * (16U + (opts.pretty ? static_cast<std::size_t>(opts.indent) + 1U : 0U));
+	} else if constexpr (is_basic_string_of_char_v<Raw> || std::same_as<Raw, std::string_view>) {
+		return value.size() + 2U;
+	} else {
+		return 64U;
+	}
+}
+
+template<class Sink>
+class DirectChunkSink {
+	static constexpr std::size_t kInlineCapacity = 1024;
+	std::remove_reference_t<Sink> *sink_{};
+	std::array<char, kInlineCapacity> buffer_{};
+	std::size_t used_{};
+
+	void emit_direct(
+		std::string_view chunk) {
+		if (!chunk.empty()) {
+			std::invoke(*sink_, chunk);
+		}
+	}
+
+	void emit(
+		std::string_view chunk) {
+		if (chunk.empty()) {
+			return;
+		}
+		if (chunk.size() >= buffer_.size()) {
+			flush();
+			emit_direct(chunk);
+			return;
+		}
+		if (chunk.size() > buffer_.size() - used_) {
+			flush();
+		}
+		std::ranges::copy(chunk, buffer_.data() + used_);
+		used_ += chunk.size();
+	}
+
+public:
+	explicit DirectChunkSink(
+		Sink &sink) noexcept
+		: sink_{std::addressof(sink)} {}
+
+	void flush() {
+		if (used_ == 0) {
+			return;
+		}
+		emit_direct(std::string_view{buffer_.data(), used_});
+		used_ = 0;
+	}
+
+	void operator +=(
+		char c) {
+		if (used_ == buffer_.size()) {
+			flush();
+		}
+		buffer_[used_++] = c;
+	}
+
+	void operator +=(
+		char const *text) {
+		emit(text);
+	}
+
+	void append(
+		char const *data,
+		std::size_t size) {
+		emit(std::string_view{data, size});
+	}
+
+	void append(
+		std::size_t count,
+		char ch) {
+		while (count > 0) {
+			if (used_ == buffer_.size()) {
+				flush();
+			}
+			std::size_t const n = std::min(count, buffer_.size() - used_);
+			std::ranges::fill_n(buffer_.data() + used_, static_cast<std::ptrdiff_t>(n), ch);
+			used_ += n;
+			count -= n;
+		}
+	}
+};
 
 } // namespace detail
 
@@ -3067,16 +3528,33 @@ std::expected<std::string, JsonError> dump_direct(
 	T const &value,
 	JsonDumpOptions const &opts) {
 	std::string out;
-	if constexpr (detail::has_members_spec<std::remove_cvref_t<T>>::value) {
-		out.reserve(
-			std::tuple_size_v<
-				std::remove_cvref_t<decltype(conflux::json::JsonMembers<std::remove_cvref_t<T>>::members())>>
-			* 16);
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (JsonDirectWritable<Raw>) {
+		out.reserve(detail::direct_root_reserve_hint<Raw>(value, opts));
 	}
 	if (auto ok = write_json_direct(out, value, opts); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
 	return out;
+}
+
+export template<class T, class Sink>
+std::expected<void, JsonError> write_json_direct_to(
+	T const &value,
+	JsonDumpOptions const &opts,
+	Sink &&sink) {
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (JsonDirectWritable<Raw>) {
+		detail::DirectChunkSink<Sink> out{sink};
+		auto written = detail::direct_write_value(out, value, opts, 0);
+		out.flush();
+		if (!written) {
+			return written;
+		}
+		return {};
+	} else {
+		static_assert(!std::same_as<Raw, Raw>, "No direct JSON writer support for type");
+	}
 }
 // ---------------------------------------------------------------------------
 // Phase 8.3 — schema_for / validate
@@ -3528,21 +4006,30 @@ template<JsonHandler H>
 		return invoke_handler([&] { return h.on_double(*dv); });
 	}
 }
-// Decode a JsonStringToken to string_view or std::string, call cb(std::string_view).
+// Decode a JsonStringToken to a callback-scoped string_view without heap allocation
+// for the common small escaped-key/value case.
 template<class Cb>
 [[nodiscard]] std::expected<void, JsonError> dispatch_string_cb(
 	JsonStringToken const &tok,
+	JsonDecodeScratch &scratch,
 	Cb &&cb) {
 	if (auto borrow = tok.unescaped_borrow()) {
 		return std::forward<Cb>(cb)(*borrow);
 	}
-	std::string buf;
-	buf.reserve(tok.max_decoded_size());
-	auto r = tok.append_decoded_to(buf);
-	if (!r) {
-		return std::unexpected(std::move(r).error());
+	auto const needed = tok.max_decoded_size();
+	if (needed <= scratch.string_inline.size()) {
+		auto decoded = tok.decode_into(std::span<char>{scratch.string_inline.data(), scratch.string_inline.size()});
+		if (!decoded) {
+			return std::unexpected(std::move(decoded).error());
+		}
+		return std::forward<Cb>(cb)(*decoded);
 	}
-	return std::forward<Cb>(cb)(std::string_view{buf});
+	scratch.string_overflow.resize(needed);
+	auto decoded = tok.decode_into(std::span<char>{scratch.string_overflow.data(), scratch.string_overflow.size()});
+	if (!decoded) {
+		return std::unexpected(std::move(decoded).error());
+	}
+	return std::forward<Cb>(cb)(*decoded);
 }
 
 } // namespace detail
@@ -3553,6 +4040,7 @@ export template<JsonHandler H>
 	JsonParseOptions const &opts = {}) {
 	using Ev = JsonReader::Event;
 	JsonReader reader{input, opts};
+	JsonDecodeScratch scratch;
 
 	for (;;) {
 		auto ev_or = reader.next();
@@ -3572,12 +4060,12 @@ export template<JsonHandler H>
 		case Ev::begin_array : res = detail::invoke_handler([&] { return handler.on_begin_array(); }); break;
 		case Ev::end_array   : res = detail::invoke_handler([&] { return handler.on_end_array(); }); break;
 		case Ev::key:
-			res = detail::dispatch_string_cb(reader.key_token(), [&](std::string_view sv) {
+			res = detail::dispatch_string_cb(reader.key_token(), scratch, [&](std::string_view sv) {
 				return detail::invoke_handler([&] { return handler.on_key(sv); });
 			});
 			break;
 		case Ev::string_value:
-			res = detail::dispatch_string_cb(reader.string_token(), [&](std::string_view sv) {
+			res = detail::dispatch_string_cb(reader.string_token(), scratch, [&](std::string_view sv) {
 				return detail::invoke_handler([&] { return handler.on_string(sv); });
 			});
 			break;
