@@ -603,6 +603,11 @@ wroot::Task<ClientResult> do_async_request(
 	std::size_t const initial_body_bytes = raw.size() - body_offset;
 	raw.erase(0, body_offset);
 	response.body = std::move(raw);
+	if (has_content_length && response.body.size() > content_length) {
+		response.body.resize(content_length);
+	}
+	std::size_t const counted_initial_body_bytes =
+		has_content_length ? std::min(initial_body_bytes, content_length) : initial_body_bytes;
 	auto do_body = [&]() -> wroot::Task<std::optional<HttpError>> {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
@@ -651,7 +656,7 @@ wroot::Task<ClientResult> do_async_request(
 						.os_errno = e.code().value(),
 						.message = "timed out receiving body"};
 				}
-				tel.bytes_received += content_length - initial_body_bytes;
+				tel.bytes_received += content_length - counted_initial_body_bytes;
 			} else if (!has_content_length && !chunked) {
 				bool too_large = false;
 				try {
@@ -718,7 +723,7 @@ wroot::Task<ClientResult> do_async_request(
 						.os_errno = e.code().value(),
 						.message = "timed out receiving body"};
 				}
-				tel.bytes_received += content_length - initial_body_bytes;
+				tel.bytes_received += content_length - counted_initial_body_bytes;
 			} else if (!has_content_length && !chunked) {
 				bool too_large = false;
 				try {

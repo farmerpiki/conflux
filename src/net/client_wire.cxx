@@ -146,6 +146,33 @@ struct EffectiveRequestHeader {
 	return out;
 }
 
+[[nodiscard]] std::expected<std::size_t, HttpError> parse_content_length(
+	std::string_view value,
+	std::size_t max_body_bytes) {
+	while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+		value.remove_prefix(1);
+	}
+	while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+		value.remove_suffix(1);
+	}
+	if (value.empty()) {
+		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "invalid Content-Length"});
+	}
+	std::size_t content_length{};
+	auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), content_length);
+	if (ec != std::errc{} || ptr != value.data() + value.size()) {
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = std::format("invalid Content-Length '{}'", value)});
+	}
+	if (content_length > max_body_bytes) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::body_too_large,
+				.message = std::format("Content-Length {} exceeds limit {}", content_length, max_body_bytes)});
+	}
+	return content_length;
+}
+
 [[nodiscard]] std::size_t estimate_request_wire_size(
 	ClientRequest const &req,
 	std::span<EffectiveRequestHeader const> effective_headers,
@@ -371,7 +398,15 @@ void accumulate_telemetry(
 				v.remove_prefix(1);
 			}
 			if (ascii_iequals(k, "content-length")) {
-				std::from_chars(v.data(), v.data() + v.size(), parsed.content_length);
+				auto parsed_content_length = client_wire_detail::parse_content_length(v, max_body_bytes);
+				if (!parsed_content_length) {
+					return std::unexpected(std::move(parsed_content_length).error());
+				}
+				if (parsed.has_content_length && parsed.content_length != *parsed_content_length) {
+					return std::unexpected(
+						HttpError{.kind = HttpErrorKind::protocol, .message = "conflicting Content-Length headers"});
+				}
+				parsed.content_length = *parsed_content_length;
 				parsed.has_content_length = true;
 			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				parsed.chunked = true;
@@ -383,11 +418,11 @@ void accumulate_telemetry(
 		}
 		pos = (end != std::string_view::npos) ? end + 2 : headers_str.size();
 	}
-	if (parsed.has_content_length && parsed.content_length > max_body_bytes) {
+	if (parsed.has_content_length && parsed.chunked) {
 		return std::unexpected(
 			HttpError{
-				.kind = HttpErrorKind::body_too_large,
-				.message = std::format("Content-Length {} exceeds limit {}", parsed.content_length, max_body_bytes)});
+				.kind = HttpErrorKind::protocol,
+				.message = "response has both Content-Length and chunked Transfer-Encoding"});
 	}
 	return parsed;
 }

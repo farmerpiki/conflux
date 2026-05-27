@@ -728,6 +728,11 @@ ClientResult do_blocking_request(
 	tel.bytes_received += raw.size();
 	raw.erase(0, body_offset);
 	response.body = std::move(raw);
+	if (has_content_length && response.body.size() > content_length) {
+		response.body.resize(content_length);
+	}
+	std::size_t const counted_initial_body_bytes =
+		has_content_length ? std::min(initial_body_bytes, content_length) : initial_body_bytes;
 
 	auto t_body = std::chrono::steady_clock::now();
 	if (req.method() == "HEAD") {
@@ -768,7 +773,7 @@ ClientResult do_blocking_request(
 					.os_errno = errno,
 					.message = "failed to receive body"});
 		}
-		tel.bytes_received += content_length - initial_body_bytes;
+		tel.bytes_received += content_length - counted_initial_body_bytes;
 	} else if (!has_content_length && !chunked) {
 		bool too_large = false;
 		recv_to_eof(conn, response.body, between_sec, max_body, too_large);

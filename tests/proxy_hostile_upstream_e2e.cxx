@@ -8,6 +8,7 @@
 import std;
 import conflux.types;
 import conflux.net.config;
+import conflux.net.http.client;
 import conflux.net.proxy;
 import conflux.net.router;
 import conflux.tests.support;
@@ -22,6 +23,9 @@ enum class HostileMode : std::uint8_t {
 	oversized_headers,
 	slow_response,
 	redirect_loop,
+	malformed_content_length,
+	conflicting_content_length,
+	content_length_overread,
 };
 
 class HostileUpstream {
@@ -143,6 +147,17 @@ private:
 		case HostileMode::redirect_loop:
 			write_all(fd, "HTTP/1.1 302 Found\r\nLocation: /proxy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 			return;
+		case HostileMode::malformed_content_length:
+			write_all(fd, "HTTP/1.1 200 OK\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello");
+			return;
+		case HostileMode::conflicting_content_length:
+			write_all(
+				fd,
+				"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello!!");
+			return;
+		case HostileMode::content_length_overread:
+			write_all(fd, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhelloextra");
+			return;
 		}
 	}
 
@@ -200,6 +215,19 @@ void check_bad_gateway_for(
 	CHECK(response.find(expected_detail) != std::string::npos);
 }
 
+[[nodiscard]] conflux::http::ClientResult client_get_from(
+	HostileUpstream const &upstream) {
+	conflux::http::HttpTimeouts timeouts{};
+	timeouts.connect = std::chrono::seconds{2};
+	timeouts.first_byte = std::chrono::seconds{2};
+	timeouts.between_bytes = std::chrono::seconds{2};
+	conflux::http::HttpClientOptions opts{};
+	opts.default_timeouts = timeouts;
+	conflux::http::HttpClient client{std::move(opts)};
+	return client.blocking_send(
+		conflux::http::ClientRequest::get(std::format("http://127.0.0.1:{}/", upstream.port())));
+}
+
 } // namespace
 
 TEST_CASE(
@@ -241,4 +269,34 @@ TEST_CASE(
 	REQUIRE(response.starts_with("HTTP/1.1 302 Found"));
 	CHECK(response.find("Location: /proxy\r\n") != std::string::npos);
 	CHECK(response.find("502 Bad Gateway") == std::string::npos);
+}
+
+TEST_CASE(
+	"http client: malformed upstream Content-Length is rejected",
+	"[client][e2e][hostile]") {
+	HostileUpstream upstream{HostileMode::malformed_content_length};
+	auto response = client_get_from(upstream);
+	REQUIRE_FALSE(response);
+	CHECK(response.error().kind == conflux::http::HttpErrorKind::protocol);
+	CHECK(response.error().message.find("invalid Content-Length") != std::string::npos);
+}
+
+TEST_CASE(
+	"http client: conflicting upstream Content-Length is rejected",
+	"[client][e2e][hostile]") {
+	HostileUpstream upstream{HostileMode::conflicting_content_length};
+	auto response = client_get_from(upstream);
+	REQUIRE_FALSE(response);
+	CHECK(response.error().kind == conflux::http::HttpErrorKind::protocol);
+	CHECK(response.error().message.find("conflicting Content-Length") != std::string::npos);
+}
+
+TEST_CASE(
+	"http client: overread bytes after Content-Length are not returned",
+	"[client][e2e][hostile]") {
+	HostileUpstream upstream{HostileMode::content_length_overread};
+	auto response = client_get_from(upstream);
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body == "hello");
 }
