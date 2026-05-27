@@ -1302,11 +1302,11 @@ function(conflux_add_header_compile_fail_tests)
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-offload-free
                 tests/header_http_facade_compile_fail_offload_free
-                "conflux_http_facade_unexpected_offload_helper_visible")
+                "no member named 'offload' in namespace 'conflux::http'")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-openapi-handler-free
                 tests/header_http_facade_compile_fail_openapi_handler_free
-                "conflux_http_facade_unexpected_openapi_handler_visible")
+                "no member named 'openapi_handler' in namespace 'conflux::http'")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-file-free
                 tests/header_http_facade_compile_fail_file_free
