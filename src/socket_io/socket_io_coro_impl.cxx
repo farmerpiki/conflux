@@ -86,16 +86,18 @@ void submit_cancel_for_ud(
 	std::uint64_t user_data,
 	std::weak_ptr<wroot::TaskSource<T>> weak_src,
 	wroot::CancelReason reason) noexcept {
-	if (!ring_ptr->submit_on_owner([user_data, weak_src = std::move(weak_src), reason](SocketTaskRing &ring) noexcept {
-			auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
-			std::uint64_t const cancel_ud = ring.encode(slot, gen);
-			if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
-				ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
-				complete_cancel_fallback(weak_src, reason);
-				return;
-			}
-			auto _ = ring.raw().submit();
-		})) {
+	auto weak_for_owner = weak_src;
+	if (!ring_ptr->submit_on_owner(
+			[user_data, weak_src = std::move(weak_for_owner), reason](SocketTaskRing &ring) noexcept {
+				auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
+				std::uint64_t const cancel_ud = ring.encode(slot, gen);
+				if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
+					ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
+					complete_cancel_fallback(weak_src, reason);
+					return;
+				}
+				auto _ = ring.raw().submit();
+			})) {
 		complete_cancel_fallback(weak_src, reason);
 	}
 }
