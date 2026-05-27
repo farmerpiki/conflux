@@ -1657,6 +1657,16 @@ public:
 	[[nodiscard]] Iterator begin() const noexcept;
 	[[nodiscard]] Sentinel end() const noexcept;
 };
+
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<ObjectMemberRange> = true;
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<ArrayElementRange> = true;
+
+static_assert(std::ranges::sized_range<ObjectMemberRange>);
+static_assert(std::ranges::sized_range<ArrayElementRange>);
+static_assert(std::ranges::borrowed_range<ObjectMemberRange>);
+static_assert(std::ranges::borrowed_range<ArrayElementRange>);
 // ---------------------------------------------------------------------------
 // Comparison free functions + identity helpers
 // ---------------------------------------------------------------------------

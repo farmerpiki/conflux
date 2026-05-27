@@ -1109,3 +1109,14 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 }
 
 } // namespace conflux::http
+
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::http::HeaderTokenView> = true;
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::http::HeaderParamView> = true;
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::http::HeaderItemView> = true;
+
+static_assert(std::ranges::borrowed_range<conflux::http::HeaderTokenView>);
+static_assert(std::ranges::borrowed_range<conflux::http::HeaderParamView>);
+static_assert(std::ranges::borrowed_range<conflux::http::HeaderItemView>);

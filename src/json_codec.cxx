@@ -3627,6 +3627,11 @@ public:
 	[[nodiscard]] Iterator begin() const noexcept;
 	[[nodiscard]] std::default_sentinel_t end() const noexcept;
 };
+
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<NdjsonRange> = true;
+
+static_assert(std::ranges::borrowed_range<NdjsonRange>);
 export class JsonAccumulator {
 	std::string buf_;
 	JsonParseOptions opts_;

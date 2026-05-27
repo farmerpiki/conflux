@@ -782,6 +782,11 @@ public:
 	[[nodiscard]] iterator begin() const noexcept { return iterator{text_}; }
 	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
 };
+
+template<>
+inline constexpr bool std::ranges::enable_borrowed_range<LineRange> = true;
+
+static_assert(std::ranges::borrowed_range<LineRange>);
 // Format an IpAddr as a string. IPv4-mapped addresses render as bare IPv4.
 export std::string ip_to_string(
 	IpAddr const &ip) {
