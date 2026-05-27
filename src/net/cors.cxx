@@ -104,7 +104,8 @@ export Router::Middleware cors_middleware(
 		if (req.method == "OPTIONS"
 			&& !request_origin.empty()
 			&& !req.headers["access-control-request-method"].empty()) {
-			Response preflight{.status = kHttpNoContent, .status_text = "No Content", .content_type = "text/plain"};
+			auto preflight = Response::no_content();
+			preflight.content_type = "text/plain";
 			auto origin = cors_detail::resolve_origin(policy, request_origin);
 			if (!origin.empty()) {
 				preflight.headers["Access-Control-Allow-Origin"] = origin;

@@ -485,14 +485,14 @@ export struct Response {
 	[[nodiscard]] static Response redirect(
 		std::string_view location,
 		int code = kHttpFound) {
-		char const *status_text = "Found";
-		switch (code) {
-		case kHttpMovedPermanently : status_text = "Moved Permanently"; break;
-		case kHttpTemporaryRedirect: status_text = "Temporary Redirect"; break;
-		case kHttpPermanentRedirect: status_text = "Permanent Redirect"; break;
-		default                    : break;
+		auto status_text = status_text_for(code);
+		if (status_text.empty()) {
+			status_text = "Found";
 		}
-		Response r{.status = code, .status_text = status_text, .content_type = std::string{kContentTypeHtmlUtf8}};
+		Response r{
+			.status = code,
+			.status_text = std::string{status_text},
+			.content_type = std::string{kContentTypeHtmlUtf8}};
 		r.headers["Location"] = std::string{location};
 		return r;
 	}

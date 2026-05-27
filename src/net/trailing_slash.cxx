@@ -59,16 +59,9 @@ export Router::Middleware trailing_slash_middleware(
 				new_path.push_back('?');
 				new_path += trailing_slash_detail::build_query(req.query);
 			}
-			auto status_text = Response::status_text_for(opts.redirect_status);
-			if (status_text.empty()) {
-				status_text = "Found";
-			}
-			Response r{
-				.status = opts.redirect_status,
-				.status_text = std::string{status_text},
-				.content_type = "text/plain; charset=utf-8"};
-			r.headers["Location"] = std::move(new_path);
-			return r;
+			auto redirect = Response::redirect(new_path, opts.redirect_status);
+			redirect.content_type = "text/plain; charset=utf-8";
+			return redirect;
 		};
 
 		if (opts.mode == TrailingSlashMode::remove && has_slash) {
