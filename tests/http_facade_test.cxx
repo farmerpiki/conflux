@@ -440,6 +440,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: JSON extractors honor configured app body limit",
+	"[http.facade]") {
+	auto cfg = http::Config::public_server();
+	cfg.max_body_size = 8;
+	auto app = http::app(std::move(cfg));
+	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+
+	REQUIRE(app.validate().ok());
+
+	Request req;
+	req.method = "POST";
+	req.path = "/json";
+	req.headers["content-type"] = "application/json";
+	req.body = R"({"value":"too large"})";
+
+	auto too_large = http::router(app).dispatch(req);
+	auto too_large_doc = require_json_body(too_large, kHttpRequestEntityTooLarge);
+	check_json_string_at(too_large_doc, "/code", "body_too_large");
+}
+
+TEST_CASE(
 	"http facade: validate reports missing static roots",
 	"[http.facade]") {
 	auto app = http::app();

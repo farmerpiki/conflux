@@ -1439,13 +1439,14 @@ public:
 
 	[[nodiscard]] bool route_has_body_limit(
 		AppRouteMetadata const &route) const noexcept {
-		if (*route.max_body_size != 0 || cfg_.max_body_size != 0) {
-			return true;
-		}
 #if CONFLUX_HAS_JSON
-		return json_options_ && json_options_->max_body_size != 0;
+		return effective_body_limit(
+				   *route.max_body_size,
+				   cfg_.max_body_size,
+				   json_options_ ? json_options_->max_body_size : 0)
+			!= 0;
 #else
-		return false;
+		return effective_body_limit(*route.max_body_size, cfg_.max_body_size, 0) != 0;
 #endif
 	}
 
@@ -1728,13 +1729,11 @@ public:
 	static void validate_json_body_request(
 		RequestView const &req,
 		ContentTypePredicate content_type_ok,
-		std::size_t max_body_size,
-		AppJsonOptions const &json_options) {
+		std::size_t max_body_size) {
 		if (!content_type_ok(req.header("content-type"))) {
 			throw ExtractorFailure{detail::unsupported_json_content_type_problem()};
 		}
-		auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
-		if (limit != 0 && req.body.size() > limit) {
+		if (max_body_size != 0 && req.body.size() > max_body_size) {
 			throw ExtractorFailure{detail::json_body_too_large_problem()};
 		}
 	}
@@ -1748,6 +1747,19 @@ public:
 		return opts;
 	}
 #endif
+
+	[[nodiscard]] static std::size_t effective_body_limit(
+		std::size_t route_max_body_size,
+		std::size_t app_max_body_size,
+		std::size_t json_max_body_size) noexcept {
+		if (route_max_body_size != 0) {
+			return route_max_body_size;
+		}
+		if (json_max_body_size != 0) {
+			return json_max_body_size;
+		}
+		return app_max_body_size;
+	}
 
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
@@ -1906,14 +1918,14 @@ public:
 			return OwnedBodyBytes{.value = std::string{req.body}};
 #if CONFLUX_HAS_JSON
 		} else if constexpr (detail::JsonDocumentArg<Clean>) {
-			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size, json_options);
+			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
 			}
 			return JsonDocument{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonPatchArg<Clean>) {
-			validate_json_body_request(req, detail::content_type_is_json_patch, max_body_size, json_options);
+			validate_json_body_request(req, detail::content_type_is_json_patch, max_body_size);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
@@ -1923,7 +1935,7 @@ public:
 			}
 			return JsonPatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::MergePatchArg<Clean>) {
-			validate_json_body_request(req, detail::content_type_is_merge_patch, max_body_size, json_options);
+			validate_json_body_request(req, detail::content_type_is_merge_patch, max_body_size);
 			auto parsed = codec::json::DefaultJsonProvider::parse_json_document(req.body, json_options.decode);
 			if (!parsed) {
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
@@ -1931,7 +1943,7 @@ public:
 			return MergePatch{.value = std::move(*parsed)};
 		} else if constexpr (detail::JsonArg<Clean>) {
 			using BodyValue = typename detail::JsonType<Clean>::type;
-			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size, json_options);
+			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size);
 			auto decode_opts = typed_json_decode_options(json_options);
 			auto decoded = conflux::json::boundary::decode_with<codec::json::DefaultJsonProvider, BodyValue>(
 				req.body,
@@ -2228,6 +2240,7 @@ public:
 		record_extracted_return_metadata<Fn, Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 #if CONFLUX_HAS_JSON
 		auto max_body_size = route_metadata_.back().max_body_size;
+		auto app_max_body_size = cfg_.max_body_size;
 		auto json_options = json_options_;
 #endif
 		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
@@ -2250,6 +2263,7 @@ public:
 #if CONFLUX_HAS_JSON
 					 ,
 				 max_body_size,
+				 app_max_body_size,
 				 json_options
 #endif
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
@@ -2261,6 +2275,7 @@ public:
 #if CONFLUX_HAS_JSON
 						 ,
 						 max_body_size,
+						 app_max_body_size,
 						 json_options
 #endif
 					](RequestView const &inner_req,
@@ -2271,6 +2286,8 @@ public:
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							co_return *std::move(limited);
 						}
+						auto const body_limit =
+							effective_body_limit(*max_body_size, app_max_body_size, json_options->max_body_size);
 						co_return co_await invoke_fixed_route_async<Args>(
 							*states,
 							fn,
@@ -2279,7 +2296,7 @@ public:
 #if CONFLUX_HAS_JSON
 							,
 							*json_options,
-							*max_body_size
+							body_limit
 #endif
 						);
 					};
@@ -2302,6 +2319,7 @@ public:
 #if CONFLUX_HAS_JSON
 					 ,
 				 max_body_size,
+				 app_max_body_size,
 				 json_options
 #endif
 			](RequestView const &req) mutable {
@@ -2313,6 +2331,7 @@ public:
 #if CONFLUX_HAS_JSON
 											 ,
 											 max_body_size,
+											 app_max_body_size,
 											 json_options
 #endif
 					](RequestView const &inner_req) mutable {
@@ -2322,6 +2341,8 @@ public:
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
+						auto const body_limit =
+							effective_body_limit(*max_body_size, app_max_body_size, json_options->max_body_size);
 						return apply_route_timeout(
 							invoke_fixed_route<Args>(
 								*states,
@@ -2331,7 +2352,7 @@ public:
 #if CONFLUX_HAS_JSON
 								,
 								*json_options,
-								*max_body_size
+								body_limit
 #endif
 								),
 							*timeout);
@@ -2443,6 +2464,7 @@ public:
 		record_extracted_return_metadata<Fn, Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 #if CONFLUX_HAS_JSON
 		auto max_body_size = route_metadata_.back().max_body_size;
+		auto app_max_body_size = cfg_.max_body_size;
 		auto json_options = json_options_;
 #endif
 		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
@@ -2465,6 +2487,7 @@ public:
 #if CONFLUX_HAS_JSON
 					 ,
 				 max_body_size,
+				 app_max_body_size,
 				 json_options
 #endif
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
@@ -2476,6 +2499,7 @@ public:
 #if CONFLUX_HAS_JSON
 						 ,
 						 max_body_size,
+						 app_max_body_size,
 						 json_options
 #endif
 					](RequestView const &inner_req,
@@ -2486,6 +2510,8 @@ public:
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							co_return *std::move(limited);
 						}
+						auto const body_limit =
+							effective_body_limit(*max_body_size, app_max_body_size, json_options->max_body_size);
 						co_return co_await invoke_extracted_async<Args>(
 							*states,
 							fn,
@@ -2494,7 +2520,7 @@ public:
 #if CONFLUX_HAS_JSON
 							,
 							*json_options,
-							*max_body_size
+							body_limit
 #endif
 						);
 					};
@@ -2517,6 +2543,7 @@ public:
 #if CONFLUX_HAS_JSON
 					 ,
 				 max_body_size,
+				 app_max_body_size,
 				 json_options
 #endif
 			](RequestView const &req) mutable {
@@ -2528,6 +2555,7 @@ public:
 #if CONFLUX_HAS_JSON
 											 ,
 											 max_body_size,
+											 app_max_body_size,
 											 json_options
 #endif
 					](RequestView const &inner_req) mutable {
@@ -2537,6 +2565,8 @@ public:
 						if (auto limited = route_rate_limit_failure(*rate_limit, inner_req)) {
 							return *std::move(limited);
 						}
+						auto const body_limit =
+							effective_body_limit(*max_body_size, app_max_body_size, json_options->max_body_size);
 						return apply_route_timeout(
 							invoke_extracted<Args>(
 								*states,
@@ -2546,7 +2576,7 @@ public:
 #if CONFLUX_HAS_JSON
 								,
 								*json_options,
-								*max_body_size
+								body_limit
 #endif
 								),
 							*timeout);
@@ -2603,6 +2633,7 @@ public:
 		route_metadata_.back().produces = {"application/json"};
 		route_metadata_.back().request_body_schema = detail::schema_json_or_object<BodyValue>();
 		auto max_body_size = route_metadata_.back().max_body_size;
+		auto app_max_body_size = cfg_.max_body_size;
 		auto json_options = json_options_;
 		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
@@ -2617,6 +2648,7 @@ public:
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = decode_opts,
 			 max_body_size,
+			 app_max_body_size,
 			 json_options](RequestView const &req) mutable -> Response {
 				if (auto denied = route_auth_failure(*bearer_token_policy, req)) {
 					return *std::move(denied);
@@ -2628,7 +2660,7 @@ public:
 				if (!detail::content_type_is_json_request(content_type)) {
 					return detail::unsupported_json_content_type_problem();
 				}
-				auto const limit = *max_body_size != 0 ? *max_body_size : json_options->max_body_size;
+				auto const limit = effective_body_limit(*max_body_size, app_max_body_size, json_options->max_body_size);
 				if (limit != 0 && req.body.size() > limit) {
 					return detail::json_body_too_large_problem();
 				}
