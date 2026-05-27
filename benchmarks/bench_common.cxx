@@ -14,9 +14,16 @@ export [[nodiscard]] inline std::uint64_t bench_now_ns() noexcept {
 // ── arg parsing ──────────────────────────────────────────────────────────────
 
 export [[nodiscard]] inline std::size_t bench_parse_sz(
-	char const *s) noexcept {
+	char const *s) {
+	if (s == nullptr || *s == '\0') {
+		throw std::invalid_argument{"empty benchmark size argument"};
+	}
 	std::size_t v{};
-	std::from_chars(s, s + std::strlen(s), v);
+	auto const *last = s + std::strlen(s);
+	auto const [ptr, ec] = std::from_chars(s, last, v);
+	if (ec != std::errc{} || ptr != last) {
+		throw std::invalid_argument{std::format("invalid benchmark size argument: {}", s)};
+	}
 	return v;
 }
 export struct BenchArgs {

@@ -72,7 +72,7 @@ T sync_wait_socket_task(
 				rc = ::io_uring_peek_cqe(raw, &cqe);
 			}
 		}
-		if (rc == -EINTR) {
+		if (rc == -EINTR || rc == -EAGAIN) {
 			continue;
 		}
 		if (rc >= 0 && cqe == nullptr) {

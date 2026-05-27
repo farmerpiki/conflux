@@ -90,7 +90,7 @@ void pump_until(
 				rc = ::io_uring_peek_cqe(ring, &cqe);
 			}
 		}
-		if (rc == -EINTR) {
+		if (rc == -EINTR || rc == -EAGAIN) {
 			continue;
 		}
 		// io_uring_submit_and_wait may report submitted SQEs while no CQE is

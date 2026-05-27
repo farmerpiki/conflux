@@ -141,7 +141,7 @@ export inline void bench_pump_until_count(
 		if (rc >= 0) {
 			rc = ::io_uring_peek_cqe(ring, &cqe);
 		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+		if (rc == -EINTR || rc == -EAGAIN || (rc >= 0 && cqe == nullptr)) {
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
@@ -178,7 +178,7 @@ export inline void bench_dispatch_cqes(
 		if (rc >= 0) {
 			rc = ::io_uring_peek_cqe(&ring, &cqe);
 		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+		if (rc == -EINTR || rc == -EAGAIN || (rc >= 0 && cqe == nullptr)) {
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
@@ -215,7 +215,7 @@ export inline void bench_drain_raw_cqes(
 		if (rc >= 0) {
 			rc = ::io_uring_peek_cqe(&ring, &cqe);
 		}
-		if (rc == -EINTR || (rc >= 0 && cqe == nullptr)) {
+		if (rc == -EINTR || rc == -EAGAIN || (rc >= 0 && cqe == nullptr)) {
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
