@@ -16,6 +16,9 @@ int main() {
 	WorkPool pool{WorkPoolOptions{.threads = 1}};
 	auto offloaded = conflux::http::offload(pool, [] { return conflux::http::text("ok"); });
 	(void)offloaded;
+	auto offloaded_problem =
+		conflux::http::offload(pool, [] { return conflux::http::problem::bad_request("invalid", "invalid"); });
+	(void)offloaded_problem;
 
 	auto [task, src] = conflux::work::root::make_task_source<int>();
 	(void)src.try_set_value(conflux::work::root::Success<int>{42});

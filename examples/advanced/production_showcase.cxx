@@ -70,54 +70,58 @@ public:
 				std::scoped_lock lock{mutex_};
 				list.items = todos_;
 			}
-			return http::into_response(http::json(std::move(list)));
+			return http::json(std::move(list));
 		});
 	}
 
 	[[nodiscard]] http::Response get(
 		std::int64_t todo_id) {
-		return http::offload(pool_, [this, todo_id] {
+		return http::offload(pool_, [this, todo_id] -> http::Result<http::Json<Todo>> {
 			auto todo = find_todo_copy(todo_id);
 			if (!todo) {
-				return todo_not_found();
+				return std::unexpected{todo_not_found()};
 			}
-			return http::into_response(http::json(*todo));
+			return http::json(*todo);
 		});
 	}
 
 	[[nodiscard]] http::Response mark_done(
 		std::int64_t todo_id) {
-		return http::offload(pool_, [this, todo_id] {
+		return http::offload(pool_, [this, todo_id] -> http::Result<http::Json<Todo>> {
 			std::optional<Todo> todo;
 			{
 				std::scoped_lock lock{mutex_};
 				auto it = find_todo_locked(todo_id);
 				if (it == todos_.end()) {
-					return todo_not_found();
+					return std::unexpected{todo_not_found()};
 				}
 				it->done = true;
 				todo = *it;
 			}
-			return http::into_response(http::json(*todo));
+			return http::json(*todo);
 		});
 	}
 
 	[[nodiscard]] http::Response create(
 		std::string title,
 		std::shared_ptr<http::SseChannel> events) {
-		return http::offload(pool_, [this, title = std::move(title), events = std::move(events)]() mutable {
-			Todo todo;
-			{
-				std::scoped_lock lock{mutex_};
-				if (todos_.size() >= kMaxTodos) {
-					return http::into_response(http::problem::content_too_large());
+		return http::offload(
+			pool_,
+			[this,
+			 title = std::move(title),
+			 events = std::move(events)]() mutable -> http::Result<http::CreatedBody<Todo>> {
+				Todo todo;
+				{
+					std::scoped_lock lock{mutex_};
+					if (todos_.size() >= kMaxTodos) {
+						return std::unexpected{http::problem::content_too_large()};
+					}
+					todo = Todo{.id = next_id_++, .title = std::move(title), .done = false};
+					todos_.push_back(todo);
 				}
-				todo = Todo{.id = next_id_++, .title = std::move(title), .done = false};
-				todos_.push_back(todo);
-			}
-			(void)events->send_event("todo.created", std::format("{}", todo.id));
-			return http::into_response(http::created(todo).header("Location", std::format("/todos/{}", todo.id)));
-		});
+				(void)events->send_event("todo.created", std::format("{}", todo.id));
+				return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
+			});
 	}
 
 private:
@@ -130,8 +134,8 @@ private:
 		};
 	}
 
-	[[nodiscard]] static http::Response todo_not_found() {
-		return http::into_response(http::problem::not_found("todo_not_found", "todo not found"));
+	[[nodiscard]] static http::Problem todo_not_found() {
+		return http::problem::not_found("todo_not_found", "todo not found");
 	}
 
 	[[nodiscard]] std::optional<Todo> find_todo_copy(

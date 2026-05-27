@@ -58,7 +58,7 @@ App &use_async(
 }
 
 template<typename F>
-	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
+	requires(std::invocable<F &> && IntoResponse<std::invoke_result_t<F &>>)
 [[nodiscard]] Response offload(
 	std::shared_ptr<WorkPool> const &pool,
 	F &&fn,
@@ -67,7 +67,7 @@ template<typename F>
 }
 
 template<typename F>
-	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)
+	requires(std::invocable<F &> && IntoResponse<std::invoke_result_t<F &>>)
 [[nodiscard]] Response offload(
 	WorkPool &pool,
 	F &&fn,
