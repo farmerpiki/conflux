@@ -85,15 +85,19 @@ public:
 	[[nodiscard]] ClientRequest build() && { return std::move(req_); }
 	// ── verbs / URL ──────────────────────────────────────────────────────────
 
-	Builder &method(
-		std::string_view m) & {
-		req_.method_ = std::string{m};
-		return *this;
+	template<class Self>
+	Self &&method(
+		this Self &&self,
+		std::string_view m) {
+		self.req_.method_ = std::string{m};
+		return std::forward<Self>(self);
 	}
-	Builder &url(
-		std::string_view raw) & {
-		req_.url_ = parse_or_throw(raw);
-		return *this;
+	template<class Self>
+	Self &&url(
+		this Self &&self,
+		std::string_view raw) {
+		self.req_.url_ = parse_or_throw(raw);
+		return std::forward<Self>(self);
 	}
 	[[nodiscard]] std::expected<void, UrlError> try_url(
 		std::string_view raw) & {
@@ -104,69 +108,62 @@ public:
 		req_.url_ = std::move(*parsed);
 		return {};
 	}
-	Builder &url(
-		Url u) & {
-		req_.url_ = std::move(u);
-		return *this;
-	}
-	Builder &&method(
-		std::string_view m) && {
-		return std::move(method(m));
-	}
-	Builder &&url(
-		std::string_view raw) && {
-		return std::move(url(raw));
-	}
-	Builder &&url(
-		Url u) && {
-		return std::move(url(std::move(u)));
+	template<class Self>
+	Self &&url(
+		this Self &&self,
+		Url u) {
+		self.req_.url_ = std::move(u);
+		return std::forward<Self>(self);
 	}
 	// ── query ─────────────────────────────────────────────────────────────────
 
-	Builder &query(
+	template<class Self>
+	Self &&query(
+		this Self &&self,
 		std::string_view name,
-		std::string_view value) & {
-		req_.url_.set_query_param(name, value);
-		return *this;
+		std::string_view value) {
+		self.req_.url_.set_query_param(name, value);
+		return std::forward<Self>(self);
 	}
-	Builder &query_params(
-		HttpFields const &kv) & {
+	template<class Self>
+	Self &&query_params(
+		this Self &&self,
+		HttpFields const &kv) {
 		for (auto const &[k, v]: kv) {
-			req_.url_.set_query_param(k, v);
+			self.req_.url_.set_query_param(k, v);
 		}
-		return *this;
-	}
-	Builder &&query(
-		std::string_view name,
-		std::string_view value) && {
-		return std::move(query(name, value));
-	}
-	Builder &&query_params(
-		HttpFields const &kv) && {
-		return std::move(query_params(kv));
+		return std::forward<Self>(self);
 	}
 	// ── headers ───────────────────────────────────────────────────────────────
 
-	Builder &header(
+	template<class Self>
+	Self &&header(
+		this Self &&self,
 		std::string_view name,
-		std::string_view value) & {
-		req_.headers_.set(std::string{name}, std::string{value});
-		return *this;
+		std::string_view value) {
+		self.req_.headers_.set(std::string{name}, std::string{value});
+		return std::forward<Self>(self);
 	}
-	Builder &headers(
-		HttpFields const &h) & {
+	template<class Self>
+	Self &&headers(
+		this Self &&self,
+		HttpFields const &h) {
 		for (auto const &[k, v]: h) {
-			req_.headers_.set(k, v);
+			self.req_.headers_.set(k, v);
 		}
-		return *this;
+		return std::forward<Self>(self);
 	}
-	Builder &bearer(
-		std::string_view token) & {
-		return header("Authorization", std::format("Bearer {}", token));
+	template<class Self>
+	Self &&bearer(
+		this Self &&self,
+		std::string_view token) {
+		return std::forward<Self>(self).header("Authorization", std::format("Bearer {}", token));
 	}
-	Builder &basic(
+	template<class Self>
+	Self &&basic(
+		this Self &&self,
 		std::string_view user,
-		std::string_view pass) & {
+		std::string_view pass) {
 		// Base64-encode user:pass.
 		auto const creds = std::format("{}:{}", user, pass);
 		// Simple base64 without external lib.
@@ -182,120 +179,99 @@ public:
 			b64 += (i + 1 < creds.size()) ? kAlpha[((b << 2) | (c >> 6)) & 0x3Fu] : '=';
 			b64 += (i + 2 < creds.size()) ? kAlpha[c & 0x3Fu] : '=';
 		}
-		return header("Authorization", std::format("Basic {}", b64));
+		return std::forward<Self>(self).header("Authorization", std::format("Basic {}", b64));
 	}
-	Builder &user_agent(
-		std::string_view ua) & {
-		return header("User-Agent", ua);
+	template<class Self>
+	Self &&user_agent(
+		this Self &&self,
+		std::string_view ua) {
+		return std::forward<Self>(self).header("User-Agent", ua);
 	}
-	Builder &accept(
-		std::string_view mime) & {
-		return header("Accept", mime);
+	template<class Self>
+	Self &&accept(
+		this Self &&self,
+		std::string_view mime) {
+		return std::forward<Self>(self).header("Accept", mime);
 	}
-	Builder &accept_json() & { return accept("application/json"); }
-	Builder &content_type(
-		std::string_view ct) & {
-		return header("Content-Type", ct);
+	template<class Self>
+	Self &&accept_json(
+		this Self &&self) {
+		return std::forward<Self>(self).accept("application/json");
 	}
-	Builder &if_match(
-		std::string_view etag) & {
-		return header("If-Match", etag);
+	template<class Self>
+	Self &&content_type(
+		this Self &&self,
+		std::string_view ct) {
+		return std::forward<Self>(self).header("Content-Type", ct);
 	}
-	Builder &if_none_match(
-		std::string_view etag) & {
-		return header("If-None-Match", etag);
+	template<class Self>
+	Self &&if_match(
+		this Self &&self,
+		std::string_view etag) {
+		return std::forward<Self>(self).header("If-Match", etag);
 	}
-	Builder &if_modified_since(
-		std::chrono::system_clock::time_point tp) & {
+	template<class Self>
+	Self &&if_none_match(
+		this Self &&self,
+		std::string_view etag) {
+		return std::forward<Self>(self).header("If-None-Match", etag);
+	}
+	template<class Self>
+	Self &&if_modified_since(
+		this Self &&self,
+		std::chrono::system_clock::time_point tp) {
 		// RFC 9110 HTTP-date std::format.
 		auto const tt = std::chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
 		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		return header("If-Modified-Since", buf.data());
+		return std::forward<Self>(self).header("If-Modified-Since", buf.data());
 	}
-	Builder &if_unmodified_since(
-		std::chrono::system_clock::time_point tp) & {
+	template<class Self>
+	Self &&if_unmodified_since(
+		this Self &&self,
+		std::chrono::system_clock::time_point tp) {
 		auto const tt = std::chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
 		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		return header("If-Unmodified-Since", buf.data());
-	}
-	Builder &&header(
-		std::string_view name,
-		std::string_view value) && {
-		return std::move(header(name, value));
-	}
-	Builder &&headers(
-		HttpFields h) && {
-		return std::move(headers(std::move(h)));
-	}
-	Builder &&bearer(
-		std::string_view token) && {
-		return std::move(bearer(token));
-	}
-	Builder &&basic(
-		std::string_view user,
-		std::string_view pass) && {
-		return std::move(basic(user, pass));
-	}
-	Builder &&user_agent(
-		std::string_view ua) && {
-		return std::move(user_agent(ua));
-	}
-	Builder &&accept(
-		std::string_view mime) && {
-		return std::move(accept(mime));
-	}
-	Builder &&accept_json() && { return std::move(accept_json()); }
-	Builder &&content_type(
-		std::string_view ct) && {
-		return std::move(content_type(ct));
-	}
-	Builder &&if_match(
-		std::string_view etag) && {
-		return std::move(if_match(etag));
-	}
-	Builder &&if_none_match(
-		std::string_view etag) && {
-		return std::move(if_none_match(etag));
-	}
-	Builder &&if_modified_since(
-		std::chrono::system_clock::time_point tp) && {
-		return std::move(if_modified_since(tp));
-	}
-	Builder &&if_unmodified_since(
-		std::chrono::system_clock::time_point tp) && {
-		return std::move(if_unmodified_since(tp));
+		return std::forward<Self>(self).header("If-Unmodified-Since", buf.data());
 	}
 	// ── body ──────────────────────────────────────────────────────────────────
 	// Each body_* method asserts in debug that no prior body was set.
 	// Release builds: last-wins + header overwrite.
 
-	Builder &body(
-		std::string s) & {
-		assert_single_body();
-		req_.body_ = std::move(s);
-		return *this;
+	template<class Self>
+	Self &&body(
+		this Self &&self,
+		std::string s) {
+		self.assert_single_body();
+		self.req_.body_ = std::move(s);
+		return std::forward<Self>(self);
 	}
-	Builder &body_view(
-		std::string_view sv) & {
-		assert_single_body();
-		req_.body_ = std::string{sv};
-		return *this;
+	template<class Self>
+	Self &&body_view(
+		this Self &&self,
+		std::string_view sv) {
+		self.assert_single_body();
+		self.req_.body_ = std::string{sv};
+		return std::forward<Self>(self);
 	}
-	Builder &body_json_raw(
-		std::string already_serialized) & {
-		assert_single_body();
-		req_.body_ = std::move(already_serialized);
-		return content_type("application/json");
+	template<class Self>
+	Self &&body_json_raw(
+		this Self &&self,
+		std::string already_serialized) {
+		self.assert_single_body();
+		self.req_.body_ = std::move(already_serialized);
+		return std::forward<Self>(self).content_type("application/json");
 	}
-	Builder &body_form(
-		HttpFields const &fields) & {
-		assert_single_body();
+	template<class Self>
+	Self &&body_form(
+		this Self &&self,
+		HttpFields const &fields) {
+		self.assert_single_body();
 		std::size_t reserve_n = fields.empty() ? 0 : fields.size() - 1;
 		for (auto const &[k, v]: fields) {
 			reserve_n += url_form_encoded_size(k) + 1 + url_form_encoded_size(v);
@@ -310,75 +286,53 @@ public:
 			encoded += '=';
 			append_url_form_encoded(encoded, v);
 		}
-		req_.body_ = std::move(encoded);
-		return content_type("application/x-www-form-urlencoded");
+		self.req_.body_ = std::move(encoded);
+		return std::forward<Self>(self).content_type("application/x-www-form-urlencoded");
 	}
-	Builder &clear_body() & {
-		req_.body_.clear();
-		body_set_ = false;
-		return *this;
+	template<class Self>
+	Self &&clear_body(
+		this Self &&self) {
+		self.req_.body_.clear();
+		self.body_set_ = false;
+		return std::forward<Self>(self);
 	}
-	Builder &&body(
-		std::string s) && {
-		return std::move(body(std::move(s)));
-	}
-	Builder &&body_view(
-		std::string_view sv) && {
-		return std::move(body_view(sv));
-	}
-	Builder &&body_json_raw(
-		std::string s) && {
-		return std::move(body_json_raw(std::move(s)));
-	}
-	Builder &&body_form(
-		HttpFields f) && {
-		return std::move(body_form(std::move(f)));
-	}
-	Builder &&clear_body() && { return std::move(clear_body()); }
 	// ── execution policy ──────────────────────────────────────────────────────
 
-	Builder &timeouts(
-		HttpTimeouts t) & {
-		req_.timeouts_ = t;
-		return *this;
+	template<class Self>
+	Self &&timeouts(
+		this Self &&self,
+		HttpTimeouts t) {
+		self.req_.timeouts_ = t;
+		return std::forward<Self>(self);
 	}
-	Builder &follow_redirects(
-		int max_redirects = 10) & {
-		req_.max_redirects_ = max_redirects;
-		req_.follow_redirects_ = true;
-		return *this;
+	template<class Self>
+	Self &&follow_redirects(
+		this Self &&self,
+		int max_redirects = 10) {
+		self.req_.max_redirects_ = max_redirects;
+		self.req_.follow_redirects_ = true;
+		return std::forward<Self>(self);
 	}
-	Builder &disable_redirects() & {
-		req_.max_redirects_ = 0;
-		req_.follow_redirects_ = false;
-		return *this;
+	template<class Self>
+	Self &&disable_redirects(
+		this Self &&self) {
+		self.req_.max_redirects_ = 0;
+		self.req_.follow_redirects_ = false;
+		return std::forward<Self>(self);
 	}
-	Builder &verify_peer(
-		bool v) & {
-		req_.verify_peer_ = v;
-		return *this;
+	template<class Self>
+	Self &&verify_peer(
+		this Self &&self,
+		bool v) {
+		self.req_.verify_peer_ = v;
+		return std::forward<Self>(self);
 	}
-	Builder &server_name(
-		std::string_view sni) & {
-		req_.server_name_ = std::string{sni};
-		return *this;
-	}
-	Builder &&timeouts(
-		HttpTimeouts t) && {
-		return std::move(timeouts(t));
-	}
-	Builder &&follow_redirects(
-		int max_redirects) && {
-		return std::move(follow_redirects(max_redirects));
-	}
-	Builder &&disable_redirects() && { return std::move(disable_redirects()); }
-	Builder &&verify_peer(
-		bool v) && {
-		return std::move(verify_peer(v));
-	}
-	Builder &&server_name(
-		std::string_view s) && {
-		return std::move(server_name(s));
+	template<class Self>
+	Self &&server_name(
+		this Self &&self,
+		std::string_view sni) {
+		self.req_.server_name_ = std::string{sni};
+		return std::forward<Self>(self);
 	}
 };
 // ─── Static factory implementations ──────────────────────────────────────────
