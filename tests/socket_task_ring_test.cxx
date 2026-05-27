@@ -1337,6 +1337,7 @@ TEST_CASE(
 	"tcp_accept_multishot: listener destroyed after task resolves, no UAF",
 	"[tcp_accept_multishot][lifetime][uring]") {
 	auto fx = require_ring_fixture();
+	int const fd_before = count_proc_fds();
 	{
 		TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 		using Task_v3 = conflux::work::root::Task<void>;
@@ -1352,8 +1353,8 @@ TEST_CASE(
 		} catch (...) {}
 		// l destroyed at end of scope — task already resolved, no UAF
 	}
-	// no crash = ASAN would have fired if UAF occurred
-	SUCCEED("listener destroyed after task completion without a lifetime failure");
+	int const fd_after = count_proc_fds();
+	CHECK(fd_after <= fd_before + 2);
 }
 // ---------------------------------------------------------------------------
 // AC-8: tcp_accept cancel with SQ full — retry path, no false completion

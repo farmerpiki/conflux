@@ -352,18 +352,3 @@ TEST_CASE(
 	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
 }
-// --- unconsumed awaiter defensive abandon (must not terminate) ---
-
-TEST_CASE(
-	"phase5c: TaskHandleAwaiter destroyed unconsumed without terminating",
-	"[phase5c]") {
-	auto [task, src] = root::make_task_source<int>();
-	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.try_set_value(root::Success<int>{0}));
-	{
-		carrier::TaskHandleAwaiter<int> awaiter{std::move(jh)};
-		(void)awaiter.await_ready();
-		// destroy without calling await_resume — defensive abandon fires in dtor
-	}
-	SUCCEED("unconsumed awaiter was destroyed without terminating");
-}

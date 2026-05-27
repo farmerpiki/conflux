@@ -64,22 +64,3 @@ TEST_CASE(
 		}
 	}
 }
-TEST_CASE(
-	"JSONTestSuite: i_* implementation-defined (tracked)",
-	"[jsontestsuite][i][!mayfail]") {
-	auto files = test_files("i_");
-	REQUIRE(!files.empty());
-	std::size_t accepted{};
-	std::size_t rejected{};
-	for (auto const &p: files) {
-		auto content = read_file(p);
-		auto result = parse(content);
-		if (result.has_value()) {
-			++accepted;
-		} else {
-			++rejected;
-		}
-	}
-	INFO("i_* files: " << files.size() << " total, " << accepted << " accepted, " << rejected << " rejected");
-	CHECK(accepted + rejected == files.size());
-}

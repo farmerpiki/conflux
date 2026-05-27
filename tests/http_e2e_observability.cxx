@@ -210,7 +210,7 @@ void ensure_codec_server() {
 
 } // namespace
 TEST_CASE(
-	"compress: brotli is ignored for dynamic responses") {
+	"compress negotiation header: brotli is ignored for dynamic responses") {
 	ensure_codec_server();
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: br, gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -221,7 +221,7 @@ TEST_CASE(
 #endif
 }
 TEST_CASE(
-	"compress: zstd accepted when client prefers it") {
+	"compress negotiation header: zstd accepted when client prefers it") {
 	ensure_codec_server();
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: zstd;q=1, gzip;q=0.5\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -234,7 +234,7 @@ TEST_CASE(
 #endif
 }
 TEST_CASE(
-	"compress: gzip returned when only gzip offered") {
+	"compress negotiation header: gzip returned when only gzip offered") {
 	ensure_codec_server();
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -245,7 +245,7 @@ TEST_CASE(
 #endif
 }
 TEST_CASE(
-	"compress: Accept-Encoding token matching is case-insensitive") {
+	"compress negotiation header: Accept-Encoding token matching is case-insensitive") {
 	ensure_codec_server();
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: GZip;Q=1\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -267,7 +267,7 @@ TEST_CASE(
 #endif
 }
 TEST_CASE(
-	"compress: q=0 exclusion: gzip;q=0 gives zstd") {
+	"compress negotiation header: q=0 exclusion: gzip;q=0 gives zstd") {
 	ensure_codec_server();
 	// gzip explicitly excluded; should get zstd
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: gzip;q=0, zstd\r\n");
@@ -287,7 +287,7 @@ TEST_CASE(
 	CHECK(gzip_backend_name(GzipBackend::isa_l) == "isa-l");
 }
 TEST_CASE(
-	"compress: wildcard * selects preferred dynamic codec") {
+	"compress negotiation header: wildcard * selects preferred dynamic codec") {
 	ensure_codec_server();
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: *\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));

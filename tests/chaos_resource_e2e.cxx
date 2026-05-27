@@ -123,6 +123,15 @@ void reset_connection(
 	}
 }
 
+std::string_view response_body(
+	std::string_view response) {
+	auto const header_end = response.find("\r\n\r\n");
+	if (header_end == std::string_view::npos) {
+		return {};
+	}
+	return response.substr(header_end + 4);
+}
+
 [[nodiscard]] Config chaos_config() {
 	Config cfg = mw_config();
 	cfg.ring_entries = 128;
@@ -196,7 +205,7 @@ TEST_CASE(
 	std::this_thread::sleep_for(std::chrono::milliseconds{200});
 	auto resp = http_get_on(srv.port(), "/static/ok.txt", "Connection: close\r\n");
 	CHECK(resp.starts_with("HTTP/1.1 200 OK"));
-	CHECK(resp.ends_with("ok"));
+	CHECK(response_body(resp) == "ok");
 }
 
 TEST_CASE(
