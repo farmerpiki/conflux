@@ -445,6 +445,14 @@ if(TARGET conflux_net_http)
         EXPECT "HttpMethod")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_request_context
+        SOURCE http_facade_compile_fail_global_request_context.cxx
+        TEST http-facade/compile-fail-global-request-context
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RequestContext")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization

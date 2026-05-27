@@ -141,7 +141,7 @@ TEST_CASE(
 	auto &ctx_added = app.add_context(
 		"POST",
 		"/jobs/{id}",
-		[](RequestView const &, RequestContext const &) -> conflux::work::root::Task<Response> {
+		[](RequestView const &, chttp::RequestContext const &) -> conflux::work::root::Task<Response> {
 			auto [task, source] = conflux::work::root::make_task_source<Response>();
 			(void)source.try_set_value(conflux::work::root::Success<Response>{Response::text("queued")});
 			return std::move(task);
@@ -256,7 +256,7 @@ void ensure_server() {
 		router.add_context(
 			"POST",
 			"/api/multipart-file-async",
-			[](RequestView req, RequestContext const &) -> conflux::work::root::Task<Response> {
+			[](RequestView req, chttp::RequestContext const &) -> conflux::work::root::Task<Response> {
 				auto [gate, source] = conflux::work::root::make_task_source<int>();
 				std::thread([source = std::move(source)] mutable {
 					std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -390,7 +390,7 @@ void ensure_redirect_follow_servers() {
 		};
 		front.get_context(
 			"/async-follow",
-			[popts](RequestView const &, RequestContext const &ctx) -> conflux::work::root::Task<Response> {
+			[popts](RequestView const &, chttp::RequestContext const &ctx) -> conflux::work::root::Task<Response> {
 				HttpClient client{};
 				auto result = co_await async_send(
 					client,
@@ -1209,7 +1209,7 @@ void ensure_proxy_server() {
 		front.add_context(
 			"GET",
 			"/proxy/ping",
-			[popts = std::move(popts)](RequestView const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 		g_proxy_port = g_proxy_front->port();
@@ -2054,7 +2054,7 @@ TEST_CASE(
 		"POST",
 		"/async-timeout",
 		timeout,
-		[&observed_reason](RequestView const &, RequestContext const &) -> chttp::Task<chttp::Response> {
+		[&observed_reason](RequestView const &, chttp::RequestContext const &) -> chttp::Task<chttp::Response> {
 			auto source_slot = std::make_shared<std::optional<root::TaskSource<chttp::Response>>>();
 			auto [task, source] = root::make_cancellable_task_source<chttp::Response>(
 				[&observed_reason, source_slot](root::CancelReason reason) noexcept {

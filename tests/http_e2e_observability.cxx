@@ -446,7 +446,7 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/echo",
-			[popts = std::move(popts)](RequestView const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -474,7 +474,7 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/echo",
-			[popts = std::move(popts)](RequestView const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -503,7 +503,7 @@ TEST_CASE(
 		front.add_context(
 			"GET",
 			"/xff",
-			[popts = std::move(popts)](RequestView const &req, RequestContext const &ctx)
+			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<Response> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});

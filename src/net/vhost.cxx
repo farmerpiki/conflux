@@ -71,7 +71,7 @@ public:
 	}
 	[[nodiscard]] std::optional<Response> dispatch_context(
 		RequestView const &req,
-		RequestContext const &ctx) const {
+		conflux::http::RequestContext const &ctx) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
