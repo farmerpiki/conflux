@@ -235,15 +235,7 @@ struct WorkPoolQueueStats {
     uint64_t park_attempts;
     uint64_t park_recheck_skips;
     uint64_t futex_waits;
-    uint64_t job_slot_allocations;
-    uint64_t job_slab_allocations;
-    uint64_t job_slab_id_reuses;
-    uint64_t job_slab_releases;
-    uint64_t job_allocation_failures;
     uint64_t queue_full_token_discards;
-    uint64_t remote_free_pushes;
-    uint64_t remote_free_fallbacks;
-    uint64_t remote_free_drained;
     uint64_t token_take_failures;
 };
 
@@ -539,8 +531,6 @@ struct WorkPoolOptions {
     size_t max_inject_queue = 4096;    // total external producer queue target
     size_t inject_queue_shards = 0;    // 0 => one inject ring per worker
     size_t local_queue_capacity = 1024;// per-worker local queue/ring bound
-    size_t initial_job_slab_slots = 256;// reserved for slab-backed queue experiments
-    size_t max_job_slab_slots = 4096;  // reserved for slab-backed queue experiments
     WorkPoolQueueMode queue_mode = WorkPoolQueueMode::stealing;
     uint32_t spin_before_park = 256;
     int numa_node = -1;

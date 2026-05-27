@@ -51,15 +51,7 @@ export struct WorkPoolQueueStats {
 	std::uint64_t park_attempts = 0;
 	std::uint64_t park_recheck_skips = 0;
 	std::uint64_t futex_waits = 0;
-	std::uint64_t job_slot_allocations = 0;
-	std::uint64_t job_slab_allocations = 0;
-	std::uint64_t job_slab_id_reuses = 0;
-	std::uint64_t job_slab_releases = 0;
-	std::uint64_t job_allocation_failures = 0;
 	std::uint64_t queue_full_token_discards = 0;
-	std::uint64_t remote_free_pushes = 0;
-	std::uint64_t remote_free_fallbacks = 0;
-	std::uint64_t remote_free_drained = 0;
 	std::uint64_t token_take_failures = 0;
 };
 namespace work_detail {
@@ -404,8 +396,6 @@ export struct WorkPoolOptions {
 	std::size_t max_inject_queue = 4096;
 	std::size_t inject_queue_shards = 0;
 	std::size_t local_queue_capacity = 1024;
-	std::size_t initial_job_slab_slots = 256;
-	std::size_t max_job_slab_slots = 4096;
 	WorkPoolQueueMode queue_mode = WorkPoolQueueMode::stealing;
 	std::uint32_t spin_before_park = 256;
 	int numa_node = -1;

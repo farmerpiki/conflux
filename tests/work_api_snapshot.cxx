@@ -62,8 +62,6 @@ using _RingLaneOptions = ::RingLaneOptions;
 
 static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
 static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), std::size_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().initial_job_slab_slots), std::size_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().max_job_slab_slots), std::size_t>);
 static_assert(::WorkPoolQueueMode::stealing != ::WorkPoolQueueMode::no_stealing);
 static_assert(std::same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
 static_assert(std::same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
@@ -72,10 +70,7 @@ static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().admissi
 static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
 static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
 static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slot_allocations), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slab_allocations), std::uint64_t>);
 static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().remote_free_pushes), std::uint64_t>);
 
 } // namespace snapshot_work_pool_api
 // ---------------------------------------------------------------------------
