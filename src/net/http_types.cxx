@@ -1,5 +1,6 @@
 module;
 #include <cctype>
+#include <ctime>
 
 export module conflux.net.http.types;
 import std;
@@ -427,6 +428,22 @@ export template<class Fields, class Pred>
 	return fields.any_value(key, std::forward<Pred>(pred));
 }
 export namespace conflux::http {
+
+[[nodiscard]] std::string http_date(
+	time_t epoch) {
+	tm gmt{};
+	if (::gmtime_r(&epoch, &gmt) == nullptr) {
+		return "Thu, 01 Jan 1970 00:00:00 GMT";
+	}
+	std::array<char, 32> buf{};
+	std::size_t const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
+	return n != 0 ? std::string{buf.data(), n} : std::string{"Thu, 01 Jan 1970 00:00:00 GMT"};
+}
+
+[[nodiscard]] std::string http_date(
+	std::chrono::system_clock::time_point tp) {
+	return http_date(std::chrono::system_clock::to_time_t(tp));
+}
 
 [[nodiscard]] constexpr std::string_view trim_http_whitespace(
 	std::string_view s) noexcept {

@@ -517,14 +517,9 @@ Response handle_static_get(
 		if (st.st_mtime == last_mtime_cached && !last_modified_cached.empty()) {
 			last_modified = last_modified_cached;
 		} else {
-			tm tm_val{};
-			::gmtime_r(&st.st_mtime, &tm_val);
-			std::array<char, 64> buf{};
-			if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &tm_val) > 0) {
-				last_modified = buf.data();
-				last_modified_cached = last_modified;
-				last_mtime_cached = st.st_mtime;
-			}
+			last_modified = conflux::http::http_date(st.st_mtime);
+			last_modified_cached = last_modified;
+			last_mtime_cached = st.st_mtime;
 		}
 
 		// 304 Not Modified checks.

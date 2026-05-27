@@ -91,14 +91,7 @@ export std::string_view http_date_now() {
 	auto const now = ::time(nullptr);
 	if (now != cached_epoch) {
 		cached_epoch = now;
-		tm gmt{};
-		if (::gmtime_r(&now, &gmt) == nullptr) {
-			cached = "Thu, 01 Jan 1970 00:00:00 GMT";
-			return cached;
-		}
-		std::array<char, 32> buf{};
-		std::size_t const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		cached = n != 0 ? std::string{buf.data(), n} : std::string{"Thu, 01 Jan 1970 00:00:00 GMT"};
+		cached = conflux::http::http_date(now);
 	}
 	return cached;
 }

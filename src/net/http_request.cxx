@@ -208,24 +208,13 @@ public:
 	Self &&if_modified_since(
 		this Self &&self,
 		std::chrono::system_clock::time_point tp) {
-		// RFC 9110 HTTP-date std::format.
-		auto const tt = std::chrono::system_clock::to_time_t(tp);
-		tm gmt{};
-		gmtime_r(&tt, &gmt);
-		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		return std::forward<Self>(self).header("If-Modified-Since", buf.data());
+		return std::forward<Self>(self).header("If-Modified-Since", http_date(tp));
 	}
 	template<class Self>
 	Self &&if_unmodified_since(
 		this Self &&self,
 		std::chrono::system_clock::time_point tp) {
-		auto const tt = std::chrono::system_clock::to_time_t(tp);
-		tm gmt{};
-		gmtime_r(&tt, &gmt);
-		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		return std::forward<Self>(self).header("If-Unmodified-Since", buf.data());
+		return std::forward<Self>(self).header("If-Unmodified-Since", http_date(tp));
 	}
 	// ── body ──────────────────────────────────────────────────────────────────
 	// Each body_* method asserts in debug that no prior body was set.
