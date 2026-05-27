@@ -510,6 +510,10 @@ not silently offload blocking work: disk I/O, DNS, DB calls, client HTTP,
 sleeps, and heavy CPU work must move through an explicit async API or an
 explicit worker/offload path.
 
+Request bodies are bounded and buffered in memory today. Raise `max_body_size`
+deliberately for known workloads; arbitrary large uploads need the deferred
+streaming upload API rather than hidden spill-to-disk behavior.
+
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
 router.get("/ping", [](http::RequestView const& req) -> http::Response {

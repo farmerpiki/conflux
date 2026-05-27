@@ -2,5 +2,8 @@
 #include <conflux/http.hxx>
 
 int main() {
-	(void)conflux::http::offload(nullptr, [] { return conflux::http::text("ok"); });
+	namespace http = conflux::http;
+	static_assert(
+		requires { http::offload(nullptr, [] { return http::text("ok"); }); },
+		"conflux_http_facade_unexpected_offload_helper_visible");
 }

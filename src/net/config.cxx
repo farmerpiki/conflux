@@ -84,13 +84,13 @@ export enum class ConfigIssueCode {
 };
 export struct ConfigIssue {
 	ConfigIssueCode code{ConfigIssueCode::invalid_value};
-	std::string file;
+	std::string file{};
 	std::size_t line{};
-	std::string section;
-	std::string key;
-	std::string value;
-	std::string message;
-	std::string hint;
+	std::string section{};
+	std::string key{};
+	std::string value{};
+	std::string message{};
+	std::string hint{};
 };
 // Per-hostname TLS credentials for SNI virtual hosting.
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the

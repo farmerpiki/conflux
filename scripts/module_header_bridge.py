@@ -1015,7 +1015,7 @@ def liburing_constant_value(name: str) -> str:
         "IORING_FEAT_FAST_POLL": "(1u << 3)",
         "SPLICE_F_FD_IN_FIXED": "(1u << 31)",
         "IORING_FSYNC_DATASYNC": "1u",
-        "IOU_PBUF_RING_INC": "(1u << 1)",
+        "IOU_PBUF_RING_INC": "2",
         "SOCKET_URING_OP_SETSOCKOPT": "0u",
     }
     if name in special:
@@ -1125,13 +1125,13 @@ def render_mock_liburing_header(identifiers: set[str]) -> str:
         "static inline void io_uring_queue_exit(io_uring *) noexcept {}\n",
         "static inline void io_uring_free_buf_ring(io_uring *, io_uring_buf_ring *, unsigned, int) noexcept {}\n",
         "static inline void io_uring_free_probe(io_uring_probe *) noexcept {}\n",
-        "static inline unsigned io_uring_buf_ring_mask(unsigned entries) noexcept { return entries ? entries - 1u : 0u; }\n",
+        "static inline int io_uring_buf_ring_mask(__u32 ring_entries) noexcept { return static_cast<int>(ring_entries - 1u); }\n",
         "static inline unsigned io_uring_peek_batch_cqe(io_uring *, io_uring_cqe **, unsigned) noexcept { return 0u; }\n",
         "static inline unsigned io_uring_sq_ready(io_uring const *) noexcept { return 0u; }\n",
         "static inline unsigned io_uring_sq_space_left(io_uring const *) noexcept { return 1u; }\n",
         "static inline ssize_t io_uring_mlock_size(unsigned, unsigned) noexcept { return 0; }\n",
         "static inline ssize_t io_uring_memory_size_params(unsigned, io_uring_params *) noexcept { return -ENOSYS; }\n",
-        "static inline int io_uring_cq_has_overflow(io_uring const *) noexcept { return 0; }\n",
+        "static inline bool io_uring_cq_has_overflow(io_uring const *) noexcept { return false; }\n",
         "static inline void io_uring_buf_ring_add(io_uring_buf_ring *, void *, unsigned int, unsigned short, int, int) noexcept {}\n",
         "static inline void io_uring_buf_ring_advance(io_uring_buf_ring *, int) noexcept {}\n",
     ])

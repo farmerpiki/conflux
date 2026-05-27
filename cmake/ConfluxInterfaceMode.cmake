@@ -1281,34 +1281,34 @@ function(conflux_add_header_compile_fail_tests)
         "conflux_http_facade_unexpected_route_infos_member_visible")
 
         if(CONFLUX_WANT_HTTP_SERVER)
-        conflux_add_header_compile_fail_test(
-            api-surface/header-curated-hides-iouring
-            tests/header_api_surface_curated_compile_fail_iouring
-            "no type named 'IoUringCaps' in namespace 'conflux::uring'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-curated-hides-blocking-file
-            tests/header_api_surface_curated_compile_fail_file
-            "no member named 'file' in namespace 'conflux::http'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-extended-hides-iouring
-            tests/header_api_surface_extended_compile_fail_iouring
-            "no type named 'IoUringCaps' in namespace 'conflux::uring'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-complete-hides-direct-slot-pool
-            tests/header_api_surface_complete_compile_fail_direct_slot_pool
-            "unknown type name 'DirectSlotPool'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-http-facade-offload-free
-            tests/header_http_facade_compile_fail_offload_free
-            "no member named 'offload' in namespace 'conflux::http'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-http-facade-openapi-handler-free
-            tests/header_http_facade_compile_fail_openapi_handler_free
-            "no member named 'openapi_handler' in namespace 'conflux::http'")
-        conflux_add_header_compile_fail_test(
-            api-surface/header-http-facade-file-free
-            tests/header_http_facade_compile_fail_file_free
-            "no member named 'file' in namespace 'conflux::http'")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-curated-hides-iouring
+                tests/header_api_surface_curated_compile_fail_iouring
+                "conflux_api_surface_curated_unexpected_iouring_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-curated-hides-blocking-file
+                tests/header_api_surface_curated_compile_fail_file
+                "conflux_api_surface_curated_unexpected_file_helper_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-extended-hides-iouring
+                tests/header_api_surface_extended_compile_fail_iouring
+                "conflux_api_surface_extended_unexpected_iouring_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-complete-hides-direct-slot-pool
+                tests/header_api_surface_complete_compile_fail_direct_slot_pool
+                "conflux_api_surface_complete_unexpected_direct_slot_pool_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-http-facade-offload-free
+                tests/header_http_facade_compile_fail_offload_free
+                "conflux_http_facade_unexpected_offload_helper_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-http-facade-openapi-handler-free
+                tests/header_http_facade_compile_fail_openapi_handler_free
+                "conflux_http_facade_unexpected_openapi_handler_visible")
+            conflux_add_header_compile_fail_test(
+                api-surface/header-http-facade-file-free
+                tests/header_http_facade_compile_fail_file_free
+                "conflux_http_facade_unexpected_file_helper_visible")
         conflux_add_header_compile_fail_test(
             api-surface/header-http-facade-route-infos-member
             tests/header_http_facade_compile_fail_route_infos_member

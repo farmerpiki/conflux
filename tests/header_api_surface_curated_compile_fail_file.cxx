@@ -2,5 +2,6 @@
 #include <conflux/curated.hxx>
 
 int main() {
-	(void)conflux::http::file("index.html");
+	namespace http = conflux::http;
+	static_assert(requires { http::file("index.html"); }, "conflux_api_surface_curated_unexpected_file_helper_visible");
 }

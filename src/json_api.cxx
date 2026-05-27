@@ -1,6 +1,11 @@
 module;
 #include <cassert>
 #include <cstdint>
+#if defined(CONFLUX_INTERFACE_HEADER)
+	#include <locale.h>
+	#include <stdlib.h>
+	#include <sys/random.h>
+#else
 // stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
 // std module BMI under GCC -freflection; forward-declare what we need instead
 extern "C" {
@@ -10,6 +15,7 @@ locale_t newlocale(int, char const *, locale_t) noexcept;
 double strtod_l(char const *, char **, locale_t) noexcept;
 long getrandom(void *, unsigned long, unsigned int);
 }
+#endif
 #if defined(CONFLUX_JSON_HASH_PROVIDER_XXHASH)
 	#include <xxhash.h>
 #endif

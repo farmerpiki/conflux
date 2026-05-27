@@ -51,13 +51,13 @@ struct AppJsonOptions {
 
 struct Problem {
 	Response response;
-	std::string code;
+	std::string code{};
 	std::string type{"about:blank"};
-	std::string title;
-	std::string detail;
-	std::string instance;
-	std::vector<std::pair<std::string, std::string>> extensions;
-	std::vector<std::pair<std::string, std::string>> fields;
+	std::string title{};
+	std::string detail{};
+	std::string instance{};
+	std::vector<std::pair<std::string, std::string>> extensions{};
+	std::vector<std::pair<std::string, std::string>> fields{};
 
 	Problem &rebuild() {
 		auto body = std::string{"{"};
@@ -687,13 +687,13 @@ struct State {
 };
 
 struct ValidationIssue {
-	std::string code;
-	std::string message;
-	std::string method;
-	std::string path;
-	std::string source_file;
+	std::string code{};
+	std::string message{};
+	std::string method{};
+	std::string path{};
+	std::string source_file{};
 	std::uint_least32_t source_line{};
-	std::string related_source_file;
+	std::string related_source_file{};
 	std::uint_least32_t related_source_line{};
 };
 

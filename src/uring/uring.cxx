@@ -68,7 +68,7 @@ public:
 	}
 	[[nodiscard]] bool cq_has_overflow() const noexcept {
 		assert(ring_ != nullptr);
-		return static_cast<int>(io_uring_cq_has_overflow(ring_)) != 0;
+		return io_uring_cq_has_overflow(ring_);
 	}
 	[[nodiscard]] bool has_feature(
 		std::uint32_t feature) const noexcept {
@@ -229,9 +229,7 @@ public:
 		return (ring_.features & feat) != 0u;
 	}
 	[[nodiscard]] bool is_sqpoll() const noexcept { return SetupFlags{ring_.flags}.any(setup_flags::sqpoll); }
-	[[nodiscard]] bool cq_has_overflow() const noexcept {
-		return static_cast<int>(io_uring_cq_has_overflow(&ring_)) != 0;
-	}
+	[[nodiscard]] bool cq_has_overflow() const noexcept { return io_uring_cq_has_overflow(&ring_); }
 	[[nodiscard]] std::uint32_t cq_overflow_count() const noexcept {
 		auto *p = ring_.cq.koverflow;
 		return p != nullptr ? *p : 0u;
