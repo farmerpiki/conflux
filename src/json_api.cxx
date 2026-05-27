@@ -50,6 +50,12 @@ export class JsonAccumulator;
 
 [[nodiscard]] std::optional<std::string> decode_json_pointer_token(std::string_view token);
 
+export namespace conflux::json::dump_detail {
+
+void dump_string(std::string_view sv, std::string &out, bool ascii_only);
+
+} // namespace conflux::json::dump_detail
+
 // ---------------------------------------------------------------------------
 // JsonKind / stage / issue code
 // ---------------------------------------------------------------------------

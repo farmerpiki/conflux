@@ -77,91 +77,6 @@ struct is_array_refl : std::false_type {};
 template<class T, std::size_t N>
 struct is_array_refl<std::array<T, N>> : std::true_type {};
 
-inline void reflect_append_u_escape(
-	std::string &out,
-	std::uint32_t cp) {
-	static constexpr std::array<char, 16> kHex =
-		{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
-	out += "\\u";
-	out += kHex[(cp >> 12U) & 0x0FU];
-	out += kHex[(cp >> 8U) & 0x0FU];
-	out += kHex[(cp >> 4U) & 0x0FU];
-	out += kHex[cp & 0x0FU];
-}
-
-inline void reflect_dump_string(
-	std::string &out,
-	std::string_view sv,
-	bool ascii_only) {
-	out += '"';
-	for (std::size_t i = 0; i < sv.size();) {
-		auto const c = static_cast<unsigned char>(sv[i]);
-		switch (c) {
-		case '"':
-			out += "\\\"";
-			++i;
-			break;
-		case '\\':
-			out += "\\\\";
-			++i;
-			break;
-		case '\b':
-			out += "\\b";
-			++i;
-			break;
-		case '\f':
-			out += "\\f";
-			++i;
-			break;
-		case '\n':
-			out += "\\n";
-			++i;
-			break;
-		case '\r':
-			out += "\\r";
-			++i;
-			break;
-		case '\t':
-			out += "\\t";
-			++i;
-			break;
-		default:
-			if (c < 0x20U) {
-				reflect_append_u_escape(out, c);
-				++i;
-			} else if (ascii_only && c >= 0x80U) {
-				std::uint32_t cp = 0;
-				std::size_t seq = 0;
-				if (c < 0xE0U) {
-					cp = c & 0x1FU;
-					seq = 2;
-				} else if (c < 0xF0U) {
-					cp = c & 0x0FU;
-					seq = 3;
-				} else {
-					cp = c & 0x07U;
-					seq = 4;
-				}
-				for (std::size_t k = 1; k < seq && i + k < sv.size(); ++k) {
-					cp = (cp << 6U) | (static_cast<unsigned char>(sv[i + k]) & 0x3FU);
-				}
-				i += std::min(seq, sv.size() - i);
-				if (cp < 0x10000U) {
-					reflect_append_u_escape(out, cp);
-				} else {
-					cp -= 0x10000U;
-					reflect_append_u_escape(out, 0xD800U | (cp >> 10U));
-					reflect_append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
-				}
-			} else {
-				out += static_cast<char>(c);
-				++i;
-			}
-		}
-	}
-	out += '"';
-}
-
 inline void reflect_indent(
 	std::string &out,
 	JsonDumpOptions const &opts,
@@ -1148,7 +1063,7 @@ std::expected<void, JsonError> reflect_write_object(
 				if (opts.pretty) {
 					reflect_indent(out, opts, depth + 1);
 				}
-				reflect_dump_string(out, field_name, opts.ascii_only);
+				conflux::json::dump_detail::dump_string(field_name, out, opts.ascii_only);
 				out += opts.pretty ? ": " : ":";
 				if (auto res = reflect_write_value(out, value.[:mem:], opts, depth + 1); !res) {
 					ok = false;
@@ -1183,10 +1098,10 @@ std::expected<void, JsonError> reflect_write_value(
 		out += value ? "true" : "false";
 		return {};
 	} else if constexpr (is_basic_string_refl<Raw>::value) {
-		reflect_dump_string(out, std::string_view{value.data(), value.size()}, opts.ascii_only);
+		conflux::json::dump_detail::dump_string(std::string_view{value.data(), value.size()}, out, opts.ascii_only);
 		return {};
 	} else if constexpr (std::same_as<Raw, std::string_view>) {
-		reflect_dump_string(out, value, opts.ascii_only);
+		conflux::json::dump_detail::dump_string(value, out, opts.ascii_only);
 		return {};
 	} else if constexpr ((std::integral<Raw> && !std::same_as<Raw, bool>) || std::floating_point<Raw>) {
 		std::array<char, 64> buf{};

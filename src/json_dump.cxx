@@ -224,6 +224,18 @@ void dump_str(
 	}
 	out += '"';
 }
+
+namespace conflux::json::dump_detail {
+
+void dump_string(
+	std::string_view sv,
+	std::string &out,
+	bool ascii_only) {
+	dump_str(sv, out, ascii_only);
+}
+
+} // namespace conflux::json::dump_detail
+
 // NOLINTEND(readability-magic-numbers)
 
 // NOLINTNEXTLINE(misc-no-recursion)
