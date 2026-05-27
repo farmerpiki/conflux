@@ -35,7 +35,7 @@ struct Http3Config {
 	std::size_t max_streams_bidi = 100;
 	std::size_t max_stream_data = std::size_t{1} * 1024 * 1024;
 	std::size_t max_conn_data = std::size_t{10} * 1024 * 1024;
-	// Alt-Svc std::max-age advertised on h1/h2 responses when h3 is enabled.
+	// Alt-Svc max-age advertised on h1/h2 responses when h3 is enabled.
 	std::uint32_t alt_svc_max_age_sec = 86400;
 	// Per-request body cap; matches H1 max_body_size semantics.
 	// Streams whose DATA exceeds this are reset with H3_REQUEST_REJECTED.

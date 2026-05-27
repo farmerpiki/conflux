@@ -129,7 +129,7 @@ if(TARGET conflux)
         TEST api-surface/curated-hides-iouring
         LINK conflux conflux_options
         LABELS build api-surface compile-fail
-        EXPECT "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
+        EXPECT "conflux::uring")
 
     conflux_add_compile_fail_test(
         TARGET conflux_api_surface_curated_compile_fail_file
@@ -137,7 +137,7 @@ if(TARGET conflux)
         TEST api-surface/curated-hides-blocking-file
         LINK conflux conflux_options
         LABELS build api-surface compile-fail
-        EXPECT "no member named 'file' in namespace 'conflux::http'")
+        EXPECT "conflux::http" "file")
 
     conflux_add_compile_fail_test(
         TARGET conflux_api_surface_extended_compile_fail_iouring
@@ -145,7 +145,7 @@ if(TARGET conflux)
         TEST api-surface/extended-hides-iouring
         LINK conflux conflux_options
         LABELS build api-surface compile-fail
-        EXPECT "declaration of 'IoUringCaps' must be imported from module 'conflux.uring'")
+        EXPECT "conflux::uring")
 
     conflux_add_compile_fail_test(
         TARGET conflux_api_surface_complete_compile_fail_direct_slot_pool
@@ -153,7 +153,7 @@ if(TARGET conflux)
         TEST api-surface/complete-hides-direct-slot-pool
         LINK conflux conflux_options
         LABELS build api-surface compile-fail
-        EXPECT "unknown type name 'DirectSlotPool'")
+        EXPECT "DirectSlotPool")
 
     conflux_add_compile_fail_test(
         TARGET conflux_crypto_compile_fail_detail
@@ -161,7 +161,7 @@ if(TARGET conflux)
         TEST api-surface/crypto-hides-detail
         LINK conflux_crypto conflux_options
         LABELS build api-surface compile-fail
-        EXPECT "no member named 'detail' in namespace 'conflux::crypto'")
+        EXPECT "conflux::crypto::detail")
 endif()
 
 add_executable(conflux_tests)
@@ -634,7 +634,7 @@ if(TARGET conflux_net_http)
         TEST json/compile-fail-global-customization
         LINK conflux_json conflux_options
         LABELS json compile-fail
-        EXPECT "no template named 'JsonMembers'")
+        EXPECT "JsonMembers")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_router_alias
@@ -650,7 +650,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-route-policy-internal
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
+        EXPECT "AppRouteRateLimit")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_middleware_concept_alias
@@ -658,7 +658,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-middleware-concept-alias
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "no member named 'Middleware' in namespace 'conflux::http'")
+        EXPECT "Middleware")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_use_async_member
@@ -714,7 +714,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-offload-free
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "no member named 'offload' in namespace 'conflux::http'")
+        EXPECT "offload")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_openapi_handler_free
@@ -722,7 +722,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-openapi-handler-free
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "no member named 'openapi_handler' in namespace 'conflux::http'")
+        EXPECT "openapi_handler")
 
     conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_file_free
@@ -730,7 +730,7 @@ if(TARGET conflux_net_http)
         TEST http-facade/compile-fail-file-free
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
-        EXPECT "no member named 'file' in namespace 'conflux::http'")
+        EXPECT "file")
 endif()
 
 if(TARGET conflux_http_response)

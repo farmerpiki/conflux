@@ -49,17 +49,6 @@ struct StaticDir {
 		: dir{d} {}
 	StaticDir(StaticDir const &) = delete;
 	StaticDir &operator =(StaticDir const &) = delete;
-	StaticDir(
-		StaticDir &&o) noexcept
-		: dir{std::exchange(o.dir, nullptr)} {}
-	StaticDir &operator =(
-		StaticDir &&o) noexcept {
-		if (this != &o) {
-			reset();
-			dir = std::exchange(o.dir, nullptr);
-		}
-		return *this;
-	}
 	~StaticDir() noexcept { reset(); }
 	void reset() noexcept {
 		if (dir != nullptr) {

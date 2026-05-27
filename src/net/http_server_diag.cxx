@@ -93,23 +93,21 @@ void Ring::note_recv_payload(
 		m.sq_dropped = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0;
 		m.cq_overflow = ring.cq.koverflow != nullptr ? *ring.cq.koverflow : 0;
 	}
-	m.accepted_direct_failures = accepted_direct_failures_;
-	m.zc_capable_rings = CONFLUX_ENABLE_SEND_ZC && caps.send_zc ? 1 : 0;
-	m.zc_enabled_rings = send_zc_enabled_ ? 1 : 0;
-	m.recv_bundle_cqes = recv_bundle_cqes_;
-	m.recv_bundle_slices = recv_bundle_slices_;
-	m.recv_bundle_bytes = recv_bundle_bytes_;
-	m.send_zc = zc_counters_.snapshot();
-	m.rejections = rejection_counters_;
-	m.static_files = static_file_counters_;
-	m.pressure = pressure_counters_;
+	{
+		std::scoped_lock lk{metrics_mu_};
+		m.accepted_direct_failures = accepted_direct_failures_;
+		m.zc_capable_rings = CONFLUX_ENABLE_SEND_ZC && caps.send_zc ? 1 : 0;
+		m.zc_enabled_rings = send_zc_enabled_ ? 1 : 0;
+		m.recv_bundle_cqes = recv_bundle_cqes_;
+		m.recv_bundle_slices = recv_bundle_slices_;
+		m.recv_bundle_bytes = recv_bundle_bytes_;
+		m.send_zc = zc_counters_.snapshot();
+		m.rejections = rejection_counters_;
+		m.static_files = static_file_counters_;
+		m.pressure = pressure_counters_;
+	}
 	if (ws_pressure_counter_) {
 		m.pressure.websocket_closed_for_pressure += ws_pressure_counter_->load(std::memory_order_relaxed);
-	}
-	for (Conn const &conn: fd_table) {
-		if (conn.fd >= 0 && conn.zc_state.waiting_notification) {
-			++m.zc_notifications_pending;
-		}
 	}
 	return m;
 }

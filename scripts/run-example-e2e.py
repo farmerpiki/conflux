@@ -268,24 +268,26 @@ def main() -> int:
         print(f"example e2e failed for {args.case}: {exc}", file=sys.stderr)
         return 1
     finally:
+        stdout = b""
+        stderr = b""
         if proc.poll() is None:
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
             try:
-                proc.communicate(timeout=4)
+                stdout, stderr = proc.communicate(timeout=4)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                proc.communicate(timeout=2)
+                stdout, stderr = proc.communicate(timeout=2)
         else:
-            proc.communicate(timeout=1)
+            stdout, stderr = proc.communicate(timeout=1)
         if proc.returncode not in (0, -signal.SIGTERM, -signal.SIGKILL, None):
-            stdout = (proc.stdout.read() if proc.stdout else b"")[:4000]
-            stderr = (proc.stderr.read() if proc.stderr else b"")[:4000]
+            stdout = stdout[:4000]
+            stderr = stderr[:4000]
             if stdout:
                 print(stdout.decode("utf-8", "replace"), file=sys.stderr)
             if stderr:

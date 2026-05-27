@@ -22,6 +22,7 @@ import conflux.net.http_server;
 import conflux.net.observability;
 import conflux.net.request_id;
 import conflux.net.tracing;
+import conflux.net.rate_limit;
 #if !defined(CONFLUX_INTERFACE_HEADER)
 import conflux.uring;
 #endif
@@ -160,8 +161,7 @@ class App : public detail::AppRouteVerbAccessors {
 			std::chrono::steady_clock::time_point window_start{std::chrono::steady_clock::now()};
 		};
 
-		std::mutex mutex;
-		std::optional<conflux::support::StringLruMap<Bucket>> buckets;
+		std::optional<conflux::http::detail::ShardedRateLimitStore<Bucket>> buckets;
 	};
 
 	struct AppRouteMetadata {
@@ -302,34 +302,35 @@ class App : public detail::AppRouteVerbAccessors {
 							 std::string{"unknown"} :
 							 parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
 		auto retry_after = static_cast<unsigned>(policy.options.window.count());
+		bool allowed = false;
 
-		{
-			std::scoped_lock const lock{policy.mutex};
-			auto const max_clients = std::max<std::size_t>(policy.options.max_clients, 1);
-			if (!policy.buckets) {
-				policy.buckets.emplace(max_clients);
-			}
-			auto touched = policy.buckets->get_or_create(key, [capacity, now] {
-				return AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now};
+		auto _ = policy.buckets->with_bucket(
+			key,
+			[capacity, now] { return AppRouteRateLimit::Bucket{.tokens = capacity, .window_start = now}; },
+			[&](AppRouteRateLimit::Bucket &bucket, bool inserted) {
+				if (inserted) {
+					bucket.tokens = capacity;
+				}
+				auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
+				if (elapsed >= policy.options.window) {
+					bucket.tokens = capacity;
+					bucket.window_start = now;
+					elapsed = std::chrono::seconds{0};
+				}
+
+				if (bucket.tokens > 0) {
+					--bucket.tokens;
+					allowed = true;
+				} else {
+					auto remaining = policy.options.window - elapsed;
+					retry_after =
+						static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+				}
+				return 0;
 			});
-			auto &bucket = *touched.value;
-			if (touched.inserted) {
-				bucket.tokens = capacity;
-			}
 
-			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
-			if (elapsed >= policy.options.window) {
-				bucket.tokens = capacity;
-				bucket.window_start = now;
-				elapsed = std::chrono::seconds{0};
-			}
-
-			if (bucket.tokens > 0) {
-				--bucket.tokens;
-				return std::nullopt;
-			}
-			auto remaining = policy.options.window - elapsed;
-			retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+		if (allowed) {
+			return std::nullopt;
 		}
 
 		auto response = Response::text("Too Many Requests", kHttpTooManyRequests);
@@ -392,7 +393,6 @@ public:
 			policy.name = std::string{value};
 			policy.options = options;
 			policy.enabled = !policy.name.empty();
-			std::scoped_lock const lock{policy.mutex};
 			policy.buckets.emplace(std::max<std::size_t>(policy.options.max_clients, 1));
 			return *this;
 		}
@@ -2062,6 +2062,25 @@ public:
 	}
 
 	template<class Fn, class ExtractedArgs>
+	[[nodiscard]] static conflux::work::root::Task<Response> run_app_task_response(
+		Fn *handler,
+		ExtractedArgs extracted_args
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions json_options
+#endif
+	) {
+		try {
+			auto result = std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
+#if CONFLUX_HAS_JSON
+			co_return into_app_response(co_await std::move(result), json_options);
+#else
+			co_return into_app_response(co_await std::move(result));
+#endif
+		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+	}
+
+	template<class Fn, class ExtractedArgs>
 	[[nodiscard]] static conflux::work::root::Task<Response> await_app_task_response(
 		Fn &handler,
 		ExtractedArgs extracted_args
@@ -2070,23 +2089,11 @@ public:
 		AppJsonOptions json_options
 #endif
 	) {
-		return conflux::work::root::spawn(
-			[handler = &handler,
-			 extracted_args = std::move(extracted_args)
 #if CONFLUX_HAS_JSON
-				 ,
-			 json_options
-#endif
-		]() mutable -> conflux::work::root::Task<Response> {
-				try {
-					auto result = std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
-#if CONFLUX_HAS_JSON
-					co_return into_app_response(co_await std::move(result), json_options);
+		return run_app_task_response(&handler, std::move(extracted_args), json_options);
 #else
-					co_return into_app_response(co_await std::move(result));
+		return run_app_task_response(&handler, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-			});
 	}
 
 	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(

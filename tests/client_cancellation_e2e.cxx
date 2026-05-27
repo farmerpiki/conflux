@@ -238,7 +238,12 @@ private:
 				::close(fd);
 				return;
 			}
-			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+			if (errno != EAGAIN
+				&& errno != EINTR
+#if EWOULDBLOCK != EAGAIN
+				&& errno != EWOULDBLOCK
+#endif
+			) {
 				::close(fd);
 				return;
 			}

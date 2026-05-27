@@ -9,7 +9,7 @@ export struct CacheRule {
 	// Empty std::string matches everything — useful as a fallback rule.
 	std::string mime_prefix;
 
-	// Value for the Cache-Control header (e.g. "std::max-age=3600, public").
+	// Value for the Cache-Control header (e.g. "max-age=3600, public").
 	// Set to "no-store" to explicitly disable caching.
 	std::string directive;
 };

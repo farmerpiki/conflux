@@ -89,3 +89,8 @@ code does not need to hand-roll per-account or per-token throttle state.
 The existing Basic-auth failed-attempt limiter remains in place for Basic-auth
 middleware. `AuthFailureLimiter` is the reusable primitive for login forms,
 OAuth/API-token endpoints, or custom auth flows.
+
+`rate_limit_middleware` and route-local `App::RouteRef::rate_limit` shard their
+bounded LRU state across up to 64 mutexes. The configured `max_clients` remains
+the total cap, split approximately evenly by shard; small caps stay single-shard
+so exact LRU behavior is preserved.

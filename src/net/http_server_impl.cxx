@@ -403,9 +403,13 @@ void HttpServer::shutdown() {
 #else
 						if (!r.caps.send_zc)
 							throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
-						r.send_zc_enabled_ = true;
+						{
+							std::scoped_lock lk{r.metrics_mu_};
+							r.send_zc_enabled_ = true;
+						}
 #endif
 					} else if (impl_->cfg.send_zc == "auto") {
+						std::scoped_lock lk{r.metrics_mu_};
 						r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
 					}
 					if (impl_->cfg.attach_wq && i == 0) {

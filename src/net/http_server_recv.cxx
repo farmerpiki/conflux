@@ -313,7 +313,10 @@ void Ring::phase1_copy_recv_bufs() {
 		raw_receive_cap = bounded_add(raw_receive_cap, kMaxChunkTrailerBytes);
 		raw_receive_cap = bounded_add(raw_receive_cap, 6);
 		if (recv_buffered > raw_receive_cap) {
-			++rejection_counters_.body_too_large;
+			{
+				std::scoped_lock lk{metrics_mu_};
+				++rejection_counters_.body_too_large;
+			}
 			if (observability_hooks_.rejection) {
 				observability_hooks_.rejection(
 					conflux::http::HttpRejectReason::body_too_large,

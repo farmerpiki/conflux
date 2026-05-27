@@ -115,6 +115,35 @@ inline constexpr std::uint8_t max_chain_cqes = max_initial_ops + 1;
 inline constexpr std::uint32_t kMaxFlows = 4096;
 inline constexpr std::uint32_t kMaxBatch = 64;
 
+struct OwnedPathStorage {
+	OwnedInlinePath inline_path{};
+	std::unique_ptr<char[]> heap_path{};
+	std::size_t len{};
+	bool heap_backed{};
+	void set_inline(
+		OwnedInlinePath path) noexcept {
+		heap_path.reset();
+		inline_path = path;
+		len = path.len;
+		heap_backed = false;
+	}
+	[[nodiscard]] bool set_heap(
+		std::string_view path) noexcept {
+		auto storage = std::unique_ptr<char[]>{new (std::nothrow) char[path.size() + 1]};
+		if (!storage) {
+			return false;
+		}
+		std::memcpy(storage.get(), path.data(), path.size());
+		storage[path.size()] = '\0';
+		inline_path = {};
+		heap_path = std::move(storage);
+		len = path.size();
+		heap_backed = true;
+		return true;
+	}
+	[[nodiscard]] char const *c_str() const noexcept { return heap_backed ? heap_path.get() : inline_path.c_str(); }
+};
+
 enum class LinkVariant : std::uint8_t {
 	then_,
 	hard_,
@@ -200,7 +229,7 @@ struct DirectFileBuilder {
 	std::uint8_t op_count = 0;
 	bool close_requested = false;
 	bool owns_path = false;
-	OwnedInlinePath owned_path_buf{};
+	OwnedPathStorage owned_path{};
 	int err = 0;
 };
 // ── Slab with O(1) freelist ───────────────────────────────────────────────────
@@ -548,10 +577,13 @@ class FlowRuntime {
 
 	std::array<DirectFileBuilder, kMaxBatch> builders_{};
 	std::array<FlowRejection, kMaxBatch> rejections_{};
-	std::array<OwnedInlinePath, kMaxFlows> owned_paths_{};
+	std::unique_ptr<std::array<OwnedPathStorage, kMaxFlows>> owned_paths_{};
 	std::uint32_t builder_count_ = 0;
 	std::uint32_t rejection_count_ = 0;
 	std::uint32_t invalid_cqe_count_ = 0;
+#ifdef CONFLUX_TESTING
+	std::thread::id owner_thread_id_{std::this_thread::get_id()};
+#endif
 	struct DeferredClose {
 		std::uint32_t flow_index;
 		std::uint32_t generation;
@@ -577,6 +609,7 @@ public:
 	[[nodiscard]] std::uint32_t invalid_cqe_count() const noexcept { return invalid_cqe_count_; }
 	void on_cqe(
 		io_uring_cqe *cqe) noexcept {
+		assert_owner_thread();
 		// user_data=0 sentinel for defensive NOPs emitted after partial SQE acquisition failure
 		if (cqe->user_data == 0) {
 			return;
@@ -648,6 +681,7 @@ public:
 	void resume_deferred_close(
 		std::uint32_t flow_idx,
 		std::uint32_t gen) noexcept {
+		assert_owner_thread();
 		auto *st = slab_.try_get(flow_idx, gen);
 		if (st == nullptr || !st->close_pending) {
 			return;
@@ -668,6 +702,7 @@ public:
 	// end-to-front so resume_deferred_close's swap-with-last removal never shifts
 	// an unvisited entry past the current cursor.
 	void drain_deferred_closes() noexcept {
+		assert_owner_thread();
 		std::uint32_t r = deferred_count_;
 		while (r-- > 0) {
 			resume_deferred_close(deferred_[r].flow_index, deferred_[r].generation);
@@ -686,6 +721,7 @@ public:
 	template<class Fn>
 	std::uint32_t abandon_deferred_closes(
 		Fn &&on_abandon) noexcept {
+		assert_owner_thread();
 		static_assert(
 			std::is_nothrow_invocable_v<Fn &, AbandonedDeferredClose>,
 			"FlowRuntime::abandon_deferred_closes callback must be noexcept");
@@ -710,6 +746,7 @@ public:
 		return n;
 	}
 	[[nodiscard]] FlowBuilder flow() noexcept {
+		assert_owner_thread();
 		assert(builder_count_ == 0);
 		builder_count_ = 0;
 		rejection_count_ = 0;
@@ -725,13 +762,30 @@ public:
 	void test_hack_drain_slab_freelist() noexcept { slab_.test_hack_drain_freelist(); }
 	[[nodiscard]] char const *test_owned_path_ptr(
 		std::uint32_t flow_index) const noexcept {
-		if (flow_index >= kMaxFlows) {
+		if (!owned_paths_ || flow_index >= kMaxFlows) {
 			return nullptr;
 		}
-		return owned_paths_[flow_index].c_str();
+		return (*owned_paths_)[flow_index].c_str();
 	}
 #endif
 private:
+#ifdef CONFLUX_TESTING
+	void assert_owner_thread() const noexcept { assert(std::this_thread::get_id() == owner_thread_id_); }
+#else
+	void assert_owner_thread() const noexcept {}
+#endif
+	[[nodiscard]] bool ensure_owned_paths() noexcept {
+		if (owned_paths_) {
+			return true;
+		}
+		auto paths = std::unique_ptr<std::array<OwnedPathStorage, kMaxFlows>>{
+			new (std::nothrow) std::array<OwnedPathStorage, kMaxFlows>{}};
+		if (!paths) {
+			return false;
+		}
+		owned_paths_ = std::move(paths);
+		return true;
+	}
 	void handle_invalid(
 		io_uring_cqe *) noexcept {
 		++invalid_cqe_count_;
@@ -829,10 +883,10 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 	b = {};
 	b.slot = slot;
 	b.owns_path = true;
-	b.owned_path_buf = path;
+	b.owned_path.set_inline(path);
 	auto &op = b.ops[b.op_count++];
 	op.kind = FlowOpKind::open_direct;
-	op.open = {slot, dfd, b.owned_path_buf.c_str(), open_flags, mode};
+	op.open = {slot, dfd, b.owned_path.c_str(), open_flags, mode};
 	return DirectFileFlow{&b};
 }
 DirectFileFlow FlowBuilder::open_direct_owned(
@@ -847,19 +901,46 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 		}
 		return DirectFileFlow{nullptr};
 	}
-	auto p = OwnedInlinePath::from_sv(path);
-	if (!p) {
+	if (path.find('\0') != std::string_view::npos) {
 		auto &b = rt_.builders_[rt_.builder_count_++];
 		b = {};
-		b.err = p.error();
+		b.err = -EINVAL;
 		return DirectFileFlow{&b};
 	}
-	return open_direct_owned(slot, dfd, *p, open_flags, mode);
+	if (path.size() <= OwnedInlinePath::cap) {
+		auto p = OwnedInlinePath::from_sv(path);
+		if (!p) {
+			auto &b = rt_.builders_[rt_.builder_count_++];
+			b = {};
+			b.err = p.error();
+			return DirectFileFlow{&b};
+		}
+		return open_direct_owned(slot, dfd, *p, open_flags, mode);
+	}
+	if (path.size() > PATH_MAX) {
+		auto &b = rt_.builders_[rt_.builder_count_++];
+		b = {};
+		b.err = -ENAMETOOLONG;
+		return DirectFileFlow{&b};
+	}
+	auto &b = rt_.builders_[rt_.builder_count_++];
+	b = {};
+	b.slot = slot;
+	b.owns_path = true;
+	if (!b.owned_path.set_heap(path)) {
+		b.err = -ENOMEM;
+		return DirectFileFlow{&b};
+	}
+	auto &op = b.ops[b.op_count++];
+	op.kind = FlowOpKind::open_direct;
+	op.open = {slot, dfd, b.owned_path.c_str(), open_flags, mode};
+	return DirectFileFlow{&b};
 }
 std::span<FlowRejection const> FlowBuilder::rejected_flows() const noexcept {
 	return {rt_.rejections_.data(), rt_.rejection_count_};
 }
 std::uint32_t FlowBuilder::submit() noexcept {
+	rt_.assert_owner_thread();
 	std::uint32_t accepted = 0;
 
 	for (std::uint32_t local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
@@ -883,6 +964,10 @@ std::uint32_t FlowBuilder::submit() noexcept {
 
 		if (b.err != 0) {
 			reject(b.err);
+			continue;
+		}
+		if (b.owns_path && !rt_.ensure_owned_paths()) {
+			reject(-ENOMEM);
 			continue;
 		}
 
@@ -945,8 +1030,8 @@ std::uint32_t FlowBuilder::submit() noexcept {
 
 		char const *open_path_override = nullptr;
 		if (b.owns_path) {
-			rt_.owned_paths_[state.flow_index] = b.owned_path_buf;
-			open_path_override = rt_.owned_paths_[state.flow_index].c_str();
+			(*rt_.owned_paths_)[state.flow_index] = std::move(b.owned_path);
+			open_path_override = (*rt_.owned_paths_)[state.flow_index].c_str();
 		}
 
 		for (std::uint8_t i = 0; i < emitted; ++i) {

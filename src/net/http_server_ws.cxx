@@ -121,7 +121,10 @@ void Ring::launch_plain_ws_handler(
 				::close(fd);
 			})) {
 		unregister_active_ws(fd);
-		++pressure_counters_.websocket_closed_for_pressure;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.websocket_closed_for_pressure;
+		}
 		::close(fd);
 	}
 }
@@ -134,7 +137,10 @@ void Ring::finish_plain_ws_handoff(
 		return;
 	}
 	if (!make_blocking_fd(fd)) {
-		++pressure_counters_.websocket_closed_for_pressure;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.websocket_closed_for_pressure;
+		}
 		::close(fd);
 		return;
 	}
@@ -207,7 +213,10 @@ void Ring::launch_tls_ws_handler(
 			::close(fd);
 		})) {
 		unregister_active_ws(fd);
-		++pressure_counters_.websocket_closed_for_pressure;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.websocket_closed_for_pressure;
+		}
 		::close(fd);
 	}
 }
@@ -282,7 +291,10 @@ void Ring::finish_tls_ws_handoff(
 	SSL_set_fd(entry.ssl.get(), fd); // replaces memory BIOs with socket BIOs
 	if (!make_blocking_fd(fd)) {
 		entry.ssl.reset();
-		++pressure_counters_.websocket_closed_for_pressure;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.websocket_closed_for_pressure;
+		}
 		::close(fd);
 		return;
 	}
@@ -377,7 +389,10 @@ void Ring::handle_fixed_fd_install(
 
 	if (real_fd < 0 || !entry.state.pool) {
 		if (real_fd >= 0) {
-			++pressure_counters_.websocket_closed_for_pressure;
+			{
+				std::scoped_lock lk{metrics_mu_};
+				++pressure_counters_.websocket_closed_for_pressure;
+			}
 			::close(real_fd);
 		}
 		return;
@@ -388,7 +403,10 @@ void Ring::handle_fixed_fd_install(
 		SSL_set_fd(entry.ssl.get(), real_fd);
 		if (!make_blocking_fd(real_fd)) {
 			entry.ssl.reset();
-			++pressure_counters_.websocket_closed_for_pressure;
+			{
+				std::scoped_lock lk{metrics_mu_};
+				++pressure_counters_.websocket_closed_for_pressure;
+			}
 			::close(real_fd);
 			return;
 		}
@@ -399,7 +417,10 @@ void Ring::handle_fixed_fd_install(
 #endif
 
 	if (!make_blocking_fd(real_fd)) {
-		++pressure_counters_.websocket_closed_for_pressure;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.websocket_closed_for_pressure;
+		}
 		::close(real_fd);
 		return;
 	}

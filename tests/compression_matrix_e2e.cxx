@@ -121,7 +121,7 @@ std::string gzip_compress(
 		return {};
 	}
 	std::string out;
-	out.resize(deflateBound(&zs, static_cast<uLong>(body.size())));
+	out.resize(deflateBound(&zs, body.size()));
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-type-const-cast)
 	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(body.data()));
 	zs.avail_in = static_cast<uInt>(body.size());

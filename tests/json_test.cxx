@@ -2131,6 +2131,17 @@ TEST_CASE(
 	CHECK(*reparsed->root().as_string() == "\xF0\x9F\x98\x80");
 }
 TEST_CASE(
+	"json: dump ascii_only escapes high-byte boundaries",
+	"[json][dump]") {
+	auto doc = parse(R"(["aaaaaaaaaaaaaaaaé","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé","oké"])");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(*d == R"(["aaaaaaaaaaaaaaaa\u00e9","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u00e9","ok\u00e9"])");
+}
+TEST_CASE(
 	"json: dump pretty with custom indent width",
 	"[json][dump][examples]") {
 	auto doc = parse(R"({"k":1})");

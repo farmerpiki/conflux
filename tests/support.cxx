@@ -49,9 +49,14 @@ bool ReadUntilCloseResult::closed() const noexcept {
 	if (n < 0 && error == ECONNRESET) {
 		return SocketReadEnd::reset;
 	}
-	if (n < 0 && (error == EAGAIN || error == EWOULDBLOCK)) {
+	if (n < 0 && error == EAGAIN) {
 		return SocketReadEnd::timeout;
 	}
+#if EWOULDBLOCK != EAGAIN
+	if (n < 0 && error == EWOULDBLOCK) {
+		return SocketReadEnd::timeout;
+	}
+#endif
 	return SocketReadEnd::error;
 }
 

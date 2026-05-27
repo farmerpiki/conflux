@@ -27,33 +27,53 @@ struct Bucket {
 	unsigned tokens{};
 	Clock::time_point window_start{Clock::now()};
 };
-// LRU-bounded token bucket store. Not exported — module scope to satisfy GCC.
-struct RateLimitStore {
-	explicit RateLimitStore(
-		std::size_t max_clients)
-		: buckets_(max_clients) {}
-	// Returns a reference to the bucket for `key`, creating it if absent.
-	// Evicts the least-recently-seen entry when the store is full.
-	// Transparent std::hash/equal lets the hot find() path work from SV
-	// without allocating.
-	Bucket &touch(
-		std::string_view key,
-		unsigned capacity,
-		Clock::time_point now) {
-		return *buckets_.get_or_create(key, [capacity, now] { return Bucket{.tokens = capacity, .window_start = now}; })
-					.value;
-	}
+export namespace conflux::http::detail {
 
-private:
-	conflux::support::StringLruMap<Bucket> buckets_;
+template<class Bucket>
+class ShardedRateLimitStore {
+	static constexpr std::size_t target_shards = 64;
+	static constexpr std::size_t min_clients_per_shard = 1024;
+	struct Shard {
+		std::mutex mutex;
+		conflux::support::StringLruMap<Bucket> buckets;
+		explicit Shard(
+			std::size_t capacity)
+			: buckets{capacity} {}
+	};
+	std::vector<std::unique_ptr<Shard>> shards_;
+
+public:
+	explicit ShardedRateLimitStore(
+		std::size_t max_clients) {
+		auto const total = std::max<std::size_t>(max_clients, 1);
+		auto const shard_count = std::min(target_shards, std::max<std::size_t>(1, total / min_clients_per_shard));
+		shards_.reserve(shard_count);
+		auto const base = total / shard_count;
+		auto const extra = total % shard_count;
+		for (std::size_t i = 0; i < shard_count; ++i) {
+			shards_.push_back(std::make_unique<Shard>(base + (i < extra ? 1U : 0U)));
+		}
+	}
+	[[nodiscard]] std::size_t shard_count() const noexcept { return shards_.size(); }
+	template<class Factory, class Fn>
+	[[nodiscard]] auto with_bucket(
+		std::string_view key,
+		Factory &&factory,
+		Fn &&fn) {
+		auto &shard = *shards_[std::hash<std::string_view>{}(key) % shards_.size()];
+		std::scoped_lock const lock{shard.mutex};
+		auto touched = shard.buckets.get_or_create(key, std::forward<Factory>(factory));
+		return std::invoke(std::forward<Fn>(fn), *touched.value, touched.inserted);
+	}
 };
+
+} // namespace conflux::http::detail
 // Middleware factory: token-bucket rate limiter keyed on remote_addr.
 // Thread-safe — shared across all rings via captured SP.
 export Router::Middleware rate_limit_middleware(
 	RateLimitOptions opts = {}) {
 	struct State {
-		std::mutex mtx;
-		RateLimitStore store;
+		conflux::http::detail::ShardedRateLimitStore<Bucket> store;
 		explicit State(
 			std::size_t max_clients)
 			: store(max_clients) {}
@@ -70,27 +90,27 @@ export Router::Middleware rate_limit_middleware(
 		bool allowed = false;
 		auto retry_after = static_cast<unsigned>(opts.window.count());
 
-		{
-			std::scoped_lock const lock{state->mtx};
-			auto &bucket = state->store.touch(key, capacity, now);
+		auto _ = state->store.with_bucket(
+			key,
+			[capacity, now] { return Bucket{.tokens = capacity, .window_start = now}; },
+			[&](Bucket &bucket, bool) {
+				auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
+				if (elapsed >= opts.window) {
+					bucket.tokens = capacity;
+					bucket.window_start = now;
+					elapsed = std::chrono::seconds{0};
+				}
 
-			// Refill: new window → reset tokens to full capacity.
-			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
-			if (elapsed >= opts.window) {
-				bucket.tokens = capacity;
-				bucket.window_start = now;
-				elapsed = std::chrono::seconds{0};
-			}
-
-			if (bucket.tokens > 0) {
-				--bucket.tokens;
-				allowed = true;
-			} else {
-				auto remaining = opts.window - elapsed;
-				retry_after =
-					static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
-			}
-		}
+				if (bucket.tokens > 0) {
+					--bucket.tokens;
+					allowed = true;
+				} else {
+					auto remaining = opts.window - elapsed;
+					retry_after =
+						static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+				}
+				return 0;
+			});
 
 		if (!allowed) {
 			auto r = Response::text("Too Many Requests", kHttpTooManyRequests);

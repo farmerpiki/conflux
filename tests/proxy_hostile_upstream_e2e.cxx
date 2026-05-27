@@ -104,7 +104,13 @@ private:
 				req.append(buf.data(), static_cast<std::size_t>(n));
 				continue;
 			}
-			if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+			if (n == 0
+				|| (errno != EAGAIN
+					&& errno != EINTR
+#if EWOULDBLOCK != EAGAIN
+					&& errno != EWOULDBLOCK
+#endif
+					)) {
 				return;
 			}
 		}

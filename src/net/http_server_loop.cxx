@@ -74,7 +74,10 @@ void emit_timeout_rejection(
 	Ring &ring,
 	conflux::http::HttpRejectReason reason) {
 	auto r = make_rejection_response(reason);
-	note_rejection(ring.rejection_counters_, reason);
+	{
+		std::scoped_lock lk{ring.metrics_mu_};
+		note_rejection(ring.rejection_counters_, reason);
+	}
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);
 	}
@@ -84,6 +87,26 @@ void emit_timeout_rejection(
 }
 
 } // namespace
+
+namespace conflux::http::server_detail {
+
+struct RequestBufferDeleter {
+	std::shared_ptr<RequestBufferPool> pool;
+	void operator ()(
+		std::string *ptr) noexcept {
+		if (ptr == nullptr) {
+			return;
+		}
+		try {
+			ptr->clear();
+			std::scoped_lock lock{pool->mutex};
+			pool->buffers.push_back(std::move(*ptr));
+		} catch (...) {}
+		delete ptr;
+	}
+};
+
+} // namespace conflux::http::server_detail
 
 std::uint64_t Ring::pack_fd_gen(
 	int fd,
@@ -111,14 +134,9 @@ Ring::~Ring() {
 		}
 	}
 	auto *storage = new std::string{std::move(initial)};
-	return std::shared_ptr<std::string>{storage, [pool = std::move(pool)](std::string *ptr) noexcept {
-											ptr->clear();
-											{
-												std::scoped_lock lock{pool->mutex};
-												pool->buffers.push_back(std::move(*ptr));
-											}
-											delete ptr;
-										}};
+	return std::shared_ptr<std::string>{
+		storage,
+		conflux::http::server_detail::RequestBufferDeleter{.pool = std::move(pool)}};
 }
 
 [[nodiscard]] Response Ring::dispatch(
@@ -875,14 +893,20 @@ void Ring::handle_timer() {
 	auto now = std::chrono::steady_clock::now();
 	if (drain_active && now >= drain_control->deadline) {
 		drain_control->deadline_hit.store(true, std::memory_order_release);
-		++pressure_counters_.drain_deadline_hit;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.drain_deadline_hit;
+		}
 		for (auto &conn: fd_table) {
 			if (conn.fd >= 0 && !conn.closing) {
 				if (conn.deferred_response) {
 					conn.deferred_response->cancel_shutdown();
 				}
 				drain_control->forced_closed.fetch_add(1, std::memory_order_relaxed);
-				++pressure_counters_.drain_forced_close;
+				{
+					std::scoped_lock lk{metrics_mu_};
+					++pressure_counters_.drain_forced_close;
+				}
 				queue_close(conn.fd);
 			}
 		}
@@ -955,7 +979,10 @@ void Ring::handle_shutdown() {
 	shutting_down = true;
 	auto *drain =
 		drain_control != nullptr && drain_control->active.load(std::memory_order_acquire) ? drain_control : nullptr;
-	++pressure_counters_.drain_started;
+	{
+		std::scoped_lock lk{metrics_mu_};
+		++pressure_counters_.drain_started;
+	}
 	if (drain != nullptr) {
 		drain->accepted_before_stop.fetch_add(
 			static_cast<std::uint64_t>(std::ranges::count_if(fd_table, [](Conn const &conn) { return conn.fd >= 0; })),
@@ -977,14 +1004,20 @@ void Ring::handle_shutdown() {
 								   || drain->options.sse_policy != conflux::http::DrainStreamPolicy::leave_open;
 			if (close_stream) {
 				conn.sse_channel->close();
-				++pressure_counters_.connections_closed_for_pressure;
+				{
+					std::scoped_lock lk{metrics_mu_};
+					++pressure_counters_.connections_closed_for_pressure;
+				}
 				if (drain != nullptr) {
 					drain->streams_closed.fetch_add(1, std::memory_order_relaxed);
 				}
 			}
 		}
 		if (conn.is_ws) {
-			++pressure_counters_.websocket_closed_for_pressure;
+			{
+				std::scoped_lock lk{metrics_mu_};
+				++pressure_counters_.websocket_closed_for_pressure;
+			}
 			if (drain != nullptr) {
 				drain->streams_closed.fetch_add(1, std::memory_order_relaxed);
 			}
@@ -1023,7 +1056,10 @@ void Ring::handle_shutdown() {
 	if (drain != nullptr && drain->options.websocket_policy != conflux::http::DrainStreamPolicy::leave_open) {
 		auto const closed = shutdown_active_ws_for_pressure();
 		drain->accepted_before_stop.fetch_add(closed, std::memory_order_relaxed);
-		pressure_counters_.websocket_closed_for_pressure += closed;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			pressure_counters_.websocket_closed_for_pressure += closed;
+		}
 		drain->streams_closed.fetch_add(closed, std::memory_order_relaxed);
 	}
 	arm_timer();
@@ -1047,7 +1083,10 @@ void Ring::handle_accept(
 		return;
 	}
 	if (shutting_down) {
-		++pressure_counters_.accept_rejected;
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++pressure_counters_.accept_rejected;
+		}
 		if (accepted_sockets_direct) {
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
 			if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {

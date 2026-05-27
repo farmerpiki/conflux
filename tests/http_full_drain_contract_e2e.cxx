@@ -40,10 +40,10 @@ void set_recv_timeout(
 	int fd,
 	std::chrono::milliseconds timeout) {
 	timeval tv{
-		.tv_sec = static_cast<time_t>(timeout.count() / 1000),
-		.tv_usec = static_cast<suseconds_t>((timeout.count() % 1000) * 1000),
+		.tv_sec = timeout.count() / 1000,
+		.tv_usec = (timeout.count() % 1000) * 1000,
 	};
-	(void)::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	auto _ = ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
 void shrink_recv_buffer(

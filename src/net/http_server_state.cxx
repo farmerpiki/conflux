@@ -436,6 +436,7 @@ struct Ring {
 	conflux::http::HttpRejectionMetrics rejection_counters_{};
 	conflux::http::HttpServerMetrics::StaticFileMetrics static_file_counters_{};
 	conflux::http::HttpPressureMetrics pressure_counters_{};
+	mutable std::mutex metrics_mu_{};
 	std::shared_ptr<std::atomic<std::uint64_t>> ws_pressure_counter_{std::make_shared<std::atomic<std::uint64_t>>(0)};
 	conflux::http::HttpServerObservabilityHooks observability_hooks_{};
 	std::uint64_t accepted_direct_failures_{};

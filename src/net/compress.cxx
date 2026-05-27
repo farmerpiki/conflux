@@ -64,6 +64,11 @@ export enum class DynamicEncodingPreference : std::uint8_t {
 
 namespace compress_detail {
 
+std::mutex &compression_config_mutex() {
+	static auto *mutex = new std::mutex{};
+	return *mutex;
+}
+
 [[nodiscard]] bool gzip_backend_available(
 	GzipBackend backend) noexcept {
 	switch (backend) {
@@ -254,9 +259,11 @@ GzipBackend &configured_gzip_backend() {
 	return backend;
 }
 GzipBackend resolve_gzip_backend() {
+	std::scoped_lock lk{compression_config_mutex()};
 	return configured_gzip_backend();
 }
-DynamicEncodingPreference benchmark_dynamic_encoding_preference() {
+DynamicEncodingPreference benchmark_dynamic_encoding_preference(
+	GzipBackend gzip_backend) {
 	if (!gzip_supported()) {
 		return DynamicEncodingPreference::zstd_first;
 	}
@@ -265,7 +272,6 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference() {
 	}
 
 	std::string const sample(4096, 'x');
-	auto const gzip_backend = resolve_gzip_backend();
 
 	auto const gzip_start = std::chrono::steady_clock::now();
 	for (int i = 0; i < 32; ++i) {
@@ -291,7 +297,8 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference() {
 	return DynamicEncodingPreference::gzip_first;
 #endif
 }
-DynamicEncodingPreference default_dynamic_encoding_preference() {
+DynamicEncodingPreference default_dynamic_encoding_preference(
+	GzipBackend gzip_backend) {
 	if (!gzip_supported()) {
 		return DynamicEncodingPreference::zstd_first;
 	}
@@ -299,7 +306,7 @@ DynamicEncodingPreference default_dynamic_encoding_preference() {
 		return DynamicEncodingPreference::gzip_first;
 	}
 
-	switch (resolve_gzip_backend()) {
+	switch (gzip_backend) {
 	case GzipBackend::isa_l:
 	case GzipBackend::zlib_ng    : return DynamicEncodingPreference::gzip_first;
 	case GzipBackend::libdeflate :
@@ -311,16 +318,17 @@ DynamicEncodingPreference default_dynamic_encoding_preference() {
 DynamicEncodingPreference &configured_dynamic_encoding_preference() {
 	static DynamicEncodingPreference pref = [] {
 		if (!(gzip_supported() && zstd_supported())) {
-			return default_dynamic_encoding_preference();
+			return default_dynamic_encoding_preference(configured_gzip_backend());
 		}
 		if (gzip_calibration_policy() == CompressionCalibration::startup) {
-			return benchmark_dynamic_encoding_preference();
+			return benchmark_dynamic_encoding_preference(configured_gzip_backend());
 		}
-		return default_dynamic_encoding_preference();
+		return default_dynamic_encoding_preference(configured_gzip_backend());
 	}();
 	return pref;
 }
 DynamicEncodingPreference resolve_dynamic_encoding_preference() {
+	std::scoped_lock lk{compression_config_mutex()};
 	return configured_dynamic_encoding_preference();
 }
 // Parse Accept-Encoding header and return the best dynamic codec available.
@@ -409,57 +417,70 @@ export [[nodiscard]] std::vector<GzipBackend> available_gzip_backends() {
 	return compress_detail::available_gzip_backends();
 }
 export [[nodiscard]] GzipBackend current_gzip_backend() {
-	return compress_detail::resolve_gzip_backend();
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
+	return compress_detail::configured_gzip_backend();
 }
 export [[nodiscard]] DynamicEncodingPreference current_dynamic_encoding_preference() {
-	return compress_detail::resolve_dynamic_encoding_preference();
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
+	return compress_detail::configured_dynamic_encoding_preference();
 }
 export [[nodiscard]] CompressionCalibration compression_calibration() {
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	return compress_detail::gzip_calibration_policy();
 }
 export void set_compression_calibration(
 	CompressionCalibration policy) {
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	compress_detail::gzip_calibration_policy() = policy;
 	auto const backends = compress_detail::available_gzip_backends();
 	if (backends.size() <= 1) {
-		compress_detail::configured_gzip_backend() = compress_detail::default_gzip_backend();
+		auto const backend = compress_detail::default_gzip_backend();
+		compress_detail::configured_gzip_backend() = backend;
 		compress_detail::configured_dynamic_encoding_preference() =
-			compress_detail::default_dynamic_encoding_preference();
+			compress_detail::default_dynamic_encoding_preference(backend);
 		return;
 	}
 	if (policy == CompressionCalibration::startup) {
-		compress_detail::configured_gzip_backend() = compress_detail::benchmark_fastest_gzip_backend();
+		auto const backend = compress_detail::benchmark_fastest_gzip_backend();
+		compress_detail::configured_gzip_backend() = backend;
 		compress_detail::configured_dynamic_encoding_preference() =
-			compress_detail::benchmark_dynamic_encoding_preference();
+			compress_detail::benchmark_dynamic_encoding_preference(backend);
 	} else {
-		compress_detail::configured_gzip_backend() = compress_detail::default_gzip_backend();
+		auto const backend = compress_detail::default_gzip_backend();
+		compress_detail::configured_gzip_backend() = backend;
 		compress_detail::configured_dynamic_encoding_preference() =
-			compress_detail::default_dynamic_encoding_preference();
+			compress_detail::default_dynamic_encoding_preference(backend);
 	}
 }
 export void calibrate_gzip_backend() {
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	auto const backends = compress_detail::available_gzip_backends();
 	if (backends.size() <= 1) {
-		compress_detail::configured_gzip_backend() = compress_detail::default_gzip_backend();
+		auto const backend = compress_detail::default_gzip_backend();
+		compress_detail::configured_gzip_backend() = backend;
 		compress_detail::configured_dynamic_encoding_preference() =
-			compress_detail::default_dynamic_encoding_preference();
+			compress_detail::default_dynamic_encoding_preference(backend);
 		return;
 	}
-	compress_detail::configured_gzip_backend() = compress_detail::benchmark_fastest_gzip_backend();
+	auto const backend = compress_detail::benchmark_fastest_gzip_backend();
+	compress_detail::configured_gzip_backend() = backend;
 	compress_detail::configured_dynamic_encoding_preference() =
-		compress_detail::benchmark_dynamic_encoding_preference();
+		compress_detail::benchmark_dynamic_encoding_preference(backend);
 }
 export bool set_gzip_backend(
 	GzipBackend backend) {
+	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	if (backend != GzipBackend::auto_select && !compress_detail::gzip_backend_available(backend)) {
 		return false;
 	}
 	if (backend == GzipBackend::auto_select) {
-		compress_detail::configured_gzip_backend() = compress_detail::benchmark_fastest_gzip_backend();
+		backend = compress_detail::benchmark_fastest_gzip_backend();
+		compress_detail::configured_gzip_backend() = backend;
 	} else {
 		compress_detail::configured_gzip_backend() = backend;
 	}
-	compress_detail::configured_dynamic_encoding_preference() = compress_detail::default_dynamic_encoding_preference();
+	compress_detail::configured_dynamic_encoding_preference() =
+		compress_detail::default_dynamic_encoding_preference(backend);
 	return true;
 }
 // ---------------------------------------------------------------------------

@@ -114,7 +114,10 @@ void emit_rejection(
 	conflux::http::HttpRejectReason reason,
 	std::string_view alt_svc) {
 	auto r = make_rejection_response(reason);
-	note_rejection(ring.rejection_counters_, reason);
+	{
+		std::scoped_lock lk{ring.metrics_mu_};
+		note_rejection(ring.rejection_counters_, reason);
+	}
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);
 	}
@@ -341,9 +344,10 @@ void dispatch_request(
 	if (!request_storage) {
 		auto storage =
 			conn.partial.cut_prefix(conn.request_bytes, ring.acquire_request_buffer(), ring.request_tail_scratch);
+		std::string_view const raw_request{*storage};
 		dispatch_request(
 			conn,
-			*storage,
+			raw_request,
 			ring,
 			max_body_size,
 			http_redirect_to_https,
@@ -448,7 +452,10 @@ void dispatch_request(
 			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
-			++ring.static_file_counters_.mapped_responses;
+			{
+				std::scoped_lock lk{ring.metrics_mu_};
+				++ring.static_file_counters_.mapped_responses;
+			}
 		}
 	} else if (resp.is_streamed_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);
@@ -460,7 +467,10 @@ void dispatch_request(
 			conn.streamed_delivered = 0;
 			conn.streamed_splice_in_flight = false;
 			conn.has_response = true;
-			++ring.static_file_counters_.streamed_responses;
+			{
+				std::scoped_lock lk{ring.metrics_mu_};
+				++ring.static_file_counters_.streamed_responses;
+			}
 		}
 	} else {
 		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);

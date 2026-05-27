@@ -287,12 +287,13 @@ template<class Wait>
 			[token = std::move(token)](
 				std::shared_ptr<detail::blocking_fallback_trigger_state> const &state,
 				std::shared_ptr<root::TaskSource<void>> const &src) mutable {
-				std::stop_callback const notify{token, [&] { state->cv.notify_one(); }};
 				root::CancelReason cancel_reason = root::CancelReason::requested;
 				bool cancelled = false;
 				{
 					std::unique_lock lk{state->mu};
-					state->cv.wait(lk, [&] { return state->cancelled || token.stop_requested(); });
+					while (!state->cancelled && !token.stop_requested()) {
+						state->cv.wait_for(lk, std::chrono::milliseconds{1});
+					}
 					cancelled = state->cancelled;
 					cancel_reason = state->cancel_reason;
 				}
@@ -380,15 +381,24 @@ template<root::progress_capability Cap, root::work_value T, class Handle>
 		void complete() noexcept {
 			try {
 				complete_source_from_outcome(*src, root::join_ready(*cap, std::move(handle)));
-			} catch (...) { (void)src->try_set_exception(std::current_exception()); }
+			} catch (...) {
+				if (handle) {
+					root::abandon_to(std::move(handle), root::drop_on_abandon{});
+				}
+				(void)src->try_set_exception(std::current_exception());
+			}
 		}
 	};
 
 	auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = true});
 	auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(src));
 	auto state = std::make_shared<State>(State{.cap = &cap, .handle = std::move(handle), .src = shared_src});
-	(void)shared_src->install_cancel_hook(
-		[state](root::CancelReason reason) noexcept { (void)state->handle.control().request_cancel(reason); });
+	std::weak_ptr<State> weak_state{state};
+	(void)shared_src->install_cancel_hook([weak_state](root::CancelReason reason) noexcept {
+		if (auto state = weak_state.lock()) {
+			(void)state->handle.control().request_cancel(reason);
+		}
+	});
 	auto ready = [state]() noexcept { state->complete(); };
 	auto result = state->handle.control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{ready});
 	switch (result.status) {
@@ -563,6 +573,10 @@ struct participant {
 template<root::work_value T, std::size_t ParticipantCount>
 class race_state final : public std::enable_shared_from_this<race_state<T, ParticipantCount>> {
 	using result_t = race_result<T>;
+	struct cancel_proxy {
+		std::mutex mu{};
+		race_state *state{};
+	};
 
 	race_options opts_;
 	root::TaskSource<result_t> out_;
@@ -582,13 +596,22 @@ class race_state final : public std::enable_shared_from_this<race_state<T, Parti
 	std::optional<root::Cancelled> first_cancel_{};
 	std::size_t first_cancel_index_ = 0;
 	bool cleanup_timer_started_ = false;
+	std::shared_ptr<cancel_proxy> output_cancel_proxy_{std::make_shared<cancel_proxy>()};
 
 public:
 	race_state(
 		race_options opts,
 		root::TaskSource<result_t> out)
 		: opts_{opts}
-		, out_{std::move(out)} {}
+		, out_{std::move(out)} {
+		std::scoped_lock lk{output_cancel_proxy_->mu};
+		output_cancel_proxy_->state = this;
+	}
+
+	~race_state() noexcept {
+		std::scoped_lock lk{output_cancel_proxy_->mu};
+		output_cancel_proxy_->state = nullptr;
+	}
 
 	void add(
 		race_candidate<T> c) {
@@ -671,11 +694,11 @@ public:
 		return true;
 	}
 
-	void install_output_cancel_hook(
-		std::weak_ptr<race_state<T, ParticipantCount>> weak_self) noexcept {
-		(void)out_.install_cancel_hook([weak_self = std::move(weak_self)](root::CancelReason reason) noexcept {
-			if (auto locked = weak_self.lock()) {
-				locked->request_cancel(reason);
+	void install_output_cancel_hook() noexcept {
+		(void)out_.install_cancel_hook([proxy = output_cancel_proxy_](root::CancelReason reason) noexcept {
+			std::scoped_lock lk{proxy->mu};
+			if (proxy->state != nullptr) {
+				proxy->state->request_cancel(reason);
 			}
 		});
 	}
@@ -887,13 +910,16 @@ private:
 			observation_.all_failed = true;
 			if (!failures_.empty()) {
 				if (failures_.size() == 1) {
+					auto const winner_index = failures_[0].index;
+					auto error = failures_[0].error;
 					select_winner_locked(
-						failures_[0].index,
-						root::Outcome<T>{root::Failure{failures_[0].error}},
+						winner_index,
+						root::Outcome<T>{root::Failure{std::move(error)}},
 						losers_to_cancel);
 				} else {
+					auto const winner_index = failures_[0].index;
 					select_winner_locked(
-						failures_[0].index,
+						winner_index,
 						root::Outcome<T>{
 							root::Failure{std::make_exception_ptr(race_aggregate_error{std::move(failures_)})}},
 						losers_to_cancel);
@@ -1052,7 +1078,7 @@ template<root::work_value T, class... Participants>
 	state->configure_storage(sizeof...(Participants));
 	(state->add(std::forward<Participants>(participants)), ...);
 	auto out = std::move(task);
-	state->install_output_cancel_hook(std::weak_ptr<race_state<T, sizeof...(Participants)>>{state});
+	state->install_output_cancel_hook();
 	if ((opts.cleanup == loser_cleanup_policy::wait_unbounded
 		 && opts.loser_cleanup_budget != std::chrono::steady_clock::duration{})
 		|| (opts.cleanup != loser_cleanup_policy::wait_unbounded
@@ -1148,9 +1174,8 @@ private:
 template<root::work_value T, class... Participants>
 [[nodiscard]] root::Task<owned_labeled_race_result<T>> race_owned_labels(
 	race_options opts,
-	Participants &&...participants) {
-	auto rebased_participants =
-		std::tuple<std::remove_cvref_t<Participants>...>{std::forward<Participants>(participants)...};
+	Participants... participants) {
+	auto rebased_participants = std::tuple<Participants...>{std::move(participants)...};
 	std::vector<std::string> labels{};
 	labels.reserve(sizeof...(Participants));
 	std::apply([&labels](auto const &...ps) { (labels.emplace_back(ps.label), ...); }, rebased_participants);

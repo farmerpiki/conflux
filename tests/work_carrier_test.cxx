@@ -12,6 +12,11 @@ namespace {
 
 struct OwnerCap {};
 struct DriverCap {};
+int carrier_diagnostic_count = 0;
+void count_carrier_diagnostic(
+	char const *) noexcept {
+	++carrier_diagnostic_count;
+}
 
 } // namespace
 namespace conflux::work::root {
@@ -429,10 +434,14 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
+	carrier_diagnostic_count = 0;
+	root::set_carrier_diagnostic_sink(root::CarrierDiagnosticSink{.emit = count_carrier_diagnostic});
 	auto out = std::move(carrier::from_task(std::move(task)).on_cancel([] {
 				   throw std::runtime_error{"x"};
 			   })).release_outcome();
+	root::set_carrier_diagnostic_sink(root::CarrierDiagnosticSink{});
 	CHECK(out.is_cancelled());
+	CHECK(carrier_diagnostic_count == 1);
 }
 TEST_CASE(
 	"chain.recover_cancel: cancel recovery returns T",

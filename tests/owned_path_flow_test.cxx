@@ -1,5 +1,6 @@
 // Plain TU — not a module unit.
 #include <catch2/catch_test_macros.hpp>
+#include <climits>
 #include <liburing.h>
 
 import std;
@@ -96,10 +97,23 @@ TEST_CASE(
 	CHECK(b.rejected_flows()[0].err == -EOPNOTSUPP);
 }
 TEST_CASE(
-	"owned_path: early builder error not overwritten by unstable-path pre-pass",
+	"owned_path: string_view overload accepts paths beyond NAME_MAX",
 	"[owned_path][submit]") {
 	TestRig rig{true};
 	std::string too_long(256, 'x');
+	auto b = rig.rt.flow();
+	auto f = b.open_direct_owned(DirectSlot{0}, AT_FDCWD, too_long, O_RDONLY);
+	REQUIRE(f.valid());
+	auto n = b.submit();
+	CHECK(n == 1);
+	CHECK(b.rejected_flows().empty());
+	CHECK(std::string_view{rig.rt.test_owned_path_ptr(0)} == too_long);
+}
+TEST_CASE(
+	"owned_path: string_view overload rejects over PATH_MAX",
+	"[owned_path][submit]") {
+	TestRig rig{true};
+	std::string too_long(static_cast<std::size_t>(PATH_MAX) + 1, 'x');
 	auto b = rig.rt.flow();
 	auto f = b.open_direct_owned(DirectSlot{0}, AT_FDCWD, too_long, O_RDONLY);
 	CHECK_FALSE(f.valid());

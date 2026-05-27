@@ -15,6 +15,9 @@ component boundary before code is edited.
   zero-copy notification closes the lifetime.
 - Cancellation is best-effort. Public cancellation APIs request closure and
   unblock waiters; CQEs may still arrive and must pass generation checks.
+- `PartialBuf::cut_prefix` consumes the caller-provided tail scratch as transfer
+  storage: it clears the scratch, may fill it with bytes after the cut, and moves
+  it back into the partial buffer before returning.
 - `conflux::detail::small_move_only_function` stores its heap/inline state in a
   low-bit tag on the type-erased manager function pointer. This is intended as a
   GCC/Clang/Linux implementation detail: mainstream AArch64 and RISC-V ABIs

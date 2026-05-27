@@ -912,32 +912,56 @@ class CloneableFunction<R(Args...)> {
 		virtual ~Concept() = default;
 		virtual R invoke(Args... args) = 0;
 		[[nodiscard]] virtual std::unique_ptr<Concept> clone() const = 0;
-		virtual void clone_into(void *dst) const = 0;
-		virtual void move_into(void *dst) = 0;
 	};
 	template<typename F>
-	struct Model final : Concept {
+	struct FunctionModel : Concept {
 		F fn;
-		explicit Model(
+		explicit FunctionModel(
 			F f)
 			: fn(std::move(f)) {}
 		R invoke(
 			Args... args) override {
 			return std::invoke(fn, std::forward<Args>(args)...);
 		}
-		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return std::make_unique<Model>(fn); }
+		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return std::make_unique<FunctionModel>(fn); }
+	};
+	struct InlineConcept : Concept {
+		virtual void clone_into(void *dst) const = 0;
+		virtual void move_into(void *dst) = 0;
+	};
+	template<typename F>
+	struct InlineModel final : InlineConcept {
+		F fn;
+		static void *operator new(
+			std::size_t,
+			void *ptr) noexcept {
+			return ptr;
+		}
+		static void operator delete(
+			void *,
+			void *) noexcept {}
+		static void operator delete(
+			void *) noexcept {}
+		explicit InlineModel(
+			F f)
+			: fn(std::move(f)) {}
+		R invoke(
+			Args... args) override {
+			return std::invoke(fn, std::forward<Args>(args)...);
+		}
+		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return std::make_unique<FunctionModel<F>>(fn); }
 		void clone_into(
 			void *dst) const override {
-			new (dst) Model(fn);
+			new (dst) InlineModel(fn);
 		}
 		void move_into(
 			void *dst) override {
-			new (dst) Model(std::move(fn));
+			new (dst) InlineModel(std::move(fn));
 		}
 	};
 	std::unique_ptr<Concept> fn_{};
 	alignas(std::max_align_t) std::byte inline_storage_[kInlineBytes]{};
-	Concept *inline_fn_{};
+	InlineConcept *inline_fn_{};
 
 	[[nodiscard]] Concept *target() const noexcept { return inline_fn_ != nullptr ? inline_fn_ : fn_.get(); }
 
@@ -953,7 +977,7 @@ class CloneableFunction<R(Args...)> {
 		CloneableFunction &&other) {
 		if (other.inline_fn_ != nullptr) {
 			other.inline_fn_->move_into(inline_storage_);
-			inline_fn_ = reinterpret_cast<Concept *>(inline_storage_);
+			inline_fn_ = reinterpret_cast<InlineConcept *>(inline_storage_);
 			other.inline_fn_->~Concept();
 			other.inline_fn_ = nullptr;
 			return;
@@ -969,10 +993,11 @@ public:
 		requires(!std::same_as<std::remove_cvref_t<F>, CloneableFunction>)
 	CloneableFunction(
 		F &&f) {
-		using ModelT = Model<std::remove_cvref_t<F>>;
-		if constexpr (sizeof(ModelT) <= kInlineBytes && alignof(ModelT) <= alignof(std::max_align_t)) {
-			new (inline_storage_) ModelT(std::forward<F>(f));
-			inline_fn_ = reinterpret_cast<Concept *>(inline_storage_);
+		using ModelT = FunctionModel<std::remove_cvref_t<F>>;
+		using InlineModelT = InlineModel<std::remove_cvref_t<F>>;
+		if constexpr (sizeof(InlineModelT) <= kInlineBytes && alignof(InlineModelT) <= alignof(std::max_align_t)) {
+			new (inline_storage_) InlineModelT(std::forward<F>(f));
+			inline_fn_ = reinterpret_cast<InlineConcept *>(inline_storage_);
 		} else {
 			fn_ = std::make_unique<ModelT>(std::forward<F>(f));
 		}
@@ -982,7 +1007,7 @@ public:
 		: fn_(o.fn_ ? o.fn_->clone() : nullptr) {
 		if (o.inline_fn_ != nullptr) {
 			o.inline_fn_->clone_into(inline_storage_);
-			inline_fn_ = reinterpret_cast<Concept *>(inline_storage_);
+			inline_fn_ = reinterpret_cast<InlineConcept *>(inline_storage_);
 		}
 	}
 	CloneableFunction &operator =(
@@ -992,7 +1017,7 @@ public:
 			fn_ = o.fn_ ? o.fn_->clone() : nullptr;
 			if (o.inline_fn_ != nullptr) {
 				o.inline_fn_->clone_into(inline_storage_);
-				inline_fn_ = reinterpret_cast<Concept *>(inline_storage_);
+				inline_fn_ = reinterpret_cast<InlineConcept *>(inline_storage_);
 			}
 		}
 		return *this;

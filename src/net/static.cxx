@@ -7,7 +7,7 @@ import conflux.net.config;
 
 export struct StaticOptions {
 	// Cache-Control header value. Empty = no Cache-Control header set.
-	std::string cache_control{"std::max-age=3600, public"};
+	std::string cache_control{"max-age=3600, public"};
 	// Serve pre-compressed .gz or .br sidecars when the client accepts them.
 	bool precompressed{true};
 	// Generate an HTML directory listing when no index.html is found.
