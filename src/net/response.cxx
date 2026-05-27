@@ -82,105 +82,66 @@ struct CookieBuilder {
 		: name(cookie_name)
 		, value(cookie_value) {}
 
-	CookieBuilder &attribute(
-		std::string_view attr) & {
+	template<class Self>
+	[[nodiscard]] Self &&attribute(
+		this Self &&self,
+		std::string_view attr) {
 		if (attr.empty()) {
-			return *this;
+			return std::forward<Self>(self);
 		}
-		if (!attributes.empty()) {
-			attributes += "; ";
+		if (!self.attributes.empty()) {
+			self.attributes += "; ";
 		}
-		attributes += attr;
-		return *this;
+		self.attributes += attr;
+		return std::forward<Self>(self);
 	}
 
-	CookieBuilder attribute(
-		std::string_view attr) && {
-		attribute(attr);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&path(
+		this Self &&self,
+		std::string_view path_value) {
+		return std::forward<Self>(self).attribute(std::format("Path={}", path_value));
 	}
 
-	CookieBuilder &path(
-		std::string_view path_value) & {
-		attribute(std::format("Path={}", path_value));
-		return *this;
+	template<class Self>
+	[[nodiscard]] Self &&domain(
+		this Self &&self,
+		std::string_view domain_value) {
+		return std::forward<Self>(self).attribute(std::format("Domain={}", domain_value));
 	}
 
-	CookieBuilder path(
-		std::string_view path_value) && {
-		path(path_value);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&http_only(
+		this Self &&self) {
+		return std::forward<Self>(self).attribute("HttpOnly");
 	}
 
-	CookieBuilder &domain(
-		std::string_view domain_value) & {
-		attribute(std::format("Domain={}", domain_value));
-		return *this;
+	template<class Self>
+	[[nodiscard]] Self &&secure(
+		this Self &&self) {
+		return std::forward<Self>(self).attribute("Secure");
 	}
 
-	CookieBuilder domain(
-		std::string_view domain_value) && {
-		domain(domain_value);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&same_site(
+		this Self &&self,
+		SameSite value) {
+		return std::forward<Self>(self).attribute(std::format("SameSite={}", same_site_token(value)));
 	}
 
-	CookieBuilder &http_only() & {
-		attribute("HttpOnly");
-		return *this;
-	}
-
-	CookieBuilder http_only() && {
-		http_only();
-		return std::move(*this);
-	}
-
-	CookieBuilder &secure() & {
-		attribute("Secure");
-		return *this;
-	}
-
-	CookieBuilder secure() && {
-		secure();
-		return std::move(*this);
-	}
-
-	CookieBuilder &same_site(
-		SameSite value) & {
-		attribute(std::format("SameSite={}", same_site_token(value)));
-		return *this;
-	}
-
-	CookieBuilder same_site(
-		SameSite value) && {
-		same_site(value);
-		return std::move(*this);
-	}
-
-	template<class Rep, class Period>
-	CookieBuilder &max_age(
-		std::chrono::duration<Rep, Period> age) & {
+	template<class Self, class Rep, class Period>
+	[[nodiscard]] Self &&max_age(
+		this Self &&self,
+		std::chrono::duration<Rep, Period> age) {
 		auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(age).count();
-		attribute(std::format("Max-Age={}", seconds));
-		return *this;
+		return std::forward<Self>(self).attribute(std::format("Max-Age={}", seconds));
 	}
 
-	template<class Rep, class Period>
-	CookieBuilder max_age(
-		std::chrono::duration<Rep, Period> age) && {
-		max_age(age);
-		return std::move(*this);
-	}
-
-	CookieBuilder &expires(
-		std::string_view http_date) & {
-		attribute(std::format("Expires={}", http_date));
-		return *this;
-	}
-
-	CookieBuilder expires(
-		std::string_view http_date) && {
-		expires(http_date);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&expires(
+		this Self &&self,
+		std::string_view http_date) {
+		return std::forward<Self>(self).attribute(std::format("Expires={}", http_date));
 	}
 };
 
