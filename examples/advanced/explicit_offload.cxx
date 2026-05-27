@@ -95,7 +95,7 @@ int main() {
         };
 	});
 
-	app.post("/api/hash", [&pool](http::Json<HashRequest> const &body) -> std::expected<http::Response, http::Problem> {
+	app.post("/api/hash", [&pool](http::Json<HashRequest> const &body) -> http::Result<http::Response> {
 		if (body->input.empty()) {
 			return std::unexpected{http::problem::bad_request("invalid_hash_request", "input is required")};
 		}

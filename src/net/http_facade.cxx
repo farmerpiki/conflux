@@ -28,6 +28,8 @@ export namespace conflux::http {
 
 template<class T>
 using Task = conflux::work::Task<T>;
+template<class T>
+using Result = std::expected<T, Problem>;
 using Next = ::Router::Handler;
 using AsyncNext = ::Router::AsyncNext;
 [[nodiscard]] ::Router::Middleware request_id(

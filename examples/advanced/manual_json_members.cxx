@@ -117,7 +117,7 @@ int main() {
 	app.post(
 		"/api/todos",
 		[](http::Json<CreateTodo> const &body,
-		   http::State<TodoStore> store) -> std::expected<http::Json<CreateTodoResult>, http::Problem> {
+		   http::State<TodoStore> store) -> http::Result<http::Json<CreateTodoResult>> {
 			if (body->title.empty()) {
 				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
 			}

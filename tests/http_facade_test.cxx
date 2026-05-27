@@ -557,7 +557,7 @@ TEST_CASE(
 	});
 	app.get<"/todos/{id:i64}">(
 		[](http::Path<"id", std::int64_t> id,
-		   http::State<FacadeTodoStore> todos) -> std::expected<http::Json<FacadeTodo>, http::Problem> {
+		   http::State<FacadeTodoStore> todos) -> http::Result<http::Json<FacadeTodo>> {
 			std::lock_guard lock{todos->mu};
 			auto it = std::ranges::find(todos->todos, id.get(), &FacadeTodo::id);
 			if (it == todos->todos.end()) {
@@ -568,7 +568,7 @@ TEST_CASE(
 	app.post(
 		"/todos",
 		[](http::Json<FacadeCreateTodo> const &body,
-		   http::State<FacadeTodoStore> todos) -> std::expected<http::Created, http::Problem> {
+		   http::State<FacadeTodoStore> todos) -> http::Result<http::CreatedBody<FacadeTodo>> {
 			if (body->title.empty()) {
 				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
 			}
@@ -1152,7 +1152,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.get("/answer", [] { return http::Json{FacadeAnswer{.value = "ok"}}; });
-	app.get("/expected", []() -> std::expected<http::Json<FacadeAnswer>, http::Problem> {
+	app.get("/expected", []() -> http::Result<http::Json<FacadeAnswer>> {
 		return http::Json{FacadeAnswer{.value = "ok"}};
 	});
 	app.post("/created", [] { return http::created(FacadeAnswer{.value = "made"}); });
@@ -1200,10 +1200,9 @@ TEST_CASE(
 	"http facade: app openapi snapshot covers typed route policies",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get<"/widgets/{id:u64}">(
-		   [](http::Path<"id", std::uint64_t>) -> std::expected<http::Json<FacadeAnswer>, http::Problem> {
-			   return http::Json{FacadeAnswer{.value = "ok"}};
-		   })
+	app.get<"/widgets/{id:u64}">([](http::Path<"id", std::uint64_t>) -> http::Result<http::Json<FacadeAnswer>> {
+		   return http::Json{FacadeAnswer{.value = "ok"}};
+	   })
 		.name("widgets.show")
 		.openapi_summary("Show widget")
 		.require_bearer_token("user")

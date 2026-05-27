@@ -63,7 +63,7 @@ void route_forms_compile() {
 		auto dumped = doc->dump();
 		return http::text(dumped.value_or("{}"));
 	});
-	app.post("/payload", [](http::Json<Payload> const &body) -> std::expected<http::Created, http::Problem> {
+	app.post("/payload", [](http::Json<Payload> const &body) -> http::Result<http::CreatedBody<Payload>> {
 		if (body->value.empty()) {
 			return std::unexpected{http::problem::bad_request("empty_value", "value is required")};
 		}
