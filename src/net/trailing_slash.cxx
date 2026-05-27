@@ -59,16 +59,13 @@ export Router::Middleware trailing_slash_middleware(
 				new_path.push_back('?');
 				new_path += trailing_slash_detail::build_query(req.query);
 			}
-			char const *status_text = "Found";
-			switch (opts.redirect_status) {
-			case 301: status_text = "Moved Permanently"; break;
-			case 307: status_text = "Temporary Redirect"; break;
-			case 308: status_text = "Permanent Redirect"; break;
-			default : break;
+			auto status_text = Response::status_text_for(opts.redirect_status);
+			if (status_text.empty()) {
+				status_text = "Found";
 			}
 			Response r{
 				.status = opts.redirect_status,
-				.status_text = status_text,
+				.status_text = std::string{status_text},
 				.content_type = "text/plain; charset=utf-8"};
 			r.headers["Location"] = std::move(new_path);
 			return r;
