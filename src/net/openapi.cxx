@@ -5,10 +5,9 @@
 export module conflux.net.openapi;
 import std;
 import conflux.types;
-import conflux.net.http.json_string;
-import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.app.openapi;
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
 // Returns a JSON string (not pretty-printed).
@@ -17,66 +16,17 @@ export std::string openapi_spec(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto infos = router.route_infos();
-
-	// Group infos by path pattern (preserve insertion order).
-	std::vector<std::string> path_order;
-	std::unordered_map<std::string, std::vector<RouteInfo>> by_path;
-
+	std::vector<conflux::http::detail::AppOpenApiRoute> routes;
+	routes.reserve(infos.size());
 	for (auto const &info: infos) {
-		auto [it, inserted] = by_path.try_emplace(info.path_pattern);
-		if (inserted) {
-			path_order.push_back(info.path_pattern);
-		}
-		it->second.push_back(info);
+		routes.push_back(
+			conflux::http::detail::AppOpenApiRoute{
+				.method = info.method,
+				.path = info.path_pattern,
+				.path_params = info.path_params,
+				.success_status = kHttpOk});
 	}
-
-	std::string out;
-	out += R"({"openapi":"3.0.0","info":{"title":)";
-	out += conflux::http::detail::json_string(title);
-	out += R"(,"version":)";
-	out += conflux::http::detail::json_string(version);
-	out += R"(},"paths":{)";
-
-	bool first_path = true;
-	for (auto const &path: path_order) {
-		auto const &route_list = by_path.at(path);
-		if (!first_path) {
-			out += ',';
-		}
-		first_path = false;
-
-		out += conflux::http::detail::json_string(path);
-		out += ":{";
-
-		bool first_method = true;
-		for (auto const &info: route_list) {
-			if (!first_method) {
-				out += ',';
-			}
-			first_method = false;
-
-			// method key must be lowercase.
-			std::string method_lower = ascii_lower(info.method);
-
-			out += conflux::http::detail::json_string(method_lower);
-			out += R"(:{"parameters":[)";
-
-			bool first_param = true;
-			for (auto const &param: info.path_params) {
-				if (!first_param) {
-					out += ',';
-				}
-				first_param = false;
-				out += R"({"name":)";
-				out += conflux::http::detail::json_string(param);
-				out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
-			}
-			out += R"(],"responses":{"200":{"description":"OK"}}})";
-		}
-		out += '}';
-	}
-	out += "}}";
-	return out;
+	return conflux::http::detail::render_openapi_spec(routes, title, version);
 }
 // Route handler: serve the OpenAPI spec as JSON.
 // Usage: router.get("/openapi.json", openapi_handler(router, "My API", "1.0"));

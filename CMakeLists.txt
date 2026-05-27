@@ -1318,7 +1318,9 @@ add_library(conflux_http_openapi STATIC)
 target_sources(conflux_http_openapi
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES ${CONFLUX_SRC_ROOT}/net/openapi.cxx
+        FILES
+            ${CONFLUX_SRC_ROOT}/net/app_openapi.cxx
+            ${CONFLUX_SRC_ROOT}/net/openapi.cxx
 )
 target_link_libraries(conflux_http_openapi
     PRIVATE conflux_options
@@ -1695,7 +1697,6 @@ target_sources(conflux_http_app
             ${CONFLUX_SRC_ROOT}/net/app_extractor_helpers.cxx
             ${CONFLUX_SRC_ROOT}/net/app_json_helpers.cxx
             ${CONFLUX_SRC_ROOT}/net/app_metadata_helpers.cxx
-            ${CONFLUX_SRC_ROOT}/net/app_openapi.cxx
             ${CONFLUX_SRC_ROOT}/net/app_policies.cxx
             ${CONFLUX_SRC_ROOT}/net/app_response.cxx
             ${CONFLUX_SRC_ROOT}/net/app_route_helpers.cxx
