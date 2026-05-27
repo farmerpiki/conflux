@@ -1,4 +1,5 @@
 include(Dependencies)
+include(ConfluxComponentRegistry)
 string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
 if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
         AND NOT CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OFF")
@@ -306,11 +307,16 @@ macro(conflux_header_public_component target export_name)
     endif()
 endmacro()
 
-conflux_header_public_component(conflux_core core
+function(conflux_header_public_component_by_export export_name)
+    conflux_component_target_for_export(_target "${export_name}")
+    conflux_header_public_component(${_target} ${export_name} ${ARGN})
+endfunction()
+
+conflux_header_public_component_by_export(core
     IMPLS conflux_header_impl_core
     COMPILE_DEFINITIONS CONFLUX_INTERFACE_HEADER=1)
 
-conflux_header_public_component(conflux_types types
+conflux_header_public_component_by_export(types
     IMPLS conflux_header_impl_core)
 
 set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
@@ -362,7 +368,7 @@ if(CONFLUX_WANT_JSON)
         list(APPEND _conflux_json_compile_definitions
             CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
     endif()
-    conflux_header_public_component(conflux_json json
+    conflux_header_public_component_by_export(json
         HPP_TOP_LEVEL
         IMPLS conflux_header_impl_json
         LINKS ${_conflux_json_links}
@@ -376,7 +382,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     if(NOT CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
         set(_conflux_http_component_options NO_PACKAGE)
     endif()
-    conflux_header_public_component(conflux_net_http http
+    conflux_header_public_component_by_export(http
         ${_conflux_http_component_options}
         IMPLS
         conflux_header_impl_core
@@ -397,11 +403,11 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     unset(_conflux_http_component_options)
 endif()
 
-conflux_header_public_component(conflux_file_io_sync file_io_sync
+conflux_header_public_component_by_export(file_io_sync
     IMPLS conflux_header_impl_file_io_sync)
 
 if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
-    conflux_header_public_component(conflux_work work
+    conflux_header_public_component_by_export(work
         HPP_TOP_LEVEL
         IMPLS
         conflux_header_impl_core
@@ -420,11 +426,11 @@ if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
     if(TARGET PkgConfig::LIBPQ)
         list(APPEND _conflux_db_links PkgConfig::LIBPQ)
     endif()
-    conflux_header_public_component(conflux_db db
+    conflux_header_public_component_by_export(db
         IMPLS conflux_header_impl_db
         LINKS ${_conflux_db_links})
 
-    conflux_header_public_component(conflux_pg pg
+    conflux_header_public_component_by_export(pg
         LINKS conflux_db)
     unset(_conflux_db_links)
 endif()

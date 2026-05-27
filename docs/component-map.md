@@ -8,8 +8,8 @@ answer three questions:
 3. which API document or example owns the public contract.
 
 The CMake source remains authoritative. Keep this file synchronized with
-`cmake/ConfluxPresets.cmake` and the `conflux_public_component(...)` calls in
-`cmake/ConfluxInstall.cmake` whenever components are split, renamed, or
+`cmake/ConfluxPresets.cmake` and `cmake/ConfluxComponentRegistry.cmake`
+whenever components are split, renamed, or
 removed. API-surface classification here is coarse; detailed profile contents live in
 [`api-surface-profiles.md`](api-surface-profiles.md).
 

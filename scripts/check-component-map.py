@@ -7,13 +7,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxInstall.cmake"
+COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
-PUBLIC_COMPONENT_RE = re.compile(
-    r"^\s*conflux_public_component\(\s*([^\s()]+)\s+([^\s()]+)\s*\)",
-    re.MULTILINE,
+PUBLIC_BLOCK_RE = re.compile(
+    r"set\(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS(?P<body>.*?)\)",
+    re.DOTALL,
 )
+PUBLIC_COMPONENT_RE = re.compile(r'"([^"|]+)\|([^"|]+)"')
 DOC_COMPONENT_RE = re.compile(
     r"^\|\s*`([^`]+)`\s*\|\s*`conflux::([^`]+)`\s*\|",
     re.MULTILINE,
@@ -22,8 +23,11 @@ DOC_COMPONENT_RE = re.compile(
 
 def public_components() -> dict[str, str]:
     text = COMPONENT_SOURCE.read_text(encoding="utf-8")
+    block = PUBLIC_BLOCK_RE.search(text)
+    if block is None:
+        raise ValueError("missing CONFLUX_PUBLIC_COMPONENT_DECLARATIONS")
     components: dict[str, str] = {}
-    for target, export_name in PUBLIC_COMPONENT_RE.findall(text):
+    for target, export_name in PUBLIC_COMPONENT_RE.findall(block.group("body")):
         if export_name in components:
             raise ValueError(f"duplicate CMake public component: {export_name}")
         components[export_name] = target
