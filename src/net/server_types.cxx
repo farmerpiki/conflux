@@ -11,14 +11,18 @@ import conflux.net.http.types;
 // partitions.
 // ---------------------------------------------------------------------------
 
+export namespace conflux::http {
+
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class RunStatus : std::uint8_t {
+enum class RunStatus : std::uint8_t {
 	stopped_normally,
 	fatal_cq_overflow,
 	fatal_cq_overflow_no_nodrop,
 	fatal_submit_wait_ebadr,
 	fatal_internal_exception,
 };
+
+} // namespace conflux::http
 
 export struct SendZcMetrics {
 	std::uint64_t attempts{};
@@ -847,7 +851,6 @@ export struct RequestView : HttpRequestFieldAccessors {
 
 export namespace conflux::http {
 
-using RunStatus = ::RunStatus;
 using SendZcMetrics = ::SendZcMetrics;
 using RejectReason = ::HttpRejectReason;
 using RejectionMetrics = ::HttpRejectionMetrics;

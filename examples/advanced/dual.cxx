@@ -100,5 +100,5 @@ int main() {
 	}
 
 	auto const status = srv.run();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

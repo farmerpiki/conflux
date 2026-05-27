@@ -49,5 +49,5 @@ int main() {
 	std::println("virtual-host server listening on http://localhost:9101/");
 	HttpServer srv{cfg, std::move(hosts)};
 	auto const status = srv.run();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

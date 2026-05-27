@@ -52,5 +52,5 @@ int main() {
 	::unlink(key_path.c_str());
 	std::println(std::cerr, "h3 probe running on :9443");
 	auto const status = srv.run();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

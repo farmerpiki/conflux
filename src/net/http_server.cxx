@@ -28,7 +28,7 @@ public:
 	// and lets run() drain in-flight responses before exiting.
 	void shutdown();
 	[[nodiscard]] DrainReport drain(DrainOptions options = {});
-	[[nodiscard]] RunStatus run() noexcept;
+	[[nodiscard]] conflux::http::RunStatus run() noexcept;
 	// Snapshot counters accumulated by all rings. Intended after run() returns;
 	// no synchronization is provided for concurrent calls while rings are active.
 	[[nodiscard]] HttpServerMetrics metrics() const noexcept;

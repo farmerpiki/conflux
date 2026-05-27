@@ -28,7 +28,6 @@ export namespace conflux::http {
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
-using ::RunStatus;
 template<class T>
 using Task = conflux::work::Task<T>;
 using Next = ::Router::Handler;

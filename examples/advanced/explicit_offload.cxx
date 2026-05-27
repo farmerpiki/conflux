@@ -117,5 +117,5 @@ int main() {
 
 	auto const status = std::move(app).run({.port = 9111});
 	pool.drain_and_stop();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

@@ -148,7 +148,7 @@ struct HttpServer::Impl {
 	std::mutex startup_error_mu;
 	std::exception_ptr startup_error{};
 	std::atomic_bool startup_failed{false};
-	std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(RunStatus::stopped_normally)};
+	std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally)};
 	Ring::DrainControl drain_control{};
 	std::atomic_bool running_{false};
 	// Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
@@ -339,7 +339,7 @@ void HttpServer::shutdown() {
 	};
 }
 
-[[nodiscard]] RunStatus HttpServer::run() noexcept {
+[[nodiscard]] conflux::http::RunStatus HttpServer::run() noexcept {
 	try {
 		(void)::signal(SIGPIPE, SIG_IGN);
 		impl_->running_.store(true, std::memory_order_release);
@@ -447,8 +447,8 @@ void HttpServer::shutdown() {
 								r.accepted_sockets_direct));
 
 					auto const status = r.run_loop();
-					if (status != RunStatus::stopped_normally) {
-						std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
+					if (status != conflux::http::RunStatus::stopped_normally) {
+						std::uint8_t expected = static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally);
 						impl_->run_status_.compare_exchange_strong(
 							expected,
 							static_cast<std::uint8_t>(status),
@@ -464,10 +464,10 @@ void HttpServer::shutdown() {
 					}
 					impl_->startup_failed.store(true, std::memory_order_release);
 					{
-						std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
+						std::uint8_t expected = static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally);
 						impl_->run_status_.compare_exchange_strong(
 							expected,
-							static_cast<std::uint8_t>(RunStatus::fatal_internal_exception),
+							static_cast<std::uint8_t>(conflux::http::RunStatus::fatal_internal_exception),
 							std::memory_order_release,
 							std::memory_order_relaxed);
 					}
@@ -513,13 +513,13 @@ void HttpServer::shutdown() {
 			to_reset->stop();
 		}
 #endif
-		return static_cast<RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
+		return static_cast<conflux::http::RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
 	} catch (...) {
 		if (impl_ != nullptr) {
 			impl_->running_.store(false, std::memory_order_release);
 			impl_->running_.notify_all();
 		}
-		return RunStatus::fatal_internal_exception;
+		return conflux::http::RunStatus::fatal_internal_exception;
 	}
 }
 

@@ -116,7 +116,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: server request aliases expose first-contact namespace names",
 	"[http.core]") {
-	static_assert(std::same_as<chttp::RunStatus, RunStatus>);
+	static_assert(std::same_as<chttp::RunStatus, conflux::http::RunStatus>);
 	static_assert(std::same_as<chttp::RejectReason, HttpRejectReason>);
 	static_assert(std::same_as<chttp::RejectionMetrics, HttpRejectionMetrics>);
 	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);

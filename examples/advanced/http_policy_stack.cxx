@@ -154,5 +154,5 @@ int main() {
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);
 	auto const status = std::move(app).run({.port = 9100});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

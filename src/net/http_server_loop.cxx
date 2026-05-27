@@ -1190,7 +1190,7 @@ void Ring::handle_accept(
 
 // Called once a response (or chunk) has been fully delivered.
 // Drives SSE/WS/normal post-send state machine.
-RunStatus Ring::run_loop() {
+conflux::http::RunStatus Ring::run_loop() {
 	static constexpr unsigned BATCH = 256;
 	if (ring_core_ >= 0) {
 		cpu_set_t cs;
@@ -1227,7 +1227,7 @@ RunStatus Ring::run_loop() {
 				enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 				emit_ring_diagnostics();
 				close_tracked_fds_sync();
-				return RunStatus::fatal_cq_overflow_no_nodrop;
+				return conflux::http::RunStatus::fatal_cq_overflow_no_nodrop;
 			}
 			// NODROP: overflow list non-empty but CQEs are not lost.
 			// io_uring_submit_and_wait drains overflow into the ring; continue.
@@ -1245,13 +1245,13 @@ RunStatus Ring::run_loop() {
 			if (rc == -EBADR) {
 				enter_ring_fatal(ServerFatalReason::submit_wait_ebadr);
 				flush_overflow_cqes_until_clear_or_limit();
-				return RunStatus::fatal_submit_wait_ebadr;
+				return conflux::http::RunStatus::fatal_submit_wait_ebadr;
 			}
 			if (ring_integrity_suspect() && !caps.feat_nodrop) {
 				enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 				emit_ring_diagnostics();
 				close_tracked_fds_sync();
-				return RunStatus::fatal_cq_overflow_no_nodrop;
+				return conflux::http::RunStatus::fatal_cq_overflow_no_nodrop;
 			}
 			continue;
 		}
@@ -1271,7 +1271,7 @@ RunStatus Ring::run_loop() {
 				enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 				emit_ring_diagnostics();
 				close_tracked_fds_sync();
-				return RunStatus::fatal_cq_overflow_no_nodrop;
+				return conflux::http::RunStatus::fatal_cq_overflow_no_nodrop;
 			}
 			continue;
 		}
@@ -1299,7 +1299,7 @@ RunStatus Ring::run_loop() {
 				if (file_completions && !file_completions->cancel_all()) {
 					continue;
 				}
-				return RunStatus::stopped_normally;
+				return conflux::http::RunStatus::stopped_normally;
 			}
 		}
 	}

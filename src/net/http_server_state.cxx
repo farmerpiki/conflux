@@ -756,5 +756,5 @@ struct Ring {
 	void dispatch_cqe_fatal(io_uring_cqe const *cqe) noexcept;
 	void emit_ring_diagnostics() noexcept;
 	void flush_overflow_cqes_until_clear_or_limit() noexcept;
-	RunStatus run_loop();
+	conflux::http::RunStatus run_loop();
 };

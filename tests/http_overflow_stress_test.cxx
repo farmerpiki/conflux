@@ -61,7 +61,7 @@ TEST_CASE(
 
 	auto cfg = tiny_ring_config();
 	auto server = std::make_shared<HttpServer>(cfg, std::move(router));
-	RunStatus result = RunStatus::stopped_normally;
+	conflux::http::RunStatus result = conflux::http::RunStatus::stopped_normally;
 	std::atomic<bool> srv_exited{false};
 	std::jthread srv_thread([&] {
 		result = server->run();
@@ -109,9 +109,9 @@ TEST_CASE(
 	srv_thread.join();
 
 	// Accept normal stop or the explicit pressure statuses this test is meant to exercise.
-	bool const valid_status = result == RunStatus::stopped_normally
-						   || result == RunStatus::fatal_cq_overflow
-						   || result == RunStatus::fatal_cq_overflow_no_nodrop
-						   || result == RunStatus::fatal_submit_wait_ebadr;
+	bool const valid_status = result == conflux::http::RunStatus::stopped_normally
+						   || result == conflux::http::RunStatus::fatal_cq_overflow
+						   || result == conflux::http::RunStatus::fatal_cq_overflow_no_nodrop
+						   || result == conflux::http::RunStatus::fatal_submit_wait_ebadr;
 	CHECK(valid_status);
 }

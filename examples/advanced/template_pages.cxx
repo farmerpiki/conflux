@@ -76,5 +76,5 @@ int main() {
 
 	std::println("template pages listening on http://localhost:9102/");
 	auto const status = std::move(app).run({.port = 9102});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

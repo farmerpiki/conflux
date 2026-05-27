@@ -84,5 +84,5 @@ int main() {
 	cert_files.key.clear();
 	std::println(std::cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
 	auto const status = srv.run();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }
