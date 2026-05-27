@@ -117,69 +117,55 @@ struct Problem {
 		return *this;
 	}
 
-	Problem &type_uri(
-		std::string_view value) & {
-		type = std::string{value};
-		return rebuild();
+	template<class Self>
+	[[nodiscard]] Self &&type_uri(
+		this Self &&self,
+		std::string_view value) {
+		self.type = std::string{value};
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
-	Problem type_uri(
-		std::string_view value) && {
-		type_uri(value);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&title_text(
+		this Self &&self,
+		std::string_view value) {
+		self.title = std::string{value};
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
-	Problem &title_text(
-		std::string_view value) & {
-		title = std::string{value};
-		return rebuild();
+	template<class Self>
+	[[nodiscard]] Self &&detail_text(
+		this Self &&self,
+		std::string_view value) {
+		self.detail = std::string{value};
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
-	Problem title_text(
-		std::string_view value) && {
-		title_text(value);
-		return std::move(*this);
+	template<class Self>
+	[[nodiscard]] Self &&instance_uri(
+		this Self &&self,
+		std::string_view value) {
+		self.instance = std::string{value};
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
-	Problem &detail_text(
-		std::string_view value) & {
-		detail = std::string{value};
-		return rebuild();
-	}
-	Problem detail_text(
-		std::string_view value) && {
-		detail_text(value);
-		return std::move(*this);
-	}
-	Problem &instance_uri(
-		std::string_view value) & {
-		instance = std::string{value};
-		return rebuild();
-	}
-	Problem instance_uri(
-		std::string_view value) && {
-		instance_uri(value);
-		return std::move(*this);
-	}
-	Problem &extension(
+	template<class Self>
+	[[nodiscard]] Self &&extension(
+		this Self &&self,
 		std::string_view name,
-		std::string_view value) & {
-		extensions.emplace_back(name, value);
-		return rebuild();
+		std::string_view value) {
+		self.extensions.emplace_back(name, value);
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
-	Problem extension(
+	template<class Self>
+	[[nodiscard]] Self &&field(
+		this Self &&self,
 		std::string_view name,
-		std::string_view value) && {
-		extension(name, value);
-		return std::move(*this);
-	}
-	Problem &field(
-		std::string_view name,
-		std::string_view detail) & {
-		fields.emplace_back(name, detail);
-		return rebuild();
-	}
-	Problem field(
-		std::string_view name,
-		std::string_view detail) && {
-		field(name, detail);
-		return std::move(*this);
+		std::string_view detail) {
+		self.fields.emplace_back(name, detail);
+		self.rebuild();
+		return std::forward<Self>(self);
 	}
 };
 
