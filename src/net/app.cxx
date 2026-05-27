@@ -2080,6 +2080,37 @@ public:
 		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
 	}
 
+	template<class Result>
+	[[nodiscard]] static conflux::work::root::Task<Response> finish_app_task_response(
+		Result result
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions json_options
+#endif
+	) {
+#if CONFLUX_HAS_JSON
+		co_return into_app_response(co_await std::move(result), json_options);
+#else
+		co_return into_app_response(co_await std::move(result));
+#endif
+	}
+
+	[[nodiscard]] static conflux::work::root::Task<Response> run_app_task_response_erased(
+		std::function<conflux::work::root::Task<Response>()> invoke) {
+		try {
+			auto result = invoke();
+			co_return co_await std::move(result);
+		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
+	}
+
+	template<class Fn, class Tuple>
+	struct AppTaskApplyResult;
+
+	template<class Fn, class... Args>
+	struct AppTaskApplyResult<Fn, std::tuple<Args...>> {
+		using type = std::invoke_result_t<Fn &, Args &...>;
+	};
+
 	template<class Fn, class ExtractedArgs>
 	[[nodiscard]] static conflux::work::root::Task<Response> await_app_task_response(
 		Fn &handler,
@@ -2089,11 +2120,23 @@ public:
 		AppJsonOptions json_options
 #endif
 	) {
+		using Result = typename AppTaskApplyResult<Fn, ExtractedArgs>::type;
+		if constexpr (std::same_as<std::decay_t<Result>, conflux::work::root::Task<Response>>) {
+			auto owned_args = std::make_shared<ExtractedArgs>(std::move(extracted_args));
+			return run_app_task_response_erased(
+				[handler = &handler, owned_args = std::move(owned_args)]() -> conflux::work::root::Task<Response> {
+					return std::apply([handler](auto &...args) { return (*handler)(args...); }, *owned_args);
+				});
+		} else {
+			try {
+				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
 #if CONFLUX_HAS_JSON
-		return run_app_task_response(&handler, std::move(extracted_args), json_options);
+				return finish_app_task_response(std::move(result), json_options);
 #else
-		return run_app_task_response(&handler, std::move(extracted_args));
+				return finish_app_task_response(std::move(result));
 #endif
+			} catch (ExtractorFailure &failure) { return extraction_failure_response(std::move(failure).response()); }
+		}
 	}
 
 	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(

@@ -99,6 +99,27 @@ std::uint16_t g_redirect_follow_source_port = 0;
 std::uint16_t g_redirect_follow_target_port = 0;
 std::uint16_t g_redirect_follow_async_port = 0;
 
+chttp::Task<void> short_async_test_delay() {
+	auto [gate, source] = conflux::work::root::make_task_source<int>();
+	std::thread([source = std::move(source)] mutable {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+		auto _ = source.try_set_value(conflux::work::root::Success<int>{0});
+	}).detach();
+	auto _ = co_await std::move(gate);
+}
+
+chttp::Task<chttp::Response> async_body_text_echo(
+	chttp::BodyText const &body) {
+	co_await short_async_test_delay();
+	co_return chttp::text(body.get());
+}
+
+chttp::Task<chttp::Response> async_request_view_echo(
+	chttp::RequestView req) {
+	co_await short_async_test_delay();
+	co_return chttp::text(std::format("{}:{}", req.header("x-check"), req.body));
+}
+
 TEST_CASE(
 	"http app: try_server constructs server without throwing",
 	"[http][app]") {
@@ -1984,15 +2005,7 @@ TEST_CASE(
 	app.config().rings = 1;
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
-	app.post("/async-body-ref", [](chttp::BodyText const &body) -> chttp::Task<chttp::Response> {
-		auto [gate, source] = conflux::work::root::make_task_source<int>();
-		std::thread([source = std::move(source)] mutable {
-			std::this_thread::sleep_for(std::chrono::milliseconds{10});
-			(void)source.try_set_value(conflux::work::root::Success<int>{0});
-		}).detach();
-		(void)co_await std::move(gate);
-		co_return chttp::text(body.get());
-	});
+	app.post("/async-body-ref", async_body_text_echo);
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
@@ -2012,15 +2025,7 @@ TEST_CASE(
 	app.config().rings = 1;
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
-	app.post("/async-request-view", [](chttp::RequestView req) -> chttp::Task<chttp::Response> {
-		auto [gate, source] = conflux::work::root::make_task_source<int>();
-		std::thread([source = std::move(source)] mutable {
-			std::this_thread::sleep_for(std::chrono::milliseconds{10});
-			(void)source.try_set_value(conflux::work::root::Success<int>{0});
-		}).detach();
-		(void)co_await std::move(gate);
-		co_return chttp::text(std::format("{}:{}", req.header("x-check"), req.body));
-	});
+	app.post("/async-request-view", async_request_view_echo);
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
