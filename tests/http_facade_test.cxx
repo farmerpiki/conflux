@@ -2608,19 +2608,23 @@ TEST_CASE(
 	"http facade: owned response helpers move caller bodies",
 	"[http.facade]") {
 	auto text_body = std::string{"owned text"};
-	auto text = http::owned_text(std::move(text_body));
+	auto text = http::text(std::move(text_body));
 	CHECK(text.text_body() == "owned text");
 
 	auto html_body = std::string{"<p>owned</p>"};
-	auto html = http::owned_html(std::move(html_body));
+	auto html = http::html(std::move(html_body));
 	CHECK(html.content_type == "text/html; charset=utf-8");
 	CHECK(html.text_body() == "<p>owned</p>");
 
 	auto created_body = std::string{"created"};
-	auto created = http::owned_created(std::move(created_body), "text/custom");
+	auto created = http::created(std::move(created_body), std::string{"text/custom"});
 	CHECK(created.status == kHttpCreated);
 	CHECK(created.content_type == "text/custom");
 	CHECK(created.text_body() == "created");
+
+	CHECK(http::owned_text(std::string{"alias"}).text_body() == "alias");
+	CHECK(http::owned_html(std::string{"<b>alias</b>"}).text_body() == "<b>alias</b>");
+	CHECK(http::owned_created(std::string{"alias"}).status == kHttpCreated);
 }
 
 TEST_CASE(

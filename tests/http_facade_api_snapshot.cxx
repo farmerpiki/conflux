@@ -122,12 +122,15 @@ void run_spelling_compiles() {
 
 void response_helpers_compile() {
 	(void)http::html("<p>ok</p>");
+	(void)http::html(std::string{"<p>ok</p>"});
 	(void)http::owned_html(std::string{"<p>ok</p>"});
 	(void)http::no_content();
 	(void)http::redirect("/next");
 	(void)http::buffered_stream([](http::StreamSink &sink) { sink.write("chunk"); });
+	(void)http::text(std::string{"ok"});
 	(void)http::owned_text(std::string{"ok"});
 	(void)http::json(Payload{.value = "ok"});
+	(void)http::created(std::string{"ok"});
 	(void)http::owned_created(std::string{"ok"});
 	(void)http::created(Payload{.value = "ok"});
 }

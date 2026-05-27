@@ -57,9 +57,19 @@ using AsyncNext = ::Router::AsyncNext;
 	return Response::text(std::string{body});
 }
 
-[[nodiscard]] Response owned_text(
+[[nodiscard]] Response text(
+	char const *body) {
+	return text(std::string_view{body});
+}
+
+[[nodiscard]] Response text(
 	std::string body) {
 	return Response::text(std::move(body));
+}
+
+[[nodiscard]] Response owned_text(
+	std::string body) {
+	return text(std::move(body));
 }
 
 [[nodiscard]] Response html(
@@ -67,9 +77,19 @@ using AsyncNext = ::Router::AsyncNext;
 	return Response::html(std::string{body});
 }
 
-[[nodiscard]] Response owned_html(
+[[nodiscard]] Response html(
+	char const *body) {
+	return html(std::string_view{body});
+}
+
+[[nodiscard]] Response html(
 	std::string body) {
 	return Response::html(std::move(body));
+}
+
+[[nodiscard]] Response owned_html(
+	std::string body) {
+	return html(std::move(body));
 }
 
 [[nodiscard]] Response no_content() {
@@ -117,10 +137,22 @@ template<class F>
 	return Response::with_body(std::string{body}, std::string{content_type}, kHttpCreated);
 }
 
-[[nodiscard]] Response owned_created(
+[[nodiscard]] Response created(
+	char const *body,
+	std::string_view content_type = "text/plain; charset=utf-8") {
+	return created(std::string_view{body}, content_type);
+}
+
+[[nodiscard]] Response created(
 	std::string body,
 	std::string content_type = "text/plain; charset=utf-8") {
 	return Response::with_body(std::move(body), std::move(content_type), kHttpCreated);
+}
+
+[[nodiscard]] Response owned_created(
+	std::string body,
+	std::string content_type = "text/plain; charset=utf-8") {
+	return created(std::move(body), std::move(content_type));
 }
 
 template<class T>
