@@ -147,6 +147,35 @@ std::string TmplValue::dump() const {
 	}
 	return "null";
 }
+template<class Range, class Fn>
+TmplValue tmpl_array_from(
+	Range &&range,
+	Fn fn) {
+	TmplValue out{TmplValue::Array{}};
+	auto &arr = out.as_array();
+	if constexpr (std::ranges::sized_range<Range>) {
+		arr.reserve(std::ranges::size(range));
+	}
+	std::ranges::transform(std::forward<Range>(range), std::back_inserter(arr), std::move(fn));
+	return out;
+}
+TmplValue tmpl_object_keys(
+	TmplValue::Object const &obj) {
+	return tmpl_array_from(obj, [](auto const &kv) { return TmplValue{kv.first}; });
+}
+TmplValue tmpl_object_values(
+	TmplValue::Object const &obj) {
+	return tmpl_array_from(obj, [](auto const &kv) { return kv.second; });
+}
+TmplValue tmpl_object_items(
+	TmplValue::Object const &obj) {
+	return tmpl_array_from(obj, [](auto const &kv) {
+		TmplValue pair{TmplValue::Array{}};
+		pair.push_back(TmplValue{kv.first});
+		pair.push_back(kv.second);
+		return pair;
+	});
+}
 // NOLINTNEXTLINE(misc-no-recursion)
 TmplValue node_to_tmpl(
 	NodeRef node) {
@@ -181,9 +210,7 @@ TmplValue node_to_tmpl(
 			auto arr = *node.as_array();
 			TmplValue::Array vec;
 			vec.reserve(arr.size());
-			for (auto elem: arr.elements()) {
-				vec.push_back(node_to_tmpl(elem));
-			}
+			std::ranges::transform(arr.elements(), std::back_inserter(vec), node_to_tmpl);
 			return TmplValue{std::move(vec)};
 		}
 	case JsonKind::object:
@@ -191,9 +218,10 @@ TmplValue node_to_tmpl(
 			auto obj = *node.as_object();
 			TmplValue::Object pairs;
 			pairs.reserve(obj.size());
-			for (auto [name, val]: obj.members()) {
-				pairs.emplace_back(std::string{name}, node_to_tmpl(val));
-			}
+			std::ranges::transform(obj.members(), std::back_inserter(pairs), [](auto member) {
+				auto [name, val] = member;
+				return std::pair<std::string, TmplValue>{std::string{name}, node_to_tmpl(val)};
+			});
 			return TmplValue{std::move(pairs)};
 		}
 	default: return {};
@@ -861,28 +889,13 @@ TmplValue Environment::Impl::apply_method(
 		return arr;
 	}
 	if (name == "keys" && val.is_object()) {
-		TmplValue keys{TmplValue::Array{}};
-		for (auto const &kv: val.as_object()) {
-			keys.push_back(TmplValue{kv.first});
-		}
-		return keys;
+		return tmpl_object_keys(val.as_object());
 	}
 	if (name == "values" && val.is_object()) {
-		TmplValue values{TmplValue::Array{}};
-		for (auto const &kv: val.as_object()) {
-			values.push_back(kv.second);
-		}
-		return values;
+		return tmpl_object_values(val.as_object());
 	}
 	if (name == "items" && val.is_object()) {
-		TmplValue items{TmplValue::Array{}};
-		for (auto const &kv: val.as_object()) {
-			TmplValue pair{TmplValue::Array{}};
-			pair.push_back(TmplValue{kv.first});
-			pair.push_back(kv.second);
-			items.push_back(std::move(pair));
-		}
-		return items;
+		return tmpl_object_items(val.as_object());
 	}
 	return val;
 }
@@ -988,13 +1001,9 @@ TmplValue Environment::Impl::eval_base(
 		return {};
 	case CompiledBaseKind::array:
 	case CompiledBaseKind::tuple:
-		{
-			TmplValue arr{TmplValue::Array{}};
-			for (auto const &item: base.operands) {
-				arr.push_back(item ? eval_expr(*item, context) : TmplValue{});
-			}
-			return arr;
-		}
+		return tmpl_array_from(base.operands, [&](auto const &item) {
+			return item ? eval_expr(*item, context) : TmplValue{};
+		});
 	case CompiledBaseKind::object:
 		{
 			TmplValue obj{TmplValue::Object{}};
@@ -1133,11 +1142,7 @@ TmplValue Environment::Impl::eval_expr(
 				return TmplValue{TmplValue::Array{}};
 			}
 			auto items = split_args(inner);
-			TmplValue arr{TmplValue::Array{}};
-			for (auto &item: items) {
-				arr.push_back(eval_expr(item, context));
-			}
-			return arr;
+			return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
 		}
 
 		if (b.front() == '(' && b.back() == ')') {
@@ -1149,11 +1154,7 @@ TmplValue Environment::Impl::eval_expr(
 			if (items.size() == 1) {
 				return eval_expr(items[0], context);
 			}
-			TmplValue arr{TmplValue::Array{}};
-			for (auto &item: items) {
-				arr.push_back(eval_expr(item, context));
-			}
-			return arr;
+			return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
 		}
 
 		if (b.front() == '{' && b.back() == '}') {
@@ -1499,26 +1500,11 @@ TmplValue Environment::Impl::eval_expr(
 						}
 						set_owned(std::move(arr));
 					} else if (key == "keys" && cur->is_object()) {
-						TmplValue keys{TmplValue::Array{}};
-						for (auto const &kv: cur->as_object()) {
-							keys.push_back(TmplValue{kv.first});
-						}
-						set_owned(std::move(keys));
+						set_owned(tmpl_object_keys(cur->as_object()));
 					} else if (key == "values" && cur->is_object()) {
-						TmplValue vals{TmplValue::Array{}};
-						for (auto const &kv: cur->as_object()) {
-							vals.push_back(kv.second);
-						}
-						set_owned(std::move(vals));
+						set_owned(tmpl_object_values(cur->as_object()));
 					} else if (key == "items" && cur->is_object()) {
-						TmplValue items{TmplValue::Array{}};
-						for (auto const &kv: cur->as_object()) {
-							TmplValue P{TmplValue::Array{}};
-							P.push_back(TmplValue{kv.first});
-							P.push_back(kv.second);
-							items.push_back(std::move(P));
-						}
-						set_owned(std::move(items));
+						set_owned(tmpl_object_items(cur->as_object()));
 					}
 					continue;
 				}
