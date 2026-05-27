@@ -28,7 +28,6 @@ export namespace conflux::http {
 using Config = ::Config;
 using SseChannel = ::SseChannel;
 using WsConn = ::WsConn;
-using HttpMethod = ::HttpMethod;
 using ::RunStatus;
 using RequestContext = ::RequestContext;
 template<class T>

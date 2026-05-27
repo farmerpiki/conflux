@@ -437,6 +437,14 @@ if(TARGET conflux_net_http)
         EXPECT "StreamedFile")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_method
+        SOURCE http_facade_compile_fail_global_http_method.cxx
+        TEST http-facade/compile-fail-global-http-method
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpMethod")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization

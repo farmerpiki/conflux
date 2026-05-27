@@ -94,7 +94,9 @@ concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, Ne
 export template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
 
-export enum class HttpMethod : std::uint8_t {
+export namespace conflux::http {
+
+enum class HttpMethod : std::uint8_t {
 	get,
 	post,
 	put,
@@ -103,7 +105,7 @@ export enum class HttpMethod : std::uint8_t {
 	options,
 };
 
-export [[nodiscard]] constexpr std::string_view http_method_name(
+[[nodiscard]] constexpr std::string_view http_method_name(
 	HttpMethod method) noexcept {
 	switch (method) {
 	case HttpMethod::get    : return "GET";
@@ -116,48 +118,50 @@ export [[nodiscard]] constexpr std::string_view http_method_name(
 	return "GET";
 }
 
+} // namespace conflux::http
+
 struct RouteVerbAccessors {
 	template<typename Self, typename F>
 	Self &get(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::get, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::get, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &post(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::post, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::post, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &put(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::put, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::put, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &patch(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::patch, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::patch, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &del(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::delete_, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::delete_, path, std::forward<F>(handler));
 	}
 	template<typename Self, typename F>
 	Self &options(
 		this Self &self,
 		std::string_view path,
 		F &&handler) {
-		return self.add(HttpMethod::options, path, std::forward<F>(handler));
+		return self.add(conflux::http::HttpMethod::options, path, std::forward<F>(handler));
 	}
 };
 
@@ -191,7 +195,7 @@ public:
 	}
 	template<typename F>
 	Router &add(
-		HttpMethod method,
+		conflux::http::HttpMethod method,
 		std::string_view path,
 		F &&handler) {
 		add_prepared(method, path, make_handler(std::forward<F>(handler)));
@@ -219,7 +223,7 @@ public:
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &add_context(
-		HttpMethod method,
+		conflux::http::HttpMethod method,
 		std::string_view path,
 		F &&handler) {
 		add_context_prepared(method, path, ContextHandler{std::forward<F>(handler)});
@@ -228,14 +232,14 @@ public:
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &add_context_with_timeout(
-		HttpMethod method,
+		conflux::http::HttpMethod method,
 		std::string_view path,
 		std::shared_ptr<std::chrono::milliseconds> timeout,
 		F &&handler) {
 		add_context_prepared(method, path, std::move(timeout), ContextHandler{std::forward<F>(handler)});
 		return *this;
 	}
-	template<HttpMethod Method, typename F>
+	template<conflux::http::HttpMethod Method, typename F>
 		requires ContextHandlerFunction<F>
 	Router &add_method_context(
 		std::string_view path,
@@ -247,42 +251,42 @@ public:
 	Router &get_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::get>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::get>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &post_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::post>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::post>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &put_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::put>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::put>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &patch_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::patch>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::patch>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &del_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::delete_>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::delete_>(path, std::forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	Router &options_context(
 		std::string_view path,
 		F &&handler) {
-		return add_method_context<HttpMethod::options>(path, std::forward<F>(handler));
+		return add_method_context<conflux::http::HttpMethod::options>(path, std::forward<F>(handler));
 	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 	[[nodiscard]] bool has_context_routes() const noexcept;
@@ -366,7 +370,7 @@ public:
 		}
 		template<typename F>
 		Group &add(
-			HttpMethod method,
+			conflux::http::HttpMethod method,
 			std::string_view path,
 			F &&handler) {
 			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
@@ -386,14 +390,14 @@ public:
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &add_context(
-			HttpMethod method,
+			conflux::http::HttpMethod method,
 			std::string_view path,
 			F &&handler) {
 			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
 			router_.add_context(method, full_path, wrap_context(Router::ContextHandler{std::forward<F>(handler)}));
 			return *this;
 		}
-		template<HttpMethod Method, typename F>
+		template<conflux::http::HttpMethod Method, typename F>
 			requires ContextHandlerFunction<F>
 		Group &add_method_context(
 			std::string_view path,
@@ -405,42 +409,42 @@ public:
 		Group &get_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::get>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::get>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &post_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::post>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::post>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &put_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::put>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::put>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &patch_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::patch>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::patch>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &del_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::delete_>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::delete_>(path, std::forward<F>(handler));
 		}
 		template<typename F>
 			requires ContextHandlerFunction<F>
 		Group &options_context(
 			std::string_view path,
 			F &&handler) {
-			return add_method_context<HttpMethod::options>(path, std::forward<F>(handler));
+			return add_method_context<conflux::http::HttpMethod::options>(path, std::forward<F>(handler));
 		}
 
 	private:
@@ -490,16 +494,16 @@ private:
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
 	void add_prepared(std::string_view method, std::string_view path, Handler handler);
-	void add_prepared(HttpMethod method, std::string_view path, Handler handler);
+	void add_prepared(conflux::http::HttpMethod method, std::string_view path, Handler handler);
 	void add_context_prepared(std::string_view method, std::string_view path, ContextHandler handler);
-	void add_context_prepared(HttpMethod method, std::string_view path, ContextHandler handler);
+	void add_context_prepared(conflux::http::HttpMethod method, std::string_view path, ContextHandler handler);
 	void add_context_prepared(
 		std::string_view method,
 		std::string_view path,
 		std::shared_ptr<std::chrono::milliseconds> timeout,
 		ContextHandler handler);
 	void add_context_prepared(
-		HttpMethod method,
+		conflux::http::HttpMethod method,
 		std::string_view path,
 		std::shared_ptr<std::chrono::milliseconds> timeout,
 		ContextHandler handler);

@@ -452,10 +452,10 @@ void Router::add_prepared(
 }
 
 void Router::add_prepared(
-	HttpMethod method,
+	conflux::http::HttpMethod method,
 	std::string_view path,
 	Handler handler) {
-	add_prepared(http_method_name(method), path, std::move(handler));
+	add_prepared(conflux::http::http_method_name(method), path, std::move(handler));
 }
 
 void Router::add_context_prepared(
@@ -491,18 +491,18 @@ void Router::add_context_prepared(
 }
 
 void Router::add_context_prepared(
-	HttpMethod method,
+	conflux::http::HttpMethod method,
 	std::string_view path,
 	ContextHandler handler) {
-	add_context_prepared(http_method_name(method), path, std::move(handler));
+	add_context_prepared(conflux::http::http_method_name(method), path, std::move(handler));
 }
 
 void Router::add_context_prepared(
-	HttpMethod method,
+	conflux::http::HttpMethod method,
 	std::string_view path,
 	std::shared_ptr<std::chrono::milliseconds> timeout,
 	ContextHandler handler) {
-	add_context_prepared(http_method_name(method), path, std::move(timeout), std::move(handler));
+	add_context_prepared(conflux::http::http_method_name(method), path, std::move(timeout), std::move(handler));
 }
 
 void Router::use_prepared(
@@ -565,18 +565,21 @@ Router &Router::set_static_file_cache(
 Router &Router::ws_prepared(
 	std::string_view path,
 	WsHandler handler) {
-	add_prepared(HttpMethod::get, path, Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
-					 if (!ws_detail::is_valid_handshake(req)) {
-						 return Response::bad_request();
-					 }
-					 auto key = conflux::http::trim_http_whitespace(req.headers["sec-websocket-key"]);
-					 auto up = std::make_shared<WsUpgrade>();
-					 up->accept_key = ws_detail::ws_accept_key(key);
-					 up->handler = h;
-					 Response r{.status = 101, .status_text = "Switching Protocols"};
-					 r.set_ws_upgrade(std::move(up));
-					 return r;
-				 }});
+	add_prepared(
+		conflux::http::HttpMethod::get,
+		path,
+		Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
+			if (!ws_detail::is_valid_handshake(req)) {
+				return Response::bad_request();
+			}
+			auto key = conflux::http::trim_http_whitespace(req.headers["sec-websocket-key"]);
+			auto up = std::make_shared<WsUpgrade>();
+			up->accept_key = ws_detail::ws_accept_key(key);
+			up->handler = h;
+			Response r{.status = 101, .status_text = "Switching Protocols"};
+			r.set_ws_upgrade(std::move(up));
+			return r;
+		}});
 	return *this;
 }
 
@@ -688,12 +691,12 @@ Router &Router::serve_static(
 		sopts,
 		impl_->static_file_cache,
 		impl_->static_cache);
-	add_prepared(HttpMethod::get, routes.pattern, std::move(routes.get));
+	add_prepared(conflux::http::HttpMethod::get, routes.pattern, std::move(routes.get));
 	if (routes.put) {
-		add_prepared(HttpMethod::put, routes.pattern, std::move(*routes.put));
+		add_prepared(conflux::http::HttpMethod::put, routes.pattern, std::move(*routes.put));
 	}
 	if (routes.del) {
-		add_prepared(HttpMethod::delete_, routes.pattern, std::move(*routes.del));
+		add_prepared(conflux::http::HttpMethod::delete_, routes.pattern, std::move(*routes.del));
 	}
 	return *this;
 }
