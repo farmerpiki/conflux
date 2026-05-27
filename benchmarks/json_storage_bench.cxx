@@ -114,6 +114,13 @@ std::string make_escape_heavy_strings(
 std::string make_duplicate_keys(
 	std::size_t unique_members,
 	std::size_t duplicate_repeats) {
+	if (unique_members == 0) {
+		if (duplicate_repeats == 0) {
+			return "{}";
+		}
+		throw std::invalid_argument{"unique_members must be > 0 when duplicate_repeats > 0"};
+	}
+
 	std::string out;
 	out.reserve((unique_members + duplicate_repeats) * 24 + 2);
 	out += '{';

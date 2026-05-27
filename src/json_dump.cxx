@@ -192,7 +192,7 @@ void dump_str(
 				append_u_escape(out, cc);
 				++i;
 			} else if (ascii_only && cc >= 0x80U) {
-				// Decode UTF-8 to get code point, then emit \uXXXX or surrogate P.
+				// Decode UTF-8 to get code point, then emit \uXXXX or surrogate pair.
 				std::uint32_t cp = 0;
 				std::size_t seq = 0;
 				if (cc < 0xE0U) {

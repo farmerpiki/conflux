@@ -156,7 +156,7 @@ TEST_CASE(
 	CHECK(*s == "ABC");
 }
 TEST_CASE(
-	"json: parse surrogate P",
+	"json: parse surrogate pair",
 	"[json]") {
 	auto doc = parse(R"("😀")");
 	REQUIRE(doc.has_value());
@@ -2117,7 +2117,7 @@ TEST_CASE(
 	CHECK(*reparsed->root().as_string() == "café");
 }
 TEST_CASE(
-	"json: dump ascii_only escapes surrogate-P code point",
+	"json: dump ascii_only escapes surrogate-pair code point",
 	"[json][dump][examples]") {
 	auto doc = parse(R"("😀")");
 	REQUIRE(doc.has_value());

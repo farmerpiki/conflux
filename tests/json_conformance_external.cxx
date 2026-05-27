@@ -291,7 +291,7 @@ TEST_CASE(
 	check_valid("\"\\u0000\"");
 	check_valid("\"\\uFFFF\"");
 	check_valid("\"\\u0041\""); // 'A'
-	check_valid("\"\\uD83D\\uDE00\""); // surrogate P: emoji
+	check_valid("\"\\uD83D\\uDE00\""); // surrogate pair: emoji
 	check_valid("[\"\\u4E2D\\u6587\"]"); // Chinese characters
 }
 TEST_CASE(
@@ -456,12 +456,12 @@ TEST_CASE(
 TEST_CASE(
 	"UUU: hash_fallback_linear_on_escaped -- 9-member object with warm_member_index",
 	"[conformance][escaped-key][phase6]") {
-	// Object with 9 members (>= kHashThreshold=8) including plain keys.
+	// Object with 9 members (>= kHashThreshold=8) including an escaped key.
 	// warm_member_index pre-builds the hash table; find_member must still return
 	// correct result for all keys.
 	auto doc = json::parse(R"({
 "k0":0,"k1":1,"k2":2,"k3":3,"k4":4,
-"k5":5,"k6":6,"k7":7,"k8":8
+"k5":5,"k6":6,"k7":7,"\u006B8":8
 })");
 	REQUIRE(doc.has_value());
 	auto warm = doc->warm_member_index(doc->root());
@@ -559,7 +559,7 @@ TEST_CASE(
 TEST_CASE(
 	"NNN: NodeRef survives Document move-construct",
 	"[conformance][move-stability]") {
-	auto doc1 = json::parse(R"({"k": 42})");
+	auto doc1 = json::parse_copy(std::string{R"({"k": 42})"});
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
 	Document doc2 = std::move(*doc1);
@@ -572,7 +572,7 @@ TEST_CASE(
 TEST_CASE(
 	"NNN: NodeRef survives Document move-assign",
 	"[conformance][move-stability]") {
-	auto doc1 = json::parse(R"({"k": 42})");
+	auto doc1 = json::parse_copy(std::string{R"({"k": 42})"});
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
 	Document doc2;
@@ -584,7 +584,7 @@ TEST_CASE(
 TEST_CASE(
 	"NNN: ObjectView survives Document move",
 	"[conformance][move-stability]") {
-	auto doc1 = json::parse(R"({"a": 1, "b": 2, "c": 3})");
+	auto doc1 = json::parse_copy(std::string{R"({"a": 1, "b": 2, "c": 3})"});
 	REQUIRE(doc1.has_value());
 	auto obj_before = *doc1->root().as_object();
 	CHECK(obj_before.size() == 3UZ);
@@ -595,7 +595,7 @@ TEST_CASE(
 TEST_CASE(
 	"NNN: ArrayView survives Document move",
 	"[conformance][move-stability]") {
-	auto doc1 = json::parse(R"([10, 20, 30])");
+	auto doc1 = json::parse_copy(std::string{R"([10, 20, 30])"});
 	REQUIRE(doc1.has_value());
 	auto arr_before = *doc1->root().as_array();
 	Document doc2 = std::move(*doc1);
@@ -605,7 +605,7 @@ TEST_CASE(
 TEST_CASE(
 	"NNN: JsonNumberView survives Document move",
 	"[conformance][move-stability]") {
-	auto doc1 = json::parse(R"(3.14)");
+	auto doc1 = json::parse_copy(std::string{R"(3.14)"});
 	REQUIRE(doc1.has_value());
 	auto num_before = *doc1->root().as_number();
 	Document doc2 = std::move(*doc1);
@@ -618,10 +618,10 @@ TEST_CASE(
 	"NNN: warm_member_index pointer stable across Document move",
 	"[conformance][move-stability]") {
 	// Build object large enough to use hash index (size >= kHashThreshold=8).
-	auto doc1 = json::parse(R"({
+	auto doc1 = json::parse_copy(std::string{R"({
 "k0":0,"k1":1,"k2":2,"k3":3,"k4":4,
 "k5":5,"k6":6,"k7":7,"k8":8,"k9":9
-})");
+})"});
 	REQUIRE(doc1.has_value());
 	REQUIRE(doc1->warm_member_index(doc1->root()).has_value());
 	auto obj_before = *doc1->root().as_object();
