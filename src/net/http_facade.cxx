@@ -26,8 +26,6 @@ import conflux.net.metrics;
 export namespace conflux::http {
 
 using Config = ::Config;
-using SseChannel = ::SseChannel;
-using WsConn = ::WsConn;
 template<class T>
 using Task = conflux::work::Task<T>;
 using Next = ::Router::Handler;
@@ -83,7 +81,7 @@ using AsyncNext = ::Router::AsyncNext;
 }
 
 [[nodiscard]] Response sse(
-	std::shared_ptr<SseChannel> channel) {
+	std::shared_ptr<conflux::http::SseChannel> channel) {
 	return Response::sse(std::move(channel));
 }
 

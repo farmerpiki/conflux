@@ -90,13 +90,13 @@ TEST_CASE(
 		return chttp::Response::text(std::string(kLargeBodyBytes, 'x'));
 	});
 	router.get("/events/open", [](chttp::RequestView const &) {
-		auto ch = std::make_shared<SseChannel>();
+		auto ch = std::make_shared<conflux::http::SseChannel>();
 		(void)ch->send("data: open\n\n");
 		return chttp::Response::sse(std::move(ch));
 	});
-	router.ws("/ws", [](chttp::RequestView const &, WsConn &ws) {
+	router.ws("/ws", [](chttp::RequestView const &, conflux::http::WsConn &ws) {
 		while (auto frame = ws.recv()) {
-			if (frame->opcode == WsConn::Opcode::Text && !ws.send_text(frame->payload)) {
+			if (frame->opcode == conflux::http::WsConn::Opcode::Text && !ws.send_text(frame->payload)) {
 				break;
 			}
 		}

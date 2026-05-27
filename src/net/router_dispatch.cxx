@@ -30,7 +30,7 @@ void router_launch_sse_handler(
 	Pool const &pool,
 	Handler handler,
 	Request matched,
-	std::shared_ptr<SseChannel> const &channel) {
+	std::shared_ptr<conflux::http::SseChannel> const &channel) {
 	if (!pool->enqueue([h = std::move(handler), matched = std::move(matched), channel]() mutable {
 			RequestView const matched_view{matched};
 			h(matched_view, channel);
@@ -175,7 +175,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 				bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
 															match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
-					auto channel = std::make_shared<SseChannel>();
+					auto channel = std::make_shared<conflux::http::SseChannel>();
 					Request matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
 						matched.params.emplace_back(std::string{k}, std::string{v});

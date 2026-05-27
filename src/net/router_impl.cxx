@@ -571,12 +571,12 @@ Router &Router::ws_prepared(
 		conflux::http::HttpMethod::get,
 		path,
 		Handler{[h = std::move(handler)](RequestView const &req) mutable -> Response {
-			if (!ws_detail::is_valid_handshake(req)) {
+			if (!conflux::http::detail::is_valid_handshake(req)) {
 				return Response::bad_request();
 			}
 			auto key = conflux::http::trim_http_whitespace(req.headers["sec-websocket-key"]);
-			auto up = std::make_shared<WsUpgrade>();
-			up->accept_key = ws_detail::ws_accept_key(key);
+			auto up = std::make_shared<conflux::http::WsUpgrade>();
+			up->accept_key = conflux::http::detail::ws_accept_key(key);
 			up->handler = h;
 			Response r{.status = 101, .status_text = "Switching Protocols"};
 			r.set_ws_upgrade(std::move(up));
@@ -610,7 +610,7 @@ void Router::launch_sse_handler(
 	std::shared_ptr<WorkPool> const &pool,
 	SseHandler handler,
 	Request matched,
-	std::shared_ptr<SseChannel> const &channel) {
+	std::shared_ptr<conflux::http::SseChannel> const &channel) {
 	router_launch_sse_handler(pool, std::move(handler), std::move(matched), channel);
 }
 

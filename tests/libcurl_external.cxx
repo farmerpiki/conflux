@@ -335,7 +335,7 @@ void require_ok(
 
 [[nodiscard]] Router make_matrix_router() {
 	Router r = conflux::tests::make_external_test_router();
-	r.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		ch->close();

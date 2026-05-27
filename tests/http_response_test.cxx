@@ -207,7 +207,7 @@ TEST_CASE(
 		CHECK(resp.headers["etag"] == R"("abc")");
 	}
 	{
-		auto ch = std::make_shared<SseChannel>();
+		auto ch = std::make_shared<conflux::http::SseChannel>();
 		auto resp = Response::sse(ch);
 		CHECK(resp.status == kHttpOk);
 		CHECK(resp.content_type == "text/event-stream");
@@ -229,7 +229,7 @@ TEST_CASE(
 	CHECK(resp.is_text());
 	CHECK(resp.text_body().empty());
 
-	auto sse = std::make_shared<SseChannel>();
+	auto sse = std::make_shared<conflux::http::SseChannel>();
 	resp.set_sse_channel(sse);
 	CHECK(resp.is_sse());
 	CHECK_FALSE(resp.is_text());
@@ -238,7 +238,7 @@ TEST_CASE(
 	CHECK(resp.take_sse_channel() == sse);
 	CHECK_FALSE(resp.sse_channel_ptr());
 
-	auto close_observed = std::make_shared<SseChannel>();
+	auto close_observed = std::make_shared<conflux::http::SseChannel>();
 	int closed = 0;
 	close_observed->on_close([&] { ++closed; });
 	close_observed->close();
@@ -247,31 +247,33 @@ TEST_CASE(
 	close_observed->on_close([&] { ++closed; });
 	CHECK(closed == 2);
 
-	auto drop_newest = std::make_shared<SseChannel>(4, SseOverflowPolicy::DropNewest);
+	auto drop_newest = std::make_shared<conflux::http::SseChannel>(4, conflux::http::SseOverflowPolicy::DropNewest);
 	CHECK(drop_newest->overflow_policy_vocabulary() == OverflowPolicy::drop_newest);
 	CHECK(drop_newest->send("1234"));
 	CHECK_FALSE(drop_newest->send("5"));
 	CHECK(drop_newest->pressure_metrics().dropped_newest == 1);
 
-	SseChannel view_channel;
+	conflux::http::SseChannel view_channel;
 	std::string frame = "data: before\n\n";
 	CHECK(view_channel.send_view(frame));
 	frame.assign("data: after\n\n");
 	CHECK(view_channel.drain() == "data: before\n\n");
 
-	auto drop_oldest = std::make_shared<SseChannel>(4, SseOverflowPolicy::DropOldest);
+	auto drop_oldest = std::make_shared<conflux::http::SseChannel>(4, conflux::http::SseOverflowPolicy::DropOldest);
 	CHECK(drop_oldest->overflow_policy_vocabulary() == OverflowPolicy::drop_oldest);
 	CHECK(drop_oldest->send("1234"));
 	CHECK(drop_oldest->send("5"));
 	CHECK(drop_oldest->pressure_metrics().dropped_oldest == 1);
 
-	auto disconnect = std::make_shared<SseChannel>(4, sse_overflow_policy(OverflowPolicy::close_connection));
+	auto disconnect = std::make_shared<conflux::http::SseChannel>(
+		4,
+		conflux::http::sse_overflow_policy(OverflowPolicy::close_connection));
 	CHECK(disconnect->send("1234"));
 	CHECK_FALSE(disconnect->send("5"));
 	CHECK(disconnect->is_closed());
 	CHECK(disconnect->pressure_metrics().disconnected_for_pressure == 1);
 
-	auto ws = std::make_shared<WsUpgrade>();
+	auto ws = std::make_shared<conflux::http::WsUpgrade>();
 	ws->accept_key = "accept";
 	resp.set_ws_upgrade(ws);
 	CHECK(resp.is_ws_upgrade());
@@ -282,7 +284,7 @@ TEST_CASE(
 	int sockets[2]{};
 	REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
 	{
-		WsConn conn{sockets[0]};
+		conflux::http::WsConn conn{sockets[0]};
 		int closed = 0;
 		conn.on_close([&] { ++closed; });
 		CHECK(conn.send_text("hello"));

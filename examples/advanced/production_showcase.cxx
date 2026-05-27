@@ -172,8 +172,9 @@ int main() {
 	MetricsRegistry metrics;
 	auto app = http::app(http::Config::public_server());
 	auto todos = std::make_shared<TodoService>();
-	auto events =
-		std::make_shared<http::SseChannel>(http::SseChannel::kDefaultMaxQueueBytes, SseOverflowPolicy::DropNewest);
+	auto events = std::make_shared<http::SseChannel>(
+		http::SseChannel::kDefaultMaxQueueBytes,
+		conflux::http::SseOverflowPolicy::DropNewest);
 
 	app.state(todos);
 	app.use(request_id_middleware());

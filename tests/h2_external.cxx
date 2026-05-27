@@ -608,7 +608,7 @@ TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
-	r.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		CONFLUX_DISCARD(ch->send("data: gamma\n\n"));
@@ -625,7 +625,7 @@ TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
 	Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
-	r.sse("/typed", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/typed", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});

@@ -2055,7 +2055,7 @@ TEST_CASE(
 	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
 	pool->stop();
 	router.set_work_pool(pool);
-	router.ws("/ws", [](Request const &, WsConn &) {});
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &) {});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 
 	int const fd = ws_test::ws_handshake(srv.port());
@@ -2075,7 +2075,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: frame with RSV bit set triggers close 1002") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2091,7 +2091,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: unmasked client frame triggers close 1002") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2107,7 +2107,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: non-minimal extended payload length triggers close 1002") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2132,7 +2132,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: oversized control frame (ping with 126-std::byte payload) triggers close 1002") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2149,7 +2149,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: handshake without Upgrade header is rejected") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &) {});
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &) {});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -2175,7 +2175,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: handshake with invalid Sec-WebSocket-Key is rejected") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &) {});
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &) {});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -2202,7 +2202,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: one-std::byte close payload triggers close 1002") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2218,7 +2218,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: invalid close code is rejected instead of echoed") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2237,7 +2237,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: invalid close reason UTF-8 from peer triggers close 1007") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2259,7 +2259,7 @@ TEST_CASE(
 	auto result = std::make_shared<std::promise<bool>>();
 	auto done = result->get_future();
 	Router router;
-	router.ws("/ws", [result](Request const &, WsConn &ws) {
+	router.ws("/ws", [result](Request const &, conflux::http::WsConn &ws) {
 		try {
 			ws.close(1005);
 			result->set_value(false);
@@ -2277,7 +2277,7 @@ TEST_CASE(
 	auto result = std::make_shared<std::promise<bool>>();
 	auto done = result->get_future();
 	Router router;
-	router.ws("/ws", [result](Request const &, WsConn &ws) {
+	router.ws("/ws", [result](Request const &, conflux::http::WsConn &ws) {
 		try {
 			ws.close(1000, std::string_view{"\xC0\xAF", 2});
 			result->set_value(false);
@@ -2293,9 +2293,9 @@ TEST_CASE(
 TEST_CASE(
 	"ws: fragmented text message is reassembled before handler sees it") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (auto f = ws.recv()) {
-			if (f->opcode == WsConn::Opcode::Text) {
+			if (f->opcode == conflux::http::WsConn::Opcode::Text) {
 				if (!ws.send_text(f->payload)) {
 					break;
 				}
@@ -2321,7 +2321,7 @@ TEST_CASE(
 TEST_CASE(
 	"ws: invalid UTF-8 in text frame triggers close 1007") {
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (ws.recv()) {}
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
@@ -2448,7 +2448,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"SseChannel: DropNewest policy drops overflowing frames") {
-	SseChannel ch{64, SseOverflowPolicy::DropNewest};
+	conflux::http::SseChannel ch{64, conflux::http::SseOverflowPolicy::DropNewest};
 	// Each frame is 10 bytes; queue holds at most 64 bytes → 6 fit.
 	for (int i = 0; i < 10; ++i) {
 		std::string frame(10, 'x');
@@ -2460,7 +2460,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"SseChannel: DropOldest policy keeps newest frames") {
-	SseChannel ch{30, SseOverflowPolicy::DropOldest};
+	conflux::http::SseChannel ch{30, conflux::http::SseOverflowPolicy::DropOldest};
 	for (int i = 0; i < 5; ++i) {
 		std::string frame(10, static_cast<char>('a' + i));
 		(void)ch.send(std::move(frame));
@@ -2473,7 +2473,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"SseChannel: Disconnect policy closes on overflow") {
-	SseChannel ch{20, SseOverflowPolicy::Disconnect};
+	conflux::http::SseChannel ch{20, conflux::http::SseOverflowPolicy::Disconnect};
 	REQUIRE(ch.send(std::string(10, 'x')));
 	// Next send exceeds the cap → channel is closed; further sends return false.
 	(void)ch.send(std::string(20, 'y'));
@@ -2482,7 +2482,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"SseChannel: send returns false after close") {
-	SseChannel ch{4096};
+	conflux::http::SseChannel ch{4096};
 	ch.close();
 	REQUIRE_FALSE(ch.send("hello"));
 }

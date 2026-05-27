@@ -112,7 +112,7 @@ void Ring::launch_plain_ws_handler(
 	register_active_ws(fd);
 	if (!pool.enqueue(
 			[registry, state = std::move(state), fd, ibuf = std::move(initial_buf), pressure_counter]() mutable {
-				WsConn ws{fd, std::move(ibuf), std::move(pressure_counter)};
+				conflux::http::WsConn ws{fd, std::move(ibuf), std::move(pressure_counter)};
 				state.upgrade->handler(state.request, ws);
 				{
 					std::scoped_lock const lk{registry->mu};
@@ -198,7 +198,7 @@ void Ring::launch_tls_ws_handler(
 					   ssl_owned = std::move(owned),
 					   ibuf = std::move(initial_buf),
 					   pressure_counter]() mutable {
-			WsConn ws{fd, ssl_owned.release(), std::move(ibuf), std::move(pressure_counter)};
+			conflux::http::WsConn ws{fd, ssl_owned.release(), std::move(ibuf), std::move(pressure_counter)};
 			state.upgrade->handler(state.request, ws);
 			{
 				std::scoped_lock const lk{registry->mu};

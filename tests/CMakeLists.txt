@@ -461,6 +461,46 @@ if(TARGET conflux_net_http)
         EXPECT "RunStatus")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_sse_channel
+        SOURCE http_facade_compile_fail_global_sse_channel.cxx
+        TEST http-facade/compile-fail-global-sse-channel
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SseChannel")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_sse_overflow_policy
+        SOURCE http_facade_compile_fail_global_sse_overflow_policy.cxx
+        TEST http-facade/compile-fail-global-sse-overflow-policy
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SseOverflowPolicy")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_ws_conn
+        SOURCE http_facade_compile_fail_global_ws_conn.cxx
+        TEST http-facade/compile-fail-global-ws-conn
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "WsConn")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_ws_upgrade
+        SOURCE http_facade_compile_fail_global_ws_upgrade.cxx
+        TEST http-facade/compile-fail-global-ws-upgrade
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "WsUpgrade")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_ws_detail
+        SOURCE http_facade_compile_fail_global_ws_detail.cxx
+        TEST http-facade/compile-fail-global-ws-detail
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ws_detail")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_json_compile_fail_global_customization
         SOURCE json_compile_fail_global_customization.cxx
         TEST json/compile-fail-global-customization

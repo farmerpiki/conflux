@@ -78,7 +78,7 @@ TEST_CASE(
 	"[http][e2e][backpressure][sse][lifecycle]") {
 	Router router;
 	router.get("/events/open", [](chttp::RequestView const &) {
-		auto ch = std::make_shared<SseChannel>();
+		auto ch = std::make_shared<conflux::http::SseChannel>();
 		(void)ch->send("data: open\n\n");
 		return chttp::Response::sse(std::move(ch));
 	});
@@ -113,7 +113,7 @@ TEST_CASE(
 	"[http][e2e][backpressure][ws]") {
 	Router router;
 	auto handler_started = std::make_shared<std::atomic_bool>(false);
-	router.ws("/ws", [handler_started](chttp::RequestView const &, WsConn &ws) {
+	router.ws("/ws", [handler_started](chttp::RequestView const &, conflux::http::WsConn &ws) {
 		handler_started->store(true, std::memory_order_release);
 		std::string payload(64 * 1024, 'w');
 		for (int i = 0; i < 1024; ++i) {

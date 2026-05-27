@@ -112,9 +112,9 @@ TEST_CASE(
 	"http app: facade forwards websocket and static route registration",
 	"[http][app]") {
 	auto app = chttp::App::default_server();
-	auto &ws_app = app.ws("/ws", [](RequestView const &, WsConn &) {});
+	auto &ws_app = app.ws("/ws", [](RequestView const &, conflux::http::WsConn &) {});
 	CHECK(&ws_app == &app);
-	auto &sse_app = app.sse("/events", [](RequestView const &, std::shared_ptr<SseChannel> const &) {});
+	auto &sse_app = app.sse("/events", [](RequestView const &, std::shared_ptr<conflux::http::SseChannel> const &) {});
 	CHECK(&sse_app == &app);
 	auto &static_app = app.serve_static("/assets", std::filesystem::temp_directory_path().string());
 	CHECK(&static_app == &app);
@@ -330,14 +330,14 @@ void ensure_server() {
 			return r;
 		});
 		// SSE endpoint: streams 3 events then closes.
-		router.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 			auto _ = ch->send("data: event1\n\n");
 			CONFLUX_DISCARD(ch->send("data: event2\n\n"));
 			CONFLUX_DISCARD(ch->send("data: event3\n\n"));
 			ch->close();
 		});
 		// Named-param SSE endpoint.
-		router.sse("/events/{name}", [](Request const &req, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events/{name}", [](Request const &req, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 			auto _ = ch->send(std::format("data: hello {}\n\n", req.params["name"]));
 			ch->close();
 		});
@@ -1548,7 +1548,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"SseBroadcaster: subscriber_count tracks subscriptions") {
-	SseBroadcaster bc;
+	conflux::http::SseBroadcaster bc;
 	REQUIRE(bc.subscriber_count() == 0);
 	auto ch1 = bc.subscribe();
 	REQUIRE(bc.subscriber_count() == 1);
@@ -1557,7 +1557,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"SseBroadcaster: stale subscriber is evicted on broadcast") {
-	SseBroadcaster bc;
+	conflux::http::SseBroadcaster bc;
 	{
 		auto ch = bc.subscribe();
 		REQUIRE(bc.subscriber_count() == 1);

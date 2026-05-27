@@ -334,7 +334,7 @@ TEST_CASE(
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {
 	Router r;
-	r.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		ch->close();
@@ -349,7 +349,7 @@ TEST_CASE(
 TEST_CASE(
 	"ext/curl: SSE send_event delivers typed event") {
 	Router r;
-	r.sse("/typed", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/typed", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});

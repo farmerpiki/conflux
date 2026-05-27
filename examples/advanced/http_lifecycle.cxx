@@ -23,8 +23,9 @@ void handle_stop_signal(
 int main() {
 	auto app = http::app(http::Config::public_server());
 
-	auto events =
-		std::make_shared<http::SseChannel>(http::SseChannel::kDefaultMaxQueueBytes, SseOverflowPolicy::DropNewest);
+	auto events = std::make_shared<http::SseChannel>(
+		http::SseChannel::kDefaultMaxQueueBytes,
+		conflux::http::SseOverflowPolicy::DropNewest);
 
 	app.get("/health", [] { return http::text("ok"); });
 	app.get("/events", [events] { return http::sse(events); });

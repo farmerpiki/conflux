@@ -28,13 +28,15 @@ import conflux.utils;
 import conflux.net.tls;
 #endif
 
-export enum class SseOverflowPolicy : std::uint8_t {
+export namespace conflux::http {
+
+enum class SseOverflowPolicy : std::uint8_t {
 	DropNewest,
 	DropOldest,
 	Disconnect,
 };
 
-export constexpr OverflowPolicy to_overflow_policy(
+constexpr OverflowPolicy to_overflow_policy(
 	SseOverflowPolicy policy) noexcept {
 	switch (policy) {
 	case SseOverflowPolicy::DropNewest: return OverflowPolicy::drop_newest;
@@ -44,7 +46,7 @@ export constexpr OverflowPolicy to_overflow_policy(
 	return OverflowPolicy::drop_newest;
 }
 
-export constexpr SseOverflowPolicy sse_overflow_policy(
+constexpr SseOverflowPolicy sse_overflow_policy(
 	OverflowPolicy policy) noexcept {
 	switch (policy) {
 	case OverflowPolicy::drop_oldest     : return SseOverflowPolicy::DropOldest;
@@ -56,19 +58,23 @@ export constexpr SseOverflowPolicy sse_overflow_policy(
 	return SseOverflowPolicy::DropNewest;
 }
 
+} // namespace conflux::http
+
 namespace {
 
 void ignore_noexcept_destructor_failure() noexcept {}
 
 } // namespace
 
-export struct SsePressureMetrics {
+export namespace conflux::http {
+
+struct SsePressureMetrics {
 	std::uint64_t dropped_newest{};
 	std::uint64_t dropped_oldest{};
 	std::uint64_t disconnected_for_pressure{};
 };
 
-export class SseChannel {
+class SseChannel {
 private:
 	int efd_{};
 	std::mutex mtx_{};
@@ -243,7 +249,7 @@ public:
 // Maintains a set of active SseChannel weak_ptrs.  broadcast() delivers an
 // SSE event to every currently-connected subscriber.  Stale weak_ptrs are
 // reaped on each broadcast call.
-export class SseBroadcaster {
+class SseBroadcaster {
 public:
 	SseBroadcaster() = default;
 	~SseBroadcaster() = default;
@@ -296,13 +302,15 @@ private:
 	std::vector<std::weak_ptr<SseChannel>> channels_;
 };
 
+} // namespace conflux::http
+
 // WebSocket support
 // ---------------------------------------------------------------------------
 
-namespace ws_detail {
+export namespace conflux::http::detail {
 
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
-export std::string ws_accept_key(
+std::string ws_accept_key(
 	std::string_view client_key) {
 	static constexpr std::string_view kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	std::string input{client_key};
@@ -318,7 +326,7 @@ bool is_valid_client_key(
 	auto decoded = base64_decode(key);
 	return decoded.size() == 16 && base64_encode(to_unsigned_span(decoded)) == key;
 }
-export bool is_valid_handshake(
+bool is_valid_handshake(
 	RequestView const &req) {
 	return conflux::http::header_token_contains(req.headers["upgrade"], "websocket")
 		&& conflux::http::header_token_contains(req.headers["connection"], "upgrade")
@@ -356,7 +364,7 @@ bool ws_send_frame(
 	int fd,
 	std::uint8_t opcode,
 	std::span<std::byte const> payload) {
-	auto frame = ws_detail::ws_build_frame(opcode, payload);
+	auto frame = ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
 		auto n = ::send(fd, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
@@ -375,7 +383,7 @@ bool ws_tls_send_frame(
 	SSL *ssl,
 	std::uint8_t opcode,
 	std::span<std::byte const> payload) {
-	auto frame = ws_detail::ws_build_frame(opcode, payload);
+	auto frame = ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
 		auto const chunk =
@@ -543,10 +551,12 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 	return FrameParseStatus::Ok;
 }
 
-} // namespace ws_detail
+} // namespace conflux::http::detail
 // WebSocket connection object passed to the WsHandler callback.
 // Thread-safe for concurrent send; recv is single-consumer.
-export class WsConn {
+export namespace conflux::http {
+
+class WsConn {
 public:
 	enum class Opcode : std::uint8_t {
 		Text = 1,
@@ -596,11 +606,11 @@ public:
 			if (!fill(2)) {
 				return std::nullopt;
 			}
-			ws_detail::FrameHeader hdr{};
+			detail::FrameHeader hdr{};
 			// First parse pass on 2 bytes surfaces protocol errors (rsv, opcode,
 			// unmasked, control-size) without waiting for mask bytes — the wire
 			// may legitimately have no mask for a rejected frame.
-			auto const pre = ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
+			auto const pre = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
 			auto emit_protocol_close = [&]() {
 				auto const b0 = static_cast<std::uint8_t>(buf_[0]);
 				if ((b0 & 0x70U) != 0) {
@@ -611,11 +621,11 @@ public:
 					close(1002, "unmasked frame");
 				}
 			};
-			if (pre == ws_detail::FrameParseStatus::ProtocolError) {
+			if (pre == detail::FrameParseStatus::ProtocolError) {
 				emit_protocol_close();
 				return std::nullopt;
 			}
-			if (pre == ws_detail::FrameParseStatus::ControlTooLarge) {
+			if (pre == detail::FrameParseStatus::ControlTooLarge) {
 				close(1002, "invalid control frame");
 				return std::nullopt;
 			}
@@ -626,12 +636,11 @@ public:
 			if (!fill(header_needed)) {
 				return std::nullopt;
 			}
-			auto const status =
-				ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
-			if (status != ws_detail::FrameParseStatus::Ok) {
-				if (status == ws_detail::FrameParseStatus::ProtocolError) {
+			auto const status = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
+			if (status != detail::FrameParseStatus::Ok) {
+				if (status == detail::FrameParseStatus::ProtocolError) {
 					close(1002, "invalid frame header");
-				} else if (status == ws_detail::FrameParseStatus::ControlTooLarge) {
+				} else if (status == detail::FrameParseStatus::ControlTooLarge) {
 					close(1002, "invalid control frame");
 				}
 				return std::nullopt;
@@ -699,11 +708,11 @@ public:
 					echo_code = static_cast<std::uint16_t>(
 						(static_cast<unsigned>(static_cast<std::uint8_t>(payload[0])) << 8U)
 						| static_cast<unsigned>(static_cast<std::uint8_t>(payload[1])));
-					if (!ws_detail::is_valid_close_code(echo_code)) {
+					if (!detail::is_valid_close_code(echo_code)) {
 						close(1002, "invalid close code");
 						return std::nullopt;
 					}
-					if (payload.size() > 2 && !ws_detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
+					if (payload.size() > 2 && !detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
 						close(1007, "invalid utf-8");
 						return std::nullopt;
 					}
@@ -725,7 +734,7 @@ public:
 				std::string final_payload = std::move(frag_payload_);
 				frag_opcode_.reset();
 				frag_payload_.clear();
-				if (final_op == Opcode::Text && !ws_detail::utf8_is_valid(final_payload)) {
+				if (final_op == Opcode::Text && !detail::utf8_is_valid(final_payload)) {
 					close(1007, "invalid utf-8");
 					return std::nullopt;
 				}
@@ -746,7 +755,7 @@ public:
 				frag_payload_ = std::move(payload);
 				continue;
 			}
-			if (opcode == Opcode::Text && !ws_detail::utf8_is_valid(payload)) {
+			if (opcode == Opcode::Text && !detail::utf8_is_valid(payload)) {
 				close(1007, "invalid utf-8");
 				return std::nullopt;
 			}
@@ -774,14 +783,14 @@ public:
 	void close(
 		std::uint16_t code = 1000,
 		std::string_view reason = {}) {
-		if (!ws_detail::is_valid_close_code(code)) {
+		if (!detail::is_valid_close_code(code)) {
 			throw std::invalid_argument{"WsConn::close: invalid close code"};
 		}
 		if (reason.size() > 123) {
 			throw std::invalid_argument{
 				"WsConn::close: reason exceeds 123-std::byte limit (control frame payload std::max 125)"};
 		}
-		if (!ws_detail::utf8_is_valid(reason)) {
+		if (!detail::utf8_is_valid(reason)) {
 			throw std::invalid_argument{"WsConn::close: reason must be valid UTF-8"};
 		}
 		if (closed_.test_and_set()) {
@@ -925,11 +934,11 @@ private:
 		bool ok = false;
 #if CONFLUX_HAS_TLS
 		if (ssl_) {
-			ok = ws_detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
+			ok = detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
 		} else
 #endif
 		{
-			ok = ws_detail::ws_send_frame(fd_, opcode, payload);
+			ok = detail::ws_send_frame(fd_, opcode, payload);
 		}
 		if (!ok) {
 			note_pressure_close_noexcept();
@@ -938,7 +947,9 @@ private:
 	}
 };
 // Token carried in Response.ws_upgrade to signal a 101 WebSocket upgrade.
-export struct WsUpgrade {
+struct WsUpgrade {
 	std::string accept_key;
 	CloneableFunction<void(RequestView const &, WsConn &)> handler;
 };
+
+} // namespace conflux::http

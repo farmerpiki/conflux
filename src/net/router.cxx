@@ -181,10 +181,10 @@ public:
 	using ContextMiddleware = CloneableFunction<conflux::work::root::Task<
 		Response>(RequestView const &, conflux::http::RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
-	using SseHandler = CloneableFunction<void(RequestView const &, std::shared_ptr<SseChannel>)>;
+	using SseHandler = CloneableFunction<void(RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = MiddlewareFunction;
-	using WsHandler = CloneableFunction<void(RequestView const &, WsConn &)>;
+	using WsHandler = CloneableFunction<void(RequestView const &, conflux::http::WsConn &)>;
 	using ErrorHandler = CloneableFunction<Response(RequestView const &, std::exception const &)>;
 	Router();
 	explicit Router(Config const &cfg);
@@ -527,7 +527,7 @@ private:
 		std::shared_ptr<WorkPool> const &pool,
 		SseHandler handler,
 		Request matched,
-		std::shared_ptr<SseChannel> const &channel);
+		std::shared_ptr<conflux::http::SseChannel> const &channel);
 	[[nodiscard]] static Response defer_http_task(conflux::work::root::Task<Response> task);
 	[[nodiscard]] Response run_middlewares(RequestView const &req, Handler const &inner) const;
 	[[nodiscard]] std::optional<Response> run_context_middlewares(
@@ -676,14 +676,15 @@ private:
 	static SseHandler make_sse_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, RequestView const &, std::shared_ptr<SseChannel>>) {
+		if constexpr (std::invocable<Fn &, RequestView const &, std::shared_ptr<conflux::http::SseChannel>>) {
 			return SseHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, std::shared_ptr<SseChannel>>) {
-			return SseHandler{
-				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
-					auto owned = req.to_owned();
-					std::invoke(wrapped, owned, std::move(ch));
-				}};
+		} else if constexpr (std::invocable<Fn &, Request const &, std::shared_ptr<conflux::http::SseChannel>>) {
+			return SseHandler{[wrapped = Fn(std::forward<F>(fn))](
+								  RequestView const &req,
+								  std::shared_ptr<conflux::http::SseChannel> ch) mutable {
+				auto owned = req.to_owned();
+				std::invoke(wrapped, owned, std::move(ch));
+			}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "SSE handler must accept RequestView const& or Request const&");
 		}
@@ -692,13 +693,14 @@ private:
 	static WsHandler make_ws_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, RequestView const &, WsConn &>) {
+		if constexpr (std::invocable<Fn &, RequestView const &, conflux::http::WsConn &>) {
 			return WsHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, WsConn &>) {
-			return WsHandler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, WsConn &ws) mutable {
-				auto owned = req.to_owned();
-				std::invoke(wrapped, owned, ws);
-			}};
+		} else if constexpr (std::invocable<Fn &, Request const &, conflux::http::WsConn &>) {
+			return WsHandler{
+				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, conflux::http::WsConn &ws) mutable {
+					auto owned = req.to_owned();
+					std::invoke(wrapped, owned, ws);
+				}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "WebSocket handler must accept RequestView const& or Request const&");
 		}

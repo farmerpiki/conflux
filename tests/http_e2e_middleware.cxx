@@ -1440,10 +1440,10 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		// Echo all text frames until connection closes.
 		while (auto frame = ws.recv()) {
-			if (frame->opcode == WsConn::Opcode::Text) {
+			if (frame->opcode == conflux::http::WsConn::Opcode::Text) {
 				if (!ws.send_text(frame->payload)) {
 					break;
 				}
@@ -2297,9 +2297,9 @@ TEST_CASE(
 	cfg.key_file = key_tmp;
 
 	Router router;
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (auto f = ws.recv()) {
-			if (f->opcode == WsConn::Opcode::Text) {
+			if (f->opcode == conflux::http::WsConn::Opcode::Text) {
 				if (!ws.send_text(f->payload)) {
 					break;
 				}

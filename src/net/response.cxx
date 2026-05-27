@@ -223,8 +223,8 @@ export struct Response {
 
 	using BodyPayload = std::variant<
 		std::string,
-		std::shared_ptr<SseChannel>,
-		std::shared_ptr<WsUpgrade>,
+		std::shared_ptr<conflux::http::SseChannel>,
+		std::shared_ptr<conflux::http::WsUpgrade>,
 		std::shared_ptr<MappedBody>,
 		std::shared_ptr<conflux::http::StreamedFile>,
 		std::shared_ptr<DeferredResponse>>;
@@ -264,16 +264,16 @@ export struct Response {
 		}
 		return std::move(get<std::string>(body_payload));
 	}
-	[[nodiscard]] std::shared_ptr<SseChannel> const &sse_channel_ptr() const {
-		static std::shared_ptr<SseChannel> const empty{};
-		if (auto const *ch = get_if<std::shared_ptr<SseChannel>>(&body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::SseChannel> const &sse_channel_ptr() const {
+		static std::shared_ptr<conflux::http::SseChannel> const empty{};
+		if (auto const *ch = get_if<std::shared_ptr<conflux::http::SseChannel>>(&body_payload)) {
 			return *ch;
 		}
 		return empty;
 	}
-	[[nodiscard]] std::shared_ptr<WsUpgrade> const &ws_upgrade_ptr() const {
-		static std::shared_ptr<WsUpgrade> const empty{};
-		if (auto const *up = get_if<std::shared_ptr<WsUpgrade>>(&body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::WsUpgrade> const &ws_upgrade_ptr() const {
+		static std::shared_ptr<conflux::http::WsUpgrade> const empty{};
+		if (auto const *up = get_if<std::shared_ptr<conflux::http::WsUpgrade>>(&body_payload)) {
 			return *up;
 		}
 		return empty;
@@ -299,17 +299,17 @@ export struct Response {
 		}
 		return empty;
 	}
-	[[nodiscard]] std::shared_ptr<SseChannel> take_sse_channel() {
-		if (!holds_alternative<std::shared_ptr<SseChannel>>(body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::SseChannel> take_sse_channel() {
+		if (!holds_alternative<std::shared_ptr<conflux::http::SseChannel>>(body_payload)) {
 			return {};
 		}
-		return std::move(get<std::shared_ptr<SseChannel>>(body_payload));
+		return std::move(get<std::shared_ptr<conflux::http::SseChannel>>(body_payload));
 	}
-	[[nodiscard]] std::shared_ptr<WsUpgrade> take_ws_upgrade() {
-		if (!holds_alternative<std::shared_ptr<WsUpgrade>>(body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::http::WsUpgrade> take_ws_upgrade() {
+		if (!holds_alternative<std::shared_ptr<conflux::http::WsUpgrade>>(body_payload)) {
 			return {};
 		}
-		return std::move(get<std::shared_ptr<WsUpgrade>>(body_payload));
+		return std::move(get<std::shared_ptr<conflux::http::WsUpgrade>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<MappedBody> take_mapped_file() {
 		if (!holds_alternative<std::shared_ptr<MappedBody>>(body_payload)) {
@@ -335,12 +335,12 @@ export struct Response {
 		body_payload = std::move(text);
 	}
 	void set_sse_channel(
-		std::shared_ptr<SseChannel> ch) {
+		std::shared_ptr<conflux::http::SseChannel> ch) {
 		body_kind = BodyKind::sse;
 		body_payload = std::move(ch);
 	}
 	void set_ws_upgrade(
-		std::shared_ptr<WsUpgrade> up) {
+		std::shared_ptr<conflux::http::WsUpgrade> up) {
 		body_kind = BodyKind::ws_upgrade;
 		body_payload = std::move(up);
 	}
@@ -617,7 +617,7 @@ export struct Response {
 		return r;
 	}
 	[[nodiscard]] static Response sse(
-		std::shared_ptr<SseChannel> ch) {
+		std::shared_ptr<conflux::http::SseChannel> ch) {
 		Response r{.status = kHttpOk, .status_text = "OK", .content_type = std::string{kContentTypeEventStream}};
 		r.set_sse_channel(std::move(ch));
 		return r;

@@ -200,7 +200,7 @@ std::uint16_t compression_port() {
 			return response;
 		});
 		router.post("/echo", [](Request const &req) { return Response::text(req.body); });
-		router.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &channel) {
+		router.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
 			(void)channel->send("data: hello\n\n");
 			channel->close();
 		});

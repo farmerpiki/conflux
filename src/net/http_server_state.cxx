@@ -204,7 +204,7 @@ struct H2Stream {
 	HttpFields response_trailers{};
 	int deferred_efd{-1};
 	// SSE streaming state (non-null → H2 SSE stream):
-	std::shared_ptr<SseChannel> sse_channel{};
+	std::shared_ptr<conflux::http::SseChannel> sse_channel{};
 	std::string h2_sse_buf{}; // overflow: drained SSE data not yet framed
 };
 struct H2ConnCtx {
@@ -244,12 +244,12 @@ struct alignas(
 	bool close_after_send = false; // true → close instead of re-arming recv
 	std::chrono::steady_clock::time_point close_after_send_deadline{}; // force-close grace deadline during shutdown
 	int sse_efd = -1;
-	std::shared_ptr<SseChannel> sse_channel{};
+	std::shared_ptr<conflux::http::SseChannel> sse_channel{};
 	int deferred_efd = -1;
 	std::shared_ptr<DeferredResponse> deferred_response{};
 	std::shared_ptr<std::string> deferred_request_storage{};
 	std::shared_ptr<std::vector<UploadedFile>> deferred_request_files{};
-	std::shared_ptr<WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
+	std::shared_ptr<conflux::http::WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
 	std::shared_ptr<WorkPool> ws_work_pool{};
 	Request saved_req{}; // copy of request saved for WS handler std::thread
 	bool is_tls = false; // set after first-std::byte sniff; used by dispatch_request
@@ -354,7 +354,7 @@ struct Ring {
 		std::shared_ptr<DeferredResponse> response{};
 	};
 	struct WsHandoffState {
-		std::shared_ptr<WsUpgrade> upgrade{};
+		std::shared_ptr<conflux::http::WsUpgrade> upgrade{};
 		std::shared_ptr<WorkPool> pool{};
 		Request request{};
 	};
