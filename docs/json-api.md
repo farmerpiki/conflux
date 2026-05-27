@@ -1,12 +1,14 @@
 # conflux.json API Reference
 
 **Module:** `conflux.json`  
-**Language:** C++26  
+**Language:** C++23 baseline; optional reflection provider edges require C++26  
 **Import:** `import conflux.json;`
 
-All types live in namespace `conflux::json`. All fallible operations return
-`std::expected<T, JsonError>`. Design-level invariants, including the single
-permitted process-lifetime locale holder, are documented in `docs/json-design.md`.
+All types live in namespace `conflux::json`. Core JSON parser and DOM operations
+return `std::expected<T, JsonError>`; boundary and file helpers map failures to
+`conflux::json::boundary::Error` and `JsonFileError`. Design-level invariants,
+including the single permitted process-lifetime locale holder, are documented in
+`docs/json-design.md`.
 For ownership, allocation, and borrowed-string lifetime summaries across JSON
 and HTTP JSON helpers, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
 

@@ -427,14 +427,6 @@ TEST_CASE(
 	CHECK(rig.ring.mode() == BufferRingMode::incremental);
 	CHECK(rig.caps.feat_pbuf_ring_inc);
 }
-// T8: Old-gen tombstone reclaim — conn_erase + stale terminal recv CQE →
-//     tombstone consumed and buffer recycled exactly once.
-//     [requires e2e HTTP server harness — tested via http_e2e integration tests]
-TEST_CASE(
-	"incremental: old-gen tombstone reclaim [e2e required]",
-	"[incremental][.e2e]") {
-	SKIP("tombstone table is internal to Ring struct in http_server.cxx; covered by e2e tests");
-}
 // T9: Partial-fill — two BUF_MORE CQEs for same buffer, bytes accumulate with
 //     correct adjacent span layout.
 TEST_CASE(
@@ -523,12 +515,6 @@ TEST_CASE(
 	CHECK(classic_total == incremental_total);
 	CHECK(classic_total == 15u);
 }
-// T12: WS handoff with active BUF_MORE [e2e required].
-TEST_CASE(
-	"incremental: WS handoff tombstone retire [e2e required]",
-	"[incremental][.e2e]") {
-	SKIP("begin_ws_handoff tombstone is internal to Ring; covered by e2e tests");
-}
 // T13: Invalid incremental CQE bounds — decoder returns bad_bounds, no mutation
 //      of offset, head, or recycle state.
 TEST_CASE(
@@ -552,10 +538,4 @@ TEST_CASE(
 	REQUIRE(r3.has_value());
 	CHECK(r3->offset() == std::size_t{12});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u);
-}
-// T14: Stale positive final CQE after tombstone [e2e required].
-TEST_CASE(
-	"incremental: stale positive final CQE clears tombstone [e2e required]",
-	"[incremental][.e2e]") {
-	SKIP("clear_retired_incremental_if_final is internal to Ring; covered by e2e tests");
 }

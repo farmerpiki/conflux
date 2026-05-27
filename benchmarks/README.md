@@ -82,9 +82,10 @@ scripts/run-perf-matrix.sh
 
 ## Compile-time benchmarks
 
-`testing.md` treats include/import cost, quickstart compile cost, full HTTP app
-compile cost, incremental rebuilds, and binary size as release evidence. Use the
-first-party harness when validating header/module cost claims on a real machine:
+The release checklist treats include/import cost, quickstart compile cost, full
+HTTP app compile cost, incremental rebuilds, and binary size as release
+evidence. Use the first-party harness when validating header/module cost claims
+on a real machine:
 
 ```sh
 scripts/compile_time_bench.py \

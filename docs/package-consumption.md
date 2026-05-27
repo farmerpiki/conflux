@@ -114,6 +114,8 @@ Do not mix `import conflux.*` and generated Conflux headers in one consumer
 package or executable. The package mode is selected with
 `CONFLUX_INTERFACE_MODE` at configure time and reported by the installed package
 config as `CONFLUX_INTERFACE_MODE`.
+Mixed import/include package smoke is an internal drift and ODR guard; external
+consumers should still choose one interface mode per target/package.
 
 Keeping one public surface avoids duplicate API maintenance, ODR ambiguity,
 package drift, and an unbounded consumer test matrix.

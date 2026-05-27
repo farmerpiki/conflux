@@ -1,7 +1,8 @@
 # conflux
 
-`conflux` is a modules-first Linux-only C++26 runtime and networking library built around
-`io_uring`. The preview surface focuses on the runtime core, JSON, HTTP server
+`conflux` is a modules-first Linux-only C++23-baseline runtime and networking
+library built around `io_uring`, with C++26-gated reflection and standard-SIMD
+experiments. The preview surface focuses on the runtime core, JSON, HTTP server
 building blocks, and PostgreSQL support when the DB evidence lane is green.
 
 It is not a portability layer for non-Linux systems, and it is not a stable-v1
@@ -15,7 +16,8 @@ compatibility clutter or fixes an incorrect contract.
 - `pkg-config`; `liburing` development headers and library are required only
   when building runtime-facing components.
 - CMake 3.30 or newer and Ninja for the current known-good prerelease lanes.
-- A C++23/26-capable compiler matching one of the provided CMake presets.
+- A C++23-capable compiler matching one of the provided CMake presets; optional
+  reflection and standard-SIMD feature targets require C++26-capable toolchains.
 
 Optional protocol, storage, and runtime-facing features are enabled when their
 libraries are available or selected by the feature bundle, including `liburing`,
@@ -117,7 +119,9 @@ Before running the server or runtime-facing test binaries on a new host, confirm
 that the environment permits `io_uring`:
 
 ```sh
-./build/debug-gcc-stdcxx/tests/conflux_work_tests
+cmake --preset debug-gcc-stdcxx
+cmake --build --preset debug-gcc-stdcxx --target conflux_work_tests
+./scripts/run-build-artifact.sh /tmp/gcc-16/debug-gcc-stdcxx/tests/conflux_work_tests
 ```
 
 If `io_uring_queue_init` or `io_uring_queue_init_params` fails, the host does
@@ -131,7 +135,8 @@ setup.
 - `io_uring` and `liburing` are required for runtime-facing components.
 - Containers or seccomp policy can block runtime setup.
 - Optional protocol/storage dependencies are feature-gated.
-- C++26 modules support is toolchain-sensitive.
+- Module and import-std support is toolchain-sensitive; optional reflection and
+  standard-SIMD targets are C++26-gated.
 - `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
 - Runtime proof is maintained as separate release evidence and finalized only
   after the release-candidate source tree is frozen.

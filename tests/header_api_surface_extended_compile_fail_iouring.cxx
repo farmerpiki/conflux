@@ -2,5 +2,6 @@
 #include <conflux/extended.hxx>
 
 int main() {
-	static_assert(CONFLUX_SURFACE_HAS_URING, "conflux_api_surface_extended_unexpected_iouring_visible");
+	conflux::uring::IoUringCaps caps;
+	(void)caps;
 }

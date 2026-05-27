@@ -4,8 +4,9 @@ The first preview is scoped to package consumption and build evidence in this
 repository.
 
 - Runtime proof and benchmark proof live in separate evidence artifacts.
-- C++26 module mode remains sensitive to the compiler, standard library, and
-  CMake import-std support.
+- Module and import-std support remains sensitive to the compiler, standard
+  library, and CMake import-std support. Optional reflection and standard-SIMD
+  targets are C++26-gated.
 - `CONFLUX_USE_MOCK_LIBURING=ON` is build evidence only. It does not prove that
   the host can run runtime-facing components.
 - DB examples and generated DB headers require `CONFLUX_POSTGRES_PROVIDER=LIBPQ`, libpq

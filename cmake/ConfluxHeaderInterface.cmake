@@ -49,10 +49,11 @@ macro(conflux_header_public_component target export_name)
     endif()
 endmacro()
 
-function(conflux_header_public_component_by_export export_name)
-    conflux_component_target_for_export(_target "${export_name}")
-    conflux_header_public_component(${_target} ${export_name} ${ARGN})
-endfunction()
+macro(conflux_header_public_component_by_export export_name)
+    conflux_component_target_for_export(_conflux_header_component_target "${export_name}")
+    conflux_header_public_component(${_conflux_header_component_target} ${export_name} ${ARGN})
+    unset(_conflux_header_component_target)
+endmacro()
 
 conflux_header_public_component_by_export(core
     IMPLS conflux_header_impl_core

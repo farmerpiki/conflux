@@ -1286,7 +1286,7 @@ function(conflux_add_header_compile_fail_tests)
             conflux_add_header_compile_fail_test(
                 api-surface/header-curated-hides-iouring
                 tests/header_api_surface_curated_compile_fail_iouring
-                "conflux_api_surface_curated_unexpected_iouring_visible")
+                "conflux::uring")
             conflux_add_header_compile_fail_test(
                 api-surface/header-curated-hides-blocking-file
                 tests/header_api_surface_curated_compile_fail_file
@@ -1294,11 +1294,11 @@ function(conflux_add_header_compile_fail_tests)
             conflux_add_header_compile_fail_test(
                 api-surface/header-extended-hides-iouring
                 tests/header_api_surface_extended_compile_fail_iouring
-                "conflux_api_surface_extended_unexpected_iouring_visible")
+                "conflux::uring")
             conflux_add_header_compile_fail_test(
                 api-surface/header-complete-hides-direct-slot-pool
                 tests/header_api_surface_complete_compile_fail_direct_slot_pool
-                "conflux_api_surface_complete_unexpected_direct_slot_pool_visible")
+                "DirectSlotPool")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-offload-free
                 tests/header_http_facade_compile_fail_offload_free

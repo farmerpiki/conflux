@@ -209,6 +209,8 @@ links to immutable proof runs.
 - Install/package smokes cover the selected public interface mode. Run the
   module package lane as primary and the generated-header artifact lane
   separately; mixed import/include consumers are not a supported release gate.
+- Mixed import/include package smoke is an internal drift and ODR guard, not a
+  supported external consumption mode.
 - Feature bundles in `cmake/ConfluxPresets.cmake` match the bundle descriptions
   in `docs/component-map.md`.
 
