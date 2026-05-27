@@ -172,6 +172,34 @@ concept response_builder_like = requires(T &self) {
 };
 
 struct ResponseBuilderOps {
+	[[nodiscard]] auto &header(
+		this auto &self,
+		std::string_view name,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		self.response.headers[name] = std::move(value);
+		return self;
+	}
+
+	[[nodiscard]] auto &header(
+		this auto &self,
+		std::string_view name,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.header(name, std::string{value});
+	}
+
+	[[nodiscard]] auto &header(
+		this auto &self,
+		std::string_view name,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.header(name, std::string{value});
+	}
+
 	[[nodiscard]] auto &&header(
 		this auto &&self,
 		std::string_view name,
@@ -203,6 +231,31 @@ struct ResponseBuilderOps {
 		return std::forward<decltype(self)>(self).header(name, std::string{value});
 	}
 
+	[[nodiscard]] auto &location(
+		this auto &self,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		self.response.headers["Location"] = std::move(value);
+		return self;
+	}
+
+	[[nodiscard]] auto &location(
+		this auto &self,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.location(std::string{value});
+	}
+
+	[[nodiscard]] auto &location(
+		this auto &self,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.location(std::string{value});
+	}
+
 	[[nodiscard]] auto &&location(
 		this auto &&self,
 		std::string value)
@@ -229,6 +282,31 @@ struct ResponseBuilderOps {
 			  && std::is_rvalue_reference_v<decltype(self)>
 	{
 		return std::forward<decltype(self)>(self).location(std::string{value});
+	}
+
+	[[nodiscard]] auto &content_type(
+		this auto &self,
+		std::string value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		self.response.content_type = std::move(value);
+		return self;
+	}
+
+	[[nodiscard]] auto &content_type(
+		this auto &self,
+		std::string_view value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.content_type(std::string{value});
+	}
+
+	[[nodiscard]] auto &content_type(
+		this auto &self,
+		char const *value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		return self.content_type(std::string{value});
 	}
 
 	[[nodiscard]] auto &&content_type(

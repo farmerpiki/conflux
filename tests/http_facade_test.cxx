@@ -2605,6 +2605,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: response builders work on lvalues",
+	"[http.facade]") {
+	auto created = http::created(FacadeAnswer{.value = "made"});
+	auto &same = created.header("X-Test", "yes").location("/answers/1").content_type("application/vnd.test+json");
+	static_assert(std::same_as<decltype(same), http::CreatedBody<FacadeAnswer> &>);
+
+	auto response = http::into_response(std::move(created));
+	CHECK(response.status == kHttpCreated);
+	CHECK(response.content_type == "application/vnd.test+json");
+	CHECK(response.headers["X-Test"] == "yes");
+	CHECK(response.headers["Location"] == "/answers/1");
+	CHECK(response.text_body() == R"({"value":"made"})");
+}
+
+TEST_CASE(
 	"http facade: owned response helpers move caller bodies",
 	"[http.facade]") {
 	auto text_body = std::string{"owned text"};
