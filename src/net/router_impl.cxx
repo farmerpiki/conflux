@@ -187,6 +187,11 @@ struct IndexedRouteRange {
 	std::vector<std::size_t> const *generic_indices{&empty_route_indices()};
 
 	struct Iterator {
+		using value_type = RouteT;
+		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
+		using iterator_category = std::input_iterator_tag;
+
 		std::vector<RouteT> const *routes{};
 		std::optional<std::size_t> exact_index{};
 		std::vector<std::size_t> const *literal_indices{};
@@ -226,6 +231,16 @@ struct IndexedRouteRange {
 				++generic_pos;
 			}
 			return *this;
+		}
+
+		void operator ++(
+			int) noexcept {
+			++(*this);
+		}
+
+		[[nodiscard]] bool operator ==(
+			std::default_sentinel_t) const noexcept {
+			return done();
 		}
 
 		[[nodiscard]] bool operator !=(

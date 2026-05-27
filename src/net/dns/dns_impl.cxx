@@ -1021,9 +1021,9 @@ public:
 	}
 	std::vector<std::string> out;
 	out.reserve(search_domains.size() + 1);
-	for (auto const &domain: search_domains) {
-		out.push_back(std::format("{}.{}", normalized, domain));
-	}
+	std::ranges::transform(search_domains, std::back_inserter(out), [&](std::string const &domain) {
+		return std::format("{}.{}", normalized, domain);
+	});
 	out.push_back(std::move(normalized));
 	return out;
 }

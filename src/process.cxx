@@ -294,9 +294,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	std::vector<std::string> arg_strs;
 	arg_strs.reserve(args.size() + 1);
 	arg_strs.emplace_back(exe.string());
-	for (auto const &a: args) {
-		arg_strs.emplace_back(a);
-	}
+	std::ranges::transform(args, std::back_inserter(arg_strs), [](std::string_view arg) { return std::string{arg}; });
 
 	// Build argv and envp now (no alloc after fork in child).
 	std::vector<char *> argv_ptrs;

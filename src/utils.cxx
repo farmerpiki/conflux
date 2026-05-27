@@ -755,6 +755,8 @@ public:
 	public:
 		using value_type = LineView;
 		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
+		using iterator_category = std::input_iterator_tag;
 		iterator() noexcept = default;
 		explicit iterator(
 			std::string_view text) noexcept

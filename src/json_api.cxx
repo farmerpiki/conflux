@@ -1596,6 +1596,7 @@ public:
 	public:
 		using difference_type = std::ptrdiff_t;
 		using value_type = ObjectMember;
+		using iterator_concept = std::forward_iterator_tag;
 		using iterator_category = std::forward_iterator_tag;
 		Iterator() = default;
 		[[nodiscard]] ObjectMember operator *() const;
@@ -1604,6 +1605,7 @@ public:
 		[[nodiscard]] bool operator ==(Sentinel) const noexcept;
 		[[nodiscard]] bool operator ==(Iterator const &o) const noexcept;
 	};
+	[[nodiscard]] std::size_t size() const noexcept { return count_; }
 	[[nodiscard]] Iterator begin() const noexcept;
 	[[nodiscard]] Sentinel end() const noexcept;
 };
@@ -1642,6 +1644,7 @@ public:
 	public:
 		using difference_type = std::ptrdiff_t;
 		using value_type = NodeRef;
+		using iterator_concept = std::forward_iterator_tag;
 		using iterator_category = std::forward_iterator_tag;
 		Iterator() = default;
 		[[nodiscard]] NodeRef operator *() const;
@@ -1650,6 +1653,7 @@ public:
 		[[nodiscard]] bool operator ==(Sentinel) const noexcept;
 		[[nodiscard]] bool operator ==(Iterator const &o) const noexcept;
 	};
+	[[nodiscard]] std::size_t size() const noexcept { return count_; }
 	[[nodiscard]] Iterator begin() const noexcept;
 	[[nodiscard]] Sentinel end() const noexcept;
 };

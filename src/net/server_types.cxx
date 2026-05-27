@@ -885,9 +885,9 @@ export struct RequestView : HttpRequestFieldAccessors {
 		owned.form = form.to_owned();
 		owned.cookies = cookies.to_owned();
 		owned.files.reserve(files.size());
-		for (auto const &file: files) {
-			owned.files.push_back(file.to_owned());
-		}
+		std::ranges::transform(files, std::back_inserter(owned.files), [](auto const &file) {
+			return file.to_owned();
+		});
 		owned.body = std::string{body};
 		return owned;
 	}

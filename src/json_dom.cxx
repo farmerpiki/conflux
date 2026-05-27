@@ -477,12 +477,9 @@ bool is_value_equal(
 			if (av.size() != bv.size()) {
 				return false;
 			}
-			for (std::size_t i = 0; i < av.size(); ++i) {
-				if (!is_value_equal(*av.element(i), *bv.element(i))) {
-					return false;
-				}
-			}
-			return true;
+			return std::ranges::equal(av.elements(), bv.elements(), [](NodeRef lhs, NodeRef rhs) {
+				return is_value_equal(lhs, rhs);
+			});
 		}
 	case NodeKind::object:
 		{
@@ -491,13 +488,10 @@ bool is_value_equal(
 			if (ao.size() != bo.size()) {
 				return false;
 			}
-			for (auto const &[name, val]: ao.members()) {
-				auto found = bo.find_member(name);
-				if (!found || !is_value_equal(val, *found)) {
-					return false;
-				}
-			}
-			return true;
+			return std::ranges::all_of(ao.members(), [&bo](ObjectMember const member) {
+				auto found = bo.find_member(member.name);
+				return found && is_value_equal(member.value, *found);
+			});
 		}
 	}
 	return false;
@@ -526,12 +520,9 @@ bool is_value_equal_exact(
 			if (av.size() != bv.size()) {
 				return false;
 			}
-			for (std::size_t i = 0; i < av.size(); ++i) {
-				if (!is_value_equal_exact(*av.element(i), *bv.element(i))) {
-					return false;
-				}
-			}
-			return true;
+			return std::ranges::equal(av.elements(), bv.elements(), [](NodeRef lhs, NodeRef rhs) {
+				return is_value_equal_exact(lhs, rhs);
+			});
 		}
 	case NodeKind::object:
 		{
@@ -540,13 +531,10 @@ bool is_value_equal_exact(
 			if (ao.size() != bo.size()) {
 				return false;
 			}
-			for (auto const &[name, val]: ao.members()) {
-				auto found = bo.find_member(name);
-				if (!found || !is_value_equal_exact(val, *found)) {
-					return false;
-				}
-			}
-			return true;
+			return std::ranges::all_of(ao.members(), [&bo](ObjectMember const member) {
+				auto found = bo.find_member(member.name);
+				return found && is_value_equal_exact(member.value, *found);
+			});
 		}
 	}
 	return false;

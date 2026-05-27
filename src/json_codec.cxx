@@ -3601,6 +3601,7 @@ export class NdjsonRange {
 public:
 	explicit NdjsonRange(std::string_view input, JsonParseOptions const &opts = {}) noexcept;
 	struct Iterator {
+		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 		using value_type = std::expected<Document, JsonError>;
 		using difference_type = std::ptrdiff_t;

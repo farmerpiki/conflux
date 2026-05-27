@@ -469,6 +469,7 @@ public:
 	public:
 		using value_type = std::string_view;
 		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
 		Iterator() = default;
@@ -604,6 +605,7 @@ class HeaderParamView {
 	public:
 		using value_type = HeaderParam;
 		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
 		Iterator() = default;
@@ -694,6 +696,7 @@ class HeaderItemView {
 	public:
 		using value_type = HeaderItem;
 		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
 		Iterator() = default;

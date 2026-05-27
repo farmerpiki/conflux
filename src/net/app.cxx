@@ -1123,46 +1123,44 @@ public:
 	[[nodiscard]] std::vector<AppRouteInfo> routes() const {
 		std::vector<AppRouteInfo> out;
 		out.reserve(route_metadata_.size());
-		for (auto const &route: route_metadata_) {
-			out.push_back(
-				AppRouteInfo{
-					.method = route.method,
-					.path = route.path,
-					.name = route.name,
-					.handler_kind = route.handler_kind,
-					.source_file = route.source_file,
-					.source_line = route.source_line,
-					.extractors = route.extractors,
-					.path_params = route.path_params,
-					.path_param_types = route.path_param_types,
-					.required_state_count = route.required_states.size(),
-					.consumes = route.consumes,
-					.produces = route.produces,
-					.request_body_schema = route.request_body_schema,
-					.response_schema = route.response_schema,
-					.success_status = route.success_status,
-					.problem_response = route.problem_response,
-					.max_body_size = *route.max_body_size,
-					.timeout = *route.timeout,
-					.middleware_count = route.middleware_count,
-					.rate_limit = route.rate_limit->name,
-					.bearer_token_policy = *route.bearer_token_policy,
-					.openapi_summary = route.openapi_summary,
-					.allow_get_body = route.allow_get_body});
-		}
+		std::ranges::transform(route_metadata_, std::back_inserter(out), [](auto const &route) {
+			return AppRouteInfo{
+				.method = route.method,
+				.path = route.path,
+				.name = route.name,
+				.handler_kind = route.handler_kind,
+				.source_file = route.source_file,
+				.source_line = route.source_line,
+				.extractors = route.extractors,
+				.path_params = route.path_params,
+				.path_param_types = route.path_param_types,
+				.required_state_count = route.required_states.size(),
+				.consumes = route.consumes,
+				.produces = route.produces,
+				.request_body_schema = route.request_body_schema,
+				.response_schema = route.response_schema,
+				.success_status = route.success_status,
+				.problem_response = route.problem_response,
+				.max_body_size = *route.max_body_size,
+				.timeout = *route.timeout,
+				.middleware_count = route.middleware_count,
+				.rate_limit = route.rate_limit->name,
+				.bearer_token_policy = *route.bearer_token_policy,
+				.openapi_summary = route.openapi_summary,
+				.allow_get_body = route.allow_get_body};
+		});
 		return out;
 	}
 	[[nodiscard]] std::vector<AppStaticMountInfo> static_mounts() const {
 		std::vector<AppStaticMountInfo> out;
 		out.reserve(static_mounts_.size());
-		for (auto const &mount: static_mounts_) {
-			out.push_back(
-				AppStaticMountInfo{
-					.url_prefix = mount.url_prefix,
-					.root_dir = mount.root_dir,
-					.source_file = mount.source_file,
-					.source_line = mount.source_line});
-		}
+		std::ranges::transform(static_mounts_, std::back_inserter(out), [](auto const &mount) {
+			return AppStaticMountInfo{
+				.url_prefix = mount.url_prefix,
+				.root_dir = mount.root_dir,
+				.source_file = mount.source_file,
+				.source_line = mount.source_line};
+		});
 		return out;
 	}
 	[[nodiscard]] std::string route_table() const {
@@ -1213,28 +1211,27 @@ public:
 		std::string_view version = "1.0.0") const {
 		std::vector<detail::AppOpenApiRoute> routes;
 		routes.reserve(route_metadata_.size());
-		for (auto const &route: route_metadata_) {
-			routes.push_back(
-				detail::AppOpenApiRoute{
-					.method = route.method,
-					.path = route.path,
-					.name = route.name,
-					.openapi_summary = route.openapi_summary,
-					.bearer_token_policy = *route.bearer_token_policy,
-					.auth_scheme = route.openapi_auth_scheme,
-					.timeout = *route.timeout,
-					.rate_limit = route.rate_limit->name,
-					.max_body_size = *route.max_body_size,
-					.middleware_count = route.middleware_count,
-					.path_params = route.path_params,
-					.path_param_types = std::addressof(route.path_param_types),
-					.consumes = route.consumes,
-					.request_body_schema = route.request_body_schema,
-					.success_status = route.success_status,
-					.produces = route.produces,
-					.response_schema = route.response_schema,
-					.problem_response = route.problem_response});
-		}
+		std::ranges::transform(route_metadata_, std::back_inserter(routes), [](auto const &route) {
+			return detail::AppOpenApiRoute{
+				.method = route.method,
+				.path = route.path,
+				.name = route.name,
+				.openapi_summary = route.openapi_summary,
+				.bearer_token_policy = *route.bearer_token_policy,
+				.auth_scheme = route.openapi_auth_scheme,
+				.timeout = *route.timeout,
+				.rate_limit = route.rate_limit->name,
+				.max_body_size = *route.max_body_size,
+				.middleware_count = route.middleware_count,
+				.path_params = route.path_params,
+				.path_param_types = std::addressof(route.path_param_types),
+				.consumes = route.consumes,
+				.request_body_schema = route.request_body_schema,
+				.success_status = route.success_status,
+				.produces = route.produces,
+				.response_schema = route.response_schema,
+				.problem_response = route.problem_response};
+		});
 		return detail::render_openapi_spec(routes, title, version);
 	}
 	[[nodiscard]] RouteRef openapi(
