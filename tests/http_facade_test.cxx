@@ -21,7 +21,7 @@ using conflux::http::VirtualHost;
 
 static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
 static_assert(std::same_as<http::Config, conflux::http::Config>);
-static_assert(std::same_as<http::PressureMetrics, HttpPressureMetrics>);
+static_assert(std::same_as<http::HttpPressureMetrics, conflux::http::HttpPressureMetrics>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
 
@@ -41,7 +41,7 @@ TEST_CASE(
 	CHECK(report.accepted_before_stop == 0);
 	CHECK_FALSE(report.deadline_hit);
 
-	http::ServerMetrics metrics{};
+	http::HttpServerMetrics metrics{};
 	CHECK(metrics.pressure.accept_rejected == 0);
 	CHECK(metrics.pressure.drain_started == 0);
 	CHECK(metrics.pressure.drain_forced_close == 0);
@@ -739,7 +739,7 @@ TEST_CASE(
 	pool->drain_and_stop();
 	CHECK(ran.load(std::memory_order_relaxed) == 1);
 
-	HttpPressureMetrics pressure{};
+	http::HttpPressureMetrics pressure{};
 	pressure.accept_rejected = 2;
 	pressure.sse_dropped_newest = 3;
 	pressure.websocket_closed_for_pressure = 4;
@@ -813,8 +813,8 @@ TEST_CASE(
 	auto hooks = http::observability_server_hooks(middleware);
 	REQUIRE(static_cast<bool>(hooks.rejection));
 	hooks.rejection(
-		HttpRejectReason::header_line_too_large,
-		reject_reason_status(HttpRejectReason::header_line_too_large));
+		http::HttpRejectReason::header_line_too_large,
+		http::reject_reason_status(http::HttpRejectReason::header_line_too_large));
 
 	auto app = http::app();
 	app.use(middleware);

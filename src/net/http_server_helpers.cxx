@@ -13,40 +13,40 @@ import conflux.net.http.response;
 import conflux.utils;
 
 export [[nodiscard]] Response make_rejection_response(
-	HttpRejectReason reason) {
+	conflux::http::HttpRejectReason reason) {
 	return Response::problem_json(
 		std::format(
 			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
-			reject_reason_code(reason),
-			reject_reason_diagnostic_code(reason),
-			reject_reason_detail(reason)),
-		reject_reason_status(reason));
+			conflux::http::reject_reason_code(reason),
+			conflux::http::reject_reason_diagnostic_code(reason),
+			conflux::http::reject_reason_detail(reason)),
+		conflux::http::reject_reason_status(reason));
 }
 
 export void note_rejection(
-	HttpRejectionMetrics &metrics,
-	HttpRejectReason reason) noexcept {
+	conflux::http::HttpRejectionMetrics &metrics,
+	conflux::http::HttpRejectReason reason) noexcept {
 	switch (reason) {
-	case HttpRejectReason::malformed_request       : ++metrics.malformed_request; break;
-	case HttpRejectReason::request_line_too_large  : ++metrics.request_line_too_large; break;
-	case HttpRejectReason::header_line_too_large   : ++metrics.header_line_too_large; break;
-	case HttpRejectReason::header_block_too_large  : ++metrics.header_block_too_large; break;
-	case HttpRejectReason::too_many_headers        : ++metrics.too_many_headers; break;
-	case HttpRejectReason::missing_host            : ++metrics.missing_host; break;
-	case HttpRejectReason::duplicate_host          : ++metrics.duplicate_host; break;
-	case HttpRejectReason::malformed_content_length: ++metrics.malformed_content_length; break;
-	case HttpRejectReason::duplicate_content_length: ++metrics.duplicate_content_length; break;
-	case HttpRejectReason::content_length_with_transfer_encoding:
+	case conflux::http::HttpRejectReason::malformed_request       : ++metrics.malformed_request; break;
+	case conflux::http::HttpRejectReason::request_line_too_large  : ++metrics.request_line_too_large; break;
+	case conflux::http::HttpRejectReason::header_line_too_large   : ++metrics.header_line_too_large; break;
+	case conflux::http::HttpRejectReason::header_block_too_large  : ++metrics.header_block_too_large; break;
+	case conflux::http::HttpRejectReason::too_many_headers        : ++metrics.too_many_headers; break;
+	case conflux::http::HttpRejectReason::missing_host            : ++metrics.missing_host; break;
+	case conflux::http::HttpRejectReason::duplicate_host          : ++metrics.duplicate_host; break;
+	case conflux::http::HttpRejectReason::malformed_content_length: ++metrics.malformed_content_length; break;
+	case conflux::http::HttpRejectReason::duplicate_content_length: ++metrics.duplicate_content_length; break;
+	case conflux::http::HttpRejectReason::content_length_with_transfer_encoding:
 		++metrics.content_length_with_transfer_encoding;
 		break;
-	case HttpRejectReason::unsupported_transfer_encoding: ++metrics.unsupported_transfer_encoding; break;
-	case HttpRejectReason::invalid_transfer_encoding    : ++metrics.invalid_transfer_encoding; break;
-	case HttpRejectReason::invalid_chunk                : ++metrics.invalid_chunk; break;
-	case HttpRejectReason::body_too_large               : ++metrics.body_too_large; break;
-	case HttpRejectReason::expectation_failed           : ++metrics.expectation_failed; break;
-	case HttpRejectReason::header_timeout               : ++metrics.header_timeout; break;
-	case HttpRejectReason::body_timeout                 : ++metrics.body_timeout; break;
-	case HttpRejectReason::none                         : break;
+	case conflux::http::HttpRejectReason::unsupported_transfer_encoding: ++metrics.unsupported_transfer_encoding; break;
+	case conflux::http::HttpRejectReason::invalid_transfer_encoding    : ++metrics.invalid_transfer_encoding; break;
+	case conflux::http::HttpRejectReason::invalid_chunk                : ++metrics.invalid_chunk; break;
+	case conflux::http::HttpRejectReason::body_too_large               : ++metrics.body_too_large; break;
+	case conflux::http::HttpRejectReason::expectation_failed           : ++metrics.expectation_failed; break;
+	case conflux::http::HttpRejectReason::header_timeout               : ++metrics.header_timeout; break;
+	case conflux::http::HttpRejectReason::body_timeout                 : ++metrics.body_timeout; break;
+	case conflux::http::HttpRejectReason::none                         : break;
 	}
 }
 

@@ -549,6 +549,46 @@ if(TARGET conflux_net_http)
         EXPECT "HttpFieldError")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_reject_reason
+        SOURCE http_facade_compile_fail_global_http_reject_reason.cxx
+        TEST http-facade/compile-fail-global-http-reject-reason
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpRejectReason")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_rejection_metrics
+        SOURCE http_facade_compile_fail_global_http_rejection_metrics.cxx
+        TEST http-facade/compile-fail-global-http-rejection-metrics
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpRejectionMetrics")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_pressure_metrics
+        SOURCE http_facade_compile_fail_global_http_pressure_metrics.cxx
+        TEST http-facade/compile-fail-global-http-pressure-metrics
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpPressureMetrics")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_server_metrics
+        SOURCE http_facade_compile_fail_global_http_server_metrics.cxx
+        TEST http-facade/compile-fail-global-http-server-metrics
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpServerMetrics")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_http_server_observability_hooks
+        SOURCE http_facade_compile_fail_global_http_server_observability_hooks.cxx
+        TEST http-facade/compile-fail-global-http-server-observability-hooks
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpServerObservabilityHooks")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_sse_channel
         SOURCE http_facade_compile_fail_global_sse_channel.cxx
         TEST http-facade/compile-fail-global-sse-channel

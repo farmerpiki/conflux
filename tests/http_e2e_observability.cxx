@@ -44,7 +44,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"metrics: pressure counters render as Prometheus events") {
-	HttpPressureMetrics pressure{};
+	conflux::http::HttpPressureMetrics pressure{};
 	pressure.accept_rejected = 2;
 	pressure.drain_started = 1;
 	pressure.drain_deadline_hit = 1;

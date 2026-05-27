@@ -6,6 +6,7 @@ export module conflux.net.observability;
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.net.http.server_types;
 import conflux.net.http.json_string;
 import conflux.net.router;
 import conflux.net.request_id;

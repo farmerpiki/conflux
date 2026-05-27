@@ -433,11 +433,11 @@ struct Ring {
 	std::size_t send_zc_threshold_ = 16384;
 	bool send_zc_report_usage_ = true;
 	SendZcCounters zc_counters_{};
-	HttpRejectionMetrics rejection_counters_{};
-	HttpServerMetrics::StaticFileMetrics static_file_counters_{};
-	HttpPressureMetrics pressure_counters_{};
+	conflux::http::HttpRejectionMetrics rejection_counters_{};
+	conflux::http::HttpServerMetrics::StaticFileMetrics static_file_counters_{};
+	conflux::http::HttpPressureMetrics pressure_counters_{};
 	std::shared_ptr<std::atomic<std::uint64_t>> ws_pressure_counter_{std::make_shared<std::atomic<std::uint64_t>>(0)};
-	HttpServerObservabilityHooks observability_hooks_{};
+	conflux::http::HttpServerObservabilityHooks observability_hooks_{};
 	std::uint64_t accepted_direct_failures_{};
 	std::uint64_t recv_bundle_cqes_{};
 	std::uint64_t recv_bundle_slices_{};
@@ -750,7 +750,7 @@ struct Ring {
 	void note_recv_bundle_slices(RecvSlices const &slices) noexcept;
 	void note_recv_payload(RecvPayload const &payload) noexcept;
 	void note_cq_overflow() noexcept;
-	[[nodiscard]] HttpServerMetrics metrics_snapshot() const noexcept;
+	[[nodiscard]] conflux::http::HttpServerMetrics metrics_snapshot() const noexcept;
 	void try_grow_cq_after_overflow() noexcept;
 	void enter_ring_fatal(ServerFatalReason reason) noexcept;
 	void close_tracked_fds_sync() noexcept;

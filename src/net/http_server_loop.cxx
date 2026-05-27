@@ -72,7 +72,7 @@ namespace {
 void emit_timeout_rejection(
 	Conn &conn,
 	Ring &ring,
-	HttpRejectReason reason) {
+	conflux::http::HttpRejectReason reason) {
 	auto r = make_rejection_response(reason);
 	note_rejection(ring.rejection_counters_, reason);
 	if (ring.observability_hooks_.rejection) {
@@ -935,9 +935,9 @@ void Ring::handle_timer() {
 			if (now - ref > req_limit) {
 				if (conn.request_in_progress) {
 					auto const fd = conn.fd;
-					auto reason = HttpRejectReason::body_timeout;
+					auto reason = conflux::http::HttpRejectReason::body_timeout;
 					if (incomplete_h1_headers(conn)) {
-						reason = HttpRejectReason::header_timeout;
+						reason = conflux::http::HttpRejectReason::header_timeout;
 					}
 					invalidate_recv_if_armed(fd);
 					emit_timeout_rejection(conn, *this, reason);

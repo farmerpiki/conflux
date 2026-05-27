@@ -87,8 +87,8 @@ void Ring::note_recv_payload(
 	recv_bundle_bytes_ += payload.total_size();
 }
 
-[[nodiscard]] HttpServerMetrics Ring::metrics_snapshot() const noexcept {
-	HttpServerMetrics m{};
+[[nodiscard]] conflux::http::HttpServerMetrics Ring::metrics_snapshot() const noexcept {
+	conflux::http::HttpServerMetrics m{};
 	if (ring.ring_fd >= 0) {
 		m.sq_dropped = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0;
 		m.cq_overflow = ring.cq.koverflow != nullptr ? *ring.cq.koverflow : 0;

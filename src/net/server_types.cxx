@@ -45,7 +45,9 @@ struct SendZcMetrics {
 
 } // namespace conflux::http
 
-export enum class HttpRejectReason : std::uint8_t {
+export namespace conflux::http {
+
+enum class HttpRejectReason : std::uint8_t {
 	none,
 	malformed_request,
 	request_line_too_large,
@@ -66,7 +68,7 @@ export enum class HttpRejectReason : std::uint8_t {
 	body_timeout,
 };
 
-export [[nodiscard]] constexpr std::string_view reject_reason_code(
+[[nodiscard]] constexpr std::string_view reject_reason_code(
 	HttpRejectReason reason) noexcept {
 	switch (reason) {
 	case HttpRejectReason::none                                 : return "none";
@@ -91,7 +93,7 @@ export [[nodiscard]] constexpr std::string_view reject_reason_code(
 	return "malformed_request";
 }
 
-export [[nodiscard]] constexpr std::string_view reject_reason_diagnostic_code(
+[[nodiscard]] constexpr std::string_view reject_reason_diagnostic_code(
 	HttpRejectReason reason) noexcept {
 	switch (reason) {
 	case HttpRejectReason::header_block_too_large: return "http.reject.header_block_too_large";
@@ -101,7 +103,7 @@ export [[nodiscard]] constexpr std::string_view reject_reason_diagnostic_code(
 	}
 }
 
-export [[nodiscard]] constexpr int reject_reason_status(
+[[nodiscard]] constexpr int reject_reason_status(
 	HttpRejectReason reason) noexcept {
 	switch (reason) {
 	case HttpRejectReason::request_line_too_large: return 414;
@@ -117,7 +119,7 @@ export [[nodiscard]] constexpr int reject_reason_status(
 	}
 }
 
-export [[nodiscard]] constexpr std::string_view reject_reason_detail(
+[[nodiscard]] constexpr std::string_view reject_reason_detail(
 	HttpRejectReason reason) noexcept {
 	switch (reason) {
 	case HttpRejectReason::malformed_request       : return "request syntax is invalid";
@@ -143,11 +145,11 @@ export [[nodiscard]] constexpr std::string_view reject_reason_detail(
 	return "request syntax is invalid";
 }
 
-export struct HttpServerObservabilityHooks {
+struct HttpServerObservabilityHooks {
 	std::function<void(HttpRejectReason, int)> rejection = {};
 };
 
-export struct HttpRejectionMetrics {
+struct HttpRejectionMetrics {
 	std::uint64_t malformed_request{};
 	std::uint64_t request_line_too_large{};
 	std::uint64_t header_line_too_large{};
@@ -166,6 +168,8 @@ export struct HttpRejectionMetrics {
 	std::uint64_t header_timeout{};
 	std::uint64_t body_timeout{};
 };
+
+} // namespace conflux::http
 
 export enum class SendZcPendingAction : std::uint8_t {
 	none,
@@ -277,7 +281,9 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 	return out;
 }
 
-export struct HttpServerMetrics {
+export namespace conflux::http {
+
+struct HttpServerMetrics {
 	std::uint64_t sq_dropped{};
 	std::uint64_t cq_overflow{};
 	std::uint64_t accepted_direct_failures{};
@@ -287,7 +293,7 @@ export struct HttpServerMetrics {
 	std::uint64_t recv_bundle_cqes{};
 	std::uint64_t recv_bundle_slices{};
 	std::uint64_t recv_bundle_bytes{};
-	conflux::http::SendZcMetrics send_zc{};
+	SendZcMetrics send_zc{};
 	HttpRejectionMetrics rejections{};
 	struct StaticFileMetrics {
 		std::uint64_t mapped_responses{};
@@ -310,9 +316,7 @@ export struct HttpServerMetrics {
 	} pressure{};
 };
 
-export using HttpPressureMetrics = HttpServerMetrics::HttpPressureMetrics;
-
-export namespace conflux::http {
+using HttpPressureMetrics = HttpServerMetrics::HttpPressureMetrics;
 
 enum class OverflowPolicy : std::uint8_t {
 	reject,
@@ -863,10 +867,6 @@ export struct RequestView : HttpRequestFieldAccessors {
 
 export namespace conflux::http {
 
-using RejectReason = ::HttpRejectReason;
-using RejectionMetrics = ::HttpRejectionMetrics;
-using PressureMetrics = ::HttpPressureMetrics;
-using ServerMetrics = ::HttpServerMetrics;
 using RequestView = ::RequestView;
 using OwnedRequest = ::Request;
 using Request = RequestView;

@@ -331,7 +331,7 @@ public:
 		wait_for_server(server_->port());
 	}
 	[[nodiscard]] std::uint16_t port() const { return server_->port(); }
-	[[nodiscard]] HttpServerMetrics metrics() const noexcept { return server_->metrics(); }
+	[[nodiscard]] conflux::http::HttpServerMetrics metrics() const noexcept { return server_->metrics(); }
 	[[nodiscard]] conflux::http::DrainReport drain(
 		conflux::http::DrainOptions options = {}) {
 		auto report = server_->drain(options);

@@ -57,8 +57,8 @@ import :state;
 import :loop;
 
 void add_metrics(
-	HttpServerMetrics &dst,
-	HttpServerMetrics const &src) noexcept {
+	conflux::http::HttpServerMetrics &dst,
+	conflux::http::HttpServerMetrics const &src) noexcept {
 	dst.sq_dropped += src.sq_dropped;
 	dst.cq_overflow += src.cq_overflow;
 	dst.accepted_direct_failures += src.accepted_direct_failures;
@@ -143,7 +143,7 @@ struct HttpServer::Impl {
 	bool use_vhost = false;
 	std::vector<std::unique_ptr<Ring>> ring_vec;
 	std::vector<int> shutdown_efds;
-	HttpServerObservabilityHooks observability_hooks{};
+	conflux::http::HttpServerObservabilityHooks observability_hooks{};
 	std::atomic<std::uint16_t> bound_port_;
 	std::mutex startup_error_mu;
 	std::exception_ptr startup_error{};
@@ -523,8 +523,8 @@ void HttpServer::shutdown() {
 	}
 }
 
-[[nodiscard]] HttpServerMetrics HttpServer::metrics() const noexcept {
-	HttpServerMetrics out{};
+[[nodiscard]] conflux::http::HttpServerMetrics HttpServer::metrics() const noexcept {
+	conflux::http::HttpServerMetrics out{};
 	if (impl_ == nullptr) {
 		return out;
 	}
@@ -583,7 +583,7 @@ void HttpServer::shutdown() {
 }
 
 void HttpServer::set_observability_hooks(
-	HttpServerObservabilityHooks hooks) {
+	conflux::http::HttpServerObservabilityHooks hooks) {
 	impl_->observability_hooks = std::move(hooks);
 	for (auto const &ring: impl_->ring_vec) {
 		if (ring) {

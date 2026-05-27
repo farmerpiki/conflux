@@ -149,7 +149,7 @@ export void append_prometheus_sample(
 }
 
 export std::string format_pressure_metrics_prometheus(
-	HttpPressureMetrics const &pressure) {
+	conflux::http::HttpPressureMetrics const &pressure) {
 	std::string out;
 	out.reserve(1024);
 	out += "# HELP http_pressure_events_total HTTP lifecycle and backpressure events\n";
