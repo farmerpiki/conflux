@@ -248,7 +248,7 @@ TEST_CASE(
 	CHECK(closed == 2);
 
 	auto drop_newest = std::make_shared<conflux::http::SseChannel>(4, conflux::http::SseOverflowPolicy::DropNewest);
-	CHECK(drop_newest->overflow_policy_vocabulary() == OverflowPolicy::drop_newest);
+	CHECK(drop_newest->overflow_policy_vocabulary() == conflux::http::OverflowPolicy::drop_newest);
 	CHECK(drop_newest->send("1234"));
 	CHECK_FALSE(drop_newest->send("5"));
 	CHECK(drop_newest->pressure_metrics().dropped_newest == 1);
@@ -260,14 +260,14 @@ TEST_CASE(
 	CHECK(view_channel.drain() == "data: before\n\n");
 
 	auto drop_oldest = std::make_shared<conflux::http::SseChannel>(4, conflux::http::SseOverflowPolicy::DropOldest);
-	CHECK(drop_oldest->overflow_policy_vocabulary() == OverflowPolicy::drop_oldest);
+	CHECK(drop_oldest->overflow_policy_vocabulary() == conflux::http::OverflowPolicy::drop_oldest);
 	CHECK(drop_oldest->send("1234"));
 	CHECK(drop_oldest->send("5"));
 	CHECK(drop_oldest->pressure_metrics().dropped_oldest == 1);
 
 	auto disconnect = std::make_shared<conflux::http::SseChannel>(
 		4,
-		conflux::http::sse_overflow_policy(OverflowPolicy::close_connection));
+		conflux::http::sse_overflow_policy(conflux::http::OverflowPolicy::close_connection));
 	CHECK(disconnect->send("1234"));
 	CHECK_FALSE(disconnect->send("5"));
 	CHECK(disconnect->is_closed());

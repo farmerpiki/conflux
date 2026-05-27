@@ -308,15 +308,15 @@ export struct HttpServerMetrics {
 
 export using HttpPressureMetrics = HttpServerMetrics::HttpPressureMetrics;
 
-export enum class OverflowPolicy : std::uint8_t {
+export namespace conflux::http {
+
+enum class OverflowPolicy : std::uint8_t {
 	reject,
 	drop_oldest,
 	drop_newest,
 	close_connection,
 	backpressure,
 };
-
-export namespace conflux::http {
 
 enum class DrainStreamPolicy : std::uint8_t {
 	close,
@@ -860,7 +860,6 @@ using RejectReason = ::HttpRejectReason;
 using RejectionMetrics = ::HttpRejectionMetrics;
 using PressureMetrics = ::HttpPressureMetrics;
 using ServerMetrics = ::HttpServerMetrics;
-using OverflowPolicy = ::OverflowPolicy;
 using RequestView = ::RequestView;
 using OwnedRequest = ::Request;
 using Request = RequestView;

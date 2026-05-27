@@ -36,24 +36,24 @@ enum class SseOverflowPolicy : std::uint8_t {
 	Disconnect,
 };
 
-constexpr OverflowPolicy to_overflow_policy(
+constexpr conflux::http::OverflowPolicy to_overflow_policy(
 	SseOverflowPolicy policy) noexcept {
 	switch (policy) {
-	case SseOverflowPolicy::DropNewest: return OverflowPolicy::drop_newest;
-	case SseOverflowPolicy::DropOldest: return OverflowPolicy::drop_oldest;
-	case SseOverflowPolicy::Disconnect: return OverflowPolicy::close_connection;
+	case SseOverflowPolicy::DropNewest: return conflux::http::OverflowPolicy::drop_newest;
+	case SseOverflowPolicy::DropOldest: return conflux::http::OverflowPolicy::drop_oldest;
+	case SseOverflowPolicy::Disconnect: return conflux::http::OverflowPolicy::close_connection;
 	}
-	return OverflowPolicy::drop_newest;
+	return conflux::http::OverflowPolicy::drop_newest;
 }
 
 constexpr SseOverflowPolicy sse_overflow_policy(
-	OverflowPolicy policy) noexcept {
+	conflux::http::OverflowPolicy policy) noexcept {
 	switch (policy) {
-	case OverflowPolicy::drop_oldest     : return SseOverflowPolicy::DropOldest;
-	case OverflowPolicy::close_connection: return SseOverflowPolicy::Disconnect;
-	case OverflowPolicy::drop_newest     :
-	case OverflowPolicy::reject          :
-	case OverflowPolicy::backpressure    : return SseOverflowPolicy::DropNewest;
+	case conflux::http::OverflowPolicy::drop_oldest     : return SseOverflowPolicy::DropOldest;
+	case conflux::http::OverflowPolicy::close_connection: return SseOverflowPolicy::Disconnect;
+	case conflux::http::OverflowPolicy::drop_newest     :
+	case conflux::http::OverflowPolicy::reject          :
+	case conflux::http::OverflowPolicy::backpressure    : return SseOverflowPolicy::DropNewest;
 	}
 	return SseOverflowPolicy::DropNewest;
 }
@@ -239,7 +239,9 @@ public:
 		};
 	}
 	[[nodiscard]] SseOverflowPolicy overflow_policy() const noexcept { return overflow_; }
-	[[nodiscard]] OverflowPolicy overflow_policy_vocabulary() const noexcept { return to_overflow_policy(overflow_); }
+	[[nodiscard]] conflux::http::OverflowPolicy overflow_policy_vocabulary() const noexcept {
+		return to_overflow_policy(overflow_);
+	}
 	[[nodiscard]] std::size_t max_queue_bytes() const noexcept { return max_queue_bytes_; }
 };
 
