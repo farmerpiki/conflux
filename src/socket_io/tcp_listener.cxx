@@ -8,19 +8,6 @@ module;
 module conflux.socket_io;
 import std;
 
-namespace {
-
-struct FdGuard {
-	int fd{-1};
-	~FdGuard() noexcept {
-		if (fd >= 0) {
-			::close(fd);
-		}
-	}
-};
-
-} // namespace
-
 TcpListener::TcpListener(
 	TcpListenerOptions opts) {
 	bool const is_v6 =
@@ -32,7 +19,7 @@ TcpListener::TcpListener(
 	if (raw < 0) {
 		throw std::system_error(errno, std::system_category(), "socket");
 	}
-	FdGuard guard{raw};
+	auto guard = OwnedSocketHandle::from_fd(raw);
 	int const on = 1;
 	if (opts.reuse_addr) {
 		if (::setsockopt(raw, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
@@ -77,28 +64,19 @@ TcpListener::TcpListener(
 	port_ = (ss.ss_family == AF_INET6) ? ntohs(reinterpret_cast<sockaddr_in6 const *>(&ss)->sin6_port) :
 										 ntohs(reinterpret_cast<sockaddr_in const *>(&ss)->sin_port);
 	accept_flags_ = opts.accept_flags;
-	fd_ = std::exchange(guard.fd, -1);
-}
-
-TcpListener::~TcpListener() noexcept {
-	if (fd_ >= 0) {
-		::close(fd_);
-	}
+	fd_ = std::move(guard);
 }
 
 TcpListener::TcpListener(
 	TcpListener &&o) noexcept
-	: fd_{std::exchange(o.fd_, -1)}
+	: fd_{std::move(o.fd_)}
 	, port_{std::exchange(o.port_, std::uint16_t{})}
 	, accept_flags_{o.accept_flags_} {}
 
 TcpListener &TcpListener::operator =(
 	TcpListener &&o) noexcept {
 	if (this != &o) {
-		if (fd_ >= 0) {
-			::close(fd_);
-		}
-		fd_ = std::exchange(o.fd_, -1);
+		fd_ = std::move(o.fd_);
 		port_ = std::exchange(o.port_, std::uint16_t{});
 		accept_flags_ = o.accept_flags_;
 	}

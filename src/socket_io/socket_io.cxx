@@ -1952,21 +1952,21 @@ export struct TcpListenerOptions {
 	int accept_flags{SOCK_CLOEXEC | SOCK_NONBLOCK};
 };
 export class TcpListener {
-	int fd_{-1};
+	OwnedSocketHandle fd_{};
 	std::uint16_t port_{};
 	int accept_flags_{SOCK_CLOEXEC | SOCK_NONBLOCK};
 
 public:
 	explicit TcpListener(TcpListenerOptions opts = {});
-	~TcpListener() noexcept;
+	~TcpListener() noexcept = default;
 	TcpListener(TcpListener const &) = delete;
 	TcpListener &operator =(TcpListener const &) = delete;
 	TcpListener(TcpListener &&o) noexcept;
 	TcpListener &operator =(TcpListener &&o) noexcept;
 	[[nodiscard]] std::uint16_t port() const noexcept { return port_; }
-	[[nodiscard]] int raw_fd() const noexcept { return fd_; }
+	[[nodiscard]] int raw_fd() const noexcept { return fd_.raw_fd(); }
 	[[nodiscard]] int accept_flags() const noexcept { return accept_flags_; }
-	[[nodiscard]] RingFd auto handle() const noexcept { return OsFd::from_os(fd_); }
+	[[nodiscard]] RingFd auto handle() const noexcept { return fd_.get(); }
 #if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 	[[nodiscard]] bool arm_accept_multishot_borrowed(
 		SocketRawRing &ring,
