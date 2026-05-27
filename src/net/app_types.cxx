@@ -117,55 +117,49 @@ struct Problem {
 		return *this;
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&type_uri(
-		this Self &&self,
+	[[nodiscard]] auto &&type_uri(
+		this auto &&self,
 		std::string_view value) {
 		self.type = std::string{value};
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	[[nodiscard]] Self &&title_text(
-		this Self &&self,
+	[[nodiscard]] auto &&title_text(
+		this auto &&self,
 		std::string_view value) {
 		self.title = std::string{value};
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	[[nodiscard]] Self &&detail_text(
-		this Self &&self,
+	[[nodiscard]] auto &&detail_text(
+		this auto &&self,
 		std::string_view value) {
 		self.detail = std::string{value};
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	[[nodiscard]] Self &&instance_uri(
-		this Self &&self,
+	[[nodiscard]] auto &&instance_uri(
+		this auto &&self,
 		std::string_view value) {
 		self.instance = std::string{value};
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	[[nodiscard]] Self &&extension(
-		this Self &&self,
+	[[nodiscard]] auto &&extension(
+		this auto &&self,
 		std::string_view name,
 		std::string_view value) {
 		self.extensions.emplace_back(name, value);
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
-	template<class Self>
-	[[nodiscard]] Self &&field(
-		this Self &&self,
+	[[nodiscard]] auto &&field(
+		this auto &&self,
 		std::string_view name,
 		std::string_view detail) {
 		self.fields.emplace_back(name, detail);
 		self.rebuild();
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 };
 

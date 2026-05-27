@@ -82,66 +82,59 @@ struct CookieBuilder {
 		: name(cookie_name)
 		, value(cookie_value) {}
 
-	template<class Self>
-	[[nodiscard]] Self &&attribute(
-		this Self &&self,
+	[[nodiscard]] auto &&attribute(
+		this auto &&self,
 		std::string_view attr) {
 		if (attr.empty()) {
-			return std::forward<Self>(self);
+			return std::forward<decltype(self)>(self);
 		}
 		if (!self.attributes.empty()) {
 			self.attributes += "; ";
 		}
 		self.attributes += attr;
-		return std::forward<Self>(self);
+		return std::forward<decltype(self)>(self);
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&path(
-		this Self &&self,
+	[[nodiscard]] auto &&path(
+		this auto &&self,
 		std::string_view path_value) {
-		return std::forward<Self>(self).attribute(std::format("Path={}", path_value));
+		return std::forward<decltype(self)>(self).attribute(std::format("Path={}", path_value));
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&domain(
-		this Self &&self,
+	[[nodiscard]] auto &&domain(
+		this auto &&self,
 		std::string_view domain_value) {
-		return std::forward<Self>(self).attribute(std::format("Domain={}", domain_value));
+		return std::forward<decltype(self)>(self).attribute(std::format("Domain={}", domain_value));
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&http_only(
-		this Self &&self) {
-		return std::forward<Self>(self).attribute("HttpOnly");
+	[[nodiscard]] auto &&http_only(
+		this auto &&self) {
+		return std::forward<decltype(self)>(self).attribute("HttpOnly");
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&secure(
-		this Self &&self) {
-		return std::forward<Self>(self).attribute("Secure");
+	[[nodiscard]] auto &&secure(
+		this auto &&self) {
+		return std::forward<decltype(self)>(self).attribute("Secure");
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&same_site(
-		this Self &&self,
+	[[nodiscard]] auto &&same_site(
+		this auto &&self,
 		SameSite value) {
-		return std::forward<Self>(self).attribute(std::format("SameSite={}", same_site_token(value)));
+		return std::forward<decltype(self)>(self).attribute(std::format("SameSite={}", same_site_token(value)));
 	}
 
-	template<class Self, class Rep, class Period>
-	[[nodiscard]] Self &&max_age(
-		this Self &&self,
+	template<class Rep, class Period>
+	[[nodiscard]] auto &&max_age(
+		this auto &&self,
 		std::chrono::duration<Rep, Period> age) {
 		auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(age).count();
-		return std::forward<Self>(self).attribute(std::format("Max-Age={}", seconds));
+		return std::forward<decltype(self)>(self).attribute(std::format("Max-Age={}", seconds));
 	}
 
-	template<class Self>
-	[[nodiscard]] Self &&expires(
-		this Self &&self,
+	[[nodiscard]] auto &&expires(
+		this auto &&self,
 		std::string_view http_date) {
-		return std::forward<Self>(self).attribute(std::format("Expires={}", http_date));
+		return std::forward<decltype(self)>(self).attribute(std::format("Expires={}", http_date));
 	}
 };
 
