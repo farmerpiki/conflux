@@ -407,9 +407,9 @@ elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_TLS_PROVIDER=AUTO/OPENSSL and OpenSSL")
 endif()
 
-# conflux.net.config is part of the core surface and imports conflux.file_io_sync
-# for config/secret file loading, so the provider module is required even when
-# broader runtime file I/O is disabled.
+# conflux.file_io_sync is syscall-only core infrastructure used by config and
+# secret loading. Keep it available without enabling the broader async file_io
+# stack.
 if(NOT CONFLUX_WANT_FILE_IO_SYNC)
     set(CONFLUX_WANT_FILE_IO_SYNC TRUE)
     set(CONFLUX_WANT_FILE_IO_SYNC TRUE CACHE INTERNAL "Resolved conflux component flag" FORCE)
@@ -1178,7 +1178,7 @@ target_link_libraries(conflux_http_router
     PUBLIC  conflux_work
     PUBLIC  conflux_utils
     PUBLIC  conflux_net_config
-    PUBLIC  conflux_socket_io
+    PRIVATE conflux_socket_io
 )
 endif() # HTTP router or router-dependent component
 

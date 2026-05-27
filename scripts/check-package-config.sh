@@ -17,6 +17,8 @@ fail() {
 [[ -f cmake/package-smoke/CMakeLists.txt ]] || fail "missing package smoke project"
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
+[[ -f scripts/check-header-first-contact-smoke.sh ]] || fail "missing first-contact header smoke runner"
+[[ -f scripts/check-header-component-smoke.sh ]] || fail "missing full header component smoke runner"
 [[ -f scripts/check-package-smoke-liburing-free.sh ]] || fail "missing liburing-free package smoke lane"
 [[ -f scripts/check-package-smoke-core-isolated.sh ]] || fail "missing core-isolated package smoke lane"
 [[ -f scripts/check-package-smoke-runtime.sh ]] || fail "missing runtime package smoke lane"
@@ -54,6 +56,12 @@ grep -q 'add_test(NAME build/http-facade-snapshot' tests/CMakeLists.txt \
     || fail "missing HTTP facade snapshot CTest guard"
 grep -q 'add_test(NAME build/package-config' tests/CMakeLists.txt \
     || fail "missing package-config CTest guard"
+grep -q 'add_test(NAME build/header-first-contact-smoke' tests/CMakeLists.txt \
+    || fail "missing default first-contact header smoke CTest guard"
+grep -q 'CONFLUX_RUN_HEADER_COMPONENT_SMOKE' tests/CMakeLists.txt \
+    || fail "full header component smoke must be opt-in"
+grep -q 'add_test(NAME build/header-component-smoke' tests/CMakeLists.txt \
+    || fail "missing full header component smoke CTest guard"
 grep -q 'add_test(NAME docs/planning-state' tests/CMakeLists.txt \
     || fail "missing planning-state CTest guard"
 grep -q 'add_test(NAME docs/release-docs' tests/CMakeLists.txt \
@@ -74,6 +82,12 @@ grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in linked header examples option"
 grep -q 'CONFLUX_HEADER_LINK_SMOKE' cmake/ConfluxOptions.cmake \
     || fail "missing opt-in linked header smoke option"
+grep -q 'CONFLUX_RUN_HEADER_COMPONENT_SMOKE' cmake/ConfluxOptions.cmake \
+    || fail "missing opt-in full header component smoke option"
+grep -q 'conflux_header_smoke_api_surface_curated' scripts/check-header-first-contact-smoke.sh \
+    || fail "first-contact header smoke must build only the curated API surface target"
+grep -q 'CONFLUX_HEADER_COMPONENT_SMOKE_BUILD_ROOT' scripts/check-header-component-smoke.sh \
+    || fail "full header component smoke must remain separately configurable"
 grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/ConfluxInterfaceMode.cmake \
     || fail "header generated targets must disable module scanning"
 grep -q 'CONFLUX_HEADER_FAST_COMPILE' cmake/ConfluxInterfaceMode.cmake \

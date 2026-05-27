@@ -144,7 +144,7 @@ Ring::~Ring() {
 	if (!has_context_routes()) {
 		return std::nullopt;
 	}
-	RequestContext const ctx{*client_task_ring_};
+	RequestContext const ctx{RequestRingRef{*client_task_ring_}};
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch_context(req, ctx);
 	}

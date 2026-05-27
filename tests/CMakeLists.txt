@@ -1133,14 +1133,25 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;package"
     )
 
-    add_test(NAME build/header-component-smoke
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-header-component-smoke.sh"
+    add_test(NAME build/header-first-contact-smoke
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-header-first-contact-smoke.sh"
                 "${CMAKE_SOURCE_DIR}")
-    set_tests_properties(build/header-component-smoke PROPERTIES
+    set_tests_properties(build/header-first-contact-smoke PROPERTIES
         LABELS "build;headers;package"
         RUN_SERIAL TRUE
-        TIMEOUT 600
+        TIMEOUT 180
     )
+
+    if(CONFLUX_RUN_HEADER_COMPONENT_SMOKE)
+        add_test(NAME build/header-component-smoke
+            COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-header-component-smoke.sh"
+                    "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(build/header-component-smoke PROPERTIES
+            LABELS "build;headers;package;expensive"
+            RUN_SERIAL TRUE
+            TIMEOUT 600
+        )
+    endif()
 
     add_test(NAME build/mixed-module-header-smoke
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-smoke-mixed-module-header.sh")

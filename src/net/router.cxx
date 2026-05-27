@@ -10,7 +10,6 @@ import conflux.work;
 import conflux.utils;
 import conflux.net.config;
 import conflux.net.path;
-import conflux.socket_io;
 export import conflux.net.http.server_types;
 export import conflux.net.http.realtime;
 export import conflux.net.http.static_files;
@@ -24,8 +23,27 @@ export struct RouteInfo {
 	std::string path_pattern; // OpenAPI-style path e.g. /users/{id}
 	std::vector<std::string> path_params; // captured parameter names in order
 };
+export class RequestRingRef {
+	void *ptr_{};
+
+public:
+	RequestRingRef() noexcept = default;
+	template<class Ring>
+	explicit RequestRingRef(
+		Ring &ring) noexcept
+		: ptr_{std::addressof(ring)} {}
+	template<class Ring>
+	[[nodiscard]] Ring &as() const noexcept {
+		return *static_cast<Ring *>(ptr_);
+	}
+	template<class Ring>
+	[[nodiscard]] operator Ring &() const noexcept {
+		return as<Ring>();
+	}
+	[[nodiscard]] explicit operator bool() const noexcept { return ptr_ != nullptr; }
+};
 export struct RequestContext {
-	SocketTaskRing &ring;
+	RequestRingRef ring;
 };
 
 export using NextHandler = CloneableFunction<Response(RequestView const &)>;

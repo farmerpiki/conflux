@@ -385,6 +385,10 @@ struct RuntimeCapabilities {
 	std::vector<CapabilityIssue> issues;
 };
 
+#if defined(CONFLUX_INTERFACE_HEADER)
+[[nodiscard]] std::expected<RuntimeCapabilities, CapabilityIssue> detect_capabilities();
+#endif
+
 std::string capability_issue_code_string(
 	CapabilityIssueCode code) {
 	switch (code) {

@@ -20,6 +20,8 @@ option(CONFLUX_HEADER_LINK_EXAMPLES
     "Link generated header-mode example targets against generated implementation archives" OFF)
 option(CONFLUX_HEADER_LINK_SMOKE
     "Build small linked header-mode smoke targets against generated implementation archives" OFF)
+option(CONFLUX_RUN_HEADER_COMPONENT_SMOKE
+    "Run the full generated public header component smoke matrix in CTest" OFF)
 
 if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 		AND NOT CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
