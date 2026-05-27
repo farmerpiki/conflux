@@ -64,7 +64,9 @@ return static_cast<int>(*status);
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::RequestView const& req) {
-    return http::Response::text(std::string{req.params["id"]});
+    auto id = req.param_as<std::string>("id");
+    if (!id) return http::text(id.error().message, 400);
+    return http::text(*id);
 });
 
 auto routes = app.routes();
@@ -337,15 +339,15 @@ strings only on failure; successful numeric/bool parsing stays borrowed and
 ```cpp
 router.get("/items/{id}", [](http::RequestView const& req) -> http::Response {
     auto id = req.param_as<std::uint64_t>("id");
-    if (!id) return http::Response::text("bad id", 400);
+    if (!id) return http::text("bad id", 400);
 
     auto page = req.optional_query_as<std::uint32_t>("page");
-    if (!page) return http::Response::text(page.error().message, 400);
+    if (!page) return http::text(page.error().message, 400);
 
     auto debug = req.optional_header_as<bool>("x-debug");
-    if (!debug) return http::Response::text(debug.error().message, 400);
+    if (!debug) return http::text(debug.error().message, 400);
 
-    return http::Response::text(std::format("id={} page={} debug={}",
+    return http::text(std::format("id={} page={} debug={}",
         *id,
         page->value_or(1),
         debug->value_or(false)));
@@ -517,19 +519,19 @@ streaming upload API rather than hidden spill-to-disk behavior.
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
 router.get("/ping", [](http::RequestView const& req) -> http::Response {
-    return http::Response::text("pong");
+    return http::text("pong");
 });
 
 // Async handler: also borrows the server-owned request storage.
 router.post("/echo", [](http::RequestView const& req) -> root::Task<http::Response> {
-    co_return http::Response::text(req.body);
+    co_return http::text(req.body);
 });
 
 // Explicit worker placement for blocking/heavy work.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 router.get("/slow", [pool](http::RequestView const&) -> http::Response {
     return http::offload(pool, [] {
-        return http::Response::text("done");
+        return http::text("done");
     });
 });
 ```
@@ -629,8 +631,8 @@ public:
 };
 ```
 
-`http::Response::text/html/json(body, status)` fills the standard reason phrase
-for known status codes, so `text("bad", 400)` is enough for ordinary errors.
+`http::text/html/json(body, status)` fills the standard reason phrase
+for known status codes, so `http::text("bad", 400)` is enough for ordinary errors.
 Use the three-argument overload when a custom reason phrase is required.
 
 JSON response bodies are explicit raw strings at this layer. Structured JSON

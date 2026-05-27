@@ -74,7 +74,7 @@ sources, this document, and [`component-map.md`](component-map.md) stay in sync.
 
 | Surface area | Curated | Extended | Complete |
 |---|---:|---:|---:|
-| `conflux.core` narrow core aggregate | yes | yes | yes |
+| `conflux.core` narrow core aggregate | no, explicit leaf import only | no, explicit leaf import only | no, explicit leaf import only |
 | `conflux.features` | yes | yes | yes |
 | `conflux.types` | no, pending alias policy | no, pending alias policy | no, pending alias policy |
 | `conflux.http` façade | yes, when built | yes | yes |

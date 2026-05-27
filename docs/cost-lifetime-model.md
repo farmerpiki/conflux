@@ -48,7 +48,6 @@ storage alive until the deferred response completes, or use `http::OwnedRequest`
 | `http::html(...)` | Response owns `std::string` body | Moves rvalues; copies if caller constructs from borrowed data | Yes as needed | No | No; sent from owned memory | TLS still copies through TLS stack | Body is owned by response |
 | `http::owned_html(...)` | Response owns caller-provided `std::string` body | Moves the supplied string into the response | No extra body copy; response metadata may allocate | No | No; sent from owned memory | TLS still copies through TLS stack | Caller gives up the string |
 | `http::json(...)` | Response owns already-serialized JSON string | Moves rvalues; serialization may already have copied | Yes as needed | No | No; sent from owned memory | TLS still copies through TLS stack | Pass valid serialized JSON bytes |
-| `http::ok(...)` | Response owns any supplied body | Same as selected body helper | Yes when body/header storage is created | No | Body dependent | TLS may disable kernel zero-copy paths | Body must be owned or copied before return |
 | `http::created(...)` | Response owns any supplied body and headers | Same as selected body helper | Yes when body/header storage is created | No | Body dependent | TLS may disable kernel zero-copy paths | Body and `Location` header must be owned by response |
 | `http::owned_created(...)` | Response owns caller-provided `std::string` body | Moves the supplied string into the response | No extra body copy; headers/status may allocate | No | Body dependent | TLS may disable kernel zero-copy paths | Caller gives up the string |
 | `http::cookie(...)` / `Response::set_cookie(...)` | Response owns formatted `Set-Cookie` header strings | Builder stores name/value/attributes, then `set_cookie` formats one header string | Yes for cookie/header strings | No | Not relevant | Not relevant | Caller data only needs to survive the builder call |
@@ -107,7 +106,7 @@ work is required.
 std::string_view leaked;
 app.get("/", [&](http::RequestView req) {
     leaked = req.path;
-    return http::ok();
+    return http::no_content();
 });
 ```
 
@@ -116,7 +115,7 @@ app.get("/", [&](http::RequestView req) {
 std::string saved;
 app.get("/", [&](http::RequestView req) {
     saved = std::string(req.path);
-    return http::ok();
+    return http::no_content();
 });
 ```
 

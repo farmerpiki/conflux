@@ -255,6 +255,43 @@ TEST_CASE(
 	CHECK(out.cancelled().reason == root::CancelReason::deadline);
 }
 TEST_CASE(
+	"work.root: void source success supports ready and blocking joins",
+	"[work.root]") {
+	auto [ready_task, ready_src] = root::make_task_source<void>();
+	REQUIRE(ready_src.try_set_value());
+	auto ready = root::try_join_ready(std::move(ready_task));
+	REQUIRE(ready.has_value());
+	CHECK(ready->is_success());
+
+	auto [blocking_task, blocking_src] = root::make_task_source<void>();
+	REQUIRE(blocking_src.try_set_value(root::Success<void>{}));
+	auto blocking = root::blocking_join(std::move(blocking_task));
+	CHECK(blocking.is_success());
+}
+TEST_CASE(
+	"work.root: void abandon sink receives terminal outcome",
+	"[work.root]") {
+	auto [task, src] = root::make_task_source<void>();
+	bool saw_success = false;
+	root::abandon_to(std::move(task), [&saw_success](root::Outcome<void> const &outcome) noexcept {
+		saw_success = outcome.is_success();
+	});
+
+	REQUIRE(src.try_set_value());
+	CHECK(saw_success);
+}
+TEST_CASE(
+	"work.root: late void cancel hook receives stored reason",
+	"[work.root]") {
+	auto [control, src] = root::make_task_control_source<void>();
+	CHECK(control.request_cancel(root::CancelReason::deadline));
+
+	std::optional<root::CancelReason> hook_reason{};
+	REQUIRE(src.install_cancel_hook([&hook_reason](root::CancelReason reason) noexcept { hook_reason = reason; }));
+	REQUIRE(hook_reason.has_value());
+	CHECK(*hook_reason == root::CancelReason::deadline);
+}
+TEST_CASE(
 	"work.root: CancelledError in Task<int> commits cancelled outcome",
 	"[work.root]") {
 	auto out = root::blocking_join(throw_cancelled_int(root::CancelReason::deadline));
@@ -353,6 +390,23 @@ TEST_CASE(
 	CHECK_FALSE(child_control.cancel_requested());
 
 	REQUIRE(child_src.try_set_value(root::Success<int>{1}));
+	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::shutdown));
+}
+TEST_CASE(
+	"work.root: Cancellation await forwards parent cancellation to void child",
+	"[work.root]") {
+	auto [parent, parent_src] = root::make_task_source<void>();
+	root::Cancellation cancel{parent.control()};
+	auto [child, child_src] = root::make_task_source<void>();
+	auto child_control = child.control();
+	{
+		auto awaiter = cancel.await(std::move(child));
+		parent.cancel(root::CancelReason::shutdown);
+		CHECK(child_control.cancel_requested());
+		REQUIRE(child_control.cancellation_reason().has_value());
+		CHECK(*child_control.cancellation_reason() == root::CancelReason::shutdown);
+	}
+	REQUIRE(child_src.try_set_cancelled(root::CancelReason::shutdown));
 	REQUIRE(parent_src.try_set_cancelled(root::CancelReason::shutdown));
 }
 TEST_CASE(

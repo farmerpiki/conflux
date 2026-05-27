@@ -150,28 +150,23 @@ class App {
 			std::shared_ptr<ScopedContextMiddlewareList const> middlewares;
 			Router::ContextHandler inner;
 			std::size_t index{};
-			Router::ContextHandler next;
-
-			void bind(
-				std::shared_ptr<Step> self) {
-				next = [self = std::move(self)](
-						   RequestView const &r,
-						   RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
-			}
 
 			conflux::work::root::Task<Response> call(
+				std::shared_ptr<Step> self,
 				RequestView const &r,
 				RequestContext const &c) {
 				if (index == middlewares->size()) {
 					return inner(r, c);
 				}
 				auto const &middleware = (*middlewares)[index++];
+				Router::ContextHandler next =
+					[self = std::move(self)](RequestView const &next_req, RequestContext const &next_ctx) mutable
+					-> conflux::work::root::Task<Response> { return self->call(self, next_req, next_ctx); };
 				return middleware(r, c, next);
 			}
 		};
 		auto step = std::make_shared<Step>(std::move(middlewares), std::move(inner));
-		step->bind(step);
-		co_return co_await step->call(req, ctx);
+		co_return co_await step->call(step, req, ctx);
 	}
 
 	[[nodiscard]] static std::optional<Response> route_auth_failure(

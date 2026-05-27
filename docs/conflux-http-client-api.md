@@ -283,7 +283,7 @@ struct HttpClientOptions {
     std::string  ca_bundle_path;                 // empty → OpenSSL default paths
     std::size_t  max_header_bytes   {64 * 1024};
     std::size_t  max_body_bytes     {16 * 1024 * 1024};
-    std::size_t  max_buffered_bytes {4 * 1024 * 1024}; // Phase 2 — unused now
+    std::size_t  max_buffered_bytes {4 * 1024 * 1024}; // caps transient dechunk buffering
     HttpFields   default_headers;                // merged into every request, request wins
     void*        resolver{nullptr};              // conflux::net::dns::Resolver*, optional
 };
@@ -295,6 +295,10 @@ public:
     ClientResult blocking_send(ClientRequest req) const;
 };
 ```
+
+`max_buffered_bytes` limits transient buffering while dechunking responses in
+the blocking and async clients. It is not a streaming or backpressure API; the
+response body is still materialized subject to `max_body_bytes`.
 
 ### `blocking_send` contract
 

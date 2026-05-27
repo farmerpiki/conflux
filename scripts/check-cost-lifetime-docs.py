@@ -16,6 +16,12 @@ REQUIRED_HEADINGS = [
     "## Do not do this",
 ]
 
+FORBIDDEN_PUBLIC_HELPERS = [
+    "http::ok(",
+    "http::ok()",
+    "`http::ok",
+]
+
 REQUIRED_LINKS = {
     ROOT / "README.md": "docs/cost-lifetime-model.md",
     ROOT / "docs" / "public-api-map.md": "cost-lifetime-model.md",
@@ -33,6 +39,9 @@ def main() -> int:
         for heading in REQUIRED_HEADINGS:
             if heading not in text:
                 failures.append(f"missing required heading: {heading}")
+        for helper in FORBIDDEN_PUBLIC_HELPERS:
+            if helper in text:
+                failures.append(f"docs/cost-lifetime-model.md mentions nonexistent helper: {helper}")
 
     for path, needle in REQUIRED_LINKS.items():
         text = path.read_text(encoding="utf-8")

@@ -362,7 +362,6 @@ template<typename ImplT>
 			ImplT const *impl_;
 			Router::ContextHandler inner_;
 			std::size_t idx_{0};
-			Router::ContextHandler next_;
 
 			Step(
 				ImplT const *impl,
@@ -370,26 +369,23 @@ template<typename ImplT>
 				: impl_(impl)
 				, inner_(*inner) {}
 
-			void bind_next(
-				std::shared_ptr<Step> self) {
-				next_ = [self = std::move(self)](RequestView const &r, RequestContext const &c)
-					-> conflux::work::root::Task<Response> { co_return co_await self->call(r, c); };
-			}
-
 			conflux::work::root::Task<Response> call(
+				std::shared_ptr<Step> self,
 				RequestView const &r,
 				RequestContext const &c) {
 				if (idx_ == impl_->context_middlewares.size()) {
 					co_return co_await inner_(r, c);
 				}
 				auto const &mw = impl_->context_middlewares[idx_++];
-				auto next = make_one_shot_next(next_);
+				Router::ContextHandler next_handler =
+					[self = std::move(self)](RequestView const &next_req, RequestContext const &next_ctx) mutable
+					-> conflux::work::root::Task<Response> { co_return co_await self->call(self, next_req, next_ctx); };
+				auto next = make_one_shot_next(std::move(next_handler));
 				co_return co_await mw(r, c, next);
 			}
 		};
 		auto step = std::make_shared<Step>(&impl, &inner);
-		step->bind_next(step);
-		co_return co_await step->call(req, ctx);
+		co_return co_await step->call(step, req, ctx);
 	}
 	if (auto resp = dispatch_router_async(impl, req, ctx, path_sv, is_head)) {
 		co_return std::move(*resp);
@@ -654,7 +650,6 @@ void Router::launch_sse_handler(
 		Router::Impl const *impl_;
 		ContextHandler inner_;
 		std::size_t idx_{0};
-		ContextHandler next_;
 
 		Step(
 			Router::Impl const *impl,
@@ -662,28 +657,24 @@ void Router::launch_sse_handler(
 			: impl_(impl)
 			, inner_(*inner) {}
 
-		void bind_next(
-			std::shared_ptr<Step> self) {
-			next_ = [self = std::move(self)](
-						RequestView const &r,
-						RequestContext const &c) -> conflux::work::root::Task<Response> { return self->call(r, c); };
-		}
-
 		conflux::work::root::Task<Response> call(
+			std::shared_ptr<Step> self,
 			RequestView const &r,
 			RequestContext const &c) {
 			if (idx_ == impl_->context_middlewares.size()) {
 				return inner_(r, c);
 			}
 			auto const &mw = impl_->context_middlewares[idx_++];
-			auto next = make_one_shot_next(next_);
+			ContextHandler next_handler =
+				[self = std::move(self)](RequestView const &next_req, RequestContext const &next_ctx) mutable
+				-> conflux::work::root::Task<Response> { return self->call(self, next_req, next_ctx); };
+			auto next = make_one_shot_next(std::move(next_handler));
 			return mw(r, c, next);
 		}
 	};
 	auto step = std::make_shared<Step>(impl_.get(), &inner);
-	step->bind_next(step);
 	auto run_chain = [](std::shared_ptr<Step> chain, RequestView request, RequestContext request_ctx)
-		-> conflux::work::root::Task<Response> { co_return co_await chain->call(request, request_ctx); };
+		-> conflux::work::root::Task<Response> { co_return co_await chain->call(chain, request, request_ctx); };
 	return defer_http_task(run_chain(std::move(step), RequestView{req}, ctx));
 }
 
