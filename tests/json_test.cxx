@@ -3222,6 +3222,22 @@ struct conflux::json::JsonMembers<P4Person> {
 		};
 	}
 };
+
+struct P4FastStringShape {
+	std::string alpha{};
+	std::vector<std::string> items{};
+	std::int64_t count{};
+};
+template<>
+struct conflux::json::JsonMembers<P4FastStringShape> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("alpha", &P4FastStringShape::alpha),
+			conflux::json::json_member("items", &P4FastStringShape::items),
+			conflux::json::json_member("count", &P4FastStringShape::count),
+		};
+	}
+};
 struct P4Address {
 	std::string street{};
 	std::optional<std::string> city{};
@@ -3874,6 +3890,19 @@ TEST_CASE(
 	REQUIRE(ok.has_value());
 	CHECK(*ok == 42LL);
 }
+TEST_CASE(
+	"phase4: JsonReader direct object string fast path preserves escaped values",
+	"[phase4][perf]") {
+	auto value = decode_full<P4FastStringShape>(R"({"alpha":"plain","items":["one","t\\wo","three"],"count":3})");
+	REQUIRE(value.has_value());
+	CHECK(value->alpha == "plain");
+	REQUIRE(value->items.size() == 3UZ);
+	CHECK(value->items[0] == "one");
+	CHECK(value->items[1] == R"(t\wo)");
+	CHECK(value->items[2] == "three");
+	CHECK(value->count == 3LL);
+}
+
 TEST_CASE(
 	"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore",
 	"[phase4]") {

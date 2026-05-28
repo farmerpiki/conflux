@@ -1703,11 +1703,14 @@ std::expected<void, JsonError> decode_next_object_value_into(
 	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
 		return r.next_object_number_value(out);
 	} else if constexpr (is_basic_string_of_char_v<T>) {
-		auto token = r.next_object_string_value_token();
-		if (!token) {
-			return std::unexpected(std::move(token).error());
+		JsonDecodeScratch local_scratch;
+		JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+		auto view = r.next_object_string_value_view(decode_scratch);
+		if (!view) {
+			return std::unexpected(std::move(view).error());
 		}
-		return decode_string_into(out, *token, scratch);
+		out.assign(view->data(), view->size());
+		return {};
 	} else {
 		auto ev = r.next_object_value_event();
 		if (!ev) {
@@ -2000,22 +2003,16 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	presence.reset(member_count);
 
 	while (ok) {
-		auto key_token = r.next_object_key_token();
-		if (!key_token) {
+		auto key_view = r.next_object_key_view(decode_scratch);
+		if (!key_view) {
 			ok = false;
-			first_err = std::move(key_token).error();
+			first_err = std::move(key_view).error();
 			break;
 		}
-		if (!*key_token) {
+		if (!*key_view) {
 			break;
 		}
-		auto key_view_res = key_view_from_token(**key_token, decode_scratch);
-		if (!key_view_res) {
-			ok = false;
-			first_err = std::move(key_view_res).error();
-			break;
-		}
-		std::string_view const key_name = *key_view_res;
+		std::string_view const key_name = **key_view;
 
 		bool matched = false;
 		if constexpr (member_count > kJsonMemberLinearLookupLimit) {
@@ -2200,6 +2197,13 @@ std::expected<T, JsonError> decode_from_event(
 			return result;
 		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
 			if (auto decoded = r.decode_integral_array_into(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			JsonDecodeScratch local_scratch;
+			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+			if (auto decoded = r.decode_string_array_into(result, decode_scratch); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
@@ -2559,6 +2563,10 @@ std::expected<void, JsonError> decode_into(
 			return r.decode_floating_array_into(out);
 		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
 			return r.decode_integral_array_into(out);
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			JsonDecodeScratch local_scratch;
+			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+			return r.decode_string_array_into(out, decode_scratch);
 		}
 		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());

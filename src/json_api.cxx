@@ -1330,9 +1330,12 @@ public:
 	[[nodiscard]] std::size_t pos() const noexcept;
 	[[nodiscard]] std::size_t value_start_pos() const noexcept;
 	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token();
+	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
+	next_object_key_view(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event();
 	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value();
 	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token();
+	[[nodiscard]] std::expected<std::string_view, JsonError> next_object_string_value_view(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
@@ -1542,6 +1545,111 @@ public:
 				return std::unexpected(std::move(e));
 			}
 			out.emplace_back(*converted);
+		}
+	}
+	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_string_array_into(
+		Vector &out,
+		JsonDecodeScratch &scratch) {
+		using String = typename Vector::value_type;
+		static_assert(requires(String &str, char const *p, std::size_t n) { str.assign(p, n); });
+		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
+		}
+		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+			out.reserve(numeric_array_reserve_hint(sizeof(String)));
+		}
+		auto token_view = [&](JsonStringToken const &token) -> std::expected<std::string_view, JsonError> {
+			if (auto borrowed = token.unescaped_borrow()) {
+				return *borrowed;
+			}
+			std::size_t const needed = token.max_decoded_size();
+			if (needed <= scratch.string_inline.size()) {
+				return token.decode_into(std::span<char>{scratch.string_inline.data(), scratch.string_inline.size()});
+			}
+			scratch.string_overflow.resize(needed);
+			return token.decode_into(std::span<char>{scratch.string_overflow.data(), scratch.string_overflow.size()});
+		};
+		while (true) {
+			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			auto &top = stack_.back();
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			if (!top.first) {
+				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				adv();
+				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+			}
+			top.first = false;
+			if (pos_ >= input_.size()) [[unlikely]] {
+				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
+			std::expected<std::string_view, JsonError> view;
+			if (input_[pos_] == '"') {
+				adv();
+				std::size_t const body_start = pos_;
+				std::size_t const body_col = col_;
+				std::size_t const skip =
+					detail::simd::scan_str_until_special(input_.data() + pos_, input_.size() - pos_);
+				pos_ += skip;
+				col_ += skip;
+				if (pos_ < input_.size() && input_[pos_] == '"') {
+					std::string_view const body = input_.substr(body_start, skip);
+					if (opts_.max_string_size.exceeds(body.size(), kDefaultMaxString)) [[unlikely]] {
+						auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");
+						set_error(e);
+						return std::unexpected(last_error_);
+					}
+					adv();
+					view = body;
+				} else {
+					pos_ = body_start;
+					col_ = body_col;
+					if (auto parsed = parse_str_into_token(opts_.max_string_size, str_token_); !parsed) [[unlikely]] {
+						set_error(parsed.error());
+						return std::unexpected(last_error_);
+					}
+					view = token_view(str_token_);
+				}
+			} else if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
+				adv();
+				if (auto parsed = parse_str_sq_into_token(opts_.max_string_size, str_token_); !parsed) [[unlikely]] {
+					set_error(parsed.error());
+					return std::unexpected(last_error_);
+				}
+				view = token_view(str_token_);
+			} else [[unlikely]] {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+					.message = "expected string",
+				};
+				return std::unexpected(std::move(err));
+			}
+			if (!view) [[unlikely]] {
+				return std::unexpected(std::move(view).error());
+			}
+			auto &slot = out.emplace_back();
+			slot.assign(view->data(), view->size());
 		}
 	}
 	template<class T>
@@ -2216,22 +2324,55 @@ optional_bool(ObjectView const &obj, std::string_view name);
 // ---------------------------------------------------------------------------
 namespace detail::simd {
 
+[[nodiscard]] inline std::size_t scan_str_until_special_swar(
+	char const *p,
+	std::size_t n) noexcept {
+	std::size_t i = 0;
+	if constexpr (std::endian::native == std::endian::little) {
+		constexpr std::uint64_t kOnes = UINT64_C(0x0101010101010101);
+		constexpr std::uint64_t kHighBits = UINT64_C(0x8080808080808080);
+		constexpr std::uint64_t kQuote = UINT64_C(0x2222222222222222);
+		constexpr std::uint64_t kBackslash = UINT64_C(0x5c5c5c5c5c5c5c5c);
+		constexpr std::uint64_t kControlLimit = UINT64_C(0x2020202020202020);
+		auto zero_byte_mask = [](std::uint64_t word) noexcept { return (word - kOnes) & ~word & kHighBits; };
+		while (i + sizeof(std::uint64_t) <= n) {
+			std::uint64_t word{};
+			std::memcpy(&word, p + i, sizeof(word));
+			std::uint64_t const quote_or_backslash = zero_byte_mask(word ^ kQuote) | zero_byte_mask(word ^ kBackslash);
+			std::uint64_t const control = (word - kControlLimit) & ~word & kHighBits;
+			std::uint64_t const high_ascii = word & kHighBits;
+			std::uint64_t const bad = quote_or_backslash | control | high_ascii;
+			if (bad != 0U) {
+				return i + static_cast<std::size_t>(__builtin_ctzll(bad) >> 3U);
+			}
+			i += sizeof(std::uint64_t);
+		}
+	}
+	for (; i < n; ++i) {
+		auto const c = static_cast<unsigned char>(p[i]);
+		if (c == '"' || c == '\\' || c < 0x20U || c >= 0x80U) {
+			return i;
+		}
+	}
+	return n;
+}
+
 [[nodiscard]] inline std::size_t scan_str_until_special(
 	char const *p,
 	std::size_t n) noexcept {
 	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
-	constexpr std::size_t kStdsimdThreshold = 32;
+	constexpr std::size_t kStdsimdThreshold = 96;
 	if (n >= kStdsimdThreshold) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);
 	}
 #elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME && defined(CONFLUX_JSON_STDSIMD_IFUNC)
-	constexpr std::size_t kStdsimdThreshold = 32;
+	constexpr std::size_t kStdsimdThreshold = 96;
 	if (n >= kStdsimdThreshold) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);
 	}
 #elif defined(CONFLUX_JSON_HAS_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
-	constexpr std::size_t kStdsimdThreshold = 32;
+	constexpr std::size_t kStdsimdThreshold = 96;
 	if (n >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
 		return conflux_json_scan_str_until_special_stdsimd(p, n);
 	}
@@ -2280,13 +2421,7 @@ namespace detail::simd {
 		i += 16;
 	}
 #endif
-	for (; i < n; ++i) {
-		auto const c = static_cast<unsigned char>(p[i]);
-		if (c == '"' || c == '\\' || c < 0x20U || c >= 0x80U) {
-			return i;
-		}
-	}
-	return n;
+	return i + scan_str_until_special_swar(p + i, n - i);
 }
 
 } // namespace detail::simd
