@@ -1295,6 +1295,7 @@ private:
 	[[nodiscard]] JsonError mk_err(JsonIssueCode code, std::string msg) const;
 	void skip_ws();
 	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked();
+	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked_fast();
 	void adv(std::size_t n = 1) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
 	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
@@ -1306,6 +1307,7 @@ private:
 	[[nodiscard]] std::expected<void, JsonError> skip_object_body_raw(std::size_t raw_depth);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_array_elements_raw();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw();
+	[[nodiscard]] std::size_t numeric_array_reserve_hint(std::size_t element_size) const noexcept;
 	[[nodiscard]] std::expected<void, JsonError> push_frame(StateFrame frame);
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
 	[[nodiscard]] Checkpoint checkpoint() const;
@@ -1338,13 +1340,10 @@ public:
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			constexpr std::size_t kMaxFastArrayReserveBytes = 8U * 1024U * 1024U;
-			std::size_t const max_elems_by_bytes = kMaxFastArrayReserveBytes / sizeof(T);
-			std::size_t const dense_hint = (input_.size() - pos_) / 2U + 1U;
-			out.reserve(std::min(dense_hint, max_elems_by_bytes));
+			out.reserve(numeric_array_reserve_hint(sizeof(T)));
 		}
 		while (true) {
-			if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			auto &top = stack_.back();
@@ -1360,7 +1359,7 @@ public:
 					return std::unexpected(last_error_);
 				}
 				adv();
-				if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
+				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
 					return std::unexpected(std::move(ok).error());
 				}
 				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {

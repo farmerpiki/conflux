@@ -4357,6 +4357,18 @@ TEST_CASE(
 		CHECK(values.error().code == JsonIssueCode::number_out_of_range);
 	}
 	{
+		CountingResource resource;
+		DefaultPmrResourceGuard guard{&resource};
+		std::string input = R"([1.0,2.0,3.0])";
+		input.append(1024 * 1024, ' ');
+		JsonReader r{input};
+		auto values = decode<std::pmr::vector<double>>(r);
+		REQUIRE(values.has_value());
+		CHECK(values->size() == 3UZ);
+		CHECK(values->capacity() <= 4UZ);
+		CHECK(resource.alloc_bytes < 1024UZ);
+	}
+	{
 		JsonReader r{R"({"a":"x","b":"y"})"};
 		auto values = decode<std::unordered_map<std::string, std::string>>(r);
 		REQUIRE(values.has_value());
