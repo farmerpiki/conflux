@@ -1783,7 +1783,7 @@ std::expected<void, JsonError> decode_member_direct_by_static_index(
 }
 
 template<class T, std::size_t I>
-[[nodiscard]] JsonMemberLookupEntry<T> make_json_member_lookup_entry() {
+[[nodiscard]] constexpr JsonMemberLookupEntry<T> make_json_member_lookup_entry() {
 	constexpr auto members = conflux::json::JsonMembers<T>::members();
 	auto const &entry = get<I>(members);
 	auto const &m = jm_member(entry);
@@ -1796,7 +1796,7 @@ template<class T, std::size_t I>
 }
 
 template<class T, std::size_t... Is>
-[[nodiscard]] auto make_json_member_lookup_slots_impl(
+[[nodiscard]] constexpr auto make_json_member_lookup_slots_impl(
 	std::index_sequence<Is...>) {
 	constexpr std::size_t member_count = sizeof...(Is);
 	std::array<JsonMemberLookupEntry<T>, json_member_lookup_capacity(member_count)> slots{};
@@ -1809,6 +1809,24 @@ template<class T, std::size_t... Is>
 	};
 	(insert(make_json_member_lookup_entry<T, Is>()), ...);
 	return slots;
+}
+
+template<class T, std::size_t... Is>
+[[nodiscard]] constexpr auto make_json_member_ordered_entries_impl(
+	std::index_sequence<Is...>) {
+	return std::array<JsonMemberLookupEntry<T>, sizeof...(Is)>{make_json_member_lookup_entry<T, Is>()...};
+}
+
+template<class T>
+inline constexpr auto json_member_ordered_entries_v = [] {
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
+	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
+	return make_json_member_ordered_entries_impl<T>(std::make_index_sequence<member_count>{});
+}();
+
+template<class T>
+[[nodiscard]] constexpr auto const &json_member_ordered_entries() noexcept {
+	return json_member_ordered_entries_v<T>;
 }
 
 template<class T>
@@ -2001,6 +2019,7 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
 	JsonPresenceBits presence{decode_scratch.resource};
 	presence.reset(member_count);
+	std::size_t ordered_cursor = 0;
 
 	while (ok) {
 		auto key_view = r.next_object_key_view(decode_scratch);
@@ -2016,56 +2035,75 @@ std::expected<void, JsonError> decode_members_from_event_into(
 
 		bool matched = false;
 		if constexpr (member_count > kJsonMemberLinearLookupLimit) {
-			if (auto const *entry = find_json_member_lookup_entry<T>(key_name); entry != nullptr) {
-				matched = true;
-				auto decoded = decode_known_member_value(r, presence, entry->index, entry->name, [&] {
-					return entry->decode_direct(result, r, opts, &decode_scratch);
-				});
-				if (!decoded) {
-					ok = false;
-					first_err = std::move(decoded).error();
+			auto const &ordered_members = json_member_ordered_entries<T>();
+			if (ordered_cursor < ordered_members.size()) {
+				auto const &entry = ordered_members[ordered_cursor];
+				if (entry.name == key_name) {
+					matched = true;
+					++ordered_cursor;
+					auto decoded = decode_known_member_value(r, presence, entry.index, entry.name, [&] {
+						return entry.decode_direct(result, r, opts, &decode_scratch);
+					});
+					if (!decoded) {
+						ok = false;
+						first_err = std::move(decoded).error();
+					}
 				}
 			}
-		} else {
-			apply(
-				[&](auto const &...ms) {
-					std::size_t idx = 0;
-					(([&](auto const &entry) {
-						 if (matched || !ok) {
-							 ++idx;
-							 return;
-						 }
-						 auto const &m = jm_member(entry);
-						 if (key_name == m.name) {
-							 matched = true;
-							 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
-							 auto decoded = decode_known_member_value(r, presence, idx, m.name, [&] {
-								 auto value_decoded =
-									 decode_next_object_value_into<M>(result.*m.pointer, r, opts, &decode_scratch);
-								 if (!value_decoded) {
-									 return std::expected<void, JsonError>{
-										 std::unexpected(std::move(value_decoded).error())};
-								 }
-								 auto cfn = jm_constraint(entry);
-								 if (cfn != nullptr) {
-									 if (auto cr = cfn(result.*m.pointer); !cr) {
-										 auto err = std::move(cr).error();
-										 err.member_name = std::string{m.name};
-										 return std::expected<void, JsonError>{std::unexpected(std::move(err))};
-									 }
-								 }
-								 return std::expected<void, JsonError>{};
-							 });
-							 if (!decoded) {
-								 ok = false;
-								 first_err = std::move(decoded).error();
+		}
+		if (!matched) {
+			if constexpr (member_count > kJsonMemberLinearLookupLimit) {
+				if (auto const *entry = find_json_member_lookup_entry<T>(key_name); entry != nullptr) {
+					matched = true;
+					auto decoded = decode_known_member_value(r, presence, entry->index, entry->name, [&] {
+						return entry->decode_direct(result, r, opts, &decode_scratch);
+					});
+					if (!decoded) {
+						ok = false;
+						first_err = std::move(decoded).error();
+					}
+				}
+			} else {
+				apply(
+					[&](auto const &...ms) {
+						std::size_t idx = 0;
+						(([&](auto const &entry) {
+							 if (matched || !ok) {
+								 ++idx;
+								 return;
 							 }
-						 }
-						 ++idx;
-					 })(ms),
-					 ...);
-				},
-				members);
+							 auto const &m = jm_member(entry);
+							 if (key_name == m.name) {
+								 matched = true;
+								 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
+								 auto decoded = decode_known_member_value(r, presence, idx, m.name, [&] {
+									 auto value_decoded =
+										 decode_next_object_value_into<M>(result.*m.pointer, r, opts, &decode_scratch);
+									 if (!value_decoded) {
+										 return std::expected<void, JsonError>{
+											 std::unexpected(std::move(value_decoded).error())};
+									 }
+									 auto cfn = jm_constraint(entry);
+									 if (cfn != nullptr) {
+										 if (auto cr = cfn(result.*m.pointer); !cr) {
+											 auto err = std::move(cr).error();
+											 err.member_name = std::string{m.name};
+											 return std::expected<void, JsonError>{std::unexpected(std::move(err))};
+										 }
+									 }
+									 return std::expected<void, JsonError>{};
+								 });
+								 if (!decoded) {
+									 ok = false;
+									 first_err = std::move(decoded).error();
+								 }
+							 }
+							 ++idx;
+						 })(ms),
+						 ...);
+					},
+					members);
+			}
 		}
 
 		if (!matched && ok) {

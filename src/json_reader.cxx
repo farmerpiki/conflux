@@ -1212,6 +1212,11 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 				return std::unexpected(last_error_);
 			}
 			adv();
+			if (pos_ < input_.size() && input_[pos_] == ':') {
+				adv();
+				top.awaiting_value = true;
+				return std::optional<std::string_view>{body};
+			}
 			return finish_key(body);
 		}
 		pos_ = body_start;

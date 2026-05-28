@@ -1299,6 +1299,83 @@ private:
 	void adv(std::size_t n = 1) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
 	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
+	[[nodiscard]] static bool is_digit_ascii(
+		char c) noexcept {
+		return c >= '0' && c <= '9';
+	}
+	[[nodiscard]] static std::size_t scan_digits_ascii_fast(
+		char const *p,
+		std::size_t n) noexcept {
+		std::size_t i = 0;
+		if constexpr (std::endian::native == std::endian::little) {
+			constexpr std::uint64_t kLow = UINT64_C(0x3030303030303030);
+			constexpr std::uint64_t kHigh = UINT64_C(0x3939393939393939);
+			constexpr std::uint64_t kMsb = UINT64_C(0x8080808080808080);
+			while (i + sizeof(std::uint64_t) <= n) {
+				std::uint64_t word{};
+				std::memcpy(&word, p + i, sizeof(word));
+				std::uint64_t const below = (word - kLow) & ~word & kMsb;
+				std::uint64_t const above = ((word + (UINT64_C(0x7f7f7f7f7f7f7f7f) - kHigh)) | word) & kMsb;
+				std::uint64_t const bad = below | above;
+				if (bad != 0U) {
+					return i + static_cast<std::size_t>(__builtin_ctzll(bad) >> 3U);
+				}
+				i += sizeof(std::uint64_t);
+			}
+		}
+		while (i < n && is_digit_ascii(p[i])) {
+			++i;
+		}
+		return i;
+	}
+	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme_direct() {
+		std::size_t const start = pos_;
+		std::size_t p = pos_;
+		auto commit = [&] {
+			col_ += p - pos_;
+			pos_ = p;
+		};
+
+		if (p < input_.size() && input_[p] == '-') {
+			++p;
+		}
+		if (p >= input_.size() || !is_digit_ascii(input_[p])) [[unlikely]] {
+			commit();
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+		}
+		bool const starts_zero = input_[p] == '0';
+		++p;
+		if (starts_zero && p < input_.size() && is_digit_ascii(input_[p])) [[unlikely]] {
+			commit();
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+		}
+		p += scan_digits_ascii_fast(input_.data() + p, input_.size() - p);
+		if (p < input_.size() && input_[p] == '.') {
+			++p;
+			if (p >= input_.size() || !is_digit_ascii(input_[p])) [[unlikely]] {
+				commit();
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
+			}
+			p += scan_digits_ascii_fast(input_.data() + p, input_.size() - p);
+		}
+		if (p < input_.size() && (input_[p] == 'e' || input_[p] == 'E')) {
+			++p;
+			if (p < input_.size() && (input_[p] == '+' || input_[p] == '-')) {
+				++p;
+			}
+			if (p >= input_.size() || !is_digit_ascii(input_[p])) [[unlikely]] {
+				commit();
+				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
+			}
+			p += scan_digits_ascii_fast(input_.data() + p, input_.size() - p);
+		}
+		if (p - start > kMaxNumberLexemeLen) [[unlikely]] {
+			commit();
+			return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+		}
+		commit();
+		return input_.substr(start, pos_ - start);
+	}
 	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme();
 	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
 	[[nodiscard]] std::expected<void, JsonError> prepare_object_value();
@@ -1425,6 +1502,83 @@ public:
 		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
+		if (opts_.mode != ParseMode::json5 && stack_.back().first) {
+			auto skip_strict_ws = [&]() -> std::expected<void, JsonError> {
+				if (pos_ < input_.size()) {
+					char const ch = input_[pos_];
+					if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+						skip_ws();
+						if (has_error_) [[unlikely]] {
+							return std::unexpected(last_error_);
+						}
+					}
+				}
+				return {};
+			};
+			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+				out.reserve(numeric_array_reserve_hint(sizeof(T)));
+			}
+			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			stack_.back().first = false;
+			while (true) {
+				if (pos_ >= input_.size()) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				char const c = input_[pos_];
+				if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+					JsonError err{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::wrong_kind,
+						.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+						.message = "expected number",
+					};
+					return std::unexpected(std::move(err));
+				}
+				auto converted = decode_floating_value<T>();
+				if (!converted) [[unlikely]] {
+					auto e = std::move(converted).error();
+					if (e.stage == JsonStage::parse) {
+						set_error(e);
+						return std::unexpected(last_error_);
+					}
+					return std::unexpected(std::move(e));
+				}
+				out.emplace_back(*converted);
+				if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (pos_ >= input_.size()) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				char const sep = input_[pos_];
+				if (sep == ',') {
+					adv();
+					if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+						return std::unexpected(std::move(ok).error());
+					}
+					continue;
+				}
+				if (sep == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
+		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
 			out.reserve(numeric_array_reserve_hint(sizeof(T)));
 		}
@@ -1489,6 +1643,83 @@ public:
 		static_assert(std::integral<T> && !std::same_as<T, bool>);
 		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
+		}
+		if (opts_.mode != ParseMode::json5 && stack_.back().first) {
+			auto skip_strict_ws = [&]() -> std::expected<void, JsonError> {
+				if (pos_ < input_.size()) {
+					char const ch = input_[pos_];
+					if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+						skip_ws();
+						if (has_error_) [[unlikely]] {
+							return std::unexpected(last_error_);
+						}
+					}
+				}
+				return {};
+			};
+			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+				out.reserve(numeric_array_reserve_hint(sizeof(T)));
+			}
+			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			stack_.back().first = false;
+			while (true) {
+				if (pos_ >= input_.size()) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				char const c = input_[pos_];
+				if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+					JsonError err{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::wrong_kind,
+						.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+						.message = "expected integer",
+					};
+					return std::unexpected(std::move(err));
+				}
+				auto converted = decode_integral_value<T>();
+				if (!converted) [[unlikely]] {
+					auto e = std::move(converted).error();
+					if (e.stage == JsonStage::parse) {
+						set_error(e);
+						return std::unexpected(last_error_);
+					}
+					return std::unexpected(std::move(e));
+				}
+				out.emplace_back(*converted);
+				if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (pos_ >= input_.size()) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				char const sep = input_[pos_];
+				if (sep == ',') {
+					adv();
+					if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+						return std::unexpected(std::move(ok).error());
+					}
+					continue;
+				}
+				if (sep == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
 			out.reserve(numeric_array_reserve_hint(sizeof(T)));
@@ -1656,18 +1887,18 @@ public:
 	[[nodiscard]] std::expected<T, JsonError> decode_floating_value() {
 		static_assert(std::floating_point<T>);
 		std::size_t const number_start = pos_;
-		auto lex_res = parse_number_lexeme();
+		auto lex_res = parse_number_lexeme_direct();
 		if (!lex_res) [[unlikely]] {
 			return std::unexpected(std::move(lex_res).error());
 		}
 		std::string_view const lex = *lex_res;
 		char const *first = lex.data();
 		char const *last = lex.data() + lex.size();
-		double value{};
+		T value{};
 		auto const [ptr, ec] = std::from_chars(first, last, value, std::chars_format::general);
 		if (ec == std::errc{} && ptr == last) {
 			if (std::isfinite(value)) {
-				return static_cast<T>(value);
+				return value;
 			}
 			JsonError err{
 				.stage = JsonStage::decode,
@@ -1694,7 +1925,10 @@ public:
 				return std::unexpected(std::move(err));
 			}
 			if (classified->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
-				return static_cast<T>(classified->value);
+				T const narrowed = static_cast<T>(classified->value);
+				if (std::isfinite(narrowed)) {
+					return narrowed;
+				}
 			}
 			JsonError err{
 				.stage = JsonStage::decode,

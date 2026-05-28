@@ -3904,6 +3904,29 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"phase4: JsonReader numeric array fast path accepts strict whitespace",
+	"[phase4][perf]") {
+	auto values = decode_full<std::vector<double>>("[ 1.25 ,\n -2.5 , 3e2 ]");
+	REQUIRE(values.has_value());
+	REQUIRE(values->size() == 3UZ);
+	CHECK((*values)[0] == 1.25);
+	CHECK((*values)[1] == -2.5);
+	CHECK((*values)[2] == 300.0);
+}
+
+TEST_CASE(
+	"phase4: JsonReader numeric array fallback preserves JSON5 trailing comma",
+	"[phase4][perf]") {
+	JsonParseOptions parse_opts;
+	parse_opts.mode = ParseMode::json5;
+	auto values = decode_full<std::vector<int>>("[1,2,]", parse_opts);
+	REQUIRE(values.has_value());
+	REQUIRE(values->size() == 2UZ);
+	CHECK((*values)[0] == 1);
+	CHECK((*values)[1] == 2);
+}
+
+TEST_CASE(
 	"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore",
 	"[phase4]") {
 	JsonReader r{R"({"name":"Bob","age":25,"extra":true})"};
@@ -4382,6 +4405,12 @@ TEST_CASE(
 	{
 		JsonReader r{R"([1e9999])"};
 		auto values = decode<std::vector<double>>(r);
+		CHECK_FALSE(values.has_value());
+		CHECK(values.error().code == JsonIssueCode::number_out_of_range);
+	}
+	{
+		JsonReader r{R"([1e39])"};
+		auto values = decode<std::vector<float>>(r);
 		CHECK_FALSE(values.has_value());
 		CHECK(values.error().code == JsonIssueCode::number_out_of_range);
 	}
