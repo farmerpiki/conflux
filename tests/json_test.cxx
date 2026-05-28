@@ -4342,6 +4342,21 @@ TEST_CASE(
 		CHECK(*values == std::vector<int>{1, 2, 3});
 	}
 	{
+		JsonReader r{R"([1.5,-2.25,3e2])"};
+		auto values = decode<std::vector<double>>(r);
+		REQUIRE(values.has_value());
+		REQUIRE(values->size() == 3UZ);
+		CHECK((*values)[0] == 1.5);
+		CHECK((*values)[1] == -2.25);
+		CHECK((*values)[2] == 300.0);
+	}
+	{
+		JsonReader r{R"([1e9999])"};
+		auto values = decode<std::vector<double>>(r);
+		CHECK_FALSE(values.has_value());
+		CHECK(values.error().code == JsonIssueCode::number_out_of_range);
+	}
+	{
 		JsonReader r{R"({"a":"x","b":"y"})"};
 		auto values = decode<std::unordered_map<std::string, std::string>>(r);
 		REQUIRE(values.has_value());

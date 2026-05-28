@@ -2255,6 +2255,12 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected array"});
 		}
 		T result;
+		if constexpr (std::floating_point<E>) {
+			if (auto decoded = r.decode_floating_array_into(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		}
 		if (auto reserved = reserve_vector_from_remaining_array(result, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}
@@ -2606,6 +2612,9 @@ std::expected<void, JsonError> decode_into(
 					.message = "std::expected array"});
 		}
 		out.clear();
+		if constexpr (std::floating_point<E>) {
+			return r.decode_floating_array_into(out);
+		}
 		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}

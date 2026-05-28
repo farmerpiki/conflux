@@ -1329,6 +1329,134 @@ public:
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
 	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value(Event event);
+	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_floating_array_into(
+		Vector &out) {
+		using T = typename Vector::value_type;
+		static_assert(std::floating_point<T>);
+		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
+		}
+		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+			constexpr std::size_t kMaxFastArrayReserveBytes = 8U * 1024U * 1024U;
+			std::size_t const max_elems_by_bytes = kMaxFastArrayReserveBytes / sizeof(T);
+			std::size_t const dense_hint = (input_.size() - pos_) / 2U + 1U;
+			out.reserve(std::min(dense_hint, max_elems_by_bytes));
+		}
+		while (true) {
+			if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			auto &top = stack_.back();
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			if (!top.first) {
+				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				adv();
+				if (auto ok = skip_ws_checked(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+			}
+			top.first = false;
+			if (pos_ >= input_.size()) [[unlikely]] {
+				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
+			char const c = input_[pos_];
+			if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+					.message = "expected number",
+				};
+				return std::unexpected(std::move(err));
+			}
+			auto converted = decode_floating_value<T>();
+			if (!converted) [[unlikely]] {
+				auto e = std::move(converted).error();
+				if (e.stage == JsonStage::parse) {
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				return std::unexpected(std::move(e));
+			}
+			out.emplace_back(*converted);
+		}
+	}
+	template<class T>
+	[[nodiscard]] std::expected<T, JsonError> decode_floating_value() {
+		static_assert(std::floating_point<T>);
+		std::size_t const number_start = pos_;
+		auto lex_res = parse_number_lexeme();
+		if (!lex_res) [[unlikely]] {
+			return std::unexpected(std::move(lex_res).error());
+		}
+		std::string_view const lex = *lex_res;
+		char const *first = lex.data();
+		char const *last = lex.data() + lex.size();
+		double value{};
+		auto const [ptr, ec] = std::from_chars(first, last, value, std::chars_format::general);
+		if (ec == std::errc{} && ptr == last) {
+			if (std::isfinite(value)) {
+				return static_cast<T>(value);
+			}
+			JsonError err{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::number_out_of_range,
+				.source = JsonSourceLocation{.offset = number_start, .line = line_, .column = col_},
+				.message = "floating-point value is not finite",
+			};
+			return std::unexpected(std::move(err));
+		}
+		if (ec == std::errc::result_out_of_range) {
+			if (lex.size() > kSlowFloatLexemeCopyLimit) {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::number_out_of_range,
+					.source = JsonSourceLocation{.offset = number_start, .line = line_, .column = col_},
+					.message = std::format("floating-point conversion overflows: {}", lex),
+				};
+				return std::unexpected(std::move(err));
+			}
+			auto classified = detail::classify_range_error_slow(first, last);
+			if (!classified) {
+				auto err = std::move(classified).error();
+				err.stage = JsonStage::decode;
+				return std::unexpected(std::move(err));
+			}
+			if (classified->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
+				return static_cast<T>(classified->value);
+			}
+			JsonError err{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::number_out_of_range,
+				.source = JsonSourceLocation{.offset = number_start, .line = line_, .column = col_},
+				.message = std::format("floating-point conversion overflows: {}", lex),
+			};
+			return std::unexpected(std::move(err));
+		}
+		JsonError err{
+			.stage = JsonStage::decode,
+			.code = JsonIssueCode::invalid_number,
+			.source = JsonSourceLocation{.offset = number_start, .line = line_, .column = col_},
+			.message = std::format("floating-point number rejected by std::from_chars: {}", lex),
+		};
+		return std::unexpected(std::move(err));
+	}
 	void reset() noexcept;
 	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();
 };
