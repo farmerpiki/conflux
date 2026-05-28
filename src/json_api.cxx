@@ -1301,6 +1301,7 @@ private:
 	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
 	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme();
 	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
+	[[nodiscard]] std::expected<void, JsonError> prepare_object_value();
 	[[nodiscard]] std::expected<void, JsonError> skip_json5_identifier_key();
 	[[nodiscard]] std::expected<void, JsonError> skip_value_raw(std::size_t raw_depth);
 	[[nodiscard]] std::expected<void, JsonError> skip_array_body_raw(std::size_t raw_depth);
@@ -1328,9 +1329,91 @@ public:
 	[[nodiscard]] bool has_error() const noexcept;
 	[[nodiscard]] std::size_t pos() const noexcept;
 	[[nodiscard]] std::size_t value_start_pos() const noexcept;
+	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token();
+	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event();
+	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value();
+	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token();
+	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
 	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value(Event event);
+	template<class T>
+		requires(std::integral<T> && !std::same_as<T, bool>)
+	[[nodiscard]] std::expected<T, JsonError> decode_integral_value() {
+		using Unsigned = std::make_unsigned_t<T>;
+		std::size_t const number_start = pos_;
+		std::size_t const number_line = line_;
+		std::size_t const number_col = col_;
+		if (pos_ >= input_.size()) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in number"));
+		}
+		bool const neg = input_[pos_] == '-';
+		if (neg) {
+			if constexpr (std::unsigned_integral<T>) {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::sign_mismatch,
+					.source = JsonSourceLocation{.offset = number_start, .line = number_line, .column = number_col},
+					.message = "negative JSON number cannot decode into unsigned integer",
+				};
+				return std::unexpected(std::move(err));
+			}
+			adv();
+		}
+		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+		}
+
+		Unsigned limit{};
+		if constexpr (std::signed_integral<T>) {
+			using SignedLimit = std::numeric_limits<T>;
+			limit = neg ? static_cast<Unsigned>(SignedLimit::max()) + Unsigned{1} :
+						  static_cast<Unsigned>(SignedLimit::max());
+		} else {
+			limit = std::numeric_limits<T>::max();
+		}
+
+		Unsigned magnitude = 0;
+		bool const starts_zero = input_[pos_] == '0';
+		std::size_t digits = 0;
+		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+			Unsigned const digit = static_cast<Unsigned>(input_[pos_] - '0');
+			if (magnitude > (limit - digit) / Unsigned{10}) [[unlikely]] {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::number_out_of_range,
+					.source = JsonSourceLocation{.offset = number_start, .line = number_line, .column = number_col},
+					.message = "integer value is out of range",
+				};
+				return std::unexpected(std::move(err));
+			}
+			magnitude = magnitude * Unsigned{10} + digit;
+			++digits;
+			adv();
+		}
+		if (starts_zero && digits > 1) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+		}
+		if (pos_ < input_.size() && (input_[pos_] == '.' || input_[pos_] == 'e' || input_[pos_] == 'E')) [[unlikely]] {
+			JsonError err{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::invalid_number,
+				.source = JsonSourceLocation{.offset = number_start, .line = number_line, .column = number_col},
+				.message = "integer target cannot decode non-integer JSON number",
+			};
+			return std::unexpected(std::move(err));
+		}
+
+		if constexpr (std::signed_integral<T>) {
+			if (neg) {
+				if (magnitude == static_cast<Unsigned>(std::numeric_limits<T>::max()) + Unsigned{1}) {
+					return std::numeric_limits<T>::min();
+				}
+				return static_cast<T>(-static_cast<T>(magnitude));
+			}
+		}
+		return static_cast<T>(magnitude);
+	}
 	template<class Vector>
 	[[nodiscard]] std::expected<void, JsonError> decode_floating_array_into(
 		Vector &out) {
@@ -1385,6 +1468,71 @@ public:
 				return std::unexpected(std::move(err));
 			}
 			auto converted = decode_floating_value<T>();
+			if (!converted) [[unlikely]] {
+				auto e = std::move(converted).error();
+				if (e.stage == JsonStage::parse) {
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				return std::unexpected(std::move(e));
+			}
+			out.emplace_back(*converted);
+		}
+	}
+	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_integral_array_into(
+		Vector &out) {
+		using T = typename Vector::value_type;
+		static_assert(std::integral<T> && !std::same_as<T, bool>);
+		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
+		}
+		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+			out.reserve(numeric_array_reserve_hint(sizeof(T)));
+		}
+		while (true) {
+			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			auto &top = stack_.back();
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			if (!top.first) {
+				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				adv();
+				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+			}
+			top.first = false;
+			if (pos_ >= input_.size()) [[unlikely]] {
+				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
+			char const c = input_[pos_];
+			if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+					.message = "expected integer",
+				};
+				return std::unexpected(std::move(err));
+			}
+			auto converted = decode_integral_value<T>();
 			if (!converted) [[unlikely]] {
 				auto e = std::move(converted).error();
 				if (e.stage == JsonStage::parse) {
@@ -1455,6 +1603,54 @@ public:
 			.message = std::format("floating-point number rejected by std::from_chars: {}", lex),
 		};
 		return std::unexpected(std::move(err));
+	}
+	template<class T>
+		requires((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+	[[nodiscard]] std::expected<void, JsonError> next_object_number_value(
+		T &out) {
+		if (auto ready = prepare_object_value(); !ready) [[unlikely]] {
+			return std::unexpected(std::move(ready).error());
+		}
+		if (pos_ >= input_.size()) [[unlikely]] {
+			auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object value");
+			set_error(e);
+			return std::unexpected(last_error_);
+		}
+		char const c = input_[pos_];
+		if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+			JsonError err{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+				.message = "expected number",
+			};
+			return std::unexpected(std::move(err));
+		}
+		if constexpr (std::floating_point<T>) {
+			auto value = decode_floating_value<T>();
+			if (!value) [[unlikely]] {
+				auto err = std::move(value).error();
+				if (err.stage == JsonStage::parse) {
+					set_error(err);
+					return std::unexpected(last_error_);
+				}
+				return std::unexpected(std::move(err));
+			}
+			out = *value;
+			return {};
+		} else {
+			auto value = decode_integral_value<T>();
+			if (!value) [[unlikely]] {
+				auto err = std::move(value).error();
+				if (err.stage == JsonStage::parse) {
+					set_error(err);
+					return std::unexpected(last_error_);
+				}
+				return std::unexpected(std::move(err));
+			}
+			out = *value;
+			return {};
+		}
 	}
 	void reset() noexcept;
 	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();

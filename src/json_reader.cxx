@@ -980,6 +980,202 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	return std::optional<Event>{Event::key};
 }
 
+std::expected<std::optional<JsonStringToken>, JsonError> JsonReader::next_object_key_token() {
+	if (has_error_) [[unlikely]] {
+		return std::unexpected(last_error_);
+	}
+	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		return std::unexpected(std::move(ok).error());
+	}
+	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object || stack_.back().awaiting_value) [[unlikely]] {
+		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object key"));
+	}
+
+	auto &top = stack_.back();
+	if (pos_ < input_.size() && input_[pos_] == '}') {
+		adv();
+		stack_.pop_back();
+		return std::optional<JsonStringToken>{};
+	}
+	if (!top.first) {
+		if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
+			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'");
+			set_error(e);
+			return std::unexpected(last_error_);
+		}
+		adv();
+		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			return std::unexpected(std::move(ok).error());
+		}
+		if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == '}') {
+			adv();
+			stack_.pop_back();
+			return std::optional<JsonStringToken>{};
+		}
+	}
+	top.first = false;
+	if (pos_ >= input_.size()) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (input_[pos_] == '"') {
+		adv();
+		if (auto str_res = parse_str_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
+	} else if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
+		adv();
+		if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
+	} else if (opts_.mode == ParseMode::json5) {
+		std::size_t const key_start = pos_;
+		char const fc = input_[pos_];
+		if ((fc >= 'A' && fc <= 'Z') || (fc >= 'a' && fc <= 'z') || fc == '_' || fc == '$') {
+			adv();
+			while (pos_ < input_.size()) {
+				char const ch = input_[pos_];
+				if ((ch >= 'A' && ch <= 'Z')
+					|| (ch >= 'a' && ch <= 'z')
+					|| (ch >= '0' && ch <= '9')
+					|| ch == '_'
+					|| ch == '$') {
+					adv();
+				} else {
+					break;
+				}
+			}
+			std::string_view raw_lex = input_.substr(key_start, pos_ - key_start);
+			key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
+			key_token_.unquoted_ = true;
+		} else [[unlikely]] {
+			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
+			set_error(e);
+			return std::unexpected(last_error_);
+		}
+	} else [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		return std::unexpected(std::move(ok).error());
+	}
+	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	adv();
+	top.awaiting_value = true;
+	return std::optional<JsonStringToken>{key_token_};
+}
+
+std::expected<void, JsonError> JsonReader::prepare_object_value() {
+	if (has_error_) [[unlikely]] {
+		return std::unexpected(last_error_);
+	}
+	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object || !stack_.back().awaiting_value)
+		[[unlikely]] {
+		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object value"));
+	}
+	auto &top = stack_.back();
+	top.awaiting_value = false;
+	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		return std::unexpected(std::move(ok).error());
+	}
+	value_start_ = pos_;
+	return {};
+}
+
+std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event() {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	auto ev = parse_value_event();
+	if (!ev) {
+		set_error(ev.error());
+		return std::unexpected(last_error_);
+	}
+	return *ev;
+}
+
+std::expected<void, JsonError> JsonReader::skip_next_object_value() {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (auto skipped = skip_value_raw(0); !skipped) [[unlikely]] {
+		set_error(skipped.error());
+		return std::unexpected(last_error_);
+	}
+	return {};
+}
+
+std::expected<JsonStringToken, JsonError> JsonReader::next_object_string_value_token() {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (pos_ >= input_.size()) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object string value");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (input_[pos_] == '"') {
+		adv();
+		if (auto str_res = parse_str_into_token(opts_.max_string_size, str_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
+		return str_token_;
+	}
+	if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
+		adv();
+		if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, str_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
+		return str_token_;
+	}
+	return std::unexpected(
+		JsonError{
+			.stage = JsonStage::decode,
+			.code = JsonIssueCode::wrong_kind,
+			.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+			.message = "expected string"
+    });
+}
+
+std::expected<void, JsonError> JsonReader::next_object_bool_value(
+	bool &out) {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (pos_ + 4U <= input_.size() && input_.substr(pos_, 4) == "true") {
+		adv(4);
+		out = true;
+		return {};
+	}
+	if (pos_ + 5U <= input_.size() && input_.substr(pos_, 5) == "false") {
+		adv(5);
+		out = false;
+		return {};
+	}
+	return std::unexpected(
+		JsonError{
+			.stage = JsonStage::decode,
+			.code = JsonIssueCode::wrong_kind,
+			.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+			.message = "expected bool"
+    });
+}
+
 JsonStringToken JsonReader::key_token() const noexcept {
 	return key_token_;
 }
