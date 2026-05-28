@@ -3264,6 +3264,28 @@ struct conflux::json::JsonMembers<P4Nested> {
 		};
 	}
 };
+struct P4OrderedFastObject {
+	std::int64_t a{};
+	std::int64_t b{};
+	std::int64_t c{};
+	std::vector<double> values{};
+	P4Nested nested{};
+	bool flag{};
+};
+template<>
+struct conflux::json::JsonMembers<P4OrderedFastObject> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("a", &P4OrderedFastObject::a),
+			conflux::json::json_member("b", &P4OrderedFastObject::b),
+			conflux::json::json_member("c", &P4OrderedFastObject::c),
+			conflux::json::json_member("values", &P4OrderedFastObject::values),
+			conflux::json::json_member("nested", &P4OrderedFastObject::nested),
+			conflux::json::json_member("flag", &P4OrderedFastObject::flag),
+		};
+	}
+};
+
 struct P4LongKey {
 	std::int64_t value{};
 };
@@ -3302,6 +3324,30 @@ struct conflux::json::JsonMembers<P4PmrPayload> {
 		return std::tuple{
 			conflux::json::json_member("name", &P4PmrPayload::name),
 			conflux::json::json_member("scores", &P4PmrPayload::scores),
+		};
+	}
+};
+
+struct P4DirectFieldRemainder {
+	std::optional<std::int64_t> maybe{};
+	std::optional<Nullable<std::int64_t>> opt_nullable{};
+	Nullable<std::string> nullable_string{};
+	std::map<std::string, std::int64_t> object{};
+	std::array<std::int64_t, 3> fixed{};
+	std::pair<std::int64_t, std::string> pair{};
+	std::tuple<std::int64_t, bool, std::string> tuple{};
+};
+template<>
+struct conflux::json::JsonMembers<P4DirectFieldRemainder> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("maybe", &P4DirectFieldRemainder::maybe),
+			conflux::json::json_member("opt_nullable", &P4DirectFieldRemainder::opt_nullable),
+			conflux::json::json_member("nullable_string", &P4DirectFieldRemainder::nullable_string),
+			conflux::json::json_member("object", &P4DirectFieldRemainder::object),
+			conflux::json::json_member("fixed", &P4DirectFieldRemainder::fixed),
+			conflux::json::json_member("pair", &P4DirectFieldRemainder::pair),
+			conflux::json::json_member("tuple", &P4DirectFieldRemainder::tuple),
 		};
 	}
 };
@@ -3904,6 +3950,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"phase4: ordered direct object key fast path preserves fallback cases",
+	"[phase4][perf]") {
+	auto ordered = decode_full<P4OrderedFastObject>(
+		R"({"a":1,"b":2,"c":3,"values":[1.25,2.5],"nested":{"person":{"name":"Ada","age":37},"score":9},"flag":true})");
+	REQUIRE(ordered.has_value());
+	CHECK(ordered->a == 1LL);
+	CHECK(ordered->b == 2LL);
+	CHECK(ordered->c == 3LL);
+	REQUIRE(ordered->values.size() == 2UZ);
+	CHECK(ordered->values[1] == 2.5);
+	CHECK(ordered->nested.person.name == "Ada");
+	CHECK(ordered->nested.score == 9LL);
+	CHECK(ordered->flag);
+
+	auto escaped_key = decode_full<P4OrderedFastObject>(
+		R"({"a":1,"b":2,"\u0063":3,"values":[1.25,2.5],"nested":{"person":{"name":"Ada","age":37},"score":9},"flag":true})");
+	REQUIRE(escaped_key.has_value());
+	CHECK(escaped_key->c == 3LL);
+
+	auto out_of_order = decode_full<P4OrderedFastObject>(
+		R"({"flag":true,"nested":{"score":9,"person":{"age":37,"name":"Ada"}},"values":[1.25,2.5],"c":3,"b":2,"a":1})");
+	REQUIRE(out_of_order.has_value());
+	CHECK(out_of_order->a == 1LL);
+	CHECK(out_of_order->nested.person.age == 37LL);
+}
+
+TEST_CASE(
 	"phase4: JsonReader numeric array fast path accepts strict whitespace",
 	"[phase4][perf]") {
 	auto values = decode_full<std::vector<double>>("[ 1.25 ,\n -2.5 , 3e2 ]");
@@ -3999,6 +4072,30 @@ TEST_CASE(
 	auto p = decode<P4Person>(r);
 	REQUIRE(p.has_value());
 	CHECK(p->name == "A\nB");
+}
+TEST_CASE(
+	"phase4: JsonMembers direct-to-field covers optional nullable map and tuple fields",
+	"[phase4][direct]") {
+	JsonReader r{
+		R"({"maybe":null,"opt_nullable":null,"nullable_string":"value","object":{"a":1,"b":2},"fixed":[3,4,5],"pair":[6,"six"],"tuple":[7,true,"seven"]})"};
+	auto p = decode<P4DirectFieldRemainder>(r);
+	REQUIRE(p.has_value());
+	CHECK_FALSE(p->maybe.has_value());
+	REQUIRE(p->opt_nullable.has_value());
+	CHECK(p->opt_nullable->is_null());
+	REQUIRE(p->nullable_string.has_value());
+	CHECK(*p->nullable_string == "value");
+	REQUIRE(p->object.size() == 2UZ);
+	CHECK(p->object["a"] == 1LL);
+	CHECK(p->object["b"] == 2LL);
+	CHECK(p->fixed[0] == 3LL);
+	CHECK(p->fixed[1] == 4LL);
+	CHECK(p->fixed[2] == 5LL);
+	CHECK(p->pair.first == 6LL);
+	CHECK(p->pair.second == "six");
+	CHECK(get<0>(p->tuple) == 7LL);
+	CHECK(get<1>(p->tuple));
+	CHECK(get<2>(p->tuple) == "seven");
 }
 TEST_CASE(
 	"phase7: JsonMembers reader decode supports pmr string and vector fields",

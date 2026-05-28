@@ -1303,6 +1303,28 @@ private:
 		char c) noexcept {
 		return c >= '0' && c <= '9';
 	}
+	struct ShortStringBodyScan {
+		std::size_t count{};
+		bool closed{};
+		bool special{};
+	};
+	[[nodiscard]] static ShortStringBodyScan scan_short_string_body(
+		std::string_view input,
+		std::size_t pos) noexcept {
+		constexpr std::size_t kInlineLimit = 32U;
+		std::size_t const available = pos <= input.size() ? input.size() - pos : 0U;
+		std::size_t const limit = std::min(available, kInlineLimit);
+		for (std::size_t i = 0; i < limit; ++i) {
+			auto const c = static_cast<unsigned char>(input[pos + i]);
+			if (c == static_cast<unsigned char>('"')) {
+				return ShortStringBodyScan{.count = i, .closed = true};
+			}
+			if (c == static_cast<unsigned char>('\\') || c < 0x20U || c >= 0x80U) {
+				return ShortStringBodyScan{.count = i, .special = true};
+			}
+		}
+		return ShortStringBodyScan{.count = limit};
+	}
 	[[nodiscard]] static std::size_t scan_digits_ascii_fast(
 		char const *p,
 		std::size_t n) noexcept {
@@ -1406,10 +1428,20 @@ public:
 	[[nodiscard]] bool has_error() const noexcept;
 	[[nodiscard]] std::size_t pos() const noexcept;
 	[[nodiscard]] std::size_t value_start_pos() const noexcept;
+	struct ObjectKeyMatch {
+		bool has_key{false};
+		bool matched{false};
+		std::string_view key{};
+	};
 	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token();
 	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
 	next_object_key_view(JsonDecodeScratch &scratch);
+	[[nodiscard]] std::expected<ObjectKeyMatch, JsonError>
+	next_object_key_match(std::string_view expected_key, JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event();
+	[[nodiscard]] std::expected<bool, JsonError> try_next_object_null_value();
+	[[nodiscard]] std::expected<void, JsonError> next_object_array_value();
+	[[nodiscard]] std::expected<void, JsonError> next_object_object_value();
 	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value();
 	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token();
 	[[nodiscard]] std::expected<std::string_view, JsonError> next_object_string_value_view(JsonDecodeScratch &scratch);
@@ -1838,11 +1870,15 @@ public:
 				adv();
 				std::size_t const body_start = pos_;
 				std::size_t const body_col = col_;
-				std::size_t const skip =
-					detail::simd::scan_str_until_special(input_.data() + pos_, input_.size() - pos_);
+				auto const short_scan = scan_short_string_body(input_, pos_);
+				std::size_t skip = short_scan.count;
+				if (!short_scan.closed && !short_scan.special) {
+					skip +=
+						detail::simd::scan_str_until_special(input_.data() + pos_ + skip, input_.size() - pos_ - skip);
+				}
 				pos_ += skip;
 				col_ += skip;
-				if (pos_ < input_.size() && input_[pos_] == '"') {
+				if (short_scan.closed || (pos_ < input_.size() && input_[pos_] == '"')) {
 					std::string_view const body = input_.substr(body_start, skip);
 					if (opts_.max_string_size.exceeds(body.size(), kDefaultMaxString)) [[unlikely]] {
 						auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");

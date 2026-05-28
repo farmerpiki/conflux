@@ -1693,6 +1693,18 @@ std::expected<void, JsonError>
 decode_into(T &out, JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
 
 template<class T>
+std::expected<void, JsonError> decode_members_from_event_into(
+	T &result,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch);
+
+template<class Map>
+[[nodiscard]] std::expected<void, JsonError>
+decode_map_from_reader_into(Map &out, JsonReader &r, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
+
+template<class T>
 std::expected<void, JsonError> decode_next_object_value_into(
 	T &out,
 	JsonReader &r,
@@ -1711,6 +1723,111 @@ std::expected<void, JsonError> decode_next_object_value_into(
 		}
 		out.assign(view->data(), view->size());
 		return {};
+	} else if constexpr (is_optional<T>::value) {
+		using Inner = typename T::value_type;
+		auto is_null = r.try_next_object_null_value();
+		if (!is_null) {
+			return std::unexpected(std::move(is_null).error());
+		}
+		if (*is_null) {
+			if constexpr (is_nullable_type<Inner>::value) {
+				out.emplace();
+			} else {
+				out.reset();
+			}
+			return {};
+		}
+		if constexpr (std::default_initializable<Inner>) {
+			out.emplace();
+			auto decoded = decode_next_object_value_into<Inner>(*out, r, opts, scratch);
+			if (!decoded) {
+				out.reset();
+				return std::unexpected(std::move(decoded).error());
+			}
+			return {};
+		} else {
+			auto ev = r.next_object_value_event();
+			if (!ev) {
+				out.reset();
+				return std::unexpected(std::move(ev).error());
+			}
+			auto decoded = decode_from_event<Inner>(r, *ev, opts, scratch);
+			if (!decoded) {
+				out.reset();
+				return std::unexpected(std::move(decoded).error());
+			}
+			out.emplace(std::move(*decoded));
+			return {};
+		}
+	} else if constexpr (is_nullable_type<T>::value) {
+		using Inner = nullable_inner_t<T>;
+		auto is_null = r.try_next_object_null_value();
+		if (!is_null) {
+			return std::unexpected(std::move(is_null).error());
+		}
+		if (*is_null) {
+			out = T{};
+			return {};
+		}
+		if constexpr (std::default_initializable<Inner>) {
+			Inner value{};
+			auto decoded = decode_next_object_value_into<Inner>(value, r, opts, scratch);
+			if (!decoded) {
+				out = T{};
+				return std::unexpected(std::move(decoded).error());
+			}
+			out = T{std::move(value)};
+			return {};
+		} else {
+			auto ev = r.next_object_value_event();
+			if (!ev) {
+				out = T{};
+				return std::unexpected(std::move(ev).error());
+			}
+			auto decoded = decode_from_event<Inner>(r, *ev, opts, scratch);
+			if (!decoded) {
+				out = T{};
+				return std::unexpected(std::move(decoded).error());
+			}
+			out = T{std::move(*decoded)};
+			return {};
+		}
+	} else if constexpr (is_vector_of_v<T>) {
+		using E = typename T::value_type;
+		auto opened = r.next_object_array_value();
+		if (!opened) {
+			return std::unexpected(std::move(opened).error());
+		}
+		out.clear();
+		if constexpr (std::floating_point<E>) {
+			return r.decode_floating_array_into(out);
+		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
+			return r.decode_integral_array_into(out);
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			JsonDecodeScratch local_scratch;
+			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+			return r.decode_string_array_into(out, decode_scratch);
+		} else {
+			return decode_into<T>(out, r, JsonReader::Event::begin_array, opts, scratch);
+		}
+	} else if constexpr (is_std_array_v<T> || is_pair_v<T> || is_tuple_of_v<T>) {
+		auto opened = r.next_object_array_value();
+		if (!opened) {
+			return std::unexpected(std::move(opened).error());
+		}
+		return decode_into<T>(out, r, JsonReader::Event::begin_array, opts, scratch);
+	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
+		auto opened = r.next_object_object_value();
+		if (!opened) {
+			return std::unexpected(std::move(opened).error());
+		}
+		return decode_map_from_reader_into(out, r, opts, scratch);
+	} else if constexpr (has_members_spec<T>::value) {
+		auto opened = r.next_object_object_value();
+		if (!opened) {
+			return std::unexpected(std::move(opened).error());
+		}
+		return decode_members_from_event_into<T>(out, r, JsonReader::Event::begin_object, opts, scratch);
 	} else {
 		auto ev = r.next_object_value_event();
 		if (!ev) {
@@ -1720,9 +1837,6 @@ std::expected<void, JsonError> decode_next_object_value_into(
 	}
 }
 
-// Direct-to-struct measurements with object-value fast paths showed generated
-// lookup paying off from five fields upward. Keep tiny objects linear; move
-// medium objects away from repeated field-name comparisons.
 inline constexpr std::size_t kJsonMemberLinearLookupLimit = 4;
 
 [[nodiscard]] constexpr std::uint64_t json_member_name_hash(
@@ -1763,7 +1877,7 @@ std::expected<void, JsonError> decode_member_direct_by_static_index(
 	JsonReader &r,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
-	constexpr auto members = conflux::json::JsonMembers<T>::members();
+	auto const members = conflux::json::JsonMembers<T>::members();
 	auto const &entry = get<I>(members);
 	auto const &m = jm_member(entry);
 	using M = std::remove_reference_t<decltype(result.*m.pointer)>;
@@ -1783,8 +1897,8 @@ std::expected<void, JsonError> decode_member_direct_by_static_index(
 }
 
 template<class T, std::size_t I>
-[[nodiscard]] constexpr JsonMemberLookupEntry<T> make_json_member_lookup_entry() {
-	constexpr auto members = conflux::json::JsonMembers<T>::members();
+[[nodiscard]] JsonMemberLookupEntry<T> make_json_member_lookup_entry() {
+	auto const members = conflux::json::JsonMembers<T>::members();
 	auto const &entry = get<I>(members);
 	auto const &m = jm_member(entry);
 	return JsonMemberLookupEntry<T>{
@@ -1796,7 +1910,7 @@ template<class T, std::size_t I>
 }
 
 template<class T, std::size_t... Is>
-[[nodiscard]] constexpr auto make_json_member_lookup_slots_impl(
+[[nodiscard]] auto make_json_member_lookup_slots_impl(
 	std::index_sequence<Is...>) {
 	constexpr std::size_t member_count = sizeof...(Is);
 	std::array<JsonMemberLookupEntry<T>, json_member_lookup_capacity(member_count)> slots{};
@@ -1812,20 +1926,20 @@ template<class T, std::size_t... Is>
 }
 
 template<class T, std::size_t... Is>
-[[nodiscard]] constexpr auto make_json_member_ordered_entries_impl(
+[[nodiscard]] auto make_json_member_ordered_entries_impl(
 	std::index_sequence<Is...>) {
 	return std::array<JsonMemberLookupEntry<T>, sizeof...(Is)>{make_json_member_lookup_entry<T, Is>()...};
 }
 
 template<class T>
-inline constexpr auto json_member_ordered_entries_v = [] {
+inline auto const json_member_ordered_entries_v = [] {
 	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
 	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
 	return make_json_member_ordered_entries_impl<T>(std::make_index_sequence<member_count>{});
 }();
 
 template<class T>
-[[nodiscard]] constexpr auto const &json_member_ordered_entries() noexcept {
+[[nodiscard]] auto const &json_member_ordered_entries() noexcept {
 	return json_member_ordered_entries_v<T>;
 }
 
@@ -1932,24 +2046,34 @@ template<class Map>
 		if (duplicate && duplicate_policy == DuplicateKeyPolicy::reject) {
 			return std::unexpected(duplicate_member_error(key));
 		}
-		auto ve = r.next_object_value_event();
-		if (!ve) {
-			return std::unexpected(std::move(ve).error());
-		}
 		if (duplicate && duplicate_policy == DuplicateKeyPolicy::first_wins) {
-			if (auto skipped = skip_remaining_reader(r, *ve); !skipped) {
+			if (auto skipped = r.skip_next_object_value(); !skipped) {
 				return std::unexpected(std::move(skipped).error());
 			}
 			continue;
 		}
 		if (duplicate) {
-			auto val = decode_from_event<Vt>(r, *ve, opts, scratch);
-			if (!val) {
-				return std::unexpected(std::move(val).error());
-			}
-			if constexpr (std::assignable_from<Vt &, Vt>) {
-				existing->second = std::move(*val);
+			if constexpr (std::default_initializable<Vt>) {
+				Vt val{};
+				auto decoded = decode_next_object_value_into<Vt>(val, r, opts, scratch);
+				if (!decoded) {
+					return std::unexpected(std::move(decoded).error());
+				}
+				if constexpr (std::assignable_from<Vt &, Vt>) {
+					existing->second = std::move(val);
+				} else {
+					out.erase(existing);
+					out.emplace(std::move(key), std::move(val));
+				}
 			} else {
+				auto ve = r.next_object_value_event();
+				if (!ve) {
+					return std::unexpected(std::move(ve).error());
+				}
+				auto val = decode_from_event<Vt>(r, *ve, opts, scratch);
+				if (!val) {
+					return std::unexpected(std::move(val).error());
+				}
 				out.erase(existing);
 				out.emplace(std::move(key), std::move(*val));
 			}
@@ -1958,14 +2082,17 @@ template<class Map>
 		if constexpr (std::default_initializable<Vt> && requires(Map &m, std::string k) {
 						  m.try_emplace(std::move(k));
 					  }) {
-			auto [inserted_it, inserted] = out.try_emplace(std::move(key));
-			(void)inserted;
-			auto decoded = decode_into<Vt>(inserted_it->second, r, *ve, opts, scratch);
+			auto [inserted_it, _] = out.try_emplace(std::move(key));
+			auto decoded = decode_next_object_value_into<Vt>(inserted_it->second, r, opts, scratch);
 			if (!decoded) {
 				out.erase(inserted_it);
 				return std::unexpected(std::move(decoded).error());
 			}
 		} else {
+			auto ve = r.next_object_value_event();
+			if (!ve) {
+				return std::unexpected(std::move(ve).error());
+			}
 			auto val = decode_from_event<Vt>(r, *ve, opts, scratch);
 			if (!val) {
 				return std::unexpected(std::move(val).error());
@@ -2022,23 +2149,23 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	std::size_t ordered_cursor = 0;
 
 	while (ok) {
-		auto key_view = r.next_object_key_view(decode_scratch);
-		if (!key_view) {
-			ok = false;
-			first_err = std::move(key_view).error();
-			break;
-		}
-		if (!*key_view) {
-			break;
-		}
-		std::string_view const key_name = **key_view;
-
+		std::string_view key_name{};
 		bool matched = false;
-		if constexpr (member_count > kJsonMemberLinearLookupLimit) {
+		if constexpr (member_count != 0) {
 			auto const &ordered_members = json_member_ordered_entries<T>();
 			if (ordered_cursor < ordered_members.size()) {
 				auto const &entry = ordered_members[ordered_cursor];
-				if (entry.name == key_name) {
+				auto key_match = r.next_object_key_match(entry.name, decode_scratch);
+				if (!key_match) {
+					ok = false;
+					first_err = std::move(key_match).error();
+					break;
+				}
+				if (!key_match->has_key) {
+					break;
+				}
+				key_name = key_match->key;
+				if (key_match->matched) {
 					matched = true;
 					++ordered_cursor;
 					auto decoded = decode_known_member_value(r, presence, entry.index, entry.name, [&] {
@@ -2049,12 +2176,37 @@ std::expected<void, JsonError> decode_members_from_event_into(
 						first_err = std::move(decoded).error();
 					}
 				}
+			} else {
+				auto key_view = r.next_object_key_view(decode_scratch);
+				if (!key_view) {
+					ok = false;
+					first_err = std::move(key_view).error();
+					break;
+				}
+				if (!*key_view) {
+					break;
+				}
+				key_name = **key_view;
 			}
+		} else {
+			auto key_view = r.next_object_key_view(decode_scratch);
+			if (!key_view) {
+				ok = false;
+				first_err = std::move(key_view).error();
+				break;
+			}
+			if (!*key_view) {
+				break;
+			}
+			key_name = **key_view;
 		}
 		if (!matched) {
 			if constexpr (member_count > kJsonMemberLinearLookupLimit) {
 				if (auto const *entry = find_json_member_lookup_entry<T>(key_name); entry != nullptr) {
 					matched = true;
+					if (entry->index >= ordered_cursor) {
+						ordered_cursor = entry->index + 1U;
+					}
 					auto decoded = decode_known_member_value(r, presence, entry->index, entry->name, [&] {
 						return entry->decode_direct(result, r, opts, &decode_scratch);
 					});
@@ -2075,6 +2227,9 @@ std::expected<void, JsonError> decode_members_from_event_into(
 							 auto const &m = jm_member(entry);
 							 if (key_name == m.name) {
 								 matched = true;
+								 if (idx >= ordered_cursor) {
+									 ordered_cursor = idx + 1U;
+								 }
 								 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
 								 auto decoded = decode_known_member_value(r, presence, idx, m.name, [&] {
 									 auto value_decoded =
@@ -2682,6 +2837,116 @@ std::expected<void, JsonError> decode_into(
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::invalid_value,
 					.message = std::format("std::expected array of length {}", N)});
+		}
+		return {};
+	} else if constexpr (is_pair_v<T>) {
+		using FA = typename T::first_type;
+		using FB = typename T::second_type;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		{
+			auto ne = r.next();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne || **ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "std::expected pair of length 2"});
+			}
+			auto decoded = decode_into<FA>(out.first, r, **ne, opts, scratch);
+			if (!decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+		{
+			auto ne = r.next();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne || **ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "std::expected pair of length 2"});
+			}
+			auto decoded = decode_into<FB>(out.second, r, **ne, opts, scratch);
+			if (!decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+		auto ne = r.next();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = "std::expected pair of length 2"});
+		}
+		return {};
+	} else if constexpr (is_tuple_of_v<T>) {
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		bool ok = true;
+		JsonError first_err;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			(([&]() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto ne = r.next();
+				 if (!ne) {
+					 ok = false;
+					 first_err = std::move(ne).error();
+					 return;
+				 }
+				 if (!*ne || **ne == Ev::end_array) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::invalid_value,
+						 .message = std::format("std::expected tuple of length {}", N)};
+					 return;
+				 }
+				 using E = std::tuple_element_t<Is, T>;
+				 auto decoded = decode_into<E>(get<Is>(out), r, **ne, opts, scratch);
+				 if (!decoded) {
+					 ok = false;
+					 first_err = std::move(decoded).error();
+				 }
+			 })(),
+			 ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return std::unexpected(std::move(first_err));
+		}
+		auto ne = r.next();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("std::expected tuple of length {}", N)});
 		}
 		return {};
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {

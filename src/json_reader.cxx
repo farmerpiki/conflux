@@ -92,6 +92,17 @@ namespace {
 	return i;
 }
 
+[[nodiscard]] bool raw_json_name_fast_path_safe(
+	std::string_view name) noexcept {
+	for (char ch: name) {
+		auto const c = static_cast<unsigned char>(ch);
+		if (c < 0x20U || c == '\"' || c == '\\' || c >= 0x80U) {
+			return false;
+		}
+	}
+	return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1142,6 +1153,76 @@ std::expected<std::optional<JsonStringToken>, JsonError> JsonReader::next_object
 	return std::optional<JsonStringToken>{key_token_};
 }
 
+std::expected<JsonReader::ObjectKeyMatch, JsonError> JsonReader::next_object_key_match(
+	std::string_view expected_key,
+	JsonDecodeScratch &scratch) {
+	if (has_error_) [[unlikely]] {
+		return std::unexpected(last_error_);
+	}
+	if (opts_.mode == ParseMode::strict
+		&& raw_json_name_fast_path_safe(expected_key)
+		&& !stack_.empty()
+		&& stack_.back().kind == StateFrame::Kind::object
+		&& !stack_.back().awaiting_value) {
+		auto &top = stack_.back();
+		std::size_t p = pos_;
+		if (!top.first) {
+			if (p < input_.size() && input_[p] == ',') {
+				++p;
+			} else {
+				p = std::string_view::npos;
+			}
+		}
+		if (p != std::string_view::npos
+			&& p < input_.size()
+			&& input_[p] == '"'
+			&& expected_key.size() + 3U <= input_.size() - p) {
+			std::size_t const body = p + 1U;
+			std::size_t const close = body + expected_key.size();
+			if (input_[close] == '"'
+				&& input_[close + 1U] == ':'
+				&& std::memcmp(input_.data() + body, expected_key.data(), expected_key.size()) == 0) {
+				if (opts_.max_string_size.exceeds(expected_key.size(), kDefaultMaxString)) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				std::size_t const consumed = close + 2U - pos_;
+				pos_ += consumed;
+				col_ += consumed;
+				top.first = false;
+				top.awaiting_value = true;
+				return ObjectKeyMatch{.has_key = true, .matched = true, .key = expected_key};
+			}
+			auto const actual_scan = scan_short_string_body(input_, body);
+			std::size_t const actual_close = body + actual_scan.count;
+			if (actual_scan.closed && actual_close + 1U < input_.size() && input_[actual_close + 1U] == ':') {
+				std::string_view const actual = input_.substr(body, actual_scan.count);
+				if (opts_.max_string_size.exceeds(actual.size(), kDefaultMaxString)) [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				std::size_t const consumed = actual_close + 2U - pos_;
+				pos_ += consumed;
+				col_ += consumed;
+				top.first = false;
+				top.awaiting_value = true;
+				return ObjectKeyMatch{.has_key = true, .matched = false, .key = actual};
+			}
+		}
+	}
+	auto key = next_object_key_view(scratch);
+	if (!key) [[unlikely]] {
+		return std::unexpected(std::move(key).error());
+	}
+	if (!*key) {
+		return ObjectKeyMatch{};
+	}
+	std::string_view const actual = **key;
+	return ObjectKeyMatch{.has_key = true, .matched = actual == expected_key, .key = actual};
+}
+
 std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_object_key_view(
 	JsonDecodeScratch &scratch) {
 	if (has_error_) [[unlikely]] {
@@ -1201,10 +1282,14 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 		adv();
 		std::size_t const body_start = pos_;
 		std::size_t const body_col = col_;
-		std::size_t const skip = detail::simd::scan_str_until_special(input_.data() + pos_, input_.size() - pos_);
+		auto const short_scan = scan_short_string_body(input_, pos_);
+		std::size_t skip = short_scan.count;
+		if (!short_scan.closed && !short_scan.special) {
+			skip += detail::simd::scan_str_until_special(input_.data() + pos_ + skip, input_.size() - pos_ - skip);
+		}
 		pos_ += skip;
 		col_ += skip;
-		if (pos_ < input_.size() && input_[pos_] == '"') {
+		if (short_scan.closed || (pos_ < input_.size() && input_[pos_] == '"')) {
 			std::string_view const body = input_.substr(body_start, skip);
 			if (opts_.max_string_size.exceeds(body.size(), kDefaultMaxString)) [[unlikely]] {
 				auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");
@@ -1298,6 +1383,91 @@ std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event(
 	return *ev;
 }
 
+std::expected<bool, JsonError> JsonReader::try_next_object_null_value() {
+	Checkpoint checkpoint_before_value = checkpoint();
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (pos_ < input_.size() && input_[pos_] == 'n') {
+		if (input_.substr(pos_, 4) != "null") [[unlikely]] {
+			auto e = mk_err(JsonIssueCode::syntax_error, "invalid token");
+			set_error(e);
+			return std::unexpected(last_error_);
+		}
+		adv(4);
+		return true;
+	}
+	restore(std::move(checkpoint_before_value));
+	return false;
+}
+
+std::expected<void, JsonError> JsonReader::next_object_array_value() {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (pos_ >= input_.size()) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object array value");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (input_[pos_] != '[') [[unlikely]] {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+				.message = "expected array"
+        });
+	}
+	adv();
+	if (auto pushed = push_frame(StateFrame{.kind = StateFrame::Kind::array, .first = true, .awaiting_value = false});
+		!pushed) [[unlikely]] {
+		set_error(pushed.error());
+		return std::unexpected(last_error_);
+	}
+	return {};
+}
+
+std::expected<void, JsonError> JsonReader::next_object_object_value() {
+	auto prepared = prepare_object_value();
+	if (!prepared) [[unlikely]] {
+		return std::unexpected(std::move(prepared).error());
+	}
+	if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (pos_ >= input_.size()) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object object value");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (input_[pos_] != '{') [[unlikely]] {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+				.message = "expected object"
+        });
+	}
+	adv();
+	if (auto pushed = push_frame(StateFrame{.kind = StateFrame::Kind::object, .first = true, .awaiting_value = false});
+		!pushed) [[unlikely]] {
+		set_error(pushed.error());
+		return std::unexpected(last_error_);
+	}
+	return {};
+}
+
 std::expected<void, JsonError> JsonReader::skip_next_object_value() {
 	auto prepared = prepare_object_value();
 	if (!prepared) [[unlikely]] {
@@ -1360,10 +1530,14 @@ std::expected<std::string_view, JsonError> JsonReader::next_object_string_value_
 		adv();
 		std::size_t const body_start = pos_;
 		std::size_t const body_col = col_;
-		std::size_t const skip = detail::simd::scan_str_until_special(input_.data() + pos_, input_.size() - pos_);
+		auto const short_scan = scan_short_string_body(input_, pos_);
+		std::size_t skip = short_scan.count;
+		if (!short_scan.closed && !short_scan.special) {
+			skip += detail::simd::scan_str_until_special(input_.data() + pos_ + skip, input_.size() - pos_ - skip);
+		}
 		pos_ += skip;
 		col_ += skip;
-		if (pos_ < input_.size() && input_[pos_] == '"') {
+		if (short_scan.closed || (pos_ < input_.size() && input_[pos_] == '"')) {
 			std::string_view const body = input_.substr(body_start, skip);
 			if (opts_.max_string_size.exceeds(body.size(), kDefaultMaxString)) [[unlikely]] {
 				auto e = mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size");
