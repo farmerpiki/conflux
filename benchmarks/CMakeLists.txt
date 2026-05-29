@@ -445,6 +445,12 @@ if(TARGET conflux AND TARGET conflux_work)
         PRIVATE bench_common conflux conflux_work conflux_options)
 endif()
 
+if(TARGET conflux AND TARGET conflux_work)
+    conflux_add_recordable_benchmark(conflux_websocket_bench websocket_bench.cxx)
+    target_link_libraries(conflux_websocket_bench
+        PRIVATE bench_common conflux conflux_work conflux_options)
+endif()
+
 if(TARGET conflux_socket_io AND TARGET conflux_direct_slot_pool)
     conflux_add_recordable_benchmark(conflux_socket_raw_bench socket_raw_bench.cxx)
     target_link_libraries(conflux_socket_raw_bench

@@ -682,6 +682,14 @@ Current groups:
   reject reasons, consumed bytes, CPU/request, and allocation counters.
 - `slow_consumer_backpressure`: live slow-client/socket pressure rows plus
   local bounded SSE and WorkPool queue-full policy rows.
+- `websocket`: dedicated WebSocket attribution suite. Micro rows isolate
+  handshake key hashing/validation, server frame construction allocation,
+  client frame-header parsing, actual `WsConn::recv` parse/copy/unmask/UTF-8
+  behavior, receive-buffer consume/compaction, fragmentation, and close-control
+  payload validation. Live rows cover upgrade+close, steady-state echo at 32 B
+  and 4 KiB, ping/pong, fragmented echo, 16-way concurrent echo, and a
+  slow-receiver send-pressure smoke row. Use these rows as the first gate for
+  WebSocket perf candidates before looking at broader HTTP server rows.
 - `http_server`, `http_server_concurrency`, `static_strategy_matrix`, `send_zc`,
   `tcp_increment`, and `socket_raw`: HTTP/socket/io_uring transport measurements.
   Short `http_server_concurrency` rows are smoke-quality
