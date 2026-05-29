@@ -77,6 +77,15 @@ template<class T, std::size_t N>
 struct is_std_array<std::array<T, N>> : std::true_type {};
 template<class T>
 constexpr bool is_std_array_v = is_std_array<T>::value;
+template<class T, bool = is_std_array_v<T>>
+struct is_fixed_numeric_array : std::false_type {};
+template<class T>
+struct is_fixed_numeric_array<T, true>
+	: std::bool_constant<
+		  (std::integral<typename T::value_type> && !std::same_as<typename T::value_type, bool>)
+		  || std::floating_point<typename T::value_type>> {};
+template<class T>
+constexpr bool is_fixed_numeric_array_v = is_fixed_numeric_array<T>::value;
 template<class T>
 struct is_pair : std::false_type {};
 template<class A, class B>
@@ -1807,6 +1816,8 @@ std::expected<void, JsonError> decode_next_object_value_into(
 			JsonDecodeScratch local_scratch;
 			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
 			return r.decode_string_array_into(out, decode_scratch);
+		} else if constexpr (is_fixed_numeric_array_v<E>) {
+			return r.decode_fixed_numeric_array_vector_into(out);
 		} else {
 			return decode_into<T>(out, r, JsonReader::Event::begin_array, opts, scratch);
 		}
@@ -2400,6 +2411,11 @@ std::expected<T, JsonError> decode_from_event(
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
+		} else if constexpr (is_fixed_numeric_array_v<E>) {
+			if (auto decoded = r.decode_fixed_numeric_array_vector_into(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
 		}
 		if (auto reserved = reserve_vector_from_remaining_array(result, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
@@ -2444,6 +2460,12 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected array"});
 		}
 		T result;
+		if constexpr (is_fixed_numeric_array_v<T>) {
+			if (auto decoded = r.decode_fixed_numeric_array_into(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		}
 		for (std::size_t i = 0; i < N; ++i) {
 			auto ne = r.next();
 			if (!ne) {
@@ -2760,6 +2782,8 @@ std::expected<void, JsonError> decode_into(
 			JsonDecodeScratch local_scratch;
 			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
 			return r.decode_string_array_into(out, decode_scratch);
+		} else if constexpr (is_fixed_numeric_array_v<E>) {
+			return r.decode_fixed_numeric_array_vector_into(out);
 		}
 		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
@@ -2802,6 +2826,9 @@ std::expected<void, JsonError> decode_into(
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected array"});
+		}
+		if constexpr (is_fixed_numeric_array_v<T>) {
+			return r.decode_fixed_numeric_array_into(out);
 		}
 		for (std::size_t i = 0; i < N; ++i) {
 			auto ne = r.next();
