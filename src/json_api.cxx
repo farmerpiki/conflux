@@ -1400,7 +1400,24 @@ private:
 	}
 	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme();
 	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
-	[[nodiscard]] std::expected<void, JsonError> prepare_object_value();
+	[[nodiscard]] std::expected<void, JsonError> prepare_object_value() {
+		if (has_error_) [[unlikely]] {
+			return std::unexpected(last_error_);
+		}
+		if (stack_.empty()) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object value"));
+		}
+		auto &top = stack_.back();
+		if (top.kind != StateFrame::Kind::object || !top.awaiting_value) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object value"));
+		}
+		top.awaiting_value = false;
+		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			return std::unexpected(std::move(ok).error());
+		}
+		value_start_ = pos_;
+		return {};
+	}
 	[[nodiscard]] std::expected<void, JsonError> skip_json5_identifier_key();
 	[[nodiscard]] std::expected<void, JsonError> skip_value_raw(std::size_t raw_depth);
 	[[nodiscard]] std::expected<void, JsonError> skip_array_body_raw(std::size_t raw_depth);

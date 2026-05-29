@@ -1140,12 +1140,17 @@ std::expected<JsonReader::ObjectKeyMatch, JsonError> JsonReader::next_object_key
 	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
+	StateFrame *top_ptr = nullptr;
+	if (!stack_.empty()) {
+		auto &candidate = stack_.back();
+		if (candidate.kind == StateFrame::Kind::object && !candidate.awaiting_value) {
+			top_ptr = &candidate;
+		}
+	}
 	if (opts_.mode == ParseMode::strict
 		&& (expected_key_raw_json_safe || raw_json_name_fast_path_safe(expected_key))
-		&& !stack_.empty()
-		&& stack_.back().kind == StateFrame::Kind::object
-		&& !stack_.back().awaiting_value) {
-		auto &top = stack_.back();
+		&& top_ptr != nullptr) {
+		auto &top = *top_ptr;
 		std::size_t p = pos_;
 		if (!top.first) {
 			if (p < input_.size() && input_[p] == ',') {
@@ -1332,23 +1337,6 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 	auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
 	set_error(e);
 	return std::unexpected(last_error_);
-}
-
-std::expected<void, JsonError> JsonReader::prepare_object_value() {
-	if (has_error_) [[unlikely]] {
-		return std::unexpected(last_error_);
-	}
-	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object || !stack_.back().awaiting_value)
-		[[unlikely]] {
-		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object value"));
-	}
-	auto &top = stack_.back();
-	top.awaiting_value = false;
-	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-		return std::unexpected(std::move(ok).error());
-	}
-	value_start_ = pos_;
-	return {};
 }
 
 std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event() {
