@@ -393,6 +393,13 @@ if(TARGET conflux AND TARGET conflux_work)
         PRIVATE bench_common conflux conflux_work conflux_options)
 endif()
 
+if(CONFLUX_HAS_HTTP2 STREQUAL "true" AND TARGET conflux AND TARGET conflux_work)
+    conflux_add_recordable_benchmark(conflux_http2_server_bench http2_server_bench.cxx)
+    target_link_libraries(conflux_http2_server_bench
+        PRIVATE bench_common conflux conflux_work conflux_options
+                OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
 if(TARGET conflux AND TARGET conflux_work)
     conflux_add_recordable_benchmark(conflux_static_strategy_matrix_bench static_strategy_matrix_bench.cxx)
     target_link_libraries(conflux_static_strategy_matrix_bench

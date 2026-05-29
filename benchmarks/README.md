@@ -332,6 +332,8 @@ ONLY_BENCH=http_adversarial BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-adversarial-local
 ONLY_BENCH=http_server BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-local
+ONLY_BENCH=http2_server BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh http2-server-local
 ONLY_BENCH=http_server_concurrency BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-concurrency-local
 # The descriptor records both smoke and 30s/5s-warmup tail-proof configs.
@@ -404,6 +406,17 @@ context switches, fd/RSS start/end, sampled RSS high-water, pressure-event
 high-water, and SQ/CQ overflow counters. The `queue_depth_high_water` field is
 currently sourced from the cumulative HTTP pressure-event counter because the
 server does not yet expose an instantaneous response-queue gauge.
+
+`http2_server` is the live TLS+ALPN HTTP/2 suite. It starts one real
+H2-capable `HttpServer`, drives it with a blocking OpenSSL/nghttp2 client, and
+emits protocol metadata for serial requests, request DATA uploads, response DATA
+downloads, flow-control-sized bodies, trailers, SSE over H2, multiplexed small
+streams, and multiplexed mixed body/route streams. Rows are labeled
+`live-kernel-sanity`; use them to identify H2-specific pressure before moving to
+external `h2load` evidence. Because the row includes loopback TCP, TLS, OpenSSL,
+and nghttp2 client work, pair it with `perf stat`/flamegraphs when deciding
+whether the bottleneck is Conflux server code, nghttp2 framing, TLS, or kernel
+wakeups.
 
 `slow_consumer_backpressure` is the live overload/backpressure suite. It keeps
 slow clients attached while the server sends large responses, drives SSE channels

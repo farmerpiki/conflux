@@ -1358,6 +1358,10 @@ function(conflux_add_header_benchmark_compile_targets)
             benchmarks/tls_tcp_increment_coro_bench
             benchmarks/tls_mem_bio_bench)
     endif()
+    if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+        list(APPEND _conflux_header_benchmark_source_ids
+            benchmarks/http2_server_bench)
+    endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
         list(APPEND _conflux_header_benchmark_source_ids
             benchmarks/db_coro_bench
