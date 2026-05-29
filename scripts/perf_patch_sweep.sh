@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/perf_patch_sweep.sh [--patch PATH ...] [--patch-dir DIR ...] [--suite auto|json|http|ws|all]
+  scripts/perf_patch_sweep.sh [--patch PATH ...] [--patch-dir DIR ...] [--suite auto|json|http-client|http-server|http2|websocket|all]
 
 Environment:
   PERF_PATCH_PRESETS    default: release-clang-libcxx release-gcc16-stdcxx
@@ -21,7 +21,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 patches=()
-patch_dirs=(research/patches)
+patch_dirs=()
 suite="auto"
 
 while (($#)); do
@@ -55,9 +55,26 @@ while (($#)); do
 done
 
 case "$suite" in
-  auto|json|http|ws|all) ;;
+  http) suite="http-server" ;;
+  h2) suite="http2" ;;
+  ws) suite="websocket" ;;
+esac
+
+case "$suite" in
+  auto|json|http-client|http-server|http2|websocket|all) ;;
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
+
+if ((${#patch_dirs[@]} == 0 && ${#patches[@]} == 0)); then
+  case "$suite" in
+    json) patch_dirs=(research/patches/json) ;;
+    http-client) patch_dirs=(research/patches/http_client_1.1) ;;
+    http-server) patch_dirs=(research/patches/http_server_1.1) ;;
+    http2) patch_dirs=(research/patches/http_server_2.0) ;;
+    websocket) patch_dirs=(research/patches/websocket) ;;
+    auto|all) patch_dirs=(research/patches) ;;
+  esac
+fi
 
 if ((${#patches[@]} == 0)); then
   for dir in "${patch_dirs[@]}"; do
@@ -91,47 +108,69 @@ slugify() {
   tr '/ .' '---' <<< "$1" | tr -cd 'A-Za-z0-9._-'
 }
 
+suite_for_patch() {
+  local patch="$1"
+  case "$patch" in
+    *research/patches/json/*|*json*) printf '%s\n' json ;;
+    *research/patches/http_client_1.1/*|*http_client*|*client-h1*) printf '%s\n' http-client ;;
+    *research/patches/http_server_1.1/*|*http11*|*http1*) printf '%s\n' http-server ;;
+    *research/patches/http_server_2.0/*|*h2*) printf '%s\n' http2 ;;
+    *research/patches/websocket/*|*websocket*|*ws*) printf '%s\n' websocket ;;
+    *) printf '%s\n' unknown ;;
+  esac
+}
+
+patch_enabled_for_suite() {
+  local patch="$1" wanted="$2" actual
+  [[ "$wanted" == all ]] && return 0
+  actual="$(suite_for_patch "$patch")"
+  [[ "$wanted" == auto ]] && [[ "$actual" != unknown ]] && return 0
+  [[ "$wanted" == "$actual" ]]
+}
+
 targets_for_patch() {
-  local patch="$1" wanted="$2"
+  local patch="$1" wanted="$2" actual
   if [[ -n "${PERF_PATCH_TARGETS:-}" ]]; then
     printf '%s\n' ${PERF_PATCH_TARGETS}
     return 0
   fi
-  case "$wanted:$patch" in
-    json:*|auto:*json*|all:*)
+  actual="$(suite_for_patch "$patch")"
+  [[ "$wanted" == auto || "$wanted" == all ]] || actual="$wanted"
+  case "$actual" in
+    json)
       printf '%s\n' conflux_json_bench conflux_json_storage_bench
       ;;
-  esac
-  case "$wanted:$patch" in
-    http:*|auto:*http_server*|auto:*http_client*|auto:*http11*|auto:*h2*|all:*)
+    http-server)
       printf '%s\n' conflux_http_parser_bench conflux_http_app_path_bench conflux_http_adversarial_bench conflux_http_server_bench conflux_http_server_concurrency_bench
       ;;
-  esac
-  case "$wanted:$patch" in
-    ws:*|auto:*websocket*|auto:*ws*|all:*)
+    http2)
+      printf '%s\n' conflux_http_server_bench conflux_http_server_concurrency_bench
+      ;;
+    websocket)
       printf '%s\n' conflux_http_server_bench conflux_slow_consumer_backpressure_bench conflux_cpu_dispatch_impl_bench
       ;;
   esac
 }
 
 benches_for_patch() {
-  local patch="$1" wanted="$2"
+  local patch="$1" wanted="$2" actual
   if [[ -n "${PERF_PATCH_BENCHES:-}" ]]; then
     printf '%s\n' ${PERF_PATCH_BENCHES}
     return 0
   fi
-  case "$wanted:$patch" in
-    json:*|auto:*json*|all:*)
+  actual="$(suite_for_patch "$patch")"
+  [[ "$wanted" == auto || "$wanted" == all ]] || actual="$wanted"
+  case "$actual" in
+    json)
       printf '%s\n' json json_storage
       ;;
-  esac
-  case "$wanted:$patch" in
-    http:*|auto:*http_server*|auto:*http_client*|auto:*http11*|auto:*h2*|all:*)
+    http-server)
       printf '%s\n' http_parser http_app_path http_adversarial http_server http_server_concurrency
       ;;
-  esac
-  case "$wanted:$patch" in
-    ws:*|auto:*websocket*|auto:*ws*|all:*)
+    http2)
+      printf '%s\n' http_server http_server_concurrency
+      ;;
+    websocket)
       printf '%s\n' http_server slow_consumer_backpressure cpu_dispatch_impl
       ;;
   esac
@@ -191,6 +230,9 @@ declare -A baseline_ready=()
 
 for patch in "${patches[@]}"; do
   [[ -f "$patch" ]] || { append_report "## $patch"; append_report ""; append_report "Missing patch file."; append_report ""; continue; }
+  if ! patch_enabled_for_suite "$patch" "$suite"; then
+    continue
+  fi
   mapfile -t targets < <(targets_for_patch "$patch" "$suite" | awk 'NF' | sort -u)
   mapfile -t benches < <(benches_for_patch "$patch" "$suite" | awk 'NF' | sort -u)
   patch_slug="$(slugify "$patch")"
