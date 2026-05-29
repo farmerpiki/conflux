@@ -138,16 +138,19 @@ targets_for_patch() {
   [[ "$wanted" == auto || "$wanted" == all ]] || actual="$wanted"
   case "$actual" in
     json)
-      printf '%s\n' conflux_json_bench conflux_json_storage_bench
+      printf '%s\n' conflux_json_bench conflux_json_storage_bench conflux_json_direct_struct_bench
+      ;;
+    http-client)
+      printf '%s\n' conflux_http_client_bench
       ;;
     http-server)
-      printf '%s\n' conflux_http_parser_bench conflux_http_app_path_bench conflux_http_adversarial_bench conflux_http_server_bench conflux_http_server_concurrency_bench
+      printf '%s\n' conflux_http_parser_bench conflux_http_app_path_bench conflux_http_adversarial_bench conflux_http_server_bench conflux_http_server_concurrency_bench conflux_http11_representative_bench
       ;;
     http2)
-      printf '%s\n' conflux_http_server_bench conflux_http_server_concurrency_bench
+      printf '%s\n' conflux_http2_server_bench
       ;;
     websocket)
-      printf '%s\n' conflux_http_server_bench conflux_slow_consumer_backpressure_bench conflux_cpu_dispatch_impl_bench
+      printf '%s\n' conflux_websocket_bench conflux_slow_consumer_backpressure_bench conflux_cpu_dispatch_impl_bench
       ;;
   esac
 }
@@ -162,16 +165,19 @@ benches_for_patch() {
   [[ "$wanted" == auto || "$wanted" == all ]] || actual="$wanted"
   case "$actual" in
     json)
-      printf '%s\n' json json_storage
+      printf '%s\n' json json_storage json_direct_struct
+      ;;
+    http-client)
+      printf '%s\n' http_client
       ;;
     http-server)
-      printf '%s\n' http_parser http_app_path http_adversarial http_server http_server_concurrency
+      printf '%s\n' http_parser http_app_path http_adversarial http_server http_server_concurrency http11_representative
       ;;
     http2)
-      printf '%s\n' http_server http_server_concurrency
+      printf '%s\n' http2_server
       ;;
     websocket)
-      printf '%s\n' http_server slow_consumer_backpressure cpu_dispatch_impl
+      printf '%s\n' websocket slow_consumer_backpressure cpu_dispatch_impl
       ;;
   esac
 }
@@ -252,7 +258,7 @@ for patch in "${patches[@]}"; do
   build_slug="$(slugify "$build_key")"
   build_groups["$build_key"]=1
   for bench in "${benches[@]}"; do
-    compare_benches["$bench"]=1
+    compare_benches["$build_key"]+="$bench"$'\n'
   done
 
   if ! git apply --check "$patch" >"$log_root/apply-check.$patch_slug.log" 2>&1; then
@@ -353,7 +359,8 @@ for preset in "${presets[@]}"; do
     [[ -n "$base_dir" && "$base_dir" != failed ]] || continue
     candidates="${candidate_dirs[$preset|$build_key]:-}"
     [[ -n "$candidates" ]] || continue
-    for bench in "${!compare_benches[@]}"; do
+    while IFS= read -r bench; do
+      [[ -n "$bench" ]] || continue
       compare_log="$log_root/compare.$preset.$(slugify "$bench").log"
       args=(--yes --reps "$reps" --pguri "$pguri" --dir "base-$preset:$base_dir")
       while IFS= read -r candidate; do
@@ -377,7 +384,7 @@ for preset in "${presets[@]}"; do
         append_report "- Compare failed or skipped; see $compare_log"
         append_report ""
       fi
-    done
+    done < <(printf '%s' "${compare_benches[$build_key]:-}" | awk 'NF' | sort -u)
   done
 done
 
