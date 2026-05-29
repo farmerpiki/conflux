@@ -111,19 +111,18 @@ function(conflux_add_stdsimd_targets backend)
     if(backend STREQUAL "STD26")
         add_library(conflux_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/simd_std26.cxx)
         target_compile_features(conflux_simd_std26 PRIVATE cxx_std_26)
-        target_link_libraries(conflux_simd_std26 PRIVATE conflux_options)
         set(_conflux_simd_std26_options "-mavx2")
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
             list(APPEND _conflux_simd_std26_options "-fno-lto")
+            set_target_properties(conflux_simd_std26 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
         endif()
         set_source_files_properties(${CONFLUX_SRC_ROOT}/simd_std26.cxx PROPERTIES
             COMPILE_OPTIONS "${_conflux_simd_std26_options}")
 
         add_library(conflux_json_simd_std26 OBJECT ${CONFLUX_SRC_ROOT}/json_simd_std26.cxx)
         target_compile_features(conflux_json_simd_std26 PRIVATE cxx_std_26)
-        target_link_libraries(conflux_json_simd_std26 PRIVATE conflux_options)
         set(_conflux_json_simd_std26_options "-mavx2")
         if(_conflux_json_stdsimd_ifunc)
             target_compile_definitions(conflux_json_simd_std26 PRIVATE
@@ -131,7 +130,6 @@ function(conflux_add_stdsimd_targets backend)
                 CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdsimd_avx2)
             add_library(conflux_json_simd_std26_sse2 OBJECT ${CONFLUX_SRC_ROOT}/json_simd_std26.cxx)
             target_compile_features(conflux_json_simd_std26_sse2 PRIVATE cxx_std_26)
-            target_link_libraries(conflux_json_simd_std26_sse2 PRIVATE conflux_options)
             target_compile_definitions(conflux_json_simd_std26_sse2 PRIVATE
                 CONFLUX_JSON_SCAN_STR_UNTIL_SPECIAL_STDSIMD=conflux_json_scan_str_until_special_stdsimd_sse2
                 CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_stdsimd_sse2)
@@ -141,8 +139,10 @@ function(conflux_add_stdsimd_targets backend)
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
             list(APPEND _conflux_json_simd_std26_options "-fno-lto")
+            set_target_properties(conflux_json_simd_std26 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
             if(_conflux_json_stdsimd_ifunc)
                 target_compile_options(conflux_json_simd_std26_sse2 PRIVATE "-fno-lto")
+                set_target_properties(conflux_json_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
             endif()
         endif()
         target_compile_options(conflux_json_simd_std26 PRIVATE

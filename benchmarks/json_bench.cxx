@@ -664,7 +664,7 @@ struct BenchWide96 {
 	std::int64_t f95{};
 };
 template<>
-struct JsonMembers<BenchSmall> {
+struct conflux::json::JsonMembers<BenchSmall> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("id", &BenchSmall::id),
@@ -674,7 +674,7 @@ struct JsonMembers<BenchSmall> {
 	static constexpr std::string_view type_name() { return "BenchSmall"; }
 };
 template<>
-struct JsonMembers<BenchMedium> {
+struct conflux::json::JsonMembers<BenchMedium> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("id", &BenchMedium::id),
@@ -690,7 +690,7 @@ struct JsonMembers<BenchMedium> {
 	static constexpr std::string_view type_name() { return "BenchMedium"; }
 };
 template<>
-struct JsonMembers<BenchInner> {
+struct conflux::json::JsonMembers<BenchInner> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("x", &BenchInner::x),
@@ -700,7 +700,7 @@ struct JsonMembers<BenchInner> {
 	static constexpr std::string_view type_name() { return "BenchInner"; }
 };
 template<>
-struct JsonMembers<BenchNested> {
+struct conflux::json::JsonMembers<BenchNested> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("id", &BenchNested::id),
@@ -712,7 +712,7 @@ struct JsonMembers<BenchNested> {
 };
 
 template<>
-struct JsonMembers<BenchWide8> {
+struct conflux::json::JsonMembers<BenchWide8> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("f0", &BenchWide8::f0),
@@ -727,7 +727,7 @@ struct JsonMembers<BenchWide8> {
 	static constexpr std::string_view type_name() { return "BenchWide8"; }
 };
 template<>
-struct JsonMembers<BenchWide16> {
+struct conflux::json::JsonMembers<BenchWide16> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("f0", &BenchWide16::f0),
@@ -750,7 +750,7 @@ struct JsonMembers<BenchWide16> {
 	static constexpr std::string_view type_name() { return "BenchWide16"; }
 };
 template<>
-struct JsonMembers<BenchWide32> {
+struct conflux::json::JsonMembers<BenchWide32> {
 	static constexpr auto members() {
 		return std::tuple{json_member("f0", &BenchWide32::f0),   json_member("f1", &BenchWide32::f1),
 						  json_member("f2", &BenchWide32::f2),   json_member("f3", &BenchWide32::f3),
@@ -772,7 +772,7 @@ struct JsonMembers<BenchWide32> {
 	static constexpr std::string_view type_name() { return "BenchWide32"; }
 };
 template<>
-struct JsonMembers<BenchWide64> {
+struct conflux::json::JsonMembers<BenchWide64> {
 	static constexpr auto members() {
 		return std::tuple{json_member("f0", &BenchWide64::f0),   json_member("f1", &BenchWide64::f1),
 						  json_member("f2", &BenchWide64::f2),   json_member("f3", &BenchWide64::f3),
@@ -810,7 +810,7 @@ struct JsonMembers<BenchWide64> {
 	static constexpr std::string_view type_name() { return "BenchWide64"; }
 };
 template<>
-struct JsonMembers<BenchWide96> {
+struct conflux::json::JsonMembers<BenchWide96> {
 	static constexpr auto members() {
 		return std::tuple{json_member("f0", &BenchWide96::f0),   json_member("f1", &BenchWide96::f1),
 						  json_member("f2", &BenchWide96::f2),   json_member("f3", &BenchWide96::f3),
@@ -1908,7 +1908,7 @@ struct BenchModel5 {
 	std::string tag{};
 };
 template<>
-struct JsonMembers<BenchModel5> {
+struct conflux::json::JsonMembers<BenchModel5> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("id", &BenchModel5::id),
