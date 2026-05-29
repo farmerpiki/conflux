@@ -1327,6 +1327,7 @@ function(conflux_add_header_benchmark_compile_targets)
         benchmarks/http_app_path_bench
         benchmarks/http_server_bench
         benchmarks/http_server_concurrency_bench
+        benchmarks/http11_representative_bench
         benchmarks/join_all_N_bench
         benchmarks/json_bench
         benchmarks/json_direct_struct_bench

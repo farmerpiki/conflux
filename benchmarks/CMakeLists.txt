@@ -421,6 +421,12 @@ if(TARGET conflux AND TARGET conflux_work)
 endif()
 
 if(TARGET conflux AND TARGET conflux_work)
+    conflux_add_recordable_benchmark(conflux_http11_representative_bench http11_representative_bench.cxx)
+    target_link_libraries(conflux_http11_representative_bench
+        PRIVATE bench_common conflux conflux_work conflux_options)
+endif()
+
+if(TARGET conflux AND TARGET conflux_work)
     conflux_add_recordable_benchmark(conflux_slow_consumer_backpressure_bench slow_consumer_backpressure_bench.cxx)
     target_link_libraries(conflux_slow_consumer_backpressure_bench
         PRIVATE bench_common conflux conflux_work conflux_options)

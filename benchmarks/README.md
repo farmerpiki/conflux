@@ -157,6 +157,40 @@ target produces an executable, tool versions, and the exact commands used.
 /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --csv   # alias for --format csv
 ```
 
+## HTTP/1.1 representative workload gate
+
+`conflux_http11_representative_bench` is the production-like HTTP/1.1 gate for
+server performance candidates. Use the narrower parser/app-path benches to find
+local implementation costs, then use this target to reject changes that improve
+a microbench but hurt a mixed live workload.
+
+The target runs weighted request mixes over a live HTTP/1.1 server and emits
+throughput, p50/p90/p99/p999/max latency, error/timeout counts, CPU time,
+context switches, RSS/fd deltas, ring pressure counters, and per-request-kind
+counts. The built-in workloads cover read-heavy APIs, write/body-heavy APIs,
+common middleware, large responses/static files, and connect-close lifecycle
+pressure.
+
+```sh
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_http11_representative_bench --list
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_http11_representative_bench \
+  --json --workload api_mixed_middleware --duration 30 --warmup 5
+```
+
+Interpretation labels:
+
+```text
+micro/user-space       isolates Conflux implementation cost
+live-kernel-sanity     exercises real kernel path; not a performance claim alone
+end-to-end-proof       representative workload with counters and tail latency
+```
+
+For HTTP/1.1 perf candidates, use `api_mixed_middleware` as the default
+acceptance row and keep the raw NDJSON from every repeat. Public comparisons
+should still use an external load generator and external frameworks; this target
+is the internal gate that keeps one-off loopback rows from becoming the only
+evidence.
+
 ## Perf counter wrapper
 
 `scripts/bench_perf_stat.py` is the optional `perf stat` wrapper for rows where
