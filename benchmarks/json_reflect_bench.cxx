@@ -172,6 +172,13 @@ void require_decode(
 	}
 }
 template<class T>
+void require_decode_reject(
+	std::expected<T, JsonError> value) {
+	if (value) {
+		throw std::runtime_error{"expected reflected direct decode to reject benchmark fixture"};
+	}
+}
+template<class T>
 void require_boundary_decode(
 	std::expected<T, conflux::json::boundary::Error> value) {
 	if (!value) {
@@ -191,6 +198,25 @@ void require_dump(
 	}
 }
 
+[[nodiscard]] std::string make_reflect_medium_reordered() {
+	return R"({"values":[1,2,3,4,5,6,7,8],"limit":64,"tag":"direct","name":"bench","active":true,"score":12.5,"count":42,"id":7})";
+}
+[[nodiscard]] std::string make_reflect_medium_shuffled() {
+	return R"({"score":12.5,"name":"bench","id":7,"values":[1,2,3,4,5,6,7,8],"active":true,"limit":64,"count":42,"tag":"direct"})";
+}
+[[nodiscard]] std::string make_reflect_medium_duplicate_name() {
+	return R"({"id":7,"count":42,"score":12.5,"active":true,"name":"first","name":"last","tag":"direct","limit":64,"values":[1,2,3,4]})";
+}
+[[nodiscard]] std::string make_reflect_medium_duplicate_vector() {
+	return R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4],"values":[9,8,7]})";
+}
+[[nodiscard]] std::string make_reflect_medium_unknown_duplicate() {
+	return R"({"id":7,"count":42,"score":12.5,"active":true,"extra":1,"extra":2,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4]})";
+}
+[[nodiscard]] std::string make_reflect_medium_json5_duplicate() {
+	return R"({id:7,count:42,score:12.5,active:true,name:'first',name:'last',tag:'direct',limit:64,values:[1,2,3,4,],})";
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -208,6 +234,12 @@ int main(
 	std::string const small = R"({"id":7,"active":true})";
 	std::string const medium =
 		R"({"id":7,"count":42,"score":12.5,"active":true,"name":"bench","tag":"direct","limit":64,"values":[1,2,3,4,5,6,7,8]})";
+	std::string const medium_reordered = make_reflect_medium_reordered();
+	std::string const medium_shuffled = make_reflect_medium_shuffled();
+	std::string const medium_duplicate_name = make_reflect_medium_duplicate_name();
+	std::string const medium_duplicate_vector = make_reflect_medium_duplicate_vector();
+	std::string const medium_unknown_duplicate = make_reflect_medium_unknown_duplicate();
+	std::string const medium_json5_duplicate = make_reflect_medium_json5_duplicate();
 	std::string const wide16 =
 		R"({"f00":0,"f01":1,"f02":2,"f03":3,"f04":4,"f05":5,"f06":6,"f07":7,"f08":8,"f09":9,"f10":10,"f11":11,"f12":12,"f13":13,"f14":14,"f15":15})";
 	ReflectMedium const medium_value{
@@ -222,6 +254,18 @@ int main(
 	};
 	conflux::json::boundary::DumpOptions sorted;
 	sorted.sort_object_keys = true;
+	JsonParseOptions duplicate_reject;
+	duplicate_reject.duplicate_key = DuplicateKeyPolicy::reject;
+	JsonParseOptions duplicate_first;
+	duplicate_first.duplicate_key = DuplicateKeyPolicy::first_wins;
+	JsonParseOptions duplicate_last;
+	duplicate_last.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonParseOptions json5_duplicate_reject = duplicate_reject;
+	json5_duplicate_reject.mode = ParseMode::json5;
+	JsonParseOptions json5_duplicate_last = duplicate_last;
+	json5_duplicate_last.mode = ParseMode::json5;
+	JsonDecodeOptions ignore_unknown;
+	ignore_unknown.unknown_members = UnknownMemberPolicy::ignore;
 
 	if (!g_json) {
 		std::println("[json-reflect-bench] benchmark                         median      throughput     allocations");
@@ -262,6 +306,86 @@ int main(
 			500,
 			1,
 			medium.size());
+	});
+	run("decode/reflection/direct/medium/out_of_order_reverse", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_reordered)); },
+			100,
+			500,
+			1,
+			medium_reordered.size());
+	});
+	run("decode/reflection/direct/medium/out_of_order_shuffled", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_shuffled)); },
+			100,
+			500,
+			1,
+			medium_shuffled.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_name_reject", [&] {
+		return measure_alloc(
+			[&] { require_decode_reject(decode_borrowed<ReflectMedium>(medium_duplicate_name, duplicate_reject)); },
+			100,
+			500,
+			1,
+			medium_duplicate_name.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_name_first_wins", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_duplicate_name, duplicate_first)); },
+			100,
+			500,
+			1,
+			medium_duplicate_name.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_name_last_wins", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_duplicate_name, duplicate_last)); },
+			100,
+			500,
+			1,
+			medium_duplicate_name.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_vector_first_wins", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_duplicate_vector, duplicate_first)); },
+			100,
+			500,
+			1,
+			medium_duplicate_vector.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_vector_last_wins", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_duplicate_vector, duplicate_last)); },
+			100,
+			500,
+			1,
+			medium_duplicate_vector.size());
+	});
+	run("decode/reflection/direct/medium/duplicate_unknown_ignore", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_unknown_duplicate, duplicate_reject, ignore_unknown)); },
+			100,
+			500,
+			1,
+			medium_unknown_duplicate.size());
+	});
+	run("decode/reflection/direct/medium/json5_duplicate_reject", [&] {
+		return measure_alloc(
+			[&] { require_decode_reject(decode_borrowed<ReflectMedium>(medium_json5_duplicate, json5_duplicate_reject)); },
+			100,
+			500,
+			1,
+			medium_json5_duplicate.size());
+	});
+	run("decode/reflection/direct/medium/json5_duplicate_last_wins", [&] {
+		return measure_alloc(
+			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_json5_duplicate, json5_duplicate_last)); },
+			100,
+			500,
+			1,
+			medium_json5_duplicate.size());
 	});
 	run("decode/reflection/direct/wide16", [&] {
 		return measure_alloc(

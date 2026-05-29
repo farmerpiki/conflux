@@ -62,6 +62,50 @@ Before changing the cutoff or extending this to reflected decode, rerun at least
 Acceptance evidence should include all-known and unknown-heavy rows, plus
 compile-time and binary-size impact for the generated lookup metadata.
 
+### JSON direct-to-struct bottleneck matrix
+
+`conflux_json_direct_struct_bench` is the focused gate for direct typed decode
+work. It keeps I/O, DOM traversal, and full application routing out of the
+measurement so profiles answer which JSON reader path is hot. The rows are
+organized by bottleneck hypothesis:
+
+- `order/*`: declaration-order, reverse-order, even/odd, and deterministic
+  shuffled member order for manual `JsonMembers<T>` direct-to-struct decode.
+- `unknown/*`: interleaved and tail unknown-member payloads under reject/ignore
+  policy.
+- `duplicate/*`: duplicate known scalar, duplicate vector, duplicate unknown,
+  and JSON5 duplicate-key rows under reject, first-wins, and last-wins modes.
+- `numeric/*`: scalar number forms plus `vector<array<double,3>>` point-cloud
+  payloads using integer, fixed decimal, scientific, mixed, and whitespace-heavy
+  forms.
+- `strings/*`: owned string decode for plain and escaped long strings.
+
+Build and run the focused target before changing member matching, duplicate-key
+policy, number lexing, fixed numeric array decode, or string decode:
+
+```sh
+cmake --build --preset perf-clang-libcxx --target conflux_json_direct_struct_bench
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'order/'
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'duplicate/'
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'numeric/'
+/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'strings/'
+```
+
+For branch comparisons, capture both wall-time rows and hardware counters:
+
+```sh
+scripts/bench_perf_stat.py /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench -- --filter 'order/'
+scripts/bench_perf_stat.py /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench -- --filter 'numeric/'
+```
+
+P2996 reflected rows in `conflux_json_reflect_bench` mirror the medium
+direct-to-struct order and duplicate-key cases when `CONFLUX_JSON_REFLECT=ON`.
+Use those to distinguish manual `JsonMembers<T>` behavior from actual compiler
+reflection codegen.
+
+Use `benchmarks/notes/json_direct_struct_results_template.md` as the
+per-patch notebook when comparing optimization candidates.
+
 When `CONFLUX_SIMD_SELECTION=RUNTIME`, the optional
 `conflux_cpu_dispatch_impl_bench` target compares the scalar fallback,
 compiled ISA fastpath, and public dispatch wrapper for the small kernels used by
@@ -548,8 +592,11 @@ comparable.
 wide-object direct typed decode, unknown-member-ignore wide-object rows, and
 write rows. The wide-object rows are the measurement gate for any future
 field-lookup specialization; do not add lookup tables from intuition alone.
-`conflux_json_reflect_bench` is built only with `CONFLUX_JSON_REFLECT=ON` and
-reports the matching P2996 reflected rows.
+`conflux_json_direct_struct_bench` is the focused direct-to-struct bottleneck
+matrix for member order, unknown members, duplicate-key modes, number forms,
+fixed numeric arrays, and string decode. `conflux_json_reflect_bench` is built
+only with `CONFLUX_JSON_REFLECT=ON` and reports the matching P2996 reflected
+rows, including medium out-of-order and duplicate-key policy cases.
 
 ## Benchmark groups
 

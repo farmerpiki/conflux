@@ -158,6 +158,9 @@ endif()
 if(TARGET conflux_json)
     conflux_add_recordable_benchmark(conflux_json_storage_bench json_storage_bench.cxx)
     target_link_libraries(conflux_json_storage_bench PRIVATE bench_common conflux_json conflux_options)
+
+    conflux_add_recordable_benchmark(conflux_json_direct_struct_bench json_direct_struct_bench.cxx)
+    target_link_libraries(conflux_json_direct_struct_bench PRIVATE bench_common conflux_json conflux_options)
 endif()
 
 if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect_provider)
