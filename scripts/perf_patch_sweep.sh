@@ -227,6 +227,9 @@ append_report "- Artifacts: $artifact_root"
 append_report ""
 
 declare -A baseline_ready=()
+declare -A candidate_dirs=()
+declare -A compare_benches=()
+declare -A build_groups=()
 
 for patch in "${patches[@]}"; do
   [[ -f "$patch" ]] || { append_report "## $patch"; append_report ""; append_report "Missing patch file."; append_report ""; continue; }
@@ -245,6 +248,12 @@ for patch in "${patches[@]}"; do
   fi
   append_report "- Targets: ${targets[*]}"
   append_report "- Benches: ${benches[*]}"
+  build_key="${targets[*]}"
+  build_slug="$(slugify "$build_key")"
+  build_groups["$build_key"]=1
+  for bench in "${benches[@]}"; do
+    compare_benches["$bench"]=1
+  done
 
   if ! git apply --check "$patch" >"$log_root/apply-check.$patch_slug.log" 2>&1; then
     append_report "- Apply: failed; see $log_root/apply-check.$patch_slug.log"
@@ -253,13 +262,13 @@ for patch in "${patches[@]}"; do
   fi
 
   for preset in "${presets[@]}"; do
-    if [[ -z "${baseline_ready[$preset|${targets[*]}]:-}" ]]; then
+    if [[ -z "${baseline_ready[$preset|$build_key]:-}" ]]; then
       if build_targets "$preset" baseline "${targets[@]}"; then
-        copy_bench_bins "$preset" baseline "$bin_root/baseline/$preset"
-        baseline_ready[$preset|${targets[*]}]=1
+        copy_bench_bins "$preset" baseline "$bin_root/baseline/$preset/$build_slug"
+        baseline_ready[$preset|$build_key]="$bin_root/baseline/$preset/$build_slug"
       else
         append_report "- Baseline $preset: build failed; candidates for this target set skipped."
-        baseline_ready[$preset|${targets[*]}]=failed
+        baseline_ready[$preset|$build_key]=failed
       fi
     fi
   done
@@ -269,31 +278,18 @@ for patch in "${patches[@]}"; do
   append_report "- Apply: ok"
 
   for preset in "${presets[@]}"; do
-    if [[ "${baseline_ready[$preset|${targets[*]}]:-}" == failed ]]; then
+    if [[ "${baseline_ready[$preset|$build_key]:-}" == failed ]]; then
       continue
     fi
     cand_dir="$bin_root/$patch_slug/$preset"
     if build_targets "$preset" "$patch_slug" "${targets[@]}"; then
       copy_bench_bins "$preset" "$patch_slug" "$cand_dir"
       append_report "- Build $preset: ok"
+      candidate_dirs["$preset|$build_key"]+="$patch_slug:$cand_dir"$'\n'
     else
       append_report "- Build $preset: failed; see $log_root/build.$patch_slug.$preset.log"
       continue
     fi
-    for bench in "${benches[@]}"; do
-      compare_log="$log_root/compare.$patch_slug.$preset.$bench.log"
-      if scripts/compare_bins_by_bench.sh \
-          --yes \
-          --reps "$reps" \
-          --pguri "$pguri" \
-          --dir "base:$bin_root/baseline/$preset" \
-          --dir "candidate:$cand_dir" \
-          "$bench" >"$compare_log" 2>&1; then
-        append_report "- Compare $preset $bench: ok; see $compare_log"
-      else
-        append_report "- Compare $preset $bench: failed or skipped; see $compare_log"
-      fi
-    done
   done
 
   revert_current_patch
@@ -304,6 +300,85 @@ for patch in "${patches[@]}"; do
   fi
   append_report "- Revert: ok"
   append_report ""
+done
+
+summarize_compare() {
+  local bench="$1" base_label="$2" suffix="$3" out="$4"
+  psql "$pguri" -At -F ' | ' -q -v ON_ERROR_STOP=1 -c "
+    WITH summary AS (
+      SELECT runs.build_preset AS label,
+             results.variant,
+             results.best,
+             results.p10,
+             results.p50,
+             results.p99
+      FROM results
+      JOIN runs ON runs.id = results.run_id
+      WHERE runs.name = 'compare-bins'
+        AND runs.benchmark = '$(printf '%s' "$bench" | sed "s/'/''/g")'
+        AND runs.config_name = 'compare-bins'
+        AND runs.created_at >= '$(printf '%s' "$stamp" | sed 's/\(........\)T\(......\)Z/\1 \2 UTC/' | sed 's/\(....\)\(..\)\(..\) \(..\)\(..\)\(..\)/\1-\2-\3 \4:\5:\6/')'::timestamptz
+        AND results.extra->>'kind' = 'summary'
+    ),
+    base AS (
+      SELECT variant, best, p10, p50, p99
+      FROM summary
+      WHERE label = '$(printf '%s' "$base_label" | sed "s/'/''/g")'
+    )
+    SELECT regexp_replace(summary.label, '$(printf '%s' "$suffix" | sed "s/'/''/g")$', '') AS patch,
+           summary.variant,
+           round(base.best::numeric, 2),
+           round(((summary.best - base.best) / NULLIF(base.best, 0) * 100.0)::numeric, 2),
+           round(base.p10::numeric, 2),
+           round(((summary.p10 - base.p10) / NULLIF(base.p10, 0) * 100.0)::numeric, 2),
+           round(base.p50::numeric, 2),
+           round(((summary.p50 - base.p50) / NULLIF(base.p50, 0) * 100.0)::numeric, 2),
+           round(base.p99::numeric, 2),
+           round(((summary.p99 - base.p99) / NULLIF(base.p99, 0) * 100.0)::numeric, 2)
+    FROM summary
+    JOIN base ON base.variant = summary.variant
+    WHERE summary.label <> '$(printf '%s' "$base_label" | sed "s/'/''/g")'
+      AND summary.label LIKE '%$(printf '%s' "$suffix" | sed "s/'/''/g")'
+    ORDER BY patch, summary.variant;" >>"$out"
+}
+
+append_report "## Grouped Compare Results"
+append_report ""
+append_report "Format: patch | variant | base_best_ns | best_pct | base_p10_ns | p10_pct | base_p50_ns | p50_pct | base_p99_ns | p99_pct"
+append_report ""
+
+for preset in "${presets[@]}"; do
+  for build_key in "${!build_groups[@]}"; do
+    base_dir="${baseline_ready[$preset|$build_key]:-}"
+    [[ -n "$base_dir" && "$base_dir" != failed ]] || continue
+    candidates="${candidate_dirs[$preset|$build_key]:-}"
+    [[ -n "$candidates" ]] || continue
+    for bench in "${!compare_benches[@]}"; do
+      compare_log="$log_root/compare.$preset.$(slugify "$bench").log"
+      args=(--yes --reps "$reps" --pguri "$pguri" --dir "base-$preset:$base_dir")
+      while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        label="${candidate%%:*}"
+        dir="${candidate#*:}"
+        args+=(--dir "$label-$preset:$dir")
+      done <<< "$candidates"
+      if scripts/compare_bins_by_bench.sh "${args[@]}" "$bench" >"$compare_log" 2>&1; then
+        append_report "### $preset / $bench"
+        append_report ""
+        append_report '```text'
+        summarize_compare "$bench" "base-$preset" "-$preset" "$report"
+        append_report '```'
+        append_report ""
+        append_report "- Compare log: $compare_log"
+        append_report ""
+      else
+        append_report "### $preset / $bench"
+        append_report ""
+        append_report "- Compare failed or skipped; see $compare_log"
+        append_report ""
+      fi
+    done
+  done
 done
 
 append_report "Completed: $(date -u +%Y%m%dT%H%M%SZ)"
