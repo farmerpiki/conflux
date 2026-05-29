@@ -1658,6 +1658,28 @@ struct JsonPresenceBits {
 	}
 };
 
+struct JsonInlinePresenceBits {
+	std::uint64_t bits{};
+
+	explicit JsonInlinePresenceBits(
+		std::pmr::memory_resource *) noexcept {}
+
+	void reset(
+		std::size_t) noexcept {
+		bits = 0;
+	}
+
+	[[nodiscard]] bool test(
+		std::size_t idx) const noexcept {
+		return (bits & (std::uint64_t{1} << idx)) != 0;
+	}
+
+	void set(
+		std::size_t idx) noexcept {
+		bits |= std::uint64_t{1} << idx;
+	}
+};
+
 [[nodiscard]] inline JsonError duplicate_member_error(
 	std::string_view name) {
 	return JsonError{
@@ -1860,6 +1882,17 @@ inline constexpr std::size_t kJsonMemberLinearLookupLimit = 4;
 	return h;
 }
 
+[[nodiscard]] constexpr bool json_member_raw_name_fast_path_safe(
+	std::string_view name) noexcept {
+	for (char ch: name) {
+		auto const c = static_cast<unsigned char>(ch);
+		if (c < 0x20U || c == '"' || c == '\\' || c >= 0x80U) {
+			return false;
+		}
+	}
+	return true;
+}
+
 [[nodiscard]] constexpr std::size_t json_member_lookup_capacity(
 	std::size_t member_count) noexcept {
 	std::size_t capacity = 1;
@@ -1878,6 +1911,7 @@ struct JsonMemberLookupEntry {
 	std::string_view name{};
 	std::uint64_t hash{};
 	std::size_t index{};
+	bool raw_name_safe{};
 	JsonMemberDecodeDirectFn<T> decode_direct{};
 	bool occupied{};
 };
@@ -1916,6 +1950,7 @@ template<class T, std::size_t I>
 		.name = m.name,
 		.hash = json_member_name_hash(m.name),
 		.index = I,
+		.raw_name_safe = json_member_raw_name_fast_path_safe(m.name),
 		.decode_direct = &decode_member_direct_by_static_index<T, I>,
 		.occupied = true};
 }
@@ -1996,10 +2031,10 @@ template<class T>
 	}
 }
 
-template<class DecodeValue>
+template<class PresenceBits, class DecodeValue>
 std::expected<void, JsonError> decode_known_member_value(
 	JsonReader &r,
-	JsonPresenceBits &presence,
+	PresenceBits &presence,
 	std::size_t idx,
 	std::string_view name,
 	DecodeValue &&decode_value) {
@@ -2155,7 +2190,8 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	JsonError first_err;
 	JsonDecodeScratch local_scratch;
 	JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
-	JsonPresenceBits presence{decode_scratch.resource};
+	using PresenceBits = std::conditional_t<(member_count <= 64U), JsonInlinePresenceBits, JsonPresenceBits>;
+	PresenceBits presence{decode_scratch.resource};
 	presence.reset(member_count);
 	std::size_t ordered_cursor = 0;
 
@@ -2166,7 +2202,7 @@ std::expected<void, JsonError> decode_members_from_event_into(
 			auto const &ordered_members = json_member_ordered_entries<T>();
 			if (ordered_cursor < ordered_members.size()) {
 				auto const &entry = ordered_members[ordered_cursor];
-				auto key_match = r.next_object_key_match(entry.name, decode_scratch);
+				auto key_match = r.next_object_key_match(entry.name, decode_scratch, entry.raw_name_safe);
 				if (!key_match) {
 					ok = false;
 					first_err = std::move(key_match).error();

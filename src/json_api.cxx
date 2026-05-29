@@ -1407,7 +1407,7 @@ private:
 	[[nodiscard]] std::expected<void, JsonError> skip_object_body_raw(std::size_t raw_depth);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_array_elements_raw();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw();
-	[[nodiscard]] std::size_t numeric_array_reserve_hint(std::size_t element_size) const noexcept;
+	[[nodiscard]] static std::size_t initial_array_reserve_hint(std::size_t element_size) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> push_frame(StateFrame frame);
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
 	[[nodiscard]] Checkpoint checkpoint() const;
@@ -1437,7 +1437,7 @@ public:
 	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
 	next_object_key_view(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<ObjectKeyMatch, JsonError>
-	next_object_key_match(std::string_view expected_key, JsonDecodeScratch &scratch);
+	next_object_key_match(std::string_view expected_key, JsonDecodeScratch &scratch, bool expected_key_raw_json_safe = false);
 	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event();
 	[[nodiscard]] std::expected<bool, JsonError> try_next_object_null_value();
 	[[nodiscard]] std::expected<void, JsonError> next_object_array_value();
@@ -1548,7 +1548,7 @@ public:
 				return {};
 			};
 			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-				out.reserve(numeric_array_reserve_hint(sizeof(T)));
+				out.reserve(initial_array_reserve_hint(sizeof(T)));
 			}
 			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
@@ -1612,7 +1612,7 @@ public:
 			}
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			out.reserve(numeric_array_reserve_hint(sizeof(T)));
+			out.reserve(initial_array_reserve_hint(sizeof(T)));
 		}
 		while (true) {
 			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
@@ -1690,7 +1690,7 @@ public:
 				return {};
 			};
 			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-				out.reserve(numeric_array_reserve_hint(sizeof(T)));
+				out.reserve(initial_array_reserve_hint(sizeof(T)));
 			}
 			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
@@ -1754,7 +1754,7 @@ public:
 			}
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			out.reserve(numeric_array_reserve_hint(sizeof(T)));
+			out.reserve(initial_array_reserve_hint(sizeof(T)));
 		}
 		while (true) {
 			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
@@ -1820,7 +1820,7 @@ public:
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			out.reserve(numeric_array_reserve_hint(sizeof(String)));
+			out.reserve(initial_array_reserve_hint(sizeof(String)));
 		}
 		auto token_view = [&](JsonStringToken const &token) -> std::expected<std::string_view, JsonError> {
 			if (auto borrowed = token.unescaped_borrow()) {

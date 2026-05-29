@@ -746,35 +746,15 @@ std::expected<std::size_t, JsonError> JsonReader::count_object_members_raw() {
 	}
 }
 
-std::size_t JsonReader::numeric_array_reserve_hint(
-	std::size_t element_size) const noexcept {
+std::size_t JsonReader::initial_array_reserve_hint(
+	std::size_t element_size) noexcept {
 	if (element_size == 0) {
 		return 0;
 	}
-	constexpr std::size_t kMaxFastArrayReserveBytes = 8U * 1024U * 1024U;
-	constexpr std::size_t kLocalScanLimit = 64U * 1024U;
-	std::size_t const max_elems_by_bytes = std::max<std::size_t>(1, kMaxFastArrayReserveBytes / element_size);
-	std::size_t const remaining = pos_ <= input_.size() ? input_.size() - pos_ : 0;
-	if (opts_.mode == ParseMode::strict) {
-		std::size_t commas = 0;
-		bool saw_payload = false;
-		std::size_t const scan_limit = pos_ + std::min(remaining, kLocalScanLimit);
-		for (std::size_t scan = pos_; scan < scan_limit; ++scan) {
-			char const c = input_[scan];
-			if (c == ']') {
-				return saw_payload ? std::min(commas + 1U, max_elems_by_bytes) : 0U;
-			}
-			if (c == ',') {
-				++commas;
-				continue;
-			}
-			if (static_cast<unsigned char>(c) > static_cast<unsigned char>(' ')) {
-				saw_payload = true;
-			}
-		}
-	}
-	std::size_t const dense_hint = remaining / 2U + 1U;
-	return std::min(dense_hint, max_elems_by_bytes);
+	constexpr std::size_t kInitialArrayReserveElements = 16U;
+	constexpr std::size_t kMaxInitialArrayReserveBytes = 4096U;
+	std::size_t const max_elems_by_bytes = std::max<std::size_t>(1, kMaxInitialArrayReserveBytes / element_size);
+	return std::min(kInitialArrayReserveElements, max_elems_by_bytes);
 }
 
 std::expected<void, JsonError> JsonReader::push_frame(
@@ -1155,12 +1135,13 @@ std::expected<std::optional<JsonStringToken>, JsonError> JsonReader::next_object
 
 std::expected<JsonReader::ObjectKeyMatch, JsonError> JsonReader::next_object_key_match(
 	std::string_view expected_key,
-	JsonDecodeScratch &scratch) {
+	JsonDecodeScratch &scratch,
+	bool expected_key_raw_json_safe) {
 	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
 	if (opts_.mode == ParseMode::strict
-		&& raw_json_name_fast_path_safe(expected_key)
+		&& (expected_key_raw_json_safe || raw_json_name_fast_path_safe(expected_key))
 		&& !stack_.empty()
 		&& stack_.back().kind == StateFrame::Kind::object
 		&& !stack_.back().awaiting_value) {
