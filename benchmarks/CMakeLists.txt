@@ -381,6 +381,12 @@ if(TARGET conflux_http1)
                 conflux_net_config conflux_options)
 endif()
 
+if(TARGET conflux_net_client)
+    conflux_add_recordable_benchmark(conflux_http_client_bench http_client_bench.cxx)
+    target_link_libraries(conflux_http_client_bench
+        PRIVATE bench_common conflux_net_client conflux_options)
+endif()
+
 if(TARGET conflux AND TARGET conflux_work)
     conflux_add_recordable_benchmark(conflux_http_server_bench http_server_bench.cxx)
     target_link_libraries(conflux_http_server_bench

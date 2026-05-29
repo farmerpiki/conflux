@@ -321,9 +321,13 @@ Default recorder behavior:
 Focused component commands:
 
 ```sh
-# HTTP/server path
+# HTTP/server and client path
 ONLY_BENCH=http_app_path BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-app-path-local
+# HTTP/client path
+ONLY_BENCH=http_client BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh http-client-local
+
 ONLY_BENCH=http_adversarial BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-adversarial-local
 ONLY_BENCH=http_server BENCH_PRESET=perf-clang-libcxx \
@@ -377,6 +381,19 @@ status, structured reject reason, bytes consumed before rejection/completion,
 parsed header count, decoded body bytes, CPU ns/request, and allocation counters.
 Treat these rows as `micro/user-space-adversarial`; they are not socket timeout
 proof, but they expose the parser/security cost floor before live-kernel rows.
+
+`http_client` is the HTTP/1.1 client performance suite. It has user-space
+client-wire rows for request serialization and response-head parsing, plus
+loopback `HttpClient::blocking_send` rows that exercise DNS/getaddrinfo,
+connect, write, first-byte, response parsing, Content-Length bodies, chunked
+bodies, EOF-delimited bodies, HEAD, request bodies, many response headers,
+`Set-Cookie`, same-origin redirects, and split response-header boundaries. Rows
+emit client-thread allocation counters, request/response bytes per iteration,
+response body bytes per iteration, and telemetry phase costs (`dns`, `connect`,
+`ttfb`, `body`) so one-at-a-time HTTP/1.1 client perf candidates can be judged
+against both local hot-path costs and live loopback behavior. Treat loopback rows
+as `live-kernel-sanity`; use pinned CPUs, fixed iteration counts, repeated runs,
+and `bench_perf_stat.py` for acceptance evidence.
 
 `http_server_concurrency` is the live HTTP concurrency/tail-latency suite.
 Short rows default to `--duration 1 --warmup 0` and are labeled
@@ -644,6 +661,10 @@ Current groups:
 - `http_parser`: user-space HTTP/1 request-parser scenarios, including
   adversarial large/many/malformed/incomplete header cases that avoid live
   socket/kernel round trips.
+- `http_client`: HTTP/1.1 client-specific rows for request-wire serialization,
+  response-head parsing, and loopback `HttpClient::blocking_send` behavior
+  across Content-Length, chunked, EOF-delimited, HEAD, POST, redirect,
+  many-header, Set-Cookie, and split-header cases.
 - `http_adversarial`: user-space parser/security load scenarios with structured
   reject reasons, consumed bytes, CPU/request, and allocation counters.
 - `slow_consumer_backpressure`: live slow-client/socket pressure rows plus
