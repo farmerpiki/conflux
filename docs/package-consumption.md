@@ -8,7 +8,9 @@ install, and consume header and module packages as separate lanes.
 `MODULE_INTERFACE` is the primary source-consumption and development mode for
 the preview. It uses C++ module imports and remains toolchain-sensitive: use the
 checked compiler/CMake presets, and expect strict configure failures when the
-selected toolchain cannot provide the required module support.
+selected toolchain cannot provide the required module support. The release
+support contract is intentionally narrow: GCC 15, GCC 16, and Clang 21 with
+CMake 4.2+ and Ninja unless a release evidence manifest says otherwise.
 
 ```cpp
 import conflux.json;
@@ -25,7 +27,9 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
 Generated headers are release artifacts for consumers that cannot use modules.
 They are generated from the module source, shipped in staged release artifacts,
 and are not the design center for new API work. Header-interface packages should
-not require CMake import-std discovery.
+not require CMake import-std discovery. Header mode is supported only for the
+installed components and toolchains covered by the matching package smoke; other
+uses are best-effort compatibility.
 
 ```sh
 cmake -S . -B /tmp/conflux-header -G Ninja \

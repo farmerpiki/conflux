@@ -35,7 +35,10 @@ preset:
 For a normal package-oriented configure, prefer `cmake --preset core`,
 `cmake --preset json`, `cmake --preset http-api`, `cmake --preset web-server`,
 or `cmake --preset full`. For library development, use the explicit compiler
-presets below.
+presets below. Release support is attached to the exact compiler versions and
+CMake/Ninja versions recorded by the evidence manifest; today that means GCC
+15, GCC 16, Clang 21, and CMake 4.2+ unless a release branch proves a lower
+floor.
 
 ## Correctness lane
 
@@ -127,10 +130,11 @@ ctest --test-dir <build-dir> -R build/optimized-presets --output-on-failure
 
 The guard checks that release/PGO presets stay unsanitized, keep tests and
 benchmarks enabled for smoke coverage, use explicit LTO mode where LTO is on,
-and use deterministic PGO profile paths. Clang release presets use ThinLTO
+and use deterministic PGO profile paths. Clang 21 release presets use ThinLTO
 because `-flto=auto` is GCC-specific and because ThinLTO keeps module-heavy
-optimized builds more tractable. GCC 15 remains the no-LTO release baseline;
-GCC 16 carries the GCC LTO coverage preset.
+optimized builds more tractable. GCC 15 remains the no-LTO release baseline
+until its release/LTO configuration is green; GCC 16 carries the GCC LTO
+coverage preset.
 
 PGO workflow:
 

@@ -15,11 +15,14 @@ replacement for the release checklist.
 
 `MODULE_INTERFACE` is the prerelease primary interface for source consumption
 and development. It remains toolchain-sensitive and must fail clearly when the
-selected compiler/CMake preset cannot provide the required module support.
+selected compiler/CMake preset cannot provide the required module support. The
+preview support contract is the tested preset matrix, not arbitrary module
+compiler combinations.
 
 Generated headers are release artifacts for compatibility consumers. They are
 generated from module sources during artifact staging and are not tracked as
-hand-maintained source.
+hand-maintained source. Header-interface support is best-effort outside the
+components, package modes, and compiler versions covered by release evidence.
 
 ## Package Components
 
@@ -36,9 +39,14 @@ DB-off installs must not ship generated `db`/`pg` headers and must not advertise
 
 ## Toolchain Baseline
 
-Current prerelease lanes use CMake 3.30+ with Ninja and the checked-in compiler
-presets. Downgrading the baseline requires a green configure/build/package
-smoke lane, not just syntax compatibility.
+Current prerelease support lanes use CMake 4.2+ with Ninja and the checked-in
+compiler presets. The project files may accept older CMake versions for local
+experiments, but older versions are not supported unless a green
+configure/build/package smoke lane is attached to the release evidence.
+
+The intended compiler floor for the preview is GCC 15, GCC 16, and Clang 21.
+GCC 15 is the no-LTO release lane; GCC 16 and Clang 21 are the LTO-capable
+release lanes; GCC 16 is the current reflection lane.
 
 ## Evidence
 
@@ -55,7 +63,9 @@ from a source/API shape that will not be tagged.
 
 - non-Linux platforms
 - runtime-facing/http packages built only with mock liburing
-- arbitrary C++ module toolchains outside the checked presets
+- CMake versions older than the release-evidenced baseline
+- arbitrary C++ module toolchains outside the checked GCC 15, GCC 16, and
+  Clang 21 presets
 - benchmark claims without same-machine artifacts
 
 ## Cheap Checks

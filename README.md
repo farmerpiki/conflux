@@ -15,9 +15,14 @@ compatibility clutter or fixes an incorrect contract.
   to the current user/container.
 - `pkg-config`; `liburing` development headers and library are required only
   when building runtime-facing components.
-- CMake 3.30 or newer and Ninja for the current known-good prerelease lanes.
-- A C++23-capable compiler matching one of the provided CMake presets; optional
-  reflection and standard-SIMD feature targets require C++26-capable toolchains.
+- CMake 4.2 or newer and Ninja for the advertised prerelease support
+  lanes. Older CMake versions may continue to configure opportunistically when
+  the project files allow it, but they are not part of the release support
+  contract until a green evidence lane is recorded for them.
+- One of the tested compiler families from the support matrix: GCC 15, GCC 16,
+  or Clang 21. Optional reflection currently requires the GCC 16 P2996 lane;
+  optional standard-SIMD feature targets require a C++26-capable toolchain with
+  the matching library feature probe.
 
 Optional protocol, storage, and runtime-facing features are enabled when their
 libraries are available or selected by the feature bundle, including `liburing`,
@@ -32,13 +37,16 @@ cmake --preset release-clang-libcxx
 cmake --build --preset release-clang-libcxx
 ```
 
-Use the checked-in presets as the support matrix. `MODULE_INTERFACE` is the
-primary source-consumption and development mode. `CONFLUX_USE_IMPORT_STD` is a
-separate `AUTO|ON|OFF` knob: `AUTO` uses the standard-library module when
+Use the checked-in presets as the support matrix, and treat the exact compiler
+versions attached to the release evidence as authoritative. `MODULE_INTERFACE`
+is the primary source-consumption and development mode. `CONFLUX_USE_IMPORT_STD`
+is a separate `AUTO|ON|OFF` knob: `AUTO` uses the standard-library module when
 CMake/toolchain support is discoverable, while `OFF` keeps `MODULE_INTERFACE`
 and lets CMake generate a source overlay that replaces `import std` with
 ordinary standard headers. Generated headers are staged release artifacts for
-compatibility consumers and should not require CMake import-std discovery.
+compatibility consumers that cannot use modules; they are not the design center
+for new API work and are supported only for the components and toolchains
+covered by the matching release evidence.
 
 ## First-contact docs
 
@@ -136,8 +144,9 @@ setup.
 - `io_uring` and `liburing` are required for runtime-facing components.
 - Containers or seccomp policy can block runtime setup.
 - Optional protocol/storage dependencies are feature-gated.
-- Module and import-std support is toolchain-sensitive; optional reflection and
-  standard-SIMD targets are C++26-gated.
+- Module and import-std support is toolchain-sensitive and supported only for
+  the tested GCC 15, GCC 16, and Clang 21 lanes named in release evidence;
+  optional reflection and standard-SIMD targets are C++26-gated.
 - `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
 - Runtime proof is maintained as separate release evidence and finalized only
   after the release-candidate source tree is frozen.

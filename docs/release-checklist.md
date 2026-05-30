@@ -9,7 +9,7 @@ bundle, or security-sensitive surface is added.
 
 | Gate | Evidence to attach before tagging | Notes |
 |---|---|---|
-| Compiler lanes | Preset name, compiler version, full configure/build/test log path | Cover the primary Clang lane and every GCC lane available to the maintainer. |
+| Compiler lanes | Preset name, compiler version, CMake/Ninja version, full configure/build/test log path | Cover Clang 21, GCC 15, and GCC 16 unless the release notes explicitly narrow the preview. |
 | Runtime preflight | Host kernel/container notes and `io_uring_queue_init*` success/failure | Capability probes matter more than kernel version strings. |
 | Tests | `ctest` command, preset, result summary | Use `scripts/run-ctest.sh` where possible. |
 | Sanitizers / fuzz | Sanitizer preset logs and parser-facing fuzz/security corpus result | Required when HTTP parser, JSON parser, URL/form decoding, multipart parsing, or WebSocket framing changed. |
@@ -25,12 +25,12 @@ bundle, or security-sensitive surface is added.
 
 ## Prerelease command lanes
 
-Before tagging, re-check whether GCC debug sanitizer coverage can be narrowed
-back on. Prefer the smallest workaround if GCC still has module/sanitizer
-trouble: disable only the problematic sanitizer, and only for the affected
-translation unit if CMake can express that cleanly. If ongoing module splitting
-removes the failure, keep the normal sanitizer lane instead of carrying a
-special case.
+Before tagging, re-check whether GCC debug sanitizer coverage or GCC 15 release
+LTO coverage can be narrowed back on. Prefer the smallest workaround if GCC
+still has module/sanitizer/LTO trouble: disable only the problematic sanitizer
+or LTO flag, and only for the affected translation unit if CMake can express
+that cleanly. If ongoing module splitting removes the failure, keep the normal
+lane instead of carrying a special case.
 
 Module-interface build and install:
 
@@ -167,8 +167,8 @@ candidate source tree is otherwise frozen. Final proof capture must happen after
 - public formatting and human-readable cleanup are complete;
 - public examples and first-contact docs use final preview spelling;
 - advertised component/package/interface modes are settled;
-- the minimum compiler and CMake baseline has been lowered to the actual working
-  floor;
+- the advertised compiler and CMake baseline matches the actual release-evidenced
+  floor rather than an aspirational or untested compatibility claim;
 - benchmark cases, graph scripts, and comparison targets are settled;
 - release notes contain placeholders for proof repository paths.
 
@@ -265,7 +265,7 @@ links to immutable proof runs.
 - HTTP/app framework code depends on `conflux.json.boundary` provider contracts,
   not directly on a concrete JSON provider unless the module is a native-provider
   convenience edge.
-- Reflection docs state GCC/P2996 requirements when reflection APIs are enabled.
+- Reflection docs state the GCC 16/P2996 requirements when reflection APIs are enabled.
 
 ### DB, files, process, DNS, SMTP
 

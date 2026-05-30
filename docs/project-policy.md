@@ -68,7 +68,10 @@ Policy:
   that a standard number implies availability;
 - compatibility that costs nothing is welcome; compatibility that requires
   polyfills, duplicate implementations, public dialect aliases, or extra
-  maintenance needs an explicit ergonomics/performance justification.
+  maintenance needs an explicit ergonomics/performance justification;
+- the advertised support baseline is the lowest toolchain floor that the release
+  evidence actually proves, not the lowest version that might parse the source
+  files.
 
 Expected target tiers before release:
 
@@ -83,33 +86,47 @@ A top-level developer preset may still request a newer language mode while the
 project is being developed. That preset is not the public compatibility contract.
 The exported/installable targets are authoritative for downstream consumers.
 
+Conflux is intentionally not a broad portability project. It targets modern
+Linux systems and the small set of compiler/CMake lanes that are continuously
+exercised by the maintainer. Lower compiler, standard-library, CMake, or Ninja
+versions may work if they happen to support the required module/header artifact
+shape, but they are opportunistic compatibility and are not release blockers
+unless they are promoted into the evidence matrix.
+
 ## Supported compiler matrix
 
 Consumer presets are `core`, `json`, `http-api`, `web-server`, and `full`. They
 use the default compiler selected by CMake, keep tests/examples/benchmarks and
-FetchContent downloads off, and select only the requested stable feature set.
+FetchContent downloads off, and select only the requested stable feature set. A
+consumer preset is supported for a release only when the compiler it resolves to
+is one of that release's tested compiler families.
 
 Developer and CI presets use named compilers and the full development feature
 set because the module-first development lane uses `import std` and optional
 reflection experiments. Public consumer requirements are still per-target, as
-described in the language standard policy above.
+described in the language standard policy above, but public support is limited
+to the concrete compiler versions captured in release evidence.
 
-| Preset family | Compiler | Standard library | Current role |
+| Preset family | Expected compiler for the preview | Standard library | Current role |
 |---|---|---|---|
-| `debug-clang-libcxx`, `release-clang-libcxx`, `tsan-clang-libcxx` | `clang++` | libc++ | primary Clang lane |
-| `debug-clang-stdcxx`, `release-clang-stdcxx`, `fuzz-clang-stdcxx` | `clang++` | libstdc++ | parser/fuzz and portability lane |
-| `debug-gcc-stdcxx`, `release-gcc-stdcxx` | `g++` | libstdc++ | GCC 15-compatible lane; sanitizers are disabled in the preset because of known GCC 15 issues |
-| `debug-gcc16-stdcxx`, `release-gcc16-stdcxx` | `g++-16` | libstdc++ | GCC 16 / `import std` lane |
-| `debug-p2996-gcc` | `g++-16` with `-freflection` | libstdc++ | experimental JSON reflection lane |
+| `debug-clang-libcxx`, `release-clang-libcxx`, `tsan-clang-libcxx` | Clang 21 through `clang++` | libc++ | primary Clang lane; ThinLTO release coverage |
+| `debug-clang-stdcxx`, `release-clang-stdcxx`, `fuzz-clang-stdcxx` | Clang 21 through `clang++` | libstdc++ | parser/fuzz and mixed-stdlib coverage |
+| `debug-gcc-stdcxx`, `release-gcc-stdcxx` | GCC 15 through `g++` | libstdc++ | GCC 15 lane; release LTO is intentionally disabled for this lane |
+| `debug-gcc16-stdcxx`, `release-gcc16-stdcxx` | GCC 16 through `g++-16` | libstdc++ | GCC 16 / `import std` lane; GCC LTO coverage |
+| `debug-p2996-gcc`, `release-p2996-gcc` | GCC 16 through `g++-16` with `-freflection` | libstdc++ | experimental JSON reflection lane |
 
 A compiler is not considered supported merely because it accepts the language
 mode. It must configure through one of the presets, build the relevant target
-set, and pass the matching tests for that lane.
+set, and pass the matching tests for that lane. For the preview, do not
+advertise arbitrary GCC, Clang, AppleClang, MSVC, or distribution-default
+compiler versions outside the evidence matrix.
 
 Build and benchmark comparisons use each compiler's best working release
-configuration. If one source file or optional feature breaks that configuration,
-disable the conflicting flag only for that compiler and source file/feature; do
-not downgrade the rest of the target or library.
+configuration. GCC 15 is the no-LTO release baseline until its release/LTO lane
+is green. GCC 16 and Clang 21 are the LTO-capable release baselines. If one
+source file or optional feature breaks a configuration, disable the conflicting
+flag only for that compiler and source file/feature; do not downgrade the rest
+of the target or library.
 
 Benchmark policy:
 
@@ -180,8 +197,8 @@ experimental correctness/sanity evidence.
 `docs/release-checklist.md` is the operational checklist for collecting release
 evidence. Before v1, every release candidate should at minimum have:
 
-- full test pass on the primary Clang and GCC preset families available to the
-  maintainer;
+- full test pass on the primary Clang 21, GCC 15, and GCC 16 preset families
+  available to the maintainer;
 - ASan/UBSan or fuzz smoke coverage for parser-facing code;
 - HTTP parser/security corpus run when HTTP code changed;
 - benchmark comparison for claimed performance changes;
