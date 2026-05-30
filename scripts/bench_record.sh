@@ -61,6 +61,9 @@
 #                      rerun calibration when the first probe is shorter than this
 #                      measured time, so nanosecond-scale benches do not derive
 #                      final counts from a tiny sample (default: 50).
+#   BENCH_RUN_TIMEOUT_SEC
+#                      wall-clock timeout for one benchmark process execution
+#                      (default: 600).
 #   ALLOW_NON_PERF_BENCH_PRESET=1
 #                      allow non-perf presets for explicit experiments. The normal
 #                      recording path requires perf-* presets, RelWithDebInfo,
@@ -89,7 +92,7 @@ require_tool() {
   }
 }
 
-for tool in cmake jq psql; do
+for tool in cmake jq psql timeout; do
   require_tool "$tool"
 done
 if [[ -n "${BENCH_PIN_CPUS:-}" ]]; then
@@ -109,6 +112,7 @@ BENCH_MAX_ITERATIONS="${BENCH_MAX_ITERATIONS:-0}"
 BENCH_MIN_ITERATIONS="${BENCH_MIN_ITERATIONS:-1}"
 BENCH_CALIBRATION_ITERATIONS="${BENCH_CALIBRATION_ITERATIONS:-16}"
 BENCH_CALIBRATION_MIN_SAMPLE_MS="${BENCH_CALIBRATION_MIN_SAMPLE_MS:-50}"
+BENCH_RUN_TIMEOUT_SEC="${BENCH_RUN_TIMEOUT_SEC:-600}"
 ALLOW_NON_PERF_BENCH_PRESET="${ALLOW_NON_PERF_BENCH_PRESET:-0}"
 CONFLUX_ALLOW_SANITIZED_BENCHMARKS="${CONFLUX_ALLOW_SANITIZED_BENCHMARKS:-OFF}"
 BENCH_LOAD_FACTOR="${BENCH_LOAD_FACTOR:-1.5}"
@@ -274,9 +278,9 @@ fi
 # ---------------------------------------------------------------------------
 run_bench() {
   if [[ -n "$SYS_PINNED_CPUS" ]]; then
-    taskset -c "$SYS_PINNED_CPUS" "$@"
+    timeout --kill-after=10s "${BENCH_RUN_TIMEOUT_SEC}s" taskset -c "$SYS_PINNED_CPUS" "$@"
   else
-    "$@"
+    timeout --kill-after=10s "${BENCH_RUN_TIMEOUT_SEC}s" "$@"
   fi
 }
 

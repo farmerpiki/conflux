@@ -91,6 +91,18 @@ struct BenchClient {
 			remaining -= static_cast<std::size_t>(n);
 		}
 	}
+	::ssize_t recv_some(
+		std::span<char> buf,
+		std::size_t total) const {
+		if (total >= buf.size()) {
+			throw std::runtime_error{"response buffer exhausted"};
+		}
+		auto const n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
+		if (n < 0) {
+			throw std::runtime_error{"recv timed out or failed"};
+		}
+		return n;
+	}
 	std::size_t recv_response(
 		std::span<char> buf) const {
 		std::size_t total = 0;
@@ -98,9 +110,9 @@ struct BenchClient {
 		std::size_t body_len = 0;
 		bool have_cl = false;
 		for (;;) {
-			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
-			if (n <= 0) {
-				break;
+			auto n = recv_some(buf, total);
+			if (n == 0) {
+				throw std::runtime_error{"connection closed before response completed"};
 			}
 			total += static_cast<std::size_t>(n);
 			if (hdr_end_pos == std::string_view::npos) {
@@ -130,15 +142,14 @@ struct BenchClient {
 				return total;
 			}
 		}
-		return total;
 	}
 	std::size_t recv_response_no_body(
 		std::span<char> buf) const {
 		std::size_t total = 0;
 		for (;;) {
-			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
-			if (n <= 0) {
-				break;
+			auto n = recv_some(buf, total);
+			if (n == 0) {
+				throw std::runtime_error{"connection closed before response headers completed"};
 			}
 			total += static_cast<std::size_t>(n);
 			std::string_view sofar{buf.data(), total};
@@ -146,7 +157,6 @@ struct BenchClient {
 				return total;
 			}
 		}
-		return total;
 	}
 	std::size_t recv_n_responses(
 		std::span<char> buf,
@@ -155,8 +165,8 @@ struct BenchClient {
 		int got = 0;
 		std::size_t search_from = 0;
 		while (got < count) {
-			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
-			if (n <= 0) {
+			auto n = recv_some(buf, total);
+			if (n == 0) {
 				break;
 			}
 			total += static_cast<std::size_t>(n);
@@ -194,8 +204,8 @@ struct BenchClient {
 		std::span<char> buf) const {
 		std::size_t total = 0;
 		for (;;) {
-			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
-			if (n <= 0) {
+			auto n = recv_some(buf, total);
+			if (n == 0) {
 				break;
 			}
 			total += static_cast<std::size_t>(n);
@@ -221,9 +231,15 @@ struct BenchClient {
 		bool have_cl = false;
 		for (;;) {
 			auto to_read = std::min(chunk_size, buf.size() - total);
+			if (to_read == 0) {
+				throw std::runtime_error{"response buffer exhausted"};
+			}
 			auto n = ::recv(fd, buf.data() + total, to_read, 0);
-			if (n <= 0) {
-				break;
+			if (n < 0) {
+				throw std::runtime_error{"recv timed out or failed"};
+			}
+			if (n == 0) {
+				throw std::runtime_error{"connection closed before slow response completed"};
 			}
 			total += static_cast<std::size_t>(n);
 			if (hdr_end_pos == std::string_view::npos) {
@@ -249,7 +265,6 @@ struct BenchClient {
 			}
 			std::this_thread::sleep_for(delay);
 		}
-		return total;
 	}
 	void shutdown_wr() const { ::shutdown(fd, SHUT_WR); }
 	void reconnect(
@@ -1815,6 +1830,7 @@ int main(
 		std::println("http_server_bench: {} iterations, {} warmup\n", iters, warmup);
 	}
 
+	bool variant_failed = false;
 	for (auto const &v: variants) {
 		if (!only_variant.empty() && v.name != only_variant) {
 			continue;
@@ -1823,6 +1839,7 @@ int main(
 			auto const stats = run_variant(v, iters, warmup, config_name);
 			print_variant(stats, json, v.ops_per_iter);
 		} catch (std::exception const &e) {
+			variant_failed = true;
 			if (json) {
 				std::println(std::cerr, "error in {}: {}", v.name, e.what());
 			} else {
@@ -1874,4 +1891,5 @@ int main(
 	defer_pool->drain_and_stop();
 	defer_pool->wait();
 	std::filesystem::remove_all(static_dir);
+	return variant_failed ? 1 : 0;
 }
