@@ -18,8 +18,9 @@ import bench_common;
 using namespace std::literals;
 using conflux::http::Config;
 using conflux::http::HttpServerMetrics;
-using conflux::http::Request;
-using conflux::http::Router;
+using HttpRequest = conflux::http::Request;
+using HttpServer = ::HttpServer;
+using Router = ::Router;
 using conflux::http::WsConn;
 
 namespace {
@@ -318,7 +319,7 @@ template <class Fn>
 }
 
 struct ServerHandle {
-	std::shared_ptr<conflux::http::HttpServer> server;
+	std::shared_ptr<HttpServer> server;
 	std::thread thread;
 	std::uint16_t port{};
 };
@@ -367,7 +368,7 @@ void wait_for_server(
 	Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -554,7 +555,7 @@ struct BenchClient {
 	std::size_t push_frames = 64,
 	std::size_t push_payload = 4096) {
 	Router router;
-	router.ws("/ws_echo", [](Request const &, WsConn &ws) {
+	router.ws("/ws_echo", [](HttpRequest const &, WsConn &ws) {
 		for (;;) {
 			auto frame = ws.recv();
 			if (!frame || frame->opcode == WsConn::Opcode::Close) {
@@ -567,7 +568,7 @@ struct BenchClient {
 			}
 		}
 	});
-	router.ws("/ws_push", [push_frames, push_payload](Request const &, WsConn &ws) {
+	router.ws("/ws_push", [push_frames, push_payload](HttpRequest const &, WsConn &ws) {
 		std::string payload(push_payload, 'P');
 		for (std::size_t i = 0; i < push_frames; ++i) {
 			if (!ws.send_text(payload)) {

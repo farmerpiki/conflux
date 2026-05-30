@@ -27,9 +27,9 @@ import bench_common;
 
 using namespace std::literals;
 using conflux::http::Config;
-using conflux::http::Request;
+using HttpRequest = conflux::http::Request;
 using conflux::http::Response;
-using conflux::http::Router;
+using Router = ::Router;
 using conflux::http::SseChannel;
 
 namespace {
@@ -536,12 +536,12 @@ Router make_h2_router(
 	std::string const &body_64k,
 	std::string const &body_128k) {
 	Router r;
-	r.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	r.get("/hello/{name}", [](Request const &req) { return Response::text(std::format("hello {}", req.params["name"])); });
-	r.post("/api/echo-body", [](Request const &req) { return Response::text(std::string{req.body}); });
-	r.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
-	r.get("/body/128k", [&body_128k](Request const &) { return Response::text(body_128k); });
-	r.get("/with-trailers", [](Request const &) {
+	r.get("/api/ping", [](HttpRequest const &) { return Response::json(R"({"status":"ok"})"); });
+	r.get("/hello/{name}", [](HttpRequest const &req) { return Response::text(std::format("hello {}", req.params["name"])); });
+	r.post("/api/echo-body", [](HttpRequest const &req) { return Response::text(std::string{req.body}); });
+	r.get("/body/64k", [&body_64k](HttpRequest const &) { return Response::text(body_64k); });
+	r.get("/body/128k", [&body_128k](HttpRequest const &) { return Response::text(body_128k); });
+	r.get("/with-trailers", [](HttpRequest const &) {
 		Response resp;
 		resp.status = 200;
 		resp.status_text = "OK";
@@ -553,7 +553,7 @@ Router make_h2_router(
         };
 		return resp;
 	});
-	r.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		(void)ch->send("data: alpha\n\n");
 		(void)ch->send("data: beta\n\n");
 		(void)ch->send("data: gamma\n\n");

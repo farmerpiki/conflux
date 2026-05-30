@@ -135,7 +135,7 @@ using conflux::http::ClientRequest;
 using conflux::http::ClientResult;
 using conflux::http::HttpClient;
 using conflux::http::HttpClientOptions;
-using conflux::http::HttpFields;
+using ::HttpFields;
 
 struct ScopedAllocationCounting {
 	ScopedAllocationCounting() {

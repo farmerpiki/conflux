@@ -333,13 +333,13 @@ summarize_compare() {
     )
     SELECT regexp_replace(summary.label, '$(printf '%s' "$suffix" | sed "s/'/''/g")$', '') AS patch,
            summary.variant,
-           round(base.best::numeric, 2),
+           round((summary.best - base.best)::numeric, 2),
            round(((summary.best - base.best) / NULLIF(base.best, 0) * 100.0)::numeric, 2),
-           round(base.p10::numeric, 2),
+           round((summary.p10 - base.p10)::numeric, 2),
            round(((summary.p10 - base.p10) / NULLIF(base.p10, 0) * 100.0)::numeric, 2),
-           round(base.p50::numeric, 2),
+           round((summary.p50 - base.p50)::numeric, 2),
            round(((summary.p50 - base.p50) / NULLIF(base.p50, 0) * 100.0)::numeric, 2),
-           round(base.p99::numeric, 2),
+           round((summary.p99 - base.p99)::numeric, 2),
            round(((summary.p99 - base.p99) / NULLIF(base.p99, 0) * 100.0)::numeric, 2)
     FROM summary
     JOIN base ON base.variant = summary.variant
@@ -350,7 +350,9 @@ summarize_compare() {
 
 append_report "## Grouped Compare Results"
 append_report ""
-append_report "Format: patch | variant | base_best_ns | best_pct | base_p10_ns | p10_pct | base_p50_ns | p50_pct | base_p99_ns | p99_pct"
+append_report "Format: patch | variant | best_Δns | best_% | p10_Δns | p10_% | p50_Δns | p50_% | p99_Δns | p99_%"
+append_report "Interpretation: ns/iter metrics are candidate minus base; + means slower, - means faster (lower ns/iter is better)."
+append_report "Percent columns are candidate / base relative change with the same sign convention."
 append_report ""
 
 for preset in "${presets[@]}"; do

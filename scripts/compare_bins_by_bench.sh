@@ -102,6 +102,23 @@ normalize_preset() {
   esac
 }
 
+compiler_family() {
+  local token="$1"
+  token="${token#perf-}"
+  token="${token#release-}"
+  case "$token" in
+    clang*) printf '%s\n' clang ;;
+    gcc16*|gcc*) printf '%s\n' gcc ;;
+    *) printf '%s\n' "$token" ;;
+  esac
+}
+
+label_family() {
+  local label="$1"
+  local token="${label#*-}"
+  compiler_family "$token"
+}
+
 dir_label() {
   local spec="$1"
   printf '%s\n' "${spec%%:*}"
@@ -206,35 +223,27 @@ run_one() {
     echo "no runnable binaries found for $bench under /tmp" >&2
     return 1
   fi
-  if (( ${#candidates[@]} < 2 )); then
-    echo "skipping $bench: need at least 2 candidate binaries, found ${#candidates[@]}"
-    return 0
+  if (( ${#DIR_SPECS[@]} == 0 )); then
+    declare -A by_family=()
+    for candidate in "${candidates[@]}"; do
+      local label family
+      label="${candidate%%:*}"
+      family="$(label_family "$label")"
+      by_family["$family"]+="${candidate}"$'\n'
+    done
+    candidates=("${candidates[@]}")
   fi
 
   echo "benchmark: $bench"
   if [[ -n "$BASELINE_RUN_ID" ]]; then
     echo "baseline run id: $BASELINE_RUN_ID"
   fi
-  echo "candidates:"
-  for c in "${candidates[@]}"; do
-    local label="${c%%:*}"
-    local bin="${c#*:}"
-    local info warmup calibrates target_ms max_iters
-    info=$("$bin" --bench-info 2>/dev/null)
-    warmup=$(jq -r '[.configs[].args[]?] | any(. == "--warmup")' <<< "$info")
-    calibrates=$(jq -r '[.configs[]? | (.args // []) as $args | any(range(0; ($args|length) - 1); $args[.] == "--iterations" and $args[.+1] == "0")] | any' <<< "$info")
-    target_ms=$(jq -r '[.configs[]? | .target_ms?] | map(tostring) | unique | join(",")' <<< "$info")
-    max_iters=$(jq -r '[.configs[]? | .max_iterations?] | map(tostring) | unique | join(",")' <<< "$info")
-    printf '  [%s] %s warmup=%s calibrates=%s target_ms=%s max_iterations=%s\n' \
-      "$label" "$bin" "$warmup" "$calibrates" "${target_ms:-default}" "${max_iters:-default}"
-  done
 
-  if (( ! AUTO_YES )); then
-    read -r -p "Run compare-bins for $bench on ${#candidates[@]} binaries? [y/N] " reply
-    case "$reply" in
-      y|Y|yes|YES) ;;
-      *) echo "skipped $bench"; return 0 ;;
-    esac
+  local families
+  if (( ${#DIR_SPECS[@]} > 0 )); then
+    families="__all__"
+  else
+    families="$(printf '%s\n' "${!by_family[@]}" | sort -u)"
   fi
 
   env_args=()
@@ -242,11 +251,61 @@ run_one() {
   [[ -n "$REPS" ]] && env_args+=(BENCH_REPS="$REPS")
   env_args+=(PGURI="$PGURI")
 
-  echo "running compare-bins for $bench"
-  if ! env "${env_args[@]}" "$RECORD_SCRIPT" --compare-bins "${candidates[@]}"; then
-    echo "compare-bins failed for $bench; continuing" >&2
-    return 1
-  fi
+  local group
+  for family in $families; do
+    local -a group_candidates=()
+    local count
+    if [[ "$family" == "__all__" ]]; then
+      group_candidates=("${candidates[@]}")
+    else
+      mapfile -t group_candidates < <(printf '%s' "${by_family[$family]}" | sed '/^$/d')
+      count=${#group_candidates[@]}
+      if (( count == 0 )); then
+        continue
+      fi
+      if (( count < 2 )); then
+        echo "skipping ${bench} [$family]: need at least 2 candidate binaries, found $count"
+        continue
+      fi
+    fi
+
+    count=${#group_candidates[@]}
+    if (( count < 2 )); then
+      echo "skipping $bench: need at least 2 candidate binaries, found $count"
+      continue
+    fi
+
+    if [[ -n "$family" && "$family" != "__all__" ]]; then
+      echo "comparison family: $family"
+    fi
+    echo "candidates:"
+    for c in "${group_candidates[@]}"; do
+      local label="${c%%:*}"
+      local bin="${c#*:}"
+      local info warmup calibrates target_ms max_iters
+      info=$("$bin" --bench-info 2>/dev/null)
+      warmup=$(jq -r '[.configs[].args[]?] | any(. == "--warmup")' <<< "$info")
+      calibrates=$(jq -r '[.configs[]? | (.args // []) as $args | any(range(0; ($args|length) - 1); $args[.] == "--iterations" and $args[.+1] == "0")] | any' <<< "$info")
+      target_ms=$(jq -r '[.configs[]? | .target_ms?] | map(tostring) | unique | join(",")' <<< "$info")
+      max_iters=$(jq -r '[.configs[]? | .max_iterations?] | map(tostring) | unique | join(",")' <<< "$info")
+      printf '  [%s] %s warmup=%s calibrates=%s target_ms=%s max_iterations=%s\n' \
+        "$label" "$bin" "$warmup" "$calibrates" "${target_ms:-default}" "${max_iters:-default}"
+    done
+
+    if (( ! AUTO_YES )); then
+      read -r -p "Run compare-bins for $bench on ${count} binaries (${family}) [y/N] " reply
+      case "$reply" in
+        y|Y|yes|YES) ;;
+        *) echo "skipped ${bench}"; continue ;;
+      esac
+    fi
+
+    echo "running compare-bins for $bench"
+    if ! env "${env_args[@]}" "$RECORD_SCRIPT" --compare-bins "${group_candidates[@]}"; then
+      echo "compare-bins failed for $bench (${family}); continuing" >&2
+      return 1
+    fi
+  done
 }
 
 if [[ "$BENCH_NAME" == "all" ]]; then

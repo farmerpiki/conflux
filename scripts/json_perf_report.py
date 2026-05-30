@@ -221,10 +221,10 @@ def run() -> int:
         table = [[
             "candidate",
             "variant",
-            "best ns",
-            "p10 ns",
-            "p50 %",
-            "p99 %",
+            "best ns Δ",
+            "p10 ns Δ",
+            "p50 Δ%",
+            "p99 Δ%",
             "instr %",
             "cycles %",
             "cache miss %",
@@ -285,6 +285,9 @@ def run() -> int:
         if len(table) == 1:
             continue
         print(f"\n[{condition}] {profile} / {benchmark}")
+        print(
+            "Lower ns/iter is better. Positive deltas are slower, negative deltas are faster."
+        )
         print_table(table)
 
     return 0
