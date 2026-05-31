@@ -23,6 +23,7 @@ import conflux.net.http.response;
 import conflux.net.http.static_core;
 
 namespace http_detail = conflux::http::detail;
+using conflux::errnum;
 
 namespace {
 

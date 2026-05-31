@@ -17,6 +17,7 @@ import conflux.work.race;
 import conflux.socket_io;
 import conflux.socket_io.blocking;
 import conflux.socket_io.coro;
+using conflux::IoError;
 using namespace conflux::socket_io;
 
 namespace {

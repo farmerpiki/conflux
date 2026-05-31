@@ -33,6 +33,7 @@ namespace async_detail {
 
 using namespace conflux::http;
 using namespace conflux::socket_io;
+using conflux::IoError;
 namespace wroot = conflux::work::root;
 using TP = std::chrono::steady_clock::time_point;
 

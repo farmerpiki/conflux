@@ -56,7 +56,9 @@ export module conflux.types:api;
 
 import std;
 
-export struct IoError final : std::system_error {
+export namespace conflux {
+
+struct IoError final : std::system_error {
 	IoError(
 		int err,
 		std::string const &what)
@@ -65,11 +67,13 @@ export struct IoError final : std::system_error {
 	[[nodiscard]] int errnum() const noexcept { return code().value(); }
 };
 
-export template<typename T>
+template<typename T>
 [[nodiscard]] int errnum(
 	std::expected<T, IoError> const &result) noexcept {
 	return result.error().errnum();
 }
+
+} // namespace conflux
 
 export namespace conflux::support {
 

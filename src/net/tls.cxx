@@ -17,6 +17,7 @@ namespace wroot = conflux::work::root;
 
 namespace conflux::net_tls {
 
+using conflux::IoError;
 using conflux::socket_io::TcpStream;
 
 export struct TlsError : std::runtime_error {

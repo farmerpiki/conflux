@@ -15,6 +15,7 @@ import conflux.net.http.response;
 
 export namespace conflux::http {
 
+using conflux::errnum;
 using WorkPool = conflux::work::WorkPool;
 using WorkPoolOptions = conflux::work::WorkPoolOptions;
 using WorkPoolQueueMode = conflux::work::WorkPoolQueueMode;

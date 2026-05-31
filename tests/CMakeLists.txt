@@ -290,6 +290,14 @@ if(TARGET conflux)
         LINK conflux_work conflux_options
         LABELS build api-surface compile-fail
         EXPECT "WorkPool")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_types_compile_fail_global_io_error
+        SOURCE types_compile_fail_global_io_error.cxx
+        TEST api-surface/types-hides-global-io-error
+        LINK conflux_types conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "IoError")
 endif()
 
 add_executable(conflux_tests)

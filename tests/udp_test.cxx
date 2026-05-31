@@ -13,6 +13,7 @@ import conflux.uring.completion;
 import conflux.work;
 import conflux.socket_io;
 import conflux.socket_io.coro;
+using conflux::IoError;
 using namespace conflux::socket_io;
 
 namespace {
