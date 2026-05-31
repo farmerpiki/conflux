@@ -178,6 +178,14 @@ struct BenchAppJsonBody {
 	std::vector<std::int64_t> values{};
 };
 
+struct BenchAppFields {
+	std::string q{};
+	std::uint32_t page{};
+	std::optional<std::uint64_t> limit{};
+	bool active{};
+	double score{};
+};
+
 } // namespace
 
 template<>
@@ -191,6 +199,20 @@ struct conflux::json::JsonMembers<BenchAppJsonBody> {
 		};
 	}
 	static constexpr std::string_view type_name() { return "BenchAppJsonBody"; }
+};
+
+template<>
+struct conflux::json::JsonMembers<BenchAppFields> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("q", &BenchAppFields::q),
+			json_member("page", &BenchAppFields::page),
+			json_member("limit", &BenchAppFields::limit),
+			json_member("active", &BenchAppFields::active),
+			json_member("score", &BenchAppFields::score),
+		};
+	}
+	static constexpr std::string_view type_name() { return "BenchAppFields"; }
 };
 
 namespace {
@@ -395,6 +417,29 @@ void append_standard_routes(
 		});
 		return {state->name, state->description, 120000, state};
 	}
+	if (name == "app_query_params"sv) {
+		state->description = "parse GET query fields through App QueryParams<T> extractor, route response, serialize";
+		state->raw = make_get_request("/api/query-fields?q=bench&page=3&limit=42&active=true&score=12.5");
+		state->app = std::make_unique<conflux::http::App>();
+		state->app->get("/api/query-fields", [](conflux::http::QueryParams<BenchAppFields> const &query) {
+			auto const &fields = *query;
+			auto const limit = fields.limit.value_or(0);
+			return Response::text(std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
+		});
+		return {state->name, state->description, 160000, state};
+	}
+	if (name == "app_form_params"sv) {
+		auto body = std::string{"q=bench&page=3&limit=42&active=true&score=12.5"};
+		state->description = "parse POST form fields through App FormParams<T> extractor, route response, serialize";
+		state->raw = make_post_request("/api/form-fields", body, "application/x-www-form-urlencoded");
+		state->app = std::make_unique<conflux::http::App>();
+		state->app->post("/api/form-fields", [](conflux::http::FormParams<BenchAppFields> const &form) {
+			auto const &fields = *form;
+			auto const limit = fields.limit.value_or(0);
+			return Response::text(std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
+		});
+		return {state->name, state->description, 120000, state};
+	}
 	if (name == "multipart_mixed"sv) {
 		static constexpr std::string_view kBoundary = "benchBoundary42";
 		auto body = make_multipart_body(kBoundary, 8, 2, 2048);
@@ -425,6 +470,8 @@ void append_standard_routes(
 		"post_body_parse_only"sv,
 		"post_echo"sv,
 		"app_json_body"sv,
+		"app_query_params"sv,
+		"app_form_params"sv,
 		"multipart_mixed"sv,
 	};
 }
@@ -686,7 +733,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_app_path","parser":"standard","configs":[{"name":"get_ping","extra":{"kind":"micro/user-space","case":"GET /api/ping"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_ping","--config-name","get_ping","--iterations","0","--warmup","0"]},{"name":"get_param","extra":{"kind":"micro/user-space","case":"GET /hello/{name}"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_param","--config-name","get_param","--iterations","0","--warmup","0"]},{"name":"not_found","extra":{"kind":"micro/user-space","case":"404"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","not_found","--config-name","not_found","--iterations","0","--warmup","0"]},{"name":"middleware_x1","extra":{"kind":"micro/user-space","middleware_count":1},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x1","--config-name","middleware_x1","--iterations","0","--warmup","0"]},{"name":"middleware_x4","extra":{"kind":"micro/user-space","middleware_count":4},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x4","--config-name","middleware_x4","--iterations","0","--warmup","0"]},{"name":"middleware_x16","extra":{"kind":"micro/user-space","middleware_count":16},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x16","--config-name","middleware_x16","--iterations","0","--warmup","0"]},{"name":"json_small","extra":{"kind":"micro/user-space","case":"JSON response small"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_small","--config-name","json_small","--iterations","0","--warmup","0"]},{"name":"json_medium","extra":{"kind":"micro/user-space","case":"JSON response medium"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_medium","--config-name","json_medium","--iterations","0","--warmup","0"]},{"name":"post_body_parse_only","extra":{"kind":"micro/user-space","case":"POST body parse only"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_body_parse_only","--config-name","post_body_parse_only","--iterations","0","--warmup","0"]},{"name":"post_echo","extra":{"kind":"micro/user-space","case":"POST echo 4KiB"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_echo","--config-name","post_echo","--iterations","0","--warmup","0"]},{"name":"app_json_body","extra":{"kind":"micro/user-space","case":"App Json<T> request body"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","app_json_body","--config-name","app_json_body","--iterations","0","--warmup","0"]},{"name":"multipart_mixed","extra":{"kind":"micro/user-space","case":"multipart/form-data text and file parts"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","multipart_mixed","--config-name","multipart_mixed","--iterations","0","--warmup","0"]}]})");
+		R"({"name":"http_app_path","parser":"standard","configs":[{"name":"get_ping","extra":{"kind":"micro/user-space","case":"GET /api/ping"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_ping","--config-name","get_ping","--iterations","0","--warmup","0"]},{"name":"get_param","extra":{"kind":"micro/user-space","case":"GET /hello/{name}"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","get_param","--config-name","get_param","--iterations","0","--warmup","0"]},{"name":"not_found","extra":{"kind":"micro/user-space","case":"404"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","not_found","--config-name","not_found","--iterations","0","--warmup","0"]},{"name":"middleware_x1","extra":{"kind":"micro/user-space","middleware_count":1},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x1","--config-name","middleware_x1","--iterations","0","--warmup","0"]},{"name":"middleware_x4","extra":{"kind":"micro/user-space","middleware_count":4},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x4","--config-name","middleware_x4","--iterations","0","--warmup","0"]},{"name":"middleware_x16","extra":{"kind":"micro/user-space","middleware_count":16},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","middleware_x16","--config-name","middleware_x16","--iterations","0","--warmup","0"]},{"name":"json_small","extra":{"kind":"micro/user-space","case":"JSON response small"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_small","--config-name","json_small","--iterations","0","--warmup","0"]},{"name":"json_medium","extra":{"kind":"micro/user-space","case":"JSON response medium"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","json_medium","--config-name","json_medium","--iterations","0","--warmup","0"]},{"name":"post_body_parse_only","extra":{"kind":"micro/user-space","case":"POST body parse only"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_body_parse_only","--config-name","post_body_parse_only","--iterations","0","--warmup","0"]},{"name":"post_echo","extra":{"kind":"micro/user-space","case":"POST echo 4KiB"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","post_echo","--config-name","post_echo","--iterations","0","--warmup","0"]},{"name":"app_json_body","extra":{"kind":"micro/user-space","case":"App Json<T> request body"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","app_json_body","--config-name","app_json_body","--iterations","0","--warmup","0"]},{"name":"app_query_params","extra":{"kind":"micro/user-space","case":"App QueryParams<T> aggregate fields"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","app_query_params","--config-name","app_query_params","--iterations","0","--warmup","0"]},{"name":"app_form_params","extra":{"kind":"micro/user-space","case":"App FormParams<T> aggregate fields"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","app_form_params","--config-name","app_form_params","--iterations","0","--warmup","0"]},{"name":"multipart_mixed","extra":{"kind":"micro/user-space","case":"multipart/form-data text and file parts"},"target_ms":500,"max_iterations":10000000,"calibration_iterations":16,"args":["--case","multipart_mixed","--config-name","multipart_mixed","--iterations","0","--warmup","0"]}]})");
 
 	try {
 		auto const args = std::span{argv, static_cast<std::size_t>(argc)};
