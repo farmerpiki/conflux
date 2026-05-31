@@ -3130,7 +3130,6 @@ template<class T>
 [[nodiscard]] inline FpStatus fp_parse_integer(
 	FpCursor &c,
 	T &out) noexcept {
-	using U = std::make_unsigned_t<T>;
 	char const *p = c.p;
 	char const *const end = c.end;
 	bool neg = false;
@@ -3158,33 +3157,31 @@ template<class T>
 		c.p = p + 1;
 		return FpStatus::ok;
 	}
-	U limit{};
+	std::uint64_t limit{};
 	if constexpr (std::signed_integral<T>) {
-		limit =
-			neg ? static_cast<U>(std::numeric_limits<T>::max()) + U{1} : static_cast<U>(std::numeric_limits<T>::max());
+		limit = neg ? static_cast<std::uint64_t>(std::numeric_limits<T>::max()) + std::uint64_t{1}
+					: static_cast<std::uint64_t>(std::numeric_limits<T>::max());
 	} else {
-		limit = std::numeric_limits<T>::max();
+		limit = static_cast<std::uint64_t>(std::numeric_limits<T>::max());
 	}
-	U mag = 0;
-	std::size_t const ndig = fp_scan_digits(p, static_cast<std::size_t>(end - p));
-	// 19 decimal digits always fit in u64 magnitude accumulation without
-	// overflow checks; longer runs and exact-limit values go through checked
-	// accumulation.
-	if (ndig <= 18U) {
-		for (std::size_t i = 0; i < ndig; ++i) {
-			mag = mag * U{10} + static_cast<U>(p[i] - '0');
-		}
-		if (mag > limit) {
-			return FpStatus::bail;
-		}
-	} else {
-		for (std::size_t i = 0; i < ndig; ++i) {
-			U const d = static_cast<U>(p[i] - '0');
-			if (mag > (limit - d) / U{10}) {
+	std::uint64_t mag = 0;
+	std::size_t ndig = 0;
+	std::size_t const rem = static_cast<std::size_t>(end - p);
+	while (ndig < rem && ndig < 18U && p[ndig] >= '0' && p[ndig] <= '9') {
+		mag = mag * 10U + static_cast<std::uint64_t>(p[ndig] - '0');
+		++ndig;
+	}
+	if (ndig < rem && p[ndig] >= '0' && p[ndig] <= '9') {
+		do {
+			std::uint64_t const d = static_cast<std::uint64_t>(p[ndig] - '0');
+			if (mag > (limit - d) / 10U) {
 				return FpStatus::bail;
 			}
-			mag = mag * U{10} + d;
-		}
+			mag = mag * 10U + d;
+			++ndig;
+		} while (ndig < rem && p[ndig] >= '0' && p[ndig] <= '9');
+	} else if (mag > limit) {
+		return FpStatus::bail;
 	}
 	p += ndig;
 	// Integer target cannot accept fraction/exponent forms.
@@ -3193,7 +3190,7 @@ template<class T>
 	}
 	if constexpr (std::signed_integral<T>) {
 		if (neg) {
-			if (mag == static_cast<U>(std::numeric_limits<T>::max()) + U{1}) {
+			if (mag == static_cast<std::uint64_t>(std::numeric_limits<T>::max()) + std::uint64_t{1}) {
 				out = std::numeric_limits<T>::min();
 			} else {
 				out = static_cast<T>(-static_cast<T>(mag));
