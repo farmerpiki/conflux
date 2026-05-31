@@ -767,17 +767,37 @@ void bench_numeric_matrix(
 	run_row(cfg, "numeric/point_cloud/integers", points_i.size(), [&] {
 		require_ok(decode_borrowed<PointCloud>(points_i));
 	});
+	PointCloud reuse_i;
+	run_row(cfg, "numeric/point_cloud/integers_reuse", points_i.size(), [&] {
+		require_ok(decode_full_into(reuse_i, points_i));
+	});
 	run_row(cfg, "numeric/point_cloud/fixed_decimal", points_fixed.size(), [&] {
 		require_ok(decode_borrowed<PointCloud>(points_fixed));
+	});
+	PointCloud reuse_fixed;
+	run_row(cfg, "numeric/point_cloud/fixed_decimal_reuse", points_fixed.size(), [&] {
+		require_ok(decode_full_into(reuse_fixed, points_fixed));
 	});
 	run_row(cfg, "numeric/point_cloud/scientific", points_sci.size(), [&] {
 		require_ok(decode_borrowed<PointCloud>(points_sci));
 	});
+	PointCloud reuse_sci;
+	run_row(cfg, "numeric/point_cloud/scientific_reuse", points_sci.size(), [&] {
+		require_ok(decode_full_into(reuse_sci, points_sci));
+	});
 	run_row(cfg, "numeric/point_cloud/mixed", points_mixed.size(), [&] {
 		require_ok(decode_borrowed<PointCloud>(points_mixed));
 	});
+	PointCloud reuse_mixed;
+	run_row(cfg, "numeric/point_cloud/mixed_reuse", points_mixed.size(), [&] {
+		require_ok(decode_full_into(reuse_mixed, points_mixed));
+	});
 	run_row(cfg, "numeric/point_cloud/mixed_pretty_ws", points_pretty.size(), [&] {
 		require_ok(decode_borrowed<PointCloud>(points_pretty));
+	});
+	PointCloud reuse_pretty;
+	run_row(cfg, "numeric/point_cloud/mixed_pretty_ws_reuse", points_pretty.size(), [&] {
+		require_ok(decode_full_into(reuse_pretty, points_pretty));
 	});
 }
 
@@ -791,9 +811,7 @@ void bench_string_matrix(
 	run_row(cfg, "strings/owned/escaped_long", escaped.size(), [&] {
 		require_ok(decode_borrowed<StringsOwned>(escaped));
 	});
-	run_row(cfg, "strings/vector/plain4", array4.size(), [&] {
-		require_ok(decode_borrowed<StringArrayDoc>(array4));
-	});
+	run_row(cfg, "strings/vector/plain4", array4.size(), [&] { require_ok(decode_borrowed<StringArrayDoc>(array4)); });
 	run_row(cfg, "strings/vector/plain32", array32.size(), [&] {
 		require_ok(decode_borrowed<StringArrayDoc>(array32));
 	});
