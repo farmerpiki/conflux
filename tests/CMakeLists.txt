@@ -194,6 +194,14 @@ if(TARGET conflux)
         LINK conflux_net_tls conflux_options
         LABELS build api-surface compile-fail
         EXPECT "TlsContext")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_run
+        SOURCE process_compile_fail_global_run.cxx
+        TEST api-surface/process-hides-global-run
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "run")
 endif()
 
 add_executable(conflux_tests)

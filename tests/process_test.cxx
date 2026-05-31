@@ -12,7 +12,7 @@ import conflux.work;
 namespace {
 
 std::string drain_stdout(
-	Process &proc) {
+	conflux::process::Process &proc) {
 	int const out = proc.take_stdout_fd();
 	std::string buf;
 	char tmp[256]{};
@@ -31,7 +31,7 @@ std::string drain_stdout(
 TEST_CASE(
 	"process: run echo",
 	"[process]") {
-	auto result = run("/bin/echo", {"hello"});
+	auto result = conflux::process::run("/bin/echo", {"hello"});
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	CHECK(result->stdout_out == "hello\n");
@@ -40,14 +40,14 @@ TEST_CASE(
 TEST_CASE(
 	"process: run exit code",
 	"[process]") {
-	auto result = run("/bin/sh", {"-c", "exit 42"});
+	auto result = conflux::process::run("/bin/sh", {"-c", "exit 42"});
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 42);
 }
 TEST_CASE(
 	"process: run captures stderr",
 	"[process]") {
-	auto result = run("/bin/sh", {"-c", "echo err >&2"});
+	auto result = conflux::process::run("/bin/sh", {"-c", "echo err >&2"});
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	CHECK(result->stdout_out.empty());
@@ -57,7 +57,8 @@ TEST_CASE(
 	"process: run captures large output",
 	"[process]") {
 	// Output > pipe buffer (64 KB) to verify poll() deadlock prevention.
-	auto result = run("/bin/sh", {"-c", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'x'"});
+	auto result =
+		conflux::process::run("/bin/sh", {"-c", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'x'"});
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	CHECK(result->stdout_out.size() >= 65536UZ);
@@ -65,8 +66,8 @@ TEST_CASE(
 TEST_CASE(
 	"process: spawn and wait",
 	"[process]") {
-	SpawnOptions const opts;
-	auto proc = spawn("/bin/sleep", {"0"}, opts);
+	conflux::process::SpawnOptions const opts;
+	auto proc = conflux::process::spawn("/bin/sleep", {"0"}, opts);
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);
 	int const code = proc->wait();
@@ -75,15 +76,15 @@ TEST_CASE(
 TEST_CASE(
 	"process: spawn non-existent exe fails",
 	"[process]") {
-	auto proc = spawn("/nonexistent/binary_xyz", {});
+	auto proc = conflux::process::spawn("/nonexistent/binary_xyz", {});
 	CHECK(!proc.has_value());
 }
 TEST_CASE(
 	"process: working_dir",
 	"[process]") {
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.working_dir = "/tmp";
-	auto result = run("/bin/pwd", {}, opts);
+	auto result = conflux::process::run("/bin/pwd", {}, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	// /tmp might be a symlink; just check it ends with "tmp\n".
@@ -92,28 +93,28 @@ TEST_CASE(
 TEST_CASE(
 	"process: env override",
 	"[process]") {
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.extra_env = {"MY_TEST_VAR=hello"};
-	auto result = run("/bin/sh", {"-c", "echo $MY_TEST_VAR"}, opts);
+	auto result = conflux::process::run("/bin/sh", {"-c", "echo $MY_TEST_VAR"}, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->stdout_out == "hello\n");
 }
 TEST_CASE(
 	"process: clear_env",
 	"[process]") {
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.clear_env = true;
 	opts.extra_env = {"PATH=/bin:/usr/bin"};
-	auto result = run("/bin/sh", {"-c", "echo ${HOME:-unset}"}, opts);
+	auto result = conflux::process::run("/bin/sh", {"-c", "echo ${HOME:-unset}"}, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->stdout_out == "unset\n");
 }
 TEST_CASE(
 	"process: stdin piped",
 	"[process]") {
-	SpawnOptions opts;
-	opts.stdin_ = Stdio::piped();
-	auto proc = spawn("/bin/cat", {}, opts);
+	conflux::process::SpawnOptions opts;
+	opts.stdin_ = conflux::process::Stdio::piped();
+	auto proc = conflux::process::spawn("/bin/cat", {}, opts);
 	REQUIRE(proc.has_value());
 
 	int const in_fd = proc->take_stdin_fd();
@@ -135,13 +136,13 @@ TEST_CASE(
 	[[maybe_unused]] auto wr2 = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.fd_map = {
 		{pipefd[0], 3}
     };
 	opts.close_other_fds = false; // keep fd 3 open
-	opts.stdout_ = Stdio::piped();
-	auto proc = spawn("/bin/sh", {"-c", "cat /proc/self/fd/3"}, opts);
+	opts.stdout_ = conflux::process::Stdio::piped();
+	auto proc = conflux::process::spawn("/bin/sh", {"-c", "cat /proc/self/fd/3"}, opts);
 	::close(pipefd[0]); // parent no longer needs read end
 	REQUIRE(proc.has_value());
 
@@ -173,13 +174,13 @@ TEST_CASE(
 	[[maybe_unused]] auto wr = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.fd_map = {
 		{child_fd, child_fd}
     };
 	opts.close_other_fds = false;
-	opts.stdout_ = Stdio::piped();
-	auto proc = spawn("/bin/sh", {"-c", std::format("cat /proc/self/fd/{}", child_fd)}, opts);
+	opts.stdout_ = conflux::process::Stdio::piped();
+	auto proc = conflux::process::spawn("/bin/sh", {"-c", std::format("cat /proc/self/fd/{}", child_fd)}, opts);
 	::close(child_fd);
 	REQUIRE(proc.has_value());
 
@@ -200,7 +201,7 @@ TEST_CASE(
 TEST_CASE(
 	"process: try_wait returns std::nullopt while running",
 	"[process]") {
-	auto proc = spawn("/bin/sleep", {"5"});
+	auto proc = conflux::process::spawn("/bin/sleep", {"5"});
 	REQUIRE(proc.has_value());
 	auto r = proc->try_wait();
 	CHECK(!r.has_value()); // still running
@@ -210,9 +211,9 @@ TEST_CASE(
 TEST_CASE(
 	"process: new_session",
 	"[process]") {
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.new_session = true;
-	auto result = run("/bin/sh", {"-c", "echo $SHLVL"}, opts);
+	auto result = conflux::process::run("/bin/sh", {"-c", "echo $SHLVL"}, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 }
@@ -220,7 +221,7 @@ TEST_CASE(
 	"process: run_in uses work pool",
 	"[process]") {
 	WorkPool pool;
-	auto result = sync_wait(async_run_in(pool, "/bin/echo", {"hello from pool"}));
+	auto result = sync_wait(conflux::process::async_run_in(pool, "/bin/echo", {"hello from pool"}));
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	CHECK(result->stdout_out == "hello from pool\n");
@@ -230,15 +231,15 @@ TEST_CASE(
 	"process: spawn_in and wait_in use work pool",
 	"[process]") {
 	WorkPool pool;
-	auto proc = sync_wait(async_spawn_in(pool, "/bin/sleep", {"0"}));
+	auto proc = sync_wait(conflux::process::async_spawn_in(pool, "/bin/sleep", {"0"}));
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);
-	CHECK(sync_wait(async_wait_in(pool, std::move(*proc))) == 0);
+	CHECK(sync_wait(conflux::process::async_wait_in(pool, std::move(*proc))) == 0);
 }
 TEST_CASE(
 	"process: pid returns positive for live process",
 	"[process]") {
-	auto proc = spawn("/bin/sleep", {"10"});
+	auto proc = conflux::process::spawn("/bin/sleep", {"10"});
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);
 	proc->kill_process();
@@ -247,7 +248,7 @@ TEST_CASE(
 TEST_CASE(
 	"process: terminate sends SIGTERM, wait returns negative",
 	"[process]") {
-	auto proc = spawn("/bin/sleep", {"10"});
+	auto proc = conflux::process::spawn("/bin/sleep", {"10"});
 	REQUIRE(proc.has_value());
 	proc->terminate();
 	int const exit_code = proc->wait();
@@ -256,7 +257,7 @@ TEST_CASE(
 TEST_CASE(
 	"process: kill_process sends SIGKILL, wait returns negative",
 	"[process]") {
-	auto proc = spawn("/bin/sleep", {"10"});
+	auto proc = conflux::process::spawn("/bin/sleep", {"10"});
 	REQUIRE(proc.has_value());
 	proc->kill_process();
 	int const exit_code = proc->wait();
@@ -265,10 +266,10 @@ TEST_CASE(
 TEST_CASE(
 	"process: stdin piped writes reach child stdout",
 	"[process]") {
-	SpawnOptions opts;
-	opts.stdin_ = Stdio::piped();
-	opts.stdout_ = Stdio::piped();
-	auto proc = spawn("/bin/cat", {}, opts);
+	conflux::process::SpawnOptions opts;
+	opts.stdin_ = conflux::process::Stdio::piped();
+	opts.stdout_ = conflux::process::Stdio::piped();
+	auto proc = conflux::process::spawn("/bin/cat", {}, opts);
 	REQUIRE(proc.has_value());
 
 	int const in_fd = proc->take_stdin_fd();
@@ -294,7 +295,7 @@ TEST_CASE(
 TEST_CASE(
 	"process: detach leaves zombie reaped by OS",
 	"[process]") {
-	auto proc = spawn("/bin/true", {});
+	auto proc = conflux::process::spawn("/bin/true", {});
 	REQUIRE(proc.has_value());
 	pid_t const pid = proc->pid();
 	CHECK(pid > 0);
@@ -314,11 +315,13 @@ TEST_CASE(
 	::close(base);
 	REQUIRE(high >= 100);
 
-	SpawnOptions opts;
-	opts.stdout_ = Stdio::piped();
+	conflux::process::SpawnOptions opts;
+	opts.stdout_ = conflux::process::Stdio::piped();
 	// close_other_fds defaults to true — child must not inherit high fd.
-	auto proc =
-		spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc = conflux::process::spawn(
+		"/bin/sh",
+		{"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)},
+		opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);
@@ -334,11 +337,13 @@ TEST_CASE(
 	::close(base);
 	REQUIRE(high >= 100);
 
-	SpawnOptions opts;
-	opts.stdout_ = Stdio::piped();
+	conflux::process::SpawnOptions opts;
+	opts.stdout_ = conflux::process::Stdio::piped();
 	opts.close_other_fds = false;
-	auto proc =
-		spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc = conflux::process::spawn(
+		"/bin/sh",
+		{"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)},
+		opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);

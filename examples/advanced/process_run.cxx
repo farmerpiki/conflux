@@ -8,7 +8,7 @@ import std;
 
 static void print_result(
 	std::string_view label,
-	std::expected<RunResult, std::error_code> const &result) {
+	std::expected<conflux::process::RunResult, std::error_code> const &result) {
 	if (!result) {
 		std::println("{}: spawn failed: {}", label, result.error().message());
 		return;
@@ -24,30 +24,31 @@ static void print_result(
 }
 
 int main() {
-	SpawnOptions opts;
+	conflux::process::SpawnOptions opts;
 	opts.working_dir = "/tmp";
 	opts.extra_env = std::vector<std::string>{"CONFLUX_PROCESS_EXAMPLE=from-extra-env"};
 	opts.clear_env = false;
 
-	auto ok =
-		run(std::filesystem::path{"/bin/sh"},
-			std::vector<std::string_view>{
-				"-c",
-				"printf 'cwd=%s\\n' \"$PWD\"; "
-				"printf 'env=%s\\n' \"$CONFLUX_PROCESS_EXAMPLE\"; "
-				"printf 'diagnostic on stderr\\n' >&2",
-			},
-			opts);
+	auto ok = conflux::process::run(
+		std::filesystem::path{"/bin/sh"},
+		std::vector<std::string_view>{
+			"-c",
+			"printf 'cwd=%s\\n' \"$PWD\"; "
+			"printf 'env=%s\\n' \"$CONFLUX_PROCESS_EXAMPLE\"; "
+			"printf 'diagnostic on stderr\\n' >&2",
+		},
+		opts);
 	print_result("successful child", ok);
 
 	// Non-zero exit is part of RunResult, not a spawn error.
-	auto non_zero =
-		run(std::filesystem::path{"/bin/sh"},
-			std::vector<std::string_view>{"-c", "printf 'no crash, just status\\n'; exit 7"});
+	auto non_zero = conflux::process::run(
+		std::filesystem::path{"/bin/sh"},
+		std::vector<std::string_view>{"-c", "printf 'no crash, just status\\n'; exit 7"});
 	print_result("non-zero child", non_zero);
 
 	// Missing executable is a spawn/exec boundary error.
-	auto missing =
-		run(std::filesystem::path{"/definitely/not/a/conflux/example/binary"}, std::vector<std::string_view>{});
+	auto missing = conflux::process::run(
+		std::filesystem::path{"/definitely/not/a/conflux/example/binary"},
+		std::vector<std::string_view>{});
 	print_result("missing executable", missing);
 }

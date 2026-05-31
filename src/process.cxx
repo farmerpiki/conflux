@@ -18,6 +18,8 @@ import conflux.types;
 import conflux.work;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
+namespace conflux::process {
+
 // ---------------------------------------------------------------------------
 // Stdio — describes how stdin/stdout/stderr is connected in the child process.
 // ---------------------------------------------------------------------------
@@ -635,3 +637,5 @@ export template<typename Target>
 	Process proc) -> conflux::work::root::Task<int> {
 	return async_wait_in(target, std::move(proc));
 }
+
+} // namespace conflux::process
