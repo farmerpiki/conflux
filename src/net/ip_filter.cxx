@@ -23,18 +23,19 @@ Response forbidden() {
 // Middleware factory: allow or block requests by IP address/CIDR.
 // Operates on req.remote_addr — compose after forwarded_middleware when
 // running behind a reverse proxy.
-export Router::Middleware ip_filter_middleware(
+export conflux::http::Router::Middleware ip_filter_middleware(
 	IpFilterOptions opts = {}) {
 	auto parsed = parse_cidr_list(opts.cidrs);
 
-	return [opts = std::move(opts),
-			parsed = std::move(parsed)](RequestView const &req, Router::Handler const &next) -> Response {
-		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
-		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
+	return
+		[opts = std::move(opts),
+		 parsed = std::move(parsed)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+			auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
+			bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
 
-		if (opts.mode == IpFilterMode::allowlist) {
-			return matched ? next(req) : ip_filter_detail::forbidden();
-		}
-		return matched ? ip_filter_detail::forbidden() : next(req);
-	};
+			if (opts.mode == IpFilterMode::allowlist) {
+				return matched ? next(req) : ip_filter_detail::forbidden();
+			}
+			return matched ? ip_filter_detail::forbidden() : next(req);
+		};
 }

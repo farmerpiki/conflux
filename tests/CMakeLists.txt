@@ -836,6 +836,94 @@ if(TARGET conflux_net_http)
         EXPECT "RouteInfo")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_router
+        SOURCE http_router_compile_fail_global_router.cxx
+        TEST http-router/compile-fail-global-router
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Router")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_handler_result
+        SOURCE http_router_compile_fail_global_handler_result.cxx
+        TEST http-router/compile-fail-global-handler-result
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "HandlerResult")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_view_handler
+        SOURCE http_router_compile_fail_global_view_handler.cxx
+        TEST http-router/compile-fail-global-view-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ViewHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_request_handler
+        SOURCE http_router_compile_fail_global_request_handler.cxx
+        TEST http-router/compile-fail-global-request-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RequestHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_route_handler
+        SOURCE http_router_compile_fail_global_route_handler.cxx
+        TEST http-router/compile-fail-global-route-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RouteHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_context_handler_function
+        SOURCE http_router_compile_fail_global_context_handler_function.cxx
+        TEST http-router/compile-fail-global-context-handler-function
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ContextHandlerFunction")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_context_middleware_function
+        SOURCE http_router_compile_fail_global_context_middleware_function.cxx
+        TEST http-router/compile-fail-global-context-middleware-function
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ContextMiddlewareFunction")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_async_middleware
+        SOURCE http_router_compile_fail_global_async_middleware.cxx
+        TEST http-router/compile-fail-global-async-middleware
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "AsyncMiddleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_view_middleware
+        SOURCE http_router_compile_fail_global_view_middleware.cxx
+        TEST http-router/compile-fail-global-view-middleware
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ViewMiddleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_request_middleware
+        SOURCE http_router_compile_fail_global_request_middleware.cxx
+        TEST http-router/compile-fail-global-request-middleware
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RequestMiddleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_middleware
+        SOURCE http_router_compile_fail_global_middleware.cxx
+        TEST http-router/compile-fail-global-middleware
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Middleware")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_router_compile_fail_global_next_handler
         SOURCE http_router_compile_fail_global_next_handler.cxx
         TEST http-router/compile-fail-global-next-handler

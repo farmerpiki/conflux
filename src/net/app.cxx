@@ -36,8 +36,8 @@ import conflux.work;
 export namespace conflux::http {
 
 class App;
-Router &router(App &app) noexcept;
-Router const &router(App const &app) noexcept;
+conflux::http::Router &router(App &app) noexcept;
+conflux::http::Router const &router(App const &app) noexcept;
 std::vector<conflux::http::RouteInfo> route_infos(App const &app);
 
 namespace detail {
@@ -148,8 +148,8 @@ struct AppRouteVerbAccessors {
 
 class App : public detail::AppRouteVerbAccessors {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
-	using ScopedMiddlewareList = std::vector<Router::Middleware>;
-	using ScopedContextMiddlewareList = std::vector<Router::ContextMiddleware>;
+	using ScopedMiddlewareList = std::vector<conflux::http::Router::Middleware>;
+	using ScopedContextMiddlewareList = std::vector<conflux::http::Router::ContextMiddleware>;
 
 	struct AppRouteRateLimit {
 		std::string name;
@@ -219,7 +219,7 @@ class App : public detail::AppRouteVerbAccessors {
 	[[nodiscard]] static Response run_scoped_middlewares(
 		std::shared_ptr<ScopedMiddlewareList const> const &middlewares,
 		RequestView const &req,
-		Router::Handler inner) {
+		conflux::http::Router::Handler inner) {
 		if (!middlewares || middlewares->empty()) {
 			return inner(req);
 		}
@@ -235,13 +235,13 @@ class App : public detail::AppRouteVerbAccessors {
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
 		RequestView req,
 		RequestContext const &ctx,
-		Router::ContextHandler inner) {
+		conflux::http::Router::ContextHandler inner) {
 		if (!middlewares || middlewares->empty()) {
 			co_return co_await inner(req, ctx);
 		}
 		struct Step {
 			std::shared_ptr<ScopedContextMiddlewareList const> middlewares;
-			Router::ContextHandler inner;
+			conflux::http::Router::ContextHandler inner;
 			std::size_t index{};
 
 			conflux::work::root::Task<Response> call(
@@ -252,7 +252,7 @@ class App : public detail::AppRouteVerbAccessors {
 					return inner(r, c);
 				}
 				auto const &middleware = (*middlewares)[index++];
-				Router::ContextHandler next =
+				conflux::http::Router::ContextHandler next =
 					[self = std::move(self)](RequestView const &next_req, RequestContext const &next_ctx) mutable
 					-> conflux::work::root::Task<Response> { return self->call(self, next_req, next_ctx); };
 				return middleware(r, c, next);
@@ -466,13 +466,13 @@ public:
 				 json_options,
 #endif
 				 fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [bearer_token_policy,
-											 rate_limit,
-											 timeout,
+					conflux::http::Router::Handler inner = [bearer_token_policy,
+															rate_limit,
+															timeout,
 #if CONFLUX_HAS_JSON
-											 json_options,
+															json_options,
 #endif
-											 &fn](RequestView const &inner_req) mutable {
+															&fn](RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -512,13 +512,13 @@ public:
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [bearer_token_policy,
-											 rate_limit,
-											 timeout,
+					conflux::http::Router::Handler inner = [bearer_token_policy,
+															rate_limit,
+															timeout,
 #if CONFLUX_HAS_JSON
-											 json_options,
+															json_options,
 #endif
-											 &fn](RequestView const &inner_req) mutable {
+															&fn](RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -558,13 +558,13 @@ public:
 				 json_options,
 #endif
 				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
-					Router::Handler inner = [bearer_token_policy,
-											 rate_limit,
-											 timeout,
+					conflux::http::Router::Handler inner = [bearer_token_policy,
+															rate_limit,
+															timeout,
 #if CONFLUX_HAS_JSON
-											 json_options,
+															json_options,
 #endif
-											 &fn](RequestView const &inner_req) mutable {
+															&fn](RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -1117,8 +1117,8 @@ public:
 	}
 	[[nodiscard]] conflux::http::Config &config() { return cfg_; }
 	[[nodiscard]] conflux::http::Config const &config() const { return cfg_; }
-	friend Router &router(App &app) noexcept;
-	friend Router const &router(App const &app) noexcept;
+	friend conflux::http::Router &router(App &app) noexcept;
+	friend conflux::http::Router const &router(App const &app) noexcept;
 	friend std::vector<conflux::http::RouteInfo> route_infos(App const &app);
 	[[nodiscard]] std::vector<AppRouteInfo> routes() const {
 		std::vector<AppRouteInfo> out;
@@ -1615,7 +1615,7 @@ public:
 			[bearer_token_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
 				RequestView const &req,
 				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-				Router::ContextHandler inner =
+				conflux::http::Router::ContextHandler inner =
 					[bearer_token_policy, rate_limit, &fn](
 						RequestView const &inner_req,
 						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
@@ -2267,7 +2267,7 @@ public:
 				 json_options
 #endif
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-					Router::ContextHandler inner =
+					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,
 						 rate_limit,
@@ -2323,16 +2323,16 @@ public:
 				 json_options
 #endif
 			](RequestView const &req) mutable {
-					Router::Handler inner = [states,
-											 bearer_token_policy,
-											 rate_limit,
-											 timeout,
-											 &fn
+					conflux::http::Router::Handler inner = [states,
+															bearer_token_policy,
+															rate_limit,
+															timeout,
+															&fn
 #if CONFLUX_HAS_JSON
-											 ,
-											 max_body_size,
-											 app_max_body_size,
-											 json_options
+															,
+															max_body_size,
+															app_max_body_size,
+															json_options
 #endif
 					](RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
@@ -2491,7 +2491,7 @@ public:
 				 json_options
 #endif
 			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-					Router::ContextHandler inner =
+					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,
 						 rate_limit,
@@ -2547,16 +2547,16 @@ public:
 				 json_options
 #endif
 			](RequestView const &req) mutable {
-					Router::Handler inner = [states,
-											 bearer_token_policy,
-											 rate_limit,
-											 timeout,
-											 &fn
+					conflux::http::Router::Handler inner = [states,
+															bearer_token_policy,
+															rate_limit,
+															timeout,
+															&fn
 #if CONFLUX_HAS_JSON
-											 ,
-											 max_body_size,
-											 app_max_body_size,
-											 json_options
+															,
+															max_body_size,
+															app_max_body_size,
+															json_options
 #endif
 					](RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
@@ -2742,7 +2742,7 @@ public:
 
 private:
 	conflux::http::Config cfg_;
-	Router router_;
+	conflux::http::Router router_;
 	std::shared_ptr<StateMap> states_;
 	std::vector<std::string> state_issues_;
 	std::vector<AppRouteMetadata> route_metadata_;
@@ -2757,12 +2757,12 @@ private:
 #endif
 };
 
-[[nodiscard]] Router &router(
+[[nodiscard]] conflux::http::Router &router(
 	App &app) noexcept {
 	return app.router_;
 }
 
-[[nodiscard]] Router const &router(
+[[nodiscard]] conflux::http::Router const &router(
 	App const &app) noexcept {
 	return app.router_;
 }

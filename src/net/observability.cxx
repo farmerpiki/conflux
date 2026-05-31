@@ -574,7 +574,7 @@ struct ObservabilityMiddleware {
 
 	[[nodiscard]] Response operator ()(
 		RequestView const &req,
-		Router::Handler const &next) const {
+		conflux::http::Router::Handler const &next) const {
 		auto observed_req = req.to_owned();
 		observed_req.params.set("__conflux_observe_route", "1");
 		RequestView const observed_view{observed_req};
@@ -649,7 +649,7 @@ struct ObservabilityMiddleware {
 }
 
 #if CONFLUX_HAS_METRICS
-[[nodiscard]] Router::Handler observability_metrics_handler(
+[[nodiscard]] conflux::http::Router::Handler observability_metrics_handler(
 	ObservabilityMiddleware const &middleware) {
 	return [state = middleware.state](RequestView const &) -> Response {
 		return Response::prometheus(

@@ -25,9 +25,9 @@ export struct RedirectOptions {
 };
 // Middleware factory: redirect requests matching configured rules.
 // Rules are evaluated in order; first match wins.
-export Router::Middleware redirect_middleware(
+export conflux::http::Router::Middleware redirect_middleware(
 	RedirectOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		for (auto const &rule: opts.rules) {
 			bool matched = false;
 			std::string target = rule.to;

@@ -12,7 +12,7 @@ import conflux.net.app.openapi;
 // title and version are used for the info object.
 // Returns a JSON string (not pretty-printed).
 export std::string openapi_spec(
-	Router const &router,
+	conflux::http::Router const &router,
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto infos = router.route_infos();
@@ -34,8 +34,8 @@ export std::string openapi_spec(
 // into the HttpServer. Routes added later are not reflected.
 // WARNING: the plain handler is unauthenticated — avoid on public listeners;
 // prefer openapi_handler_protected or a network-level ACL.
-export Router::Handler openapi_handler(
-	Router const &router,
+export conflux::http::Router::Handler openapi_handler(
+	conflux::http::Router const &router,
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
@@ -43,15 +43,15 @@ export Router::Handler openapi_handler(
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
-export Router::Handler openapi_handler_protected(
-	Router const &router,
+export conflux::http::Router::Handler openapi_handler_protected(
+	conflux::http::Router const &router,
 	std::string_view title,
 	std::string_view version,
-	std::vector<Router::Middleware> chain) {
-	Router::Handler current = openapi_handler(router, title, version);
+	std::vector<conflux::http::Router::Middleware> chain) {
+	conflux::http::Router::Handler current = openapi_handler(router, title, version);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-		Router::Middleware mw = std::move(*it);
-		Router::Handler next = std::move(current);
+		conflux::http::Router::Middleware mw = std::move(*it);
+		conflux::http::Router::Handler next = std::move(current);
 		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
 			return mw(req, next);
 		};

@@ -14,6 +14,8 @@ import conflux.work;
 import conflux.net.config;
 import conflux.socket_io;
 
+namespace conflux::http {
+
 struct RouteLookupIndex {
 	std::vector<std::size_t> generic{};
 	conflux::support::TransparentStringMap<std::vector<std::size_t>> by_first_literal{};
@@ -633,7 +635,7 @@ Router &Router::ws_prepared(
 void Router::launch_sse_handler(
 	std::shared_ptr<WorkPool> const &pool,
 	SseHandler handler,
-	Request matched,
+	::Request matched,
 	std::shared_ptr<conflux::http::SseChannel> const &channel) {
 	router_launch_sse_handler(pool, std::move(handler), std::move(matched), channel);
 }
@@ -731,7 +733,7 @@ Router &Router::serve_static(
 }
 
 [[nodiscard]] Response Router::dispatch(
-	Request const &req) const {
+	::Request const &req) const {
 	RequestView const req_view{req};
 	return dispatch(req_view);
 }
@@ -778,3 +780,5 @@ Router &Router::serve_static(
 	}
 	return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
 }
+
+} // namespace conflux::http

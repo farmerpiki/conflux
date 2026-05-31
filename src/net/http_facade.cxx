@@ -32,24 +32,24 @@ template<class T>
 using Task = conflux::work::Task<T>;
 template<class T>
 using Result = std::expected<T, Problem>;
-using Next = ::Router::Handler;
-using AsyncNext = ::Router::AsyncNext;
-[[nodiscard]] ::Router::Middleware request_id(
+using Next = Router::Handler;
+using AsyncNext = Router::AsyncNext;
+[[nodiscard]] Router::Middleware request_id(
 	RequestIdOptions opts = {}) {
 	return request_id_middleware(std::move(opts));
 }
 
-[[nodiscard]] ::Router::Middleware trace_context(
+[[nodiscard]] Router::Middleware trace_context(
 	TracingOptions opts = {}) {
 	return tracing_middleware(std::move(opts));
 }
 
-[[nodiscard]] ::Router::Middleware tracing(
+[[nodiscard]] Router::Middleware tracing(
 	TracingOptions opts = {}) {
 	return tracing_middleware(std::move(opts));
 }
 
-[[nodiscard]] ::Router::Middleware security_headers(
+[[nodiscard]] Router::Middleware security_headers(
 	SecurityOptions opts = {}) {
 	return security_headers_middleware(std::move(opts));
 }

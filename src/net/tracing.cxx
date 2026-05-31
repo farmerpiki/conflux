@@ -113,9 +113,9 @@ std::pair<std::string, std::string> parse_traceparent(
 }
 
 } // namespace tracing_detail
-export Router::Middleware tracing_middleware(
+export conflux::http::Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		TraceContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];

@@ -158,7 +158,7 @@ TEST_CASE(
 		return auth_throttle_form_key(req, "username");
 	});
 	auto req = make_auth_request();
-	Router::Handler fail = [](RequestView const &) {
+	conflux::http::Router::Handler fail = [](RequestView const &) {
 		Response r;
 		r.status = 401;
 		r.status_text = "Unauthorized";

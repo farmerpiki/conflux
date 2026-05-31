@@ -59,7 +59,7 @@ TEST_CASE(
 	cfg.splice_pipe_pairs = 0;
 	cfg.send_buffer_slabs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/", [](chttp::RequestView const &) { return chttp::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -93,7 +93,7 @@ TEST_CASE(
 	cfg.splice_pipe_pairs = 0;
 	cfg.send_buffer_slabs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.post("/upload", [](chttp::RequestView const &req) { return chttp::Response::text(std::string{req.body}); });
 	ScopedTestServer srv{cfg, std::move(router)};
 

@@ -143,7 +143,7 @@ TEST_CASE(
 	cfg.fixed_buffer_bytes = 64UL * 1024;
 	cfg.splice_pipe_pairs = 4;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 
 	ScopedTestServer const srv{cfg, std::move(router)};
@@ -209,7 +209,7 @@ TEST_CASE(
 	cfg.fixed_buffer_bytes = 64UL * 1024;
 	cfg.splice_pipe_pairs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 
 	ScopedTestServer const srv{cfg, std::move(router)};
@@ -230,7 +230,7 @@ TEST_CASE(
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 
 	ScopedTestServer const srv{cfg, std::move(router)};
@@ -277,7 +277,7 @@ TEST_CASE(
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 
 	ScopedTestServer const srv{cfg, std::move(router)};
@@ -326,7 +326,7 @@ TEST_CASE(
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 
 	ScopedTestServer const srv{cfg, std::move(router)};

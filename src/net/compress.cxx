@@ -490,9 +490,9 @@ export bool set_gzip_backend(
 // Compress responses using the best encoding the client accepts.
 // Supports br (brotli), zstd, and gzip depending on what was compiled in.
 // Skips small responses, SSE streams, and non-compressible MIME types.
-export Router::Middleware compress_middleware(
+export conflux::http::Router::Middleware compress_middleware(
 	CompressOptions opts = {}) {
-	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		if (!resp.is_text()) {

@@ -382,8 +382,8 @@ private:
 		return static_cast<ssize_t>(to_copy);
 	}
 };
-Router make_router() {
-	Router r = conflux::tests::make_external_test_router();
+conflux::http::Router make_router() {
+	conflux::http::Router r = conflux::tests::make_external_test_router();
 	return r;
 }
 
@@ -585,7 +585,7 @@ TEST_CASE(
 TEST_CASE(
 	"h2: deferred response completes over HTTP/2") {
 	auto pool = std::make_shared<WorkPool>();
-	Router router;
+	conflux::http::Router router;
 	router.get("/deferred", [pool](Request const &) {
 		auto deferred = std::make_shared<DeferredResponse>();
 		auto queued = pool->enqueue([deferred] {
@@ -606,7 +606,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
-	Router r;
+	conflux::http::Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
 	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
@@ -623,7 +623,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
-	Router r;
+	conflux::http::Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
 	r.sse("/typed", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
@@ -638,7 +638,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"h2: response trailers arrive after body") {
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
 	router.get("/with-trailers", [](Request const &) {
 		Response resp;
@@ -669,7 +669,7 @@ TEST_CASE(
 	// server to pause and the client to send WINDOW_UPDATE before delivery completes.
 	static constexpr std::size_t kBodySize = 128 * 1024;
 	std::string large_body(kBodySize, 'X');
-	Router r;
+	conflux::http::Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
 	r.get("/big", [&large_body](Request const &) { return Response::text(large_body); });
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};

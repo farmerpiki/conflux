@@ -181,12 +181,12 @@ std::string build_cache_key(
 }
 
 } // namespace response_cache_detail
-export Router::Middleware response_cache_middleware(
+export conflux::http::Router::Middleware response_cache_middleware(
 	ResponseCacheOptions opts = {}) {
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
 	auto mtx = std::make_shared<std::mutex>();
 
-	return [opts, cache, mtx](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts, cache, mtx](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		bool const is_head = req.method == "HEAD";
 		if (req.method != "GET" && !is_head) {
 			return next(req);

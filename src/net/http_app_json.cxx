@@ -132,14 +132,14 @@ struct JsonRouteVerbAccessors {
 };
 
 template<class Provider, class F>
-[[nodiscard]] Router::Handler make_handler_with(
+[[nodiscard]] conflux::http::Router::Handler make_handler_with(
 	F &&fn,
 	ResponseOptions opts = {})
 	requires JsonRouteHandler<Provider, F>
 {
 	using Fn = std::decay_t<F>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{
+	return conflux::http::Router::Handler{
 		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](RequestView const &req) mutable -> Response {
 			if constexpr (JsonViewHandler<Provider, Fn>) {
 				return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
@@ -150,7 +150,7 @@ template<class Provider, class F>
 }
 
 template<class Provider, class Body, class F>
-[[nodiscard]] Router::Handler make_decode_handler_with(
+[[nodiscard]] conflux::http::Router::Handler make_decode_handler_with(
 	F &&fn,
 	ResponseOptions opts = {},
 	conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
@@ -159,7 +159,7 @@ template<class Provider, class Body, class F>
 	using Fn = std::decay_t<F>;
 	using BodyValue = std::remove_cvref_t<Body>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{
+	return conflux::http::Router::Handler{
 		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts), decode_opts](
 			RequestView const &req) mutable -> Response {
 			auto decoded = conflux::json::boundary::decode_with<Provider, BodyValue>(req.body, decode_opts);
@@ -178,11 +178,11 @@ template<class Provider>
 class RouterJsonRoutes : public JsonRouteVerbAccessors<RouterJsonRoutes<Provider>, Provider> {
 public:
 	explicit RouterJsonRoutes(
-		Router &router)
+		conflux::http::Router &router)
 		: router_(&router) {}
 
 	template<class F>
-	Router &add(
+	conflux::http::Router &add(
 		std::string_view method,
 		std::string_view path,
 		F &&fn,
@@ -193,7 +193,7 @@ public:
 	}
 
 	template<class Body, class F>
-	Router &add_body(
+	conflux::http::Router &add_body(
 		std::string_view method,
 		std::string_view path,
 		F &&fn,
@@ -208,7 +208,7 @@ public:
 	}
 
 private:
-	Router *router_{};
+	conflux::http::Router *router_{};
 };
 
 template<class Provider>
@@ -249,7 +249,7 @@ private:
 
 template<class Provider>
 [[nodiscard]] RouterJsonRoutes<Provider> routes(
-	Router &router) {
+	conflux::http::Router &router) {
 	return RouterJsonRoutes<Provider>{router};
 }
 

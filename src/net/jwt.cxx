@@ -387,9 +387,9 @@ export std::string jwt_sign(
 // Middleware: verify the Bearer JWT in Authorization header.
 // On success: injects jwt_sub, jwt_iss, jwt_payload into a copy of the request params.
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
-export Router::Middleware jwt_middleware(
+export conflux::http::Router::Middleware jwt_middleware(
 	JwtOptions opts) {
-	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto unauthorized = [](std::string_view www_auth) {
 			auto r = Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 			r.headers["WWW-Authenticate"] = std::string{www_auth};

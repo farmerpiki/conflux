@@ -213,11 +213,11 @@ public:
 	HttpsServerFixture(HttpsServerFixture const &) = delete;
 	HttpsServerFixture &operator =(HttpsServerFixture const &) = delete;
 	explicit HttpsServerFixture(
-		Router router)
+		conflux::http::Router router)
 		: HttpsServerFixture(conflux::http::Config::test(), std::move(router)) {}
 	HttpsServerFixture(
 		conflux::http::Config cfg,
-		Router router) {
+		conflux::http::Router router) {
 		generate_cert();
 
 		cfg.port = 0;
@@ -298,7 +298,7 @@ public:
 	Http3ServerFixture(Http3ServerFixture const &) = delete;
 	Http3ServerFixture &operator =(Http3ServerFixture const &) = delete;
 	explicit Http3ServerFixture(
-		Router router) {
+		conflux::http::Router router) {
 		generate_cert();
 
 		conflux::http::Config cfg{};
@@ -355,8 +355,8 @@ public:
 				path));
 	}
 };
-[[nodiscard]] Router make_external_test_router() {
-	Router r;
+[[nodiscard]] conflux::http::Router make_external_test_router() {
+	conflux::http::Router r;
 	r.get("/ping", [](Request const &) { return Response::json(R"({"ok":true})"); });
 	r.get("/hello/{name}", [](Request const &req) {
 		return Response::text(std::format("hello {}", req.params["name"]));

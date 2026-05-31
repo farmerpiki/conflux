@@ -484,7 +484,7 @@ struct Ring {
 	// conn state (gen, buffers) is re-read at replay time.
 	std::deque<conflux::detail::small_move_only_function<void()>> pending_ops{};
 
-	Router const *router = nullptr; // set before init(); not owned
+	conflux::http::Router const *router = nullptr; // set before init(); not owned
 	VHostRouter const *vhost_router = nullptr; // set before init(); not owned
 
 	std::uint16_t bound_port{}; // actual port after bind (handles port=0)

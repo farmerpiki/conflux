@@ -197,7 +197,7 @@ std::uint16_t compression_port() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Config cfg = mw_config();
-		Router router;
+		conflux::http::Router router;
 		router.use(compress_middleware({.min_body_size = 64}));
 		router.get("/large", [](Request const &) { return Response::text(std::string(4096, 'A')); });
 		router.get("/small", [](Request const &) { return Response::text(std::string(32, 's')); });
@@ -370,7 +370,7 @@ TEST_CASE(
 #endif
 
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path());
 	ScopedTestServer const server{cfg, std::move(router)};
 
@@ -412,7 +412,7 @@ TEST_CASE(
 	dir.write("asset.txt.gz", old_gzip);
 
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	StaticOptions sopts{};
 	sopts.allow_put = true;
 	sopts.file_cache.enabled = true;

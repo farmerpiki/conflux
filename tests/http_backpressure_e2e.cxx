@@ -43,7 +43,7 @@ void shrink_recv_buffer(
 TEST_CASE(
 	"drain force-closes live connections after deadline and records pressure metrics",
 	"[http][e2e][backpressure]") {
-	Router router;
+	conflux::http::Router router;
 	auto deferred = std::make_shared<DeferredResponse>(std::chrono::seconds{30});
 	router.get("/pending", [deferred](chttp::RequestView const &) { return chttp::Response::deferred(deferred); });
 	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
@@ -76,7 +76,7 @@ TEST_CASE(
 TEST_CASE(
 	"drain closes an open SSE stream and records stream pressure metrics",
 	"[http][e2e][backpressure][sse][lifecycle]") {
-	Router router;
+	conflux::http::Router router;
 	router.get("/events/open", [](chttp::RequestView const &) {
 		auto ch = std::make_shared<conflux::http::SseChannel>();
 		(void)ch->send("data: open\n\n");
@@ -111,7 +111,7 @@ TEST_CASE(
 TEST_CASE(
 	"websocket outbound send failure records pressure metric",
 	"[http][e2e][backpressure][ws]") {
-	Router router;
+	conflux::http::Router router;
 	auto handler_started = std::make_shared<std::atomic_bool>(false);
 	router.ws("/ws", [handler_started](chttp::RequestView const &, conflux::http::WsConn &ws) {
 		handler_started->store(true, std::memory_order_release);

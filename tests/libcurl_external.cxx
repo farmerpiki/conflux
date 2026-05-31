@@ -333,8 +333,8 @@ void require_ok(
 	REQUIRE(resp.http_version == expected);
 }
 
-[[nodiscard]] Router make_matrix_router() {
-	Router r = conflux::tests::make_external_test_router();
+[[nodiscard]] conflux::http::Router make_matrix_router() {
+	conflux::http::Router r = conflux::tests::make_external_test_router();
 	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
@@ -516,7 +516,7 @@ TEST_CASE(
 		out << body;
 	}
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir);
 	conflux::tests::HttpsServerFixture const fx{std::move(router)};
 	CurlEasy curl;
@@ -578,8 +578,8 @@ enum class TortureVersion {
 	return TortureVersion::Default;
 }
 
-[[nodiscard]] Router make_stress_router() {
-	Router r = make_matrix_router();
+[[nodiscard]] conflux::http::Router make_stress_router() {
+	conflux::http::Router r = make_matrix_router();
 	auto large = std::make_shared<std::string>(128UL * 1024, 'S');
 	r.get("/static/large.bin", [large](Request const &) { return Response::text(*large); });
 	return r;
@@ -753,7 +753,7 @@ TEST_CASE(
 		return;
 	}
 
-	Router router = make_stress_router();
+	conflux::http::Router router = make_stress_router();
 	#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 	if (version == TortureVersion::Http3) {
 		conflux::tests::Http3ServerFixture const fx{std::move(router)};

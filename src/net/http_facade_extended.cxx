@@ -9,26 +9,36 @@ export import conflux.http;
 import conflux.work;
 import std;
 import conflux.net.app.defer;
-import conflux.net.router;
 import conflux.file_io_sync;
 import conflux.types;
+import conflux.net.http.response;
 
 export namespace conflux::http {
 
-using Router = ::Router;
 using WorkPool = ::WorkPool;
 using WorkPoolOptions = ::WorkPoolOptions;
 using WorkPoolQueueMode = ::WorkPoolQueueMode;
 using WorkPoolQueueStats = ::WorkPoolQueueStats;
+using Router = std::remove_reference_t<decltype(router(std::declval<App &>()))>;
 
 template<class F>
-concept ViewMiddleware = ::ViewMiddleware<F>;
+concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, Next const &next) {
+	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
+};
+
 template<class F>
-concept RequestMiddleware = ::RequestMiddleware<F>;
+concept RequestMiddleware = requires(std::decay_t<F> &fn, ::Request const &req, Next const &next) {
+	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
+};
+
 template<class F>
-concept AsyncMiddleware = ::AsyncMiddleware<F>;
+concept AsyncMiddleware =
+	requires(std::decay_t<F> &fn, RequestView const &req, RequestContext const &ctx, AsyncNext const &next) {
+		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
+	};
+
 template<class F>
-concept Middleware = ::Middleware<F>;
+concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
 
 [[nodiscard]] Response blocking_file_response(
 	std::filesystem::path const &path,
@@ -45,7 +55,7 @@ concept Middleware = ::Middleware<F>;
 	return Response::with_body(std::move(*body), std::move(content_type));
 }
 
-[[nodiscard]] Router::Handler openapi_handler(
+[[nodiscard]] Next openapi_handler(
 	App const &app,
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {

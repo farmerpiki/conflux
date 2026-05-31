@@ -13,22 +13,22 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 
 	// Two logging middlewares — verify execution order (A then B, outermost first).
-	router.use([](Request const &req, Router::Handler const &next) {
+	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "A";
 		return resp;
 	});
-	router.use([](Request const &req, Router::Handler const &next) {
+	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "B";
 		return resp;
 	});
 
 	// Auth guard: requires X-Api-Key: secret.
-	router.use([](Request const &req, Router::Handler const &next) {
+	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
 		if (req.path == "/protected" && req.headers["x-api-key"] != "secret") {
 			return Response::html("Forbidden", 403, "Forbidden");
 		}
@@ -36,7 +36,7 @@ TEST_CASE(
 	});
 
 	// Middleware that enriches the request before passing downstream.
-	router.use([](Request const &req, Router::Handler const &next) {
+	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
 		Request enriched = req;
 		enriched.headers["x-injected"] = "injected-value";
 		return next(enriched);
@@ -111,7 +111,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 	cfg.max_body_size = 64; // tiny limit for testing
 
-	Router router;
+	conflux::http::Router router;
 	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -157,7 +157,7 @@ TEST_CASE(
 
 	std::string path = "/";
 	path.append(50, 'a');
-	Router router;
+	conflux::http::Router router;
 	router.post(path, [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -319,7 +319,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 
 	router.on_not_found([](Request const &req) {
 		return Response::json(std::format(R"({{"error":"not_found","path":"{}"}})", req.path));
@@ -380,9 +380,10 @@ TEST_CASE(
 TEST_CASE(
 	"throwing middleware returns per-request 500") {
 	Config cfg = Config::test();
-	Router router;
-	router.use(
-		[](Request const &, Router::Handler const &) -> Response { throw std::runtime_error{"middleware crash"}; });
+	conflux::http::Router router;
+	router.use([](Request const &, conflux::http::Router::Handler const &) -> Response {
+		throw std::runtime_error{"middleware crash"};
+	});
 	router.get("/ok", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -500,7 +501,7 @@ TEST_CASE(
 	Config cfg = Config::test();
 	cfg.max_body_size = 16U * 1024U;
 	cfg.parser_limits.max_chunks = 20000;
-	Router router;
+	conflux::http::Router router;
 	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -619,7 +620,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", std::string{tmpdir});
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -746,7 +747,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", std::string{tmpdir} + "/");
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -777,7 +778,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", std::string{tmpdir});
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -802,7 +803,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	StaticOptions sopts{};
 	sopts.allow_put = true;
 	sopts.allow_delete = true;
@@ -887,7 +888,7 @@ TEST_CASE(
 
 	auto pool = std::make_shared<WorkPool>();
 
-	Router router;
+	conflux::http::Router router;
 	StaticOptions sopts{};
 	sopts.offload_pool = pool;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
@@ -992,7 +993,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	StaticOptions sopts{};
 	sopts.allow_put = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
@@ -1075,7 +1076,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	StaticOptions sopts{};
 	sopts.allow_delete = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
@@ -1151,7 +1152,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/f", std::string{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -1202,7 +1203,7 @@ TEST_CASE(
 	cfg.defer_taskrun = true;
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/f", std::string{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -1248,7 +1249,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/f", std::string{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -1295,7 +1296,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/f", std::string{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -1332,7 +1333,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 	cfg.request_timeout_ms = 1500; // 1.5 s — shorter than the 1s timer tick + margin
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/ok", [](Request const &) { return Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -1376,7 +1377,7 @@ TEST_CASE(
 	cfg.slow_handler_diagnostics = true;
 	cfg.slow_handler_warn_ms = 1;
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/slow", [](Request const &) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(20));
 		return Response::text("slow-ok");
@@ -1401,7 +1402,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"make_access_log_middleware logs request lines via sink") {
+	"conflux::http::make_access_log_middleware logs request lines via sink") {
 	std::vector<std::string> lines;
 	std::mutex lines_mtx;
 	Config cfg{};
@@ -1413,8 +1414,8 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
-	router.use(make_access_log_middleware([&](std::string const &line) {
+	conflux::http::Router router;
+	router.use(conflux::http::make_access_log_middleware([&](std::string const &line) {
 		std::scoped_lock lk{lines_mtx};
 		lines.push_back(line);
 	}));
@@ -1467,7 +1468,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		// Echo all text frames until connection closes.
 		while (auto frame = ws.recv()) {
@@ -1649,7 +1650,7 @@ TEST_CASE(
 	SecurityOptions sopts{};
 	sopts.csp = "default-src 'self'";
 
-	Router router;
+	conflux::http::Router router;
 	router.use(security_headers_middleware(sopts));
 	router.get("/", [](Request const &) { return Response::text("ok"); });
 
@@ -1672,7 +1673,7 @@ TEST_CASE(
 	sopts.hsts_include_subdomains = false;
 	sopts.hsts_only_on_tls = false;
 
-	Router router;
+	conflux::http::Router router;
 	router.use(security_headers_middleware(sopts));
 	router.get("/", [](Request const &) { return Response::text("ok"); });
 
@@ -1686,7 +1687,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(security_headers_middleware({.hsts_max_age = 0}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -1699,7 +1700,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(security_headers_middleware({.frame_options = ""}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -1840,7 +1841,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
 		router.get("/", [](Request const &) { return Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -1853,7 +1854,7 @@ TEST_CASE(
 TEST_CASE(
 	"basic_auth: zero max_failed_clients clamps instead of corrupting limiter state",
 	"[auth][security]") {
-	Router router;
+	conflux::http::Router router;
 	unsigned calls = 0;
 	router.use(basic_auth_middleware(
 		[&calls](std::string_view, std::string_view) {
@@ -1890,7 +1891,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	static std::atomic<unsigned> calls{0};
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(basic_auth_middleware(
 			[](std::string_view, std::string_view) {
 				++calls;
@@ -1993,7 +1994,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{10}}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -2052,7 +2053,7 @@ void ensure_tls_server() {
 		cfg.cert_file = cert_tmp;
 		cfg.key_file = key_tmp;
 
-		Router router;
+		conflux::http::Router router;
 		router.get("/ping", [](Request const &) { return Response::json(R"({"tls":true})"); });
 		router.get("/hello/{name}", [](Request const &req) {
 			return Response::text(std::format("hello {}", req.params["name"]));
@@ -2324,7 +2325,7 @@ TEST_CASE(
 	cfg.cert_file = cert_tmp;
 	cfg.key_file = key_tmp;
 
-	Router router;
+	conflux::http::Router router;
 	router.ws("/ws", [](Request const &, conflux::http::WsConn &ws) {
 		while (auto f = ws.recv()) {
 			if (f->opcode == conflux::http::WsConn::Opcode::Text) {
@@ -2499,7 +2500,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(forwarded_middleware({
 			.trusted_proxies = {"127.0.0.1/32"},
 			.use_x_forwarded_for = false,
@@ -2520,7 +2521,7 @@ TEST_CASE(
 TEST_CASE(
 	"forwarded: untrusted peer has X-Forwarded-For stripped before downstream") {
 	ScopedTestServer srv{mw_config(), [] {
-							 Router r;
+							 conflux::http::Router r;
 							 r.use(forwarded_middleware({})); // strict: no trusted proxies
 							 // Echo the header as-seen by the downstream handler.
 							 r.get("/xff", [](Request const &req) {
@@ -2582,7 +2583,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
 		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-request-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -2601,7 +2602,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
 		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-trace-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -2644,7 +2645,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(ip_filter_middleware({.mode = IpFilterMode::allowlist, .cidrs = {}}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
@@ -2692,7 +2693,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cache_control_middleware({
 			.rules = {{"text/html", "max-age=60"}},
 		}));
@@ -2712,7 +2713,7 @@ TEST_CASE(
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cache_control_middleware({
 			.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
 		}));
@@ -2813,7 +2814,7 @@ void ensure_jwt_server() {
 	static std::once_flag once;
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
-		Router router;
+		conflux::http::Router router;
 		router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
 		router.get("/api/protected", [](Request const &req) {
 			auto sub = req.params["jwt_sub"];
@@ -2895,7 +2896,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt_middleware: injected claim params override route params") {
 	Config const cfg{.port = 0, .rings = 1};
-	Router router;
+	conflux::http::Router router;
 	router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
 	router.get("/api/protected/{jwt_sub}", [](Request const &req) {
 		return Response::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));

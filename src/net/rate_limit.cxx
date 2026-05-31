@@ -70,7 +70,7 @@ public:
 } // namespace conflux::http::detail
 // Middleware factory: token-bucket rate limiter keyed on remote_addr.
 // Thread-safe — shared across all rings via captured SP.
-export Router::Middleware rate_limit_middleware(
+export conflux::http::Router::Middleware rate_limit_middleware(
 	RateLimitOptions opts = {}) {
 	struct State {
 		conflux::http::detail::ShardedRateLimitStore<Bucket> store;
@@ -81,7 +81,7 @@ export Router::Middleware rate_limit_middleware(
 	auto state = std::make_shared<State>(std::max<std::size_t>(opts.max_clients, 1));
 	unsigned const capacity = opts.requests + opts.burst;
 
-	return [opts, capacity, state](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts, capacity, state](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto const now = Clock::now();
 		auto const key = req.remote_addr.empty() ?
 							 std::string{"unknown"} :

@@ -84,7 +84,7 @@ std::string websocket_upgrade_request() {
 TEST_CASE(
 	"drain contract stops accepts and drains idle, active, SSE, and WebSocket connections",
 	"[http][e2e][lifecycle][drain]") {
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](chttp::RequestView const &) { return chttp::Response::text("pong"); });
 	router.get("/large", [](chttp::RequestView const &) {
 		return chttp::Response::text(std::string(kLargeBodyBytes, 'x'));

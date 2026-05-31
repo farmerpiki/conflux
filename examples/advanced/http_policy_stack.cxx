@@ -144,7 +144,7 @@ int main() {
 		return Response::text(std::format("accepted value={}\n", req.form["value"]));
 	});
 
-	std::vector<Router::Middleware> openapi_auth;
+	std::vector<conflux::http::Router::Middleware> openapi_auth;
 	openapi_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
 	auto &openapi_router = http::router(app);
 	openapi_router.get(

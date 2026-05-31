@@ -184,7 +184,7 @@ private:
 ScopedTestServer proxy_server_for(
 	HostileUpstream const &upstream,
 	int timeout_sec = 2) {
-	Router front;
+	conflux::http::Router front;
 	auto popts = ProxyOptions{
 		.upstream_host = "127.0.0.1",
 		.upstream_port = upstream.port(),

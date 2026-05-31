@@ -11,8 +11,8 @@ import conflux.net.http.server;
 import conflux.types;
 import std;
 
-static Router make_api_router() {
-	Router api;
+static conflux::http::Router make_api_router() {
+	conflux::http::Router api;
 	api.use(request_id_middleware());
 	api.get("/status", [](Request const &req) {
 		return Response::json(std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));
@@ -24,8 +24,8 @@ static Router make_api_router() {
 	return api;
 }
 
-static Router make_web_router() {
-	Router web;
+static conflux::http::Router make_web_router() {
+	conflux::http::Router web;
 	web.get("/status", [](Request const &) { return Response::html("<h1>web ok</h1>"); });
 	web.get("/", [](Request const &) {
 		return Response::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
@@ -38,7 +38,7 @@ int main() {
 	hosts.add("api.local.test", make_api_router());
 	hosts.add("web.local.test", make_web_router());
 
-	Router fallback;
+	conflux::http::Router fallback;
 	fallback.get("/status", [](Request const &req) {
 		return Response::text(std::format("default host handler: {}\n", req.headers["host"]));
 	});

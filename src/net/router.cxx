@@ -30,31 +30,29 @@ using MiddlewareFunction = conflux::http::CloneableFunction<Response(RequestView
 using ContextNextHandler = conflux::http::CloneableFunction<
 	conflux::work::root::Task<Response>(RequestView const &, conflux::http::RequestContext const &)>;
 
-} // namespace conflux::http
-
-export template<class R>
+template<class R>
 concept HandlerResult = std::same_as<R, Response> || std::same_as<R, conflux::work::root::Task<Response>>;
 
-export template<class F>
+template<class F>
 concept ViewHandler = requires(std::decay_t<F> &fn, RequestView const &req) {
 	{ std::invoke(fn, req) } -> HandlerResult;
 };
 
-export template<class F>
-concept RequestHandler = requires(std::decay_t<F> &fn, Request const &req) {
+template<class F>
+concept RequestHandler = requires(std::decay_t<F> &fn, ::Request const &req) {
 	{ std::invoke(fn, req) } -> HandlerResult;
 };
 
-export template<class F>
+template<class F>
 concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
 
-export template<class F>
+template<class F>
 concept ContextHandlerFunction =
 	requires(std::decay_t<F> &fn, RequestView const &req, conflux::http::RequestContext const &ctx) {
 		{ std::invoke(fn, req, ctx) } -> std::same_as<conflux::work::root::Task<Response>>;
 	};
 
-export template<class F>
+template<class F>
 concept ContextMiddlewareFunction = requires(
 	std::decay_t<F> &fn,
 	RequestView const &req,
@@ -63,23 +61,22 @@ concept ContextMiddlewareFunction = requires(
 	{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
 };
 
-export template<class F>
+template<class F>
 concept AsyncMiddleware = ContextMiddlewareFunction<F>;
 
-export template<class F>
+template<class F>
 concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, conflux::http::NextHandler const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
-export template<class F>
-concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, conflux::http::NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
-};
+template<class F>
+concept RequestMiddleware =
+	requires(std::decay_t<F> &fn, ::Request const &req, conflux::http::NextHandler const &next) {
+		{ std::invoke(fn, req, next) } -> std::same_as<Response>;
+	};
 
-export template<class F>
+template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
-
-export namespace conflux::http {
 
 enum class HttpMethod : std::uint8_t {
 	get,
@@ -102,8 +99,6 @@ enum class HttpMethod : std::uint8_t {
 	}
 	return "GET";
 }
-
-} // namespace conflux::http
 
 struct RouteVerbAccessors {
 	template<typename Self, typename F>
@@ -150,7 +145,7 @@ struct RouteVerbAccessors {
 	}
 };
 
-export class Router : public RouteVerbAccessors {
+class Router : public RouteVerbAccessors {
 public:
 	using Handler = conflux::http::NextHandler;
 	using ContextHandler = conflux::http::ContextNextHandler;
@@ -473,7 +468,7 @@ public:
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
 	Router &serve_static(std::string_view url_prefix, std::string root_dir, StaticOptions const &sopts = {});
-	[[nodiscard]] Response dispatch(Request const &req) const;
+	[[nodiscard]] Response dispatch(::Request const &req) const;
 	[[nodiscard]] Response dispatch(RequestView const &req) const;
 	[[nodiscard]] std::optional<Response>
 	dispatch_context(RequestView const &req, conflux::http::RequestContext const &ctx) const;
@@ -504,7 +499,7 @@ private:
 	static void launch_sse_handler(
 		std::shared_ptr<WorkPool> const &pool,
 		SseHandler handler,
-		Request matched,
+		::Request matched,
 		std::shared_ptr<conflux::http::SseChannel> const &channel);
 	[[nodiscard]] static Response defer_http_task(conflux::work::root::Task<Response> task);
 	[[nodiscard]] Response run_middlewares(RequestView const &req, Handler const &inner) const;
@@ -535,8 +530,8 @@ private:
 					kDependentFalse<Fn>,
 					"Handler taking RequestView const& must return Response or root::Task<Response>");
 			}
-		} else if constexpr (std::invocable<Fn &, Request const &>) {
-			using Ret = std::invoke_result_t<Fn &, Request const &>;
+		} else if constexpr (std::invocable<Fn &, ::Request const &>) {
+			using Ret = std::invoke_result_t<Fn &, ::Request const &>;
 			if constexpr (std::same_as<Ret, Response>) {
 				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
 					auto owned = req.to_owned();
@@ -545,7 +540,7 @@ private:
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
 				return Handler{[wrapped = Fn(std::forward<F>(fn))](RequestView const &req) mutable -> Response {
 					auto owned = req.to_owned();
-					auto invoke_owned = [](Fn &handler, Request owned_req) -> conflux::work::root::Task<Response> {
+					auto invoke_owned = [](Fn &handler, ::Request owned_req) -> conflux::work::root::Task<Response> {
 						co_return co_await std::invoke(handler, owned_req);
 					};
 					return defer_http_task(invoke_owned(wrapped, std::move(owned)));
@@ -578,7 +573,7 @@ private:
 				"the context dispatch path");
 		} else if constexpr (requires(
 								 Fn &middleware,
-								 Request const &req,
+								 ::Request const &req,
 								 conflux::http::RequestContext const &ctx,
 								 ContextHandler const &next) {
 								 {
@@ -591,7 +586,7 @@ private:
 				"the context dispatch path");
 		} else if constexpr (std::invocable<Fn &, RequestView const &, Handler const &>) {
 			return Middleware{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, Handler const &>) {
+		} else if constexpr (std::invocable<Fn &, ::Request const &, Handler const &>) {
 			return Middleware{
 				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, Handler const &next) mutable -> Response {
 					auto owned = req.to_owned();
@@ -629,7 +624,7 @@ private:
 				}};
 		} else if constexpr (requires(
 								 Fn &middleware,
-								 Request const &req,
+								 ::Request const &req,
 								 conflux::http::RequestContext const &ctx,
 								 ContextHandler const &next) {
 								 {
@@ -656,7 +651,7 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, RequestView const &, std::shared_ptr<conflux::http::SseChannel>>) {
 			return SseHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, std::shared_ptr<conflux::http::SseChannel>>) {
+		} else if constexpr (std::invocable<Fn &, ::Request const &, std::shared_ptr<conflux::http::SseChannel>>) {
 			return SseHandler{[wrapped = Fn(std::forward<F>(fn))](
 								  RequestView const &req,
 								  std::shared_ptr<conflux::http::SseChannel> ch) mutable {
@@ -673,7 +668,7 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, RequestView const &, conflux::http::WsConn &>) {
 			return WsHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, conflux::http::WsConn &>) {
+		} else if constexpr (std::invocable<Fn &, ::Request const &, conflux::http::WsConn &>) {
 			return WsHandler{
 				[wrapped = Fn(std::forward<F>(fn))](RequestView const &req, conflux::http::WsConn &ws) mutable {
 					auto owned = req.to_owned();
@@ -689,7 +684,7 @@ private:
 		using Fn = std::decay_t<F>;
 		if constexpr (std::invocable<Fn &, RequestView const &, std::exception const &>) {
 			return ErrorHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, Request const &, std::exception const &>) {
+		} else if constexpr (std::invocable<Fn &, ::Request const &, std::exception const &>) {
 			return ErrorHandler{
 				[wrapped =
 					 Fn(std::forward<F>(fn))](RequestView const &req, std::exception const &ex) mutable -> Response {
@@ -705,7 +700,7 @@ private:
 //   [ISO8601] METHOD path status bytes elapsed_ms
 // and passes the formatted line to `sink`. Thread-safety of `sink` is
 // the caller's responsibility.
-export Router::Middleware make_access_log_middleware(
+Router::Middleware make_access_log_middleware(
 	std::function<void(std::string const &)> sink) {
 	return [sink = std::move(sink)](RequestView const &req, Router::Handler const &next) {
 		auto const t0 = std::chrono::steady_clock::now();
@@ -733,3 +728,5 @@ export Router::Middleware make_access_log_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

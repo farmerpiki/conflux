@@ -16,7 +16,7 @@ public:
 	// Register a Router for an exact host name (e.g. "api.example.com").
 	VHostRouter &add(
 		std::string host,
-		Router router) {
+		conflux::http::Router router) {
 		if (work_pool_ != nullptr) {
 			router.set_work_pool(work_pool_);
 		}
@@ -25,11 +25,11 @@ public:
 	}
 	// Default Router for hosts with no explicit match.
 	VHostRouter &set_default(
-		Router router) {
+		conflux::http::Router router) {
 		if (work_pool_ != nullptr) {
 			router.set_work_pool(work_pool_);
 		}
-		default_ = std::make_unique<Router>(std::move(router));
+		default_ = std::make_unique<conflux::http::Router>(std::move(router));
 		return *this;
 	}
 	VHostRouter &set_work_pool(
@@ -88,7 +88,7 @@ public:
 	}
 
 private:
-	std::unordered_map<std::string, Router> vhosts_;
-	std::unique_ptr<Router> default_;
+	std::unordered_map<std::string, conflux::http::Router> vhosts_;
+	std::unique_ptr<conflux::http::Router> default_;
 	std::shared_ptr<WorkPool> work_pool_{};
 };

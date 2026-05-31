@@ -173,7 +173,7 @@ TEST_CASE(
 	REQUIRE(before > 0);
 
 	for (int i = 0; i < 6; ++i) {
-		Router router;
+		conflux::http::Router router;
 		router.get("/ping", [](Request const &) { return Response::text("pong"); });
 		{
 			ScopedTestServer srv{chaos_config(), std::move(router)};
@@ -193,7 +193,7 @@ TEST_CASE(
 	dir.write("big.bin", std::string(512UL * 1024, 'x'));
 	dir.write("ok.txt", "ok");
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 	ScopedTestServer srv{chaos_config(), std::move(router)};
 
@@ -215,7 +215,7 @@ TEST_CASE(
 	StaticDir const dir;
 	dir.write("large.bin", std::string(2UL * 1024 * 1024, 'z'));
 
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
 	auto server = std::make_shared<HttpServer>(chaos_config(), std::move(router));
 	SignalGuard const sigterm{SIGTERM, sigterm_shutdown_handler};

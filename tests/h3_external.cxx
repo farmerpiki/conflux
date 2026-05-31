@@ -9,7 +9,7 @@ import conflux.net.router;
 import conflux.tests.external_support;
 namespace {
 
-Router make_router() {
+conflux::http::Router make_router() {
 	return conflux::tests::make_external_test_router();
 }
 
@@ -51,7 +51,7 @@ TEST_CASE(
 	"h3: large body delivered fully") {
 	std::size_t const kSize = 128 * 1024;
 	std::string big(kSize, 'Q');
-	Router r;
+	conflux::http::Router r;
 	r.get("/big", [&](Request const &) { return Response::text(big); });
 	conflux::tests::Http3ServerFixture const fx{std::move(r)};
 	auto [code, out] = fx.curl_h3("/big");

@@ -63,7 +63,7 @@ int main() {
 	cfg.cert_file = cert_path;
 	cfg.key_file = key_path;
 
-	Router router;
+	conflux::http::Router router;
 
 	router.get("/", [](RequestView const &) {
 		return Response::html(

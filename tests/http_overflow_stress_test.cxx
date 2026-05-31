@@ -57,7 +57,7 @@ static std::string http_get_on_timeout(
 TEST_CASE(
 	"http.cq_overflow: non-UB shutdown under small-CQ flood",
 	"[http][overflow][stress]") {
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	auto cfg = tiny_ring_config();

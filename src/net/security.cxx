@@ -32,9 +32,9 @@ export struct SecurityOptions {
 	bool hsts_only_on_tls{true};
 };
 // Middleware factory: inject security headers into every response.
-export Router::Middleware security_headers_middleware(
+export conflux::http::Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {

@@ -254,9 +254,9 @@ private:
 // ---------------------------------------------------------------------------
 
 // Middleware: intercept every request, record method + status + latency.
-export Router::Middleware metrics_middleware(
+export conflux::http::Router::Middleware metrics_middleware(
 	MetricsRegistry &registry) {
-	return [&registry](RequestView const &req, Router::Handler const &next) -> Response {
+	return [&registry](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto const start = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		registry.record(req.method, resp.status, std::chrono::steady_clock::now() - start);
@@ -267,19 +267,19 @@ export Router::Middleware metrics_middleware(
 // Usage: router.get("/metrics", metrics_handler(registry));
 // WARNING: the plain handler is unauthenticated — never expose on a public
 // listener; prefer metrics_handler_protected or a network-level ACL.
-export Router::Handler metrics_handler(
+export conflux::http::Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
 	return [&registry](RequestView const &) -> Response { return Response::prometheus(registry.format_prometheus()); };
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
-export Router::Handler metrics_handler_protected(
+export conflux::http::Router::Handler metrics_handler_protected(
 	MetricsRegistry const &registry,
-	std::vector<Router::Middleware> chain) {
-	Router::Handler current = metrics_handler(registry);
+	std::vector<conflux::http::Router::Middleware> chain) {
+	conflux::http::Router::Handler current = metrics_handler(registry);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-		Router::Middleware mw = std::move(*it);
-		Router::Handler next = std::move(current);
+		conflux::http::Router::Middleware mw = std::move(*it);
+		conflux::http::Router::Handler next = std::move(current);
 		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
 			return mw(req, next);
 		};

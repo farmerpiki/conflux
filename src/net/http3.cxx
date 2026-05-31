@@ -136,7 +136,7 @@ struct Http3Conn {
 	std::array<std::uint8_t, kCidLen> scid_key{};
 	std::vector<std::array<std::uint8_t, kCidLen>> cid_keys{};
 	std::unordered_map<std::int64_t, std::unique_ptr<Http3Stream>> streams{};
-	Router const *router{nullptr};
+	conflux::http::Router const *router{nullptr};
 	void *listener{nullptr};
 	bool closing{false};
 	bool closed{false};
@@ -615,7 +615,7 @@ using namespace http3_detail;
 export class Http3Listener {
 public:
 	Http3Listener(
-		Router const *router,
+		conflux::http::Router const *router,
 		conflux::http::Http3Config const &cfg,
 		std::uint16_t port,
 		SSL_CTX *ssl_ctx)
@@ -1188,7 +1188,7 @@ public:
 	}
 
 private:
-	Router const *router_;
+	conflux::http::Router const *router_;
 	conflux::http::Http3Config cfg_;
 	std::uint16_t port_;
 	SSL_CTX *ssl_ctx_;

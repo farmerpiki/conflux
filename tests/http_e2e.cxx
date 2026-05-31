@@ -74,8 +74,8 @@ using namespace conflux::tests;
 TEST_CASE(
 	"middleware next is one-shot",
 	"[middleware]") {
-	Router router;
-	router.use([](Request const &req, Router::Handler const &next) {
+	conflux::http::Router router;
+	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
 		(void)next(req);
 		return next(req);
 	});
@@ -205,7 +205,7 @@ void ensure_server() {
 		cfg.coop_taskrun = true;
 		cfg.taskrun_flag = true;
 
-		Router router;
+		conflux::http::Router router;
 		router.get("/", [](Request const &) {
 			return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 		});
@@ -326,8 +326,8 @@ void ensure_server() {
 			return r;
 		});
 		// Route group: /api/v2/* with a version header middleware.
-		router.group("/api/v2", [](Router::Group &g) {
-			g.use([](Request const &req, Router::Handler const &next) {
+		router.group("/api/v2", [](conflux::http::Router::Group &g) {
+			g.use([](Request const &req, conflux::http::Router::Handler const &next) {
 				auto resp = next(req);
 				resp.headers["X-Api-Version"] = "2";
 				return resp;
@@ -377,7 +377,7 @@ void ensure_redirect_follow_servers() {
 	std::call_once(flag, [] {
 		Config cfg = mw_config();
 
-		Router target;
+		conflux::http::Router target;
 		target.get("/echo-headers", [](Request const &req) {
 			return Response::text(
 				std::format(
@@ -389,7 +389,7 @@ void ensure_redirect_follow_servers() {
 		});
 		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
 
-		Router source;
+		conflux::http::Router source;
 		source.get("/echo-headers", [](Request const &req) {
 			return Response::text(
 				std::format(
@@ -420,7 +420,7 @@ void ensure_redirect_follow_servers() {
 		source.get("/async-final", [](Request const &) { return Response::text("async-ok"); });
 		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
 
-		Router front;
+		conflux::http::Router front;
 		auto popts = ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_redirect_follow_source_port,
@@ -563,7 +563,7 @@ std::uint16_t g_compress_port = 0;
 void ensure_compress_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(compress_middleware());
 		// Large body (>256 bytes) so min_body_size is exceeded.
 		router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
@@ -585,7 +585,7 @@ std::uint16_t g_cors_compress_port = 0;
 void ensure_cors_compress_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
 		router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
@@ -602,7 +602,7 @@ void ensure_security_server() {
 	std::call_once(flag, [] {
 		SecurityOptions sopts{};
 		sopts.hsts_only_on_tls = false;
-		Router router;
+		conflux::http::Router router;
 		router.use(security_headers_middleware(sopts));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_security_port = start_mw_server(mw_config(), std::move(router));
@@ -616,7 +616,7 @@ std::uint16_t g_cors_port = 0;
 void ensure_cors_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
 		router.get("/vary", [](Request const &) {
@@ -631,7 +631,7 @@ std::uint16_t g_cors_cred_port = 0;
 void ensure_cors_cred_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cors_middleware({
 			.allowed_origins = {"*"},
 			.expose_headers = {"X-Custom-Header", "X-Request-Id"},
@@ -645,7 +645,7 @@ std::uint16_t g_cors_wildcard_port = 0;
 void ensure_cors_wildcard_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cors_middleware()); // default: allowed_origins={"*"}, no credentials
 		router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
 		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
@@ -659,7 +659,7 @@ std::uint16_t g_auth_port = 0;
 void ensure_auth_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(basic_auth_middleware(
 			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](Request const &) { return Response::text("secret"); });
@@ -670,7 +670,7 @@ std::uint16_t g_bearer_port = 0;
 void ensure_bearer_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
 		router.get("/protected", [](Request const &) { return Response::text("secret"); });
 		g_bearer_port = start_mw_server(mw_config(), std::move(router));
@@ -685,7 +685,7 @@ std::uint16_t g_rate_zero_clients_port = 0;
 void ensure_rate_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_rate_port = start_mw_server(mw_config(), std::move(router));
@@ -695,7 +695,7 @@ std::uint16_t g_rate_burst_port = 0;
 void ensure_rate_burst_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// 1 base + 2 burst = 3 total capacity
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
@@ -705,7 +705,7 @@ void ensure_rate_burst_server() {
 void ensure_rate_zero_clients_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
 		router.get("/", [](Request const &) { return Response::text("ok"); });
 		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
@@ -721,7 +721,7 @@ std::uint16_t g_fwd_lax_empty_port = 0;
 void ensure_forwarded_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Trust only 127.0.0.1/32.
 		router.use(forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
 		// Echo the remote_addr so tests can inspect it.
@@ -732,7 +732,7 @@ void ensure_forwarded_server() {
 void ensure_forwarded_strict_empty_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Default strict_mode=true, empty trusted_proxies → no peer is trusted.
 		router.use(forwarded_middleware({}));
 		router.get("/addr", [](Request const &req) { return Response::text(req.remote_addr); });
@@ -742,7 +742,7 @@ void ensure_forwarded_strict_empty_server() {
 void ensure_forwarded_lax_empty_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Legacy trust-all-on-empty behaviour.
 		router.use(forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
 		router.get("/addr", [](Request const &req) { return Response::text(req.remote_addr); });
@@ -757,7 +757,7 @@ std::uint16_t g_rid_port = 0;
 void ensure_rid_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
 		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["x-request-id"]}); });
@@ -773,7 +773,7 @@ std::uint16_t g_ipblock_port = 0;
 void ensure_ipallow_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Allow only loopback.
 		router.use(ip_filter_middleware({
 			.mode = IpFilterMode::allowlist,
@@ -786,7 +786,7 @@ void ensure_ipallow_server() {
 void ensure_ipblock_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Block loopback specifically.
 		router.use(ip_filter_middleware({
 			.mode = IpFilterMode::blocklist,
@@ -800,7 +800,7 @@ std::uint16_t g_ipallow_block_port = 0;
 void ensure_ipallow_block_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Allowlist that does NOT include loopback → should block us.
 		router.use(ip_filter_middleware({
 			.mode = IpFilterMode::allowlist,
@@ -814,7 +814,7 @@ std::uint16_t g_ipblock_pass_port = 0;
 void ensure_ipblock_pass_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		// Blocklist that does NOT include loopback → should pass us through.
 		router.use(ip_filter_middleware({
 			.mode = IpFilterMode::blocklist,
@@ -832,7 +832,7 @@ std::uint16_t g_cache_port = 0;
 void ensure_cache_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(cache_control_middleware({
 			.rules =
 				{
@@ -873,7 +873,7 @@ std::uint16_t g_ts_add_port = 0;
 void ensure_ts_remove_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(trailing_slash_middleware()); // default: remove
 		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_remove_port = start_mw_server(mw_config(), std::move(router));
@@ -882,7 +882,7 @@ void ensure_ts_remove_server() {
 void ensure_ts_add_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.mode = TrailingSlashMode::add}));
 		router.get("/bar/", [](Request const &) { return Response::text("bar"); });
 		g_ts_add_port = start_mw_server(mw_config(), std::move(router));
@@ -892,7 +892,7 @@ std::uint16_t g_ts_308_port = 0;
 void ensure_ts_308_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 308}));
 		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_308_port = start_mw_server(mw_config(), std::move(router));
@@ -902,7 +902,7 @@ std::uint16_t g_ts_307_port = 0;
 void ensure_ts_307_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 307}));
 		router.get("/foo", [](Request const &) { return Response::text("foo"); });
 		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
@@ -1020,7 +1020,7 @@ std::uint16_t g_redirect_port = 0;
 void ensure_redirect_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(redirect_middleware({
 			.rules = {
 					  {.from = "/old", .to = "/new", .status = 301},
@@ -1040,7 +1040,7 @@ std::uint16_t g_csrf_port = 0;
 void ensure_csrf_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(csrf_middleware());
 		router.get("/page", [](Request const &) { return Response::html("<form>"); });
 		router.post("/submit", [](Request const &) { return Response::text("ok"); });
@@ -1055,7 +1055,7 @@ std::uint16_t g_etag_port = 0;
 void ensure_etag_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(etag_middleware());
 		router.get("/content", [](Request const &) { return Response::text("hello world"); });
 		router.get("/empty", [](Request const &) { return Response::text(""); });
@@ -1071,7 +1071,7 @@ std::uint16_t g_resp_cache_port = 0;
 void ensure_resp_cache_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(response_cache_middleware({
 			.max_entries = 16,
 			.default_ttl = std::chrono::seconds{60},
@@ -1155,7 +1155,7 @@ void ensure_slog_server() {
 		int const tmp = ::mkstemp(g_slog_path);
 		::close(tmp);
 
-		Router router;
+		conflux::http::Router router;
 		router.use(structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
 		router.get("/ping", [](Request const &) { return Response::text("pong"); });
 		g_slog_port = start_mw_server(mw_config(), std::move(router));
@@ -1169,7 +1169,7 @@ std::uint16_t g_trace_port = 0;
 void ensure_trace_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router router;
+		conflux::http::Router router;
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
 		router.get("/", [](Request const &req) { return Response::text(std::string{req.headers["traceparent"]}); });
@@ -1188,13 +1188,13 @@ std::shared_ptr<ScopedTestServer> g_proxy_front;
 void ensure_vhost_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router api_router;
+		conflux::http::Router api_router;
 		api_router.get("/status", [](Request const &) { return Response::text("api"); });
 
-		Router web_router;
+		conflux::http::Router web_router;
 		web_router.get("/status", [](Request const &) { return Response::text("web"); });
 
-		Router def_router;
+		conflux::http::Router def_router;
 		def_router.get("/status", [](Request const &) { return Response::text("default"); });
 
 		auto vhr = std::make_shared<VHostRouter>();
@@ -1202,18 +1202,18 @@ void ensure_vhost_server() {
 		vhr->add("web.example.com", std::move(web_router));
 		vhr->set_default(std::move(def_router));
 
-		Router main;
-		main.use([vhr](Request const &req, Router::Handler const &) { return vhr->dispatch(req); });
+		conflux::http::Router main;
+		main.use([vhr](Request const &req, conflux::http::Router::Handler const &) { return vhr->dispatch(req); });
 		g_vhost_port = start_mw_server(mw_config(), std::move(main));
 	});
 }
 void ensure_vhost_direct_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		Router api_router;
+		conflux::http::Router api_router;
 		api_router.get("/status", [](Request const &) { return Response::text("api-direct"); });
 
-		Router def_router;
+		conflux::http::Router def_router;
 		def_router.get("/status", [](Request const &) { return Response::text("default-direct"); });
 
 		VHostRouter vhost_router;
@@ -1228,7 +1228,7 @@ void ensure_proxy_server() {
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 
-		Router upstream;
+		conflux::http::Router upstream;
 		upstream.get("/ping", [](Request const &) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 			auto resp = Response::text("proxied-ok");
@@ -1237,7 +1237,7 @@ void ensure_proxy_server() {
 		});
 		g_proxy_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 
-		Router front;
+		conflux::http::Router front;
 		auto popts = ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_proxy_upstream->port(),
@@ -1282,7 +1282,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"router dispatch preserves generic route priority before literal index hits") {
-	Router router;
+	conflux::http::Router router;
 	router.get("/{id}", [](RequestView const &req) {
 		return Response::text(std::string{"generic:"} + std::string{req.params["id"]});
 	});
@@ -1298,7 +1298,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"router dispatch uses method-scoped literal lookup") {
-	Router router;
+	conflux::http::Router router;
 	router.post("/health", [](RequestView const &) { return Response::text("post"); });
 	router.get("/health", [](RequestView const &) { return Response::text("get"); });
 
@@ -1767,7 +1767,7 @@ TEST_CASE(
 	"POST with Expect: 100-continue times out if body never arrives") {
 	Config cfg = Config::test();
 	cfg.request_timeout_ms = 1500;
-	Router router;
+	conflux::http::Router router;
 	router.post("/upload", [](Request const &req) { return Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -2100,7 +2100,7 @@ TEST_CASE(
 	cfg.rings = 1;
 	cfg.ring_entries = 64;
 	cfg.startup_banner = false;
-	Router router;
+	conflux::http::Router router;
 	auto timeout = std::make_shared<std::chrono::milliseconds>(25);
 	router.add_context_with_timeout(
 		"POST",
@@ -2279,7 +2279,7 @@ TEST_CASE(
 TEST_CASE(
 	"response status_text with CRLF is sanitized") {
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.get("/bad-status", [](Request const &) {
 		Response r = Response::text("ok");
 		r.status = 299;
@@ -2308,7 +2308,7 @@ TEST_CASE(
 	Config cfg = mw_config();
 	cfg.http_redirect_to_https = true;
 	cfg.https_redirect_hosts = {"example.com"};
-	Router router;
+	conflux::http::Router router;
 	router.get("/path", [](Request const &) { return Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -2374,7 +2374,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -2423,7 +2423,7 @@ TEST_CASE(
 	"drain closes idle keep-alive connection and reports idle close",
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -2448,7 +2448,7 @@ TEST_CASE(
 	"drain stops new accepts",
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -2478,7 +2478,7 @@ TEST_CASE(
 	"drain lets in-flight response finish",
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.get("/large", [](Request const &) { return Response::text(std::string(512 * 1024, 'x')); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -2504,7 +2504,7 @@ TEST_CASE(
 	"drain deadline reports hit when idle close is disabled",
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](Request const &) { return Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};

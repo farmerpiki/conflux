@@ -71,7 +71,7 @@ int main() {
 	cfg.key_file = cert_files.key;
 	cfg.http3.enabled = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/", [](RequestView const &) {
 		return Response::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
 	});

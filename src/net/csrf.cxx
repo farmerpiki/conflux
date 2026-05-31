@@ -36,7 +36,7 @@ export struct CsrfOptions {
 // Safe methods (GET, HEAD, OPTIONS) are passed through; the CSRF cookie is
 // set/refreshed on every response.  Protected methods are rejected with 403
 // when the submitted token does not match the cookie.
-export Router::Middleware csrf_middleware(
+export conflux::http::Router::Middleware csrf_middleware(
 	CsrfOptions opts = {}) {
 	std::string lower_cookie = ascii_lower(opts.cookie_name);
 	std::string lower_header = ascii_lower(opts.header_name);
@@ -45,7 +45,8 @@ export Router::Middleware csrf_middleware(
 	return [opts = std::move(opts),
 			lower_cookie = std::move(lower_cookie),
 			lower_header = std::move(lower_header),
-			lower_field = std::move(lower_field)](RequestView const &req, Router::Handler const &next) -> Response {
+			lower_field = std::move(
+				lower_field)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto is_protected =
 			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
 

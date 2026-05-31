@@ -112,13 +112,13 @@ export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_sig
 // Cookies in "value.SIG" std::format are verified; on success the plain value is injected back.
 // Cookies without a "." are passed through unchanged (not all cookies are signed).
 // On failure: if strip_invalid=true the cookie is cleared; otherwise it is passed as-is.
-export Router::Middleware cookie_signing_middleware(
+export conflux::http::Router::Middleware cookie_signing_middleware(
 	CookieSigningOptions opts) {
 	if (auto valid = conflux::http::validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes);
 		!valid) {
 		throw std::invalid_argument{valid.error()};
 	}
-	return [opts = std::move(opts)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {

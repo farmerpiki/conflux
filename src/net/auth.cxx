@@ -507,13 +507,14 @@ export inline Response auth_throttle_too_many_requests(
 }
 
 export template<typename KeySelector>
-Router::Middleware auth_throttle_middleware(
+conflux::http::Router::Middleware auth_throttle_middleware(
 	AuthFailureLimiter limiter,
 	KeySelector &&selector,
 	AuthThrottleMiddlewareOptions opts = {}) {
 	return [limiter = std::move(limiter),
 			selector = std::decay_t<KeySelector>(std::forward<KeySelector>(selector)),
-			opts = std::move(opts)](RequestView const &req, Router::Handler const &next) mutable -> Response {
+			opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) mutable -> Response {
 		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
 		if (!key) {
 			return next(req);
@@ -531,13 +532,13 @@ Router::Middleware auth_throttle_middleware(
 	};
 }
 export template<typename Validator>
-Router::Middleware basic_auth_middleware(
+conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
 	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
 			opts = std::move(opts),
-			state](RequestView const &req, Router::Handler const &next) -> Response {
+			state](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
@@ -559,7 +560,7 @@ Router::Middleware basic_auth_middleware(
 }
 
 export template<typename Validator>
-Router::Middleware basic_auth_middleware(
+conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	std::string realm = "Restricted") {
 	return basic_auth_middleware(std::forward<Validator>(validator), BasicAuthOptions{.realm = std::move(realm)});
@@ -568,10 +569,10 @@ Router::Middleware basic_auth_middleware(
 // Middleware factory: Bearer token Authentication guard.
 // validator(token) → true = allow, false = 401.
 export template<typename Validator>
-Router::Middleware bearer_auth_middleware(
+conflux::http::Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
-	return [v = std::decay_t<Validator>(
-				std::forward<Validator>(validator))](RequestView const &req, Router::Handler const &next) -> Response {
+	return [v = std::decay_t<Validator>(std::forward<Validator>(
+				validator))](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto auth = req.headers["authorization"];
 		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Bearer");
 		if (!credentials) {

@@ -91,12 +91,14 @@ private:
 	UniqueFd file_{};
 	int current_day_{-1};
 };
-export Router::Middleware structured_log_middleware(
+export conflux::http::Router::Middleware structured_log_middleware(
 	StructuredLogOptions opts = {}) {
 	std::string app_name = std::move(opts.app_name);
 	auto sink = std::make_shared<LogSink>(std::move(opts.log_file), opts.daily_rotate);
 
-	return [sink, app_name = std::move(app_name)](RequestView const &req, Router::Handler const &next) -> Response {
+	return [sink,
+			app_name =
+				std::move(app_name)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();

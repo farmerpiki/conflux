@@ -42,9 +42,9 @@ inline std::string build_query(
 // The root path "/" is never redirected regardless of mode.
 // Query std::string is re-serialized from parsed fields (percent-encoded per RFC 3986
 // unreserved set) and appended to the Location header.
-export Router::Middleware trailing_slash_middleware(
+export conflux::http::Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
-	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
+	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		auto const &path = req.path;
 
 		// Never touch the root.

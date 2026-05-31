@@ -193,7 +193,7 @@ TEST_CASE(
 	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", dir);
 
 	conflux::tests::HttpsServerFixture const fx{cfg, std::move(router)};
@@ -346,7 +346,7 @@ TEST_CASE(
 #endif
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {
-	Router r;
+	conflux::http::Router r;
 	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
@@ -361,7 +361,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"ext/curl: SSE send_event delivers typed event") {
-	Router r;
+	conflux::http::Router r;
 	r.sse("/typed", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();

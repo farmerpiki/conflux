@@ -94,36 +94,37 @@ void inject_cors_headers(
 // Middleware factory: handle CORS preflight and inject CORS headers.
 // Register this before other middleware so OPTIONS preflights short-circuit
 // before route matching attempts (first-registered = outermost wrapper).
-export Router::Middleware cors_middleware(
+export conflux::http::Router::Middleware cors_middleware(
 	CorsOptions opts = {}) {
 	auto policy = cors_detail::PreparedCorsOptions{std::move(opts)};
-	return [policy = std::move(policy)](RequestView const &req, Router::Handler const &next) -> Response {
-		auto request_origin = req.headers["origin"];
+	return
+		[policy = std::move(policy)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+			auto request_origin = req.headers["origin"];
 
-		// Preflight: OPTIONS + Origin + Access-Control-Request-Method
-		if (req.method == "OPTIONS"
-			&& !request_origin.empty()
-			&& !req.headers["access-control-request-method"].empty()) {
-			auto preflight = Response::no_content();
-			preflight.content_type = "text/plain";
-			auto origin = cors_detail::resolve_origin(policy, request_origin);
-			if (!origin.empty()) {
-				preflight.headers["Access-Control-Allow-Origin"] = origin;
-				preflight.headers["Access-Control-Allow-Methods"] = policy.allowed_methods;
-				preflight.headers["Access-Control-Allow-Headers"] = policy.allowed_headers;
-				preflight.headers["Access-Control-Max-Age"] = policy.max_age;
-				if (policy.opts.allow_credentials) {
-					preflight.headers["Access-Control-Allow-Credentials"] = "true";
+			// Preflight: OPTIONS + Origin + Access-Control-Request-Method
+			if (req.method == "OPTIONS"
+				&& !request_origin.empty()
+				&& !req.headers["access-control-request-method"].empty()) {
+				auto preflight = Response::no_content();
+				preflight.content_type = "text/plain";
+				auto origin = cors_detail::resolve_origin(policy, request_origin);
+				if (!origin.empty()) {
+					preflight.headers["Access-Control-Allow-Origin"] = origin;
+					preflight.headers["Access-Control-Allow-Methods"] = policy.allowed_methods;
+					preflight.headers["Access-Control-Allow-Headers"] = policy.allowed_headers;
+					preflight.headers["Access-Control-Max-Age"] = policy.max_age;
+					if (policy.opts.allow_credentials) {
+						preflight.headers["Access-Control-Allow-Credentials"] = "true";
+					}
+					preflight.headers["Vary"] = "Origin";
 				}
-				preflight.headers["Vary"] = "Origin";
+				return preflight;
 			}
-			return preflight;
-		}
 
-		auto resp = next(req);
-		if (!request_origin.empty()) {
-			cors_detail::inject_cors_headers(policy, request_origin, resp);
-		}
-		return resp;
-	};
+			auto resp = next(req);
+			if (!request_origin.empty()) {
+				cors_detail::inject_cors_headers(policy, request_origin, resp);
+			}
+			return resp;
+		};
 }

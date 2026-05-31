@@ -165,7 +165,7 @@ TEST_CASE(
 	CHECK(resp.content_type == "application/json");
 	CHECK(resp.text_body() == R"({"value":11})");
 
-	Router router;
+	conflux::http::Router router;
 	hj::routes<StreamingOnlyProvider>(router).get("/value", [] { return StreamingPayload{.value = 3}; });
 }
 

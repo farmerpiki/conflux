@@ -34,7 +34,7 @@ std::string_view xff_first(
 // If the direct peer is in trusted_proxies (or trusted_proxies is empty),
 // the real client IP is extracted from X-Forwarded-For / X-Real-IP.
 // Headers from untrusted peers are stripped before passing downstream.
-export Router::Middleware forwarded_middleware(
+export conflux::http::Router::Middleware forwarded_middleware(
 	ForwardedOptions opts = {}) {
 	auto cidrs = parse_cidr_list(opts.trusted_proxies);
 	if (opts.trusted_proxies.empty() && !opts.strict_mode) {
@@ -42,7 +42,7 @@ export Router::Middleware forwarded_middleware(
 	}
 
 	return [opts = std::move(opts),
-			cidrs = std::move(cidrs)](RequestView const &req, Router::Handler const &next) -> Response {
+			cidrs = std::move(cidrs)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {
 			auto const peer_ip = parse_ip(req.remote_addr).value_or(IpAddr{});

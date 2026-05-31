@@ -13,12 +13,12 @@ export class HttpServer {
 	void initialize(conflux::http::Config const &cfg);
 
 public:
-	explicit HttpServer(conflux::http::Config const &cfg, Router &&router);
+	explicit HttpServer(conflux::http::Config const &cfg, conflux::http::Router &&router);
 	explicit HttpServer(conflux::http::Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
 	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
-	try_create(conflux::http::Config const &cfg, Router &&router);
+	try_create(conflux::http::Config const &cfg, conflux::http::Router &&router);
 	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
 	try_create(conflux::http::Config const &cfg, VHostRouter &&vhost_router);
 

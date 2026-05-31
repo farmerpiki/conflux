@@ -44,7 +44,7 @@ int main() {
 	cfg.key_file = key_path;
 	cfg.http3.enabled = true;
 
-	Router router;
+	conflux::http::Router router;
 	router.get("/ping", [](RequestView const &) { return Response::json(R"({"ok":true})"); });
 
 	HttpServer srv{cfg, std::move(router)};
