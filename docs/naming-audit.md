@@ -80,7 +80,8 @@ coroutine behavior obvious.
 | `TcpStream::{recv_borrowed, recv_owned, write_borrowed, write_copy, write_owned, write_all_* , shutdown, close}` | `conflux.socket_io.coro` | `async_recv_borrowed`, `async_recv_owned`, `async_write_*`, `async_shutdown`, `async_close` | Removed for public preview cleanup. |
 | `UdpSocket::{send_to_borrowed, send_to_copy, recv_from}` | `conflux.socket_io.coro` | `async_send_to_*`, `async_recv_from` | Removed for public preview cleanup. |
 
-Keep final removal of legacy `FileReader::*_async` names in the release alias-cleanup branch; the preferred aliases are now available and call sites have been migrated.
+Legacy `FileReader::*_async` names have been removed; the exported methods use
+the `async_*` prefix form.
 
 ## Executor-owned synchronous surfaces
 
