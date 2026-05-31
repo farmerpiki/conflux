@@ -195,7 +195,7 @@ void ensure_codec_server() {
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		conflux::http::Router router;
-		router.use(compress_middleware({.min_body_size = 0})); // compress everything
+		router.use(conflux::http::compress_middleware({.min_body_size = 0})); // compress everything
 		router.get("/data", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::text(std::string(512, 'A')); // compressible
 		});
@@ -280,11 +280,11 @@ TEST_CASE(
 }
 TEST_CASE(
 	"compress: backend names expose stable labels") {
-	CHECK(gzip_backend_name(GzipBackend::auto_select) == "auto");
-	CHECK(gzip_backend_name(GzipBackend::zlib) == "zlib");
-	CHECK(gzip_backend_name(GzipBackend::libdeflate) == "libdeflate");
-	CHECK(gzip_backend_name(GzipBackend::zlib_ng) == "zlib-ng");
-	CHECK(gzip_backend_name(GzipBackend::isa_l) == "isa-l");
+	CHECK(conflux::http::gzip_backend_name(conflux::http::GzipBackend::auto_select) == "auto");
+	CHECK(conflux::http::gzip_backend_name(conflux::http::GzipBackend::zlib) == "zlib");
+	CHECK(conflux::http::gzip_backend_name(conflux::http::GzipBackend::libdeflate) == "libdeflate");
+	CHECK(conflux::http::gzip_backend_name(conflux::http::GzipBackend::zlib_ng) == "zlib-ng");
+	CHECK(conflux::http::gzip_backend_name(conflux::http::GzipBackend::isa_l) == "isa-l");
 }
 TEST_CASE(
 	"compress negotiation header: wildcard * selects preferred dynamic codec") {
@@ -292,7 +292,7 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: *\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS && CONFLUX_HAS_ZSTD
-	if (current_dynamic_encoding_preference() == DynamicEncodingPreference::gzip_first) {
+	if (conflux::http::current_dynamic_encoding_preference() == conflux::http::DynamicEncodingPreference::gzip_first) {
 		REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
 	} else {
 		REQUIRE(resp.find("Content-Encoding: zstd\r\n") != std::string::npos);

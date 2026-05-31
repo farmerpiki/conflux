@@ -620,7 +620,7 @@ int main(
 
 	// compress
 	Router compress_router;
-	compress_router.use(compress_middleware());
+	compress_router.use(conflux::http::compress_middleware());
 	compress_router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 	auto compress = start_server(bench_config(), std::move(compress_router));
 
@@ -664,7 +664,7 @@ int main(
 	Router fs_router;
 	fs_router.use(conflux::http::security_headers_middleware(sopts));
 	fs_router.use(conflux::http::cors_middleware({.allowed_origins = {"https://bench.example"}}));
-	fs_router.use(compress_middleware());
+	fs_router.use(conflux::http::compress_middleware());
 	fs_router.use(conflux::http::etag_middleware());
 	fs_router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 	auto full_stack = start_server(bench_config(), std::move(fs_router));

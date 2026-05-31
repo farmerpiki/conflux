@@ -26,19 +26,22 @@ import conflux.net.http.parse_helpers;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
-export struct CompressOptions {
+
+export namespace conflux::http {
+
+struct CompressOptions {
 	// Responses smaller than this (in bytes) are not compressed.
 	std::size_t min_body_size{256};
 };
 
-export enum class GzipBackend : std::uint8_t {
+enum class GzipBackend : std::uint8_t {
 	auto_select,
 	zlib,
 	libdeflate,
 	zlib_ng,
 	isa_l,
 };
-export [[nodiscard]] std::string_view gzip_backend_name(
+[[nodiscard]] std::string_view gzip_backend_name(
 	GzipBackend backend) noexcept {
 	switch (backend) {
 	case GzipBackend::auto_select: return "auto";
@@ -50,12 +53,12 @@ export [[nodiscard]] std::string_view gzip_backend_name(
 	return "unknown";
 }
 
-export enum class CompressionCalibration : std::uint8_t {
+enum class CompressionCalibration : std::uint8_t {
 	disabled,
 	startup,
 };
 
-export enum class DynamicEncodingPreference : std::uint8_t {
+enum class DynamicEncodingPreference : std::uint8_t {
 	gzip_first,
 	zstd_first,
 };
@@ -414,22 +417,22 @@ std::string zstd_compress(
 #endif // CONFLUX_HAS_ZSTD
 
 } // namespace compress_detail
-export [[nodiscard]] std::vector<GzipBackend> available_gzip_backends() {
+[[nodiscard]] std::vector<GzipBackend> available_gzip_backends() {
 	return compress_detail::available_gzip_backends();
 }
-export [[nodiscard]] GzipBackend current_gzip_backend() {
+[[nodiscard]] GzipBackend current_gzip_backend() {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	return compress_detail::configured_gzip_backend();
 }
-export [[nodiscard]] DynamicEncodingPreference current_dynamic_encoding_preference() {
+[[nodiscard]] DynamicEncodingPreference current_dynamic_encoding_preference() {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	return compress_detail::configured_dynamic_encoding_preference();
 }
-export [[nodiscard]] CompressionCalibration compression_calibration() {
+[[nodiscard]] CompressionCalibration compression_calibration() {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	return compress_detail::gzip_calibration_policy();
 }
-export void set_compression_calibration(
+void set_compression_calibration(
 	CompressionCalibration policy) {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	compress_detail::gzip_calibration_policy() = policy;
@@ -453,7 +456,7 @@ export void set_compression_calibration(
 			compress_detail::default_dynamic_encoding_preference(backend);
 	}
 }
-export void calibrate_gzip_backend() {
+void calibrate_gzip_backend() {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	auto const backends = compress_detail::available_gzip_backends();
 	if (backends.size() <= 1) {
@@ -468,7 +471,7 @@ export void calibrate_gzip_backend() {
 	compress_detail::configured_dynamic_encoding_preference() =
 		compress_detail::benchmark_dynamic_encoding_preference(backend);
 }
-export bool set_gzip_backend(
+bool set_gzip_backend(
 	GzipBackend backend) {
 	std::scoped_lock lk{compress_detail::compression_config_mutex()};
 	if (backend != GzipBackend::auto_select && !compress_detail::gzip_backend_available(backend)) {
@@ -491,9 +494,9 @@ export bool set_gzip_backend(
 // Compress responses using the best encoding the client accepts.
 // Supports br (brotli), zstd, and gzip depending on what was compiled in.
 // Skips small responses, SSE streams, and non-compressible MIME types.
-export conflux::http::Router::Middleware compress_middleware(
+Router::Middleware compress_middleware(
 	CompressOptions opts = {}) {
-	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts](RequestView const &req, Router::Handler const &next) -> Response {
 		auto resp = next(req);
 
 		if (!resp.is_text()) {
@@ -536,3 +539,5 @@ export conflux::http::Router::Middleware compress_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

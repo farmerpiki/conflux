@@ -198,7 +198,7 @@ std::uint16_t compression_port() {
 	std::call_once(flag, [] {
 		Config cfg = mw_config();
 		conflux::http::Router router;
-		router.use(compress_middleware({.min_body_size = 64}));
+		router.use(conflux::http::compress_middleware({.min_body_size = 64}));
 		router.get("/large", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(4096, 'A')); });
 		router.get("/small", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(32, 's')); });
 		router.get("/binary", [](conflux::http::OwnedRequest const &) {
@@ -231,11 +231,11 @@ std::string get_sse(
 }
 
 struct CompressionStateGuard {
-	CompressionCalibration calibration{compression_calibration()};
-	GzipBackend backend{current_gzip_backend()};
+	conflux::http::CompressionCalibration calibration{conflux::http::compression_calibration()};
+	conflux::http::GzipBackend backend{conflux::http::current_gzip_backend()};
 	~CompressionStateGuard() {
-		set_compression_calibration(calibration);
-		(void)set_gzip_backend(backend);
+		conflux::http::set_compression_calibration(calibration);
+		(void)conflux::http::set_gzip_backend(backend);
 	}
 };
 
@@ -262,8 +262,8 @@ TEST_CASE(
 	"compression matrix: every configured gzip backend can serve dynamic gzip",
 	"[compression][http][e2e]") {
 	CompressionStateGuard const guard;
-	set_compression_calibration(CompressionCalibration::disabled);
-	auto const backends = available_gzip_backends();
+	conflux::http::set_compression_calibration(conflux::http::CompressionCalibration::disabled);
+	auto const backends = conflux::http::available_gzip_backends();
 
 	if (backends.empty()) {
 		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: gzip\r\n");
@@ -274,8 +274,8 @@ TEST_CASE(
 	}
 
 	for (auto const backend: backends) {
-		CAPTURE(gzip_backend_name(backend));
-		REQUIRE(set_gzip_backend(backend));
+		CAPTURE(conflux::http::gzip_backend_name(backend));
+		REQUIRE(conflux::http::set_gzip_backend(backend));
 		auto resp = http_get_on(compression_port(), "/large", "Accept-Encoding: gzip\r\n");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 		CHECK(header_value(resp, "Content-Encoding: ") == "gzip");

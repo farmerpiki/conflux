@@ -37,9 +37,9 @@ struct Case {
 	return 1000;
 }
 bool force_gzip_backend(
-	GzipBackend backend) {
-	set_compression_calibration(CompressionCalibration::disabled);
-	return set_gzip_backend(backend);
+	conflux::http::GzipBackend backend) {
+	conflux::http::set_compression_calibration(conflux::http::CompressionCalibration::disabled);
+	return conflux::http::set_gzip_backend(backend);
 }
 void print_usage() {
 	std::println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
@@ -225,7 +225,7 @@ Case make_compress_case() {
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
 		return conflux::http::Response::text(*payload);
 	});
@@ -251,7 +251,7 @@ Case make_compress_negotiation_miss_case() {
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(4096, 'x');
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
 		return conflux::http::Response::text(*payload);
 	});
@@ -277,7 +277,7 @@ Case make_compress_below_threshold_case() {
 	};
 	auto state = std::make_shared<State>();
 	state->payload->assign(128, 'x');
-	state->router.use(compress_middleware({.min_body_size = 256}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 256}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
 		return conflux::http::Response::text(*payload);
 	});
@@ -310,7 +310,7 @@ Case make_codec_payload_case_owned(
 	state->description =
 		std::format("Compression path pinned to {} for {} std::byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
 		return conflux::http::Response::text(*payload);
 	});
@@ -329,7 +329,7 @@ Case make_codec_payload_case_owned(
 		}};
 }
 Case make_gzip_backend_payload_case(
-	GzipBackend backend,
+	conflux::http::GzipBackend backend,
 	std::size_t payload_size) {
 	struct State {
 		std::string name;
@@ -337,16 +337,16 @@ Case make_gzip_backend_payload_case(
 		Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
-		GzipBackend backend;
+		conflux::http::GzipBackend backend;
 		bool configured = false;
 	};
 	auto state = std::make_shared<State>();
 	state->backend = backend;
-	state->name = std::format("backend/{}/{}B", gzip_backend_name(backend), payload_size);
+	state->name = std::format("backend/{}/{}B", conflux::http::gzip_backend_name(backend), payload_size);
 	state->description =
-		std::format("Gzip backend {} on {} std::byte text payloads", gzip_backend_name(backend), payload_size);
+		std::format("Gzip backend {} on {} std::byte text payloads", conflux::http::gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
 		return conflux::http::Response::text(*payload);
 	});
@@ -423,7 +423,7 @@ Case make_route_json_with_compress_negotiation_case() {
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/api/users/{user}/posts/{post}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
@@ -453,7 +453,7 @@ Case make_flow_route_case() {
 		resp.headers["X-Bench"] = "flow";
 		return resp;
 	});
-	state->router.use(compress_middleware({.min_body_size = 0}));
+	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/api/users/{user}/posts/{post}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::json(
 			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
@@ -526,28 +526,28 @@ std::vector<Case> build_cases() {
 	cases.push_back(make_codec_payload_case_owned("br", 65536));
 #endif
 #if CONFLUX_HAS_COMPRESS
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib, 512));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib, 4096));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib, 16384));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib, 65536));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib, 512));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib, 4096));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib, 16384));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib, 65536));
 #endif
 #if CONFLUX_HAS_LIBDEFLATE
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::libdeflate, 512));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::libdeflate, 4096));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::libdeflate, 16384));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::libdeflate, 65536));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::libdeflate, 512));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::libdeflate, 4096));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::libdeflate, 16384));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::libdeflate, 65536));
 #endif
 #if CONFLUX_HAS_ZLIB_NG
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib_ng, 512));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib_ng, 4096));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib_ng, 16384));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::zlib_ng, 65536));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib_ng, 512));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib_ng, 4096));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib_ng, 16384));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::zlib_ng, 65536));
 #endif
 #if CONFLUX_HAS_ISAL
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::isa_l, 512));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::isa_l, 4096));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::isa_l, 16384));
-	cases.push_back(make_gzip_backend_payload_case(GzipBackend::isa_l, 65536));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::isa_l, 512));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::isa_l, 4096));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::isa_l, 16384));
+	cases.push_back(make_gzip_backend_payload_case(conflux::http::GzipBackend::isa_l, 65536));
 #endif
 	return cases;
 }

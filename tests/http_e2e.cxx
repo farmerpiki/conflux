@@ -584,7 +584,7 @@ void ensure_compress_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(compress_middleware());
+		router.use(conflux::http::compress_middleware());
 		// Large body (>256 bytes) so min_body_size is exceeded.
 		router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 		// Small body (<256 bytes).
@@ -607,7 +607,7 @@ void ensure_cors_compress_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://test.example"}}));
-		router.use(compress_middleware());
+		router.use(conflux::http::compress_middleware());
 		router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
 	});

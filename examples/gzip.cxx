@@ -31,7 +31,7 @@ int main() {
 	namespace http = conflux::http;
 
 	auto app = http::app();
-	app.use(compress_middleware());
+	app.use(conflux::http::compress_middleware());
 
 	app.get("/", [](http::RequestView const &) {
 		return http::html(
