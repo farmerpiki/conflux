@@ -48,7 +48,7 @@ int main() {
 	conflux::http::Config cfg = conflux::http::Config::low_latency();
 	cfg.port = 9101;
 	std::println("virtual-host server listening on http://localhost:9101/");
-	HttpServer srv{cfg, std::move(hosts)};
+	conflux::http::HttpServer srv{cfg, std::move(hosts)};
 	auto const status = srv.run();
 	return status == conflux::http::RunStatus::stopped_normally ? 0 : 1;
 }

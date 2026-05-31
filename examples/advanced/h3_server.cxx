@@ -79,7 +79,7 @@ int main() {
 		return conflux::http::Response::json(R"({"transport":"h3-ready"})");
 	});
 
-	HttpServer srv{cfg, std::move(router)};
+	conflux::http::HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_files.cert.c_str());
 	::unlink(cert_files.key.c_str());
 	cert_files.cert.clear();

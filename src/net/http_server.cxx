@@ -7,7 +7,9 @@ import conflux.net.router;
 import conflux.net.vhost;
 import conflux.net.config;
 
-export class HttpServer {
+export namespace conflux::http {
+
+class HttpServer {
 	struct Impl;
 	Impl *impl_{};
 	void initialize(conflux::http::Config const &cfg);
@@ -43,3 +45,5 @@ public:
 	HttpServer(HttpServer &&) = delete;
 	HttpServer &operator =(HttpServer &&) = delete;
 };
+
+} // namespace conflux::http

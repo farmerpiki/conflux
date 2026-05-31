@@ -23,7 +23,7 @@ int main() {
 }
 ```
 
-Use `Router` + `HttpServer` directly when you need lower-level server ownership;
+Use `Router` + `conflux::http::HttpServer` directly when you need lower-level server ownership;
 use `http::App` for first-contact routes, middleware, WebSocket/SSE, and static
 file registration.
 
@@ -34,10 +34,10 @@ and zero-copy caveats, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
 
 ## Fallible setup factories
 
-`HttpServer` construction can allocate eventfds and initialize TLS contexts before `run()`. Use `try_create` when setup errors should be reported as values rather than exceptions.
+`conflux::http::HttpServer` construction can allocate eventfds and initialize TLS contexts before `run()`. Use `try_create` when setup errors should be reported as values rather than exceptions.
 
 ```cpp
-auto server = HttpServer::try_create(cfg, std::move(router));
+auto server = conflux::http::HttpServer::try_create(cfg, std::move(router));
 if (!server) {
     std::println(std::cerr, "server setup failed: {}", server.error());
     return 1;
@@ -76,7 +76,7 @@ auto routes = app.routes();
 
 ## Server Metrics
 
-`HttpServer::metrics()` returns a passive snapshot of counters accumulated by all
+`conflux::http::HttpServer::metrics()` returns a passive snapshot of counters accumulated by all
 rings. It is intended to be called after `run()` returns; it is not synchronized
 against active ring threads.
 
@@ -156,7 +156,7 @@ struct HttpServerMetrics {
     HttpPressureMetrics pressure;
 };
 
-HttpServerMetrics HttpServer::metrics() const noexcept;
+HttpServerMetrics conflux::http::HttpServer::metrics() const noexcept;
 ```
 
 The snapshot covers io_uring pressure (`sq_dropped`, `cq_overflow`), direct-accept
@@ -257,7 +257,7 @@ handled when host capabilities do not match the config:
 - `silent_fallback`: supported paths are used without public warning.
 
 Use `Config::summary_redacted()` or `Config::to_json_redacted()` for effective
-configuration diagnostics. Secret-like fields are redacted. `HttpServer` also
+configuration diagnostics. Secret-like fields are redacted. `conflux::http::HttpServer` also
 exposes `startup_report()` for pull-based startup diagnostics; the library does
 not print this report by default.
 
@@ -569,7 +569,7 @@ router.get("/slow", [pool](http::RequestView const&) -> http::Response {
 
 ## Lifecycle and pressure
 
-`HttpServer::drain(options)` is the explicit graceful-shutdown entry point. It
+`conflux::http::HttpServer::drain(options)` is the explicit graceful-shutdown entry point. It
 uses the same ring wakeup path as `shutdown()`, but records drain intent and
 pressure counters so shutdown behavior is visible in metrics.
 
@@ -588,7 +588,7 @@ auto report = server.drain(opts);
 
 `shutdown()` remains the convenience wrapper for ordinary stop requests.
 `app.run(...)`, `app.try_run(...)`, and `http::run(...)` keep their existing
-behavior. `app.prepare_server(...)` returns a constructed `HttpServer` through
+behavior. `app.prepare_server(...)` returns a constructed `conflux::http::HttpServer` through
 the fallible setup path without binding/listening until `run()` is called; use it
 when a controller thread needs to call `port()`, `metrics()`, `drain()`, or
 `shutdown()`. `app.listen(...)` remains a compatibility alias for
@@ -891,7 +891,7 @@ server.metrics().pressure; }}` and `ObservabilityOptions::work_pools`. Streaming
 responses currently measure response creation/header commit duration; stream
 owners should export close-duration metrics separately if needed.
 Parser/admission rejections are bridged into the same registry for servers
-created through `App`; manual `Router` + `HttpServer` users can install
+created through `App`; manual `Router` + `conflux::http::HttpServer` users can install
 `observability_server_hooks()` explicitly.
 
 ---

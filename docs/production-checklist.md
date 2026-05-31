@@ -34,15 +34,15 @@ one small service.
 
 ## Lifecycle
 
-- Install a shutdown path that calls `HttpServer::drain()` or `shutdown()`.
+- Install a shutdown path that calls `conflux::http::HttpServer::drain()` or `shutdown()`.
 - Pick a drain deadline that matches the service's load balancer and process
   supervisor timeout.
 - Decide whether SSE/WebSocket streams should finish or close during drain.
-- Capture `build_info_summary()`, `HttpServer::startup_report()`, and the
+- Capture `build_info_summary()`, `conflux::http::HttpServer::startup_report()`, and the
   redacted `Config` summary in startup logs when the service owner wants
   diagnostics.
 - Install `http::observability()` for request IDs, trace context, structured
-  access logs, and route metrics. Export `HttpServer::metrics().pressure` and
+  access logs, and route metrics. Export `conflux::http::HttpServer::metrics().pressure` and
   application-owned `SseChannel::pressure_metrics()` through explicit
   observability sinks when server pressure needs to be scraped too.
 

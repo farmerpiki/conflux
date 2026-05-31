@@ -61,7 +61,7 @@ TEST_CASE(
 	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 
 	auto cfg = tiny_ring_config();
-	auto server = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto server = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	conflux::http::RunStatus result = conflux::http::RunStatus::stopped_normally;
 	std::atomic<bool> srv_exited{false};
 	std::jthread srv_thread([&] {

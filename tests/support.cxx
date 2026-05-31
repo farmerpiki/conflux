@@ -271,7 +271,7 @@ void wait_for_server(
 }
 class TestServerRegistry {
 	std::mutex mu_;
-	std::vector<std::shared_ptr<HttpServer>> servers_;
+	std::vector<std::shared_ptr<conflux::http::HttpServer>> servers_;
 	std::vector<std::thread> threads_;
 
 public:
@@ -280,7 +280,7 @@ public:
 		conflux::http::Router router) {
 		// TLS server probing in wait_for_server() triggers SIGPIPE without this.
 		(void)::signal(SIGPIPE, SIG_IGN);
-		auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+		auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 		{
 			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] { (void)srv->run(); });
@@ -294,7 +294,7 @@ public:
 		conflux::http::Config const &cfg,
 		conflux::http::VHostRouter vhost_router) {
 		(void)::signal(SIGPIPE, SIG_IGN);
-		auto srv = std::make_shared<HttpServer>(cfg, std::move(vhost_router));
+		auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(vhost_router));
 		{
 			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] { (void)srv->run(); });
@@ -320,7 +320,7 @@ TestServerRegistry &test_servers() {
 	return registry;
 }
 class ScopedTestServer {
-	std::shared_ptr<HttpServer> server_;
+	std::shared_ptr<conflux::http::HttpServer> server_;
 	std::thread thread_;
 
 public:
@@ -330,7 +330,7 @@ public:
 		: server_([&] {
 			auto local_cfg = cfg;
 			local_cfg.startup_banner = false;
-			return std::make_shared<HttpServer>(local_cfg, std::move(router));
+			return std::make_shared<conflux::http::HttpServer>(local_cfg, std::move(router));
 		}())
 		, thread_([srv = server_] { (void)srv->run(); }) {
 		wait_for_server(server_->port());

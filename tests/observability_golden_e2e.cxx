@@ -175,7 +175,7 @@ public:
 	}
 
 private:
-	std::unique_ptr<HttpServer> server_;
+	std::unique_ptr<conflux::http::HttpServer> server_;
 	std::thread thread_;
 };
 

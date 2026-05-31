@@ -56,6 +56,8 @@ import :state;
 
 import :loop;
 
+namespace conflux::http {
+
 void add_metrics(
 	conflux::http::HttpServerMetrics &dst,
 	conflux::http::HttpServerMetrics const &src) noexcept {
@@ -615,3 +617,5 @@ void HttpServer::set_observability_hooks(
 	}
 	return p;
 }
+
+} // namespace conflux::http

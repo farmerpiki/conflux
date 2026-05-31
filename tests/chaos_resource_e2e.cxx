@@ -141,7 +141,7 @@ std::string_view response_body(
 	return cfg;
 }
 
-std::atomic<HttpServer *> g_sigterm_server{};
+std::atomic<conflux::http::HttpServer *> g_sigterm_server{};
 
 void sigterm_shutdown_handler(
 	int) noexcept {
@@ -217,7 +217,7 @@ TEST_CASE(
 
 	conflux::http::Router router;
 	router.serve_static("/static", dir.path);
-	auto server = std::make_shared<HttpServer>(chaos_config(), std::move(router));
+	auto server = std::make_shared<conflux::http::HttpServer>(chaos_config(), std::move(router));
 	SignalGuard const sigterm{SIGTERM, sigterm_shutdown_handler};
 	g_sigterm_server.store(server.get(), std::memory_order_release);
 

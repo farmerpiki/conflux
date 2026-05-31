@@ -92,7 +92,7 @@ int main() {
 		std::println(std::cerr, "  https://localhost:{}/api/ping  (self-signed, use -k)", cfg.port);
 	}
 
-	HttpServer srv{cfg, std::move(router)};
+	conflux::http::HttpServer srv{cfg, std::move(router)};
 
 	// Cert+key are now loaded into SSL_CTX; temp files can be removed.
 	if (!cert_path.empty()) {

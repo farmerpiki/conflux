@@ -1699,6 +1699,16 @@ if(TARGET conflux_http_proxy)
         EXPECT "async_proxy")
 endif()
 
+if(TARGET conflux_http_server)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_server_compile_fail_global_http_server
+        SOURCE http_server_compile_fail_global_http_server.cxx
+        TEST http-server/compile-fail-global-http-server
+        LINK conflux_http_server conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpServer")
+endif()
+
 if(TARGET conflux_http_server AND CONFLUX_EXPERIMENTAL_SEND_ZC)
     add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)
     target_link_libraries(conflux_send_zc_lifecycle_tests

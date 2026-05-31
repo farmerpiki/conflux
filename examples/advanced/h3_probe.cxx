@@ -47,7 +47,7 @@ int main() {
 	conflux::http::Router router;
 	router.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 
-	HttpServer srv{cfg, std::move(router)};
+	conflux::http::HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_path.c_str());
 	::unlink(key_path.c_str());
 	std::println(std::cerr, "h3 probe running on :9443");

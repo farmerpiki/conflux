@@ -104,7 +104,7 @@ std::pair<std::string, std::string> const &cached_test_cert() {
 	}();
 	return bytes;
 }
-// Materialize the cached cert bytes into a unique file P. HttpServer needs
+// Materialize the cached cert bytes into a unique file P. conflux::http::HttpServer needs
 // paths on disk; we unlink after the server starts.
 std::pair<std::string, std::string> write_cached_cert_files() {
 	auto const &[cert_pem, key_pem] = cached_test_cert();
@@ -200,7 +200,7 @@ void wait_for_https(
 class HttpsServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
-	std::shared_ptr<HttpServer> server_;
+	std::shared_ptr<conflux::http::HttpServer> server_;
 	std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
@@ -226,7 +226,7 @@ public:
 		cfg.key_file = key_path_;
 		apply_external_server_env(cfg);
 
-		server_ = std::make_shared<HttpServer>(cfg, std::move(router));
+		server_ = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 		srv_thread_ = std::thread([srv = server_] { (void)srv->run(); });
 
 		port_ = server_->port();
@@ -285,7 +285,7 @@ public:
 class Http3ServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
-	std::shared_ptr<HttpServer> server_;
+	std::shared_ptr<conflux::http::HttpServer> server_;
 	std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
@@ -314,7 +314,7 @@ public:
 		cfg.key_file = key_path_;
 		cfg.http3.enabled = true;
 
-		server_ = std::make_shared<HttpServer>(cfg, std::move(router));
+		server_ = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 		srv_thread_ = std::thread([srv = server_] { (void)srv->run(); });
 
 		port_ = server_->port();
