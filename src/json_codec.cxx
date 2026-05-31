@@ -3305,7 +3305,8 @@ template<class T>
 
 	// Clinger fast path (exact only when the target is double).
 	std::int64_t const eff_exp = exp_val - static_cast<std::int64_t>(frac_len);
-	if (std::same_as<T, double> && !exp_overlong && exact && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22) {
+	if (std::same_as<T, double> && !exp_overlong && exact && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22)
+		[[likely]] {
 		if (mant <= (std::uint64_t{1} << 53U)) {
 			double v = static_cast<double>(mant);
 			if (eff_exp == 0) {
