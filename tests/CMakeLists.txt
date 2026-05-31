@@ -1218,6 +1218,46 @@ endif()
 
 if(TARGET conflux_http_auth)
     conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_cookie_signing_options
+        SOURCE http_auth_compile_fail_global_cookie_signing_options.cxx
+        TEST http-auth/compile-fail-global-cookie-signing-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "CookieSigningOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_cookie_signing_middleware
+        SOURCE http_auth_compile_fail_global_cookie_signing_middleware.cxx
+        TEST http-auth/compile-fail-global-cookie-signing-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "cookie_signing_middleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_sign_cookie
+        SOURCE http_auth_compile_fail_global_sign_cookie.cxx
+        TEST http-auth/compile-fail-global-sign-cookie
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "sign_cookie")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_verify_cookie
+        SOURCE http_auth_compile_fail_global_verify_cookie.cxx
+        TEST http-auth/compile-fail-global-verify-cookie
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "verify_cookie")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_cookie_signing_options_from_config
+        SOURCE http_auth_compile_fail_global_cookie_signing_options_from_config.cxx
+        TEST http-auth/compile-fail-global-cookie-signing-options-from-config
+        LINK conflux_http_auth conflux_net_config conflux_options
+        LABELS http compile-fail
+        EXPECT "cookie_signing_options_from_config")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_auth_compile_fail_global_csrf_options
         SOURCE http_auth_compile_fail_global_csrf_options.cxx
         TEST http-auth/compile-fail-global-csrf-options

@@ -623,42 +623,42 @@ TEST_CASE(
 
 TEST_CASE(
 	"cookie_signing: sign then verify returns original value") {
-	auto signed_val = sign_cookie("hello", "my-secret");
+	auto signed_val = conflux::http::sign_cookie("hello", "my-secret");
 	REQUIRE(signed_val.starts_with("hello."));
-	auto result = verify_cookie(signed_val, "my-secret");
+	auto result = conflux::http::verify_cookie(signed_val, "my-secret");
 	REQUIRE(result.has_value());
 	REQUIRE(*result == "hello");
 }
 TEST_CASE(
 	"cookie_signing: verify with wrong secret returns std::nullopt") {
-	auto signed_val = sign_cookie("hello", "my-secret");
-	auto result = verify_cookie(signed_val, "wrong-secret");
+	auto signed_val = conflux::http::sign_cookie("hello", "my-secret");
+	auto result = conflux::http::verify_cookie(signed_val, "wrong-secret");
 	REQUIRE(!result.has_value());
 }
 TEST_CASE(
 	"cookie_signing: tampered signature returns std::nullopt") {
-	auto signed_val = sign_cookie("hello", "my-secret");
+	auto signed_val = conflux::http::sign_cookie("hello", "my-secret");
 	signed_val.back() = (signed_val.back() == 'A') ? 'B' : 'A'; // flip last char
-	auto result = verify_cookie(signed_val, "my-secret");
+	auto result = conflux::http::verify_cookie(signed_val, "my-secret");
 	REQUIRE(!result.has_value());
 }
 TEST_CASE(
 	"cookie_signing: value without dot returns std::nullopt") {
-	auto result = verify_cookie("nodot", "any-secret");
+	auto result = conflux::http::verify_cookie("nodot", "any-secret");
 	REQUIRE(!result.has_value());
 }
 TEST_CASE(
 	"cookie_signing: value with dots round-trips correctly") {
 	// sign_cookie uses rfind('.') so a value containing '.' should still work.
-	auto signed_val = sign_cookie("user.name@host.example", "my-secret");
-	auto result = verify_cookie(signed_val, "my-secret");
+	auto signed_val = conflux::http::sign_cookie("user.name@host.example", "my-secret");
+	auto result = conflux::http::verify_cookie(signed_val, "my-secret");
 	REQUIRE(result.has_value());
 	REQUIRE(*result == "user.name@host.example");
 }
 TEST_CASE(
 	"cookie_signing_middleware: short secret throws std::invalid_argument") {
 	REQUIRE_THROWS_AS(
-		cookie_signing_middleware({.secrets = single_secret_rotation("tooshort")}),
+		conflux::http::cookie_signing_middleware({.secrets = single_secret_rotation("tooshort")}),
 		std::invalid_argument);
 }
 // ---------------------------------------------------------------------------
@@ -675,13 +675,13 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(
-			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
+			conflux::http::cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
 		router.get("/echo", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.cookies["session"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
-	auto signed_val = sign_cookie("user42", kCookieMiddlewareSecret);
+	auto signed_val = conflux::http::sign_cookie("user42", kCookieMiddlewareSecret);
 	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", signed_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "user42");
@@ -692,7 +692,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cookie_signing_middleware(
+		router.use(conflux::http::cookie_signing_middleware(
 			{.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret}), .strip_invalid = true}));
 		router.get("/echo", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.cookies["session"]});
@@ -700,7 +700,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Forge a signed value with the wrong secret.
-	auto bad_val = sign_cookie("attacker", kOtherCookieSecret);
+	auto bad_val = conflux::http::sign_cookie("attacker", kOtherCookieSecret);
 	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", bad_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Cookie was stripped → handler sees empty value → 200 with empty body.
@@ -713,7 +713,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(
-			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
+			conflux::http::cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
 		router.get("/echo", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.cookies["plain"]});
 		});
@@ -729,7 +729,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cookie_signing_middleware(
+		router.use(conflux::http::cookie_signing_middleware(
 			{.secrets = single_secret_rotation("srv-secret-key-1234"), .strip_invalid = false}));
 		router.get("/echo", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.cookies["session"]});
@@ -737,7 +737,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Cookie with bad signature — handler receives the raw signed value unchanged.
-	auto bad_val = sign_cookie("user", "wrong-secret-key-1234");
+	auto bad_val = conflux::http::sign_cookie("user", "wrong-secret-key-1234");
 	auto resp = http_get_on(port, "/echo", std::format("Cookie: session={}\r\n", bad_val));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == bad_val);

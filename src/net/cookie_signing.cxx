@@ -12,7 +12,9 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
-namespace {
+export namespace conflux::http {
+
+namespace cookie_signing_detail {
 
 std::string mac_b64(
 	std::string_view value,
@@ -29,12 +31,12 @@ std::string mac_b64(
 	return constant_time_eq(sig, mac_b64(value, secret));
 }
 
-} // namespace
+} // namespace cookie_signing_detail
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
-export std::string sign_cookie(
+std::string sign_cookie(
 	std::string_view value,
 	std::string_view secret) {
-	auto mac = mac_b64(value, secret);
+	auto mac = cookie_signing_detail::mac_b64(value, secret);
 	std::string out;
 	out.reserve(value.size() + 1 + mac.size());
 	out.append(value.data(), value.size());
@@ -42,7 +44,7 @@ export std::string sign_cookie(
 	out += mac;
 	return out;
 }
-export std::expected<std::string, std::string> sign_cookie(
+std::expected<std::string, std::string> sign_cookie(
 	std::string_view value,
 	conflux::http::ResolvedSecretRotation const &secrets) {
 	if (auto valid = conflux::http::validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
@@ -51,7 +53,7 @@ export std::expected<std::string, std::string> sign_cookie(
 	return sign_cookie(value, secrets.active);
 }
 // Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
-export std::optional<std::string> verify_cookie(
+std::optional<std::string> verify_cookie(
 	std::string_view signed_value,
 	std::string_view secret) {
 	auto dot = signed_value.rfind('.');
@@ -60,12 +62,12 @@ export std::optional<std::string> verify_cookie(
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
-	if (!signed_value_matches(value, sig, secret)) {
+	if (!cookie_signing_detail::signed_value_matches(value, sig, secret)) {
 		return std::nullopt;
 	}
 	return std::string{value};
 }
-export std::optional<std::string> verify_cookie(
+std::optional<std::string> verify_cookie(
 	std::string_view signed_value,
 	conflux::http::ResolvedSecretRotation const &secrets) {
 	auto dot = signed_value.rfind('.');
@@ -74,23 +76,23 @@ export std::optional<std::string> verify_cookie(
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
-	if (signed_value_matches(value, sig, secrets.active)) {
+	if (cookie_signing_detail::signed_value_matches(value, sig, secrets.active)) {
 		return std::string{value};
 	}
 	for (auto const &previous: secrets.previous) {
-		if (signed_value_matches(value, sig, previous)) {
+		if (cookie_signing_detail::signed_value_matches(value, sig, previous)) {
 			return std::string{value};
 		}
 	}
 	return std::nullopt;
 }
-export struct CookieSigningOptions {
+struct CookieSigningOptions {
 	conflux::http::ResolvedSecretRotation secrets{};
 	// When true, cookies arriving with invalid signatures are stripped (set to empty).
 	bool strip_invalid{true};
 };
 
-export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
+[[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	conflux::http::AuthSecretsConfig const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
@@ -102,7 +104,7 @@ export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_sig
 	return base;
 }
 
-export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
+[[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	conflux::http::Config const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
@@ -113,7 +115,7 @@ export [[nodiscard]] std::expected<CookieSigningOptions, std::string> cookie_sig
 // Cookies in "value.SIG" std::format are verified; on success the plain value is injected back.
 // Cookies without a "." are passed through unchanged (not all cookies are signed).
 // On failure: if strip_invalid=true the cookie is cleared; otherwise it is passed as-is.
-export conflux::http::Router::Middleware cookie_signing_middleware(
+Router::Middleware cookie_signing_middleware(
 	CookieSigningOptions opts) {
 	if (auto valid = conflux::http::validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes);
 		!valid) {
@@ -136,3 +138,5 @@ export conflux::http::Router::Middleware cookie_signing_middleware(
 		return next(modified);
 	};
 }
+
+} // namespace conflux::http

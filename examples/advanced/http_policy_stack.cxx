@@ -73,7 +73,7 @@ int main() {
 					},
 	}));
 	app.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
-	app.use(cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
+	app.use(conflux::http::cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
 	app.use(conflux::http::csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(conflux::http::etag_middleware({.weak = true}));
 	app.use(conflux::http::response_cache_middleware({
@@ -130,7 +130,7 @@ int main() {
 
 	app.get("/login", [](conflux::http::OwnedRequest const &) {
 		auto resp = conflux::http::Response::text("signed session cookie set; try /me\n");
-		resp.set_cookie("session", sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
+		resp.set_cookie("session", conflux::http::sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 

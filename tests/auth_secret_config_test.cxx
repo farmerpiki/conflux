@@ -48,7 +48,7 @@ TEST_CASE(
 
 	CHECK_FALSE(password_hash_secrets_from_config(cfg).has_value());
 	CHECK_FALSE(jwt_options_from_config(cfg).has_value());
-	CHECK_FALSE(cookie_signing_options_from_config(cfg).has_value());
+	CHECK_FALSE(conflux::http::cookie_signing_options_from_config(cfg).has_value());
 }
 
 TEST_CASE(
@@ -86,14 +86,14 @@ session_min_secret_bytes = 16
 	REQUIRE(decoded_old.has_value());
 	CHECK(decoded_old->sub == "rotated");
 
-	auto cookie_opts = cookie_signing_options_from_config(cfg);
+	auto cookie_opts = conflux::http::cookie_signing_options_from_config(cfg);
 	REQUIRE(cookie_opts.has_value());
 	CHECK(cookie_opts->secrets.active == "cookie-active-secret-16");
 	REQUIRE(cookie_opts->secrets.previous.size() == 1);
 	CHECK(cookie_opts->secrets.previous[0] == "cookie-old-secret-16");
 
-	auto signed_old_cookie = sign_cookie("user42", "cookie-old-secret-16");
-	auto verified_old_cookie = verify_cookie(signed_old_cookie, cookie_opts->secrets);
+	auto signed_old_cookie = conflux::http::sign_cookie("user42", "cookie-old-secret-16");
+	auto verified_old_cookie = conflux::http::verify_cookie(signed_old_cookie, cookie_opts->secrets);
 	REQUIRE(verified_old_cookie.has_value());
 	CHECK(*verified_old_cookie == "user42");
 
