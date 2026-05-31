@@ -24,6 +24,7 @@ struct Config {
 	std::size_t payload_bytes = 24;
 	bool json_out = false;
 	std::string config_name;
+	BenchArgs bench;
 };
 
 [[nodiscard]] Config parse_args(
@@ -34,6 +35,7 @@ struct Config {
 	cfg.warmup = base.warmup;
 	cfg.json_out = base.json_out;
 	cfg.config_name = std::move(base.config_name);
+	cfg.bench = std::move(base);
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
 		if (a == "--rows" && i + 1 < args.size()) {
@@ -286,37 +288,64 @@ void consume_wire_binary(
 }
 
 template<class F>
-[[nodiscard]] std::uint64_t time_loop(
+[[nodiscard]] BenchStats time_loop(
 	Config const &cfg,
 	F &&fn) {
-	for (std::size_t i = 0; i < cfg.warmup; ++i) {
-		fn();
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			fn();
+		}
 	}
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < cfg.iterations; ++i) {
-		fn();
+	std::vector<std::uint64_t> samples;
+	samples.reserve(plan.samples);
+	std::uint64_t total_ns = 0;
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		std::uint64_t const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			fn();
+		}
+		std::uint64_t const elapsed = bench_now_ns() - t0;
+		total_ns += elapsed;
+		samples.push_back(elapsed);
 	}
-	return bench_now_ns() - t0;
+	std::ranges::sort(samples);
+	BenchStats stats{
+		.config = cfg.config_name,
+		.iterations = plan.iterations * cfg.rows,
+		.total_ns = total_ns,
+		.ns_per_iter = static_cast<double>(samples[plan.samples / 2])
+					 / static_cast<double>(std::max<std::size_t>(1, plan.batch * cfg.rows)),
+		.sample_count = plan.samples,
+		.batch = plan.batch * cfg.rows,
+		.timer_sample_ns = plan.timer_sample_ns,
+	};
+	stats.timer_overhead_pct = bench_timer_overhead_percent(plan, stats.total_ns);
+	return stats;
 }
 
 void print_row(
 	Config const &cfg,
 	std::string_view variant,
-	std::uint64_t total_ns,
+	BenchStats stats,
 	std::size_t bytes_per_scan,
 	bool &first) {
-	std::size_t const logical_rows = cfg.iterations * cfg.rows;
-	double const ns_per_row =
-		static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, logical_rows));
+	stats.variant = variant;
 	if (cfg.json_out) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":"
-			"\"micro/user-space\",\"rows_per_scan\":{},\"payload_bytes\":{},\"bytes_per_scan\":{},\"sink\":{}}}",
+			"\"micro/"
+			"user-space\",\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
+			"\"rows_per_scan\":{},\"payload_bytes\":{},\"bytes_per_scan\":{},\"sink\":{}}}",
 			cfg.config_name,
 			variant,
-			logical_rows,
-			total_ns,
-			ns_per_row,
+			stats.iterations,
+			stats.total_ns,
+			stats.ns_per_iter,
+			stats.sample_count,
+			stats.batch,
+			stats.timer_sample_ns,
+			stats.timer_overhead_pct,
 			cfg.rows,
 			cfg.payload_bytes,
 			bytes_per_scan,
@@ -327,10 +356,13 @@ void print_row(
 			first = false;
 		}
 		std::println(
-			"{:<28} {:>10} rows {:>9.2f} ns/row  bytes/scan={} label=micro/user-space",
+			"{:<28} {:>10} rows {:>9.2f} ns/row  [{}×{} samples, timer≈{:.2f}%] bytes/scan={} label=micro/user-space",
 			variant,
-			logical_rows,
-			ns_per_row,
+			stats.iterations,
+			stats.ns_per_iter,
+			stats.sample_count,
+			stats.batch,
+			stats.timer_overhead_pct,
 			bytes_per_scan);
 	}
 }
