@@ -32,7 +32,7 @@ std::optional<BasicCredentials> parse_basic_credentials(
 	if (!credentials) {
 		return std::nullopt;
 	}
-	auto decoded = base64_decode(*credentials);
+	auto decoded = conflux::crypto::base64_decode(*credentials);
 	auto colon = decoded.find(':');
 	if (colon == std::string::npos) {
 		return std::nullopt;
@@ -500,8 +500,8 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	if (credentials->empty()) {
 		return std::nullopt;
 	}
-	auto digest = sha256(to_unsigned_span(*credentials));
-	return auth_throttle_key(scope, base64url_encode(digest));
+	auto digest = conflux::crypto::sha256(conflux::crypto::to_unsigned_span(*credentials));
+	return auth_throttle_key(scope, conflux::crypto::base64url_encode(digest));
 }
 
 inline conflux::http::Response auth_throttle_too_many_requests(
@@ -540,9 +540,9 @@ conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
 	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
-	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
-			opts = std::move(opts),
-			state](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)), opts = std::move(opts), state](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {

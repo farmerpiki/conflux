@@ -19,7 +19,7 @@ namespace csrf_detail {
 std::string generate_token() {
 	std::array<unsigned char, 24> bytes{};
 	crypto_random_bytes(bytes);
-	return base64url_encode(bytes);
+	return conflux::crypto::base64url_encode(bytes);
 }
 
 } // namespace csrf_detail
@@ -65,7 +65,7 @@ Router::Middleware csrf_middleware(
 			if (submitted.empty()) {
 				submitted = std::string{req.form[lower_field]};
 			}
-			if (!constant_time_eq(cookie_token, submitted)) {
+			if (!conflux::crypto::constant_time_eq(cookie_token, submitted)) {
 				return conflux::http::Response::text("CSRF token invalid", kHttpForbidden);
 			}
 		}

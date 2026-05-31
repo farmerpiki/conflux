@@ -657,7 +657,7 @@ void bench_utils(
 		emit(measure(
 			std::format("ct_eq/public-dispatch/{}", sz),
 			[&] {
-				auto r = constant_time_eq(eq_a, eq_b);
+				auto r = conflux::crypto::constant_time_eq(eq_a, eq_b);
 				bench_keep(r);
 			},
 			warmup,
@@ -864,7 +864,7 @@ void bench_aes(
 		emit(measure(
 			std::format("aes_gcm_encrypt/public-dispatch/{}", sz),
 			[&] {
-				auto ct = aes_gcm_encrypt(key, iv, pt, aad).value();
+				auto ct = conflux::crypto::aes_gcm_encrypt(key, iv, pt, aad).value();
 				bench_keep_ptr(ct.data());
 			},
 			warmup,

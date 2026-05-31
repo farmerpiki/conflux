@@ -43,7 +43,9 @@ TEST_CASE(
 	});
 
 	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
-	router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
+	router.get("/protected", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::text("secret");
+	});
 	router.get("/injected", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::text(std::string{req.headers["x-injected"]});
 	});
@@ -114,7 +116,9 @@ TEST_CASE(
 	cfg.max_body_size = 64; // tiny limit for testing
 
 	conflux::http::Router router;
-	router.post("/upload", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+	router.post("/upload", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(req.body);
+	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const limit_port = srv.port();
@@ -385,9 +389,10 @@ TEST_CASE(
 	"throwing middleware returns per-request 500") {
 	Config cfg = Config::test();
 	conflux::http::Router router;
-	router.use([](conflux::http::OwnedRequest const &, conflux::http::Router::Handler const &) -> conflux::http::Response {
-		throw std::runtime_error{"middleware crash"};
-	});
+	router.use(
+		[](conflux::http::OwnedRequest const &, conflux::http::Router::Handler const &) -> conflux::http::Response {
+			throw std::runtime_error{"middleware crash"};
+		});
 	router.get("/ok", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -506,7 +511,9 @@ TEST_CASE(
 	cfg.max_body_size = 16U * 1024U;
 	cfg.parser_limits.max_chunks = 20000;
 	conflux::http::Router router;
-	router.post("/upload", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+	router.post("/upload", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(req.body);
+	});
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	std::string chunks;
@@ -1424,7 +1431,9 @@ TEST_CASE(
 		lines.push_back(line);
 	}));
 	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
-	router.get("/missing", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::not_found(req.path); });
+	router.get("/missing", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::not_found(req.path);
+	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const log_port = srv.port();
@@ -1846,7 +1855,8 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(conflux::http::basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
+		router.use(
+			conflux::http::basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1860,17 +1870,18 @@ TEST_CASE(
 	"[auth][security]") {
 	conflux::http::Router router;
 	unsigned calls = 0;
-	router.use(conflux::http::basic_auth_middleware(
-		[&calls](std::string_view, std::string_view) {
-			++calls;
-			return false;
-		},
-		conflux::http::BasicAuthOptions{
-			.realm = "Clamp",
-			.failed_attempts = 1,
-			.failed_window = std::chrono::seconds{60},
-			.max_failed_clients = 0,
-		}));
+	router.use(
+		conflux::http::basic_auth_middleware(
+			[&calls](std::string_view, std::string_view) {
+				++calls;
+				return false;
+			},
+			conflux::http::BasicAuthOptions{
+				.realm = "Clamp",
+				.failed_attempts = 1,
+				.failed_window = std::chrono::seconds{60},
+				.max_failed_clients = 0,
+			}));
 	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 
 	conflux::http::OwnedRequest req;
@@ -1896,17 +1907,18 @@ TEST_CASE(
 	static std::atomic<unsigned> calls{0};
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(conflux::http::basic_auth_middleware(
-			[](std::string_view, std::string_view) {
-				++calls;
-				return false;
-			},
-			conflux::http::BasicAuthOptions{
-				.realm = "Limited",
-				.failed_attempts = 1,
-				.failed_window = std::chrono::seconds{60},
-				.max_failed_clients = 8,
-			}));
+		router.use(
+			conflux::http::basic_auth_middleware(
+				[](std::string_view, std::string_view) {
+					++calls;
+					return false;
+				},
+				conflux::http::BasicAuthOptions{
+					.realm = "Limited",
+					.failed_attempts = 1,
+					.failed_window = std::chrono::seconds{60},
+					.max_failed_clients = 8,
+				}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2058,11 +2070,15 @@ void ensure_tls_server() {
 		cfg.key_file = key_tmp;
 
 		conflux::http::Router router;
-		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"tls":true})"); });
+		router.get("/ping", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::json(R"({"tls":true})");
+		});
 		router.get("/hello/{name}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
 		});
-		router.post("/echo", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+		router.post("/echo", [](conflux::http::OwnedRequest const &req) {
+			return conflux::http::Response::text(req.body);
+		});
 		router.put("/put/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 		});
@@ -2505,11 +2521,12 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(conflux::http::forwarded_middleware({
-			.trusted_proxies = {"127.0.0.1/32"},
-			.use_x_forwarded_for = false,
-			.use_x_real_ip = true,
-		}));
+		router.use(
+			conflux::http::forwarded_middleware({
+				.trusted_proxies = {"127.0.0.1/32"},
+				.use_x_forwarded_for = false,
+				.use_x_real_ip = true,
+			}));
 		router.get("/addr", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.remote_addr});
 		});
@@ -2704,9 +2721,10 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(conflux::http::cache_control_middleware({
-			.rules = {{"text/html", "max-age=60"}},
-		}));
+		router.use(
+			conflux::http::cache_control_middleware({
+				.rules = {{"text/html", "max-age=60"}},
+			}));
 		router.get("/", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response r;
 			r.content_type = "text/html; charset=utf-8";
@@ -2724,9 +2742,10 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(conflux::http::cache_control_middleware({
-			.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
-		}));
+		router.use(
+			conflux::http::cache_control_middleware({
+				.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
+        }));
 		router.get("/any", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2825,7 +2844,8 @@ void ensure_jwt_server() {
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		conflux::http::Router router;
-		router.use(conflux::http::jwt_middleware(conflux::http::JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
+		router.use(
+			conflux::http::jwt_middleware(conflux::http::JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
 		router.get("/api/protected", [](conflux::http::OwnedRequest const &req) {
 			auto sub = req.params["jwt_sub"];
 			return conflux::http::Response::json(std::format(R"({{"sub":"{}"}})", sub));
@@ -2841,15 +2861,15 @@ std::string make_jwt_with_header(
 	std::string_view header_json,
 	std::string_view payload_json,
 	std::string_view secret) {
-	auto header_b64 =
-		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(header_json.data()), header_json.size()});
-	auto payload_b64 =
-		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
+	auto header_b64 = conflux::crypto::base64url_encode(
+		std::span{reinterpret_cast<unsigned char const *>(header_json.data()), header_json.size()});
+	auto payload_b64 = conflux::crypto::base64url_encode(
+		std::span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
 	std::string const signing_input = header_b64 + '.' + payload_b64;
-	auto sig = hmac_sha256(
+	auto sig = conflux::crypto::hmac_sha256(
 		std::span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
 		std::span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
-	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
+	auto sig_b64 = conflux::crypto::base64url_encode(std::span{sig.data(), sig.size()});
 	return signing_input + '.' + sig_b64;
 }
 
@@ -2907,7 +2927,9 @@ TEST_CASE(
 	"jwt_middleware: injected claim params override route params") {
 	Config const cfg{.port = 0, .rings = 1};
 	conflux::http::Router router;
-	router.use(conflux::http::jwt_middleware(conflux::http::JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
+	router.use(
+		conflux::http::jwt_middleware(
+			conflux::http::JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
 	router.get("/api/protected/{jwt_sub}", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
 	});
@@ -2931,7 +2953,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: issuer mismatch returns error") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .issuer = "expected", .verify_exp = false};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.issuer = "expected",
+		.verify_exp = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"x","iss":"other"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -2939,14 +2964,20 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: audience std::string match") {
-	conflux::http::JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
+	conflux::http::JwtOptions opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "myapp",
+		.verify_exp = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":"myapp"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: audience mismatch returns error") {
-	conflux::http::JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
+	conflux::http::JwtOptions opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "myapp",
+		.verify_exp = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":"other"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -2954,22 +2985,32 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: audience A match") {
-	conflux::http::JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
+	conflux::http::JwtOptions opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "myapp",
+		.verify_exp = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":["svc","myapp"]})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: accepts JSON whitespace around claim separators") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
-	auto token = conflux::http::jwt_sign("{\n\t\"sub\"\t:\t\"u\",\r\n\t\"aud\"\n:\n[\n\t\"svc\",\r\n\t\"myapp\"\n]\n}", "sec");
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "myapp",
+		.verify_exp = false};
+	auto token =
+		conflux::http::jwt_sign("{\n\t\"sub\"\t:\t\"u\",\r\n\t\"aud\"\n:\n[\n\t\"svc\",\r\n\t\"myapp\"\n]\n}", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	REQUIRE(result->sub == "u");
 }
 TEST_CASE(
 	"jwt_decode: audience A matches only aud claim") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "expected", .verify_exp = false};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "expected",
+		.verify_exp = false};
 	auto good = conflux::http::jwt_sign(R"({"sub":"x","aud":["other","expected"]})", "sec");
 	auto bad = conflux::http::jwt_sign(R"({"sub":"expected","aud":["other"]})", "sec");
 	REQUIRE(conflux::http::jwt_decode(good, opts).has_value());
@@ -2979,7 +3020,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed audience array is rejected as invalid JSON") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "expected", .verify_exp = false};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.audience = "expected",
+		.verify_exp = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"x","aud":[,"expected"]})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -3003,7 +3047,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed nbf claim is rejected") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = false};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.verify_exp = false,
+		.verify_nbf = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"x","nbf":"later"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -3011,7 +3058,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed iat claim is rejected") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = false};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.verify_exp = false,
+		.verify_nbf = false};
 	auto token = conflux::http::jwt_sign(R"({"sub":"x","iat":"earlier"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -3032,7 +3082,10 @@ TEST_CASE(
 	auto far_future =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()
 		+ 9999;
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.verify_exp = false,
+		.verify_nbf = true};
 	auto token = conflux::http::jwt_sign(std::format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -3040,7 +3093,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: nbf in past is accepted") {
-	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
+	conflux::http::JwtOptions const opts{
+		.secrets = single_secret_rotation("sec", 3),
+		.verify_exp = false,
+		.verify_nbf = true};
 	auto token = conflux::http::jwt_sign(R"({"sub":"x","nbf":1})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());

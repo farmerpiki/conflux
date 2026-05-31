@@ -162,6 +162,22 @@ if(TARGET conflux)
         LINK conflux_crypto conflux_options
         LABELS build api-surface compile-fail
         EXPECT "conflux::crypto::detail")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_base64_encode
+        SOURCE crypto_compile_fail_global_base64_encode.cxx
+        TEST api-surface/crypto-hides-global-base64-encode
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "base64_encode")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_sha256
+        SOURCE crypto_compile_fail_global_sha256.cxx
+        TEST api-surface/crypto-hides-global-sha256
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "sha256")
 endif()
 
 add_executable(conflux_tests)

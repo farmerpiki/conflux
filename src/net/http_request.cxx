@@ -157,7 +157,7 @@ public:
 		std::string_view user,
 		std::string_view pass) {
 		auto const creds = std::format("{}:{}", user, pass);
-		auto const encoded = base64_encode(to_unsigned_span(creds));
+		auto const encoded = conflux::crypto::base64_encode(conflux::crypto::to_unsigned_span(creds));
 		return std::forward<decltype(self)>(self).header("Authorization", std::format("Basic {}", encoded));
 	}
 	auto &&user_agent(

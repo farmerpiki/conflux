@@ -317,16 +317,16 @@ std::string ws_accept_key(
 	static constexpr std::string_view kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	std::string input{client_key};
 	input += kMagic;
-	auto digest = sha1(to_unsigned_span(input));
-	return base64_encode(std::span{digest.data(), digest.size()});
+	auto digest = conflux::crypto::sha1(conflux::crypto::to_unsigned_span(input));
+	return conflux::crypto::base64_encode(std::span{digest.data(), digest.size()});
 }
 bool is_valid_client_key(
 	std::string_view key) {
 	if (key.size() != 24) {
 		return false;
 	}
-	auto decoded = base64_decode(key);
-	return decoded.size() == 16 && base64_encode(to_unsigned_span(decoded)) == key;
+	auto decoded = conflux::crypto::base64_decode(key);
+	return decoded.size() == 16 && conflux::crypto::base64_encode(conflux::crypto::to_unsigned_span(decoded)) == key;
 }
 bool is_valid_handshake(
 	conflux::http::RequestView const &req) {

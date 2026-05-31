@@ -116,28 +116,33 @@ std::string b64_decode_impl(
 }
 
 } // namespace
-export [[gnu::always_inline]] inline std::span<unsigned char const> to_unsigned_span(
+
+export namespace conflux::crypto {
+
+[[gnu::always_inline]] inline std::span<unsigned char const> to_unsigned_span(
 	std::string_view s) noexcept {
 	return {
 		reinterpret_cast<unsigned char const *>(s.data()),
 		s.size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 }
-export std::string base64_encode(
+std::string base64_encode(
 	std::span<unsigned char const> in) {
 	return b64_encode_impl(in, kB64Alphabet, true);
 }
-export std::string base64_decode(
+std::string base64_decode(
 	std::string_view encoded) {
 	return b64_decode_impl(encoded, kB64Table);
 }
-export std::string base64url_encode(
+std::string base64url_encode(
 	std::span<unsigned char const> in) {
 	return b64_encode_impl(in, kB64UrlAlphabet, false);
 }
-export std::string base64url_decode(
+std::string base64url_decode(
 	std::string_view encoded) {
 	return b64_decode_impl(encoded, kB64UrlTable);
 }
+
+} // namespace conflux::crypto
 
 namespace conflux::crypto::crypto_detail {
 
@@ -347,7 +352,9 @@ export namespace conflux::crypto {
 // SHA-1 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 
-export std::array<unsigned char, 20> sha1(
+export namespace conflux::crypto {
+
+std::array<unsigned char, 20> sha1(
 	std::span<unsigned char const> msg) {
 	std::array<std::uint32_t, 5> h{0x67452301U, 0xEFCDAB89U, 0x98BADCFEU, 0x10325476U, 0xC3D2E1F0U};
 
@@ -411,7 +418,7 @@ export std::array<unsigned char, 20> sha1(
 // HMAC-SHA1 (RFC 2104)
 // ---------------------------------------------------------------------------
 
-export std::array<unsigned char, 20> hmac_sha1(
+std::array<unsigned char, 20> hmac_sha1(
 	std::span<unsigned char const> key,
 	std::span<unsigned char const> msg) {
 	std::array<unsigned char, 64> k_pad{};
@@ -440,19 +447,19 @@ export std::array<unsigned char, 20> hmac_sha1(
 // SHA-256 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 
-export std::array<unsigned char, 32> sha256(
+std::array<unsigned char, 32> sha256(
 	std::span<unsigned char const> msg) {
 	return conflux::crypto::crypto_detail::sha256_noalloc(msg);
 }
 // ---------------------------------------------------------------------------
 // HMAC-SHA256 (RFC 2104)
 // ---------------------------------------------------------------------------
-export std::array<unsigned char, 32> hmac_sha256(
+std::array<unsigned char, 32> hmac_sha256(
 	std::span<unsigned char const> key,
 	std::span<unsigned char const> msg) {
 	return conflux::crypto::hmac_sha256_precomputed(conflux::crypto::hmac_sha256_key(key), msg);
 }
-export bool constant_time_eq(
+bool constant_time_eq(
 	std::string_view a,
 	std::string_view b) {
 	if (a.size() != b.size()) {
@@ -483,6 +490,8 @@ export bool constant_time_eq(
 	}
 	return acc == 0;
 }
+
+} // namespace conflux::crypto
 // ---------------------------------------------------------------------------
 // AES-256-GCM (NIST SP 800-38D)
 // ---------------------------------------------------------------------------
@@ -657,7 +666,10 @@ void gcm_inc32(
 #endif
 
 } // namespace
-export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
+
+export namespace conflux::crypto {
+
+std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	std::span<unsigned char const> key,
 	std::span<unsigned char const> iv,
 	std::span<unsigned char const> plaintext,
@@ -745,7 +757,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	return std::unexpected(std::string{"aes_gcm_encrypt: AES-NI path selected without CPU dispatch fallback"});
 #endif
 }
-export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
+std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	std::span<unsigned char const> key,
 	std::span<unsigned char const> iv,
 	std::span<unsigned char const> ciphertext_and_tag,
@@ -850,3 +862,5 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	return std::unexpected(std::string{"aes_gcm_decrypt: AES-NI path selected without CPU dispatch fallback"});
 #endif
 }
+
+} // namespace conflux::crypto

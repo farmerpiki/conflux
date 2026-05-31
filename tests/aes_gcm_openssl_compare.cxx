@@ -102,7 +102,7 @@ int main() {
 		std::vector<unsigned char> ossl_ct;
 		openssl_encrypt(key, iv, pt, aad, ossl_ct);
 
-		auto conflux_ct = aes_gcm_encrypt(key, iv, pt, aad);
+		auto conflux_ct = conflux::crypto::aes_gcm_encrypt(key, iv, pt, aad);
 		if (!conflux_ct.has_value()) {
 			std::printf("  FAIL sz=%zu: conflux encrypt error\n", sz);
 			all_ok = false;
@@ -124,7 +124,7 @@ int main() {
 		std::vector<unsigned char> ossl_pt;
 		bool ossl_ok = openssl_decrypt(key, iv, ossl_ct, aad, ossl_pt);
 
-		auto conflux_pt = aes_gcm_decrypt(key, iv, *conflux_ct, aad);
+		auto conflux_pt = conflux::crypto::aes_gcm_decrypt(key, iv, *conflux_ct, aad);
 		if (!ossl_ok || !conflux_pt.has_value()) {
 			std::printf("  FAIL sz=%zu: decrypt error\n", sz);
 			all_ok = false;
@@ -155,13 +155,13 @@ int main() {
 
 	// Warmup
 	for (int i = 0; i < 100; ++i) {
-		(void)aes_gcm_encrypt(key, iv, bench_pt, {});
+		(void)conflux::crypto::aes_gcm_encrypt(key, iv, bench_pt, {});
 	}
 
 	// Conflux
 	auto t0 = steady_clock::now();
 	for (int i = 0; i < kIters; ++i) {
-		auto r = aes_gcm_encrypt(key, iv, bench_pt, {});
+		auto r = conflux::crypto::aes_gcm_encrypt(key, iv, bench_pt, {});
 		asm volatile("" ::"r"(r->data()));
 	}
 	auto t1 = steady_clock::now();

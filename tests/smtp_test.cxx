@@ -137,7 +137,7 @@ TEST_CASE(
 	srv.join();
 	::close(listen_fd);
 
-	auto raw = base64_decode(received_auth);
+	auto raw = conflux::crypto::base64_decode(received_auth);
 	REQUIRE(raw.size() == 1 + 5 + 1 + 6);
 	REQUIRE(raw[0] == '\0');
 	REQUIRE(raw.substr(1, 5) == "alice");
@@ -192,8 +192,8 @@ TEST_CASE(
 	srv.join();
 	::close(listen_fd);
 
-	REQUIRE(base64_decode(got_user) == "alice");
-	REQUIRE(base64_decode(got_pass) == "s3cret");
+	REQUIRE(conflux::crypto::base64_decode(got_user) == "alice");
+	REQUIRE(conflux::crypto::base64_decode(got_pass) == "s3cret");
 }
 TEST_CASE(
 	"SMTP multi-line 250 reply is parsed",

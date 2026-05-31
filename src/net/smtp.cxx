@@ -289,7 +289,7 @@ public:
 		raw.append(user);
 		raw.push_back('\0');
 		raw.append(pass);
-		auto encoded = base64_encode(to_unsigned_span(raw));
+		auto encoded = conflux::crypto::base64_encode(conflux::crypto::to_unsigned_span(raw));
 		if (!write_line(std::format("AUTH PLAIN {}\r\n", encoded))) {
 			return false;
 		}
@@ -307,7 +307,7 @@ public:
 		if (!r1.has_value() || r1->code != 334) {
 			return false;
 		}
-		auto u = base64_encode(to_unsigned_span(user));
+		auto u = conflux::crypto::base64_encode(conflux::crypto::to_unsigned_span(user));
 		if (!write_line(u + "\r\n")) {
 			return false;
 		}
@@ -315,7 +315,7 @@ public:
 		if (!r2.has_value() || r2->code != 334) {
 			return false;
 		}
-		auto p = base64_encode(to_unsigned_span(pass));
+		auto p = conflux::crypto::base64_encode(conflux::crypto::to_unsigned_span(pass));
 		if (!write_line(p + "\r\n")) {
 			return false;
 		}

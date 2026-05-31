@@ -292,7 +292,7 @@ struct Argon2Api {
 	if (encoded.empty()) {
 		return std::unexpected{std::format("password std::hash: {} is empty", field)};
 	}
-	std::string decoded = base64url_decode(encoded);
+	std::string decoded = conflux::crypto::base64url_decode(encoded);
 	if (decoded.empty()) {
 		return std::unexpected{std::format("password std::hash: {} is not valid base64url", field)};
 	}
@@ -422,7 +422,7 @@ struct Argon2Api {
 
 [[nodiscard]] std::string encode_b64url(
 	std::span<unsigned char const> bytes) {
-	return base64url_encode(bytes);
+	return conflux::crypto::base64url_encode(bytes);
 }
 
 [[nodiscard]] std::array<unsigned char, 32> pbkdf2_block(
@@ -600,7 +600,7 @@ struct Argon2Api {
 	return parsed.version == 1U && parsed.iterations == opts.iterations;
 }
 
-} // namespace password_hash_detail
+} // namespace conflux::http::password_hash_detail
 
 export namespace conflux::http {
 
@@ -729,7 +729,7 @@ export namespace conflux::http {
 	if (!raw) {
 		return std::unexpected{raw.error()};
 	}
-	result.ok = constant_time_eq(parsed->hash, *raw);
+	result.ok = conflux::crypto::constant_time_eq(parsed->hash, *raw);
 	if (!result.ok
 		&& parsed->algorithm == PasswordHashAlgorithm::pbkdf2_sha256
 		&& !parsed->uses_verifier_secret
@@ -738,7 +738,7 @@ export namespace conflux::http {
 		if (!legacy) {
 			return std::unexpected{legacy.error()};
 		}
-		result.ok = constant_time_eq(parsed->hash, *legacy);
+		result.ok = conflux::crypto::constant_time_eq(parsed->hash, *legacy);
 	}
 	result.needs_rehash = result.ok && !password_hash_detail::parameters_match(*parsed, current, secrets);
 	return result;

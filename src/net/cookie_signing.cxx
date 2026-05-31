@@ -19,16 +19,16 @@ namespace cookie_signing_detail {
 std::string mac_b64(
 	std::string_view value,
 	std::string_view secret) {
-	auto key = to_unsigned_span(secret);
-	auto msg = to_unsigned_span(value);
-	return base64url_encode(hmac_sha256(key, msg));
+	auto key = conflux::crypto::to_unsigned_span(secret);
+	auto msg = conflux::crypto::to_unsigned_span(value);
+	return conflux::crypto::base64url_encode(conflux::crypto::hmac_sha256(key, msg));
 }
 
 [[nodiscard]] bool signed_value_matches(
 	std::string_view value,
 	std::string_view sig,
 	std::string_view secret) {
-	return constant_time_eq(sig, mac_b64(value, secret));
+	return conflux::crypto::constant_time_eq(sig, mac_b64(value, secret));
 }
 
 } // namespace cookie_signing_detail
@@ -121,8 +121,9 @@ Router::Middleware cookie_signing_middleware(
 		!valid) {
 		throw std::invalid_argument{valid.error()};
 	}
-	return [opts = std::move(
-				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts = std::move(opts)](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {

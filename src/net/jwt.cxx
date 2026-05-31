@@ -158,7 +158,9 @@ namespace jwt_detail {
 [[nodiscard]] std::array<unsigned char, 32> jwt_signature(
 	std::string_view secret,
 	std::string_view signing_input) {
-	return hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
+	return conflux::crypto::hmac_sha256(
+		conflux::crypto::to_unsigned_span(secret),
+		conflux::crypto::to_unsigned_span(signing_input));
 }
 
 [[nodiscard]] bool signature_matches(
@@ -166,12 +168,16 @@ namespace jwt_detail {
 	std::string const &sig_claimed,
 	conflux::http::ResolvedSecretRotation const &secrets) {
 	auto expected_signature = jwt_signature(secrets.active, signing_input);
-	if (ct_equal(to_unsigned_span(sig_claimed), std::span{expected_signature.data(), expected_signature.size()})) {
+	if (ct_equal(
+			conflux::crypto::to_unsigned_span(sig_claimed),
+			std::span{expected_signature.data(), expected_signature.size()})) {
 		return true;
 	}
 	for (auto const &previous: secrets.previous) {
 		expected_signature = jwt_signature(previous, signing_input);
-		if (ct_equal(to_unsigned_span(sig_claimed), std::span{expected_signature.data(), expected_signature.size()})) {
+		if (ct_equal(
+				conflux::crypto::to_unsigned_span(sig_claimed),
+				std::span{expected_signature.data(), expected_signature.size()})) {
 			return true;
 		}
 	}
@@ -232,7 +238,7 @@ std::expected<JwtClaims, std::string> jwt_decode(
 	auto signature_b64 = token.substr(dot2 + 1);
 
 	// Decode header and check algorithm.
-	auto header = base64url_decode(header_b64);
+	auto header = conflux::crypto::base64url_decode(header_b64);
 	if (header.empty()) {
 		return std::unexpected{"invalid header encoding"};
 	}
@@ -246,13 +252,13 @@ std::expected<JwtClaims, std::string> jwt_decode(
 	}
 
 	// Decode payload.
-	auto payload = base64url_decode(payload_b64);
+	auto payload = conflux::crypto::base64url_decode(payload_b64);
 	if (payload.empty()) {
 		return std::unexpected{"invalid payload encoding"};
 	}
 
 	// Decode claimed signature.
-	auto sig_claimed = base64url_decode(signature_b64);
+	auto sig_claimed = conflux::crypto::base64url_decode(signature_b64);
 	if (sig_claimed.empty()) {
 		return std::unexpected{"invalid signature encoding"};
 	}
@@ -360,12 +366,14 @@ std::string jwt_sign(
 	std::string_view secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
 	static constexpr std::string_view kHeader = R"({"alg":"HS256","typ":"JWT"})";
-	auto header_b64 = base64url_encode(to_unsigned_span(kHeader));
-	auto payload_b64 = base64url_encode(to_unsigned_span(payload_json));
+	auto header_b64 = conflux::crypto::base64url_encode(conflux::crypto::to_unsigned_span(kHeader));
+	auto payload_b64 = conflux::crypto::base64url_encode(conflux::crypto::to_unsigned_span(payload_json));
 
 	std::string const signing_input = header_b64 + '.' + payload_b64;
-	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
-	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
+	auto sig = conflux::crypto::hmac_sha256(
+		conflux::crypto::to_unsigned_span(secret),
+		conflux::crypto::to_unsigned_span(signing_input));
+	auto sig_b64 = conflux::crypto::base64url_encode(std::span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;
 }
@@ -382,12 +390,14 @@ std::string jwt_sign(
 	std::string_view header_json,
 	std::string_view payload_json,
 	std::string_view secret) {
-	auto header_b64 = base64url_encode(to_unsigned_span(header_json));
-	auto payload_b64 = base64url_encode(to_unsigned_span(payload_json));
+	auto header_b64 = conflux::crypto::base64url_encode(conflux::crypto::to_unsigned_span(header_json));
+	auto payload_b64 = conflux::crypto::base64url_encode(conflux::crypto::to_unsigned_span(payload_json));
 
 	std::string const signing_input = header_b64 + '.' + payload_b64;
-	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
-	auto sig_b64 = base64url_encode(std::span{sig.data(), sig.size()});
+	auto sig = conflux::crypto::hmac_sha256(
+		conflux::crypto::to_unsigned_span(secret),
+		conflux::crypto::to_unsigned_span(signing_input));
+	auto sig_b64 = conflux::crypto::base64url_encode(std::span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;
 }
@@ -396,8 +406,9 @@ std::string jwt_sign(
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
 conflux::http::Router::Middleware jwt_middleware(
 	JwtOptions opts) {
-	return [opts = std::move(
-				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts = std::move(opts)](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto unauthorized = [](std::string_view www_auth) {
 			auto r = conflux::http::Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 			r.headers["WWW-Authenticate"] = std::string{www_auth};

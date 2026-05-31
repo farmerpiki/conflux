@@ -49,24 +49,31 @@ int main() {
 	constexpr std::string_view payload = "conflux crypto example payload";
 	constexpr std::string_view aad = "route=/internal/seal;v=1";
 
-	auto digest = sha256(to_unsigned_span(payload));
-	auto mac = hmac_sha256(to_unsigned_span("example signing key"), to_unsigned_span(payload));
+	auto digest = conflux::crypto::sha256(conflux::crypto::to_unsigned_span(payload));
+	auto mac = conflux::crypto::hmac_sha256(
+		conflux::crypto::to_unsigned_span("example signing key"),
+		conflux::crypto::to_unsigned_span(payload));
 
 	std::println("sha256     {}", hex(bytes(digest)));
 	std::println("hmac       {}", hex(bytes(mac)));
-	std::println("b64url(mac) {}", base64url_encode(bytes(mac)));
-	std::println("constant-time self check: {}", constant_time_eq(hex(bytes(mac)), hex(bytes(mac))));
+	std::println("b64url(mac) {}", conflux::crypto::base64url_encode(bytes(mac)));
+	std::println("constant-time self check: {}", conflux::crypto::constant_time_eq(hex(bytes(mac)), hex(bytes(mac))));
 
 	auto key = fixed_key();
 	auto iv = fixed_iv();
-	auto sealed = aes_gcm_encrypt(bytes(key), bytes(iv), to_unsigned_span(payload), to_unsigned_span(aad));
+	auto sealed = conflux::crypto::aes_gcm_encrypt(
+		bytes(key),
+		bytes(iv),
+		conflux::crypto::to_unsigned_span(payload),
+		conflux::crypto::to_unsigned_span(aad));
 	if (!sealed) {
 		std::println(std::cerr, "seal failed: {}", sealed.error());
 		return 1;
 	}
 	std::println("sealed bytes: {}", sealed->size());
 
-	auto opened = aes_gcm_decrypt(bytes(key), bytes(iv), bytes(*sealed), to_unsigned_span(aad));
+	auto opened =
+		conflux::crypto::aes_gcm_decrypt(bytes(key), bytes(iv), bytes(*sealed), conflux::crypto::to_unsigned_span(aad));
 	if (!opened) {
 		std::println(std::cerr, "open failed: {}", opened.error());
 		return 1;
@@ -75,7 +82,11 @@ int main() {
 
 	auto tampered = *sealed;
 	tampered[0] = static_cast<unsigned char>(tampered[0] ^ 0x01U);
-	auto rejected = aes_gcm_decrypt(bytes(key), bytes(iv), bytes(tampered), to_unsigned_span(aad));
+	auto rejected = conflux::crypto::aes_gcm_decrypt(
+		bytes(key),
+		bytes(iv),
+		bytes(tampered),
+		conflux::crypto::to_unsigned_span(aad));
 	if (!rejected) {
 		std::println("tamper rejected: {}", rejected.error());
 	}

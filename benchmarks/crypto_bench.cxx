@@ -61,7 +61,7 @@ int main(
 			enc_name,
 			measure(
 				[&] {
-					auto ct = aes_gcm_encrypt(key, iv, pt, aad).value();
+					auto ct = conflux::crypto::aes_gcm_encrypt(key, iv, pt, aad).value();
 					asm volatile("" : : "r"(ct.data()) : "memory");
 				},
 				cfg.warmup / 10,
@@ -69,13 +69,13 @@ int main(
 				1,
 				sz));
 
-		auto ct = aes_gcm_encrypt(key, iv, pt, aad).value();
+		auto ct = conflux::crypto::aes_gcm_encrypt(key, iv, pt, aad).value();
 		auto dec_name = std::format("gcm_decrypt/{}", sz);
 		emit(
 			dec_name,
 			measure(
 				[&] {
-					auto r = aes_gcm_decrypt(key, iv, ct, aad).value();
+					auto r = conflux::crypto::aes_gcm_decrypt(key, iv, ct, aad).value();
 					asm volatile("" : : "r"(r.data()) : "memory");
 				},
 				cfg.warmup / 10,
@@ -111,7 +111,7 @@ int main(
 			name,
 			measure(
 				[&] {
-					auto h = sha256(msg);
+					auto h = conflux::crypto::sha256(msg);
 					asm volatile("" : : "r"(h.data()) : "memory");
 				},
 				cfg.warmup / 10,
@@ -122,7 +122,7 @@ int main(
 			hmac_name,
 			measure(
 				[&] {
-					auto h = hmac_sha256(key, msg);
+					auto h = conflux::crypto::hmac_sha256(key, msg);
 					asm volatile("" : : "r"(h.data()) : "memory");
 				},
 				cfg.warmup / 10,
@@ -135,7 +135,7 @@ int main(
 		"constant_time_eq/48",
 		measure(
 			[&] {
-				bool r = constant_time_eq(a, b);
+				bool r = conflux::crypto::constant_time_eq(a, b);
 				asm volatile("" : : "r"(r) : "memory");
 			},
 			cfg.warmup,
