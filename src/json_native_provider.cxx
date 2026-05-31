@@ -5,7 +5,7 @@ import conflux.types;
 import conflux.json;
 export import conflux.json.boundary;
 
-export namespace conflux::json::boundary::detail {
+namespace conflux::json::boundary::detail {
 
 [[nodiscard]] inline ErrorStage map_stage(
 	JsonStage stage) noexcept {
