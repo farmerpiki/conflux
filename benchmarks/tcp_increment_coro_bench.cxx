@@ -18,6 +18,7 @@ import conflux.file_io;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.socket_io.blocking;
+import bench_common;
 
 namespace {
 
@@ -29,6 +30,8 @@ constexpr std::uint64_t pack_ud(
 struct Config {
 	std::size_t iterations = 200;
 	std::size_t warmup = 40;
+	std::size_t samples = 0;
+	std::size_t batch = 0;
 	std::size_t clients = 4;
 	std::string_view config_name = "default";
 	bool json_out = false;
@@ -68,6 +71,10 @@ Config parse_args(
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
 			cfg.warmup = parse_u64(args[++i]);
+		} else if (a == "--samples" && i + 1 < args.size()) {
+			cfg.samples = parse_u64(args[++i]);
+		} else if (a == "--batch" && i + 1 < args.size()) {
+			cfg.batch = parse_u64(args[++i]);
 		} else if (a == "--clients" && i + 1 < args.size()) {
 			cfg.clients = parse_u64(args[++i]);
 		} else if (a == "--config" && i + 1 < args.size()) {
@@ -555,6 +562,44 @@ std::uint64_t run_str_parallel(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 
+template<class Fn>
+BenchStats measure_batched_loop(
+	std::string_view config,
+	std::string_view variant,
+	std::size_t iterations,
+	std::size_t warmup,
+	std::size_t samples,
+	std::size_t batch,
+	Fn &&fn) {
+	BenchSamplePlan const plan = bench_sample_plan(iterations, warmup, samples, batch);
+	std::uint64_t total_ns = 0;
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		(void)fn(plan.batch);
+	}
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		total_ns += fn(plan.batch);
+	}
+	BenchStats stats{
+		.config = config,
+		.variant = variant,
+		.iterations = plan.iterations,
+		.total_ns = total_ns,
+		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(plan.iterations),
+	};
+	bench_apply_sample_plan(stats, plan);
+	return stats;
+}
+
+void print_tcp_stats(
+	BenchStats const &stats,
+	bool json) {
+	if (json) {
+		bench_print(stats, true, false);
+	} else {
+		std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", stats.variant, stats.ns_per_iter, stats.total_ns);
+	}
+}
+
 } // namespace
 int main(
 	int argc,
@@ -611,25 +656,21 @@ int main(
 				conflux::file_io::FileReader files{&raw, &ct, pack_ud};
 				int const csock = connect_to(port);
 				conflux::uring::FileHandle sock = conflux::uring::FileHandle::from_fd(csock);
-				(void)run_fr_callback(files, sock, cfg.warmup, 0);
-				std::uint64_t const ns = (which == 0) ? run_fr_callback(files, sock, cfg.iterations, cfg.warmup) :
-														run_fr_coroutine(files, sock, cfg.iterations, cfg.warmup);
-				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
-				if (cfg.json_out) {
-					std::println(
-						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
-						"2f}}}",
-						cfg.config_name,
-						lbl(which),
-						cfg.iterations,
-						ns,
-						per);
-				} else {
-					if (which == 0) {
-						std::println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
-					}
-					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+				auto const stats = measure_batched_loop(
+					cfg.config_name,
+					lbl(which),
+					cfg.iterations,
+					cfg.warmup,
+					cfg.samples,
+					cfg.batch,
+					[&](std::size_t n) {
+						return (which == 0) ? run_fr_callback(files, sock, n, cfg.warmup) :
+											  run_fr_coroutine(files, sock, n, cfg.warmup);
+					});
+				if (!cfg.json_out && which == 0) {
+					std::println("iterations: {}, warmup: {}", stats.iterations, cfg.warmup);
 				}
+				print_tcp_stats(stats, cfg.json_out);
 				server_stop.test_and_set(std::memory_order_release);
 				::shutdown(sock.raw_fd(), SHUT_RDWR);
 				(void)sock.release_fd();
@@ -642,23 +683,18 @@ int main(
 				auto ss = loopback_addr(port);
 				conflux::socket_io::TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
-				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
-				std::uint64_t const ns = (which == 2) ?
-											 run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
-											 run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
-				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
-				if (cfg.json_out) {
-					std::println(
-						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
-						"2f}}}",
-						cfg.config_name,
-						lbl(which),
-						cfg.iterations,
-						ns,
-						per);
-				} else {
-					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
-				}
+				auto const stats = measure_batched_loop(
+					cfg.config_name,
+					lbl(which),
+					cfg.iterations,
+					cfg.warmup,
+					cfg.samples,
+					cfg.batch,
+					[&](std::size_t n) {
+						return (which == 2) ? run_str_callback(task_ring, stream, n, cfg.warmup) :
+											  run_str_coroutine(task_ring, stream, n, cfg.warmup);
+					});
+				print_tcp_stats(stats, cfg.json_out);
 				server_stop.test_and_set(std::memory_order_release);
 				// stream dtor closes fd → unblocks server's ::read → server sees stop flag
 			} else if (which < 6) {
@@ -669,44 +705,49 @@ int main(
 				auto ss = loopback_addr(port);
 				conflux::socket_io::TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
-				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
-				std::uint64_t const ns = (which == 4) ?
-											 run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
-											 run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
-				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
-				if (cfg.json_out) {
-					std::println(
-						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
-						"2f}}}",
-						cfg.config_name,
-						lbl(which),
-						cfg.iterations,
-						ns,
-						per);
-				} else {
-					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
-				}
+				auto const stats = measure_batched_loop(
+					cfg.config_name,
+					lbl(which),
+					cfg.iterations,
+					cfg.warmup,
+					cfg.samples,
+					cfg.batch,
+					[&](std::size_t n) {
+						return (which == 4) ? run_str_callback(task_ring, stream, n, cfg.warmup) :
+											  run_str_coroutine(task_ring, stream, n, cfg.warmup);
+					});
+				print_tcp_stats(stats, cfg.json_out);
 				server_stop.test_and_set(std::memory_order_release);
 			} else {
 				conflux::socket_io::SocketTaskRing task_ring{
 					conflux::socket_io::SocketRawRing{&raw},
 					ct,
 					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
-				(void)run_str_parallel(task_ring, port, cfg.warmup, 0);
-				std::uint64_t const ns = run_str_parallel(task_ring, port, cfg.iterations, cfg.warmup);
-				std::size_t const total_iters = cfg.iterations * cfg.clients;
-				double const per = static_cast<double>(ns) / static_cast<double>(total_iters);
+				auto stats = measure_batched_loop(
+					cfg.config_name,
+					lbl(which),
+					cfg.iterations,
+					cfg.warmup,
+					cfg.samples,
+					cfg.batch,
+					[&](std::size_t n) { return run_str_parallel(task_ring, port, n, cfg.warmup); });
+				stats.iterations *= cfg.clients;
+				stats.ns_per_iter = static_cast<double>(stats.total_ns) / static_cast<double>(stats.iterations);
+				stats.timer_overhead_pct = bench_timer_overhead_percent(
+					BenchSamplePlan{
+						.samples = stats.sample_count,
+						.batch = stats.batch,
+						.iterations = stats.iterations,
+						.timer_sample_ns = stats.timer_sample_ns},
+					stats.total_ns);
 				if (cfg.json_out) {
-					std::println(
-						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
-						"2f}}}",
-						cfg.config_name,
-						lbl(which),
-						total_iters,
-						ns,
-						per);
+					bench_print(stats, true, false);
 				} else {
-					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+					std::println(
+						"  {:<18} {:>8.1f} ns/iter ({} ns total)",
+						lbl(which),
+						stats.ns_per_iter,
+						stats.total_ns);
 				}
 				server_stop.test_and_set(std::memory_order_release);
 			}
