@@ -126,13 +126,6 @@ public:
 	[[nodiscard]] wroot::Task<UdpRecvResult> async_recv_from(std::span<std::uint8_t> buf);
 	[[nodiscard]] wroot::Task<UdpRecvResult>
 	async_recv_from(std::span<std::uint8_t> buf, std::chrono::milliseconds timeout);
-
-	[[nodiscard]] wroot::Task<std::size_t>
-	send_to_borrowed(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
-	[[nodiscard]] wroot::Task<std::size_t>
-	send_to_copy(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
-	[[nodiscard]] wroot::Task<UdpRecvResult> recv_from(std::span<std::uint8_t> buf);
-	[[nodiscard]] wroot::Task<UdpRecvResult> recv_from(std::span<std::uint8_t> buf, std::chrono::milliseconds timeout);
 };
 
 export [[nodiscard]] wroot::Task<void> async_sleep_for(SocketTaskRing &ring, std::chrono::milliseconds dur);

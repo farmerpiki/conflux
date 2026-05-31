@@ -194,7 +194,7 @@ TEST_CASE(
 	CHECK(dst.raw_fd() == fd);
 }
 // ---------------------------------------------------------------------------
-// send_to_borrowed + recv_from — loopback round-trip
+// async_send_to_borrowed + async_recv_from — loopback round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -215,14 +215,14 @@ TEST_CASE(
 	dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	socklen_t const dest_len = sizeof(dest);
 
-	auto const bytes_sent = fx->run(send_sock.send_to_borrowed(
+	auto const bytes_sent = fx->run(send_sock.async_send_to_borrowed(
 		std::span<std::uint8_t const>{payload.data(), payload.size()},
 		to_storage(dest),
 		dest_len));
 	CHECK(bytes_sent == payload.size());
 
 	std::array<std::uint8_t, 256> rx_buf{};
-	auto const rx = fx->run(recv_sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}));
+	auto const rx = fx->run(recv_sock.async_recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}));
 
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
@@ -233,11 +233,11 @@ TEST_CASE(
 	CHECK(ntohs(from.sin_port) == get_local_port(send_sock.raw_fd()));
 }
 // ---------------------------------------------------------------------------
-// recv_from with timeout — fires on idle socket
+// async_recv_from with timeout — fires on idle socket
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"udp: recv_from with timeout fires IoError on idle socket",
+	"udp: async_recv_from with timeout fires IoError on idle socket",
 	"[udp][uring]") {
 	auto fx = require_ring_fixture();
 
@@ -248,7 +248,7 @@ TEST_CASE(
 	bool got_value = false;
 	try {
 		fx->run(
-			sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{50}),
+			sock.async_recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{50}),
 			std::chrono::seconds{2});
 		got_value = true;
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (...) {
@@ -258,11 +258,11 @@ TEST_CASE(
 	CHECK(err_code == ETIMEDOUT);
 }
 // ---------------------------------------------------------------------------
-// recv_from with timeout — succeeds when data arrives in time
+// async_recv_from with timeout — succeeds when data arrives in time
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"udp: recv_from with timeout receives packet that arrives before timeout",
+	"udp: async_recv_from with timeout receives packet that arrives before timeout",
 	"[udp][uring]") {
 	auto fx = require_ring_fixture();
 
@@ -278,14 +278,16 @@ TEST_CASE(
 	dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	socklen_t const dest_len = sizeof(dest);
 
-	fx->run(send_sock.send_to_borrowed(
+	fx->run(send_sock.async_send_to_borrowed(
 		std::span<std::uint8_t const>{payload.data(), payload.size()},
 		to_storage(dest),
 		dest_len));
 
 	std::array<std::uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(
-		recv_sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{2000}),
+		recv_sock.async_recv_from(
+			std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()},
+			std::chrono::milliseconds{2000}),
 		std::chrono::seconds{3});
 
 	REQUIRE(rx.bytes == payload.size());
@@ -319,28 +321,29 @@ TEST_CASE(
 	dest.sin6_addr = in6addr_loopback;
 	sockaddr_storage dest_ss{};
 	memcpy(&dest_ss, &dest, sizeof(dest));
-	fx->run(send_sock.send_to_borrowed(
+	fx->run(send_sock.async_send_to_borrowed(
 		std::span<std::uint8_t const>{payload.data(), payload.size()},
 		dest_ss,
 		sizeof(dest)));
 	std::array<std::uint8_t, 256> rx_buf{};
-	auto const rx = fx->run(recv_sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}));
+	auto const rx = fx->run(recv_sock.async_recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}));
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
 }
 // ---------------------------------------------------------------------------
-// recv_from negative timeout
+// async_recv_from negative timeout
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"udp: recv_from with negative timeout throws EINVAL",
+	"udp: async_recv_from with negative timeout throws EINVAL",
 	"[udp]") {
 	auto fx = require_ring_fixture();
 	auto sock = UdpSocket::ephemeral(fx->task_ring, AF_INET);
 	std::array<std::uint8_t, 256> rx_buf{};
 	int err_code = 0;
 	try {
-		fx->run(sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{-1}));
+		fx->run(
+			sock.async_recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{-1}));
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK(err_code == EINVAL);
 }

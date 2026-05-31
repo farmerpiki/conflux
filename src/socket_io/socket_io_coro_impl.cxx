@@ -1118,31 +1118,6 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
-	return send_to_borrowed(data, addr, addr_len);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> UdpSocket::async_send_to_copy(
-	std::span<std::uint8_t const> data,
-	sockaddr_storage addr,
-	socklen_t addr_len) {
-	return send_to_copy(data, addr, addr_len);
-}
-
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
-	std::span<std::uint8_t> buf) {
-	return recv_from(buf);
-}
-
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
-	std::span<std::uint8_t> buf,
-	std::chrono::milliseconds timeout) {
-	return recv_from(buf, timeout);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> UdpSocket::send_to_borrowed(
-	std::span<std::uint8_t const> data,
-	sockaddr_storage addr,
-	socklen_t addr_len) {
 	auto task_src_7 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_7.first);
 	auto shared_src = std::move(task_src_7.second);
@@ -1175,7 +1150,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	co_return co_await std::move(task);
 }
-[[nodiscard]] wroot::Task<std::size_t> UdpSocket::send_to_copy(
+[[nodiscard]] wroot::Task<std::size_t> UdpSocket::async_send_to_copy(
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
@@ -1213,7 +1188,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	co_return co_await std::move(task);
 }
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::recv_from(
+[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
 	std::span<std::uint8_t> buf) {
 	auto task_src_9 = wroot::make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_9.first);
@@ -1245,7 +1220,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	co_return co_await std::move(task);
 }
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::recv_from(
+[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
 	std::span<std::uint8_t> buf,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() < 0) {

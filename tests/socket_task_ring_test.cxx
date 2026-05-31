@@ -1060,11 +1060,11 @@ TEST_CASE(
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// UdpSocket — send_to_copy safe after source mutated before run
+// UdpSocket — async_send_to_copy safe after source mutated before run
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"udp: send_to_copy safe after source mutated before run",
+	"udp: async_send_to_copy safe after source mutated before run",
 	"[udp][lifetime][uring]") {
 	auto fx = require_ring_fixture();
 	// Bind a UDP echo server on loopback.
@@ -1087,11 +1087,11 @@ TEST_CASE(
 
 	UdpSocket sock = UdpSocket::ephemeral(fx->task_ring, AF_INET);
 	std::array<std::uint8_t, 4> payload{1, 2, 3, 4};
-	auto task = sock.send_to_copy(
+	auto task = sock.async_send_to_copy(
 		std::span<std::uint8_t const>{payload.data(), payload.size()},
 		dst,
 		static_cast<socklen_t>(sizeof(sockaddr_in)));
-	// mutate source — send_to_copy must have copied
+	// mutate source — async_send_to_copy must have copied
 	payload.fill(0xCC);
 	std::size_t const sent = fx->run(std::move(task));
 	CHECK(sent == 4);
