@@ -11,6 +11,7 @@
 
 import std;
 import conflux.json;
+import conflux.json.native_provider;
 import bench_common;
 
 using namespace conflux::json;
@@ -219,6 +220,14 @@ void run_row(
 template<class T>
 void require_ok(
 	std::expected<T, JsonError> value) {
+	if (!value) {
+		throw std::runtime_error{value.error().message};
+	}
+}
+
+template<class T>
+void require_boundary_ok(
+	std::expected<T, conflux::json::boundary::Error> value) {
 	if (!value) {
 		throw std::runtime_error{value.error().message};
 	}
@@ -643,6 +652,9 @@ void bench_order_matrix(
 	run_row(cfg, "order/medium/declaration", medium_decl.size(), [&] {
 		require_ok(decode_borrowed<Medium>(medium_decl));
 	});
+	run_row(cfg, "boundary/native_provider/medium_declaration", medium_decl.size(), [&] {
+		require_boundary_ok(conflux::json::boundary::decode_native<Medium>(medium_decl, {.copy_input = false}));
+	});
 	run_row(cfg, "order/medium/reverse", medium_reverse.size(), [&] {
 		require_ok(decode_borrowed<Medium>(medium_reverse));
 	});
@@ -765,7 +777,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json_direct_struct","parser":"standard","configs":[{"name":"field_order","extra":{"kind":"micro/user-space","case":"direct-to-struct member order and unknown-member policy"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","order/","--filter","unknown/","--config-name","field_order","--iterations","0","--warmup","0"]},{"name":"duplicates","extra":{"kind":"micro/user-space","case":"direct-to-struct duplicate-key modes"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","duplicate/","--config-name","duplicates","--iterations","0","--warmup","0"]},{"name":"numeric","extra":{"kind":"micro/user-space","case":"direct-to-struct number lexing and fixed numeric arrays"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","numeric/","--config-name","numeric","--iterations","0","--warmup","0"]},{"name":"strings","extra":{"kind":"micro/user-space","case":"direct-to-struct string decode"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","strings/","--config-name","strings","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
+		R"({"name":"json_direct_struct","parser":"standard","configs":[{"name":"field_order","extra":{"kind":"micro/user-space","case":"direct-to-struct member order and unknown-member policy"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","order/","--filter","unknown/","--filter","boundary/","--config-name","field_order","--iterations","0","--warmup","0"]},{"name":"duplicates","extra":{"kind":"micro/user-space","case":"direct-to-struct duplicate-key modes"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","duplicate/","--config-name","duplicates","--iterations","0","--warmup","0"]},{"name":"numeric","extra":{"kind":"micro/user-space","case":"direct-to-struct number lexing and fixed numeric arrays"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","numeric/","--config-name","numeric","--iterations","0","--warmup","0"]},{"name":"strings","extra":{"kind":"micro/user-space","case":"direct-to-struct string decode"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","strings/","--config-name","strings","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	Config const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	if (!cfg.json_out) {
 		std::println(
