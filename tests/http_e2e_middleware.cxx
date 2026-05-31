@@ -1061,10 +1061,10 @@ TEST_CASE(
 }
 TEST_CASE(
 	"static core: normalize_static_path resolves dot segments and rejects escapes") {
-	CHECK(normalize_static_path("foo/bar") == std::optional<std::string>{"/foo/bar"});
-	CHECK(normalize_static_path("./foo/../bar") == std::optional<std::string>{"/bar"});
-	CHECK_FALSE(normalize_static_path("../escape").has_value());
-	CHECK_FALSE(normalize_static_path(std::string_view{"bad\0path", 8}).has_value());
+	CHECK(conflux::http::detail::normalize_static_path("foo/bar") == std::optional<std::string>{"/foo/bar"});
+	CHECK(conflux::http::detail::normalize_static_path("./foo/../bar") == std::optional<std::string>{"/bar"});
+	CHECK_FALSE(conflux::http::detail::normalize_static_path("../escape").has_value());
+	CHECK_FALSE(conflux::http::detail::normalize_static_path(std::string_view{"bad\0path", 8}).has_value());
 }
 TEST_CASE(
 	"static file serving: allow_delete removes files") {

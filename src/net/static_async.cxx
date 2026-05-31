@@ -22,6 +22,8 @@ import conflux.net.http.static_files;
 import conflux.net.http.response;
 import conflux.net.http.static_core;
 
+namespace http_detail = conflux::http::detail;
+
 namespace {
 
 int contained_static_open(
@@ -175,14 +177,14 @@ conflux::work::root::Task<void> do_save_static_file(
 	std::shared_ptr<std::string> body_owned,
 	std::shared_ptr<std::string> fp,
 	bool existed,
-	StaticCacheStore &static_cache,
+	http_detail::StaticCacheStore &static_cache,
 	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	int dir_fd,
 	std::string rel_path);
 conflux::work::root::Task<void> do_delete_static_file(
 	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	std::shared_ptr<std::string> fp,
-	StaticCacheStore &static_cache,
+	http_detail::StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
 conflux::http::Response handle_static_get_request(
@@ -190,14 +192,14 @@ conflux::http::Response handle_static_get_request(
 	int root_fd,
 	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
-	StaticCacheStore &static_cache) {
+	http_detail::StaticCacheStore &static_cache) {
 	try {
-		auto norm = normalize_static_path(req.params["file"]);
+		auto norm = http_detail::normalize_static_path(req.params["file"]);
 		if (!norm) {
 			return static_forbidden();
 		}
 
-		StaticRequest const sreq{
+		http_detail::StaticRequest const sreq{
 			.file_param = *norm,
 			.method = req.method,
 			.accept_encoding = req.headers["accept-encoding"],
@@ -208,7 +210,7 @@ conflux::http::Response handle_static_get_request(
 		};
 
 		if (sopts.offload_pool) {
-			auto owned_sreq = StaticRequestStorage::from(sreq);
+			auto owned_sreq = http_detail::StaticRequestStorage::from(sreq);
 			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto ok = sopts.offload_pool->enqueue(
 				[rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
@@ -231,9 +233,9 @@ conflux::http::Response handle_static_put(
 	int root_fd,
 	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
-	StaticCacheStore &static_cache) {
+	http_detail::StaticCacheStore &static_cache) {
 	try {
-		auto norm = normalize_static_path(req.params["file"]);
+		auto norm = http_detail::normalize_static_path(req.params["file"]);
 		if (!norm) {
 			return static_forbidden();
 		}
@@ -300,9 +302,9 @@ conflux::http::Response handle_static_delete(
 	int root_fd,
 	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
-	StaticCacheStore &static_cache) {
+	http_detail::StaticCacheStore &static_cache) {
 	try {
-		auto norm = normalize_static_path(req.params["file"]);
+		auto norm = http_detail::normalize_static_path(req.params["file"]);
 		if (!norm) {
 			return static_forbidden();
 		}
@@ -365,8 +367,8 @@ conflux::http::Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
 	conflux::http::StaticOptions const &static_options,
-	StaticRequest const &r,
-	StaticCacheStore &static_cache) {
+	http_detail::StaticRequest const &r,
+	http_detail::StaticCacheStore &static_cache) {
 	try {
 		std::string file_param{r.file_param};
 		auto full_path = rd + file_param;
@@ -668,7 +670,7 @@ conflux::http::Response handle_static_get(
 		}
 
 		if (static_options.file_cache.enabled && file_size <= static_options.file_cache.small_file_max_bytes) {
-			auto make_cached_response = [&](StaticCacheEntry const &entry) {
+			auto make_cached_response = [&](http_detail::StaticCacheEntry const &entry) {
 				if (is_range_request) {
 					auto send_sz = range_end - range_start + 1;
 					auto resp = conflux::http::Response{
@@ -702,7 +704,7 @@ conflux::http::Response handle_static_get(
 				return resp;
 			};
 			if (auto cached =
-					static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
+					static_cache.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
 						if (!is_range_request) {
 							auto resp = conflux::http::Response{
 								.status = kHttpOk,
@@ -746,7 +748,7 @@ conflux::http::Response handle_static_get(
 			if (off != body.size()) {
 				body.resize(off);
 			}
-			StaticCacheEntry entry{
+			http_detail::StaticCacheEntry entry{
 				.body = std::move(body),
 				.mime = std::string{mime},
 				.etag = etag,
@@ -842,7 +844,7 @@ conflux::work::root::Task<void> do_save_static_file(
 	std::shared_ptr<std::string> body_owned,
 	std::shared_ptr<std::string> fp,
 	bool existed,
-	StaticCacheStore &static_cache,
+	http_detail::StaticCacheStore &static_cache,
 	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	int dir_fd,
 	std::string rel_path) {
@@ -858,7 +860,7 @@ conflux::work::root::Task<void> do_save_static_file(
 conflux::work::root::Task<void> do_delete_static_file(
 	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	std::shared_ptr<std::string> fp,
-	StaticCacheStore &static_cache,
+	http_detail::StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task) {
 	try {
 		co_await std::move(unlink_task);

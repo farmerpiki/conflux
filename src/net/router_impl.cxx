@@ -63,7 +63,7 @@ struct Router::Impl {
 	Handler not_found_handler{};
 	ErrorHandler error_handler{};
 	std::shared_ptr<WorkPool> work_pool{};
-	StaticCacheStore static_cache{};
+	conflux::http::detail::StaticCacheStore static_cache{};
 	conflux::http::StaticFileCacheConfig static_file_cache{};
 
 	[[nodiscard]] std::shared_ptr<WorkPool> ensure_work_pool() {

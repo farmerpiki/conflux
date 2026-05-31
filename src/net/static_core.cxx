@@ -6,7 +6,9 @@ export module conflux.net.http.static_core;
 import std;
 import conflux.types;
 
-export struct StaticRequest {
+export namespace conflux::http::detail {
+
+struct StaticRequest {
 	std::string_view file_param;
 	std::string_view method;
 	std::string_view accept_encoding;
@@ -16,7 +18,7 @@ export struct StaticRequest {
 	bool tls{};
 };
 
-export struct StaticRequestStorage {
+struct StaticRequestStorage {
 	std::string file_param;
 	std::string method;
 	std::string accept_encoding;
@@ -51,7 +53,7 @@ export struct StaticRequestStorage {
 	}
 };
 
-export struct StaticCacheEntry {
+struct StaticCacheEntry {
 	std::string body;
 	std::string mime;
 	std::string etag;
@@ -64,17 +66,17 @@ export struct StaticCacheEntry {
 	std::uint64_t tick{};
 };
 
-export struct StaticCacheKey {
+struct StaticCacheKey {
 	std::string path;
 	std::string content_encoding;
 };
 
-export struct StaticCacheKeyView {
+struct StaticCacheKeyView {
 	std::string_view path;
 	std::string_view content_encoding;
 };
 
-export struct StaticCacheKeyHash {
+struct StaticCacheKeyHash {
 	using is_transparent = void;
 	[[nodiscard]] std::size_t operator ()(
 		StaticCacheKey const &key) const noexcept {
@@ -88,7 +90,7 @@ export struct StaticCacheKeyHash {
 	}
 };
 
-export struct StaticCacheKeyEqual {
+struct StaticCacheKeyEqual {
 	using is_transparent = void;
 	[[nodiscard]] bool operator ()(
 		StaticCacheKey const &a,
@@ -107,7 +109,7 @@ export struct StaticCacheKeyEqual {
 	}
 };
 
-export struct StaticCacheStore {
+struct StaticCacheStore {
 	std::mutex mtx;
 	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
 	std::size_t total_bytes{};
@@ -184,7 +186,7 @@ export struct StaticCacheStore {
 	}
 };
 
-export [[nodiscard]] std::optional<std::string> normalize_static_path(
+[[nodiscard]] std::optional<std::string> normalize_static_path(
 	std::string_view raw) {
 	std::string result;
 	result.reserve(raw.size() + 1);
@@ -216,3 +218,5 @@ export [[nodiscard]] std::optional<std::string> normalize_static_path(
 	}
 	return result;
 }
+
+} // namespace conflux::http::detail

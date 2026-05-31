@@ -24,6 +24,6 @@ struct StaticRouteRegistration {
 	std::string root_dir,
 	conflux::http::StaticOptions const &sopts,
 	conflux::http::StaticFileCacheConfig const &static_file_cache,
-	StaticCacheStore &static_cache);
+	conflux::http::detail::StaticCacheStore &static_cache);
 
 } // namespace conflux::http

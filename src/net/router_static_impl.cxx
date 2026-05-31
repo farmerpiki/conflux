@@ -19,7 +19,7 @@ namespace conflux::http {
 	std::string root_dir,
 	conflux::http::StaticOptions const &sopts,
 	StaticFileCacheConfig const &static_file_cache,
-	StaticCacheStore &static_cache) {
+	conflux::http::detail::StaticCacheStore &static_cache) {
 	while (!root_dir.empty() && root_dir.back() == '/') {
 		root_dir.pop_back();
 	}
