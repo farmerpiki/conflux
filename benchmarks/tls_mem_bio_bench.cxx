@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <format>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
@@ -32,6 +33,8 @@ inline std::atomic<std::uint64_t> sink{};
 struct Config {
 	std::size_t iterations = 2000;
 	std::size_t warmup = 100;
+	std::size_t samples = 0;
+	std::size_t batch = 0;
 	std::size_t bytes = 64 * 1024;
 	bool json_out = false;
 	std::string config_name;
@@ -43,6 +46,8 @@ struct Config {
 	auto base = bench_parse_args(args);
 	cfg.iterations = base.iterations;
 	cfg.warmup = base.warmup;
+	cfg.samples = base.samples;
+	cfg.batch = base.batch;
 	cfg.json_out = base.json_out;
 	cfg.config_name = std::move(base.config_name);
 	for (std::size_t i = 1; i < args.size(); ++i) {
@@ -60,20 +65,58 @@ struct Config {
 
 struct UniqueCtx {
 	SSL_CTX *ptr{};
+	UniqueCtx() = default;
+	explicit UniqueCtx(
+		SSL_CTX *p)
+		: ptr{p} {}
 	~UniqueCtx() {
 		if (ptr != nullptr) {
 			SSL_CTX_free(ptr);
 		}
+	}
+	UniqueCtx(UniqueCtx const &) = delete;
+	UniqueCtx &operator =(UniqueCtx const &) = delete;
+	UniqueCtx(
+		UniqueCtx &&other) noexcept
+		: ptr{std::exchange(other.ptr, nullptr)} {}
+	UniqueCtx &operator =(
+		UniqueCtx &&other) noexcept {
+		if (this != &other) {
+			if (ptr != nullptr) {
+				SSL_CTX_free(ptr);
+			}
+			ptr = std::exchange(other.ptr, nullptr);
+		}
+		return *this;
 	}
 	[[nodiscard]] SSL_CTX *get() const noexcept { return ptr; }
 };
 
 struct UniqueSsl {
 	SSL *ptr{};
+	UniqueSsl() = default;
+	explicit UniqueSsl(
+		SSL *p)
+		: ptr{p} {}
 	~UniqueSsl() {
 		if (ptr != nullptr) {
 			SSL_free(ptr);
 		}
+	}
+	UniqueSsl(UniqueSsl const &) = delete;
+	UniqueSsl &operator =(UniqueSsl const &) = delete;
+	UniqueSsl(
+		UniqueSsl &&other) noexcept
+		: ptr{std::exchange(other.ptr, nullptr)} {}
+	UniqueSsl &operator =(
+		UniqueSsl &&other) noexcept {
+		if (this != &other) {
+			if (ptr != nullptr) {
+				SSL_free(ptr);
+			}
+			ptr = std::exchange(other.ptr, nullptr);
+		}
+		return *this;
 	}
 	[[nodiscard]] SSL *get() const noexcept { return ptr; }
 };
@@ -81,6 +124,7 @@ struct UniqueSsl {
 struct KeyCert {
 	EVP_PKEY *pkey{};
 	X509 *cert{};
+	KeyCert() = default;
 	~KeyCert() {
 		if (pkey != nullptr) {
 			EVP_PKEY_free(pkey);
@@ -88,6 +132,26 @@ struct KeyCert {
 		if (cert != nullptr) {
 			X509_free(cert);
 		}
+	}
+	KeyCert(KeyCert const &) = delete;
+	KeyCert &operator =(KeyCert const &) = delete;
+	KeyCert(
+		KeyCert &&other) noexcept
+		: pkey{std::exchange(other.pkey, nullptr)}
+		, cert{std::exchange(other.cert, nullptr)} {}
+	KeyCert &operator =(
+		KeyCert &&other) noexcept {
+		if (this != &other) {
+			if (pkey != nullptr) {
+				EVP_PKEY_free(pkey);
+			}
+			if (cert != nullptr) {
+				X509_free(cert);
+			}
+			pkey = std::exchange(other.pkey, nullptr);
+			cert = std::exchange(other.cert, nullptr);
+		}
+		return *this;
 	}
 };
 
@@ -175,7 +239,13 @@ void throw_ssl_error(
 	if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 		return;
 	}
-	throw std::runtime_error{std::format("{} failed: ssl_error={}", what, err)};
+	unsigned long const detail = ERR_get_error();
+	throw std::runtime_error{std::format(
+		"{} failed: ssl_error={} state={} detail={}",
+		what,
+		err,
+		SSL_state_string_long(ssl),
+		ERR_error_string(detail, nullptr))};
 }
 
 [[nodiscard]] TlsPair make_tls_pair(
@@ -198,27 +268,23 @@ void throw_ssl_error(
 	SSL_set_connect_state(pair.client.get());
 	SSL_set_accept_state(pair.server.get());
 
-	bool client_done = false;
-	bool server_done = false;
-	for (int spins = 0; spins < 1000 && (!client_done || !server_done); ++spins) {
-		if (!client_done) {
+	for (int spins = 0;
+		 spins < 1000 && (SSL_is_init_finished(pair.client.get()) == 0 || SSL_is_init_finished(pair.server.get()) == 0);
+		 ++spins) {
+		if (SSL_is_init_finished(pair.client.get()) == 0) {
 			int const rc = SSL_do_handshake(pair.client.get());
-			if (rc == 1) {
-				client_done = true;
-			} else {
+			if (rc != 1) {
 				throw_ssl_error(pair.client.get(), rc, "client handshake"sv);
 			}
 		}
-		if (!server_done) {
+		if (SSL_is_init_finished(pair.server.get()) == 0) {
 			int const rc = SSL_do_handshake(pair.server.get());
-			if (rc == 1) {
-				server_done = true;
-			} else {
+			if (rc != 1) {
 				throw_ssl_error(pair.server.get(), rc, "server handshake"sv);
 			}
 		}
 	}
-	if (!client_done || !server_done) {
+	if (SSL_is_init_finished(pair.client.get()) == 0 || SSL_is_init_finished(pair.server.get()) == 0) {
 		throw std::runtime_error{"TLS memory BIO handshake did not converge"};
 	}
 	return pair;
@@ -264,41 +330,37 @@ struct RunStats {
 };
 
 template<class F>
-[[nodiscard]] std::uint64_t time_loop(
+[[nodiscard]] BenchStats measure_loop(
 	Config const &cfg,
 	F &&fn) {
-	for (std::size_t i = 0; i < cfg.warmup; ++i) {
-		fn();
-	}
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < cfg.iterations; ++i) {
-		fn();
-	}
-	return bench_now_ns() - t0;
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.samples, cfg.batch);
+	return bench_measure_batched(std::forward<F>(fn), plan, cfg.bytes);
 }
 
 void print_row(
 	Config const &cfg,
 	std::string_view variant,
-	std::uint64_t total_ns,
+	BenchStats stats,
 	bool &first) {
-	double const ns_per_iter =
-		static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, cfg.iterations));
-	double const mib = static_cast<double>(cfg.bytes) / (1024.0 * 1024.0);
-	double const seconds = static_cast<double>(total_ns) / 1e9;
-	double const mib_s = seconds > 0.0 ? (mib * static_cast<double>(cfg.iterations)) / seconds : 0.0;
+	stats.config = cfg.config_name;
+	stats.variant = variant;
 	if (cfg.json_out) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":"
-			"\"micro/user-space\",\"payload_bytes\":{},\"mib_per_s\":{:.1f},\"sink\":{}}}",
-			cfg.config_name,
-			variant,
-			cfg.iterations,
-			total_ns,
-			ns_per_iter,
+			"\"micro/user-space\",\"payload_bytes\":{},\"mib_per_s\":{:.1f},\"sink\":{},\"sample_count\":{},"
+			"\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
+			stats.config,
+			stats.variant,
+			stats.iterations,
+			stats.total_ns,
+			stats.ns_per_iter,
 			cfg.bytes,
-			mib_s,
-			sink.load(std::memory_order_relaxed));
+			stats.throughput,
+			sink.load(std::memory_order_relaxed),
+			stats.sample_count,
+			stats.batch,
+			stats.timer_sample_ns,
+			stats.timer_overhead_pct);
 	} else {
 		if (first) {
 			std::println("tls_mem_bio [{}]", cfg.config_name);
@@ -306,10 +368,10 @@ void print_row(
 		}
 		std::println(
 			"{:<28} {:>10} iters {:>10.2f} ns/iter {:>10.1f} MiB/s label=micro/user-space",
-			variant,
-			cfg.iterations,
-			ns_per_iter,
-			mib_s);
+			stats.variant,
+			stats.iterations,
+			stats.ns_per_iter,
+			stats.throughput);
 	}
 }
 
@@ -333,20 +395,20 @@ int main(
 
 	auto pair = make_tls_pair(client_ctx.get(), server_ctx.get());
 	bool first = true;
-	auto const one_way_ns = time_loop(cfg, [&] {
+	auto const one_way_stats = measure_loop(cfg, [&] {
 		ssl_write_all(pair.client.get(), payload);
 		sink.fetch_add(ssl_read_exact(pair.server.get(), read_buf, payload.size()), std::memory_order_relaxed);
 	});
-	print_row(cfg, "steady_client_to_server"sv, one_way_ns, first);
+	print_row(cfg, "steady_client_to_server"sv, one_way_stats, first);
 
 	pair = make_tls_pair(client_ctx.get(), server_ctx.get());
-	auto const round_trip_ns = time_loop(cfg, [&] {
+	auto const round_trip_stats = measure_loop(cfg, [&] {
 		ssl_write_all(pair.client.get(), payload);
 		sink.fetch_add(ssl_read_exact(pair.server.get(), read_buf, payload.size()), std::memory_order_relaxed);
 		ssl_write_all(pair.server.get(), payload);
 		sink.fetch_add(ssl_read_exact(pair.client.get(), read_buf, payload.size()), std::memory_order_relaxed);
 	});
-	print_row(cfg, "steady_round_trip_echo"sv, round_trip_ns, first);
+	print_row(cfg, "steady_round_trip_echo"sv, round_trip_stats, first);
 	if (!cfg.json_out) {
 		std::println("sink={}", sink.load(std::memory_order_relaxed));
 	}
