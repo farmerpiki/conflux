@@ -254,7 +254,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json_reflect","parser":"standard","configs":[{"name":"p2996","extra":{"reflection":true},"args":[]}],"filters":["--filter SUBSTR"]})");
+		R"({"name":"json_reflect","parser":"standard","configs":[{"name":"p2996","extra":{"kind":"micro/user-space","reflection":true,"case":"P2996 reflected JSON encode/decode"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_args = cfg;
 	g_json = cfg.json_out;

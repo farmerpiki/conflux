@@ -253,7 +253,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json_storage","parser":"standard","configs":[{"name":"default","extra":{},"args":["--config-name","default","--iterations","0","--warmup","50"]}],"filters":["--filter SUBSTR"]})");
+		R"({"name":"json_storage","parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space","case":"JSON parser storage attribution"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--config-name","default","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 
 	auto const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::string const sparse = make_plain_sparse_strings(4096);
