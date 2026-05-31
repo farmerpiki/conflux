@@ -2089,6 +2089,16 @@ conflux_add_compile_fail_test(
     LABELS compile-fail
     EXPECT "DirectSlotState")
 
+if(TARGET conflux_net_cancel)
+    conflux_add_compile_fail_test(
+        TARGET conflux_net_cancel_compile_fail_global_active_task_cancel_relay
+        SOURCE net_cancel_compile_fail_global_active_task_cancel_relay.cxx
+        TEST net-cancel/compile-fail-global-active-task-cancel-relay
+        LINK conflux_net_cancel conflux_options
+        LABELS compile-fail
+        EXPECT "ActiveTaskCancelRelay")
+endif()
+
 add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)
 target_link_libraries(conflux_cq_overflow_tests
     PRIVATE

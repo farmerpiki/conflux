@@ -490,7 +490,7 @@ export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 	BIO *rbio_{nullptr};
 	BIO *wbio_{nullptr};
 	TcpStream stream_;
-	std::shared_ptr<ActiveTaskCancelRelay> cancel_;
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel_;
 	std::array<std::uint8_t, 16384> scratch_{};
 	using TP = std::chrono::steady_clock::time_point;
 	using ms = std::chrono::milliseconds;
@@ -595,7 +595,8 @@ public:
 	TcpTlsStream(
 		TlsContext &ctx,
 		TcpStream stream,
-		std::shared_ptr<ActiveTaskCancelRelay> cancel = std::make_shared<ActiveTaskCancelRelay>())
+		std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel =
+			std::make_shared<conflux::net::detail::ActiveTaskCancelRelay>())
 		: ssl_{SSL_new(ctx.native_handle())}
 		, stream_{std::move(stream)}
 		, cancel_{std::move(cancel)} {

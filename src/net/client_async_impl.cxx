@@ -59,7 +59,7 @@ constexpr std::size_t kClientMaxChunkCount = 100000;
 #endif
 struct PlainStreamRef {
 	TcpStream &s;
-	std::shared_ptr<ActiveTaskCancelRelay> cancel;
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel;
 	std::chrono::milliseconds per_recv;
 	std::chrono::milliseconds per_write;
 	[[nodiscard]] wroot::Task<std::size_t> recv(
@@ -345,7 +345,7 @@ wroot::Task<ClientResult> do_async_request(
 	SocketTaskRing &ring,
 	ClientRequest const &req,
 	HttpClientOptions const &opts,
-	std::shared_ptr<ActiveTaskCancelRelay> cancel) {
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
 	auto const &url = req.url();
 	constexpr HttpTimeouts kDef{};
 	auto const &rt = req.timeouts();
@@ -763,7 +763,7 @@ wroot::Task<void> run_async_request_driver(
 	ClientRequest const &req,
 	HttpClientOptions const &opts,
 	std::shared_ptr<wroot::TaskSource<ClientResult>> src,
-	std::shared_ptr<ActiveTaskCancelRelay> cancel) {
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
 	try {
 		ClientRequest current = req;
 		HttpTelemetry total_tel{};
@@ -800,7 +800,7 @@ namespace conflux::http {
 	ClientRequest const &req) {
 	namespace wroot = conflux::work::root;
 	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto cancel = std::make_shared<ActiveTaskCancelRelay>();
+	auto cancel = std::make_shared<conflux::net::detail::ActiveTaskCancelRelay>();
 	std::weak_ptr<wroot::TaskSource<ClientResult>> weak_src{src};
 	auto _ = src->install_cancel_hook([cancel, weak_src](wroot::CancelReason) noexcept {
 		cancel->cancel();

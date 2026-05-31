@@ -19,6 +19,8 @@ struct ActiveTaskCancelRelayState {
 
 } // namespace
 
+namespace conflux::net::detail {
+
 ActiveTaskCancelRelay::ActiveTaskCancelRelay()
 	: state_{new ActiveTaskCancelRelayState{}} {}
 
@@ -140,3 +142,5 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 		throw;
 	}
 }
+
+} // namespace conflux::net::detail

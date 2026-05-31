@@ -5,7 +5,9 @@ import conflux.work;
 
 namespace wroot = conflux::work::root;
 
-export struct ActiveTaskCancelRelay {
+export namespace conflux::net::detail {
+
+struct ActiveTaskCancelRelay {
 	void *state_{};
 
 	ActiveTaskCancelRelay();
@@ -24,3 +26,5 @@ export struct ActiveTaskCancelRelay {
 	[[nodiscard]] wroot::Task<decltype(sizeof(0))> await_child(wroot::Task<decltype(sizeof(0))> child);
 	[[nodiscard]] wroot::Task<void> await_child(wroot::Task<void> child);
 };
+
+} // namespace conflux::net::detail
