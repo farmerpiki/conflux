@@ -27,20 +27,22 @@ import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 
-export inline std::string_view const kH3Alpn = "h3";
-export std::string http3_alt_svc_value(
+export namespace conflux::http::detail {
+
+inline std::string_view const kH3Alpn = "h3";
+std::string http3_alt_svc_value(
 	std::uint16_t port,
 	std::uint32_t max_age_sec) {
 	return std::format(R"(h3=":{}"; ma={})", port, max_age_sec);
 }
-export bool http3_negotiated(
+bool http3_negotiated(
 	SSL const *ssl) {
 	unsigned char const *proto{};
 	unsigned int proto_len{};
 	SSL_get0_alpn_selected(ssl, &proto, &proto_len);
 	return proto != nullptr && proto_len == kH3Alpn.size() && memcmp(proto, kH3Alpn.data(), proto_len) == 0;
 }
-export void http3_configure_alpn(
+void http3_configure_alpn(
 	SSL_CTX *ctx) {
 	SSL_CTX_set_alpn_select_cb(
 		ctx,
@@ -65,6 +67,8 @@ export void http3_configure_alpn(
 		},
 		nullptr);
 }
+
+} // namespace conflux::http::detail
 namespace http3_detail {
 
 constexpr std::size_t kMaxUdpPayload = 1500;
@@ -83,7 +87,7 @@ struct Http3Stream {
 	std::string body;
 	bool request_complete{false};
 	bool response_submitted{false};
-	Response response{};
+	conflux::http::Response response{};
 	std::string response_body_buf;
 	std::string status_str;
 	std::string content_length_str;
@@ -523,15 +527,16 @@ void dispatch_stream(
 		hdrs_view.emplace_back(k, v);
 	}
 	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
-	conflux::http::RequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
+	conflux::http::RequestView const
+		req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
-		s.response = Response::internal_error("no router");
+		s.response = conflux::http::Response::internal_error("no router");
 	} else {
 		try {
 			s.response = c->router->dispatch(req);
-		} catch (std::exception const &ex) { s.response = Response::internal_error(ex.what()); } catch (...) {
-			s.response = Response::internal_error();
-		}
+		} catch (std::exception const &ex) {
+			s.response = conflux::http::Response::internal_error(ex.what());
+		} catch (...) { s.response = conflux::http::Response::internal_error(); }
 	}
 	if (s.response.is_text()) {
 		s.response_body_buf = s.response.take_text_body();
@@ -612,7 +617,9 @@ std::array<std::uint8_t, kCidLen> cid_to_key(
 
 } // namespace http3_detail
 using namespace http3_detail;
-export class Http3Listener {
+export namespace conflux::http::detail {
+
+class Http3Listener {
 public:
 	Http3Listener(
 		conflux::http::Router const *router,
@@ -1204,20 +1211,22 @@ private:
 	std::unordered_set<std::array<std::uint8_t, kCidLen>, CidHash> dirty_conns_;
 	std::unordered_map<std::array<std::uint8_t, kCidLen>, Http3Conn *, CidHash> cid_index_;
 };
+
+} // namespace conflux::http::detail
 namespace http3_detail {
 
 inline void register_cid_on_listener(
 	Http3Conn *c,
 	std::array<std::uint8_t, kCidLen> const &key) {
 	if (c->listener != nullptr) {
-		static_cast<Http3Listener *>(c->listener)->register_cid(c, key);
+		static_cast<conflux::http::detail::Http3Listener *>(c->listener)->register_cid(c, key);
 	}
 }
 inline void unregister_cid_on_listener(
 	Http3Conn *c,
 	std::array<std::uint8_t, kCidLen> const &key) {
 	if (c->listener != nullptr) {
-		static_cast<Http3Listener *>(c->listener)->unregister_cid(key);
+		static_cast<conflux::http::detail::Http3Listener *>(c->listener)->unregister_cid(key);
 	}
 }
 

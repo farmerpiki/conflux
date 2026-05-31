@@ -2135,6 +2135,24 @@ if(TARGET conflux_http2)
         EXPECT "http2_negotiated")
 endif()
 
+if(TARGET conflux_http3)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http3_compile_fail_global_alt_svc
+        SOURCE http3_compile_fail_global_alt_svc.cxx
+        TEST http3/compile-fail-global-alt-svc
+        LINK conflux_http3 conflux_options
+        LABELS http compile-fail
+        EXPECT "http3_alt_svc_value")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http3_compile_fail_global_listener
+        SOURCE http3_compile_fail_global_listener.cxx
+        TEST http3/compile-fail-global-listener
+        LINK conflux_http3 conflux_options
+        LABELS http compile-fail
+        EXPECT "Http3Listener")
+endif()
+
 add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)
 target_link_libraries(conflux_cq_overflow_tests
     PRIVATE

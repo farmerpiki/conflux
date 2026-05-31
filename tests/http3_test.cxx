@@ -60,7 +60,7 @@ struct TempCert {
 		::unlink(key_path.c_str());
 	}
 };
-[[nodiscard]] Config http3_test_config(
+[[nodiscard]] conflux::http::Config http3_test_config(
 	TempCert const &cert) {
 	auto cfg = conflux::tests::mw_config();
 	cfg.cert_file = cert.cert_path;
@@ -72,19 +72,19 @@ struct TempCert {
 } // namespace
 TEST_CASE(
 	"http3 alt-svc formatter") {
-	CHECK(http3_alt_svc_value(443, 86400) == R"(h3=":443"; ma=86400)");
-	CHECK(http3_alt_svc_value(8443, 60) == R"(h3=":8443"; ma=60)");
-	CHECK(kH3Alpn == "h3");
+	CHECK(conflux::http::detail::http3_alt_svc_value(443, 86400) == R"(h3=":443"; ma=86400)");
+	CHECK(conflux::http::detail::http3_alt_svc_value(8443, 60) == R"(h3=":8443"; ma=60)");
+	CHECK(conflux::http::detail::kH3Alpn == "h3");
 }
 TEST_CASE(
 	"http3 listener binds and stops cleanly") {
 	conflux::http::Router router;
 	router.get("/", [](conflux::http::RequestView const &) { return conflux::http::Response::text("hi"); });
-	Http3Config cfg{};
+	conflux::http::Http3Config cfg{};
 	cfg.enabled = true;
 	UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
 	REQUIRE(ctx);
-	Http3Listener listener(&router, cfg, 0, ctx.get());
+	conflux::http::detail::Http3Listener listener(&router, cfg, 0, ctx.get());
 	listener.start();
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	listener.stop();
@@ -95,7 +95,9 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	conflux::http::Router router;
-	router.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	router.get("/ping", [](conflux::http::RequestView const &) {
+		return conflux::http::Response::json(R"({"ok":true})");
+	});
 	conflux::tests::ScopedTestServer const srv{cfg, std::move(router)};
 
 	conflux::http::HttpClientOptions opts1{};
@@ -106,7 +108,9 @@ TEST_CASE(
 			.server_name("localhost")
 			.build());
 	REQUIRE(response);
-	CHECK(response->head.headers["alt-svc"] == http3_alt_svc_value(srv.port(), cfg.http3.alt_svc_max_age_sec));
+	CHECK(
+		response->head.headers["alt-svc"]
+		== conflux::http::detail::http3_alt_svc_value(srv.port(), cfg.http3.alt_svc_max_age_sec));
 }
 TEST_CASE(
 	"http3 is not advertised for VHostRouter servers") {
@@ -114,7 +118,9 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	conflux::http::Router def;
-	def.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	def.get("/ping", [](conflux::http::RequestView const &) {
+		return conflux::http::Response::json(R"({"ok":true})");
+	});
 	conflux::http::VHostRouter vhosts;
 	vhosts.set_default(std::move(def));
 
