@@ -74,15 +74,15 @@ void emit_timeout_rejection(
 	Conn &conn,
 	Ring &ring,
 	conflux::http::HttpRejectReason reason) {
-	auto r = make_rejection_response(reason);
+	auto r = conflux::http::make_rejection_response(reason);
 	{
 		std::scoped_lock lk{ring.metrics_mu_};
-		note_rejection(ring.rejection_counters_, reason);
+		conflux::http::note_rejection(ring.rejection_counters_, reason);
 	}
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);
 	}
-	conn.own_response = format_response(r, ring.alt_svc_header, true);
+	conn.own_response = conflux::http::format_response(r, ring.alt_svc_header, true);
 	conn.has_response = true;
 	conn.close_after_send = true;
 }

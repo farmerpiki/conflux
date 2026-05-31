@@ -202,7 +202,7 @@ void Ring::h2_reject_stream(
 
 [[nodiscard]] bool Ring::h2_valid_regular_header_name(
 	std::string_view name) noexcept {
-	if (!is_valid_header_name(name)) {
+	if (!conflux::http::is_valid_header_name(name)) {
 		return false;
 	}
 	for (char const c: name) {
@@ -578,7 +578,7 @@ int Ring::h2_on_frame_recv_cb(
 	std::string_view const version = "HTTP/2";
 	std::string_view const body = request_lease->body;
 	conflux::http::HttpFieldsView const params;
-	populate_request_parts(
+	conflux::http::populate_request_parts(
 		target,
 		request_lease->headers,
 		body,

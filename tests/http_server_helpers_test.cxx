@@ -12,12 +12,12 @@ import conflux.net.http_server_helpers;
 TEST_CASE(
 	"http_server_helpers: header name validation follows HTTP token grammar",
 	"[http_server_helpers]") {
-	CHECK(is_valid_header_name("X-Request-ID"));
-	CHECK(is_valid_header_name("!#$%&'*+-.^_`|~09AZaz"));
-	CHECK_FALSE(is_valid_header_name(""));
-	CHECK_FALSE(is_valid_header_name("Bad Header"));
-	CHECK_FALSE(is_valid_header_name("Bad:Header"));
-	CHECK_FALSE(is_valid_header_name(std::string_view{"\xC3\xA9", 2}));
+	CHECK(conflux::http::is_valid_header_name("X-Request-ID"));
+	CHECK(conflux::http::is_valid_header_name("!#$%&'*+-.^_`|~09AZaz"));
+	CHECK_FALSE(conflux::http::is_valid_header_name(""));
+	CHECK_FALSE(conflux::http::is_valid_header_name("Bad Header"));
+	CHECK_FALSE(conflux::http::is_valid_header_name("Bad:Header"));
+	CHECK_FALSE(conflux::http::is_valid_header_name(std::string_view{"\xC3\xA9", 2}));
 }
 
 TEST_CASE(
@@ -33,7 +33,7 @@ TEST_CASE(
 	resp.set_cookies.push_back("sid=1; Path=/");
 	resp.set_cookies.push_back(std::string{"bad=1\x7F"});
 
-	auto wire = format_response(resp, "h3=\":443\"", true);
+	auto wire = conflux::http::format_response(resp, "h3=\":443\"", true);
 	CHECK(wire.find("HTTP/1.1 200 \r\n") == 0);
 	CHECK(wire.find("Content-Length: 5\r\n") != std::string::npos);
 	CHECK(wire.find("X-Good: yes\r\n") != std::string::npos);
@@ -60,7 +60,7 @@ TEST_CASE(
 	resp.set_text_body("body ignored by upgrade");
 	resp.set_ws_upgrade(up);
 
-	auto wire = format_response(resp, "h3=\":443\"", true);
+	auto wire = conflux::http::format_response(resp, "h3=\":443\"", true);
 	CHECK(wire ==
 		"HTTP/1.1 101 Switching Protocols\r\n"
 		"Upgrade: websocket\r\n"
@@ -74,18 +74,18 @@ TEST_CASE(
 	conflux::http::Response no_content = conflux::http::Response::text("body");
 	no_content.status = 204;
 	no_content.status_text = "No Content";
-	CHECK(format_response(no_content).find("body") == std::string::npos);
-	CHECK(format_response(no_content).find("Content-Length") == std::string::npos);
+	CHECK(conflux::http::format_response(no_content).find("body") == std::string::npos);
+	CHECK(conflux::http::format_response(no_content).find("Content-Length") == std::string::npos);
 
 	conflux::http::Response not_modified;
 	not_modified.status = 304;
 	not_modified.status_text = "Not Modified";
 	not_modified.content_length_hint = 123;
-	CHECK(format_response(not_modified).find("Content-Length: 123\r\n") != std::string::npos);
+	CHECK(conflux::http::format_response(not_modified).find("Content-Length: 123\r\n") != std::string::npos);
 
 	conflux::http::Response head = conflux::http::Response::text("body");
 	head.head_only = true;
-	auto wire = format_response(head);
+	auto wire = conflux::http::format_response(head);
 	CHECK(wire.find("Content-Length: 4\r\n") != std::string::npos);
 	CHECK(wire.ends_with("\r\n\r\n"));
 }
@@ -93,28 +93,28 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: small formatting helpers are deterministic",
 	"[http_server_helpers]") {
-	CHECK(format_sse_headers(false).find("Connection: keep-alive\r\n") != std::string::npos);
-	CHECK(format_sse_headers(true).find("Connection: close\r\n") != std::string::npos);
-	CHECK(format_http_chunk("hello") == "5\r\nhello\r\n");
-	CHECK(format_http_chunk("") == "0\r\n\r\n");
+	CHECK(conflux::http::format_sse_headers(false).find("Connection: keep-alive\r\n") != std::string::npos);
+	CHECK(conflux::http::format_sse_headers(true).find("Connection: close\r\n") != std::string::npos);
+	CHECK(conflux::http::format_http_chunk("hello") == "5\r\nhello\r\n");
+	CHECK(conflux::http::format_http_chunk("") == "0\r\n\r\n");
 }
 
 TEST_CASE(
 	"http_server_helpers: header parameter extraction handles quoted and token values",
 	"[http_server_helpers]") {
 	std::string_view header = R"(form-data; name="upload"; filename="a b.txt")";
-	CHECK(extract_param(header, "name") == "upload");
-	CHECK(extract_param(header, "filename") == "a b.txt");
-	CHECK(extract_param("attachment; filename=plain.txt; size=3", "filename") == "plain.txt");
-	CHECK(extract_param("attachment; filename=unterminated", "filename") == "unterminated");
-	CHECK(extract_param("attachment; filename", "filename").empty());
-	CHECK(extract_param(header, "missing").empty());
-	CHECK(extract_param("multipart/form-data; boundary=abc123", "boundary") == "abc123");
-	CHECK(extract_param("form-data; filename=only-file.txt", "name").empty());
-	CHECK(extract_param("form-data; x-name=wrong; name=right", "name") == "right");
-	CHECK(extract_param("form-data; NAME=upper", "name") == "upper");
-	CHECK(extract_param(R"(form-data; name="upload"; filename="a;b.txt")", "filename") == "a;b.txt");
-	CHECK(extract_param(R"(multipart/form-data; boundary="abc;123"; charset=utf-8)", "boundary") == "abc;123");
+	CHECK(conflux::http::extract_param(header, "name") == "upload");
+	CHECK(conflux::http::extract_param(header, "filename") == "a b.txt");
+	CHECK(conflux::http::extract_param("attachment; filename=plain.txt; size=3", "filename") == "plain.txt");
+	CHECK(conflux::http::extract_param("attachment; filename=unterminated", "filename") == "unterminated");
+	CHECK(conflux::http::extract_param("attachment; filename", "filename").empty());
+	CHECK(conflux::http::extract_param(header, "missing").empty());
+	CHECK(conflux::http::extract_param("multipart/form-data; boundary=abc123", "boundary") == "abc123");
+	CHECK(conflux::http::extract_param("form-data; filename=only-file.txt", "name").empty());
+	CHECK(conflux::http::extract_param("form-data; x-name=wrong; name=right", "name") == "right");
+	CHECK(conflux::http::extract_param("form-data; NAME=upper", "name") == "upper");
+	CHECK(conflux::http::extract_param(R"(form-data; name="upload"; filename="a;b.txt")", "filename") == "a;b.txt");
+	CHECK(conflux::http::extract_param(R"(multipart/form-data; boundary="abc;123"; charset=utf-8)", "boundary") == "abc;123");
 }
 
 TEST_CASE(
@@ -157,7 +157,7 @@ TEST_CASE(
 	"http_server_helpers: cookies parse repeated and valueless entries",
 	"[http_server_helpers]") {
 	conflux::http::HttpFieldsView cookies;
-	parse_cookies("a=1; b=two words ; flag; a=2", cookies);
+	conflux::http::parse_cookies("a=1; b=two words ; flag; a=2", cookies);
 
 	REQUIRE(cookies.size() == 4);
 	CHECK(cookies.values("a").size() == 2);
@@ -171,7 +171,7 @@ TEST_CASE(
 	"http_server_helpers: cookie parser trims RFC optional whitespace",
 	"[http_server_helpers]") {
 	conflux::http::HttpFieldsView cookies;
-	parse_cookies("\t sid = abc \t;\t csrf_token = tok \t; ;\tflag\t", cookies);
+	conflux::http::parse_cookies("\t sid = abc \t;\t csrf_token = tok \t; ;\tflag\t", cookies);
 
 	REQUIRE(cookies.size() == 3);
 	CHECK(cookies["sid"] == "abc");
@@ -187,38 +187,38 @@ TEST_CASE(
 	headers.emplace_back("Connection", "keep-alive, Upgrade");
 	headers.emplace_back("connection", "x-custom");
 
-	CHECK(has_connection_token(headers, "upgrade"));
-	CHECK(has_connection_token(headers, "KEEP-ALIVE"));
-	CHECK(has_connection_token(headers, "x-custom"));
-	CHECK_FALSE(has_connection_token(headers, "close"));
+	CHECK(conflux::http::has_connection_token(headers, "upgrade"));
+	CHECK(conflux::http::has_connection_token(headers, "KEEP-ALIVE"));
+	CHECK(conflux::http::has_connection_token(headers, "x-custom"));
+	CHECK_FALSE(conflux::http::has_connection_token(headers, "close"));
 }
 
 TEST_CASE(
 	"http_server_helpers: expect and transfer-encoding validation reject ambiguous framing",
 	"[http_server_helpers]") {
 	conflux::http::HttpFieldsView headers{true};
-	CHECK(parse_expect_header(headers) == ExpectState::none);
+	CHECK(conflux::http::parse_expect_header(headers) == conflux::http::ExpectState::none);
 
 	headers.emplace_back("Expect", "100-continue");
-	CHECK(parse_expect_header(headers) == ExpectState::continue_100);
+	CHECK(conflux::http::parse_expect_header(headers) == conflux::http::ExpectState::continue_100);
 	headers.emplace_back("Expect", "other-token");
-	CHECK(parse_expect_header(headers) == ExpectState::unsupported);
+	CHECK(conflux::http::parse_expect_header(headers) == conflux::http::ExpectState::unsupported);
 
 	conflux::http::HttpFieldsView chunked{true};
 	chunked.emplace_back("Transfer-Encoding", "chunked");
-	CHECK(has_valid_chunked_transfer_encoding(chunked));
+	CHECK(conflux::http::has_valid_chunked_transfer_encoding(chunked));
 
 	conflux::http::HttpFieldsView double_chunked{true};
 	double_chunked.emplace_back("Transfer-Encoding", "chunked, chunked");
-	CHECK_FALSE(has_valid_chunked_transfer_encoding(double_chunked));
+	CHECK_FALSE(conflux::http::has_valid_chunked_transfer_encoding(double_chunked));
 
 	conflux::http::HttpFieldsView identity{true};
 	identity.emplace_back("Transfer-Encoding", "identity");
-	CHECK_FALSE(has_valid_chunked_transfer_encoding(identity));
+	CHECK_FALSE(conflux::http::has_valid_chunked_transfer_encoding(identity));
 
 	conflux::http::HttpFieldsView empty_token{true};
 	empty_token.emplace_back("Transfer-Encoding", "chunked,");
-	CHECK_FALSE(has_valid_chunked_transfer_encoding(empty_token));
+	CHECK_FALSE(conflux::http::has_valid_chunked_transfer_encoding(empty_token));
 }
 
 TEST_CASE(
@@ -251,7 +251,7 @@ TEST_CASE(
 
 	conflux::http::HttpFieldsView form;
 	std::vector<conflux::http::UploadedFile> files;
-	parse_multipart(body, "AaB03x", form, files);
+	conflux::http::parse_multipart(body, "AaB03x", form, files);
 
 	REQUIRE(form.size() == 1);
 	CHECK(form["title"] == "Report");

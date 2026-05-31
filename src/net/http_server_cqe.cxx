@@ -98,7 +98,7 @@ void Ring::handle_sse_poll(
 
 	auto data = conn.sse_channel->drain();
 	if (!data.empty()) {
-		conn.own_response = format_http_chunk(data);
+		conn.own_response = conflux::http::format_http_chunk(data);
 		conn.has_response = true;
 		conn.written = 0;
 		start_response_send(fd, conn);
@@ -174,7 +174,7 @@ void Ring::handle_deferred_poll(
 	}
 	conn.deferred_head_only = false;
 	if (ready->is_mapped_file()) {
-		conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
 		if (ready->head_only) {
 			conn.has_response = true;
 		} else {
@@ -184,7 +184,7 @@ void Ring::handle_deferred_poll(
 			conn.has_response = false;
 		}
 	} else if (ready->is_streamed_file()) {
-		conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
 		if (ready->head_only) {
 			conn.has_response = true;
 		} else {
@@ -195,7 +195,7 @@ void Ring::handle_deferred_poll(
 			conn.has_response = true;
 		}
 	} else {
-		conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
 		conn.has_response = true;
 	}
 	conn.written = 0;

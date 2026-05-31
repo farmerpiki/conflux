@@ -97,15 +97,15 @@ void note_common_header(
 	}
 }
 
-[[nodiscard]] ExpectState common_expect_state(
+[[nodiscard]] conflux::http::ExpectState common_expect_state(
 	CommonHeaderSummary const &summary) noexcept {
 	if (summary.expect_unsupported) {
-		return ExpectState::unsupported;
+		return conflux::http::ExpectState::unsupported;
 	}
 	if (summary.expect_continue) {
-		return ExpectState::continue_100;
+		return conflux::http::ExpectState::continue_100;
 	}
-	return ExpectState::none;
+	return conflux::http::ExpectState::none;
 }
 
 void emit_rejection(
@@ -114,15 +114,15 @@ void emit_rejection(
 	Ring &ring,
 	conflux::http::HttpRejectReason reason,
 	std::string_view alt_svc) {
-	auto r = make_rejection_response(reason);
+	auto r = conflux::http::make_rejection_response(reason);
 	{
 		std::scoped_lock lk{ring.metrics_mu_};
-		note_rejection(ring.rejection_counters_, reason);
+		conflux::http::note_rejection(ring.rejection_counters_, reason);
 	}
 	if (ring.observability_hooks_.rejection) {
 		ring.observability_hooks_.rejection(reason, r.status);
 	}
-	conn.own_response = format_response(r, alt_svc, true);
+	conn.own_response = conflux::http::format_response(r, alt_svc, true);
 	conn.has_response = true;
 	conn.close_after_send = true;
 	conn.request_bytes = raw.size();
@@ -213,7 +213,7 @@ void dispatch_request(
 		}
 		if (host.empty() || canonical_host.empty()) {
 			auto r = conflux::http::Response::text("Bad Request", kHttpBadRequest);
-			conn.own_response = format_response(r, ring.alt_svc_header, true);
+			conn.own_response = conflux::http::format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;
 			conn.request_bytes = raw.size();
@@ -221,7 +221,7 @@ void dispatch_request(
 		}
 		std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
 		redirect_target += redirect_query;
-		conn.own_response = format_response(
+		conn.own_response = conflux::http::format_response(
 			conflux::http::Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
 			ring.alt_svc_header,
 			true);
@@ -258,7 +258,7 @@ void dispatch_request(
 			ring.alt_svc_header);
 		return;
 	}
-	if (transfer_encoding_count != 0 && !has_valid_chunked_transfer_encoding(headers)) {
+	if (transfer_encoding_count != 0 && !conflux::http::has_valid_chunked_transfer_encoding(headers)) {
 		emit_rejection(
 			conn,
 			raw,
@@ -269,7 +269,7 @@ void dispatch_request(
 	}
 
 	auto const expect_state = common_expect_state(common_headers);
-	if (expect_state == ExpectState::unsupported) {
+	if (expect_state == conflux::http::ExpectState::unsupported) {
 		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::expectation_failed, ring.alt_svc_header);
 		return;
 	}
@@ -300,7 +300,7 @@ void dispatch_request(
 			return;
 		}
 		if (raw.size() - body_start < content_length) {
-			if (expect_state == ExpectState::continue_100 && !conn.expect_continue_sent) {
+			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_continue();
 			}
 			return;
@@ -310,7 +310,7 @@ void dispatch_request(
 	} else if (transfer_encoding_count != 0) {
 		auto rc = decode_chunked_incremental(raw, body_start, max_body_size, limits.max_chunks, conn.chunked_decode);
 		if (rc == 0) {
-			if (expect_state == ExpectState::continue_100 && !conn.expect_continue_sent) {
+			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_continue();
 			}
 			return;
@@ -329,7 +329,7 @@ void dispatch_request(
 
 	conn.expect_continue_sent = false;
 
-	populate_request_parts(target, headers, body, query, form, cookies, files);
+	conflux::http::populate_request_parts(target, headers, body, query, form, cookies, files);
 
 	{
 		bool keep_alive = (version == "HTTP/1.1");
@@ -405,7 +405,7 @@ void dispatch_request(
 	if (resp.is_deferred()) {
 #if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
-			conn.own_response = format_response(
+			conn.own_response = conflux::http::format_response(
 				conflux::http::Response::internal_error("deferred responses unsupported over HTTP/2"),
 				ring.alt_svc_header,
 				true);
@@ -435,17 +435,17 @@ void dispatch_request(
 		conn.ws_work_pool = ring.resolve_ws_work_pool(req);
 		conn.saved_req = req.to_owned();
 		conn.close_after_send = false;
-		conn.own_response = format_response(resp);
+		conn.own_response = conflux::http::format_response(resp);
 		conn.has_response = true;
 	} else if (resp.is_sse()) {
 		conn.close_after_send = true;
 		conn.is_sse = true;
 		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
 		conn.sse_channel = resp.take_sse_channel();
-		conn.own_response = std::string{format_sse_headers(conn.close_after_send)};
+		conn.own_response = std::string{conflux::http::format_sse_headers(conn.close_after_send)};
 		conn.has_response = true;
 	} else if (resp.is_mapped_file()) {
-		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
 		if (resp.head_only) {
 			conn.has_response = true;
 		} else {
@@ -459,7 +459,7 @@ void dispatch_request(
 			}
 		}
 	} else if (resp.is_streamed_file()) {
-		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
 		if (resp.head_only) {
 			conn.has_response = true;
 		} else {
@@ -474,7 +474,7 @@ void dispatch_request(
 			}
 		}
 	} else {
-		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
 		conn.has_response = true;
 	}
 }

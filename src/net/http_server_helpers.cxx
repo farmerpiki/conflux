@@ -12,6 +12,8 @@ import conflux.net.http.server_types;
 import conflux.net.http.response;
 import conflux.utils;
 
+namespace conflux::http {
+
 export [[nodiscard]] conflux::http::Response make_rejection_response(
 	conflux::http::HttpRejectReason reason) {
 	return conflux::http::Response::problem_json(
@@ -591,3 +593,5 @@ export void populate_request_parts(
 		parse_cookies(cookie, cookies);
 	}
 }
+
+} // namespace conflux::http

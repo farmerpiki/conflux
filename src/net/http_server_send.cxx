@@ -592,7 +592,7 @@ bool Ring::handle_sse_send_complete(
 	}
 	auto remaining = conn.sse_channel->drain();
 	if (!remaining.empty()) {
-		conn.own_response = format_http_chunk(remaining);
+		conn.own_response = conflux::http::format_http_chunk(remaining);
 		conn.has_response = true;
 		conn.written = 0;
 		defer_queue_send_if_current(fd, conn.gen);

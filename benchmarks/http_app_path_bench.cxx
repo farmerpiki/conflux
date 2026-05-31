@@ -583,7 +583,7 @@ void apply_phase(
 
 	cookies.clear();
 	if (auto cookie = headers.get("cookie"); cookie.has_value()) {
-		parse_cookies(*cookie, cookies);
+		conflux::http::parse_cookies(*cookie, cookies);
 	}
 
 	form.clear();
@@ -593,9 +593,9 @@ void apply_phase(
 
 	files.clear();
 	if (content_type_is_multipart_form_data(headers["content-type"])) {
-		auto const boundary = extract_param(headers["content-type"], "boundary");
+		auto const boundary = conflux::http::extract_param(headers["content-type"], "boundary");
 		if (!boundary.empty()) {
-			parse_multipart(body, boundary, form, files);
+			conflux::http::parse_multipart(body, boundary, form, files);
 		}
 	}
 
@@ -634,7 +634,7 @@ void apply_phase(
 	if (!state.serialize_response) {
 		return resp.text_body().size() + static_cast<std::size_t>(resp.status);
 	}
-	return format_response(resp, {}, false).size();
+	return conflux::http::format_response(resp, {}, false).size();
 }
 
 [[nodiscard]] PathBenchStats bench_case(
