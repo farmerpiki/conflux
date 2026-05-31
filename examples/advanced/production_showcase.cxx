@@ -173,7 +173,7 @@ void handle_stop_signal(
 } // namespace
 
 int main() {
-	MetricsRegistry metrics;
+	conflux::http::MetricsRegistry metrics;
 	auto app = http::app(http::Config::public_server());
 	auto todos = std::make_shared<TodoService>();
 	auto events = std::make_shared<http::SseChannel>(
@@ -182,7 +182,7 @@ int main() {
 
 	app.state_shared(todos);
 	app.use(conflux::http::request_id_middleware());
-	app.use(metrics_middleware(metrics));
+	app.use(conflux::http::metrics_middleware(metrics));
 	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,
 		.csp = "default-src 'none'; frame-ancestors 'none'",
@@ -214,7 +214,7 @@ int main() {
 
 	std::vector<http::Router::Middleware> metrics_auth;
 	metrics_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
-	app.get("/metrics", metrics_handler_protected(metrics, std::move(metrics_auth)));
+	app.get("/metrics", conflux::http::metrics_handler_protected(metrics, std::move(metrics_auth)));
 
 	auto server = std::move(app).prepare_server({.port = 9105});
 	if (!server) {

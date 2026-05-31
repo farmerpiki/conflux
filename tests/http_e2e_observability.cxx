@@ -4,7 +4,7 @@
 
 TEST_CASE(
 	"metrics: Counter inc and get") {
-	Counter c;
+	conflux::http::Counter c;
 	CHECK(c.get() == 0);
 	c.inc();
 	CHECK(c.get() == 1);
@@ -13,7 +13,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"metrics: Gauge set inc dec") {
-	Gauge g;
+	conflux::http::Gauge g;
 	g.set(10.0);
 	CHECK(g.get() == 10.0);
 	g.inc(2.5);
@@ -23,7 +23,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"metrics: Histogram observe updates count and sum") {
-	Histogram h;
+	conflux::http::Histogram h;
 	h.observe(0.1);
 	h.observe(0.05);
 	CHECK(h.count() == 2);
@@ -33,7 +33,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"metrics: Histogram bucket boundaries") {
-	Histogram h;
+	conflux::http::Histogram h;
 	// 0.005 bucket: only observations <= 0.005 fall in it.
 	h.observe(0.003);
 	h.observe(0.007);
@@ -50,7 +50,7 @@ TEST_CASE(
 	pressure.drain_deadline_hit = 1;
 	pressure.websocket_closed_for_pressure = 3;
 
-	auto out = format_pressure_metrics_prometheus(pressure);
+	auto out = conflux::http::format_pressure_metrics_prometheus(pressure);
 	CHECK(out.find("# TYPE http_pressure_events_total counter") != std::string::npos);
 	CHECK(out.find("http_pressure_events_total{event=\"accept_rejected\"} 2") != std::string::npos);
 	CHECK(out.find("http_pressure_events_total{event=\"drain_started\"} 1") != std::string::npos);
@@ -64,17 +64,17 @@ TEST_CASE(
 namespace {
 
 std::uint16_t g_metrics_port = 0;
-MetricsRegistry *g_metrics_reg = nullptr;
+conflux::http::MetricsRegistry *g_metrics_reg = nullptr;
 void ensure_metrics_server() {
 	static std::once_flag once;
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		conflux::http::Router router;
-		static MetricsRegistry reg;
+		static conflux::http::MetricsRegistry reg;
 		g_metrics_reg = &reg;
-		router.use(metrics_middleware(reg));
+		router.use(conflux::http::metrics_middleware(reg));
 		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
-		router.get("/metrics", metrics_handler(reg));
+		router.get("/metrics", conflux::http::metrics_handler(reg));
 		g_metrics_port = test_servers().start(cfg, std::move(router));
 	});
 }
@@ -84,11 +84,11 @@ void ensure_protected_metrics_server() {
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		conflux::http::Router router;
-		static MetricsRegistry reg2;
-		router.use(metrics_middleware(reg2));
+		static conflux::http::MetricsRegistry reg2;
+		router.use(conflux::http::metrics_middleware(reg2));
 		std::vector<conflux::http::Router::Middleware> chain;
 		chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "supersecret"; }));
-		router.get("/metrics", metrics_handler_protected(reg2, std::move(chain)));
+		router.get("/metrics", conflux::http::metrics_handler_protected(reg2, std::move(chain)));
 		g_protected_metrics_port = test_servers().start(cfg, std::move(router));
 	});
 }
@@ -151,10 +151,10 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		conflux::http::Router router;
-		static MetricsRegistry reg;
-		router.use(metrics_middleware(reg));
+		static conflux::http::MetricsRegistry reg;
+		router.use(conflux::http::metrics_middleware(reg));
 		router.get("/ok", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		router.get("/metrics", metrics_handler(reg));
+		router.get("/metrics", conflux::http::metrics_handler(reg));
 		port = test_servers().start(cfg, std::move(router));
 	});
 	http_get_on(port, "/nonexistent"); // 404 → 4xx
@@ -164,21 +164,21 @@ TEST_CASE(
 }
 TEST_CASE(
 	"metrics: 5xx response increments GET 5xx counter") {
-	MetricsRegistry reg;
+	conflux::http::MetricsRegistry reg;
 	reg.record("GET", 500, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
 	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"5xx\"}") != std::string::npos);
 }
 TEST_CASE(
 	"metrics: OTHER method bucket used for non-standard methods") {
-	MetricsRegistry reg;
+	conflux::http::MetricsRegistry reg;
 	reg.record("PURGE", 200, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
 	REQUIRE(out.find("http_requests_total{method=\"OTHER\",status=\"2xx\"}") != std::string::npos);
 }
 TEST_CASE(
 	"metrics: out-of-range status maps to other bucket") {
-	MetricsRegistry reg;
+	conflux::http::MetricsRegistry reg;
 	reg.record("GET", 999, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
 	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"other\"}") != std::string::npos);

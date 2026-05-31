@@ -428,7 +428,7 @@ struct ObservabilityRegistry {
 			auto &duration = durations[DurationKey{.service = opts.service_name, .route = route, .method = method}];
 			if (duration.buckets.empty()) {
 				duration.buckets = opts.latency_buckets_seconds.empty() ?
-									   std::vector<double>{Histogram::kBuckets.begin(), Histogram::kBuckets.end()} :
+									   std::vector<double>{conflux::http::Histogram::kBuckets.begin(), conflux::http::Histogram::kBuckets.end()} :
 									   opts.latency_buckets_seconds;
 				std::ranges::sort(duration.buckets);
 				duration.bucket_counts.assign(duration.buckets.size(), 0);

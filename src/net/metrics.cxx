@@ -9,12 +9,13 @@ import conflux.net.http.server_types;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
+export namespace conflux::http {
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 // Atomic counter (monotonically increasing, std::thread-safe).
-export class Counter {
+class Counter {
 	std::atomic<std::uint64_t> value_;
 
 public:
@@ -26,7 +27,7 @@ public:
 	[[nodiscard]] std::uint64_t get() const noexcept { return value_.load(std::memory_order_relaxed); }
 };
 // Gauge (current value, can go up or down).
-export class Gauge {
+class Gauge {
 	std::atomic<double> value_;
 
 public:
@@ -46,7 +47,7 @@ public:
 };
 // Fixed-bucket histogram for latency measurements.
 // Buckets are upper bounds in seconds (standard Prometheus latency buckets).
-export class Histogram {
+class Histogram {
 public:
 	static constexpr std::array<double, 11> kBuckets = {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0};
 	void observe(
@@ -76,7 +77,7 @@ private:
 // ---------------------------------------------------------------------------
 
 // Method bucket: maps HTTP method std::string to an index 0-7.
-namespace {
+namespace metrics_detail {
 
 constexpr std::size_t N_METHODS = 8;
 constexpr std::size_t N_STATUS = 6; // 1xx 2xx 3xx 4xx 5xx other
@@ -95,14 +96,14 @@ std::size_t status_idx(
 }
 constexpr std::array<std::string_view, N_STATUS> kStatusLabels = {"1xx", "2xx", "3xx", "4xx", "5xx", "other"};
 
-} // namespace
+} // namespace metrics_detail
 
-export struct PrometheusLabel {
+struct PrometheusLabel {
 	std::string_view name;
 	std::string_view value;
 };
 
-export void append_prometheus_label_set(
+void append_prometheus_label_set(
 	std::string &out,
 	std::initializer_list<PrometheusLabel> labels) {
 	if (labels.size() == 0) {
@@ -123,7 +124,7 @@ export void append_prometheus_label_set(
 	out += '}';
 }
 
-export void append_prometheus_sample_prefix(
+void append_prometheus_sample_prefix(
 	std::string &out,
 	std::string_view metric,
 	std::initializer_list<PrometheusLabel> labels = {}) {
@@ -131,7 +132,7 @@ export void append_prometheus_sample_prefix(
 	append_prometheus_label_set(out, labels);
 }
 
-export void append_prometheus_sample(
+void append_prometheus_sample(
 	std::string &out,
 	std::string_view metric,
 	std::initializer_list<PrometheusLabel> labels,
@@ -140,7 +141,7 @@ export void append_prometheus_sample(
 	out += std::format(" {}\n", value);
 }
 
-export void append_prometheus_sample(
+void append_prometheus_sample(
 	std::string &out,
 	std::string_view metric,
 	std::initializer_list<PrometheusLabel> labels,
@@ -149,7 +150,7 @@ export void append_prometheus_sample(
 	out += std::format(" {}\n", value);
 }
 
-export std::string format_pressure_metrics_prometheus(
+std::string format_pressure_metrics_prometheus(
 	conflux::http::HttpPressureMetrics const &pressure) {
 	std::string out;
 	out.reserve(1024);
@@ -177,15 +178,15 @@ export std::string format_pressure_metrics_prometheus(
 	return out;
 }
 
-export class MetricsRegistry {
+class MetricsRegistry {
 public:
 	// Record one completed request.
 	void record(
 		std::string_view method,
 		int status,
 		std::chrono::steady_clock::duration elapsed) noexcept {
-		auto const mi = method_idx(method);
-		auto const si = status_idx(status);
+		auto const mi = metrics_detail::method_idx(method);
+		auto const si = metrics_detail::status_idx(status);
 		// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		requests_[mi][si].fetch_add(1, std::memory_order_relaxed);
 		double const secs = std::chrono::duration<double>(elapsed).count();
@@ -199,8 +200,8 @@ public:
 		// http_requests_total
 		out += "# HELP http_requests_total Total HTTP requests processed\n";
 		out += "# TYPE http_requests_total counter\n";
-		for (std::size_t mi = 0; mi < N_METHODS; ++mi) {
-			for (std::size_t si = 0; si < N_STATUS; ++si) {
+		for (std::size_t mi = 0; mi < metrics_detail::N_METHODS; ++mi) {
+			for (std::size_t si = 0; si < metrics_detail::N_STATUS; ++si) {
 				// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 				auto const v = requests_[mi][si].load(std::memory_order_relaxed);
 				if (v == 0) {
@@ -210,8 +211,8 @@ public:
 					out,
 					"http_requests_total",
 					{
-						{"method",  kMethodNames[mi]},
-						{"status", kStatusLabels[si]}
+						{"method",  metrics_detail::kMethodNames[mi]},
+						{"status", metrics_detail::kStatusLabels[si]}
                 },
 					v); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
@@ -247,7 +248,7 @@ public:
 
 private:
 	// [method][status_class] request counters
-	std::array<std::array<std::atomic<std::uint64_t>, N_STATUS>, N_METHODS> requests_{};
+	std::array<std::array<std::atomic<std::uint64_t>, metrics_detail::N_STATUS>, metrics_detail::N_METHODS> requests_{};
 	Histogram duration_{};
 };
 // ---------------------------------------------------------------------------
@@ -255,7 +256,7 @@ private:
 // ---------------------------------------------------------------------------
 
 // Middleware: intercept every request, record method + status + latency.
-export conflux::http::Router::Middleware metrics_middleware(
+Router::Middleware metrics_middleware(
 	MetricsRegistry &registry) {
 	return [&registry](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const start = std::chrono::steady_clock::now();
@@ -268,7 +269,7 @@ export conflux::http::Router::Middleware metrics_middleware(
 // Usage: router.get("/metrics", metrics_handler(registry));
 // WARNING: the plain handler is unauthenticated — never expose on a public
 // listener; prefer metrics_handler_protected or a network-level ACL.
-export conflux::http::Router::Handler metrics_handler(
+Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
 	return [&registry](conflux::http::RequestView const &) -> conflux::http::Response {
 		return conflux::http::Response::prometheus(registry.format_prometheus());
@@ -276,10 +277,10 @@ export conflux::http::Router::Handler metrics_handler(
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
-export conflux::http::Router::Handler metrics_handler_protected(
+Router::Handler metrics_handler_protected(
 	MetricsRegistry const &registry,
 	std::vector<conflux::http::Router::Middleware> chain) {
-	conflux::http::Router::Handler current = metrics_handler(registry);
+	Router::Handler current = metrics_handler(registry);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
@@ -289,3 +290,5 @@ export conflux::http::Router::Handler metrics_handler_protected(
 	}
 	return current;
 }
+
+} // namespace conflux::http
