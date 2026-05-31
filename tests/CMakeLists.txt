@@ -858,6 +858,22 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "ContextNextHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_static_compile_fail_global_static_route_handler
+        SOURCE http_router_static_compile_fail_global_static_route_handler.cxx
+        TEST http-router-static/compile-fail-global-static-route-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "StaticRouteHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_static_compile_fail_global_static_route_registration
+        SOURCE http_router_static_compile_fail_global_static_route_registration.cxx
+        TEST http-router-static/compile-fail-global-static-route-registration
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "StaticRouteRegistration")
 endif()
 
 if(TARGET conflux_http_response)

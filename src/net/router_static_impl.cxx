@@ -12,11 +12,13 @@ import conflux.net.http.static_async;
 import conflux.net.config;
 import conflux.file_io_sync;
 
+namespace conflux::http {
+
 [[nodiscard]] StaticRouteRegistration make_static_route_registration(
 	std::string_view url_prefix,
 	std::string root_dir,
 	StaticOptions const &sopts,
-	conflux::http::StaticFileCacheConfig const &static_file_cache,
+	StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache) {
 	while (!root_dir.empty() && root_dir.back() == '/') {
 		root_dir.pop_back();
@@ -57,3 +59,5 @@ import conflux.file_io_sync;
 
 	return routes;
 }
+
+} // namespace conflux::http
