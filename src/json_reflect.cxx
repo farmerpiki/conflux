@@ -1163,22 +1163,26 @@ std::expected<void, JsonError> reflect_write_value(
 
 } // namespace detail
 
-export template<conflux::json::ReflectJsonAggregate T>
+export namespace conflux::json {
+
+template<ReflectJsonAggregate T>
 std::expected<void, JsonError> write_reflect_json_direct(
 	std::string &out,
 	T const &value,
 	JsonDumpOptions const &opts = {}) {
-	return detail::reflect_write_object(out, value, opts, 0);
+	return ::detail::reflect_write_object(out, value, opts, 0);
 }
 
-export template<conflux::json::ReflectJsonAggregate T>
+template<ReflectJsonAggregate T>
 std::expected<std::string, JsonError> dump_reflect_direct(
 	T const &value,
 	JsonDumpOptions const &opts = {}) {
 	std::string out;
-	out.reserve(detail::reflect_member_count<T>() * 16);
+	out.reserve(::detail::reflect_member_count<T>() * 16);
 	if (auto ok = write_reflect_json_direct(out, value, opts); !ok) {
 		return std::unexpected(std::move(ok).error());
 	}
 	return out;
 }
+
+} // namespace conflux::json
