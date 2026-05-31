@@ -5,12 +5,13 @@ import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
+export namespace conflux::http {
 
-export enum class IpFilterMode {
+enum class IpFilterMode {
 	allowlist, // only listed CIDRs pass; all others → 403
 	blocklist, // listed CIDRs are blocked → 403; all others pass
 };
-export struct IpFilterOptions {
+struct IpFilterOptions {
 	IpFilterMode mode{IpFilterMode::allowlist};
 	std::vector<std::string> cidrs;
 };
@@ -24,7 +25,7 @@ conflux::http::Response forbidden() {
 // Middleware factory: allow or block requests by IP address/CIDR.
 // Operates on req.remote_addr — compose after forwarded_middleware when
 // running behind a reverse proxy.
-export conflux::http::Router::Middleware ip_filter_middleware(
+Router::Middleware ip_filter_middleware(
 	IpFilterOptions opts = {}) {
 	auto parsed = parse_cidr_list(opts.cidrs);
 
@@ -40,3 +41,5 @@ export conflux::http::Router::Middleware ip_filter_middleware(
 		return matched ? ip_filter_detail::forbidden() : next(req);
 	};
 }
+
+} // namespace conflux::http

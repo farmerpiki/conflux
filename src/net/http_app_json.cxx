@@ -13,7 +13,7 @@ export namespace conflux::http::codec::json {
 	auto response = Response::json(
 		R"({"code":"json.decode.type_mismatch","detail":"json decode failed"})",
 		kHttpBadRequest,
-		"Bad conflux::http::OwnedRequest");
+		"Bad Request");
 	response.content_type = "application/problem+json";
 	return response;
 }

@@ -626,9 +626,9 @@ int main(
 
 	// security
 	Router security_router;
-	SecurityOptions sopts{};
+	conflux::http::SecurityOptions sopts{};
 	sopts.hsts_only_on_tls = false;
-	security_router.use(security_headers_middleware(sopts));
+	security_router.use(conflux::http::security_headers_middleware(sopts));
 	security_router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	auto security = start_server(bench_config(), std::move(security_router));
 
@@ -652,7 +652,7 @@ int main(
 
 	// cache
 	Router cache_router;
-	cache_router.use(response_cache_middleware({.max_entries = 64, .default_ttl = std::chrono::seconds{60}}));
+	cache_router.use(conflux::http::response_cache_middleware({.max_entries = 64, .default_ttl = std::chrono::seconds{60}}));
 	cache_router.get("/counted", [](conflux::http::OwnedRequest const &) {
 		static std::atomic<int> count{0};
 		int n = ++count;
@@ -662,7 +662,7 @@ int main(
 
 	// full_stack
 	Router fs_router;
-	fs_router.use(security_headers_middleware(sopts));
+	fs_router.use(conflux::http::security_headers_middleware(sopts));
 	fs_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 	fs_router.use(compress_middleware());
 	fs_router.use(etag_middleware());

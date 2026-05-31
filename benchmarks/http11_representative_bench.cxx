@@ -780,10 +780,10 @@ Router make_router(
 	std::string const &body_64k) {
 	Router router;
 	if (middleware) {
-		SecurityOptions sopts{};
+		conflux::http::SecurityOptions sopts{};
 		sopts.hsts_only_on_tls = false;
 		router.use(request_id_middleware());
-		router.use(security_headers_middleware(sopts));
+		router.use(conflux::http::security_headers_middleware(sopts));
 		router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 		router.use(etag_middleware());
 	}

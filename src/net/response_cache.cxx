@@ -12,7 +12,8 @@ import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct ResponseCacheOptions {
+export namespace conflux::http {
+struct ResponseCacheOptions {
 	// Maximum number of entries in the LRU cache.
 	std::size_t max_entries{256};
 	// Maximum total bytes of cached response bodies (0 = unlimited).
@@ -182,7 +183,7 @@ std::string build_cache_key(
 }
 
 } // namespace response_cache_detail
-export conflux::http::Router::Middleware response_cache_middleware(
+Router::Middleware response_cache_middleware(
 	ResponseCacheOptions opts = {}) {
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
 	auto mtx = std::make_shared<std::mutex>();
@@ -262,3 +263,5 @@ export conflux::http::Router::Middleware response_cache_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

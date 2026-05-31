@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
+export namespace conflux::http {
 [[nodiscard]] inline bool is_safe_redirect_suffix(
 	std::string_view s) noexcept {
 	if (s.starts_with("//") || s.starts_with("/\\")) {
@@ -11,7 +12,7 @@ import conflux.net.http.response;
 	}
 	return std::ranges::none_of(s, [](char c) { return c == '@' || c == '\\' || c == '\r' || c == '\n'; });
 }
-export struct RedirectRule {
+struct RedirectRule {
 	// Path to match. When prefix_match is false, exact match only.
 	std::string from;
 	// Target URL or path. For prefix matches the unmatched suffix is appended.
@@ -21,12 +22,12 @@ export struct RedirectRule {
 	// When true, match any request path starting with `from`.
 	bool prefix_match{false};
 };
-export struct RedirectOptions {
+struct RedirectOptions {
 	std::vector<RedirectRule> rules;
 };
 // Middleware factory: redirect requests matching configured rules.
 // Rules are evaluated in order; first match wins.
-export conflux::http::Router::Middleware redirect_middleware(
+Router::Middleware redirect_middleware(
 	RedirectOptions opts = {}) {
 	return [opts = std::move(
 				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
@@ -52,3 +53,5 @@ export conflux::http::Router::Middleware redirect_middleware(
 		return next(req);
 	};
 }
+
+} // namespace conflux::http

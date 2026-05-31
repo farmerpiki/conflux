@@ -212,7 +212,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = conflux::http::Response::text("Bad conflux::http::OwnedRequest", kHttpBadRequest);
+			auto r = conflux::http::Response::text("Bad Request", kHttpBadRequest);
 			conn.own_response = format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;

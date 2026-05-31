@@ -156,7 +156,7 @@ template<class T>
 			err.source->column);
 	}
 	body += "}";
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad conflux::http::OwnedRequest");
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response json_patch_problem(
@@ -178,14 +178,14 @@ template<class T>
 		body += std::format(R"(,"from":{})", json_string(*err.from_pointer));
 	}
 	body += "}";
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad conflux::http::OwnedRequest");
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response unsupported_json_content_type_problem() {
 	return Response::problem_json(
 		R"({"code":"unsupported_content_type","detail":"expected application/json","expected":"application/json"})",
 		kHttpBadRequest,
-		"Bad conflux::http::OwnedRequest");
+		"Bad Request");
 }
 
 [[nodiscard]] Response json_body_too_large_problem() {

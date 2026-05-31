@@ -76,7 +76,7 @@ TEST_CASE(
 	}
 
 	auto response = client.read_one_response();
-	REQUIRE(response.starts_with("HTTP/1.1 408 conflux::http::OwnedRequest Timeout"));
+	REQUIRE(response.starts_with("HTTP/1.1 408 Request Timeout"));
 	check_problem_code(response, "header_timeout");
 
 	auto const metrics = srv.metrics();
@@ -110,7 +110,7 @@ TEST_CASE(
 	REQUIRE(client.send(partial, MSG_NOSIGNAL) == static_cast<ssize_t>(partial.size()));
 
 	auto response = client.read_one_response();
-	REQUIRE(response.starts_with("HTTP/1.1 408 conflux::http::OwnedRequest Timeout"));
+	REQUIRE(response.starts_with("HTTP/1.1 408 Request Timeout"));
 	check_problem_code(response, "body_timeout");
 
 	auto const metrics = srv.metrics();

@@ -613,17 +613,17 @@ void ensure_cors_compress_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// security_headers_middleware test server
+// conflux::http::security_headers_middleware test server
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_security_port = 0;
 void ensure_security_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		SecurityOptions sopts{};
+		conflux::http::SecurityOptions sopts{};
 		sopts.hsts_only_on_tls = false;
 		conflux::http::Router router;
-		router.use(security_headers_middleware(sopts));
+		router.use(conflux::http::security_headers_middleware(sopts));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_security_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -654,7 +654,7 @@ void ensure_cors_cred_server() {
 		conflux::http::Router router;
 		router.use(cors_middleware({
 			.allowed_origins = {"*"},
-			.expose_headers = {"X-Custom-Header", "X-conflux::http::OwnedRequest-Id"},
+			.expose_headers = {"X-Custom-Header", "X-Request-Id"},
 			.allow_credentials = true,
 		}));
 		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
@@ -697,7 +697,7 @@ void ensure_bearer_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// rate_limit_middleware test server (2 req per 60s window)
+// conflux::http::rate_limit_middleware test server (2 req per 60s window)
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_rate_port = 0;
@@ -706,7 +706,7 @@ void ensure_rate_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
+		router.use(conflux::http::rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -717,7 +717,7 @@ void ensure_rate_burst_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// 1 base + 2 burst = 3 total capacity
-		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
+		router.use(conflux::http::rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_burst_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -726,13 +726,13 @@ void ensure_rate_zero_clients_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
+		router.use(conflux::http::rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------
-// forwarded_middleware helpers
+// conflux::http::forwarded_middleware helpers
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_fwd_port = 0;
@@ -743,7 +743,7 @@ void ensure_forwarded_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Trust only 127.0.0.1/32.
-		router.use(forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
+		router.use(conflux::http::forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
 		// Echo the remote_addr so tests can inspect it.
 		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_port = start_mw_server(mw_config(), std::move(router));
@@ -754,7 +754,7 @@ void ensure_forwarded_strict_empty_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Default strict_mode=true, empty trusted_proxies → no peer is trusted.
-		router.use(forwarded_middleware({}));
+		router.use(conflux::http::forwarded_middleware({}));
 		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_strict_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -764,7 +764,7 @@ void ensure_forwarded_lax_empty_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Legacy trust-all-on-empty behaviour.
-		router.use(forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
+		router.use(conflux::http::forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
 		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_lax_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -787,7 +787,7 @@ void ensure_rid_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// ip_filter_middleware helpers
+// conflux::http::ip_filter_middleware helpers
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_ipallow_port = 0;
@@ -797,8 +797,8 @@ void ensure_ipallow_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Allow only loopback.
-		router.use(ip_filter_middleware({
-			.mode = IpFilterMode::allowlist,
+		router.use(conflux::http::ip_filter_middleware({
+			.mode = conflux::http::IpFilterMode::allowlist,
 			.cidrs = {"127.0.0.0/8"},
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
@@ -810,8 +810,8 @@ void ensure_ipblock_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Block loopback specifically.
-		router.use(ip_filter_middleware({
-			.mode = IpFilterMode::blocklist,
+		router.use(conflux::http::ip_filter_middleware({
+			.mode = conflux::http::IpFilterMode::blocklist,
 			.cidrs = {"127.0.0.1/32"},
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
@@ -824,8 +824,8 @@ void ensure_ipallow_block_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Allowlist that does NOT include loopback → should block us.
-		router.use(ip_filter_middleware({
-			.mode = IpFilterMode::allowlist,
+		router.use(conflux::http::ip_filter_middleware({
+			.mode = conflux::http::IpFilterMode::allowlist,
 			.cidrs = {"192.168.0.0/24"},
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
@@ -838,8 +838,8 @@ void ensure_ipblock_pass_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		// Blocklist that does NOT include loopback → should pass us through.
-		router.use(ip_filter_middleware({
-			.mode = IpFilterMode::blocklist,
+		router.use(conflux::http::ip_filter_middleware({
+			.mode = conflux::http::IpFilterMode::blocklist,
 			.cidrs = {"10.0.0.0/8"},
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
@@ -847,7 +847,7 @@ void ensure_ipblock_pass_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// cache_control_middleware helpers
+// conflux::http::cache_control_middleware helpers
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_cache_port = 0;
@@ -855,7 +855,7 @@ void ensure_cache_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cache_control_middleware({
+		router.use(conflux::http::cache_control_middleware({
 			.rules =
 				{
 						{"image/", "max-age=31536000, immutable"},
@@ -887,7 +887,7 @@ void ensure_cache_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// trailing_slash_middleware helpers
+// conflux::http::trailing_slash_middleware helpers
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_ts_remove_port = 0;
@@ -896,7 +896,7 @@ void ensure_ts_remove_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(trailing_slash_middleware()); // default: remove
+		router.use(conflux::http::trailing_slash_middleware()); // default: remove
 		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_remove_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -905,7 +905,7 @@ void ensure_ts_add_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(trailing_slash_middleware({.mode = TrailingSlashMode::add}));
+		router.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::add}));
 		router.get("/bar/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("bar"); });
 		g_ts_add_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -915,7 +915,7 @@ void ensure_ts_308_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(trailing_slash_middleware({.redirect_status = 308}));
+		router.use(conflux::http::trailing_slash_middleware({.redirect_status = 308}));
 		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_308_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -925,7 +925,7 @@ void ensure_ts_307_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(trailing_slash_middleware({.redirect_status = 307}));
+		router.use(conflux::http::trailing_slash_middleware({.redirect_status = 307}));
 		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1035,7 +1035,7 @@ std::string extract_set_cookie(
 	return std::string{resp.substr(pos, end - pos)};
 }
 // ---------------------------------------------------------------------------
-// redirect_middleware test server
+// conflux::http::redirect_middleware test server
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_redirect_port = 0;
@@ -1043,7 +1043,7 @@ void ensure_redirect_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(redirect_middleware({
+		router.use(conflux::http::redirect_middleware({
 			.rules = {
 					  {.from = "/old", .to = "/new", .status = 301},
 					  {.from = "/api/v1/", .to = "/api/v2/", .status = 302, .prefix_match = true},
@@ -1085,7 +1085,7 @@ void ensure_etag_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// response_cache_middleware test server
+// conflux::http::response_cache_middleware test server
 // ---------------------------------------------------------------------------
 
 std::atomic<int> g_resp_cache_count{0};
@@ -1094,7 +1094,7 @@ void ensure_resp_cache_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(response_cache_middleware({
+		router.use(conflux::http::response_cache_middleware({
 			.max_entries = 16,
 			.default_ttl = std::chrono::seconds{60},
 		}));
@@ -1813,7 +1813,7 @@ TEST_CASE(
 
 	auto timeout_response = read_one_response(fd);
 	::close(fd);
-	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 conflux::http::OwnedRequest Timeout"));
+	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 Request Timeout"));
 	check_problem_code(timeout_response, "body_timeout");
 }
 TEST_CASE(

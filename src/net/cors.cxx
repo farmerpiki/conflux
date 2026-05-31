@@ -103,7 +103,7 @@ export conflux::http::Router::Middleware cors_middleware(
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto request_origin = req.headers["origin"];
 
-		// Preflight: OPTIONS + Origin + Access-Control-conflux::http::OwnedRequest-Method
+		// Preflight: OPTIONS + Origin + Access-Control-Request-Method
 		if (req.method == "OPTIONS"
 			&& !request_origin.empty()
 			&& !req.headers["access-control-request-method"].empty()) {

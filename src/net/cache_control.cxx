@@ -5,7 +5,8 @@ import conflux.net.http.types;
 import conflux.net.http.parse_helpers;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct CacheRule {
+export namespace conflux::http {
+struct CacheRule {
 	// MIME prefix to match (e.g. "image/", "text/css", "application/json").
 	// Empty std::string matches everything — useful as a fallback rule.
 	std::string mime_prefix;
@@ -14,7 +15,7 @@ export struct CacheRule {
 	// Set to "no-store" to explicitly disable caching.
 	std::string directive;
 };
-export struct CacheControlOptions {
+struct CacheControlOptions {
 	// Rules are evaluated in order; first match wins.
 	std::vector<CacheRule> rules;
 
@@ -25,7 +26,7 @@ export struct CacheControlOptions {
 // Middleware factory: set Cache-Control header on responses.
 // Rules are matched against the response Content-Type (MIME prefix).
 // First matching rule wins; falls back to default_directive if set.
-export conflux::http::Router::Middleware cache_control_middleware(
+Router::Middleware cache_control_middleware(
 	CacheControlOptions opts = {}) {
 	return [opts = std::move(
 				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
@@ -53,3 +54,5 @@ export conflux::http::Router::Middleware cache_control_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

@@ -5,12 +5,13 @@ import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
+export namespace conflux::http {
 
-export enum class TrailingSlashMode {
+enum class TrailingSlashMode {
 	remove, // /foo/  → /foo   (default; canonical form for most APIs)
 	add, // /foo   → /foo/  (useful for directory-style sites)
 };
-export struct TrailingSlashOptions {
+struct TrailingSlashOptions {
 	TrailingSlashMode mode{TrailingSlashMode::remove};
 	int redirect_status{301}; // 301 Moved Permanently or 308 Permanent Redirect
 };
@@ -43,7 +44,7 @@ inline std::string build_query(
 // The root path "/" is never redirected regardless of mode.
 // Query std::string is re-serialized from parsed fields (percent-encoded per RFC 3986
 // unreserved set) and appended to the Location header.
-export conflux::http::Router::Middleware trailing_slash_middleware(
+Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
 	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const &path = req.path;
@@ -77,3 +78,5 @@ export conflux::http::Router::Middleware trailing_slash_middleware(
 		return next(req);
 	};
 }
+
+} // namespace conflux::http

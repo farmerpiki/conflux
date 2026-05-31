@@ -174,7 +174,7 @@ struct Config {
 	// Allowlist of Host header values accepted for the HTTPS redirect.
 	// Must include every hostname or IP:port that clients may use (e.g. "example.com",
 	// "example.com:8080", "127.0.0.1").  Requests whose Host header is not in this list
-	// are rejected with 400 Bad conflux::http::OwnedRequest instead of being redirected.
+	// are rejected with 400 Bad Request instead of being redirected.
 	// Required when http_redirect_to_https is true; an empty list rejects all redirects.
 	std::vector<std::string> https_redirect_hosts{};
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.

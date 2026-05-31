@@ -183,12 +183,12 @@ int main() {
 	app.state_shared(todos);
 	app.use(request_id_middleware());
 	app.use(metrics_middleware(metrics));
-	app.use(security_headers_middleware({
+	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,
 		.csp = "default-src 'none'; frame-ancestors 'none'",
 	}));
-	app.use(cache_control_middleware({.default_directive = "no-store"}));
-	app.use(rate_limit_middleware({.requests = 120, .window = 60s, .burst = 20}));
+	app.use(conflux::http::cache_control_middleware({.default_directive = "no-store"}));
+	app.use(conflux::http::rate_limit_middleware({.requests = 120, .window = 60s, .burst = 20}));
 
 	app.get("/health", [] { return http::text("ok"); });
 	app.get("/", [] { return http::json(TodoList{}); });

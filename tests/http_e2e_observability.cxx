@@ -320,7 +320,7 @@ TEST_CASE(
 	REQUIRE(vary.find("Accept-Encoding") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
-// redirect_middleware
+// conflux::http::redirect_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -350,7 +350,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(redirect_middleware({.rules = {{.from = "/x", .to = "/y", .status = 307}}}));
+		router.use(conflux::http::redirect_middleware({.rules = {{.from = "/x", .to = "/y", .status = 307}}}));
 		router.get("/y", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("y"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -954,7 +954,7 @@ TEST_CASE(
 	REQUIRE(extract_header(resp, "ETag") == "\"custom-etag-42\"");
 }
 // ---------------------------------------------------------------------------
-// response_cache_middleware
+// conflux::http::response_cache_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1106,7 +1106,7 @@ TEST_CASE(
 	"response_cache: LRU eviction when max_entries exceeded") {
 	std::atomic<int> hits{0};
 	conflux::http::Router router;
-	router.use(response_cache_middleware({.max_entries = 2, .default_ttl = std::chrono::seconds{60}}));
+	router.use(conflux::http::response_cache_middleware({.max_entries = 2, .default_ttl = std::chrono::seconds{60}}));
 	router.get("/a", [&hits](conflux::http::OwnedRequest const &) {
 		++hits;
 		return conflux::http::Response::text("a");
@@ -1152,7 +1152,7 @@ TEST_CASE(
 	std::atomic<int> hits{0};
 	conflux::http::Router router;
 	// max_bytes=4: bodies of 5+ bytes won't be stored.
-	router.use(response_cache_middleware({.max_entries = 10, .max_bytes = 4, .default_ttl = std::chrono::seconds{60}}));
+	router.use(conflux::http::response_cache_middleware({.max_entries = 10, .max_bytes = 4, .default_ttl = std::chrono::seconds{60}}));
 	router.get("/big", [&hits](conflux::http::OwnedRequest const &) {
 		++hits;
 		return conflux::http::Response::text("hello"); // 5 bytes > max_bytes
@@ -1185,7 +1185,7 @@ TEST_CASE(
 	std::atomic<int> hits{0};
 	conflux::http::Router router;
 	router.use(
-		response_cache_middleware({.max_entries = 10, .max_bytes = 16, .default_ttl = std::chrono::seconds{60}}));
+		conflux::http::response_cache_middleware({.max_entries = 10, .max_bytes = 16, .default_ttl = std::chrono::seconds{60}}));
 	router.get("/a", [&hits](conflux::http::OwnedRequest const &) {
 		++hits;
 		conflux::http::Response r = conflux::http::Response::text("aaaaaaaa"); // 8 bytes

@@ -211,7 +211,7 @@ TEST_CASE(
 	ScopedAppServer server{std::move(app)};
 	std::string_view const incoming_trace = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 	auto const extra_headers = std::format(
-		"X-conflux::http::OwnedRequest-ID: golden-request-id\r\n"
+		"X-Request-ID: golden-request-id\r\n"
 		"traceparent: {}\r\n"
 		"Authorization: Bearer request-secret\r\n"
 		"Cookie: sid=cookie-secret\r\n"
@@ -221,7 +221,7 @@ TEST_CASE(
 
 	auto first = http_get_on(server.port(), "/users/42?debug=request-secret", extra_headers);
 	REQUIRE(first.starts_with("HTTP/1.1 200 OK"));
-	CHECK(response_header(first, "X-conflux::http::OwnedRequest-ID") == "golden-request-id");
+	CHECK(response_header(first, "X-Request-ID") == "golden-request-id");
 	auto const first_trace = response_header(first, "Traceparent");
 	REQUIRE(first_trace.size() == 55);
 	CHECK(first_trace.substr(3, 32) == "4bf92f3577b34da6a3ce929d0e0e4736");

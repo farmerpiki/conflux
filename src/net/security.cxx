@@ -4,7 +4,8 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct SecurityOptions {
+export namespace conflux::http {
+struct SecurityOptions {
 	// Strict-Transport-Security max-age in seconds; 0 disables the header.
 	unsigned hsts_max_age{31536000}; // 1 year
 	bool hsts_include_subdomains{true};
@@ -33,7 +34,7 @@ export struct SecurityOptions {
 	bool hsts_only_on_tls{true};
 };
 // Middleware factory: inject security headers into every response.
-export conflux::http::Router::Middleware security_headers_middleware(
+Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
 	return [opts = std::move(
 				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
@@ -67,3 +68,5 @@ export conflux::http::Router::Middleware security_headers_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

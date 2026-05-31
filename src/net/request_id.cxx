@@ -7,7 +7,7 @@ import conflux.net.http.response;
 import conflux.utils;
 export struct RequestIdOptions {
 	// Header to read/write the request ID on.
-	std::string header{"X-conflux::http::OwnedRequest-ID"};
+	std::string header{"X-Request-ID"};
 
 	// If true and the client sends the header, echo it through unchanged.
 	// If false, always generate a fresh ID regardless.
@@ -40,7 +40,7 @@ std::string generate_uuid() {
 }
 
 } // namespace request_id_detail
-// Middleware factory: stamp X-conflux::http::OwnedRequest-ID (or configured header) on every
+// Middleware factory: stamp X-Request-ID (or configured header) on every
 // request/response. Echoes an existing header from the client when
 // trust_incoming is true; generates a UUID v4 otherwise.
 export conflux::http::Router::Middleware request_id_middleware(

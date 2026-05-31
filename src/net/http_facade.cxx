@@ -48,8 +48,8 @@ using AsyncNext = Router::AsyncNext;
 }
 
 [[nodiscard]] Router::Middleware security_headers(
-	SecurityOptions opts = {}) {
-	return security_headers_middleware(std::move(opts));
+	conflux::http::SecurityOptions opts = {}) {
+	return conflux::http::security_headers_middleware(std::move(opts));
 }
 
 [[nodiscard]] Response text(

@@ -1600,7 +1600,7 @@ TEST_CASE(
 	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
 }
 // ---------------------------------------------------------------------------
-// security_headers_middleware
+// conflux::http::security_headers_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1651,11 +1651,11 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	SecurityOptions sopts{};
+	conflux::http::SecurityOptions sopts{};
 	sopts.csp = "default-src 'self'";
 
 	conflux::http::Router router;
-	router.use(security_headers_middleware(sopts));
+	router.use(conflux::http::security_headers_middleware(sopts));
 	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -1673,12 +1673,12 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 
-	SecurityOptions sopts{};
+	conflux::http::SecurityOptions sopts{};
 	sopts.hsts_include_subdomains = false;
 	sopts.hsts_only_on_tls = false;
 
 	conflux::http::Router router;
-	router.use(security_headers_middleware(sopts));
+	router.use(conflux::http::security_headers_middleware(sopts));
 	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
@@ -1692,7 +1692,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(security_headers_middleware({.hsts_max_age = 0}));
+		router.use(conflux::http::security_headers_middleware({.hsts_max_age = 0}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1705,7 +1705,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(security_headers_middleware({.frame_options = ""}));
+		router.use(conflux::http::security_headers_middleware({.frame_options = ""}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1723,7 +1723,7 @@ TEST_CASE(
 		g_cors_port,
 		"/api",
 		"Origin: https://test.example\r\n"
-		"Access-Control-conflux::http::OwnedRequest-Method: GET\r\n");
+		"Access-Control-Request-Method: GET\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
 	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != std::string::npos);
 	REQUIRE(resp.find("Access-Control-Allow-Methods:") != std::string::npos);
@@ -1735,7 +1735,7 @@ TEST_CASE(
 		g_cors_port,
 		"/api",
 		"Origin: https://evil.com\r\n"
-		"Access-Control-conflux::http::OwnedRequest-Method: GET\r\n");
+		"Access-Control-Request-Method: GET\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
 	REQUIRE(resp.find("Access-Control-Allow-Origin:") == std::string::npos);
 }
@@ -1775,7 +1775,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("Access-Control-Expose-Headers:") != std::string::npos);
 	REQUIRE(resp.find("X-Custom-Header") != std::string::npos);
-	REQUIRE(resp.find("X-conflux::http::OwnedRequest-Id") != std::string::npos);
+	REQUIRE(resp.find("X-Request-Id") != std::string::npos);
 }
 TEST_CASE(
 	"cors: preflight with allow_credentials reflects origin and sets credentials header") {
@@ -1784,7 +1784,7 @@ TEST_CASE(
 		g_cors_cred_port,
 		"/api",
 		"Origin: https://foo.example\r\n"
-		"Access-Control-conflux::http::OwnedRequest-Method: POST\r\n");
+		"Access-Control-Request-Method: POST\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
 	REQUIRE(resp.find("Access-Control-Allow-Origin: https://foo.example") != std::string::npos);
 	REQUIRE(resp.find("Access-Control-Allow-Credentials: true") != std::string::npos);
@@ -1798,7 +1798,7 @@ TEST_CASE(
 	REQUIRE(resp.find("Access-Control-Allow-Credentials:") == std::string::npos);
 }
 TEST_CASE(
-	"cors: OPTIONS without Access-Control-conflux::http::OwnedRequest-Method is not a preflight") {
+	"cors: OPTIONS without Access-Control-Request-Method is not a preflight") {
 	ensure_cors_server();
 	auto resp = http_options_on(g_cors_port, "/api", "Origin: https://test.example\r\n");
 	// Not a preflight — passes to next handler, which may 405 or 200 depending on router.
@@ -1964,7 +1964,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 }
 // ---------------------------------------------------------------------------
-// rate_limit_middleware
+// conflux::http::rate_limit_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1999,7 +1999,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{10}}));
+		router.use(conflux::http::rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{10}}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2438,7 +2438,7 @@ TEST_CASE(
 }
 #endif
 // ---------------------------------------------------------------------------
-// forwarded_middleware
+// conflux::http::forwarded_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2505,7 +2505,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(forwarded_middleware({
+		router.use(conflux::http::forwarded_middleware({
 			.trusted_proxies = {"127.0.0.1/32"},
 			.use_x_forwarded_for = false,
 			.use_x_real_ip = true,
@@ -2528,7 +2528,7 @@ TEST_CASE(
 	"forwarded: untrusted peer has X-Forwarded-For stripped before downstream") {
 	ScopedTestServer srv{mw_config(), [] {
 							 conflux::http::Router r;
-							 r.use(forwarded_middleware({})); // strict: no trusted proxies
+							 r.use(conflux::http::forwarded_middleware({})); // strict: no trusted proxies
 							 // Echo the header as-seen by the downstream handler.
 							 r.get("/xff", [](conflux::http::OwnedRequest const &req) {
 								 return conflux::http::Response::text(std::string{req.headers["x-forwarded-for"]});
@@ -2546,12 +2546,12 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"request_id: generates X-conflux::http::OwnedRequest-ID when absent") {
+	"request_id: generates X-Request-ID when absent") {
 	ensure_rid_server();
 	auto resp = http_get_on(g_rid_port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	// conflux::http::Response header must contain X-conflux::http::OwnedRequest-ID.
-	REQUIRE(resp.find("X-conflux::http::OwnedRequest-ID:") != std::string::npos);
+	// conflux::http::Response header must contain X-Request-ID.
+	REQUIRE(resp.find("X-Request-ID:") != std::string::npos);
 	// Body contains the ID injected into the request.
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -2565,12 +2565,12 @@ TEST_CASE(
 	REQUIRE(body[23] == '-');
 }
 TEST_CASE(
-	"request_id: echoes existing X-conflux::http::OwnedRequest-ID from client") {
+	"request_id: echoes existing X-Request-ID from client") {
 	ensure_rid_server();
-	auto resp = http_get_on(g_rid_port, "/", "X-conflux::http::OwnedRequest-ID: my-trace-id-123\r\n");
+	auto resp = http_get_on(g_rid_port, "/", "X-Request-ID: my-trace-id-123\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// conflux::http::Response header must echo the client's ID.
-	REQUIRE(resp.find("X-conflux::http::OwnedRequest-ID: my-trace-id-123") != std::string::npos);
+	REQUIRE(resp.find("X-Request-ID: my-trace-id-123") != std::string::npos);
 	// Body also reflects the echoed ID.
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(resp.substr(hdr_end + 4) == "my-trace-id-123");
@@ -2597,7 +2597,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Client sends a specific ID; middleware must ignore it and generate its own.
-	auto resp = http_get_on(port, "/", "X-conflux::http::OwnedRequest-ID: client-provided-id\r\n");
+	auto resp = http_get_on(port, "/", "X-Request-ID: client-provided-id\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body = extract_body(resp);
 	// Body (injected request ID) must NOT be the client-provided one.
@@ -2623,7 +2623,7 @@ TEST_CASE(
 	REQUIRE(extract_body(resp).size() == 36);
 }
 // ---------------------------------------------------------------------------
-// ip_filter_middleware
+// conflux::http::ip_filter_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2656,7 +2656,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(ip_filter_middleware({.mode = IpFilterMode::allowlist, .cidrs = {}}));
+		router.use(conflux::http::ip_filter_middleware({.mode = conflux::http::IpFilterMode::allowlist, .cidrs = {}}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -2664,7 +2664,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 403 Forbidden"));
 }
 // ---------------------------------------------------------------------------
-// cache_control_middleware
+// conflux::http::cache_control_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2704,7 +2704,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cache_control_middleware({
+		router.use(conflux::http::cache_control_middleware({
 			.rules = {{"text/html", "max-age=60"}},
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) {
@@ -2724,7 +2724,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cache_control_middleware({
+		router.use(conflux::http::cache_control_middleware({
 			.rules = {{"image/", "max-age=99999"}, {"", "no-store"}},
 		}));
 		router.get("/any", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
@@ -2734,7 +2734,7 @@ TEST_CASE(
 	REQUIRE(resp.find("Cache-Control: no-store") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
-// trailing_slash_middleware
+// conflux::http::trailing_slash_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(

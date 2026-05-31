@@ -5,7 +5,8 @@ import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct ForwardedOptions {
+export namespace conflux::http {
+struct ForwardedOptions {
 	// CIDRs trusted to set forwarding headers.
 	// If empty and strict_mode is true (the default): trust nobody. Forwarding
 	// headers are stripped for every request. If empty and strict_mode is false:
@@ -35,7 +36,7 @@ std::string_view xff_first(
 // If the direct peer is in trusted_proxies (or trusted_proxies is empty),
 // the real client IP is extracted from X-Forwarded-For / X-Real-IP.
 // Headers from untrusted peers are stripped before passing downstream.
-export conflux::http::Router::Middleware forwarded_middleware(
+Router::Middleware forwarded_middleware(
 	ForwardedOptions opts = {}) {
 	auto cidrs = parse_cidr_list(opts.trusted_proxies);
 	if (opts.trusted_proxies.empty() && !opts.strict_mode) {
@@ -87,3 +88,5 @@ export conflux::http::Router::Middleware forwarded_middleware(
 		return next(enriched);
 	};
 }
+
+} // namespace conflux::http

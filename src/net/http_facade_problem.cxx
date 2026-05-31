@@ -23,13 +23,13 @@ export namespace conflux::http::problem {
 
 [[nodiscard]] Problem bad_request(
 	std::string_view detail = {}) {
-	return make(kHttpBadRequest, "Bad conflux::http::OwnedRequest", {}, detail);
+	return make(kHttpBadRequest, "Bad Request", {}, detail);
 }
 
 [[nodiscard]] Problem bad_request(
 	std::string_view code,
 	std::string_view detail) {
-	return make(kHttpBadRequest, "Bad conflux::http::OwnedRequest", code, detail);
+	return make(kHttpBadRequest, "Bad Request", code, detail);
 }
 
 [[nodiscard]] Problem not_found(
@@ -76,7 +76,7 @@ export namespace conflux::http::problem {
 [[nodiscard]] Problem header_fields_too_large(
 	std::string_view code = "header_fields_too_large",
 	std::string_view detail = "request headers are too large") {
-	return make(kHttpRequestHeaderFieldsTooLarge, "conflux::http::OwnedRequest Header Fields Too Large", code, detail);
+	return make(kHttpRequestHeaderFieldsTooLarge, "Request Header Fields Too Large", code, detail);
 }
 
 [[nodiscard]] Problem gateway_timeout(

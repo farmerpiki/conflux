@@ -7,7 +7,8 @@ import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct RateLimitOptions {
+export namespace conflux::http {
+struct RateLimitOptions {
 	// Maximum requests allowed per window.
 	unsigned requests{100};
 
@@ -28,7 +29,7 @@ struct Bucket {
 	unsigned tokens{};
 	Clock::time_point window_start{Clock::now()};
 };
-export namespace conflux::http::detail {
+namespace detail {
 
 template<class Bucket>
 class ShardedRateLimitStore {
@@ -68,10 +69,10 @@ public:
 	}
 };
 
-} // namespace conflux::http::detail
+} // namespace detail
 // Middleware factory: token-bucket rate limiter keyed on remote_addr.
 // Thread-safe — shared across all rings via captured SP.
-export conflux::http::Router::Middleware rate_limit_middleware(
+Router::Middleware rate_limit_middleware(
 	RateLimitOptions opts = {}) {
 	struct State {
 		conflux::http::detail::ShardedRateLimitStore<Bucket> store;
@@ -123,3 +124,5 @@ export conflux::http::Router::Middleware rate_limit_middleware(
 		return next(req);
 	};
 }
+
+} // namespace conflux::http

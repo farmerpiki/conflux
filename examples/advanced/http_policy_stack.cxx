@@ -46,42 +46,42 @@ int main() {
 		.allowed_origins = {"https://app.example"},
 		.allowed_methods = {"GET", "POST", "OPTIONS"},
 		.allowed_headers = {"Content-Type", "Authorization", "X-CSRF-Token"},
-		.expose_headers = {"X-conflux::http::OwnedRequest-Id", "Traceparent", "ETag"},
+		.expose_headers = {"X-Request-Id", "Traceparent", "ETag"},
 		.allow_credentials = true,
 	}));
-	app.use(forwarded_middleware({
+	app.use(conflux::http::forwarded_middleware({
 		.trusted_proxies = {"127.0.0.0/8", "::1/128"},
 		.strict_mode = true,
 	}));
-	app.use(ip_filter_middleware({
-		.mode = IpFilterMode::blocklist,
+	app.use(conflux::http::ip_filter_middleware({
+		.mode = conflux::http::IpFilterMode::blocklist,
 		.cidrs = {"203.0.113.0/24"},
 	}));
 
 	app.use(request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
-	app.use(security_headers_middleware({
+	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,
 		.csp = "default-src 'self'; frame-ancestors 'none'",
 		.hsts_only_on_tls = false,
 	}));
-	app.use(redirect_middleware({
+	app.use(conflux::http::redirect_middleware({
 		.rules =
 			{
 					{.from = "/old-dashboard", .to = "/dashboard", .status = 308},
 					{.from = "/v1/", .to = "/v2/", .status = 307, .prefix_match = true},
 					},
 	}));
-	app.use(trailing_slash_middleware({.mode = TrailingSlashMode::remove, .redirect_status = 308}));
+	app.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
 	app.use(cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
 	app.use(csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(etag_middleware({.weak = true}));
-	app.use(response_cache_middleware({
+	app.use(conflux::http::response_cache_middleware({
 		.max_entries = 64,
 		.max_bytes = 512 * 1024,
 		.default_ttl = std::chrono::seconds{15},
 	}));
-	app.use(cache_control_middleware({
+	app.use(conflux::http::cache_control_middleware({
 		.rules =
 			{
 					{.mime_prefix = "application/json", .directive = "no-store"},

@@ -38,7 +38,7 @@ template<class Arg>
 	body += json_string(typeid(Arg).name());
 #endif
 	body += '}';
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad conflux::http::OwnedRequest");
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
 }
 
 template<class T>
