@@ -217,7 +217,7 @@ struct Response {
 		std::string,
 		std::shared_ptr<conflux::http::SseChannel>,
 		std::shared_ptr<conflux::http::WsUpgrade>,
-		std::shared_ptr<MappedBody>,
+		std::shared_ptr<conflux::file_map::MappedBody>,
 		std::shared_ptr<conflux::http::StreamedFile>,
 		std::shared_ptr<DeferredResponse>>;
 
@@ -270,9 +270,9 @@ struct Response {
 		}
 		return empty;
 	}
-	[[nodiscard]] std::shared_ptr<MappedBody> const &mapped_file_ptr() const {
-		static std::shared_ptr<MappedBody> const empty{};
-		if (auto const *file = get_if<std::shared_ptr<MappedBody>>(&body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::file_map::MappedBody> const &mapped_file_ptr() const {
+		static std::shared_ptr<conflux::file_map::MappedBody> const empty{};
+		if (auto const *file = get_if<std::shared_ptr<conflux::file_map::MappedBody>>(&body_payload)) {
 			return *file;
 		}
 		return empty;
@@ -303,11 +303,11 @@ struct Response {
 		}
 		return std::move(get<std::shared_ptr<conflux::http::WsUpgrade>>(body_payload));
 	}
-	[[nodiscard]] std::shared_ptr<MappedBody> take_mapped_file() {
-		if (!holds_alternative<std::shared_ptr<MappedBody>>(body_payload)) {
+	[[nodiscard]] std::shared_ptr<conflux::file_map::MappedBody> take_mapped_file() {
+		if (!holds_alternative<std::shared_ptr<conflux::file_map::MappedBody>>(body_payload)) {
 			return {};
 		}
-		return std::move(get<std::shared_ptr<MappedBody>>(body_payload));
+		return std::move(get<std::shared_ptr<conflux::file_map::MappedBody>>(body_payload));
 	}
 	[[nodiscard]] std::shared_ptr<conflux::http::StreamedFile> take_streamed_file() {
 		if (!holds_alternative<std::shared_ptr<conflux::http::StreamedFile>>(body_payload)) {
@@ -337,7 +337,7 @@ struct Response {
 		body_payload = std::move(up);
 	}
 	void set_mapped_file(
-		std::shared_ptr<MappedBody> file) {
+		std::shared_ptr<conflux::file_map::MappedBody> file) {
 		body_kind = BodyKind::mapped_file;
 		body_payload = std::move(file);
 	}

@@ -301,7 +301,7 @@ TEST_CASE(
 	}
 	::close(sockets[1]);
 
-	auto mapped = std::make_shared<MappedBody>();
+	auto mapped = std::make_shared<conflux::file_map::MappedBody>();
 	mapped->offset = 3;
 	mapped->size = 42;
 	resp.set_mapped_file(mapped);

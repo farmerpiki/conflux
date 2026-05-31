@@ -799,7 +799,7 @@ conflux::http::Response handle_static_get(
 			return conflux::http::Response::deferred(std::move(dr));
 		}
 
-		auto lease = blocking_map_file_readonly(root_fd, std::string_view{rel_str});
+		auto lease = conflux::file_map::blocking_map_file_readonly(root_fd, std::string_view{rel_str});
 		if (!lease) {
 			return conflux::http::Response::internal_error();
 		}
@@ -809,14 +809,15 @@ conflux::http::Response handle_static_get(
 			auto resp = base_response(kHttpPartialContent, "Partial Content");
 			resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 			resp.set_mapped_file(
-				std::make_shared<MappedBody>(
-					MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
+				std::make_shared<conflux::file_map::MappedBody>(
+					conflux::file_map::MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
 			return resp;
 		}
 
 		auto resp = base_response(kHttpOk, "OK");
 		resp.set_mapped_file(
-			std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
+			std::make_shared<conflux::file_map::MappedBody>(
+				conflux::file_map::MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
 		return resp;
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }

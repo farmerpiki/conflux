@@ -13,6 +13,9 @@ import std;
 import conflux.types;
 export import conflux.file_map.types;
 export import conflux.file_io_sync;
+
+namespace conflux::file_map {
+
 using FileMapError = IoError;
 export std::expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
 	int fd,
@@ -62,3 +65,5 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	}
 	return blocking_map_fd_readonly(fd, *st);
 }
+
+} // namespace conflux::file_map

@@ -5,6 +5,8 @@ export module conflux.file_map.types;
 
 import std;
 
+namespace conflux::file_map {
+
 struct MappedRegionEntry {
 	void const *ptr{};
 	std::uint64_t mmap_size{};
@@ -65,3 +67,5 @@ export [[nodiscard]] MappedFileLease make_mapped_file_lease(
 	std::uint64_t file_size) {
 	return MappedFileLease{std::make_shared<MappedRegionEntry>(ptr, mmap_size, file_size)};
 }
+
+} // namespace conflux::file_map

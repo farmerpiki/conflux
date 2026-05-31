@@ -284,7 +284,7 @@ struct alignas(
 	std::string remote_addr{}; // peer IP, set on accept
 	conflux::http::ChunkedDecodeState chunked_decode{};
 	// mmap path: non-null when current response has a zero-copy file region
-	std::shared_ptr<MappedBody> mapped_file{};
+	std::shared_ptr<conflux::file_map::MappedBody> mapped_file{};
 	std::size_t mapped_total{}; // own_response.size() + mapped_file->size
 	std::uint64_t mapped_delivered{};
 	std::array<iovec, 2> writev_iov{}; // iovecs rebuilt per-send in queue_send_mapped

@@ -210,6 +210,14 @@ if(TARGET conflux)
         LINK conflux_file_watch conflux_options
         LABELS build api-surface compile-fail
         EXPECT "FileWatcher")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_map_compile_fail_global_mapped_body
+        SOURCE file_map_compile_fail_global_mapped_body.cxx
+        TEST api-surface/file-map-hides-global-mapped-body
+        LINK conflux_file_map conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "MappedBody")
 endif()
 
 add_executable(conflux_tests)

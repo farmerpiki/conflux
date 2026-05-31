@@ -350,11 +350,11 @@ TEST_CASE(
 	REQUIRE(fd_content.has_value());
 	CHECK(*fd_content == text);
 
-	auto by_path = blocking_map_file_readonly(dir.fd, std::string_view{"alias.txt"});
+	auto by_path = conflux::file_map::blocking_map_file_readonly(dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(by_path.has_value());
 	CHECK(std::string_view{reinterpret_cast<char const *>(by_path->bytes().data()), by_path->bytes().size()} == text);
 
-	auto by_fd = blocking_map_fd_readonly(fd.fd(), *fd_stat);
+	auto by_fd = conflux::file_map::blocking_map_fd_readonly(fd.fd(), *fd_stat);
 	REQUIRE(by_fd.has_value());
 	CHECK(std::string_view{reinterpret_cast<char const *>(by_fd->bytes().data()), by_fd->bytes().size()} == text);
 }
