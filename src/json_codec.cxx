@@ -3033,6 +3033,1266 @@ std::expected<void, JsonError> decode_into(
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Fast-path direct decoder
+//
+// A cursor-based strict-JSON decoder used by decode_borrowed/decode_full when
+// the input is a complete in-memory document parsed in strict mode with
+// default-or-explicit limits. It avoids the JsonReader event machinery, fat
+// JsonError returns on the hot path, and per-byte line/column tracking.
+//
+// Error policy: the fast path never produces a JsonError. On any malformed,
+// limit-violating, policy-violating, or unsupported input it bails out, and
+// the caller re-runs the existing JsonReader-based decoder which produces
+// byte-identical diagnostics. Failed decodes pay double parse cost; valid
+// documents (the overwhelmingly common case) pay none of the diagnostic cost.
+// ---------------------------------------------------------------------------
+
+namespace fastpath {
+
+// Fast-path result: success, "bail to slow path", or an authoritative error.
+//
+// `error` is only used for diagnostics that carry no positional information
+// (no line/column/path) and are therefore byte-identical to what the slow
+// path would produce: duplicate members, unknown members under the reject
+// policy, and missing required members. Everything else bails.
+enum class FpStatus : std::uint8_t {
+	ok,
+	bail,
+	error,
+};
+
+// Filled when FpStatus::error is returned; converted to JsonError once at the
+// document entry point.
+struct FpError {
+	JsonIssueCode code{};
+	std::string_view member_name{};
+};
+
+struct FpCursor {
+	char const *p;
+	char const *end;
+	JsonParseOptions const *opts;
+	JsonDecodeOptions const *dopts;
+	std::uint32_t depth{0};
+	FpError error{}; // valid only when a call returned FpStatus::error
+
+	[[nodiscard]] bool at_end() const noexcept { return p >= end; }
+	[[nodiscard]] std::size_t remaining() const noexcept { return static_cast<std::size_t>(end - p); }
+
+	void skip_ws() noexcept {
+		// Fast single-branch check for the no-whitespace case.
+		if (p < end && static_cast<unsigned char>(*p) > 0x20U) {
+			return;
+		}
+		while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+			++p;
+		}
+	}
+};
+
+// SWAR digit-run scan reused from the reader (operates on raw pointers).
+[[nodiscard]] inline std::size_t fp_scan_digits(
+	char const *p,
+	std::size_t n) noexcept {
+	std::size_t i = 0;
+	if constexpr (std::endian::native == std::endian::little) {
+		constexpr std::uint64_t kLow = 0x3030303030303030ULL;
+		constexpr std::uint64_t kHigh = 0x3939393939393939ULL;
+		constexpr std::uint64_t kMsb = 0x8080808080808080ULL;
+		while (i + sizeof(std::uint64_t) <= n) {
+			std::uint64_t word{};
+			std::memcpy(&word, p + i, sizeof(word));
+			std::uint64_t const below = (word - kLow) & ~word & kMsb;
+			std::uint64_t const above = ((word + (0x7f7f7f7f7f7f7f7fULL - kHigh)) | word) & kMsb;
+			std::uint64_t const bad = below | above;
+			if (bad != 0U) {
+				return i + static_cast<std::size_t>(__builtin_ctzll(bad) >> 3U);
+			}
+			i += sizeof(std::uint64_t);
+		}
+	}
+	while (i < n && p[i] >= '0' && p[i] <= '9') {
+		++i;
+	}
+	return i;
+}
+
+// Single-pass signed/unsigned integer parse. Fuses validation and value
+// accumulation; rejects leading zeros, fraction/exponent forms, and overflow
+// by bailing (slow path classifies the precise error).
+template<class T>
+	requires(std::integral<T> && !std::same_as<T, bool>)
+[[nodiscard]] inline FpStatus fp_parse_integer(
+	FpCursor &c,
+	T &out) noexcept {
+	using U = std::make_unsigned_t<T>;
+	char const *p = c.p;
+	char const *const end = c.end;
+	bool neg = false;
+	if (p < end && *p == '-') {
+		if constexpr (std::unsigned_integral<T>) {
+			return FpStatus::bail;
+		}
+		neg = true;
+		++p;
+	}
+	if (p >= end || *p < '0' || *p > '9') {
+		return FpStatus::bail;
+	}
+	// Leading zero: only valid if the number is exactly "0".
+	if (*p == '0') {
+		if (p + 1 < end && p[1] >= '0' && p[1] <= '9') {
+			return FpStatus::bail;
+		}
+		// "0." / "0e" are non-integer forms -> bail to slow path for the
+		// proper invalid_number diagnostic.
+		if (p + 1 < end && (p[1] == '.' || p[1] == 'e' || p[1] == 'E')) {
+			return FpStatus::bail;
+		}
+		out = T{0};
+		c.p = p + 1;
+		return FpStatus::ok;
+	}
+	U limit{};
+	if constexpr (std::signed_integral<T>) {
+		limit =
+			neg ? static_cast<U>(std::numeric_limits<T>::max()) + U{1} : static_cast<U>(std::numeric_limits<T>::max());
+	} else {
+		limit = std::numeric_limits<T>::max();
+	}
+	U mag = 0;
+	std::size_t const ndig = fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	// 19 decimal digits always fit in u64 magnitude accumulation without
+	// overflow checks; longer runs and exact-limit values go through checked
+	// accumulation.
+	if (ndig <= 18U) {
+		for (std::size_t i = 0; i < ndig; ++i) {
+			mag = mag * U{10} + static_cast<U>(p[i] - '0');
+		}
+		if (mag > limit) {
+			return FpStatus::bail;
+		}
+	} else {
+		for (std::size_t i = 0; i < ndig; ++i) {
+			U const d = static_cast<U>(p[i] - '0');
+			if (mag > (limit - d) / U{10}) {
+				return FpStatus::bail;
+			}
+			mag = mag * U{10} + d;
+		}
+	}
+	p += ndig;
+	// Integer target cannot accept fraction/exponent forms.
+	if (p < end && (*p == '.' || *p == 'e' || *p == 'E')) {
+		return FpStatus::bail;
+	}
+	if constexpr (std::signed_integral<T>) {
+		if (neg) {
+			if (mag == static_cast<U>(std::numeric_limits<T>::max()) + U{1}) {
+				out = std::numeric_limits<T>::min();
+			} else {
+				out = static_cast<T>(-static_cast<T>(mag));
+			}
+			c.p = p;
+			return FpStatus::ok;
+		}
+	}
+	out = static_cast<T>(mag);
+	c.p = p;
+	return FpStatus::ok;
+}
+
+// Powers of ten exactly representable as doubles (10^0 .. 10^22).
+inline constexpr std::array<double, 23> kFpPow10{1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
+												 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+
+// Single-pass floating-point parse. Locates and validates the lexeme in one
+// scan, accumulating the mantissa as it goes. For values where Clinger's fast
+// path applies (mantissa <= 2^53, decimal exponent within +/-22), the result
+// of double(mantissa) * / 10^e is exactly correctly rounded and from_chars is
+// skipped entirely. Everything else falls back to from_chars on the located
+// lexeme.
+template<class T>
+	requires std::floating_point<T>
+[[nodiscard]] inline FpStatus fp_parse_floating(
+	FpCursor &c,
+	T &out) noexcept {
+	char const *p = c.p;
+	char const *const end = c.end;
+	char const *const start = p;
+	bool const neg = p < end && *p == '-';
+	if (neg) {
+		++p;
+	}
+	if (p >= end || *p < '0' || *p > '9') {
+		return FpStatus::bail;
+	}
+	bool const starts_zero = *p == '0';
+
+	char const *const int_start = p;
+	std::size_t const int_len = fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	p += int_len;
+	if (starts_zero && int_len > 1) {
+		return FpStatus::bail;
+	}
+
+	char const *frac_start = p;
+	std::size_t frac_len = 0;
+	if (p < end && *p == '.') {
+		++p;
+		frac_start = p;
+		frac_len = fp_scan_digits(p, static_cast<std::size_t>(end - p));
+		if (frac_len == 0) {
+			return FpStatus::bail;
+		}
+		p += frac_len;
+	}
+
+	std::int64_t exp_val = 0;
+	bool exp_overlong = false;
+	if (p < end && (*p == 'e' || *p == 'E')) {
+		++p;
+		bool exp_neg = false;
+		if (p < end && (*p == '+' || *p == '-')) {
+			exp_neg = *p == '-';
+			++p;
+		}
+		char const *const exp_start = p;
+		std::size_t const exp_len = fp_scan_digits(p, static_cast<std::size_t>(end - p));
+		if (exp_len == 0) {
+			return FpStatus::bail;
+		}
+		p += exp_len;
+		if (exp_len > 4U) {
+			exp_overlong = true; // huge exponent: let from_chars classify
+		} else {
+			for (char const *q = exp_start; q != exp_start + exp_len; ++q) {
+				exp_val = exp_val * 10 + (*q - '0');
+			}
+			if (exp_neg) {
+				exp_val = -exp_val;
+			}
+		}
+	}
+
+	if (static_cast<std::size_t>(p - start) > kMaxNumberLexemeLen) {
+		return FpStatus::bail;
+	}
+
+	// Clinger fast path (exact only when the target is double).
+	std::size_t const total_digits = int_len + frac_len;
+	std::int64_t const eff_exp = exp_val - static_cast<std::int64_t>(frac_len);
+	if (std::same_as<T, double> && !exp_overlong && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22) {
+		std::uint64_t mant = 0;
+		for (char const *q = int_start; q != int_start + int_len; ++q) {
+			mant = mant * 10U + static_cast<std::uint64_t>(*q - '0');
+		}
+		for (char const *q = frac_start; q != frac_start + frac_len; ++q) {
+			mant = mant * 10U + static_cast<std::uint64_t>(*q - '0');
+		}
+		if (mant <= (std::uint64_t{1} << 53U)) {
+			double v = static_cast<double>(mant);
+			if (eff_exp < 0) {
+				v /= kFpPow10[static_cast<std::size_t>(-eff_exp)];
+			} else {
+				v *= kFpPow10[static_cast<std::size_t>(eff_exp)];
+			}
+			out = static_cast<T>(neg ? -v : v);
+			c.p = p;
+			return FpStatus::ok;
+		}
+	}
+
+	// from_chars fallback for long mantissas / extreme exponents.
+	T value{};
+	auto const [ptr, ec] = std::from_chars(start, p, value, std::chars_format::general);
+	if (ec != std::errc{} || ptr != p || !std::isfinite(value)) {
+		return FpStatus::bail;
+	}
+	out = value;
+	c.p = p;
+	return FpStatus::ok;
+}
+
+// String body scan. Returns ok and sets [body_begin, body_len) for strings
+// without escapes/UTF-8-validation needs; bails on escapes, control chars,
+// or non-ASCII so the slow path handles full validation and unescaping.
+//
+// Escaped strings are handled by fp_parse_string_owned below, which decodes
+// simple escapes inline and bails only on \uXXXX and UTF-8 validation needs.
+struct FpStringView {
+	char const *data;
+	std::size_t size;
+};
+
+[[nodiscard]] inline FpStatus fp_scan_plain_string(
+	FpCursor &c,
+	FpStringView &out,
+	std::size_t max_string) noexcept {
+	// Caller has consumed the opening quote.
+	char const *p = c.p;
+	std::size_t const n = c.remaining();
+	std::size_t const skip = ::detail::simd::scan_str_until_special(p, n);
+	if (skip >= n || p[skip] != '"' || skip > max_string) {
+		return FpStatus::bail;
+	}
+	out = FpStringView{.data = p, .size = skip};
+	c.p = p + skip + 1;
+	return FpStatus::ok;
+}
+
+[[nodiscard]] inline std::optional<std::uint32_t> fp_hex4(
+	char const *p) noexcept {
+	std::uint32_t v = 0;
+	for (std::size_t i = 0; i < 4; ++i) {
+		char const ch = p[i];
+		std::uint32_t d{};
+		if (ch >= '0' && ch <= '9') {
+			d = static_cast<std::uint32_t>(ch - '0');
+		} else if (ch >= 'a' && ch <= 'f') {
+			d = static_cast<std::uint32_t>(ch - 'a') + 10U;
+		} else if (ch >= 'A' && ch <= 'F') {
+			d = static_cast<std::uint32_t>(ch - 'A') + 10U;
+		} else {
+			return std::nullopt;
+		}
+		v = (v << 4U) | d;
+	}
+	return v;
+}
+
+// Owned-string decode with inline escape handling (including \uXXXX and
+// surrogate pairs). Bails on non-ASCII bytes (UTF-8 validation stays in the
+// slow path) and on invalid escapes.
+template<class String>
+[[nodiscard]] inline FpStatus fp_parse_string_owned(
+	FpCursor &c,
+	String &out,
+	std::size_t max_string) noexcept {
+	char const *const body_start = c.p;
+	char const *p = c.p;
+	char const *const end = c.end;
+	out.clear();
+	for (;;) {
+		std::size_t const n = static_cast<std::size_t>(end - p);
+		std::size_t run = 0;
+		// Escape-dense strings: skip the SIMD call when the next byte is
+		// already special.
+		if (n != 0
+			&& static_cast<unsigned char>(*p) >= 0x20U
+			&& *p != '"'
+			&& *p != '\\'
+			&& static_cast<unsigned char>(*p) < 0x80U) {
+			run = ::detail::simd::scan_str_until_special(p, n);
+		}
+		if (run >= n) {
+			return FpStatus::bail;
+		}
+		char const special = p[run];
+		if (special == '"') {
+			out.append(p, run);
+			// Reader semantics: max_string_size bounds the raw body length;
+			// decode additionally bounds the decoded length.
+			if (out.size() > max_string || static_cast<std::size_t>(p + run - body_start) > max_string) {
+				return FpStatus::bail;
+			}
+			c.p = p + run + 1;
+			return FpStatus::ok;
+		}
+		if (special != '\\') {
+			// Control char or non-ASCII: slow path validates and reports.
+			return FpStatus::bail;
+		}
+		out.append(p, run);
+		p += run + 1; // consume backslash
+		if (p >= end) {
+			return FpStatus::bail;
+		}
+		char decoded{};
+		bool simple = true;
+		switch (*p) {
+		case '"' : decoded = '"'; break;
+		case '\\': decoded = '\\'; break;
+		case '/' : decoded = '/'; break;
+		case 'b' : decoded = '\b'; break;
+		case 'f' : decoded = '\f'; break;
+		case 'n' : decoded = '\n'; break;
+		case 'r' : decoded = '\r'; break;
+		case 't' : decoded = '\t'; break;
+		case 'u':
+			{
+				simple = false;
+				++p;
+				if (p + 4 > end) {
+					return FpStatus::bail;
+				}
+				auto cp_opt = fp_hex4(p);
+				if (!cp_opt) {
+					return FpStatus::bail;
+				}
+				std::uint32_t cp = *cp_opt;
+				p += 4;
+				if (cp >= 0xD800U && cp <= 0xDBFFU) {
+					// High surrogate: a \uXXXX low surrogate must follow.
+					if (p + 6 > end || p[0] != '\\' || p[1] != 'u') {
+						return FpStatus::bail;
+					}
+					auto lo_opt = fp_hex4(p + 2);
+					if (!lo_opt || *lo_opt < 0xDC00U || *lo_opt > 0xDFFFU) {
+						return FpStatus::bail;
+					}
+					cp = 0x10000U + ((cp - 0xD800U) << 10U) + (*lo_opt - 0xDC00U);
+					p += 6;
+				} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+					return FpStatus::bail;
+				}
+				// Append UTF-8.
+				if (cp < 0x80U) {
+					out.push_back(static_cast<char>(cp));
+				} else if (cp < 0x800U) {
+					char const buf[2]{static_cast<char>(0xC0U | (cp >> 6U)), static_cast<char>(0x80U | (cp & 0x3FU))};
+					out.append(buf, 2);
+				} else if (cp < 0x10000U) {
+					char const buf[3]{
+						static_cast<char>(0xE0U | (cp >> 12U)),
+						static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU)),
+						static_cast<char>(0x80U | (cp & 0x3FU))};
+					out.append(buf, 3);
+				} else {
+					char const buf[4]{
+						static_cast<char>(0xF0U | (cp >> 18U)),
+						static_cast<char>(0x80U | ((cp >> 12U) & 0x3FU)),
+						static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU)),
+						static_cast<char>(0x80U | (cp & 0x3FU))};
+					out.append(buf, 4);
+				}
+				break;
+			}
+		default: return FpStatus::bail;
+		}
+		if (simple) {
+			out.push_back(decoded);
+			++p;
+		}
+		if (out.size() > max_string) {
+			return FpStatus::bail;
+		}
+	}
+}
+
+// Resolved limits/policies for one fast-path decode.
+struct FpLimits {
+	std::size_t max_string;
+	std::uint32_t max_depth;
+	DuplicateKeyPolicy duplicate_key;
+	UnknownMemberPolicy unknown_members;
+};
+
+// Skip any well-formed value (used for ignored unknown members). Bails on
+// anything suspicious; depth-checked.
+[[nodiscard]] inline FpStatus fp_skip_value(FpCursor &c,
+											FpLimits const &lim) noexcept; // forward
+
+[[nodiscard]] inline FpStatus fp_skip_string(
+	FpCursor &c,
+	std::size_t max_string) noexcept {
+	// Caller consumed the opening quote. Skips past the closing quote while
+	// validating escapes (the reader validates skipped values too, so the
+	// fast path must not accept what the slow path would reject). Bails on
+	// \uXXXX escapes and non-ASCII (full validation is the slow path's job).
+	char const *p = c.p;
+	char const *const end = c.end;
+	char const *const body_start = p;
+	for (;;) {
+		std::size_t const n = static_cast<std::size_t>(end - p);
+		std::size_t const run = ::detail::simd::scan_str_until_special(p, n);
+		if (run >= n) {
+			return FpStatus::bail;
+		}
+		char const special = p[run];
+		p += run;
+		if (special == '"') {
+			// Reader limit semantics: raw body length (between quotes) is
+			// what max_string_size bounds.
+			if (static_cast<std::size_t>(p - body_start) > max_string) {
+				return FpStatus::bail;
+			}
+			c.p = p + 1;
+			return FpStatus::ok;
+		}
+		if (special == '\\') {
+			if (p + 2 > end) {
+				return FpStatus::bail;
+			}
+			char const esc = p[1];
+			if (esc != '"'
+				&& esc != '\\'
+				&& esc != '/'
+				&& esc != 'b'
+				&& esc != 'f'
+				&& esc != 'n'
+				&& esc != 'r'
+				&& esc != 't') {
+				// \uXXXX or invalid escape: slow path validates and reports.
+				return FpStatus::bail;
+			}
+			p += 2;
+			continue;
+		}
+		// Control char or non-ASCII inside ignored string: bail so the slow
+		// path runs full validation (it may legitimately reject).
+		return FpStatus::bail;
+	}
+}
+
+[[nodiscard]] inline FpStatus fp_skip_number(
+	FpCursor &c) noexcept {
+	char const *p = c.p;
+	char const *const end = c.end;
+	if (p < end && *p == '-') {
+		++p;
+	}
+	if (p >= end || *p < '0' || *p > '9') {
+		return FpStatus::bail;
+	}
+	bool const starts_zero = *p == '0';
+	++p;
+	if (starts_zero && p < end && *p >= '0' && *p <= '9') {
+		return FpStatus::bail;
+	}
+	p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	if (p < end && *p == '.') {
+		++p;
+		if (p >= end || *p < '0' || *p > '9') {
+			return FpStatus::bail;
+		}
+		p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	}
+	if (p < end && (*p == 'e' || *p == 'E')) {
+		++p;
+		if (p < end && (*p == '+' || *p == '-')) {
+			++p;
+		}
+		if (p >= end || *p < '0' || *p > '9') {
+			return FpStatus::bail;
+		}
+		p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	}
+	if (static_cast<std::size_t>(p - c.p) > kMaxNumberLexemeLen) {
+		return FpStatus::bail;
+	}
+	c.p = p;
+	return FpStatus::ok;
+}
+
+[[nodiscard]] inline FpStatus fp_skip_value(
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	c.skip_ws();
+	if (c.at_end()) {
+		return FpStatus::bail;
+	}
+	char const ch = *c.p;
+	if (ch == '"') {
+		++c.p;
+		return fp_skip_string(c, lim.max_string);
+	}
+	if (ch == '-' || (ch >= '0' && ch <= '9')) {
+		return fp_skip_number(c);
+	}
+	if (ch == 't') {
+		if (c.remaining() < 4 || std::memcmp(c.p, "true", 4) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 4;
+		return FpStatus::ok;
+	}
+	if (ch == 'f') {
+		if (c.remaining() < 5 || std::memcmp(c.p, "false", 5) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 5;
+		return FpStatus::ok;
+	}
+	if (ch == 'n') {
+		if (c.remaining() < 4 || std::memcmp(c.p, "null", 4) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 4;
+		return FpStatus::ok;
+	}
+	if (ch == '{') {
+		if (c.depth + 1 > lim.max_depth) {
+			return FpStatus::bail;
+		}
+		++c.depth;
+		++c.p;
+		c.skip_ws();
+		if (!c.at_end() && *c.p == '}') {
+			++c.p;
+			--c.depth;
+			return FpStatus::ok;
+		}
+		for (;;) {
+			c.skip_ws();
+			if (c.at_end() || *c.p != '"') {
+				return FpStatus::bail;
+			}
+			++c.p;
+			if (fp_skip_string(c, lim.max_string) != FpStatus::ok) {
+				return FpStatus::bail;
+			}
+			c.skip_ws();
+			if (c.at_end() || *c.p != ':') {
+				return FpStatus::bail;
+			}
+			++c.p;
+			if (fp_skip_value(c, lim) != FpStatus::ok) {
+				return FpStatus::bail;
+			}
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+			if (*c.p == ',') {
+				++c.p;
+				continue;
+			}
+			if (*c.p == '}') {
+				++c.p;
+				--c.depth;
+				return FpStatus::ok;
+			}
+			return FpStatus::bail;
+		}
+	}
+	if (ch == '[') {
+		if (c.depth + 1 > lim.max_depth) {
+			return FpStatus::bail;
+		}
+		++c.depth;
+		++c.p;
+		c.skip_ws();
+		if (!c.at_end() && *c.p == ']') {
+			++c.p;
+			--c.depth;
+			return FpStatus::ok;
+		}
+		for (;;) {
+			if (fp_skip_value(c, lim) != FpStatus::ok) {
+				return FpStatus::bail;
+			}
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+			if (*c.p == ',') {
+				++c.p;
+				continue;
+			}
+			if (*c.p == ']') {
+				++c.p;
+				--c.depth;
+				return FpStatus::ok;
+			}
+			return FpStatus::bail;
+		}
+	}
+	return FpStatus::bail;
+}
+
+// ---------------------------------------------------------------------------
+// Supported-type trait: the fast path only handles a closed set of member
+// types; everything else bails to the JsonReader-based decoder.
+// ---------------------------------------------------------------------------
+
+template<class T>
+struct fp_supported : std::false_type {};
+template<>
+struct fp_supported<bool> : std::true_type {};
+template<class T>
+	requires(std::integral<T> && !std::same_as<T, bool>)
+struct fp_supported<T> : std::true_type {};
+template<class T>
+	requires std::floating_point<T>
+struct fp_supported<T> : std::true_type {};
+template<class Traits, class Alloc>
+struct fp_supported<std::basic_string<char, Traits, Alloc>> : std::true_type {};
+template<class T>
+struct fp_supported<std::optional<T>> : fp_supported<std::remove_cvref_t<T>> {};
+template<class T, class Alloc>
+struct fp_supported<std::vector<T, Alloc>> : fp_supported<std::remove_cvref_t<T>> {};
+template<class T, std::size_t N>
+struct fp_supported<std::array<T, N>>
+	: std::bool_constant<(std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>> {};
+
+template<class T>
+consteval bool fp_members_all_supported() {
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
+	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
+	if constexpr (member_count > 64U) {
+		return false;
+	} else {
+		return []<std::size_t... Is>(std::index_sequence<Is...>) {
+			return (
+				fp_supported<
+					std::remove_cvref_t<json_member_entry_value_type_t<std::tuple_element_t<Is, MembersTuple>>>>::value
+				&& ...);
+		}(std::make_index_sequence<member_count>{});
+	}
+}
+
+template<class T>
+	requires(has_members_spec<T>::value && !has_codec_spec<T>::value)
+struct fp_supported<T> : std::bool_constant<fp_members_all_supported<T>()> {};
+
+template<class T>
+inline constexpr bool fp_supported_v = fp_supported<std::remove_cvref_t<T>>::value;
+
+// ---------------------------------------------------------------------------
+// Fast key lookup: open-addressing table keyed on the first 8 bytes of the
+// member name (as a little-endian uint64) plus its length. One unaligned
+// load + multiply-shift hash + probe replaces the per-character FNV hash.
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] consteval std::uint64_t fp_key_prefix64_ct(
+	std::string_view name) noexcept {
+	std::uint64_t v = 0;
+	std::size_t const n = name.size() < 8U ? name.size() : 8U;
+	for (std::size_t i = 0; i < n; ++i) {
+		v |= static_cast<std::uint64_t>(static_cast<unsigned char>(name[i])) << (i * 8U);
+	}
+	return v;
+}
+
+// Runtime prefix load: reads 8 bytes when safely within the buffer, masks to
+// the key length. Falls back to a byte loop near the end of the input.
+[[nodiscard]] inline std::uint64_t fp_key_prefix64(
+	char const *key,
+	std::size_t len,
+	char const *input_end) noexcept {
+	std::uint64_t v = 0;
+	if (key + 8 <= input_end) {
+		std::memcpy(&v, key, 8);
+		if (len < 8U) {
+			v &= (std::uint64_t{1} << (len * 8U)) - 1U;
+		}
+	} else {
+		std::size_t const n = len < 8U ? len : 8U;
+		for (std::size_t i = 0; i < n; ++i) {
+			v |= static_cast<std::uint64_t>(static_cast<unsigned char>(key[i])) << (i * 8U);
+		}
+	}
+	return v;
+}
+
+struct FpKeySlot {
+	std::uint64_t prefix{};
+	std::uint32_t len{};
+	std::uint32_t index{}; // member index + 1; 0 = empty
+};
+
+[[nodiscard]] consteval std::size_t fp_key_table_capacity(
+	std::size_t member_count) noexcept {
+	std::size_t cap = 4;
+	while (cap < member_count * 2U) {
+		cap <<= 1U;
+	}
+	return cap;
+}
+
+inline constexpr std::uint64_t kFpKeyHashMul = 0x9E3779B97F4A7C15ULL;
+
+template<class T>
+struct FpKeyTable {
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
+	static constexpr std::size_t kMemberCount = std::tuple_size_v<MembersTuple>;
+	static constexpr std::size_t kCapacity = fp_key_table_capacity(kMemberCount);
+	static constexpr std::size_t kMask = kCapacity - 1U;
+	std::array<FpKeySlot, kCapacity> slots{};
+	bool valid{true}; // false if any two keys collide on (prefix, len) - then memcmp is needed
+
+	consteval FpKeyTable() {
+		auto const members = conflux::json::JsonMembers<T>::members();
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			(insert(jm_member(get<Is>(members)).name, Is), ...);
+		}(std::make_index_sequence<kMemberCount>{});
+	}
+
+	consteval void insert(
+		std::string_view name,
+		std::size_t index) {
+		std::uint64_t const prefix = fp_key_prefix64_ct(name);
+		// Two members sharing (prefix, len) cannot be distinguished without a
+		// full memcmp; mark the table unusable (extremely rare: requires
+		// names identical in the first 8 bytes and equal length > 8).
+		for (auto const &s: slots) {
+			if (s.index != 0 && s.prefix == prefix && s.len == name.size()) {
+				valid = false;
+			}
+		}
+		std::size_t pos = ((prefix * kFpKeyHashMul) >> 32U) & kMask;
+		while (slots[pos].index != 0) {
+			pos = (pos + 1U) & kMask;
+		}
+		slots[pos] = FpKeySlot{
+			.prefix = prefix,
+			.len = static_cast<std::uint32_t>(name.size()),
+			.index = static_cast<std::uint32_t>(index + 1U)};
+	}
+
+	// Returns member index, or kMemberCount if not found.
+	[[nodiscard]] std::size_t find(
+		char const *key,
+		std::size_t len,
+		char const *input_end,
+		std::array<std::string_view, kMemberCount> const &names) const noexcept {
+		std::uint64_t const prefix = fp_key_prefix64(key, len, input_end);
+		std::size_t pos = ((prefix * kFpKeyHashMul) >> 32U) & kMask;
+		for (;;) {
+			FpKeySlot const &s = slots[pos];
+			if (s.index == 0) {
+				return kMemberCount;
+			}
+			if (s.prefix == prefix && s.len == len) {
+				std::size_t const idx = s.index - 1U;
+				// Names longer than 8 bytes need a tail comparison.
+				if (len <= 8U || std::memcmp(names[idx].data() + 8, key + 8, len - 8U) == 0) {
+					return idx;
+				}
+			}
+			pos = (pos + 1U) & kMask;
+		}
+	}
+};
+
+template<class T>
+inline constexpr FpKeyTable<T> fp_key_table_v{};
+
+template<class T>
+inline constexpr auto fp_member_names_v = [] {
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
+	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
+	auto const members = conflux::json::JsonMembers<T>::members();
+	return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+		return std::array<std::string_view, member_count>{jm_member(get<Is>(members)).name...};
+	}(std::make_index_sequence<member_count>{});
+}();
+
+// ---------------------------------------------------------------------------
+// Value decode dispatch
+// ---------------------------------------------------------------------------
+
+template<class T>
+[[nodiscard]] FpStatus fp_decode_struct(T &out, FpCursor &c, FpLimits const &lim) noexcept;
+
+template<class T>
+[[nodiscard]] inline FpStatus fp_decode_value(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	c.skip_ws();
+	if (c.at_end()) {
+		return FpStatus::bail;
+	}
+	if constexpr (std::same_as<T, bool>) {
+		if (*c.p == 't') {
+			if (c.remaining() < 4 || std::memcmp(c.p, "true", 4) != 0) {
+				return FpStatus::bail;
+			}
+			c.p += 4;
+			out = true;
+			return FpStatus::ok;
+		}
+		if (*c.p == 'f') {
+			if (c.remaining() < 5 || std::memcmp(c.p, "false", 5) != 0) {
+				return FpStatus::bail;
+			}
+			c.p += 5;
+			out = false;
+			return FpStatus::ok;
+		}
+		return FpStatus::bail;
+	} else if constexpr (std::integral<T> && !std::same_as<T, bool>) {
+		return fp_parse_integer<T>(c, out);
+	} else if constexpr (std::floating_point<T>) {
+		return fp_parse_floating<T>(c, out);
+	} else if constexpr (is_basic_string_of_char_v<T>) {
+		if (*c.p != '"') {
+			return FpStatus::bail;
+		}
+		++c.p;
+		return fp_parse_string_owned(c, out, lim.max_string);
+	} else if constexpr (is_optional<T>::value) {
+		using Inner = typename T::value_type;
+		if (*c.p == 'n') {
+			if (c.remaining() < 4 || std::memcmp(c.p, "null", 4) != 0) {
+				return FpStatus::bail;
+			}
+			c.p += 4;
+			out.reset();
+			return FpStatus::ok;
+		}
+		out.emplace();
+		if (FpStatus const st = fp_decode_value<Inner>(*out, c, lim); st != FpStatus::ok) {
+			out.reset();
+			return st;
+		}
+		return FpStatus::ok;
+	} else if constexpr (is_vector_of_v<T>) {
+		using E = typename T::value_type;
+		if (*c.p != '[') {
+			return FpStatus::bail;
+		}
+		if (c.depth + 1 > lim.max_depth) {
+			return FpStatus::bail;
+		}
+		++c.depth;
+		++c.p;
+		out.clear();
+		c.skip_ws();
+		if (!c.at_end() && *c.p == ']') {
+			++c.p;
+			--c.depth;
+			return FpStatus::ok;
+		}
+		// Same initial reserve heuristic as JsonReader::initial_array_reserve_hint.
+		if (out.capacity() == 0) {
+			constexpr std::size_t kMaxInitialReserveBytes = 4096U;
+			out.reserve(std::min<std::size_t>(4U, std::max<std::size_t>(1U, kMaxInitialReserveBytes / sizeof(E))));
+		}
+		for (;;) {
+			E &slot = out.emplace_back();
+			if (FpStatus const st = fp_decode_value<E>(slot, c, lim); st != FpStatus::ok) {
+				return st;
+			}
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+			if (*c.p == ',') {
+				++c.p;
+				c.skip_ws();
+				continue;
+			}
+			if (*c.p == ']') {
+				++c.p;
+				--c.depth;
+				return FpStatus::ok;
+			}
+			return FpStatus::bail;
+		}
+	} else if constexpr (is_fixed_numeric_array_v<T>) {
+		using E = typename T::value_type;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		if (*c.p != '[') {
+			return FpStatus::bail;
+		}
+		if (c.depth + 1 > lim.max_depth) {
+			return FpStatus::bail;
+		}
+		++c.depth;
+		++c.p;
+		for (std::size_t i = 0; i < N; ++i) {
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+			FpStatus st{};
+			if constexpr (std::floating_point<E>) {
+				st = fp_parse_floating<E>(c, out[i]);
+			} else {
+				st = fp_parse_integer<E>(c, out[i]);
+			}
+			if (st != FpStatus::ok) {
+				return FpStatus::bail;
+			}
+			c.skip_ws();
+			if (i + 1U < N) {
+				if (c.at_end() || *c.p != ',') {
+					return FpStatus::bail;
+				}
+				++c.p;
+			}
+		}
+		if (c.at_end() || *c.p != ']') {
+			return FpStatus::bail;
+		}
+		++c.p;
+		--c.depth;
+		return FpStatus::ok;
+	} else if constexpr (has_members_spec<T>::value) {
+		return fp_decode_struct<T>(out, c, lim);
+	} else {
+		return FpStatus::bail;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Struct (JsonMembers) decode with declaration-order cursor heuristic
+// ---------------------------------------------------------------------------
+
+template<class T, std::size_t I>
+[[nodiscard]] FpStatus fp_decode_member_at(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	auto const members = conflux::json::JsonMembers<T>::members();
+	auto const &entry = get<I>(members);
+	auto const &m = jm_member(entry);
+	using M = std::remove_reference_t<decltype(out.*m.pointer)>;
+	if (FpStatus const st = fp_decode_value<M>(out.*m.pointer, c, lim); st != FpStatus::ok) {
+		return st;
+	}
+	auto cfn = jm_constraint(entry);
+	if (cfn != nullptr) {
+		if (auto cr = cfn(out.*m.pointer); !cr) {
+			// Constraint violation: slow path re-runs and reports it.
+			return FpStatus::bail;
+		}
+	}
+	return FpStatus::ok;
+}
+
+template<class T>
+struct FpMemberMeta {
+	std::string_view name;
+	FpStatus (*decode)(T &, FpCursor &, FpLimits const &) noexcept;
+	bool required;
+};
+
+template<class T, std::size_t... Is>
+[[nodiscard]] consteval auto fp_make_member_meta(
+	std::index_sequence<Is...>) {
+	auto const members = conflux::json::JsonMembers<T>::members();
+	using MembersTuple = std::remove_cvref_t<decltype(members)>;
+	return std::array<FpMemberMeta<T>, sizeof...(Is)>{
+		FpMemberMeta<T>{
+						.name = jm_member(get<Is>(members)).name,
+						.decode = &fp_decode_member_at<T, Is>,
+						.required = !is_optional<
+				std::remove_cvref_t<json_member_entry_value_type_t<std::tuple_element_t<Is, MembersTuple>>>>::value,
+						}
+        ...
+    };
+}
+
+template<class T>
+inline constexpr auto fp_member_meta_v = [] {
+	using MembersTuple = std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>;
+	constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
+	return fp_make_member_meta<T>(std::make_index_sequence<member_count>{});
+}();
+
+template<class T>
+[[nodiscard]] FpStatus fp_decode_struct(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	auto const &meta = fp_member_meta_v<T>;
+	constexpr std::size_t N = fp_member_meta_v<T>.size();
+
+	if (c.at_end() || *c.p != '{') {
+		return FpStatus::bail;
+	}
+	if (c.depth + 1 > lim.max_depth) {
+		return FpStatus::bail;
+	}
+	++c.depth;
+	++c.p;
+
+	std::uint64_t presence = 0;
+	// Adaptive prediction: documents usually present members in a fixed
+	// pattern (declaration order, reverse, strided). Predict next = prev +
+	// stride; on a miss fall back to the prefix-hash table and re-learn the
+	// stride. First key predicts member 0.
+	std::size_t prev_idx = N;
+	std::ptrdiff_t stride = 1;
+	bool first = true;
+
+	for (;;) {
+		c.skip_ws();
+		if (c.at_end()) {
+			return FpStatus::bail;
+		}
+		if (*c.p == '}') {
+			++c.p;
+			--c.depth;
+			break;
+		}
+		if (!first) {
+			if (*c.p != ',') {
+				return FpStatus::bail;
+			}
+			++c.p;
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+		}
+		first = false;
+
+		// --- key ---
+		if (*c.p != '"') {
+			return FpStatus::bail;
+		}
+		++c.p;
+		FpStringView key{};
+		if (fp_scan_plain_string(c, key, lim.max_string) != FpStatus::ok) {
+			// Escaped or non-ASCII key: slow path handles decode + match.
+			return FpStatus::bail;
+		}
+		std::string_view const key_name{key.data, key.size};
+
+		c.skip_ws();
+		if (c.at_end() || *c.p != ':') {
+			return FpStatus::bail;
+		}
+		++c.p;
+
+		// --- match ---
+		std::size_t idx = N;
+		// Stride prediction: first key predicts member 0; afterwards predict
+		// prev_idx + learned stride.
+		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
+		if (predicted >= 0
+			&& predicted < static_cast<std::ptrdiff_t>(N)
+			&& key_name == meta[static_cast<std::size_t>(predicted)].name) {
+			idx = static_cast<std::size_t>(predicted);
+		} else {
+			if constexpr (N > kJsonMemberLinearLookupLimit) {
+				if constexpr (fp_key_table_v<T>.valid) {
+					idx = fp_key_table_v<T>.find(key.data, key.size, c.end, fp_member_names_v<T>);
+				} else {
+					if (auto const *e = find_json_member_lookup_entry<T>(key_name); e != nullptr) {
+						idx = e->index;
+					}
+				}
+			} else {
+				for (std::size_t i = 0; i < N; ++i) {
+					if (key_name == meta[i].name) {
+						idx = i;
+						break;
+					}
+				}
+			}
+		}
+
+		if (idx == N) {
+			// Unknown member. Both outcomes are positional-info-free, so the
+			// reject diagnostic is produced authoritatively here.
+			if (lim.unknown_members == UnknownMemberPolicy::reject) {
+				c.error = FpError{.code = JsonIssueCode::invalid_value, .member_name = key_name};
+				return FpStatus::error;
+			}
+			if (fp_skip_value(c, lim) != FpStatus::ok) {
+				return FpStatus::bail;
+			}
+			continue;
+		}
+
+		if (prev_idx != N) {
+			stride = static_cast<std::ptrdiff_t>(idx) - static_cast<std::ptrdiff_t>(prev_idx);
+		}
+		prev_idx = idx;
+
+		// --- duplicates ---
+		std::uint64_t const bit = std::uint64_t{1} << idx;
+		if ((presence & bit) != 0U) {
+			if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
+				c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = meta[idx].name};
+				return FpStatus::error;
+			}
+			if (lim.duplicate_key == DuplicateKeyPolicy::first_wins) {
+				if (fp_skip_value(c, lim) != FpStatus::ok) {
+					return FpStatus::bail;
+				}
+				continue;
+			}
+			// last_wins: fall through and decode over the previous value.
+		}
+		presence |= bit;
+
+		// --- value ---
+		if (FpStatus const st = meta[idx].decode(out, c, lim); st != FpStatus::ok) {
+			return st;
+		}
+	}
+
+	// --- required members present? ---
+	for (std::size_t i = 0; i < N; ++i) {
+		if (meta[i].required && (presence & (std::uint64_t{1} << i)) == 0U) {
+			c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[i].name};
+			return FpStatus::error;
+		}
+	}
+	return FpStatus::ok;
+}
+
+// ---------------------------------------------------------------------------
+// Document entry point
+// ---------------------------------------------------------------------------
+
+template<class T>
+[[nodiscard]] FpStatus fp_decode_document(
+	T &out,
+	FpError &out_error,
+	std::string_view input,
+	JsonParseOptions const &parse_opts,
+	JsonDecodeOptions const &decode_opts) noexcept {
+	// Only strict mode; JSON5 always uses the reader.
+	if (parse_opts.mode != ParseMode::strict) {
+		return FpStatus::bail;
+	}
+	// Limits: resolve to concrete values; "unlimited" maps to SIZE_MAX.
+	std::size_t max_input = kDefaultMaxInput;
+	if (parse_opts.max_input_size.is_unlimited()) {
+		max_input = std::numeric_limits<std::size_t>::max();
+	} else if (auto v = parse_opts.max_input_size.explicit_value()) {
+		max_input = *v;
+	}
+	if (input.size() > max_input) {
+		return FpStatus::bail;
+	}
+	FpLimits lim{
+		.max_string = kDefaultMaxString,
+		.max_depth = static_cast<std::uint32_t>(kDefaultMaxDepth),
+		.duplicate_key = parse_opts.duplicate_key,
+		.unknown_members = decode_opts.unknown_members,
+	};
+	if (parse_opts.max_string_size.is_unlimited()) {
+		lim.max_string = std::numeric_limits<std::size_t>::max();
+	} else if (auto v = parse_opts.max_string_size.explicit_value()) {
+		lim.max_string = *v;
+	}
+	if (parse_opts.max_depth.is_unlimited()) {
+		lim.max_depth = std::numeric_limits<std::uint32_t>::max();
+	} else if (auto v = parse_opts.max_depth.explicit_value()) {
+		if (*v > std::numeric_limits<std::uint32_t>::max()) {
+			lim.max_depth = std::numeric_limits<std::uint32_t>::max();
+		} else {
+			lim.max_depth = static_cast<std::uint32_t>(*v);
+		}
+	}
+
+	FpCursor c{.p = input.data(), .end = input.data() + input.size(), .opts = &parse_opts, .dopts = &decode_opts};
+	c.skip_ws();
+	FpStatus const st = fp_decode_value<T>(out, c, lim);
+	if (st != FpStatus::ok) {
+		out_error = c.error;
+		return st;
+	}
+	// No trailing garbage allowed for full-document decode.
+	c.skip_ws();
+	if (!c.at_end()) {
+		return FpStatus::bail;
+	}
+	return FpStatus::ok;
+}
+
+} // namespace fastpath
+
 } // namespace detail
 export template<class T>
 std::expected<T, JsonError> decode(
@@ -3080,6 +4340,42 @@ std::expected<T, JsonError> decode_full(
 	std::string_view input,
 	JsonParseOptions const &parse_opts,
 	JsonDecodeOptions const &decode_opts) {
+	// Fast path: cursor-based strict-JSON decode for supported member sets.
+	// On any malformed/unsupported/limit-violating input it bails and the
+	// JsonReader-based decoder below produces the authoritative result and
+	// diagnostics. Duplicate/unknown/missing member rejections (which carry
+	// no positional diagnostics) are produced directly.
+	if constexpr (detail::fastpath::fp_supported_v<T>) {
+		if (parse_opts.mode == ParseMode::strict) {
+			T fast_result{};
+			detail::fastpath::FpError fast_error{};
+			switch (detail::fastpath::fp_decode_document<T>(fast_result, fast_error, input, parse_opts, decode_opts)) {
+			case detail::fastpath::FpStatus::ok: return fast_result;
+			case detail::fastpath::FpStatus::error:
+				{
+					std::string_view const name = fast_error.member_name;
+					if (fast_error.code == JsonIssueCode::duplicate_member) {
+						return std::unexpected(detail::duplicate_member_error(name));
+					}
+					if (fast_error.code == JsonIssueCode::missing_member) {
+						return std::unexpected(
+							JsonError{
+								.stage = JsonStage::decode,
+								.code = JsonIssueCode::missing_member,
+								.member_name = std::string{name},
+								.message = std::format("missing member: {}", name)});
+					}
+					return std::unexpected(
+						JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::invalid_value,
+							.member_name = std::string{name},
+							.message = std::format("unknown member: {}", name)});
+				}
+			case detail::fastpath::FpStatus::bail: break;
+			}
+		}
+	}
 	JsonReader reader{input, parse_opts};
 	return decode_full<T>(reader, decode_opts);
 }
@@ -3088,8 +4384,7 @@ std::expected<T, JsonError> decode_borrowed(
 	std::string_view input,
 	JsonParseOptions const &parse_opts = {},
 	JsonDecodeOptions const &decode_opts = {}) {
-	JsonReader reader{input, parse_opts};
-	return decode_full<T>(reader, decode_opts);
+	return decode_full<T>(input, parse_opts, decode_opts);
 }
 export template<class T>
 std::expected<T, JsonError> decode_owned(

@@ -751,7 +751,7 @@ std::size_t JsonReader::initial_array_reserve_hint(
 	if (element_size == 0) {
 		return 0;
 	}
-	constexpr std::size_t kInitialArrayReserveElements = 16U;
+	constexpr std::size_t kInitialArrayReserveElements = 4U;
 	constexpr std::size_t kMaxInitialArrayReserveBytes = 4096U;
 	std::size_t const max_elems_by_bytes = std::max<std::size_t>(1, kMaxInitialArrayReserveBytes / element_size);
 	return std::min(kInitialArrayReserveElements, max_elems_by_bytes);

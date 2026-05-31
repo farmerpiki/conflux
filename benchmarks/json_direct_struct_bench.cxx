@@ -131,16 +131,17 @@ template<typename F>
 	}
 	std::ranges::sort(samples);
 	double const median_ns = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
-	double const mbs = bytes > 0 && median_ns > 0.0 ? static_cast<double>(bytes) / (median_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
+	double const mbs =
+		bytes > 0 && median_ns > 0.0 ? static_cast<double>(bytes) / (median_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
 	double const denom = static_cast<double>(iters * batch);
 	return {
 		.timing =
 			{
-				.iterations = iters * batch,
-				.total_ns = total_ns,
-				.ns_per_iter = median_ns,
-				.throughput = mbs,
-			},
+					 .iterations = iters * batch,
+					 .total_ns = total_ns,
+					 .ns_per_iter = median_ns,
+					 .throughput = mbs,
+					 },
 		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
 	};
@@ -175,13 +176,19 @@ void print_row(
 	}
 }
 
+// Batch many decode calls inside each timed window so the cost of the two
+// bench_now_ns() calls per sample is amortized to noise. On hosts whose kernel
+// clocksource is not TSC (e.g. acpi_pm fallback), a single clock_gettime can
+// cost microseconds, which would otherwise dominate per-iteration medians.
+inline constexpr std::size_t kRowBatch = 256;
+
 template<class F>
 void run_row(
 	Config const &cfg,
 	std::string_view variant,
 	std::size_t bytes,
 	F &&fn,
-	std::size_t batch = 1) {
+	std::size_t batch = kRowBatch) {
 	if (!should_run(cfg, variant)) {
 		return;
 	}
@@ -353,9 +360,7 @@ struct conflux::json::JsonMembers<NumericScalars> {
 
 template<>
 struct conflux::json::JsonMembers<PointCloud> {
-	static constexpr auto members() {
-		return std::tuple{json_member("points", &PointCloud::points)};
-	}
+	static constexpr auto members() { return std::tuple{json_member("points", &PointCloud::points)}; }
 	static constexpr std::string_view type_name() { return "PointCloud"; }
 };
 
@@ -363,71 +368,28 @@ template<>
 struct conflux::json::JsonMembers<Wide64> {
 	static constexpr auto members() {
 		return std::tuple{
-			json_member("f00", &Wide64::f00),
-			json_member("f01", &Wide64::f01),
-			json_member("f02", &Wide64::f02),
-			json_member("f03", &Wide64::f03),
-			json_member("f04", &Wide64::f04),
-			json_member("f05", &Wide64::f05),
-			json_member("f06", &Wide64::f06),
-			json_member("f07", &Wide64::f07),
-			json_member("f08", &Wide64::f08),
-			json_member("f09", &Wide64::f09),
-			json_member("f10", &Wide64::f10),
-			json_member("f11", &Wide64::f11),
-			json_member("f12", &Wide64::f12),
-			json_member("f13", &Wide64::f13),
-			json_member("f14", &Wide64::f14),
-			json_member("f15", &Wide64::f15),
-			json_member("f16", &Wide64::f16),
-			json_member("f17", &Wide64::f17),
-			json_member("f18", &Wide64::f18),
-			json_member("f19", &Wide64::f19),
-			json_member("f20", &Wide64::f20),
-			json_member("f21", &Wide64::f21),
-			json_member("f22", &Wide64::f22),
-			json_member("f23", &Wide64::f23),
-			json_member("f24", &Wide64::f24),
-			json_member("f25", &Wide64::f25),
-			json_member("f26", &Wide64::f26),
-			json_member("f27", &Wide64::f27),
-			json_member("f28", &Wide64::f28),
-			json_member("f29", &Wide64::f29),
-			json_member("f30", &Wide64::f30),
-			json_member("f31", &Wide64::f31),
-			json_member("f32", &Wide64::f32),
-			json_member("f33", &Wide64::f33),
-			json_member("f34", &Wide64::f34),
-			json_member("f35", &Wide64::f35),
-			json_member("f36", &Wide64::f36),
-			json_member("f37", &Wide64::f37),
-			json_member("f38", &Wide64::f38),
-			json_member("f39", &Wide64::f39),
-			json_member("f40", &Wide64::f40),
-			json_member("f41", &Wide64::f41),
-			json_member("f42", &Wide64::f42),
-			json_member("f43", &Wide64::f43),
-			json_member("f44", &Wide64::f44),
-			json_member("f45", &Wide64::f45),
-			json_member("f46", &Wide64::f46),
-			json_member("f47", &Wide64::f47),
-			json_member("f48", &Wide64::f48),
-			json_member("f49", &Wide64::f49),
-			json_member("f50", &Wide64::f50),
-			json_member("f51", &Wide64::f51),
-			json_member("f52", &Wide64::f52),
-			json_member("f53", &Wide64::f53),
-			json_member("f54", &Wide64::f54),
-			json_member("f55", &Wide64::f55),
-			json_member("f56", &Wide64::f56),
-			json_member("f57", &Wide64::f57),
-			json_member("f58", &Wide64::f58),
-			json_member("f59", &Wide64::f59),
-			json_member("f60", &Wide64::f60),
-			json_member("f61", &Wide64::f61),
-			json_member("f62", &Wide64::f62),
-			json_member("f63", &Wide64::f63)
-		};
+			json_member("f00", &Wide64::f00), json_member("f01", &Wide64::f01), json_member("f02", &Wide64::f02),
+			json_member("f03", &Wide64::f03), json_member("f04", &Wide64::f04), json_member("f05", &Wide64::f05),
+			json_member("f06", &Wide64::f06), json_member("f07", &Wide64::f07), json_member("f08", &Wide64::f08),
+			json_member("f09", &Wide64::f09), json_member("f10", &Wide64::f10), json_member("f11", &Wide64::f11),
+			json_member("f12", &Wide64::f12), json_member("f13", &Wide64::f13), json_member("f14", &Wide64::f14),
+			json_member("f15", &Wide64::f15), json_member("f16", &Wide64::f16), json_member("f17", &Wide64::f17),
+			json_member("f18", &Wide64::f18), json_member("f19", &Wide64::f19), json_member("f20", &Wide64::f20),
+			json_member("f21", &Wide64::f21), json_member("f22", &Wide64::f22), json_member("f23", &Wide64::f23),
+			json_member("f24", &Wide64::f24), json_member("f25", &Wide64::f25), json_member("f26", &Wide64::f26),
+			json_member("f27", &Wide64::f27), json_member("f28", &Wide64::f28), json_member("f29", &Wide64::f29),
+			json_member("f30", &Wide64::f30), json_member("f31", &Wide64::f31), json_member("f32", &Wide64::f32),
+			json_member("f33", &Wide64::f33), json_member("f34", &Wide64::f34), json_member("f35", &Wide64::f35),
+			json_member("f36", &Wide64::f36), json_member("f37", &Wide64::f37), json_member("f38", &Wide64::f38),
+			json_member("f39", &Wide64::f39), json_member("f40", &Wide64::f40), json_member("f41", &Wide64::f41),
+			json_member("f42", &Wide64::f42), json_member("f43", &Wide64::f43), json_member("f44", &Wide64::f44),
+			json_member("f45", &Wide64::f45), json_member("f46", &Wide64::f46), json_member("f47", &Wide64::f47),
+			json_member("f48", &Wide64::f48), json_member("f49", &Wide64::f49), json_member("f50", &Wide64::f50),
+			json_member("f51", &Wide64::f51), json_member("f52", &Wide64::f52), json_member("f53", &Wide64::f53),
+			json_member("f54", &Wide64::f54), json_member("f55", &Wide64::f55), json_member("f56", &Wide64::f56),
+			json_member("f57", &Wide64::f57), json_member("f58", &Wide64::f58), json_member("f59", &Wide64::f59),
+			json_member("f60", &Wide64::f60), json_member("f61", &Wide64::f61), json_member("f62", &Wide64::f62),
+			json_member("f63", &Wide64::f63)};
 	}
 	static constexpr std::string_view type_name() { return "Wide64"; }
 };
@@ -480,16 +442,18 @@ enum class OrderShape : std::uint8_t {
 
 [[nodiscard]] std::string make_medium_json(
 	OrderShape shape = OrderShape::declaration) {
-	std::array<std::pair<std::string_view, std::string_view>, 8> const fields{{
-		{"id", "7"},
-		{"count", "42"},
-		{"score", "12.5"},
-		{"active", "true"},
-		{"name", R"("bench")"},
-		{"tag", R"("direct")"},
-		{"limit", "64"},
-		{"values", "[1,2,3,4,5,6,7,8]"},
-	}};
+	std::array<std::pair<std::string_view, std::string_view>, 8> const fields{
+		{
+         {"id", "7"},
+         {"count", "42"},
+         {"score", "12.5"},
+         {"active", "true"},
+         {"name", R"("bench")"},
+         {"tag", R"("direct")"},
+         {"limit", "64"},
+         {"values", "[1,2,3,4,5,6,7,8]"},
+		 }
+    };
 	std::string out;
 	out.reserve(160);
 	out += '{';
@@ -575,15 +539,15 @@ enum class NumberShape : std::uint8_t {
 	NumberShape shape) {
 	double const base = static_cast<double>(i * 3 + component + 1);
 	switch (shape) {
-	case NumberShape::integers: return std::to_string(static_cast<std::int64_t>(base));
+	case NumberShape::integers     : return std::to_string(static_cast<std::int64_t>(base));
 	case NumberShape::fixed_decimal: return std::format("{:.6f}", base + 0.125);
-	case NumberShape::scientific: return std::format("{:.6e}", base + 0.125);
+	case NumberShape::scientific   : return std::format("{:.6e}", base + 0.125);
 	case NumberShape::mixed:
 		switch ((i + component) % 4) {
-		case 0: return std::to_string(static_cast<std::int64_t>(base));
-		case 1: return std::format("{:.3f}", base + 0.5);
-		case 2: return std::format("{:.4e}", base + 0.25);
-		case 3: return std::format("-{:.3f}", base + 0.75);
+		case 0 : return std::to_string(static_cast<std::int64_t>(base));
+		case 1 : return std::format("{:.3f}", base + 0.5);
+		case 2 : return std::format("{:.4e}", base + 0.25);
+		case 3 : return std::format("-{:.3f}", base + 0.75);
 		default: break;
 		}
 	}
@@ -657,14 +621,28 @@ void bench_order_matrix(
 	JsonDecodeOptions reject_unknown;
 	reject_unknown.unknown_members = UnknownMemberPolicy::reject;
 
-	run_row(cfg, "order/medium/declaration", medium_decl.size(), [&] { require_ok(decode_borrowed<Medium>(medium_decl)); });
-	run_row(cfg, "order/medium/reverse", medium_reverse.size(), [&] { require_ok(decode_borrowed<Medium>(medium_reverse)); });
-	run_row(cfg, "order/medium/evens_then_odds", medium_evens.size(), [&] { require_ok(decode_borrowed<Medium>(medium_evens)); });
-	run_row(cfg, "order/medium/shuffled", medium_shuffle.size(), [&] { require_ok(decode_borrowed<Medium>(medium_shuffle)); });
+	run_row(cfg, "order/medium/declaration", medium_decl.size(), [&] {
+		require_ok(decode_borrowed<Medium>(medium_decl));
+	});
+	run_row(cfg, "order/medium/reverse", medium_reverse.size(), [&] {
+		require_ok(decode_borrowed<Medium>(medium_reverse));
+	});
+	run_row(cfg, "order/medium/evens_then_odds", medium_evens.size(), [&] {
+		require_ok(decode_borrowed<Medium>(medium_evens));
+	});
+	run_row(cfg, "order/medium/shuffled", medium_shuffle.size(), [&] {
+		require_ok(decode_borrowed<Medium>(medium_shuffle));
+	});
 	run_row(cfg, "order/wide64/declaration", wide_decl.size(), [&] { require_ok(decode_borrowed<Wide64>(wide_decl)); });
-	run_row(cfg, "order/wide64/reverse", wide_reverse.size(), [&] { require_ok(decode_borrowed<Wide64>(wide_reverse)); });
-	run_row(cfg, "order/wide64/evens_then_odds", wide_evens.size(), [&] { require_ok(decode_borrowed<Wide64>(wide_evens)); });
-	run_row(cfg, "order/wide64/shuffled", wide_shuffle.size(), [&] { require_ok(decode_borrowed<Wide64>(wide_shuffle)); });
+	run_row(cfg, "order/wide64/reverse", wide_reverse.size(), [&] {
+		require_ok(decode_borrowed<Wide64>(wide_reverse));
+	});
+	run_row(cfg, "order/wide64/evens_then_odds", wide_evens.size(), [&] {
+		require_ok(decode_borrowed<Wide64>(wide_evens));
+	});
+	run_row(cfg, "order/wide64/shuffled", wide_shuffle.size(), [&] {
+		require_ok(decode_borrowed<Wide64>(wide_shuffle));
+	});
 	run_row(cfg, "unknown/wide64/interleaved_ignore", wide_unknown_interleave.size(), [&] {
 		require_ok(decode_borrowed<Wide64>(wide_unknown_interleave, {}, ignore_unknown));
 	});
@@ -695,16 +673,30 @@ void bench_duplicate_matrix(
 	JsonDecodeOptions ignore_unknown;
 	ignore_unknown.unknown_members = UnknownMemberPolicy::ignore;
 
-	run_row(cfg, "duplicate/name/reject", dup_name.size(), [&] { require_error(decode_borrowed<Medium>(dup_name, reject)); });
-	run_row(cfg, "duplicate/name/first_wins", dup_name.size(), [&] { require_ok(decode_borrowed<Medium>(dup_name, first)); });
-	run_row(cfg, "duplicate/name/last_wins", dup_name.size(), [&] { require_ok(decode_borrowed<Medium>(dup_name, last)); });
-	run_row(cfg, "duplicate/vector/first_wins", dup_values.size(), [&] { require_ok(decode_borrowed<Medium>(dup_values, first)); });
-	run_row(cfg, "duplicate/vector/last_wins", dup_values.size(), [&] { require_ok(decode_borrowed<Medium>(dup_values, last)); });
+	run_row(cfg, "duplicate/name/reject", dup_name.size(), [&] {
+		require_error(decode_borrowed<Medium>(dup_name, reject));
+	});
+	run_row(cfg, "duplicate/name/first_wins", dup_name.size(), [&] {
+		require_ok(decode_borrowed<Medium>(dup_name, first));
+	});
+	run_row(cfg, "duplicate/name/last_wins", dup_name.size(), [&] {
+		require_ok(decode_borrowed<Medium>(dup_name, last));
+	});
+	run_row(cfg, "duplicate/vector/first_wins", dup_values.size(), [&] {
+		require_ok(decode_borrowed<Medium>(dup_values, first));
+	});
+	run_row(cfg, "duplicate/vector/last_wins", dup_values.size(), [&] {
+		require_ok(decode_borrowed<Medium>(dup_values, last));
+	});
 	run_row(cfg, "duplicate/unknown/ignore", dup_unknown.size(), [&] {
 		require_ok(decode_borrowed<Medium>(dup_unknown, reject, ignore_unknown));
 	});
-	run_row(cfg, "duplicate/json5/name/reject", dup_json5.size(), [&] { require_error(decode_borrowed<Medium>(dup_json5, json5_reject)); });
-	run_row(cfg, "duplicate/json5/name/last_wins", dup_json5.size(), [&] { require_ok(decode_borrowed<Medium>(dup_json5, json5_last)); });
+	run_row(cfg, "duplicate/json5/name/reject", dup_json5.size(), [&] {
+		require_error(decode_borrowed<Medium>(dup_json5, json5_reject));
+	});
+	run_row(cfg, "duplicate/json5/name/last_wins", dup_json5.size(), [&] {
+		require_ok(decode_borrowed<Medium>(dup_json5, json5_last));
+	});
 }
 
 void bench_numeric_matrix(
@@ -715,12 +707,24 @@ void bench_numeric_matrix(
 	std::string const points_sci = make_point_cloud_json(256, NumberShape::scientific);
 	std::string const points_mixed = make_point_cloud_json(256, NumberShape::mixed);
 	std::string const points_pretty = make_point_cloud_json(256, NumberShape::mixed, true);
-	run_row(cfg, "numeric/scalars/mixed_forms", scalars.size(), [&] { require_ok(decode_borrowed<NumericScalars>(scalars)); });
-	run_row(cfg, "numeric/point_cloud/integers", points_i.size(), [&] { require_ok(decode_borrowed<PointCloud>(points_i)); });
-	run_row(cfg, "numeric/point_cloud/fixed_decimal", points_fixed.size(), [&] { require_ok(decode_borrowed<PointCloud>(points_fixed)); });
-	run_row(cfg, "numeric/point_cloud/scientific", points_sci.size(), [&] { require_ok(decode_borrowed<PointCloud>(points_sci)); });
-	run_row(cfg, "numeric/point_cloud/mixed", points_mixed.size(), [&] { require_ok(decode_borrowed<PointCloud>(points_mixed)); });
-	run_row(cfg, "numeric/point_cloud/mixed_pretty_ws", points_pretty.size(), [&] { require_ok(decode_borrowed<PointCloud>(points_pretty)); });
+	run_row(cfg, "numeric/scalars/mixed_forms", scalars.size(), [&] {
+		require_ok(decode_borrowed<NumericScalars>(scalars));
+	});
+	run_row(cfg, "numeric/point_cloud/integers", points_i.size(), [&] {
+		require_ok(decode_borrowed<PointCloud>(points_i));
+	});
+	run_row(cfg, "numeric/point_cloud/fixed_decimal", points_fixed.size(), [&] {
+		require_ok(decode_borrowed<PointCloud>(points_fixed));
+	});
+	run_row(cfg, "numeric/point_cloud/scientific", points_sci.size(), [&] {
+		require_ok(decode_borrowed<PointCloud>(points_sci));
+	});
+	run_row(cfg, "numeric/point_cloud/mixed", points_mixed.size(), [&] {
+		require_ok(decode_borrowed<PointCloud>(points_mixed));
+	});
+	run_row(cfg, "numeric/point_cloud/mixed_pretty_ws", points_pretty.size(), [&] {
+		require_ok(decode_borrowed<PointCloud>(points_pretty));
+	});
 }
 
 void bench_string_matrix(
@@ -728,7 +732,9 @@ void bench_string_matrix(
 	std::string const plain = make_strings_json(false);
 	std::string const escaped = make_strings_json(true);
 	run_row(cfg, "strings/owned/plain_long", plain.size(), [&] { require_ok(decode_borrowed<StringsOwned>(plain)); });
-	run_row(cfg, "strings/owned/escaped_long", escaped.size(), [&] { require_ok(decode_borrowed<StringsOwned>(escaped)); });
+	run_row(cfg, "strings/owned/escaped_long", escaped.size(), [&] {
+		require_ok(decode_borrowed<StringsOwned>(escaped));
+	});
 }
 
 } // namespace
@@ -743,8 +749,12 @@ int main(
 		R"({"name":"json_direct_struct","parser":"standard","configs":[{"name":"field_order","extra":{"kind":"micro/user-space","case":"direct-to-struct member order and unknown-member policy"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","order/","--filter","unknown/","--config-name","field_order","--iterations","0","--warmup","0"]},{"name":"duplicates","extra":{"kind":"micro/user-space","case":"direct-to-struct duplicate-key modes"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","duplicate/","--config-name","duplicates","--iterations","0","--warmup","0"]},{"name":"numeric","extra":{"kind":"micro/user-space","case":"direct-to-struct number lexing and fixed numeric arrays"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","numeric/","--config-name","numeric","--iterations","0","--warmup","0"]},{"name":"strings","extra":{"kind":"micro/user-space","case":"direct-to-struct string decode"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","strings/","--config-name","strings","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	Config const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	if (!cfg.json_out) {
-		std::println("[json-direct-struct-bench] benchmark                                             median      throughput     allocations");
-		std::println("[json-direct-struct-bench] ---------------------------------------------------------------------------------------");
+		std::println(
+			"[json-direct-struct-bench] benchmark                                             median      throughput   "
+			"  allocations");
+		std::println(
+			"[json-direct-struct-bench] "
+			"---------------------------------------------------------------------------------------");
 	}
 	bench_order_matrix(cfg);
 	bench_duplicate_matrix(cfg);
