@@ -60,8 +60,7 @@ struct TempDir {
 	}
 
 	TempDir(TempDir const &) = delete;
-	TempDir &operator =(
-		TempDir const &) = delete;
+	TempDir &operator =(TempDir const &) = delete;
 };
 
 struct BenchClient {
@@ -85,8 +84,7 @@ struct BenchClient {
 
 	~BenchClient() { close(); }
 	BenchClient(BenchClient const &) = delete;
-	BenchClient &operator =(
-		BenchClient const &) = delete;
+	BenchClient &operator =(BenchClient const &) = delete;
 
 	BenchClient(
 		BenchClient &&o) noexcept
@@ -563,8 +561,10 @@ void emit_result(
 	RunTelemetry const &t,
 	bool pinned,
 	bool json) {
-	auto const ns_per_iter = total_requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(total_requests);
-	auto const req_per_sec = total_ns == 0 ? 0.0 : static_cast<double>(total_requests) * 1e9 / static_cast<double>(total_ns);
+	auto const ns_per_iter =
+		total_requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(total_requests);
+	auto const req_per_sec =
+		total_ns == 0 ? 0.0 : static_cast<double>(total_requests) * 1e9 / static_cast<double>(total_ns);
 	auto const user_ns = t.usage_end.user_ns - t.usage_start.user_ns;
 	auto const sys_ns = t.usage_end.sys_ns - t.usage_start.sys_ns;
 	auto const cpu_ns = user_ns + sys_ns;
@@ -631,7 +631,8 @@ void emit_result(
 	}
 
 	std::println(
-		"{:<28} {:>8} reqs {:>10.0f} req/s p50={:>7} p99={:>7} p999={:>7} max={:>7} ns err={} timeout={} cpu={:.1f}% [{}]",
+		"{:<28} {:>8} reqs {:>10.0f} req/s p50={:>7} p99={:>7} p999={:>7} max={:>7} ns err={} timeout={} cpu={:.1f}% "
+		"[{}]",
 		workload.name,
 		total_requests,
 		req_per_sec,
@@ -663,7 +664,10 @@ std::vector<RequestSpec> make_request_specs() {
 		{.name = "not_found", .bytes = make_get("/missing/route"), .weight = 1, .recv_buffer_bytes = 8192},
 		{.name = "post_4k", .bytes = make_post("/api/echo-body", 4096), .weight = 1, .recv_buffer_bytes = 16384},
 		{.name = "post_64k", .bytes = make_post("/api/echo-body", 65536), .weight = 1, .recv_buffer_bytes = 131072},
-		{.name = "chunked_4k", .bytes = make_chunked_many("/api/echo-body", 4096, 64), .weight = 1, .recv_buffer_bytes = 16384},
+		{.name = "chunked_4k",
+		 .bytes = make_chunked_many("/api/echo-body", 4096, 64),
+		 .weight = 1,
+		 .recv_buffer_bytes = 16384},
 		{.name = "static_1k", .bytes = make_get("/1k.txt"), .weight = 1, .recv_buffer_bytes = 8192},
 		{.name = "static_64k", .bytes = make_get("/64k.txt"), .weight = 1, .recv_buffer_bytes = 131072},
 		{.name = "static_1m", .bytes = make_get("/1m.bin"), .weight = 1, .recv_buffer_bytes = 1200000},
@@ -701,13 +705,14 @@ std::vector<WorkloadDef> make_workloads(
 		.mode = ConnectionMode::keepalive,
 		.default_connections = connections(256),
 		.requests = {
-			weighted(specs, "ping"sv, 40),
-			weighted(specs, "param"sv, 20),
-			weighted(specs, "headers"sv, 15),
-			weighted(specs, "json_medium"sv, 15),
-			weighted(specs, "not_found"sv, 5),
-			weighted(specs, "static_1k"sv, 5),
-		}});
+					 weighted(specs, "ping"sv, 40),
+					 weighted(specs, "param"sv, 20),
+					 weighted(specs, "headers"sv, 15),
+					 weighted(specs, "json_medium"sv, 15),
+					 weighted(specs, "not_found"sv, 5),
+					 weighted(specs, "static_1k"sv, 5),
+					 }
+    });
 	out.push_back({
 		.name = "api_write_plain",
 		.label = "end-to-end-proof",
@@ -715,13 +720,14 @@ std::vector<WorkloadDef> make_workloads(
 		.mode = ConnectionMode::keepalive,
 		.default_connections = connections(256),
 		.requests = {
-			weighted(specs, "ping"sv, 25),
-			weighted(specs, "post_4k"sv, 35),
-			weighted(specs, "chunked_4k"sv, 15),
-			weighted(specs, "post_64k"sv, 10),
-			weighted(specs, "param"sv, 10),
-			weighted(specs, "not_found"sv, 5),
-		}});
+					 weighted(specs, "ping"sv, 25),
+					 weighted(specs, "post_4k"sv, 35),
+					 weighted(specs, "chunked_4k"sv, 15),
+					 weighted(specs, "post_64k"sv, 10),
+					 weighted(specs, "param"sv, 10),
+					 weighted(specs, "not_found"sv, 5),
+					 }
+    });
 	out.push_back({
 		.name = "api_mixed_middleware",
 		.label = "end-to-end-proof",
@@ -729,14 +735,15 @@ std::vector<WorkloadDef> make_workloads(
 		.mode = ConnectionMode::keepalive,
 		.default_connections = connections(256),
 		.requests = {
-			weighted(specs, "ping"sv, 30),
-			weighted(specs, "param"sv, 15),
-			weighted(specs, "headers"sv, 15),
-			weighted(specs, "post_4k"sv, 20),
-			weighted(specs, "chunked_4k"sv, 10),
-			weighted(specs, "json_medium"sv, 5),
-			weighted(specs, "not_found"sv, 5),
-		}});
+					 weighted(specs, "ping"sv, 30),
+					 weighted(specs, "param"sv, 15),
+					 weighted(specs, "headers"sv, 15),
+					 weighted(specs, "post_4k"sv, 20),
+					 weighted(specs, "chunked_4k"sv, 10),
+					 weighted(specs, "json_medium"sv, 5),
+					 weighted(specs, "not_found"sv, 5),
+					 }
+    });
 	out.push_back({
 		.name = "large_response_plain",
 		.label = "end-to-end-proof",
@@ -744,11 +751,12 @@ std::vector<WorkloadDef> make_workloads(
 		.mode = ConnectionMode::keepalive,
 		.default_connections = connections(64),
 		.requests = {
-			weighted(specs, "static_64k"sv, 45),
-			weighted(specs, "static_1m"sv, 20),
-			weighted(specs, "post_64k"sv, 20),
-			weighted(specs, "json_medium"sv, 15),
-		}});
+					 weighted(specs, "static_64k"sv, 45),
+					 weighted(specs, "static_1m"sv, 20),
+					 weighted(specs, "post_64k"sv, 20),
+					 weighted(specs, "json_medium"sv, 15),
+					 }
+    });
 	out.push_back({
 		.name = "connection_churn_plain",
 		.label = "lifecycle-tail-proof",
@@ -756,11 +764,12 @@ std::vector<WorkloadDef> make_workloads(
 		.mode = ConnectionMode::connect_close,
 		.default_connections = connections(256),
 		.requests = {
-			weighted(specs, "ping"sv, 65),
-			weighted(specs, "param"sv, 15),
-			weighted(specs, "post_4k"sv, 15),
-			weighted(specs, "not_found"sv, 5),
-		}});
+					 weighted(specs, "ping"sv, 65),
+					 weighted(specs, "param"sv, 15),
+					 weighted(specs, "post_4k"sv, 15),
+					 weighted(specs, "not_found"sv, 5),
+					 }
+    });
 	return out;
 }
 
@@ -778,14 +787,14 @@ Router make_router(
 		router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 		router.use(etag_middleware());
 	}
-	router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
+	router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	router.get("/users/{id}", [](Request const &req) {
 		auto const id = req.params["id"];
-		return Response::json(std::format(R"({{"id":"{}","name":"user-{}","active":true}})", id, id));
+		return conflux::http::Response::json(std::format(R"({{"id":"{}","name":"user-{}","active":true}})", id, id));
 	});
-	router.get("/json/medium", [&medium_json](Request const &) { return Response::json(medium_json); });
-	router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
-	router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+	router.get("/json/medium", [&medium_json](Request const &) { return conflux::http::Response::json(medium_json); });
+	router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 	router.serve_static("/", std::string{static_dir.string()});
 	return router;
 }
@@ -850,7 +859,8 @@ void write_static_files(
 void print_list(
 	std::span<WorkloadDef const> workloads) {
 	for (auto const &w: workloads) {
-		std::println("{:<28} connections={} mode={} server={}",
+		std::println(
+			"{:<28} connections={} mode={} server={}",
 			w.name,
 			w.default_connections,
 			w.mode == ConnectionMode::keepalive ? "keepalive" : "connect-close",

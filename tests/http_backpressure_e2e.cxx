@@ -44,7 +44,7 @@ TEST_CASE(
 	"drain force-closes live connections after deadline and records pressure metrics",
 	"[http][e2e][backpressure]") {
 	conflux::http::Router router;
-	auto deferred = std::make_shared<DeferredResponse>(std::chrono::seconds{30});
+	auto deferred = std::make_shared<conflux::http::DeferredResponse>(std::chrono::seconds{30});
 	router.get("/pending", [deferred](chttp::RequestView const &) { return chttp::Response::deferred(deferred); });
 	ScopedTestServer srv{backpressure_cfg(), std::move(router)};
 

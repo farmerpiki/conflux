@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 
 export enum class IpFilterMode {
 	allowlist, // only listed CIDRs pass; all others → 403
@@ -15,8 +16,8 @@ export struct IpFilterOptions {
 };
 namespace ip_filter_detail {
 
-Response forbidden() {
-	return Response::text("Forbidden", kHttpForbidden);
+conflux::http::Response forbidden() {
+	return conflux::http::Response::text("Forbidden", kHttpForbidden);
 }
 
 } // namespace ip_filter_detail
@@ -27,15 +28,15 @@ export conflux::http::Router::Middleware ip_filter_middleware(
 	IpFilterOptions opts = {}) {
 	auto parsed = parse_cidr_list(opts.cidrs);
 
-	return
-		[opts = std::move(opts),
-		 parsed = std::move(parsed)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
-			auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
-			bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
+	return [opts = std::move(opts), parsed = std::move(parsed)](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
+		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
+		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
 
-			if (opts.mode == IpFilterMode::allowlist) {
-				return matched ? next(req) : ip_filter_detail::forbidden();
-			}
-			return matched ? ip_filter_detail::forbidden() : next(req);
-		};
+		if (opts.mode == IpFilterMode::allowlist) {
+			return matched ? next(req) : ip_filter_detail::forbidden();
+		}
+		return matched ? ip_filter_detail::forbidden() : next(req);
+	};
 }

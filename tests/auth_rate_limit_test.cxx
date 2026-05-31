@@ -159,7 +159,7 @@ TEST_CASE(
 	});
 	auto req = make_auth_request();
 	conflux::http::Router::Handler fail = [](RequestView const &) {
-		Response r;
+		conflux::http::Response r;
 		r.status = 401;
 		r.status_text = "Unauthorized";
 		return r;

@@ -8,6 +8,7 @@ import std.compat;
 import conflux.crypto;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 import conflux.net.config;
 import conflux.json;
@@ -389,9 +390,10 @@ export std::string jwt_sign(
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
 export conflux::http::Router::Middleware jwt_middleware(
 	JwtOptions opts) {
-	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto unauthorized = [](std::string_view www_auth) {
-			auto r = Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
+			auto r = conflux::http::Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 			r.headers["WWW-Authenticate"] = std::string{www_auth};
 			return r;
 		};

@@ -7,6 +7,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 
 template<typename>
@@ -72,7 +73,7 @@ export struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
 	TraceCallback<void(Request &, TraceContext const &)> on_start{};
 	// Called after the downstream handler. May modify the response (e.g. add trace headers).
-	TraceCallback<void(Request const &, Response &, TraceContext const &)> on_end{};
+	TraceCallback<void(Request const &, conflux::http::Response &, TraceContext const &)> on_end{};
 	// Forward the traceparent header in the response.
 	bool propagate_in_response{true};
 };
@@ -115,7 +116,8 @@ std::pair<std::string, std::string> parse_traceparent(
 } // namespace tracing_detail
 export conflux::http::Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		TraceContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];

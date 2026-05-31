@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.parse_helpers;
 import conflux.net.router;
+import conflux.net.http.response;
 export struct CacheRule {
 	// MIME prefix to match (e.g. "image/", "text/css", "application/json").
 	// Empty std::string matches everything — useful as a fallback rule.
@@ -26,7 +27,8 @@ export struct CacheControlOptions {
 // First matching rule wins; falls back to default_directive if set.
 export conflux::http::Router::Middleware cache_control_middleware(
 	CacheControlOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		// Don't overwrite an explicit Cache-Control already set by the handler.

@@ -15,6 +15,8 @@ import conflux.net.http.response;
 import conflux.work;
 
 namespace chttp = conflux::http;
+using chttp::DeferredResponse;
+using chttp::Response;
 
 namespace {
 
@@ -46,12 +48,12 @@ void make_eventfd_nonblocking(
 TEST_CASE(
 	"http response: first-contact alias and status-code overloads are available",
 	"[http.response]") {
-	static_assert(std::same_as<chttp::Response, Response>);
+	static_assert(std::same_as<chttp::Response, conflux::http::Response>);
 
-	CHECK(Response::status_text_for(kHttpBadRequest) == "Bad Request");
-	CHECK(Response::status_text_for(408) == "Request Timeout");
-	CHECK(Response::status_text_for(417) == "Expectation Failed");
-	CHECK(Response::status_text_for(599).empty());
+	CHECK(conflux::http::Response::status_text_for(kHttpBadRequest) == "Bad Request");
+	CHECK(conflux::http::Response::status_text_for(408) == "Request Timeout");
+	CHECK(conflux::http::Response::status_text_for(417) == "Expectation Failed");
+	CHECK(conflux::http::Response::status_text_for(599).empty());
 
 	auto text = chttp::Response::text("bad", kHttpBadRequest);
 	CHECK(text.status == kHttpBadRequest);
@@ -72,15 +74,15 @@ TEST_CASE(
 TEST_CASE(
 	"http response: factories escape detail strings in generated HTML bodies",
 	"[http.response]") {
-	auto not_found = Response::not_found("/x?<bad>&\"'");
+	auto not_found = conflux::http::Response::not_found("/x?<bad>&\"'");
 	CHECK(not_found.status == kHttpNotFound);
 	CHECK(not_found.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != std::string_view::npos);
 
-	auto bad = Response::bad_request("<bad>&\"'");
+	auto bad = conflux::http::Response::bad_request("<bad>&\"'");
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != std::string_view::npos);
 
-	auto internal = Response::internal_error("<boom>");
+	auto internal = conflux::http::Response::internal_error("<boom>");
 	CHECK(internal.status == kHttpInternalServerError);
 	CHECK(internal.text_body().find("&lt;boom&gt;") != std::string_view::npos);
 }
@@ -88,7 +90,7 @@ TEST_CASE(
 TEST_CASE(
 	"http response: set_cookie and append_vary preserve HTTP header semantics",
 	"[http.response]") {
-	Response resp;
+	conflux::http::Response resp;
 	resp.set_cookie("session", "abc", "Path=/; HttpOnly");
 	resp.set_cookie("theme", "dark");
 	resp.set_cookie(
@@ -116,7 +118,7 @@ TEST_CASE(
 TEST_CASE(
 	"http response: content_length follows body kind and explicit HEAD hint",
 	"[http.response]") {
-	Response resp = Response::text("hello");
+	conflux::http::Response resp = conflux::http::Response::text("hello");
 	CHECK(resp.content_length() == 5);
 	CHECK(resp.text_body() == "hello");
 
@@ -134,89 +136,89 @@ TEST_CASE(
 	"http response: status factories set expected status, text, headers, and body kinds",
 	"[http.response]") {
 	{
-		auto resp = Response::html("<p>ok</p>", 201, "Created");
+		auto resp = conflux::http::Response::html("<p>ok</p>", 201, "Created");
 		CHECK(resp.status == 201);
 		CHECK(resp.status_text == "Created");
 		CHECK(resp.content_type == "text/html; charset=utf-8");
 		CHECK(resp.text_body() == "<p>ok</p>");
 	}
 	{
-		auto resp = Response::json("{\"ok\":true}", 202, "Accepted");
+		auto resp = conflux::http::Response::json("{\"ok\":true}", 202, "Accepted");
 		CHECK(resp.status == 202);
 		CHECK(resp.status_text == "Accepted");
 		CHECK(resp.content_type == "application/json");
 		CHECK(resp.text_body() == "{\"ok\":true}");
 	}
 	{
-		auto resp = Response::redirect("/next", kHttpPermanentRedirect);
+		auto resp = conflux::http::Response::redirect("/next", kHttpPermanentRedirect);
 		CHECK(resp.status == kHttpPermanentRedirect);
 		CHECK(resp.status_text == "Permanent Redirect");
 		CHECK(resp.headers["location"] == "/next");
 	}
 	{
-		auto resp = Response::method_not_allowed({"GET", "POST"});
+		auto resp = conflux::http::Response::method_not_allowed({"GET", "POST"});
 		CHECK(resp.status == kHttpMethodNotAllowed);
 		CHECK(resp.headers["allow"] == "GET, POST");
 	}
 	{
-		auto resp = Response::unauthorized("Basic realm=\"test\"");
+		auto resp = conflux::http::Response::unauthorized("Basic realm=\"test\"");
 		CHECK(resp.status == kHttpUnauthorized);
 		CHECK(resp.headers["www-authenticate"] == "Basic realm=\"test\"");
 	}
 	{
-		auto resp = Response::forbidden("<no>");
+		auto resp = conflux::http::Response::forbidden("<no>");
 		CHECK(resp.status == kHttpForbidden);
 		CHECK(resp.status_text == "Forbidden");
 		CHECK(resp.text_body().find("&lt;no&gt;") != std::string_view::npos);
 	}
 	{
-		auto resp = Response::unprocessable_entity("bad field");
+		auto resp = conflux::http::Response::unprocessable_entity("bad field");
 		CHECK(resp.status == kHttpUnprocessableEntity);
 		CHECK(resp.status_text == "Unprocessable Entity");
 		CHECK(resp.text_body().find("bad field") != std::string_view::npos);
 	}
 	{
-		auto resp = Response::uri_too_long();
+		auto resp = conflux::http::Response::uri_too_long();
 		CHECK(resp.status == kHttpUriTooLong);
 		CHECK(resp.status_text == "URI Too Long");
 	}
 	{
-		auto resp = Response::header_fields_too_large();
+		auto resp = conflux::http::Response::header_fields_too_large();
 		CHECK(resp.status == kHttpRequestHeaderFieldsTooLarge);
 		CHECK(resp.status_text == "Request Header Fields Too Large");
 	}
 	{
-		auto resp = Response::bad_gateway("upstream failed");
+		auto resp = conflux::http::Response::bad_gateway("upstream failed");
 		CHECK(resp.status == kHttpBadGateway);
 		CHECK(resp.text_body() == "upstream failed");
 	}
 	{
-		auto resp = Response::content_too_large();
+		auto resp = conflux::http::Response::content_too_large();
 		CHECK(resp.status == kHttpRequestEntityTooLarge);
 		CHECK(resp.status_text == "Content Too Large");
 	}
 	{
-		auto resp = Response::no_content();
+		auto resp = conflux::http::Response::no_content();
 		CHECK(resp.status == kHttpNoContent);
 		CHECK(resp.status_text == "No Content");
 	}
 	{
-		auto resp = Response::not_modified(R"("abc")");
+		auto resp = conflux::http::Response::not_modified(R"("abc")");
 		CHECK(resp.status == kHttpNotModified);
 		CHECK(resp.status_text == "Not Modified");
 		CHECK(resp.headers["etag"] == R"("abc")");
 	}
 	{
 		auto ch = std::make_shared<conflux::http::SseChannel>();
-		auto resp = Response::sse(ch);
+		auto resp = conflux::http::Response::sse(ch);
 		CHECK(resp.status == kHttpOk);
 		CHECK(resp.content_type == "text/event-stream");
 		CHECK(resp.is_sse());
 		CHECK(resp.sse_channel_ptr() == ch);
 	}
 	{
-		auto deferred = std::make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
-		auto resp = Response::deferred(deferred);
+		auto deferred = std::make_shared<conflux::http::DeferredResponse>(std::chrono::milliseconds{10000});
+		auto resp = conflux::http::Response::deferred(deferred);
 		CHECK(resp.is_deferred());
 		CHECK(resp.deferred_response_ptr() == deferred);
 	}
@@ -225,7 +227,7 @@ TEST_CASE(
 TEST_CASE(
 	"http response: non-text body setters, accessors, and take helpers preserve variant boundaries",
 	"[http.response]") {
-	Response resp;
+	conflux::http::Response resp;
 	CHECK(resp.is_text());
 	CHECK(resp.text_body().empty());
 
@@ -320,7 +322,7 @@ TEST_CASE(
 	CHECK(resp.take_streamed_file() == streamed);
 	CHECK_FALSE(resp.streamed_file_ptr());
 
-	auto deferred = std::make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
+	auto deferred = std::make_shared<conflux::http::DeferredResponse>(std::chrono::milliseconds{10000});
 	resp.set_deferred_response(deferred);
 	CHECK(resp.is_deferred());
 	CHECK(resp.deferred_response_ptr() == deferred);
@@ -349,13 +351,13 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse complete wakes eventfd once and stores first response",
+	"http response: conflux::http::DeferredResponse complete wakes eventfd once and stores first response",
 	"[http.response]") {
-	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	conflux::http::DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	make_eventfd_nonblocking(deferred.eventfd_fd());
 
-	deferred.complete(Response::text("first"));
-	deferred.complete(Response::text("second"));
+	deferred.complete(conflux::http::Response::text("first"));
+	deferred.complete(conflux::http::Response::text("second"));
 
 	CHECK(deferred.is_ready());
 	CHECK(read_eventfd_value(deferred.eventfd_fd()) == 1);
@@ -369,9 +371,9 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse deadline expiry wakes eventfd and materializes gateway timeout",
+	"http response: conflux::http::DeferredResponse deadline expiry wakes eventfd and materializes gateway timeout",
 	"[http.response]") {
-	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	conflux::http::DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	make_eventfd_nonblocking(deferred.eventfd_fd());
 
 	auto const now = std::chrono::steady_clock::now();
@@ -391,12 +393,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse cancellation methods propagate reasons",
+	"http response: conflux::http::DeferredResponse cancellation methods propagate reasons",
 	"[http.response]") {
 	namespace root = conflux::work::root;
 
-	auto [deadline_ctl, deadline_src] = root::make_task_control_source<Response>();
-	DeferredResponse deadline{std::chrono::milliseconds{10000}};
+	auto [deadline_ctl, deadline_src] = root::make_task_control_source<conflux::http::Response>();
+	conflux::http::DeferredResponse deadline{std::chrono::milliseconds{10000}};
 	deadline.attach_cancel(deadline_ctl);
 	deadline.cancel_deadline();
 	CHECK(deadline_ctl.cancel_requested());
@@ -404,8 +406,8 @@ TEST_CASE(
 	CHECK(*deadline_ctl.cancellation_reason() == root::CancelReason::deadline);
 	(void)deadline_src.try_set_cancelled(root::CancelReason::deadline);
 
-	auto [disconnect_ctl, disconnect_src] = root::make_task_control_source<Response>();
-	DeferredResponse disconnect{std::chrono::milliseconds{10000}};
+	auto [disconnect_ctl, disconnect_src] = root::make_task_control_source<conflux::http::Response>();
+	conflux::http::DeferredResponse disconnect{std::chrono::milliseconds{10000}};
 	disconnect.attach_cancel(disconnect_ctl);
 	disconnect.cancel_disconnect();
 	CHECK(disconnect_ctl.cancel_requested());
@@ -413,8 +415,8 @@ TEST_CASE(
 	CHECK(*disconnect_ctl.cancellation_reason() == root::CancelReason::requested);
 	(void)disconnect_src.try_set_cancelled(root::CancelReason::requested);
 
-	auto [shutdown_ctl, shutdown_src] = root::make_task_control_source<Response>();
-	DeferredResponse shutdown{std::chrono::milliseconds{10000}};
+	auto [shutdown_ctl, shutdown_src] = root::make_task_control_source<conflux::http::Response>();
+	conflux::http::DeferredResponse shutdown{std::chrono::milliseconds{10000}};
 	shutdown.attach_cancel(shutdown_ctl);
 	shutdown.cancel_shutdown();
 	CHECK(shutdown_ctl.cancel_requested());
@@ -424,12 +426,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse deadline expiry cancels attached task with deadline reason",
+	"http response: conflux::http::DeferredResponse deadline expiry cancels attached task with deadline reason",
 	"[http.response]") {
 	namespace root = conflux::work::root;
 
-	auto [ctl, src] = root::make_task_control_source<Response>();
-	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	auto [ctl, src] = root::make_task_control_source<conflux::http::Response>();
+	conflux::http::DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	deferred.attach_cancel(ctl);
 
 	auto const now = std::chrono::steady_clock::now();
@@ -442,15 +444,16 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse deadline expiry invokes attached task cancel hook",
+	"http response: conflux::http::DeferredResponse deadline expiry invokes attached task cancel hook",
 	"[http.response]") {
 	namespace root = conflux::work::root;
 
 	std::atomic<int> observed{-1};
-	auto [task, src] = root::make_cancellable_task_source<Response>([&observed](root::CancelReason reason) noexcept {
-		observed.store(static_cast<int>(reason), std::memory_order_release);
-	});
-	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	auto [task, src] =
+		root::make_cancellable_task_source<conflux::http::Response>([&observed](root::CancelReason reason) noexcept {
+			observed.store(static_cast<int>(reason), std::memory_order_release);
+		});
+	conflux::http::DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	deferred.attach_cancel(task.control());
 
 	auto const now = std::chrono::steady_clock::now();
@@ -461,21 +464,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: DeferredResponse cancellation forwards through cancellable wrapper",
+	"http response: conflux::http::DeferredResponse cancellation forwards through cancellable wrapper",
 	"[http.response]") {
 	namespace root = conflux::work::root;
 
 	std::atomic<int> observed{-1};
 	auto [child, child_src] =
-		root::make_cancellable_task_source<Response>([&observed](root::CancelReason reason) noexcept {
+		root::make_cancellable_task_source<conflux::http::Response>([&observed](root::CancelReason reason) noexcept {
 			observed.store(static_cast<int>(reason), std::memory_order_release);
 		});
 	auto wrapper = root::make_cancellable_task(
-		[child = std::move(child)](root::Cancellation cancel) mutable -> root::Task<Response> {
+		[child = std::move(child)](root::Cancellation cancel) mutable -> root::Task<conflux::http::Response> {
 			(void)cancel;
 			return std::move(child);
 		});
-	DeferredResponse deferred{std::chrono::milliseconds{10000}};
+	conflux::http::DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	deferred.attach_cancel(wrapper.control());
 
 	auto const now = std::chrono::steady_clock::now();

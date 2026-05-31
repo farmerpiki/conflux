@@ -92,7 +92,7 @@ int main() {
 	app.use(structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
 
 	app.get("/", [](Request const &) {
-		return Response::html(
+		return conflux::http::Response::html(
 			"<html><body><h1>policy stack</h1>"
 			"<ul>"
 			"<li><a href='/dashboard'>/dashboard</a></li>"
@@ -104,12 +104,12 @@ int main() {
 	});
 
 	app.get("/dashboard", [](Request const &req) {
-		return Response::text(
+		return conflux::http::Response::text(
 			format("dashboard request_id={} trace={}\n", req.headers["x-request-id"], req.headers["traceparent"]));
 	});
 
 	app.get("/v2/users", [](Request const &req) {
-		return Response::json(
+		return conflux::http::Response::json(
 			std::format(
 				R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
 				req.remote_addr,
@@ -117,7 +117,7 @@ int main() {
 	});
 
 	app.get("/form", [](Request const &req) {
-		return Response::html(
+		return conflux::http::Response::html(
 			std::format(
 				"<html><body><h1>CSRF form</h1>"
 				"<form method='post' action='/submit'>"
@@ -129,19 +129,19 @@ int main() {
 	});
 
 	app.get("/login", [](Request const &) {
-		auto resp = Response::text("signed session cookie set; try /me\n");
+		auto resp = conflux::http::Response::text("signed session cookie set; try /me\n");
 		resp.set_cookie("session", sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 
 	app.get("/me", [](Request const &req) {
 		auto user = req.cookies["session"];
-		return user.empty() ? Response::unauthorized("Session") :
-							  Response::text(std::format("session user={}\n", user));
+		return user.empty() ? conflux::http::Response::unauthorized("Session") :
+							  conflux::http::Response::text(std::format("session user={}\n", user));
 	});
 
 	app.post("/submit", [](Request const &req) {
-		return Response::text(std::format("accepted value={}\n", req.form["value"]));
+		return conflux::http::Response::text(std::format("accepted value={}\n", req.form["value"]));
 	});
 
 	std::vector<conflux::http::Router::Middleware> openapi_auth;

@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 
 export struct BasicAuthOptions {
@@ -89,16 +90,16 @@ struct FailedAuthState {
 	return std::string{req.remote_addr};
 }
 
-Response unauthorized(
+conflux::http::Response unauthorized(
 	std::string_view www_auth) {
-	auto r = Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
+	auto r = conflux::http::Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 	r.headers["WWW-Authenticate"] = std::string{www_auth};
 	return r;
 }
 
-Response too_many_auth_attempts(
+conflux::http::Response too_many_auth_attempts(
 	std::chrono::seconds retry_after) {
-	auto r = Response::text("Too Many Requests", kHttpTooManyRequests);
+	auto r = conflux::http::Response::text("Too Many Requests", kHttpTooManyRequests);
 	r.headers["Retry-After"] =
 		std::format("{}", std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
 	return r;
@@ -353,7 +354,7 @@ template<typename Key>
 }
 
 [[nodiscard]] bool auth_response_is_failure(
-	Response const &response,
+	conflux::http::Response const &response,
 	AuthThrottleMiddlewareOptions const &opts) {
 	return response.status >= 0
 		&& std::ranges::find(opts.failure_statuses, static_cast<unsigned>(response.status))
@@ -361,7 +362,7 @@ template<typename Key>
 }
 
 [[nodiscard]] bool auth_response_is_success(
-	Response const &response,
+	conflux::http::Response const &response,
 	AuthThrottleMiddlewareOptions const &opts) noexcept {
 	return response.status >= 0
 		&& static_cast<unsigned>(response.status) >= opts.success_status_min
@@ -501,7 +502,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	return auth_throttle_key(scope, base64url_encode(digest));
 }
 
-export inline Response auth_throttle_too_many_requests(
+export inline conflux::http::Response auth_throttle_too_many_requests(
 	AuthThrottleOutcome const &outcome) {
 	return auth_detail::too_many_auth_attempts(outcome.retry_after);
 }
@@ -513,8 +514,9 @@ conflux::http::Router::Middleware auth_throttle_middleware(
 	AuthThrottleMiddlewareOptions opts = {}) {
 	return [limiter = std::move(limiter),
 			selector = std::decay_t<KeySelector>(std::forward<KeySelector>(selector)),
-			opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) mutable -> Response {
+			opts = std::move(opts)](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) mutable -> conflux::http::Response {
 		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
 		if (!key) {
 			return next(req);
@@ -538,7 +540,7 @@ conflux::http::Router::Middleware basic_auth_middleware(
 	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
 			opts = std::move(opts),
-			state](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+			state](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
@@ -571,8 +573,9 @@ conflux::http::Router::Middleware basic_auth_middleware(
 export template<typename Validator>
 conflux::http::Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
-	return [v = std::decay_t<Validator>(std::forward<Validator>(
-				validator))](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [v = std::decay_t<Validator>(std::forward<Validator>(validator))](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto auth = req.headers["authorization"];
 		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Bearer");
 		if (!credentials) {

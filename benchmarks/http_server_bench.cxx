@@ -574,29 +574,30 @@ int main(
 	// plain_r1
 	Router plain_router;
 	plain_router.get("/", [](Request const &) {
-		return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
+		return conflux::http::Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 	});
-	plain_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
+	plain_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	plain_router.get_context(
 		"/context",
-		[](RequestView const &, RequestContext const &) -> conflux::work::root::Task<Response> {
-			co_return Response::text("context");
+		[](RequestView const &, RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
+			co_return conflux::http::Response::text("context");
 		});
 	plain_router.get("/hello/{name}", [](Request const &req) {
-		return Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		return conflux::http::Response::html(
+			std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
-	plain_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
+	plain_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
 	plain_router.group("/api/v2", [](Router::Group &g) {
 		g.use([](Request const &req, Router::Handler const &next) {
 			auto resp = next(req);
 			resp.headers["X-Api-Version"] = "2";
 			return resp;
 		});
-		g.get("/status", [](Request const &) { return Response::json(R"({"v":"2","status":"ok"})"); });
+		g.get("/status", [](Request const &) { return conflux::http::Response::json(R"({"v":"2","status":"ok"})"); });
 	});
-	plain_router.get("/body/8k", [&body_8k](Request const &) { return Response::text(body_8k); });
-	plain_router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
-	plain_router.get("/body/1m", [&body_1m](Request const &) { return Response::text(body_1m); });
+	plain_router.get("/body/8k", [&body_8k](Request const &) { return conflux::http::Response::text(body_8k); });
+	plain_router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
+	plain_router.get("/body/1m", [&body_1m](Request const &) { return conflux::http::Response::text(body_1m); });
 	plain_router.sse("/events", [](Request const &, std::shared_ptr<SseChannel> const &ch) {
 		(void)ch->send_event("msg", "event1");
 		(void)ch->send_event("msg", "event2");
@@ -620,7 +621,7 @@ int main(
 	// compress
 	Router compress_router;
 	compress_router.use(compress_middleware());
-	compress_router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
+	compress_router.get("/big", [](Request const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 	auto compress = start_server(bench_config(), std::move(compress_router));
 
 	// security
@@ -628,25 +629,25 @@ int main(
 	SecurityOptions sopts{};
 	sopts.hsts_only_on_tls = false;
 	security_router.use(security_headers_middleware(sopts));
-	security_router.get("/", [](Request const &) { return Response::text("ok"); });
+	security_router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
 	auto security = start_server(bench_config(), std::move(security_router));
 
 	// cors
 	Router cors_router;
 	cors_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
-	cors_router.get("/api", [](Request const &) { return Response::json(R"({"ok":true})"); });
+	cors_router.get("/api", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 	auto cors = start_server(bench_config(), std::move(cors_router));
 
 	// auth
 	Router auth_router;
 	auth_router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-bench-token"; }));
-	auth_router.get("/protected", [](Request const &) { return Response::text("secret"); });
+	auth_router.get("/protected", [](Request const &) { return conflux::http::Response::text("secret"); });
 	auto auth = start_server(bench_config(), std::move(auth_router));
 
 	// etag
 	Router etag_router;
 	etag_router.use(etag_middleware());
-	etag_router.get("/content", [](Request const &) { return Response::text("hello world"); });
+	etag_router.get("/content", [](Request const &) { return conflux::http::Response::text("hello world"); });
 	auto etag = start_server(bench_config(), std::move(etag_router));
 
 	// cache
@@ -655,7 +656,7 @@ int main(
 	cache_router.get("/counted", [](Request const &) {
 		static std::atomic<int> count{0};
 		int n = ++count;
-		return Response::text(std::format("visit {}", n));
+		return conflux::http::Response::text(std::format("visit {}", n));
 	});
 	auto cache = start_server(bench_config(), std::move(cache_router));
 
@@ -665,25 +666,25 @@ int main(
 	fs_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 	fs_router.use(compress_middleware());
 	fs_router.use(etag_middleware());
-	fs_router.get("/big", [](Request const &) { return Response::html(std::string(512, 'A')); });
+	fs_router.get("/big", [](Request const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 	auto full_stack = start_server(bench_config(), std::move(fs_router));
 
 	// deferred
 	auto defer_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 	Router defer_router;
 	defer_router.get("/api/defer-ok", [&defer_pool](Request const &) {
-		return conflux::http::defer(defer_pool, [] { return Response::json(R"({"deferred":"ok"})"); });
+		return conflux::http::defer(defer_pool, [] { return conflux::http::Response::json(R"({"deferred":"ok"})"); });
 	});
 	auto deferred = start_server(bench_config(), std::move(defer_router));
 
 	// plain_rN (multi-ring)
 	Router rn_router;
 	rn_router.get("/", [](Request const &) {
-		return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
+		return conflux::http::Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 	});
-	rn_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	rn_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
-	rn_router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+	rn_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	rn_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	rn_router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 	auto plain_rn = start_server(bench_config(std::thread::hardware_concurrency()), std::move(rn_router));
 
 	// static file serving
@@ -708,27 +709,27 @@ int main(
 
 	// stress configs
 	Router sr32_router;
-	sr32_router.get("/", [](Request const &) { return Response::html("<html><body>ok</body></html>"); });
-	sr32_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	sr32_router.get("/body/1m", [&body_1m](Request const &) { return Response::text(body_1m); });
-	sr32_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
+	sr32_router.get("/", [](Request const &) { return conflux::http::Response::html("<html><body>ok</body></html>"); });
+	sr32_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	sr32_router.get("/body/1m", [&body_1m](Request const &) { return conflux::http::Response::text(body_1m); });
+	sr32_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
 	auto small_ring_32 = start_server(bench_config(1, 32), std::move(sr32_router));
 
 	Router sr64_router;
-	sr64_router.get("/", [](Request const &) { return Response::html("<html><body>ok</body></html>"); });
-	sr64_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	sr64_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
+	sr64_router.get("/", [](Request const &) { return conflux::http::Response::html("<html><body>ok</body></html>"); });
+	sr64_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	sr64_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
 	auto small_ring_64 = start_server(bench_config(1, 64), std::move(sr64_router));
 
 	Router br64_router;
-	br64_router.get("/", [](Request const &) { return Response::html("<html><body>ok</body></html>"); });
-	br64_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	br64_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
-	br64_router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+	br64_router.get("/", [](Request const &) { return conflux::http::Response::html("<html><body>ok</body></html>"); });
+	br64_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	br64_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	br64_router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 	auto small_buf_ring_64 = start_server(bench_config(1, 16), std::move(br64_router));
 
 	Router br128_router;
-	br128_router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+	br128_router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 	auto small_buf_ring_128 = start_server(bench_config(1, 32), std::move(br128_router));
 
 #if CONFLUX_BENCH_HAS_TLS
@@ -772,11 +773,11 @@ int main(
 	}
 	Router tls_router;
 	tls_router.get("/", [](Request const &) {
-		return Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
+		return conflux::http::Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 	});
-	tls_router.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-	tls_router.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
-	tls_router.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+	tls_router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	tls_router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	tls_router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 	auto tls_cfg = bench_config();
 	tls_cfg.cert_file = tls_cert_files.cert;
 	tls_cfg.key_file = tls_cert_files.key;

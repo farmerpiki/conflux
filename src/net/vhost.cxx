@@ -6,6 +6,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 import conflux.work;
 // VHostRouter routes requests to per-host Routers.
@@ -53,7 +54,7 @@ public:
 		}
 		return default_ != nullptr ? default_->work_pool() : nullptr;
 	}
-	[[nodiscard]] Response dispatch(
+	[[nodiscard]] conflux::http::Response dispatch(
 		RequestView const &req) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
@@ -63,9 +64,9 @@ public:
 		if (default_) {
 			return default_->dispatch(req);
 		}
-		return Response::not_found(req.path);
+		return conflux::http::Response::not_found(req.path);
 	}
-	[[nodiscard]] Response dispatch(
+	[[nodiscard]] conflux::http::Response dispatch(
 		Request const &req) const {
 		return dispatch(RequestView{req});
 	}
@@ -73,7 +74,7 @@ public:
 		return std::ranges::any_of(vhosts_, [](auto const &kv) noexcept { return kv.second.has_context_routes(); })
 			|| (default_ && default_->has_context_routes());
 	}
-	[[nodiscard]] std::optional<Response> dispatch_context(
+	[[nodiscard]] std::optional<conflux::http::Response> dispatch_context(
 		RequestView const &req,
 		conflux::http::RequestContext const &ctx) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));

@@ -3,6 +3,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 export struct SecurityOptions {
 	// Strict-Transport-Security max-age in seconds; 0 disables the header.
 	unsigned hsts_max_age{31536000}; // 1 year
@@ -34,7 +35,8 @@ export struct SecurityOptions {
 // Middleware factory: inject security headers into every response.
 export conflux::http::Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
-	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {

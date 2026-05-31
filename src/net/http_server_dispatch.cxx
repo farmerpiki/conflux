@@ -8,6 +8,7 @@ import conflux.types;
 import std.compat;
 
 import conflux.net.http.types;
+import conflux.net.http.response;
 import conflux.net.http.server_types;
 import conflux.net.http1_parser;
 import conflux.net.http.parse_helpers;
@@ -211,7 +212,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = Response::text("Bad Request", kHttpBadRequest);
+			auto r = conflux::http::Response::text("Bad Request", kHttpBadRequest);
 			conn.own_response = format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;
@@ -221,7 +222,7 @@ void dispatch_request(
 		std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
 		redirect_target += redirect_query;
 		conn.own_response = format_response(
-			Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
+			conflux::http::Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
 			ring.alt_svc_header,
 			true);
 		conn.has_response = true;
@@ -378,15 +379,15 @@ void dispatch_request(
 		file_views,
 		body};
 	auto const handler_started = std::chrono::steady_clock::now();
-	Response resp;
+	conflux::http::Response resp;
 	try {
 		if (auto async = ring.try_dispatch_context(req)) {
 			resp = std::move(*async);
 		} else {
 			resp = ring.dispatch(req);
 		}
-	} catch (std::exception const &e) { resp = Response::internal_error(e.what()); } catch (...) {
-		resp = Response::internal_error();
+	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
+		resp = conflux::http::Response::internal_error();
 	}
 	if (ring.slow_handler_diagnostics) {
 		auto const elapsed_ms =
@@ -405,7 +406,7 @@ void dispatch_request(
 #if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
 			conn.own_response = format_response(
-				Response::internal_error("deferred responses unsupported over HTTP/2"),
+				conflux::http::Response::internal_error("deferred responses unsupported over HTTP/2"),
 				ring.alt_svc_header,
 				true);
 			conn.has_response = true;

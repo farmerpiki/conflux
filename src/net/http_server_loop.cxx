@@ -29,6 +29,7 @@ import conflux.types;
 import std.compat;
 
 import conflux.net.http.types;
+import conflux.net.http.response;
 import conflux.net.router;
 import conflux.file_map;
 import conflux.net.detail.direct_slot_pool;
@@ -139,7 +140,7 @@ Ring::~Ring() {
 		conflux::http::server_detail::RequestBufferDeleter{.pool = std::move(pool)}};
 }
 
-[[nodiscard]] Response Ring::dispatch(
+[[nodiscard]] conflux::http::Response Ring::dispatch(
 	RequestView const &req) const {
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch(req);
@@ -154,7 +155,7 @@ Ring::~Ring() {
 	return router != nullptr && router->has_context_routes();
 }
 
-[[nodiscard]] std::optional<Response> Ring::try_dispatch_context(
+[[nodiscard]] std::optional<conflux::http::Response> Ring::try_dispatch_context(
 	RequestView const &req) const {
 	if (!client_task_ring_) {
 		return std::nullopt;
@@ -190,7 +191,7 @@ void Ring::clear_deferred_wait(
 void Ring::queue_deferred_wait(
 	int conn_fd,
 	int deferred_efd,
-	std::shared_ptr<DeferredResponse> response,
+	std::shared_ptr<conflux::http::DeferredResponse> response,
 	std::int32_t stream_id) {
 	if (deferred_efd < 0 || !response) {
 		return;

@@ -12,9 +12,9 @@ import conflux.net.http.server_types;
 import conflux.net.http.response;
 import conflux.utils;
 
-export [[nodiscard]] Response make_rejection_response(
+export [[nodiscard]] conflux::http::Response make_rejection_response(
 	conflux::http::HttpRejectReason reason) {
-	return Response::problem_json(
+	return conflux::http::Response::problem_json(
 		std::format(
 			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
 			conflux::http::reject_reason_code(reason),
@@ -183,7 +183,7 @@ static void append_hex(
 }
 
 [[nodiscard]] static std::size_t response_reserve_hint(
-	Response const &r,
+	conflux::http::Response const &r,
 	std::string_view alt_svc,
 	bool include_body) {
 	std::size_t n = 128 + r.status_text.size() + r.content_type.size() + alt_svc.size();
@@ -200,7 +200,7 @@ static void append_hex(
 }
 
 export std::string format_response(
-	Response const &r,
+	conflux::http::Response const &r,
 	std::string_view alt_svc = {},
 	bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {

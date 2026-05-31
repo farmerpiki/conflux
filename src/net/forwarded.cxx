@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 export struct ForwardedOptions {
 	// CIDRs trusted to set forwarding headers.
 	// If empty and strict_mode is true (the default): trust nobody. Forwarding
@@ -41,8 +42,9 @@ export conflux::http::Router::Middleware forwarded_middleware(
 		eprintln("forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
 	}
 
-	return [opts = std::move(opts),
-			cidrs = std::move(cidrs)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(opts), cidrs = std::move(cidrs)](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {
 			auto const peer_ip = parse_ip(req.remote_addr).value_or(IpAddr{});

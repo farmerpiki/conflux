@@ -9,6 +9,7 @@ import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http.json_string;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.net.request_id;
 import conflux.net.tracing;
 import conflux.utils;
@@ -93,7 +94,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 
 [[nodiscard]] std::string route_label(
 	RequestView const &req,
-	Response const &resp) {
+	conflux::http::Response const &resp) {
 	if (auto route = resp.headers.get("__conflux-route-pattern"); route && !route->empty()) {
 		return std::string{*route};
 	}
@@ -153,7 +154,7 @@ void append_headers_json(
 	ObservabilityOptions const &opts,
 	std::vector<std::string> const &sensitive,
 	RequestView const &req,
-	Response const &resp,
+	conflux::http::Response const &resp,
 	std::chrono::steady_clock::duration elapsed) {
 	auto const route = route_label(req, resp);
 	auto const request_id = req.header("x-request-id");
@@ -202,7 +203,7 @@ void append_pressure_metrics(
 	out += "# HELP http_pressure_requests_inflight In-flight HTTP requests under pressure accounting\n";
 	out += "# TYPE http_pressure_requests_inflight gauge\n";
 	append_prometheus_sample(out, "http_pressure_requests_inflight", {}, std::uint64_t{0});
-	out += "# HELP http_pressure_response_backlog Response backlog under pressure accounting\n";
+	out += "# HELP http_pressure_response_backlog conflux::http::Response backlog under pressure accounting\n";
 	out += "# TYPE http_pressure_response_backlog gauge\n";
 	append_prometheus_sample(out, "http_pressure_response_backlog", {}, pressure.response_backpressure_events);
 	out += "# HELP http_pressure_slow_clients Slow clients under pressure accounting\n";
@@ -407,7 +408,7 @@ struct ObservabilityRegistry {
 	void observe(
 		ObservabilityOptions const &opts,
 		RequestView const &req,
-		Response const &resp,
+		conflux::http::Response const &resp,
 		std::chrono::steady_clock::duration elapsed) {
 		auto const route = route_label(req, resp);
 		auto const method = upper_method(req.method);
@@ -572,7 +573,7 @@ struct ObservabilityMiddleware {
 	ObservabilityOptions options;
 	std::shared_ptr<observability_detail::ObservabilityState> state;
 
-	[[nodiscard]] Response operator ()(
+	[[nodiscard]] conflux::http::Response operator ()(
 		RequestView const &req,
 		conflux::http::Router::Handler const &next) const {
 		auto observed_req = req.to_owned();
@@ -651,8 +652,8 @@ struct ObservabilityMiddleware {
 #if CONFLUX_HAS_METRICS
 [[nodiscard]] conflux::http::Router::Handler observability_metrics_handler(
 	ObservabilityMiddleware const &middleware) {
-	return [state = middleware.state](RequestView const &) -> Response {
-		return Response::prometheus(
+	return [state = middleware.state](RequestView const &) -> conflux::http::Response {
+		return conflux::http::Response::prometheus(
 			state && state->registry ? state->registry->format_prometheus(state->options, state->sinks) :
 									   std::string{});
 	};

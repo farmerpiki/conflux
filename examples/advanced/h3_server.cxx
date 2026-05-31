@@ -73,9 +73,11 @@ int main() {
 
 	conflux::http::Router router;
 	router.get("/", [](RequestView const &) {
-		return Response::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
+		return conflux::http::Response::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
 	});
-	router.get("/ping", [](RequestView const &) { return Response::json(R"({"transport":"h3-ready"})"); });
+	router.get("/ping", [](RequestView const &) {
+		return conflux::http::Response::json(R"({"transport":"h3-ready"})");
+	});
 
 	HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_files.cert.c_str());

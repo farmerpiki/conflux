@@ -10,6 +10,7 @@ import conflux.crypto;
 import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 namespace {
 
@@ -118,7 +119,8 @@ export conflux::http::Router::Middleware cookie_signing_middleware(
 		!valid) {
 		throw std::invalid_argument{valid.error()};
 	}
-	return [opts = std::move(opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts = std::move(
+				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {

@@ -10,6 +10,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 namespace csrf_detail {
 
@@ -45,8 +46,9 @@ export conflux::http::Router::Middleware csrf_middleware(
 	return [opts = std::move(opts),
 			lower_cookie = std::move(lower_cookie),
 			lower_header = std::move(lower_header),
-			lower_field = std::move(
-				lower_field)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+			lower_field = std::move(lower_field)](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto is_protected =
 			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
 
@@ -54,7 +56,7 @@ export conflux::http::Router::Middleware csrf_middleware(
 			// Read cookie token.
 			auto cookie_token = std::string{req.cookies[lower_cookie]};
 			if (cookie_token.empty()) {
-				return Response::text("CSRF token missing", kHttpForbidden);
+				return conflux::http::Response::text("CSRF token missing", kHttpForbidden);
 			}
 			// Read submitted token (header takes precedence over form field).
 			std::string submitted{req.headers[lower_header]};
@@ -62,7 +64,7 @@ export conflux::http::Router::Middleware csrf_middleware(
 				submitted = std::string{req.form[lower_field]};
 			}
 			if (!constant_time_eq(cookie_token, submitted)) {
-				return Response::text("CSRF token invalid", kHttpForbidden);
+				return conflux::http::Response::text("CSRF token invalid", kHttpForbidden);
 			}
 		}
 

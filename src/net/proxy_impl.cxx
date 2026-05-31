@@ -4,6 +4,7 @@ module conflux.net.proxy;
 
 import std;
 import conflux.net.http.types;
+import conflux.net.http.response;
 import conflux.net.http.request;
 import conflux.net.client;
 import conflux.net.async_client;
@@ -77,9 +78,9 @@ namespace proxy_detail {
 	return builder;
 }
 
-[[nodiscard]] static Response build_response(
+[[nodiscard]] static conflux::http::Response build_response(
 	http::ClientResponse &&r) {
-	Response out;
+	conflux::http::Response out;
 	out.status = r.head.status;
 	out.status_text = std::move(r.head.status_text);
 	out.headers = std::move(r.head.headers);
@@ -91,7 +92,7 @@ namespace proxy_detail {
 	return out;
 }
 
-[[nodiscard]] Response perform_proxy_request(
+[[nodiscard]] conflux::http::Response perform_proxy_request(
 	RequestView const &req,
 	ProxyOptions const &opts) {
 	auto co = make_client_opts(opts);
@@ -102,13 +103,13 @@ namespace proxy_detail {
 	builder.timeouts(client.options().default_timeouts);
 	auto result = client.blocking_send(std::move(builder).build());
 	if (!result) {
-		return Response::bad_gateway(
+		return conflux::http::Response::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
 	return build_response(std::move(*result));
 }
 
-[[nodiscard]] wroot::Task<Response> perform_proxy_request_async(
+[[nodiscard]] wroot::Task<conflux::http::Response> perform_proxy_request_async(
 	RequestView const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
@@ -120,7 +121,7 @@ namespace proxy_detail {
 	builder.timeouts(client.options().default_timeouts);
 	auto result = co_await http::async_send(client, ring, std::move(builder).build());
 	if (!result) {
-		co_return Response::bad_gateway(
+		co_return conflux::http::Response::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
 	co_return build_response(std::move(*result));
@@ -128,13 +129,13 @@ namespace proxy_detail {
 
 } // namespace proxy_detail
 
-Response blocking_proxy(
+conflux::http::Response blocking_proxy(
 	RequestView const &req,
 	ProxyOptions const &opts) {
 	return proxy_detail::perform_proxy_request(req, opts);
 }
 
-wroot::Task<Response> async_proxy(
+wroot::Task<conflux::http::Response> async_proxy(
 	RequestView const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {

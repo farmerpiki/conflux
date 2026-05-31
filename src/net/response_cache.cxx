@@ -1,4 +1,4 @@
-// Response caching middleware: in-memory LRU cache with TTL.
+// conflux::http::Response caching middleware: in-memory LRU cache with TTL.
 // Only caches GET requests with 200 responses and no Set-Cookie headers.
 // Cache key is the full request path (including query string).
 // TTL is taken from the response Cache-Control max-age if present; otherwise
@@ -11,6 +11,7 @@ import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 export struct ResponseCacheOptions {
 	// Maximum number of entries in the LRU cache.
 	std::size_t max_entries{256};
@@ -23,7 +24,7 @@ export struct ResponseCacheOptions {
 };
 // Internal cache entry type (not exported; module-scope to avoid GCC TU-local error).
 struct RespCacheEntry {
-	Response resp;
+	conflux::http::Response resp;
 	std::chrono::steady_clock::time_point expires;
 };
 
@@ -186,7 +187,9 @@ export conflux::http::Router::Middleware response_cache_middleware(
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
 	auto mtx = std::make_shared<std::mutex>();
 
-	return [opts, cache, mtx](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts,
+			cache,
+			mtx](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const is_head = req.method == "HEAD";
 		if (req.method != "GET" && !is_head) {
 			return next(req);

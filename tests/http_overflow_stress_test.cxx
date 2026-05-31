@@ -58,7 +58,7 @@ TEST_CASE(
 	"http.cq_overflow: non-UB shutdown under small-CQ flood",
 	"[http][overflow][stress]") {
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return Response::text("pong"); });
+	router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
 
 	auto cfg = tiny_ring_config();
 	auto server = std::make_shared<HttpServer>(cfg, std::move(router));

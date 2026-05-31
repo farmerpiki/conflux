@@ -31,6 +31,7 @@ import conflux.net.http.server_types;
 import conflux.net.http.parse_helpers;
 
 import conflux.net.http.types;
+import conflux.net.http.response;
 import conflux.net.router;
 import conflux.file_map;
 import conflux.net.detail.direct_slot_pool;
@@ -200,7 +201,7 @@ struct H2Stream {
 	bool seen_content_length{};
 	std::size_t header_count{};
 	std::size_t header_list_size{};
-	// Response state for the data provider callback:
+	// conflux::http::Response state for the data provider callback:
 	std::string response_body{};
 	std::size_t response_off{};
 	HttpFields response_trailers{};
@@ -248,7 +249,7 @@ struct alignas(
 	int sse_efd = -1;
 	std::shared_ptr<conflux::http::SseChannel> sse_channel{};
 	int deferred_efd = -1;
-	std::shared_ptr<DeferredResponse> deferred_response{};
+	std::shared_ptr<conflux::http::DeferredResponse> deferred_response{};
 	std::shared_ptr<std::string> deferred_request_storage{};
 	std::shared_ptr<std::vector<conflux::http::UploadedFile>> deferred_request_files{};
 	std::shared_ptr<conflux::http::WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
@@ -353,7 +354,7 @@ struct Ring {
 	struct DeferredWait {
 		int conn_fd{-1};
 		std::int32_t stream_id{-1};
-		std::shared_ptr<DeferredResponse> response{};
+		std::shared_ptr<conflux::http::DeferredResponse> response{};
 	};
 	struct WsHandoffState {
 		std::shared_ptr<conflux::http::WsUpgrade> upgrade{};
@@ -501,16 +502,16 @@ struct Ring {
 	Ring &operator =(Ring const &) = delete;
 	Ring(Ring &&) = delete;
 	Ring &operator =(Ring &&) = delete;
-	[[nodiscard]] Response dispatch(RequestView const &req) const;
+	[[nodiscard]] conflux::http::Response dispatch(RequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
-	[[nodiscard]] std::optional<Response> try_dispatch_context(RequestView const &req) const;
+	[[nodiscard]] std::optional<conflux::http::Response> try_dispatch_context(RequestView const &req) const;
 	[[nodiscard]] std::shared_ptr<std::string> acquire_request_buffer();
 	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(RequestView const &req) const;
 	void clear_deferred_wait(int deferred_efd);
 	void queue_deferred_wait(
 		int conn_fd,
 		int deferred_efd,
-		std::shared_ptr<DeferredResponse> response,
+		std::shared_ptr<conflux::http::DeferredResponse> response,
 		std::int32_t stream_id = -1);
 #if CONFLUX_HAS_TLS
 	static void tls_flush_wbio(Conn &conn);
@@ -568,7 +569,7 @@ struct Ring {
 		std::uint32_t *data_flags,
 		nghttp2_data_source *source,
 		void * /*user_data*/);
-	static void h2_submit_response(Conn &conn, std::int32_t stream_id, Response resp);
+	static void h2_submit_response(Conn &conn, std::int32_t stream_id, conflux::http::Response resp);
 	// A frame is fully received.  On END_STREAM, dispatch to the router and
 	// submit the HTTP/2 response via nghttp2_submit_response.
 	static int h2_on_frame_recv_cb(nghttp2_session *session, nghttp2_frame const *frame, void *user_data);

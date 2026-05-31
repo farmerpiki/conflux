@@ -15,10 +15,11 @@ static conflux::http::Router make_api_router() {
 	conflux::http::Router api;
 	api.use(request_id_middleware());
 	api.get("/status", [](Request const &req) {
-		return Response::json(std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));
+		return conflux::http::Response::json(
+			std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));
 	});
 	api.get("/users/{id}", [](Request const &req) {
-		return Response::json(std::format(R"({{"id":"{}","name":"example"}})", req.params["id"]));
+		return conflux::http::Response::json(std::format(R"({{"id":"{}","name":"example"}})", req.params["id"]));
 	});
 	api.get("/openapi.json", openapi_handler(api, "api.local.test", "0.1.0"));
 	return api;
@@ -26,9 +27,9 @@ static conflux::http::Router make_api_router() {
 
 static conflux::http::Router make_web_router() {
 	conflux::http::Router web;
-	web.get("/status", [](Request const &) { return Response::html("<h1>web ok</h1>"); });
+	web.get("/status", [](Request const &) { return conflux::http::Response::html("<h1>web ok</h1>"); });
 	web.get("/", [](Request const &) {
-		return Response::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
+		return conflux::http::Response::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
 	});
 	return web;
 }
@@ -40,7 +41,7 @@ int main() {
 
 	conflux::http::Router fallback;
 	fallback.get("/status", [](Request const &req) {
-		return Response::text(std::format("default host handler: {}\n", req.headers["host"]));
+		return conflux::http::Response::text(std::format("default host handler: {}\n", req.headers["host"]));
 	});
 	hosts.set_default(std::move(fallback));
 

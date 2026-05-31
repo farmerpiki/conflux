@@ -30,8 +30,9 @@ import conflux.net.http.realtime;
 	return out;
 }
 
-export class DeferredResponse; // defined after Response
 export namespace conflux::http {
+
+class DeferredResponse;
 
 enum class StreamedFileResult : std::uint8_t {
 	completed,
@@ -195,9 +196,7 @@ struct StreamedFile {
 	std::vector<std::function<void(StreamedFileResult)>> callbacks_;
 };
 
-} // namespace conflux::http
-
-export struct Response {
+struct Response {
 	static constexpr std::string_view kContentTypeHtmlUtf8 = "text/html; charset=utf-8";
 	static constexpr std::string_view kContentTypeTextUtf8 = "text/plain; charset=utf-8";
 	static constexpr std::string_view kContentTypeJson = "application/json";
@@ -225,9 +224,9 @@ export struct Response {
 	int status = kHttpOk;
 	std::string status_text = "OK";
 	std::string content_type = std::string{kContentTypeHtmlUtf8};
-	HttpFields headers = HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
+	::HttpFields headers = ::HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
 	std::vector<std::string> set_cookies{}; // Set-Cookie headers (one per entry)
-	HttpFields trailers = HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
+	::HttpFields trailers = ::HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
 	bool head_only = false; // true → send headers only, suppress body (HEAD requests)
 	std::size_t content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
 	BodyKind body_kind = BodyKind::text;
@@ -689,13 +688,7 @@ export struct Response {
 	}
 };
 
-export namespace conflux::http {
-
-using Response = ::Response;
-
-} // namespace conflux::http
-
-export class DeferredResponse {
+class DeferredResponse {
 	int efd_{-1};
 	mutable std::mutex mtx_{};
 	std::unique_ptr<Response> ready_{};
@@ -834,3 +827,5 @@ bool DeferredResponse::expire_if_past_deadline(
 	}
 	return true;
 }
+
+} // namespace conflux::http

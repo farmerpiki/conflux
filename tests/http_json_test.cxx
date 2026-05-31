@@ -15,7 +15,7 @@ namespace hj = conflux::http::codec::json;
 namespace {
 
 void check_problem_code(
-	Response const &response,
+	conflux::http::Response const &response,
 	std::string_view code) {
 	auto doc = conflux::json::parse_copy(std::string{response.text_body()});
 	REQUIRE(doc.has_value());

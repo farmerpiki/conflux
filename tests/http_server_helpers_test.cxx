@@ -23,7 +23,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: format_response filters invalid/framing headers and cookies",
 	"[http_server_helpers]") {
-	Response resp = Response::text("hello");
+	conflux::http::Response resp = conflux::http::Response::text("hello");
 	resp.status_text = std::string{"OK\r\nInjected: bad"};
 	resp.headers["X-Good"] = "yes";
 	resp.headers["Bad Header"] = "dropped";
@@ -54,7 +54,7 @@ TEST_CASE(
 	auto up = std::make_shared<conflux::http::WsUpgrade>();
 	up->accept_key = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
 
-	Response resp;
+	conflux::http::Response resp;
 	resp.set_ws_upgrade(up);
 	resp.headers["X-Ignored"] = "must not be serialized";
 	resp.set_text_body("body ignored by upgrade");
@@ -71,19 +71,19 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: format_response suppresses bodies where HTTP forbids them",
 	"[http_server_helpers]") {
-	Response no_content = Response::text("body");
+	conflux::http::Response no_content = conflux::http::Response::text("body");
 	no_content.status = 204;
 	no_content.status_text = "No Content";
 	CHECK(format_response(no_content).find("body") == std::string::npos);
 	CHECK(format_response(no_content).find("Content-Length") == std::string::npos);
 
-	Response not_modified;
+	conflux::http::Response not_modified;
 	not_modified.status = 304;
 	not_modified.status_text = "Not Modified";
 	not_modified.content_length_hint = 123;
 	CHECK(format_response(not_modified).find("Content-Length: 123\r\n") != std::string::npos);
 
-	Response head = Response::text("body");
+	conflux::http::Response head = conflux::http::Response::text("body");
 	head.head_only = true;
 	auto wire = format_response(head);
 	CHECK(wire.find("Content-Length: 4\r\n") != std::string::npos);

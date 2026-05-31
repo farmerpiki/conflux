@@ -4,6 +4,7 @@ import conflux.types;
 import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 
 export enum class TrailingSlashMode {
 	remove, // /foo/  → /foo   (default; canonical form for most APIs)
@@ -44,7 +45,7 @@ inline std::string build_query(
 // unreserved set) and appended to the Location header.
 export conflux::http::Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
-	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const &path = req.path;
 
 		// Never touch the root.
@@ -59,7 +60,7 @@ export conflux::http::Router::Middleware trailing_slash_middleware(
 				new_path.push_back('?');
 				new_path += trailing_slash_detail::build_query(req.query);
 			}
-			auto redirect = Response::redirect(new_path, opts.redirect_status);
+			auto redirect = conflux::http::Response::redirect(new_path, opts.redirect_status);
 			redirect.content_type = "text/plain; charset=utf-8";
 			return redirect;
 		};

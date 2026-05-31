@@ -45,7 +45,7 @@ int main() {
 	cfg.http3.enabled = true;
 
 	conflux::http::Router router;
-	router.get("/ping", [](RequestView const &) { return Response::json(R"({"ok":true})"); });
+	router.get("/ping", [](RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 
 	HttpServer srv{cfg, std::move(router)};
 	::unlink(cert_path.c_str());

@@ -199,17 +199,17 @@ std::uint16_t compression_port() {
 		Config cfg = mw_config();
 		conflux::http::Router router;
 		router.use(compress_middleware({.min_body_size = 64}));
-		router.get("/large", [](Request const &) { return Response::text(std::string(4096, 'A')); });
-		router.get("/small", [](Request const &) { return Response::text(std::string(32, 's')); });
+		router.get("/large", [](Request const &) { return conflux::http::Response::text(std::string(4096, 'A')); });
+		router.get("/small", [](Request const &) { return conflux::http::Response::text(std::string(32, 's')); });
 		router.get("/binary", [](Request const &) {
-			Response response;
+			conflux::http::Response response;
 			response.status = 200;
 			response.status_text = "OK";
 			response.content_type = "application/octet-stream";
 			response.set_text_body(std::string(4096, '\0'));
 			return response;
 		});
-		router.post("/echo", [](Request const &req) { return Response::text(req.body); });
+		router.post("/echo", [](Request const &req) { return conflux::http::Response::text(req.body); });
 		router.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
 			(void)channel->send("data: hello\n\n");
 			channel->close();

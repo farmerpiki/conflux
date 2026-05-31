@@ -14,6 +14,7 @@ import conflux.file_io_sync;
 import conflux.net.http.types;
 import conflux.net.http.json_string;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 export struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
@@ -96,9 +97,9 @@ export conflux::http::Router::Middleware structured_log_middleware(
 	std::string app_name = std::move(opts.app_name);
 	auto sink = std::make_shared<LogSink>(std::move(opts.log_file), opts.daily_rotate);
 
-	return [sink,
-			app_name =
-				std::move(app_name)](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [sink, app_name = std::move(app_name)](
+			   RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();

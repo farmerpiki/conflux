@@ -12,6 +12,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 export struct ETagOptions {
 	// Use weak ETags (W/"std::hash"). Weak ETags are semantically equivalent
 	// but tolerate minor std::byte-level differences (e.g. gzip vary).
@@ -31,15 +32,15 @@ bool weak_match(
 	std::string_view rhs) noexcept {
 	return weak_value(lhs) == weak_value(rhs);
 }
-Response not_modified(
+conflux::http::Response not_modified(
 	std::string_view etag) {
-	return Response::not_modified(etag);
+	return conflux::http::Response::not_modified(etag);
 }
 
 } // namespace etag_detail
 export conflux::http::Router::Middleware etag_middleware(
 	ETagOptions opts = {}) {
-	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		// Skip: already has ETag, empty body, SSE/WS, or mmap response.

@@ -599,9 +599,9 @@ int main(
 
 	auto make_router = [&] {
 		Router r;
-		r.get("/api/ping", [](Request const &) { return Response::json(R"({"status":"ok"})"); });
-		r.post("/api/echo-body", [](Request const &req) { return Response::text(req.body); });
-		r.get("/body/64k", [&body_64k](Request const &) { return Response::text(body_64k); });
+		r.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+		r.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
+		r.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
 		return r;
 	};
 

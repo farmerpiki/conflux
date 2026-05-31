@@ -7,6 +7,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.net.app.openapi;
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
@@ -39,7 +40,9 @@ export conflux::http::Router::Handler openapi_handler(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
-	return [spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); };
+	return [spec = std::move(spec)](RequestView const &) -> conflux::http::Response {
+		return conflux::http::Response::json(spec);
+	};
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
@@ -52,7 +55,7 @@ export conflux::http::Router::Handler openapi_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
+		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> conflux::http::Response {
 			return mw(req, next);
 		};
 	}

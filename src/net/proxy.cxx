@@ -18,6 +18,7 @@ export struct ProxyOptions {
 	int timeout_sec{10};
 };
 
-export Response blocking_proxy(RequestView const &req, ProxyOptions const &opts);
+export conflux::http::Response blocking_proxy(RequestView const &req, ProxyOptions const &opts);
 
-export wroot::Task<Response> async_proxy(RequestView const &req, ProxyOptions const &opts, SocketTaskRing &ring);
+export wroot::Task<conflux::http::Response>
+async_proxy(RequestView const &req, ProxyOptions const &opts, SocketTaskRing &ring);

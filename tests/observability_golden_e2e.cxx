@@ -194,7 +194,7 @@ TEST_CASE(
 			.service_name = "golden-api",
 			.log_request_headers = true,
 			.log_response_headers = true,
-			.extra_sensitive_headers = {"X-Secret", "X-Secret-Response"},
+			.extra_sensitive_headers = {"X-Secret", "X-Secret-conflux::http::Response"},
 			.access_log_sink =
 				[&](std::string const &line) {
 					std::lock_guard const lock{logs_mu};
@@ -202,9 +202,9 @@ TEST_CASE(
 										},
     }));
 	app.get("/users/{id}", [](http::Path<"id"> id, http::RequestId request_id, http::TraceContext trace) {
-		auto response =
-			Response::text(std::format("id={} request={} trace={}", id.get(), request_id.get(), trace.traceparent));
-		response.headers.set("X-Secret-Response", "response-secret");
+		auto response = conflux::http::Response::text(
+			std::format("id={} request={} trace={}", id.get(), request_id.get(), trace.traceparent));
+		response.headers.set("X-Secret-conflux::http::Response", "response-secret");
 		return response;
 	});
 
@@ -265,7 +265,7 @@ TEST_CASE(
 	check_json_string_at(first_doc, "/request_headers/Authorization", "<redacted>");
 	check_json_string_at(first_doc, "/request_headers/Cookie", "<redacted>");
 	check_json_string_at(first_doc, "/request_headers/X-Secret", "<redacted>");
-	check_json_string_at(first_doc, "/response_headers/X-Secret-Response", "<redacted>");
+	check_json_string_at(first_doc, "/response_headers/X-Secret-conflux::http::Response", "<redacted>");
 	std::array<std::string_view, 5> const
 		secrets{"request-secret", "cookie-secret", "custom-secret", "response-secret", "debug=request-secret"};
 	check_json_contains_no_secret(first_doc.root(), secrets);

@@ -581,7 +581,7 @@ enum class TortureVersion {
 [[nodiscard]] conflux::http::Router make_stress_router() {
 	conflux::http::Router r = make_matrix_router();
 	auto large = std::make_shared<std::string>(128UL * 1024, 'S');
-	r.get("/static/large.bin", [large](Request const &) { return Response::text(*large); });
+	r.get("/static/large.bin", [large](Request const &) { return conflux::http::Response::text(*large); });
 	return r;
 }
 

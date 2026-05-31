@@ -66,8 +66,7 @@ struct H2Client {
 	};
 
 	H2Client(H2Client const &) = delete;
-	H2Client &operator =(
-		H2Client const &) = delete;
+	H2Client &operator =(H2Client const &) = delete;
 
 	explicit H2Client(
 		std::uint16_t port)
@@ -211,8 +210,11 @@ struct H2Client {
 		for (auto const sid: sids) {
 			auto resp = take_response(sid);
 			if (resp.status != 200 || resp.error_code != 0) {
-				throw std::runtime_error{
-					std::format("H2Client: stream {} expected status 200, got {} err {}", sid, resp.status, resp.error_code)};
+				throw std::runtime_error{std::format(
+					"H2Client: stream {} expected status 200, got {} err {}",
+					sid,
+					resp.status,
+					resp.error_code)};
 			}
 			bytes += resp.body.size();
 		}
@@ -420,16 +422,15 @@ struct TempCertFiles {
 		}
 	}
 	TempCertFiles(TempCertFiles const &) = delete;
-	TempCertFiles &operator =(
-		TempCertFiles const &) = delete;
-	TempCertFiles(TempCertFiles &&o) noexcept
+	TempCertFiles &operator =(TempCertFiles const &) = delete;
+	TempCertFiles(
+		TempCertFiles &&o) noexcept
 		: cert{std::move(o.cert)}
 		, key{std::move(o.key)} {
 		o.cert.clear();
 		o.key.clear();
 	}
-	TempCertFiles &operator =(
-		TempCertFiles &&o) noexcept = delete;
+	TempCertFiles &operator =(TempCertFiles &&o) noexcept = delete;
 };
 
 [[nodiscard]] TempCertFiles make_self_signed_cert_files() {
@@ -507,9 +508,7 @@ ServerHandle start_h2_server(
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (std::exception const &e) {
-			std::println(std::cerr, "h2 bench server: {}", e.what());
-		}
+		} catch (std::exception const &e) { std::println(std::cerr, "h2 bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_tcp_port(p);
@@ -536,13 +535,17 @@ Router make_h2_router(
 	std::string const &body_64k,
 	std::string const &body_128k) {
 	Router r;
-	r.get("/api/ping", [](HttpRequest const &) { return Response::json(R"({"status":"ok"})"); });
-	r.get("/hello/{name}", [](HttpRequest const &req) { return Response::text(std::format("hello {}", req.params["name"])); });
-	r.post("/api/echo-body", [](HttpRequest const &req) { return Response::text(std::string{req.body}); });
-	r.get("/body/64k", [&body_64k](HttpRequest const &) { return Response::text(body_64k); });
-	r.get("/body/128k", [&body_128k](HttpRequest const &) { return Response::text(body_128k); });
+	r.get("/api/ping", [](HttpRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	r.get("/hello/{name}", [](HttpRequest const &req) {
+		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
+	});
+	r.post("/api/echo-body", [](HttpRequest const &req) {
+		return conflux::http::Response::text(std::string{req.body});
+	});
+	r.get("/body/64k", [&body_64k](HttpRequest const &) { return conflux::http::Response::text(body_64k); });
+	r.get("/body/128k", [&body_128k](HttpRequest const &) { return conflux::http::Response::text(body_128k); });
 	r.get("/with-trailers", [](HttpRequest const &) {
-		Response resp;
+		conflux::http::Response resp;
 		resp.status = 200;
 		resp.status_text = "OK";
 		resp.content_type = "text/plain; charset=utf-8";
@@ -686,70 +689,74 @@ int main(
 	variants.push_back(
 		{.name = "h2_handshake_first_get"sv,
 		 .bottleneck = "tls_alpn_preface_first_stream"sv,
-		 .run = [&] {
-			 H2Client c{server.port};
-			 auto resp = c.get("/api/ping");
-			 return require_ok_body_bytes(resp, "h2_handshake_first_get");
-		 },
+		 .run =
+			 [&] {
+				 H2Client c{server.port};
+				 auto resp = c.get("/api/ping");
+				 return require_ok_body_bytes(resp, "h2_handshake_first_get");
+			 },
 		 .iters_override = 30});
-	variants.push_back({.name = "h2_seq_ping"sv,
-		.bottleneck = "headers_route_small_response"sv,
-		.run = [&] { return require_ok_body_bytes(client->get("/api/ping"), "h2_seq_ping"); }});
-	variants.push_back({.name = "h2_seq_route_param"sv,
-		.bottleneck = "headers_route_param_response"sv,
-		.run = [&] { return require_ok_body_bytes(client->get("/hello/conflux"), "h2_seq_route_param"); }});
-	variants.push_back({.name = "h2_seq_post_4k"sv,
-		.bottleneck = "request_data_provider_body_echo"sv,
-		.run = [&] { return require_ok_body_bytes(client->post("/api/echo-body", body_4k), "h2_seq_post_4k"); }});
-	variants.push_back({.name = "h2_seq_post_64k"sv,
-		.bottleneck = "request_data_flow_control_body_echo"sv,
-		.run = [&] { return require_ok_body_bytes(client->post("/api/echo-body", body_64k), "h2_seq_post_64k"); }});
-	variants.push_back({.name = "h2_seq_body_64k"sv,
-		.bottleneck = "response_data_provider_chunking"sv,
-		.run = [&] { return require_ok_body_bytes(client->get("/body/64k"), "h2_seq_body_64k"); }});
-	variants.push_back({.name = "h2_seq_body_128k"sv,
-		.bottleneck = "response_flow_control_window_update"sv,
-		.run = [&] { return require_ok_body_bytes(client->get("/body/128k"), "h2_seq_body_128k"); }});
-	variants.push_back({.name = "h2_seq_sse_3_events"sv,
-		.bottleneck = "sse_deferred_data_resume"sv,
-		.run = [&] { return require_ok_body_bytes(client->get("/events"), "h2_seq_sse_3_events"); }});
-	variants.push_back({.name = "h2_seq_trailers"sv,
-		.bottleneck = "response_trailing_headers"sv,
-		.run = [&] {
-			auto resp = client->get("/with-trailers");
-			if (resp.trailers.size() < 2) {
-				throw std::runtime_error{"h2_seq_trailers expected trailers"};
-			}
-			return require_ok_body_bytes(resp, "h2_seq_trailers");
-		}});
-	variants.push_back({.name = "h2_mux_16_ping"sv,
-		.bottleneck = "multiplexed_small_streams"sv,
-		.run = [&] {
-			std::array<std::int32_t, 16> ids{};
-			for (auto &id: ids) {
-				id = client->submit_get("/api/ping");
-			}
-			client->pump_all(ids);
-			return client->checked_body_bytes_and_clear(ids);
-		},
-		.streams_per_iter = 16});
-	variants.push_back({.name = "h2_mux_32_mixed"sv,
-		.bottleneck = "multiplexed_mixed_routes_and_bodies"sv,
-		.run = [&] {
-			std::array<std::int32_t, 32> ids{};
-			for (std::size_t i = 0; i < ids.size(); ++i) {
-				if (i % 4 == 0) {
-					ids[i] = client->submit_get("/body/64k");
-				} else if (i % 4 == 1) {
-					ids[i] = client->submit_get("/hello/conflux");
-				} else {
-					ids[i] = client->submit_get("/api/ping");
-				}
-			}
-			client->pump_all(ids);
-			return client->checked_body_bytes_and_clear(ids);
-		},
-		.streams_per_iter = 32});
+	variants.push_back({.name = "h2_seq_ping"sv, .bottleneck = "headers_route_small_response"sv, .run = [&] {
+							return require_ok_body_bytes(client->get("/api/ping"), "h2_seq_ping");
+						}});
+	variants.push_back({.name = "h2_seq_route_param"sv, .bottleneck = "headers_route_param_response"sv, .run = [&] {
+							return require_ok_body_bytes(client->get("/hello/conflux"), "h2_seq_route_param");
+						}});
+	variants.push_back({.name = "h2_seq_post_4k"sv, .bottleneck = "request_data_provider_body_echo"sv, .run = [&] {
+							return require_ok_body_bytes(client->post("/api/echo-body", body_4k), "h2_seq_post_4k");
+						}});
+	variants.push_back({.name = "h2_seq_post_64k"sv, .bottleneck = "request_data_flow_control_body_echo"sv, .run = [&] {
+							return require_ok_body_bytes(client->post("/api/echo-body", body_64k), "h2_seq_post_64k");
+						}});
+	variants.push_back({.name = "h2_seq_body_64k"sv, .bottleneck = "response_data_provider_chunking"sv, .run = [&] {
+							return require_ok_body_bytes(client->get("/body/64k"), "h2_seq_body_64k");
+						}});
+	variants.push_back(
+		{.name = "h2_seq_body_128k"sv, .bottleneck = "response_flow_control_window_update"sv, .run = [&] {
+			 return require_ok_body_bytes(client->get("/body/128k"), "h2_seq_body_128k");
+		 }});
+	variants.push_back({.name = "h2_seq_sse_3_events"sv, .bottleneck = "sse_deferred_data_resume"sv, .run = [&] {
+							return require_ok_body_bytes(client->get("/events"), "h2_seq_sse_3_events");
+						}});
+	variants.push_back({.name = "h2_seq_trailers"sv, .bottleneck = "response_trailing_headers"sv, .run = [&] {
+							auto resp = client->get("/with-trailers");
+							if (resp.trailers.size() < 2) {
+								throw std::runtime_error{"h2_seq_trailers expected trailers"};
+							}
+							return require_ok_body_bytes(resp, "h2_seq_trailers");
+						}});
+	variants.push_back(
+		{.name = "h2_mux_16_ping"sv,
+		 .bottleneck = "multiplexed_small_streams"sv,
+		 .run =
+			 [&] {
+				 std::array<std::int32_t, 16> ids{};
+				 for (auto &id: ids) {
+					 id = client->submit_get("/api/ping");
+				 }
+				 client->pump_all(ids);
+				 return client->checked_body_bytes_and_clear(ids);
+			 },
+		 .streams_per_iter = 16});
+	variants.push_back(
+		{.name = "h2_mux_32_mixed"sv,
+		 .bottleneck = "multiplexed_mixed_routes_and_bodies"sv,
+		 .run =
+			 [&] {
+				 std::array<std::int32_t, 32> ids{};
+				 for (std::size_t i = 0; i < ids.size(); ++i) {
+					 if (i % 4 == 0) {
+						 ids[i] = client->submit_get("/body/64k");
+					 } else if (i % 4 == 1) {
+						 ids[i] = client->submit_get("/hello/conflux");
+					 } else {
+						 ids[i] = client->submit_get("/api/ping");
+					 }
+				 }
+				 client->pump_all(ids);
+				 return client->checked_body_bytes_and_clear(ids);
+			 },
+		 .streams_per_iter = 32});
 
 	if (!json) {
 		std::println("http2_server_bench: {} iterations, {} warmup\n", iters, warmup);

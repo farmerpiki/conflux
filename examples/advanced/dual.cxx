@@ -66,7 +66,7 @@ int main() {
 	conflux::http::Router router;
 
 	router.get("/", [](RequestView const &) {
-		return Response::html(
+		return conflux::http::Response::html(
 			"<html><body>"
 			"<h1>conflux dual-mode example</h1>"
 			"<p>Works over plain HTTP and HTTPS on the same port.</p>"
@@ -78,11 +78,12 @@ int main() {
 	});
 
 	router.get("/api/ping", [](RequestView const &) {
-		return Response::json(R"({"status":"ok","server":"conflux"})");
+		return conflux::http::Response::json(R"({"status":"ok","server":"conflux"})");
 	});
 
 	router.get("/hello/{name}", [](RequestView const &req) {
-		return Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+		return conflux::http::Response::html(
+			std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
 	std::println(std::cerr, "dual-mode server starting on port {}", cfg.port);

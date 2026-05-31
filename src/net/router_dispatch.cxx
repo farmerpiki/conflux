@@ -17,11 +17,11 @@ import conflux.work;
 #endif
 
 export struct DeferredTaskOptions {
-	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout;
+	std::chrono::milliseconds timeout = conflux::http::DeferredResponse::kDefaultTimeout;
 };
 
 export struct DeferredRouteTask {
-	conflux::work::root::Task<Response> task;
+	conflux::work::root::Task<conflux::http::Response> task;
 	DeferredTaskOptions options{};
 };
 
@@ -40,12 +40,12 @@ void router_launch_sse_handler(
 	}
 }
 
-export Response router_defer_http_task(
-	conflux::work::root::Task<Response> task,
+export conflux::http::Response router_defer_http_task(
+	conflux::work::root::Task<conflux::http::Response> task,
 	DeferredTaskOptions options = {}) {
 	namespace wroot = conflux::work::root;
-	auto deferred = std::make_shared<DeferredResponse>(options.timeout);
-	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<Response>>(
+	auto deferred = std::make_shared<conflux::http::DeferredResponse>(options.timeout);
+	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<conflux::http::Response>>(
 		conflux::work::root::into_join_handle(std::move(task)));
 	deferred->attach_cancel(jh->control());
 	auto complete_ready = [deferred, jh]() noexcept {
@@ -54,13 +54,13 @@ export Response router_defer_http_task(
 			if (outcome.is_success()) {
 				deferred->complete(std::move(outcome).success().value);
 			} else if (outcome.is_cancelled() && outcome.cancelled().reason == wroot::CancelReason::deadline) {
-				deferred->complete(Response::gateway_timeout());
+				deferred->complete(conflux::http::Response::gateway_timeout());
 			} else {
-				deferred->complete(Response::internal_error());
+				deferred->complete(conflux::http::Response::internal_error());
 			}
-		} catch (std::exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
-			deferred->complete(Response::internal_error());
-		}
+		} catch (std::exception const &ex) {
+			deferred->complete(conflux::http::Response::internal_error(ex.what()));
+		} catch (...) { deferred->complete(conflux::http::Response::internal_error()); }
 	};
 	auto result = jh->control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{complete_ready});
 	switch (result.status) {
@@ -72,20 +72,22 @@ export Response router_defer_http_task(
 		break;
 	case wroot::ReadyRegistration::already_installed:
 		(void)jh->control().request_cancel();
-		deferred->complete(Response::internal_error("task already has a ready callback"));
+		deferred->complete(conflux::http::Response::internal_error("task already has a ready callback"));
 		break;
-	case wroot::ReadyRegistration::empty: deferred->complete(Response::internal_error("empty async task")); break;
+	case wroot::ReadyRegistration::empty:
+		deferred->complete(conflux::http::Response::internal_error("empty async task"));
+		break;
 	}
-	return Response::deferred(std::move(deferred));
+	return conflux::http::Response::deferred(std::move(deferred));
 }
 
-export Response router_run_async_http_task(
-	conflux::work::root::Task<Response> task) {
+export conflux::http::Response router_run_async_http_task(
+	conflux::work::root::Task<conflux::http::Response> task) {
 	return router_defer_http_task(std::move(task));
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] Response dispatch_immediate_routes(
+[[nodiscard]] conflux::http::Response dispatch_immediate_routes(
 	RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
@@ -118,10 +120,11 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 						}
 						return resp;
 					} catch (std::exception const &ex) {
-						return error_handler ? error_handler(req, ex) : Response::internal_error(ex.what());
+						return error_handler ? error_handler(req, ex) :
+											   conflux::http::Response::internal_error(ex.what());
 					} catch (...) {
 						return error_handler ? error_handler(req, std::runtime_error{"unknown std::exception"}) :
-											   Response::internal_error();
+											   conflux::http::Response::internal_error();
 					}
 				}
 				auto all_params = req.params;
@@ -160,10 +163,11 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 					return resp;
 				} catch (std::exception const &ex) {
-					return error_handler ? error_handler(matched_view, ex) : Response::internal_error(ex.what());
+					return error_handler ? error_handler(matched_view, ex) :
+										   conflux::http::Response::internal_error(ex.what());
 				} catch (...) {
 					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown std::exception"}) :
-										   Response::internal_error();
+										   conflux::http::Response::internal_error();
 				}
 			}
 		}
@@ -182,7 +186,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 					matched.params.emplace_back("__conflux_route_pattern", route.path_pattern);
 					router_launch_sse_handler(work_pool, route.handler, std::move(matched), channel);
-					auto resp = Response::sse(std::move(channel));
+					auto resp = conflux::http::Response::sse(std::move(channel));
 					if (observe_route) {
 						resp.headers.set("__conflux-route-pattern", route.path_pattern);
 					}
@@ -194,12 +198,12 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		if (not_found_handler) {
 			return not_found_handler(req);
 		}
-		return Response::not_found(path_sv);
-	} catch (...) { return Response::internal_error(); }
+		return conflux::http::Response::not_found(path_sv);
+	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] Response dispatch_sync_routes(
+[[nodiscard]] conflux::http::Response dispatch_sync_routes(
 	RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
@@ -266,18 +270,19 @@ export template<typename ContextRouteRange, typename Ctx>
 			return DeferredRouteTask{
 				.task =
 					[](auto handler, RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
-					-> conflux::work::root::Task<Response> {
+					-> conflux::work::root::Task<conflux::http::Response> {
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
 						 req = std::move(req),
 						 ctx,
 						 route_pattern = std::move(route_pattern),
-						 should_annotate](
-							conflux::work::root::Cancellation) mutable -> conflux::work::root::Task<Response> {
+						 should_annotate](conflux::work::root::Cancellation) mutable
+							-> conflux::work::root::Task<conflux::http::Response> {
 							if (!should_annotate) {
 								return handler(req, ctx);
 							}
-							return [](auto child, std::string route_pattern) -> conflux::work::root::Task<Response> {
+							return [](auto child,
+									  std::string route_pattern) -> conflux::work::root::Task<conflux::http::Response> {
 								auto resp = co_await std::move(child);
 								resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
 								co_return resp;
@@ -301,7 +306,7 @@ export template<typename ContextRouteRange, typename Ctx>
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<Response> dispatch_context_routes(
+[[nodiscard]] std::optional<conflux::http::Response> dispatch_context_routes(
 	RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,

@@ -15,6 +15,8 @@ import conflux.work;
 
 namespace http = conflux::http;
 using conflux::http::ConfigIssueCode;
+using conflux::http::DeferredResponse;
+using conflux::http::Response;
 using conflux::http::SecretSource;
 using conflux::http::SecretSourceKind;
 using conflux::http::VirtualHost;
@@ -154,7 +156,7 @@ Document require_json_text(
 }
 
 Document require_json_body(
-	Response const &response,
+	conflux::http::Response const &response,
 	int status,
 	std::string_view content_type = "application/problem+json") {
 	REQUIRE(response.status == status);
@@ -1363,9 +1365,10 @@ TEST_CASE(
 TEST_CASE(
 	"http facade: route timeout updates deferred response deadline",
 	"[http.facade]") {
-	auto deferred = std::make_shared<DeferredResponse>(std::chrono::hours{1});
+	auto deferred = std::make_shared<conflux::http::DeferredResponse>(std::chrono::hours{1});
 	auto app = http::app();
-	app.get("/deferred", [deferred] { return Response::deferred(deferred); }).timeout(std::chrono::milliseconds{25});
+	app.get("/deferred", [deferred] { return conflux::http::Response::deferred(deferred); })
+		.timeout(std::chrono::milliseconds{25});
 
 	Request req;
 	req.method = "GET";
@@ -2630,7 +2633,7 @@ TEST_CASE(
 	CHECK(created.text_body() == R"({"value":"made"})");
 
 	auto cookie = http::cookie("session", "abc").path("/").http_only().same_site(http::SameSite::Strict);
-	Response response;
+	conflux::http::Response response;
 	response.set_cookie(std::move(cookie));
 	REQUIRE(response.set_cookies.size() == 1);
 	CHECK(response.set_cookies[0] == "session=abc; Path=/; HttpOnly; SameSite=Strict");

@@ -314,18 +314,18 @@ void append_standard_routes(
 	PathState &state,
 	std::string small_json,
 	std::string medium_json) {
-	state.router.get("/api/ping", [](RequestView const &) { return Response::text("pong"); });
+	state.router.get("/api/ping", [](RequestView const &) { return conflux::http::Response::text("pong"); });
 	state.router.get("/hello/{name}", [](RequestView const &req) {
-		return Response::text(std::format("hello {}", req.params["name"]));
+		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
 	});
 	state.router.get("/api/json-small", [body = std::move(small_json)](RequestView const &) {
-		return Response::json(body);
+		return conflux::http::Response::json(body);
 	});
 	state.router.get("/api/json-medium", [body = std::move(medium_json)](RequestView const &) {
-		return Response::json(body);
+		return conflux::http::Response::json(body);
 	});
 	state.router.post("/api/echo-size", [](RequestView const &req) {
-		return Response::text(std::to_string(req.body.size()));
+		return conflux::http::Response::text(std::to_string(req.body.size()));
 	});
 }
 
@@ -417,7 +417,8 @@ void append_standard_routes(
 		state->app = std::make_unique<conflux::http::App>();
 		state->app->post("/api/json-body", [](conflux::http::Json<BenchAppJsonBody> const &json) {
 			auto const &body = *json;
-			return Response::text(std::to_string(body.id + body.count + static_cast<std::int64_t>(body.values.size())));
+			return conflux::http::Response::text(
+				std::to_string(body.id + body.count + static_cast<std::int64_t>(body.values.size())));
 		});
 		return {state->name, state->description, 120000, state};
 	}
@@ -428,7 +429,8 @@ void append_standard_routes(
 		state->app->get("/api/query-fields", [](conflux::http::QueryParams<BenchAppFields> const &query) {
 			auto const &fields = *query;
 			auto const limit = fields.limit.value_or(0);
-			return Response::text(std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
+			return conflux::http::Response::text(
+				std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
 		});
 		return {state->name, state->description, 160000, state};
 	}
@@ -440,7 +442,8 @@ void append_standard_routes(
 		state->app->post("/api/form-fields", [](conflux::http::FormParams<BenchAppFields> const &form) {
 			auto const &fields = *form;
 			auto const limit = fields.limit.value_or(0);
-			return Response::text(std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
+			return conflux::http::Response::text(
+				std::format("{}:{}:{}:{}", fields.q, fields.page, limit, fields.score));
 		});
 		return {state->name, state->description, 120000, state};
 	}
@@ -454,7 +457,8 @@ void append_standard_routes(
 			for (auto const &file: req.files) {
 				file_bytes += file.data.size();
 			}
-			return Response::text(std::format("{}:{}:{}", req.form.size(), req.files.size(), file_bytes));
+			return conflux::http::Response::text(
+				std::format("{}:{}:{}", req.form.size(), req.files.size(), file_bytes));
 		});
 		return {state->name, state->description, 60000, state};
 	}

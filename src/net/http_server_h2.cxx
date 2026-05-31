@@ -28,6 +28,7 @@ import conflux.types;
 import std.compat;
 
 import conflux.net.http.types;
+import conflux.net.http.response;
 import conflux.net.router;
 import conflux.file_map;
 import conflux.net.detail.direct_slot_pool;
@@ -451,7 +452,7 @@ ssize_t Ring::h2_read_cb(
 void Ring::h2_submit_response(
 	Conn &conn,
 	std::int32_t stream_id,
-	Response resp) {
+	conflux::http::Response resp) {
 	auto it = conn.h2_streams.find(stream_id);
 	if (it == conn.h2_streams.end()) {
 		return;
@@ -459,13 +460,13 @@ void Ring::h2_submit_response(
 	auto &stream = it->second;
 
 	if (resp.is_deferred()) {
-		resp = Response::internal_error("nested deferred responses unsupported over HTTP/2");
+		resp = conflux::http::Response::internal_error("nested deferred responses unsupported over HTTP/2");
 	}
 	if (resp.is_ws_upgrade()) {
-		resp = Response::internal_error("websocket upgrades unsupported over HTTP/2");
+		resp = conflux::http::Response::internal_error("websocket upgrades unsupported over HTTP/2");
 	}
 	if (resp.is_mapped_file()) {
-		resp = Response::internal_error("mapped files unsupported over HTTP/2");
+		resp = conflux::http::Response::internal_error("mapped files unsupported over HTTP/2");
 	}
 
 	bool const is_sse_resp = resp.is_sse();
@@ -600,11 +601,11 @@ int Ring::h2_on_frame_recv_cb(
 		request_lease->files,
 		body};
 
-	Response resp;
+	conflux::http::Response resp;
 	try {
 		resp = ctx->ring->dispatch(req);
-	} catch (std::exception const &e) { resp = Response::internal_error(e.what()); } catch (...) {
-		resp = Response::internal_error();
+	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
+		resp = conflux::http::Response::internal_error();
 	}
 
 	if (resp.is_deferred()) {

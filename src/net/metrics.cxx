@@ -7,6 +7,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 // ---------------------------------------------------------------------------
 // Public types
@@ -256,7 +257,7 @@ private:
 // Middleware: intercept every request, record method + status + latency.
 export conflux::http::Router::Middleware metrics_middleware(
 	MetricsRegistry &registry) {
-	return [&registry](RequestView const &req, conflux::http::Router::Handler const &next) -> Response {
+	return [&registry](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const start = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		registry.record(req.method, resp.status, std::chrono::steady_clock::now() - start);
@@ -269,7 +270,9 @@ export conflux::http::Router::Middleware metrics_middleware(
 // listener; prefer metrics_handler_protected or a network-level ACL.
 export conflux::http::Router::Handler metrics_handler(
 	MetricsRegistry const &registry) {
-	return [&registry](RequestView const &) -> Response { return Response::prometheus(registry.format_prometheus()); };
+	return [&registry](RequestView const &) -> conflux::http::Response {
+		return conflux::http::Response::prometheus(registry.format_prometheus());
+	};
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
@@ -280,7 +283,7 @@ export conflux::http::Router::Handler metrics_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> Response {
+		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> conflux::http::Response {
 			return mw(req, next);
 		};
 	}

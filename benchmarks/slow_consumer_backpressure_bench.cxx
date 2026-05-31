@@ -423,7 +423,7 @@ RowStats run_large_response_slow(
 	unsigned ring_entries) {
 	std::string body(body_bytes, 'B');
 	Router router;
-	router.get("/large", [&body](Request const &) { return Response::text(body); });
+	router.get("/large", [&body](Request const &) { return conflux::http::Response::text(body); });
 	auto server = start_server(bench_config(1, ring_entries), std::move(router));
 
 	RowStats row{.config = std::string{config}, .variant = std::move(variant), .iterations = connections};
@@ -482,7 +482,7 @@ RowStats run_sse_policy(
 			std::scoped_lock const lk{mu};
 			channel = ch;
 		}
-		return Response::sse(std::move(ch));
+		return conflux::http::Response::sse(std::move(ch));
 	});
 	auto server = start_server(bench_config(), std::move(router));
 	BenchClient client{server.port};

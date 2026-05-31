@@ -161,8 +161,11 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
-[[nodiscard]] Response static_forbidden() {
-	return Response::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
+[[nodiscard]] conflux::http::Response static_forbidden() {
+	return conflux::http::Response::html(
+		"<html><body><h1>403 Forbidden</h1></body></html>",
+		kHttpForbidden,
+		"Forbidden");
 }
 
 } // namespace
@@ -173,16 +176,16 @@ conflux::work::root::Task<void> do_save_static_file(
 	std::shared_ptr<std::string> fp,
 	bool existed,
 	StaticCacheStore &static_cache,
-	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	int dir_fd,
 	std::string rel_path);
 conflux::work::root::Task<void> do_delete_static_file(
-	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	std::shared_ptr<std::string> fp,
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
-Response handle_static_get_request(
+conflux::http::Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -206,24 +209,24 @@ Response handle_static_get_request(
 
 		if (sopts.offload_pool) {
 			auto owned_sreq = StaticRequestStorage::from(sreq);
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto ok = sopts.offload_pool->enqueue(
 				[rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
-					} catch (...) { dr->complete(Response::internal_error()); }
+					} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 				});
 			if (!ok) {
-				return Response::internal_error("offload queue full");
+				return conflux::http::Response::internal_error("offload queue full");
 			}
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		return handle_static_get(rd, root_fd, sopts, sreq, static_cache);
-	} catch (...) { return Response::internal_error(); }
+	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
-Response handle_static_put(
+conflux::http::Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -247,14 +250,14 @@ Response handle_static_put(
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto body_owned = std::make_shared<std::string>(req.body);
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
 			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, std::string{rel}).detach();
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto body_owned = std::make_shared<std::string>(req.body);
 			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue([full_path = std::move(full_path),
@@ -266,33 +269,33 @@ Response handle_static_put(
 												   dr]() mutable {
 				auto r = blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
 				if (!r) {
-					dr->complete(Response::internal_error());
+					dr->complete(conflux::http::Response::internal_error());
 					return;
 				}
 				static_cache.evict_path_and_sidecars(full_path);
-				Response resp;
+				conflux::http::Response resp;
 				resp.status = existed ? kHttpNoContent : kHttpCreated;
 				resp.status_text = existed ? "No Content" : "Created";
 				dr->complete(std::move(resp));
 			});
 			if (!ok) {
-				return Response::internal_error("offload queue full");
+				return conflux::http::Response::internal_error("offload queue full");
 			}
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
-			return Response::internal_error();
+			return conflux::http::Response::internal_error();
 		}
 		static_cache.evict_path_and_sidecars(full_path);
-		Response resp;
+		conflux::http::Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
 		return resp;
-	} catch (...) { return Response::internal_error(); }
+	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
-Response handle_static_delete(
+conflux::http::Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -312,19 +315,19 @@ Response handle_static_delete(
 
 		UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
 		if (!probe) {
-			return errno == ENOENT ? Response::not_found(*norm) : Response::forbidden();
+			return errno == ENOENT ? conflux::http::Response::not_found(*norm) : conflux::http::Response::forbidden();
 		}
 		probe.reset();
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
 			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		if (sopts.offload_pool) {
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue(
 				[full_path = std::move(full_path), rel = std::move(rel), rfd, &static_cache, dr]() mutable {
@@ -332,30 +335,33 @@ Response handle_static_delete(
 						auto unlinked = blocking_unlink_file_at(rfd, rel);
 						if (!unlinked) {
 							auto const err = errnum(unlinked);
-							dr->complete(err == ENOENT ? Response::not_found(full_path) : Response::internal_error());
+							dr->complete(
+								err == ENOENT ? conflux::http::Response::not_found(full_path) :
+												conflux::http::Response::internal_error());
 							return;
 						}
 						static_cache.evict_path_and_sidecars(full_path);
-						dr->complete(Response::no_content());
-					} catch (...) { dr->complete(Response::internal_error()); }
+						dr->complete(conflux::http::Response::no_content());
+					} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 				});
 			if (!ok) {
-				return Response::internal_error("offload queue full");
+				return conflux::http::Response::internal_error("offload queue full");
 			}
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		auto unlinked = blocking_unlink_file_at(root_fd, rel);
 		if (!unlinked) {
 			auto const err = errnum(unlinked);
-			return err == ENOENT ? Response::not_found(*norm) : Response::internal_error();
+			return err == ENOENT ? conflux::http::Response::not_found(*norm) :
+								   conflux::http::Response::internal_error();
 		}
 		static_cache.evict_path_and_sidecars(full_path);
-		return Response::no_content();
-	} catch (...) { return Response::internal_error(); }
+		return conflux::http::Response::no_content();
+	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
-Response handle_static_get(
+conflux::http::Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &static_options,
@@ -375,10 +381,10 @@ Response handle_static_get(
 			rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
 							  contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC)};
 		if (!probe_fd) {
-			return Response::not_found(file_param);
+			return conflux::http::Response::not_found(file_param);
 		}
 		if (::fstat(probe_fd.fd(), &st) != 0) {
-			return Response::not_found(file_param);
+			return conflux::http::Response::not_found(file_param);
 		}
 		probe_fd.reset();
 
@@ -387,7 +393,7 @@ Response handle_static_get(
 			UniqueFd idx_fd{contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
 			if (idx_fd) {
 				if (::fstat(idx_fd.fd(), &st) != 0 || !S_ISREG(st.st_mode)) {
-					return Response::not_found(file_param);
+					return conflux::http::Response::not_found(file_param);
 				}
 				idx_fd.reset();
 				full_path = rd + "/" + index_rel;
@@ -435,7 +441,7 @@ Response handle_static_get(
 					html += "</a></li>";
 				}
 				html += "</ul></body></html>";
-				return Response::html(std::move(html));
+				return conflux::http::Response::html(std::move(html));
 			} else {
 				return static_forbidden();
 			}
@@ -495,7 +501,7 @@ Response handle_static_get(
 
 		// 304 Not Modified checks.
 		if (auto const &inm = r.if_none_match; !inm.empty() && inm == etag) {
-			Response resp;
+			conflux::http::Response resp;
 			resp.status = kHttpNotModified;
 			resp.status_text = "Not Modified";
 			resp.content_type.clear();
@@ -509,7 +515,7 @@ Response handle_static_get(
 			if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
 				req_tm.tm_isdst = 0;
 				if (st.st_mtime <= ::timegm(&req_tm)) {
-					Response resp;
+					conflux::http::Response resp;
 					resp.status = kHttpNotModified;
 					resp.status_text = "Not Modified";
 					resp.content_type.clear();
@@ -570,7 +576,10 @@ Response handle_static_get(
 		auto file_size = static_cast<std::size_t>(st.st_size);
 
 		auto base_response = [&](int status, std::string_view status_text) {
-			Response resp{.status = status, .status_text = std::string{status_text}, .content_type = std::string{mime}};
+			conflux::http::Response resp{
+				.status = status,
+				.status_text = std::string{status_text},
+				.content_type = std::string{mime}};
 			resp.headers["ETag"] = etag;
 			resp.headers["Last-Modified"] = last_modified;
 			resp.headers["Accept-Ranges"] = "bytes";
@@ -647,7 +656,7 @@ Response handle_static_get(
 						is_range_request = true;
 					} else if (ok) {
 						// Range not satisfiable
-						auto resp = Response{};
+						auto resp = conflux::http::Response{};
 						resp.status = kHttpRangeNotSatisfiable;
 						resp.status_text = "Range Not Satisfiable";
 						resp.content_type = "text/plain; charset=utf-8";
@@ -662,7 +671,7 @@ Response handle_static_get(
 			auto make_cached_response = [&](StaticCacheEntry const &entry) {
 				if (is_range_request) {
 					auto send_sz = range_end - range_start + 1;
-					auto resp = Response{
+					auto resp = conflux::http::Response{
 						.status = kHttpPartialContent,
 						.status_text = "Partial Content",
 						.content_type = entry.mime};
@@ -679,7 +688,7 @@ Response handle_static_get(
 					resp.set_text_body(entry.body.substr(range_start, send_sz));
 					return resp;
 				}
-				auto resp = Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+				auto resp = conflux::http::Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
 				resp.headers["ETag"] = entry.etag;
 				resp.headers["Last-Modified"] = entry.last_modified;
 				resp.headers["Accept-Ranges"] = "bytes";
@@ -695,7 +704,10 @@ Response handle_static_get(
 			if (auto cached =
 					static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
 						if (!is_range_request) {
-							auto resp = Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+							auto resp = conflux::http::Response{
+								.status = kHttpOk,
+								.status_text = "OK",
+								.content_type = entry.mime};
 							resp.headers["ETag"] = entry.etag;
 							resp.headers["Last-Modified"] = entry.last_modified;
 							resp.headers["Accept-Ranges"] = "bytes";
@@ -714,7 +726,7 @@ Response handle_static_get(
 			}
 			UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
 			if (!fd) {
-				return Response::not_found(file_param);
+				return conflux::http::Response::not_found(file_param);
 			}
 			std::string body(file_size, '\0');
 			std::size_t off = 0;
@@ -724,7 +736,7 @@ Response handle_static_get(
 					if (errno == EINTR) {
 						continue;
 					}
-					return Response::internal_error();
+					return conflux::http::Response::internal_error();
 				}
 				if (n == 0) {
 					break;
@@ -760,7 +772,7 @@ Response handle_static_get(
 		// carries a StreamedFile once the open CQE fires. Otherwise
 		// fall back to the synchronous mmap path below.
 		if (auto *fr = current_file_reader(); fr != nullptr && content_encoding.empty()) {
-			auto dr = std::make_shared<DeferredResponse>();
+			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto base =
 				is_range_request ? base_response(kHttpPartialContent, "Partial Content") : base_response(kHttpOk, "OK");
 			if (is_range_request) {
@@ -782,12 +794,12 @@ Response handle_static_get(
 						.mode = 0,
 						.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
 				.detach();
-			return Response::deferred(std::move(dr));
+			return conflux::http::Response::deferred(std::move(dr));
 		}
 
 		auto lease = blocking_map_file_readonly(root_fd, std::string_view{rel_str});
 		if (!lease) {
-			return Response::internal_error();
+			return conflux::http::Response::internal_error();
 		}
 
 		if (is_range_request) {
@@ -804,12 +816,12 @@ Response handle_static_get(
 		resp.set_mapped_file(
 			std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
 		return resp;
-	} catch (...) { return Response::internal_error(); }
+	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
 conflux::work::root::Task<void> do_serve_static_file(
-	std::shared_ptr<DeferredResponse> dr,
-	Response base,
+	std::shared_ptr<conflux::http::DeferredResponse> dr,
+	conflux::http::Response base,
 	std::size_t send_off,
 	std::size_t send_sz,
 	std::size_t total_size,
@@ -823,7 +835,7 @@ conflux::work::root::Task<void> do_serve_static_file(
 		streamed->total_size = total_size;
 		base.set_streamed_file(std::move(streamed));
 		dr->complete(std::move(base));
-	} catch (...) { dr->complete(Response::not_found("async open failed")); }
+	} catch (...) { dr->complete(conflux::http::Response::not_found("async open failed")); }
 }
 conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
@@ -831,28 +843,30 @@ conflux::work::root::Task<void> do_save_static_file(
 	std::shared_ptr<std::string> fp,
 	bool existed,
 	StaticCacheStore &static_cache,
-	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	int dir_fd,
 	std::string rel_path) {
 	try {
 		co_await fr->async_atomic_write(dir_fd, std::move(rel_path), std::as_bytes(std::span{*body_owned}));
 		static_cache.evict_path_and_sidecars(*fp);
-		Response resp;
+		conflux::http::Response resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
 		dr->complete(std::move(resp));
-	} catch (...) { dr->complete(Response::internal_error()); }
+	} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 }
 conflux::work::root::Task<void> do_delete_static_file(
-	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	std::shared_ptr<std::string> fp,
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task) {
 	try {
 		co_await std::move(unlink_task);
 		static_cache.evict_path_and_sidecars(*fp);
-		dr->complete(Response::no_content());
+		dr->complete(conflux::http::Response::no_content());
 	} catch (FileIoError const &e) {
-		dr->complete(e.code().value() == ENOENT ? Response::not_found(*fp) : Response::internal_error());
-	} catch (...) { dr->complete(Response::internal_error()); }
+		dr->complete(
+			e.code().value() == ENOENT ? conflux::http::Response::not_found(*fp) :
+										 conflux::http::Response::internal_error());
+	} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 }

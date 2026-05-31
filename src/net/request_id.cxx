@@ -3,6 +3,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
+import conflux.net.http.response;
 import conflux.utils;
 export struct RequestIdOptions {
 	// Header to read/write the request ID on.
@@ -49,7 +50,7 @@ export conflux::http::Router::Middleware request_id_middleware(
 
 	return [opts = std::move(opts), lower_header = std::move(lower_header)](
 			   RequestView const &req,
-			   conflux::http::Router::Handler const &next) -> Response {
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string id;
 		if (opts.trust_incoming) {
 			auto existing = req.headers[lower_header];
