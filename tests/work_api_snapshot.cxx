@@ -22,7 +22,6 @@ import conflux.net.io_buffer;
 
 // ---------------------------------------------------------------------------
 // conflux::work façade aliases (E1.0)
-// These live at conflux::work level; old ::Task<T> still at global namespace.
 // ---------------------------------------------------------------------------
 
 namespace snapshot_work_facade {

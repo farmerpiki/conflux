@@ -356,6 +356,22 @@ if(TARGET conflux)
         EXPECT "WorkPool")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_task
+        SOURCE work_compile_fail_global_task.cxx
+        TEST api-surface/work-hides-global-task
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Task")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_task_source
+        SOURCE work_compile_fail_global_task_source.cxx
+        TEST api-surface/work-hides-global-task-source
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TaskSource")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_types_compile_fail_global_io_error
         SOURCE types_compile_fail_global_io_error.cxx
         TEST api-surface/types-hides-global-io-error
