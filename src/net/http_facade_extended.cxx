@@ -6,7 +6,7 @@ module;
 export module conflux.http.extended;
 
 export import conflux.http;
-export import conflux.work;
+import conflux.work;
 import std;
 import conflux.net.app.defer;
 import conflux.net.router;
@@ -17,6 +17,10 @@ export namespace conflux::http {
 
 using Router = ::Router;
 using RouteInfo = ::RouteInfo;
+using WorkPool = ::WorkPool;
+using WorkPoolOptions = ::WorkPoolOptions;
+using WorkPoolQueueMode = ::WorkPoolQueueMode;
+using WorkPoolQueueStats = ::WorkPoolQueueStats;
 
 template<class F>
 concept ViewMiddleware = ::ViewMiddleware<F>;

@@ -39,12 +39,12 @@ void router_escape_hatch_spelling_compiles() {
 }
 
 void offload_spelling_compiles(
-	std::shared_ptr<WorkPool> pool) {
+	std::shared_ptr<http::WorkPool> pool) {
 	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 
 void offload_ref_spelling_compiles(
-	WorkPool &pool) {
+	http::WorkPool &pool) {
 	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 

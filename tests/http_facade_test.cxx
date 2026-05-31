@@ -755,7 +755,7 @@ TEST_CASE(
 TEST_CASE(
 	"http facade: observability metrics include explicit runtime and work sources",
 	"[http.facade]") {
-	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+	auto pool = std::make_shared<http::WorkPool>(http::WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
 	std::atomic<int> ran{0};
 	REQUIRE(pool->enqueue([&ran] { ran.fetch_add(1, std::memory_order_relaxed); }));
 	pool->drain_and_stop();
