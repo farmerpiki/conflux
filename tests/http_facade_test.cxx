@@ -2603,7 +2603,7 @@ TEST_CASE(
 	req.method = "POST";
 	req.path = "/upload";
 	req.form["title"] = "Report";
-	req.files.push_back(UploadedFile::borrowed("upload", "report.txt", "text/plain", "file-body"));
+	req.files.push_back(conflux::http::UploadedFile::borrowed("upload", "report.txt", "text/plain", "file-body"));
 
 	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);

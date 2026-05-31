@@ -386,7 +386,9 @@ struct DrainReport {
 
 } // namespace conflux::http
 
-export struct UploadedFile {
+export namespace conflux::http {
+
+struct UploadedFile {
 	std::string_view name;
 	std::string_view filename;
 	std::string_view content_type;
@@ -520,8 +522,6 @@ export struct UploadedFile {
 			std::string{data});
 	}
 };
-
-export namespace conflux::http {
 
 enum class HttpFieldSource : std::uint8_t {
 	params,
@@ -820,7 +820,7 @@ export struct Request : HttpRequestFieldAccessors {
 	HttpFields query; // parsed from URL ?k=v&...
 	HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
 	HttpFields cookies; // parsed from Cookie: header
-	std::vector<UploadedFile> files; // parsed from multipart/form-data body
+	std::vector<conflux::http::UploadedFile> files; // parsed from multipart/form-data body
 	std::string body;
 	[[nodiscard]] Request to_owned() const { return *this; }
 };
@@ -835,7 +835,7 @@ export struct RequestView : HttpRequestFieldAccessors {
 	HttpFieldsView query;
 	HttpFieldsView form;
 	HttpFieldsView cookies;
-	std::span<UploadedFile const> files;
+	std::span<conflux::http::UploadedFile const> files;
 	std::string_view body;
 	RequestView(
 		std::string_view method_,
@@ -848,7 +848,7 @@ export struct RequestView : HttpRequestFieldAccessors {
 		HttpFieldsView query_,
 		HttpFieldsView form_,
 		HttpFieldsView cookies_,
-		std::span<UploadedFile const> files_,
+		std::span<conflux::http::UploadedFile const> files_,
 		std::string_view body_)
 		: method(method_)
 		, path(path_)
@@ -902,7 +902,6 @@ export namespace conflux::http {
 using RequestView = ::RequestView;
 using OwnedRequest = ::Request;
 using Request = RequestView;
-using UploadedFile = ::UploadedFile;
 
 } // namespace conflux::http
 

@@ -476,7 +476,7 @@ export void parse_multipart(
 	std::string_view body,
 	std::string_view boundary,
 	HttpFieldsView &form,
-	std::vector<UploadedFile> &files) {
+	std::vector<conflux::http::UploadedFile> &files) {
 	std::string delim;
 	delim.reserve(boundary.size() + 2);
 	delim += "--";
@@ -556,7 +556,7 @@ export void parse_multipart(
 		auto name = extract_param(disposition, "name");
 		auto filename = extract_param(disposition, "filename");
 		if (!filename.empty()) {
-			files.push_back(UploadedFile::borrowed(name, filename, part_ct, content));
+			files.push_back(conflux::http::UploadedFile::borrowed(name, filename, part_ct, content));
 		} else if (!name.empty()) {
 			form.emplace_back(name, content);
 		}
@@ -571,7 +571,7 @@ export void populate_request_parts(
 	HttpFieldsView &query,
 	HttpFieldsView &form,
 	HttpFieldsView &cookies,
-	std::vector<UploadedFile> &files) {
+	std::vector<conflux::http::UploadedFile> &files) {
 	if (!target.query_suffix.empty()) {
 		parse_urlencoded(target.query, query);
 	}

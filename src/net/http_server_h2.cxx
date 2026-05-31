@@ -70,7 +70,7 @@ struct H2RequestLease {
 	HttpFieldsView query{};
 	HttpFieldsView form{};
 	HttpFieldsView cookies{};
-	std::vector<UploadedFile> files{};
+	std::vector<conflux::http::UploadedFile> files{};
 };
 
 static void h2_queue_raw_rst_stream(

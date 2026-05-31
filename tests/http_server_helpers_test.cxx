@@ -250,7 +250,7 @@ TEST_CASE(
 		"--AaB03x--\r\n";
 
 	HttpFieldsView form;
-	std::vector<UploadedFile> files;
+	std::vector<conflux::http::UploadedFile> files;
 	parse_multipart(body, "AaB03x", form, files);
 
 	REQUIRE(form.size() == 1);

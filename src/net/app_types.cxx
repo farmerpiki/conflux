@@ -648,14 +648,14 @@ struct MergePatch {
 
 struct Multipart {
 	HttpFieldsView form;
-	std::span<UploadedFile const> files;
+	std::span<conflux::http::UploadedFile const> files;
 
 	[[nodiscard]] std::string_view form_value(
 		std::string_view name) const {
 		return form[name];
 	}
 
-	[[nodiscard]] UploadedFile const *file(
+	[[nodiscard]] conflux::http::UploadedFile const *file(
 		std::string_view name) const noexcept {
 		for (auto const &item: files) {
 			if (item.name == name) {

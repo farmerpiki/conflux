@@ -178,7 +178,7 @@ void dispatch_request(
 	HttpFieldsView query;
 	HttpFieldsView form;
 	HttpFieldsView cookies;
-	std::vector<UploadedFile> files;
+	std::vector<conflux::http::UploadedFile> files;
 	std::string_view body;
 
 	CommonHeaderSummary common_headers;
@@ -358,10 +358,10 @@ void dispatch_request(
 		return;
 	}
 
-	std::shared_ptr<std::vector<UploadedFile>> request_files;
-	std::span<UploadedFile const> file_views{files};
+	std::shared_ptr<std::vector<conflux::http::UploadedFile>> request_files;
+	std::span<conflux::http::UploadedFile const> file_views{files};
 	if (!files.empty()) {
-		request_files = std::make_shared<std::vector<UploadedFile>>(std::move(files));
+		request_files = std::make_shared<std::vector<conflux::http::UploadedFile>>(std::move(files));
 		file_views = *request_files;
 	}
 	RequestView const req{

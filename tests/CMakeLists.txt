@@ -452,6 +452,14 @@ if(TARGET conflux_net_http)
         EXPECT "Response")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_uploaded_file
+        SOURCE http_facade_compile_fail_global_uploaded_file.cxx
+        TEST http-facade/compile-fail-global-uploaded-file
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "UploadedFile")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_http_method
         SOURCE http_facade_compile_fail_global_http_method.cxx
         TEST http-facade/compile-fail-global-http-method

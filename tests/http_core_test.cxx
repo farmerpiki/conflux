@@ -123,7 +123,7 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::RequestView, RequestView>);
 	static_assert(std::same_as<chttp::Request, RequestView>);
 	static_assert(std::same_as<chttp::OwnedRequest, Request>);
-	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
+	static_assert(std::same_as<chttp::UploadedFile, conflux::http::UploadedFile>);
 }
 
 TEST_CASE(
@@ -175,7 +175,7 @@ TEST_CASE(
 		query,
 		form,
 		cookies,
-		std::span<UploadedFile const>{},
+		std::span<conflux::http::UploadedFile const>{},
 		{}};
 
 	auto id = req.param_as<std::uint32_t>("id");
@@ -318,7 +318,7 @@ TEST_CASE(
 	req.path = "/upload";
 	req.version = "HTTP/1.1";
 	req.remote_addr = "127.0.0.1";
-	req.files.push_back(UploadedFile::borrowed("file", "a.txt", "text/plain", "payload"));
+	req.files.push_back(conflux::http::UploadedFile::borrowed("file", "a.txt", "text/plain", "payload"));
 	req.body = "body";
 
 	RequestView view{req};
@@ -331,7 +331,7 @@ TEST_CASE(
 	CHECK(owned.files[0].content_type == "text/plain");
 	CHECK(owned.files[0].data == "payload");
 
-	req.files[0] = UploadedFile::borrowed("mutated", "b.txt", "text/html", "changed");
+	req.files[0] = conflux::http::UploadedFile::borrowed("mutated", "b.txt", "text/html", "changed");
 	req.body = "changed body";
 	CHECK(owned.files[0].name == "file");
 	CHECK(owned.files[0].data == "payload");

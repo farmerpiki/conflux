@@ -250,7 +250,7 @@ struct alignas(
 	int deferred_efd = -1;
 	std::shared_ptr<DeferredResponse> deferred_response{};
 	std::shared_ptr<std::string> deferred_request_storage{};
-	std::shared_ptr<std::vector<UploadedFile>> deferred_request_files{};
+	std::shared_ptr<std::vector<conflux::http::UploadedFile>> deferred_request_files{};
 	std::shared_ptr<conflux::http::WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
 	std::shared_ptr<WorkPool> ws_work_pool{};
 	Request saved_req{}; // copy of request saved for WS handler std::thread

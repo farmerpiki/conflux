@@ -554,7 +554,7 @@ void apply_phase(
 	HttpFieldsView &query,
 	HttpFieldsView &form,
 	HttpFieldsView &cookies,
-	std::vector<UploadedFile> &files,
+	std::vector<conflux::http::UploadedFile> &files,
 	std::string_view &path,
 	std::string_view &body) {
 	auto const status = conflux::http1::parse_request(raw, limits, parsed);
@@ -617,7 +617,7 @@ void apply_phase(
 	HttpFieldsView query;
 	HttpFieldsView form;
 	HttpFieldsView cookies;
-	std::vector<UploadedFile> files;
+	std::vector<conflux::http::UploadedFile> files;
 	std::string_view path;
 	std::string_view body;
 	auto req = make_request_view(state.raw, state.limits, parsed, headers, query, form, cookies, files, path, body);
