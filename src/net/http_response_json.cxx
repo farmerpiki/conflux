@@ -89,46 +89,4 @@ template<class Provider, class T>
 		ResponseOptions{.status = status, .status_text = status_text, .dump = opts});
 }
 
-// Pre-release compatibility aliases. New boundary-first code should call the
-// *_with form so provider selection is explicit at the HTTP layer.
-template<class Provider, class T>
-[[nodiscard]] std::expected<Response, conflux::json::boundary::Error> try_response(
-	T const &value,
-	ResponseOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<Provider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
-{
-	return try_response_with<Provider>(value, opts);
-}
-
-template<class Provider, class T>
-[[nodiscard]] std::expected<Response, conflux::json::boundary::Error> try_response(
-	T const &value,
-	int status,
-	std::string_view status_text,
-	conflux::json::boundary::DumpOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<Provider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
-{
-	return try_response_with<Provider>(value, status, status_text, opts);
-}
-
-template<class Provider, class T>
-[[nodiscard]] Response response_or_internal_error(
-	T const &value,
-	ResponseOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<Provider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
-{
-	return response_or_internal_error_with<Provider>(value, opts);
-}
-
-template<class Provider, class T>
-[[nodiscard]] Response response_or_internal_error(
-	T const &value,
-	int status,
-	std::string_view status_text,
-	conflux::json::boundary::DumpOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<Provider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
-{
-	return response_or_internal_error_with<Provider>(value, status, status_text, opts);
-}
-
 } // namespace conflux::http::codec::json
