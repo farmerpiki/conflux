@@ -13,6 +13,8 @@ import conflux.types;
 import conflux.file_io;
 import conflux.uring.completion;
 
+namespace conflux::file_watch {
+
 export enum class FileEventKind : std::uint8_t {
 	created,
 	modified,
@@ -223,3 +225,5 @@ public:
 		}
 	}
 };
+
+} // namespace conflux::file_watch

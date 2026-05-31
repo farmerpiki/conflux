@@ -202,6 +202,14 @@ if(TARGET conflux)
         LINK conflux_process conflux_options
         LABELS build api-surface compile-fail
         EXPECT "run")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_watch_compile_fail_global_watcher
+        SOURCE file_watch_compile_fail_global_watcher.cxx
+        TEST api-surface/file-watch-hides-global-watcher
+        LINK conflux_file_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "FileWatcher")
 endif()
 
 add_executable(conflux_tests)

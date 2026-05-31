@@ -8,7 +8,7 @@ import conflux.file_watch;
 export namespace conflux::templates::watch {
 
 struct TemplateWatchOptions {
-	::WatchOptions file_watch{};
+	conflux::file_watch::WatchOptions file_watch{};
 	std::chrono::milliseconds debounce{50};
 	std::vector<std::string> extensions{".html", ".htm", ".txt"};
 	bool reload_on_directory_event = true;
@@ -55,7 +55,7 @@ struct TemplateWatcher::Impl {
 	Environment *env = nullptr;
 	std::string template_dir;
 	TemplateWatchOptions options;
-	std::unique_ptr<FileWatcher> watcher;
+	std::unique_ptr<conflux::file_watch::FileWatcher> watcher;
 	std::jthread worker;
 	std::mutex mtx;
 	std::condition_variable_any cv;
@@ -112,8 +112,8 @@ struct TemplateWatcher::Impl {
 	}
 
 	[[nodiscard]] bool should_reload(
-		FileEvent const &ev) const {
-		if (ev.kind == FileEventKind::overflow) {
+		conflux::file_watch::FileEvent const &ev) const {
+		if (ev.kind == conflux::file_watch::FileEventKind::overflow) {
 			return options.reload_on_overflow;
 		}
 		if (ev.is_directory) {
@@ -176,10 +176,10 @@ struct TemplateWatcher::Impl {
 			dirty = false;
 		}
 		try {
-			auto fw = std::make_unique<FileWatcher>();
+			auto fw = std::make_unique<conflux::file_watch::FileWatcher>();
 			fw->watch_directory(template_dir, options.file_watch);
 			auto weak = std::weak_ptr<Impl>{self};
-			fw->on_events([weak](std::vector<FileEvent> const &events) {
+			fw->on_events([weak](std::vector<conflux::file_watch::FileEvent> const &events) {
 				auto locked = weak.lock();
 				if (!locked) {
 					return;
