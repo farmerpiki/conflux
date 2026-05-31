@@ -53,7 +53,7 @@ export class IopollFileReader {
 		char const *message) const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(raw_src));
-		auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{err, message}));
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(IoError{err, message}));
 		return std::move(task);
 	}
 
@@ -122,8 +122,7 @@ public:
 		auto shared_src = std::make_shared<root::TaskSource<FileReader::ReadFixedResult>>(std::move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			auto _ =
-				shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: iopoll SQ full"}));
+			auto _ = shared_src->try_set_exception(std::make_exception_ptr(IoError{ENOSPC, "file_io: iopoll SQ full"}));
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -141,7 +140,7 @@ public:
 			try {
 				if (r.res < 0) {
 					auto _ = shared_src->try_set_exception(
-						std::make_exception_ptr(FileIoError{-r.res, "file_io: iopoll read_nocache_fixed"}));
+						std::make_exception_ptr(IoError{-r.res, "file_io: iopoll read_nocache_fixed"}));
 					return;
 				}
 				std::size_t const bytes = std::min(static_cast<std::size_t>(r.res), actual_cap);
@@ -189,16 +188,16 @@ public:
 		}
 	}
 
-	[[nodiscard]] static std::expected<std::unique_ptr<IopollStorageRing>, FileIoError> create(
+	[[nodiscard]] static std::expected<std::unique_ptr<IopollStorageRing>, IoError> create(
 		IopollStorageRingOptions options = {}) {
 		if (options.entries == 0) {
 			return std::unexpected{
-				FileIoError{EINVAL, "file_io: iopoll entries must be non-zero"}
+				IoError{EINVAL, "file_io: iopoll entries must be non-zero"}
             };
 		}
 		if (options.fixed_buffer_slots == 0 || options.fixed_buffer_bytes == 0) {
 			return std::unexpected{
-				FileIoError{EINVAL, "file_io: iopoll fixed buffers must be non-empty"}
+				IoError{EINVAL, "file_io: iopoll fixed buffers must be non-empty"}
             };
 		}
 		auto out = std::unique_ptr<IopollStorageRing>{new IopollStorageRing{}};
@@ -208,21 +207,21 @@ public:
 		int const rc = io_uring_queue_init_params(options.entries, &out->ring_, &params);
 		if (rc < 0) {
 			return std::unexpected{
-				FileIoError{-rc, "file_io: iopoll ring init"}
+				IoError{-rc, "file_io: iopoll ring init"}
             };
 		}
 		out->ring_valid_ = true;
 		auto table = std::make_unique<RegisteredBufferTable>(&out->ring_, options.fixed_buffer_slots);
 		if (!table->ok()) {
 			return std::unexpected{
-				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer table unsupported"}
+				IoError{ENOTSUP, "file_io: iopoll fixed-buffer table unsupported"}
             };
 		}
 		auto buffers =
 			std::make_unique<FixedBufferPool>(table.get(), 0, options.fixed_buffer_slots, options.fixed_buffer_bytes);
 		if (!buffers->ok() || buffers->capacity() == 0) {
 			return std::unexpected{
-				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer pool init"}
+				IoError{ENOTSUP, "file_io: iopoll fixed-buffer pool init"}
             };
 		}
 		out->buffer_table_ = std::move(table);

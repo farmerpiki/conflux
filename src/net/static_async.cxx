@@ -889,7 +889,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 		co_await std::move(unlink_task);
 		static_cache.evict_path_and_sidecars(*fp);
 		dr->complete(conflux::http::Response::no_content());
-	} catch (conflux::file_io::FileIoError const &e) {
+	} catch (conflux::IoError const &e) {
 		dr->complete(
 			e.code().value() == ENOENT ? conflux::http::Response::not_found(*fp) :
 										 conflux::http::Response::internal_error());
