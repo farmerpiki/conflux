@@ -83,7 +83,7 @@ struct FailedAuthState {
 };
 
 [[nodiscard]] std::string failed_auth_key(
-	RequestView const &req) {
+	conflux::http::RequestView const &req) {
 	if (req.remote_addr.empty()) {
 		return "unknown";
 	}
@@ -458,7 +458,7 @@ export [[nodiscard]] std::string auth_throttle_key(
 }
 
 export [[nodiscard]] std::string auth_throttle_remote_key(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view scope = "remote") {
 	auto subject = req.remote_addr.empty() ?
 					   std::string{"unknown"} :
@@ -467,7 +467,7 @@ export [[nodiscard]] std::string auth_throttle_remote_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
 	auto value = req.form[field];
@@ -478,7 +478,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
 	auto value = req.query[field];
@@ -489,7 +489,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 }
 
 export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view scope = "api-token") {
 	auto credentials = conflux::http::credentials_for_auth_scheme(req.headers["authorization"], "Bearer");
 	if (!credentials) {
@@ -515,7 +515,7 @@ conflux::http::Router::Middleware auth_throttle_middleware(
 	return [limiter = std::move(limiter),
 			selector = std::decay_t<KeySelector>(std::forward<KeySelector>(selector)),
 			opts = std::move(opts)](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) mutable -> conflux::http::Response {
 		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
 		if (!key) {
@@ -540,7 +540,7 @@ conflux::http::Router::Middleware basic_auth_middleware(
 	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)),
 			opts = std::move(opts),
-			state](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+			state](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
@@ -574,7 +574,7 @@ export template<typename Validator>
 conflux::http::Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator))](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto auth = req.headers["authorization"];
 		auto credentials = conflux::http::credentials_for_auth_scheme(auth, "Bearer");

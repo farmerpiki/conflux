@@ -493,7 +493,7 @@ export bool set_gzip_backend(
 // Skips small responses, SSE streams, and non-compressible MIME types.
 export conflux::http::Router::Middleware compress_middleware(
 	CompressOptions opts = {}) {
-	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		if (!resp.is_text()) {

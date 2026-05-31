@@ -423,7 +423,7 @@ RowStats run_large_response_slow(
 	unsigned ring_entries) {
 	std::string body(body_bytes, 'B');
 	Router router;
-	router.get("/large", [&body](Request const &) { return conflux::http::Response::text(body); });
+	router.get("/large", [&body](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body); });
 	auto server = start_server(bench_config(1, ring_entries), std::move(router));
 
 	RowStats row{.config = std::string{config}, .variant = std::move(variant), .iterations = connections};
@@ -476,7 +476,7 @@ RowStats run_sse_policy(
 	std::mutex mu;
 	std::shared_ptr<SseChannel> channel;
 	Router router;
-	router.get("/sse", [&](Request const &) {
+	router.get("/sse", [&](conflux::http::OwnedRequest const &) {
 		auto ch = std::make_shared<SseChannel>(max_queue_bytes, policy);
 		{
 			std::scoped_lock const lk{mu};
@@ -754,7 +754,7 @@ RowStats run_ws_workpool_full(
 
 	Router router;
 	router.set_work_pool(pool);
-	router.ws("/ws", [](Request const &, WsConn &ws) {
+	router.ws("/ws", [](conflux::http::OwnedRequest const &, WsConn &ws) {
 		std::string payload(4096, 'W');
 		for (int i = 0; i < 256; ++i) {
 			if (!ws.send_text(payload)) {

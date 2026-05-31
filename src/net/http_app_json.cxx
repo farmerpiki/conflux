@@ -13,7 +13,7 @@ export namespace conflux::http::codec::json {
 	auto response = Response::json(
 		R"({"code":"json.decode.type_mismatch","detail":"json decode failed"})",
 		kHttpBadRequest,
-		"Bad Request");
+		"Bad conflux::http::OwnedRequest");
 	response.content_type = "application/problem+json";
 	return response;
 }
@@ -41,7 +41,7 @@ struct StoredResponseOptions {
 } // namespace detail
 
 template<class Provider, class F>
-concept JsonViewHandler = requires(std::decay_t<F> &fn, RequestView const &req, ResponseOptions const &opts) {
+concept JsonViewHandler = requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, ResponseOptions const &opts) {
 	{ response_or_internal_error_with<Provider>(std::invoke(fn, req), opts) } -> std::same_as<Response>;
 };
 
@@ -56,7 +56,7 @@ concept JsonRouteHandler = JsonViewHandler<Provider, F> || JsonNullaryHandler<Pr
 template<class Provider, class Body, class F>
 concept JsonBodyViewHandler = requires(
 	std::decay_t<F> &fn,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::remove_cvref_t<Body> const &body,
 	ResponseOptions const &opts) {
 	{ response_or_internal_error_with<Provider>(std::invoke(fn, req, body), opts) } -> std::same_as<Response>;
@@ -140,7 +140,7 @@ template<class Provider, class F>
 	using Fn = std::decay_t<F>;
 	auto stored_opts = detail::store_response_options(opts);
 	return conflux::http::Router::Handler{
-		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](RequestView const &req) mutable -> Response {
+		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](conflux::http::RequestView const &req) mutable -> Response {
 			if constexpr (JsonViewHandler<Provider, Fn>) {
 				return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
 			} else {
@@ -161,7 +161,7 @@ template<class Provider, class Body, class F>
 	auto stored_opts = detail::store_response_options(opts);
 	return conflux::http::Router::Handler{
 		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts), decode_opts](
-			RequestView const &req) mutable -> Response {
+			conflux::http::RequestView const &req) mutable -> Response {
 			auto decoded = conflux::json::boundary::decode_with<Provider, BodyValue>(req.body, decode_opts);
 			if (!decoded) {
 				return decode_error_response();

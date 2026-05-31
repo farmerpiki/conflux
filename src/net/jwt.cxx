@@ -391,7 +391,7 @@ export std::string jwt_sign(
 export conflux::http::Router::Middleware jwt_middleware(
 	JwtOptions opts) {
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto unauthorized = [](std::string_view www_auth) {
 			auto r = conflux::http::Response::text("Unauthorized", kHttpUnauthorized, "Unauthorized");
 			r.headers["WWW-Authenticate"] = std::string{www_auth};

@@ -254,7 +254,7 @@ struct alignas(
 	std::shared_ptr<std::vector<conflux::http::UploadedFile>> deferred_request_files{};
 	std::shared_ptr<conflux::http::WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
 	std::shared_ptr<WorkPool> ws_work_pool{};
-	Request saved_req{}; // copy of request saved for WS handler std::thread
+	conflux::http::OwnedRequest saved_req{}; // copy of request saved for WS handler std::thread
 	bool is_tls = false; // set after first-std::byte sniff; used by dispatch_request
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
@@ -359,7 +359,7 @@ struct Ring {
 	struct WsHandoffState {
 		std::shared_ptr<conflux::http::WsUpgrade> upgrade{};
 		std::shared_ptr<WorkPool> pool{};
-		Request request{};
+		conflux::http::OwnedRequest request{};
 	};
 	struct WsInstallEntry {
 		WsHandoffState state{};
@@ -502,11 +502,11 @@ struct Ring {
 	Ring &operator =(Ring const &) = delete;
 	Ring(Ring &&) = delete;
 	Ring &operator =(Ring &&) = delete;
-	[[nodiscard]] conflux::http::Response dispatch(RequestView const &req) const;
+	[[nodiscard]] conflux::http::Response dispatch(conflux::http::RequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
-	[[nodiscard]] std::optional<conflux::http::Response> try_dispatch_context(RequestView const &req) const;
+	[[nodiscard]] std::optional<conflux::http::Response> try_dispatch_context(conflux::http::RequestView const &req) const;
 	[[nodiscard]] std::shared_ptr<std::string> acquire_request_buffer();
-	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(RequestView const &req) const;
+	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(conflux::http::RequestView const &req) const;
 	void clear_deferred_wait(int deferred_efd);
 	void queue_deferred_wait(
 		int conn_fd,

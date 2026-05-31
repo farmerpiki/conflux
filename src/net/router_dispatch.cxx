@@ -29,10 +29,10 @@ export template<typename Pool, typename Handler>
 void router_launch_sse_handler(
 	Pool const &pool,
 	Handler handler,
-	Request matched,
+	conflux::http::OwnedRequest matched,
 	std::shared_ptr<conflux::http::SseChannel> const &channel) {
 	if (!pool->enqueue([h = std::move(handler), matched = std::move(matched), channel]() mutable {
-			RequestView const matched_view{matched};
+			conflux::http::RequestView const matched_view{matched};
 			h(matched_view, channel);
 			channel->close();
 		})) {
@@ -88,7 +88,7 @@ export conflux::http::Response router_run_async_http_task(
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] conflux::http::Response dispatch_immediate_routes(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
@@ -140,7 +140,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 #endif
 					all_params.emplace_back_owned_value("__conflux_route_pattern", route.path_pattern);
 				}
-				RequestView const matched_view{
+				conflux::http::RequestView const matched_view{
 					effective_method,
 					req.path,
 					req.version,
@@ -180,7 +180,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 															match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
 					auto channel = std::make_shared<conflux::http::SseChannel>();
-					Request matched = req.to_owned();
+					conflux::http::OwnedRequest matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
 						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
@@ -204,7 +204,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] conflux::http::Response dispatch_sync_routes(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
@@ -225,7 +225,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_tasks(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
@@ -250,7 +250,7 @@ export template<typename ContextRouteRange, typename Ctx>
 				pattern = route.path_pattern;
 				all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
 			}
-			RequestView const matched_view{
+			conflux::http::RequestView const matched_view{
 				req.method,
 				req.path,
 				req.version,
@@ -269,7 +269,7 @@ export template<typename ContextRouteRange, typename Ctx>
 			}
 			return DeferredRouteTask{
 				.task =
-					[](auto handler, RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
+					[](auto handler, conflux::http::RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
 					-> conflux::work::root::Task<conflux::http::Response> {
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
@@ -298,7 +298,7 @@ export template<typename ContextRouteRange, typename Ctx>
 
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_task(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
@@ -307,7 +307,7 @@ export template<typename ContextRouteRange, typename Ctx>
 
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<conflux::http::Response> dispatch_context_routes(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {

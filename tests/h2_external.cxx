@@ -586,7 +586,7 @@ TEST_CASE(
 	"h2: deferred response completes over HTTP/2") {
 	auto pool = std::make_shared<WorkPool>();
 	conflux::http::Router router;
-	router.get("/deferred", [pool](Request const &) {
+	router.get("/deferred", [pool](conflux::http::OwnedRequest const &) {
 		auto deferred = std::make_shared<conflux::http::DeferredResponse>();
 		auto queued = pool->enqueue([deferred] {
 			auto resp = conflux::http::Response::text("deferred h2 ok");
@@ -607,8 +607,8 @@ TEST_CASE(
 TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	conflux::http::Router r;
-	r.get("/ping", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
+	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	r.sse("/events", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		CONFLUX_DISCARD(ch->send("data: gamma\n\n"));
@@ -624,8 +624,8 @@ TEST_CASE(
 TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
 	conflux::http::Router r;
-	r.get("/ping", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	r.sse("/typed", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
+	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	r.sse("/typed", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -639,8 +639,8 @@ TEST_CASE(
 TEST_CASE(
 	"h2: response trailers arrive after body") {
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	router.get("/with-trailers", [](Request const &) {
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	router.get("/with-trailers", [](conflux::http::OwnedRequest const &) {
 		conflux::http::Response resp;
 		resp.status = 200;
 		resp.status_text = "OK";
@@ -670,8 +670,8 @@ TEST_CASE(
 	static constexpr std::size_t kBodySize = 128 * 1024;
 	std::string large_body(kBodySize, 'X');
 	conflux::http::Router r;
-	r.get("/ping", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	r.get("/big", [&large_body](Request const &) { return conflux::http::Response::text(large_body); });
+	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	r.get("/big", [&large_body](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(large_body); });
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/big");

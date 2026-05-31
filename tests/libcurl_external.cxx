@@ -335,7 +335,7 @@ void require_ok(
 
 [[nodiscard]] conflux::http::Router make_matrix_router() {
 	conflux::http::Router r = conflux::tests::make_external_test_router();
-	r.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
+	r.sse("/events", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		ch->close();
@@ -581,7 +581,7 @@ enum class TortureVersion {
 [[nodiscard]] conflux::http::Router make_stress_router() {
 	conflux::http::Router r = make_matrix_router();
 	auto large = std::make_shared<std::string>(128UL * 1024, 'S');
-	r.get("/static/large.bin", [large](Request const &) { return conflux::http::Response::text(*large); });
+	r.get("/static/large.bin", [large](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(*large); });
 	return r;
 }
 

@@ -329,7 +329,7 @@ bool is_valid_client_key(
 	return decoded.size() == 16 && base64_encode(to_unsigned_span(decoded)) == key;
 }
 bool is_valid_handshake(
-	RequestView const &req) {
+	conflux::http::RequestView const &req) {
 	return conflux::http::header_token_contains(req.headers["upgrade"], "websocket")
 		&& conflux::http::header_token_contains(req.headers["connection"], "upgrade")
 		&& trim(req.headers["sec-websocket-version"]) == "13"
@@ -951,7 +951,7 @@ private:
 // Token carried in Response.ws_upgrade to signal a 101 WebSocket upgrade.
 struct WsUpgrade {
 	std::string accept_key;
-	conflux::http::CloneableFunction<void(RequestView const &, WsConn &)> handler;
+	conflux::http::CloneableFunction<void(conflux::http::RequestView const &, WsConn &)> handler;
 };
 
 } // namespace conflux::http

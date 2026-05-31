@@ -29,7 +29,7 @@ export conflux::http::Router::Middleware ip_filter_middleware(
 	auto parsed = parse_cidr_list(opts.cidrs);
 
 	return [opts = std::move(opts), parsed = std::move(parsed)](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
 		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });

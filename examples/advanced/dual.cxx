@@ -65,7 +65,7 @@ int main() {
 
 	conflux::http::Router router;
 
-	router.get("/", [](RequestView const &) {
+	router.get("/", [](conflux::http::RequestView const &) {
 		return conflux::http::Response::html(
 			"<html><body>"
 			"<h1>conflux dual-mode example</h1>"
@@ -77,11 +77,11 @@ int main() {
 			"</body></html>");
 	});
 
-	router.get("/api/ping", [](RequestView const &) {
+	router.get("/api/ping", [](conflux::http::RequestView const &) {
 		return conflux::http::Response::json(R"({"status":"ok","server":"conflux"})");
 	});
 
-	router.get("/hello/{name}", [](RequestView const &req) {
+	router.get("/hello/{name}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::html(
 			std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});

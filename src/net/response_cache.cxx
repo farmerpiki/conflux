@@ -189,7 +189,7 @@ export conflux::http::Router::Middleware response_cache_middleware(
 
 	return [opts,
 			cache,
-			mtx](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+			mtx](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const is_head = req.method == "HEAD";
 		if (req.method != "GET" && !is_head) {
 			return next(req);

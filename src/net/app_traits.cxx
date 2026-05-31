@@ -199,10 +199,10 @@ concept FormParamsArg = requires { typename FormParamsType<std::remove_cvref_t<T
 #endif
 
 template<class Arg>
-concept RequestViewArg = std::same_as<std::remove_cvref_t<Arg>, RequestView>;
+concept RequestViewArg = std::same_as<std::remove_cvref_t<Arg>, conflux::http::RequestView>;
 
 template<class Arg>
-concept RequestArg = std::same_as<std::remove_cvref_t<Arg>, ::Request>;
+concept RequestArg = std::same_as<std::remove_cvref_t<Arg>, conflux::http::OwnedRequest>;
 
 template<class Arg>
 concept BodyTextArg = std::same_as<std::remove_cvref_t<Arg>, BodyText>;

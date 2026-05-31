@@ -10,7 +10,7 @@ import conflux.net.config;
 
 export namespace conflux::http {
 
-using StaticRouteHandler = conflux::http::CloneableFunction<Response(RequestView const &)>;
+using StaticRouteHandler = conflux::http::CloneableFunction<Response(conflux::http::RequestView const &)>;
 
 struct StaticRouteRegistration {
 	std::string pattern{};

@@ -79,7 +79,7 @@ TEST_CASE(
 TEST_CASE(
 	"http3 listener binds and stops cleanly") {
 	conflux::http::Router router;
-	router.get("/", [](RequestView const &) { return conflux::http::Response::text("hi"); });
+	router.get("/", [](conflux::http::RequestView const &) { return conflux::http::Response::text("hi"); });
 	Http3Config cfg{};
 	cfg.enabled = true;
 	UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
@@ -95,7 +95,7 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	conflux::http::Router router;
-	router.get("/ping", [](RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	router.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 	conflux::tests::ScopedTestServer const srv{cfg, std::move(router)};
 
 	conflux::http::HttpClientOptions opts1{};
@@ -114,7 +114,7 @@ TEST_CASE(
 	auto cfg = http3_test_config(cert);
 
 	conflux::http::Router def;
-	def.get("/ping", [](RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	def.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 	VHostRouter vhosts;
 	vhosts.set_default(std::move(def));
 

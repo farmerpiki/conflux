@@ -809,32 +809,34 @@ struct HttpRequestFieldAccessors {
 	}
 };
 
-export struct Request : HttpRequestFieldAccessors {
+export namespace conflux::http {
+
+struct OwnedRequest : ::HttpRequestFieldAccessors {
 	std::string method;
 	std::string path; // path only, no query std::string
 	std::string version;
 	std::string remote_addr; // peer IP address (best-effort with multishot accept)
 	bool is_tls = false; // true when request arrived over a TLS connection
-	HttpFields params; // {name} captures
-	HttpFields headers = HttpFields(true); // case-insensitive lookup
-	HttpFields query; // parsed from URL ?k=v&...
-	HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
-	HttpFields cookies; // parsed from Cookie: header
+	::HttpFields params; // {name} captures
+	::HttpFields headers = ::HttpFields(true); // case-insensitive lookup
+	::HttpFields query; // parsed from URL ?k=v&...
+	::HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
+	::HttpFields cookies; // parsed from Cookie: header
 	std::vector<conflux::http::UploadedFile> files; // parsed from multipart/form-data body
 	std::string body;
-	[[nodiscard]] Request to_owned() const { return *this; }
+	[[nodiscard]] OwnedRequest to_owned() const { return *this; }
 };
-export struct RequestView : HttpRequestFieldAccessors {
+struct RequestView : ::HttpRequestFieldAccessors {
 	std::string_view method;
 	std::string_view path;
 	std::string_view version;
 	std::string_view remote_addr;
 	bool is_tls = false;
-	HttpFieldsView params;
-	HttpFieldsView headers;
-	HttpFieldsView query;
-	HttpFieldsView form;
-	HttpFieldsView cookies;
+	::HttpFieldsView params;
+	::HttpFieldsView headers;
+	::HttpFieldsView query;
+	::HttpFieldsView form;
+	::HttpFieldsView cookies;
 	std::span<conflux::http::UploadedFile const> files;
 	std::string_view body;
 	RequestView(
@@ -843,11 +845,11 @@ export struct RequestView : HttpRequestFieldAccessors {
 		std::string_view version_,
 		std::string_view remote_addr_,
 		bool is_tls_,
-		HttpFieldsView params_,
-		HttpFieldsView headers_,
-		HttpFieldsView query_,
-		HttpFieldsView form_,
-		HttpFieldsView cookies_,
+		::HttpFieldsView params_,
+		::HttpFieldsView headers_,
+		::HttpFieldsView query_,
+		::HttpFieldsView form_,
+		::HttpFieldsView cookies_,
 		std::span<conflux::http::UploadedFile const> files_,
 		std::string_view body_)
 		: method(method_)
@@ -863,7 +865,7 @@ export struct RequestView : HttpRequestFieldAccessors {
 		, files(files_)
 		, body(body_) {}
 	RequestView(
-		Request const &req)
+		OwnedRequest const &req)
 		: method(req.method)
 		, path(req.path)
 		, version(req.version)
@@ -876,8 +878,8 @@ export struct RequestView : HttpRequestFieldAccessors {
 		, cookies(req.cookies)
 		, files(req.files)
 		, body(req.body) {}
-	[[nodiscard]] Request to_owned() const {
-		Request owned;
+	[[nodiscard]] OwnedRequest to_owned() const {
+		OwnedRequest owned;
 		owned.method = std::string{method};
 		owned.path = std::string{path};
 		owned.version = std::string{version};
@@ -897,10 +899,6 @@ export struct RequestView : HttpRequestFieldAccessors {
 	}
 };
 
-export namespace conflux::http {
-
-using RequestView = ::RequestView;
-using OwnedRequest = ::Request;
 using Request = RequestView;
 
 } // namespace conflux::http

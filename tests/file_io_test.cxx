@@ -761,7 +761,7 @@ TEST_CASE(
 
 	FileReader::ReadFixedResult got{};
 	int read_err = 0;
-	// Request only 512 bytes from a 4096-byte file.
+	// conflux::http::OwnedRequest only 512 bytes from a 4096-byte file.
 	try {
 		got = block_on(
 			fx->reader,

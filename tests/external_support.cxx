@@ -357,11 +357,11 @@ public:
 };
 [[nodiscard]] conflux::http::Router make_external_test_router() {
 	conflux::http::Router r;
-	r.get("/ping", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	r.get("/hello/{name}", [](Request const &req) {
+	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	r.get("/hello/{name}", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
 	});
-	r.post("/echo", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	r.post("/echo", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
 	return r;
 }
 

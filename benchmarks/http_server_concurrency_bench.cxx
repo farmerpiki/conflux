@@ -314,7 +314,7 @@ struct ResourceSample {
 		 + p.drain_deadline_hit
 		 + p.drain_forced_close;
 }
-// ── Request strings ────────────────────────────────────────────────────────
+// ── conflux::http::OwnedRequest strings ────────────────────────────────────────────────────────
 
 static auto const kGetPing = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGetBody64k = "GET /body/64k HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
@@ -599,9 +599,9 @@ int main(
 
 	auto make_router = [&] {
 		Router r;
-		r.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
-		r.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
-		r.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
+		r.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+		r.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+		r.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body_64k); });
 		return r;
 	};
 

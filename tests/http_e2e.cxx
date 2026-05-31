@@ -75,13 +75,13 @@ TEST_CASE(
 	"middleware next is one-shot",
 	"[middleware]") {
 	conflux::http::Router router;
-	router.use([](Request const &req, conflux::http::Router::Handler const &next) {
+	router.use([](conflux::http::OwnedRequest const &req, conflux::http::Router::Handler const &next) {
 		(void)next(req);
 		return next(req);
 	});
-	router.get("/twice", [](Request const &) { return conflux::http::Response::text("ok"); });
+	router.get("/twice", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/twice";
 	CHECK_THROWS_AS(router.dispatch(req), std::logic_error);
@@ -128,7 +128,7 @@ TEST_CASE(
 	app.config().rings = 1;
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
-	app.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+	app.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 }
@@ -137,9 +137,9 @@ TEST_CASE(
 	"http app: facade forwards websocket and static route registration",
 	"[http][app]") {
 	auto app = chttp::App::default_server();
-	auto &ws_app = app.ws("/ws", [](RequestView const &, conflux::http::WsConn &) {});
+	auto &ws_app = app.ws("/ws", [](conflux::http::RequestView const &, conflux::http::WsConn &) {});
 	CHECK(&ws_app == &app);
-	auto &sse_app = app.sse("/events", [](RequestView const &, std::shared_ptr<conflux::http::SseChannel> const &) {});
+	auto &sse_app = app.sse("/events", [](conflux::http::RequestView const &, std::shared_ptr<conflux::http::SseChannel> const &) {});
 	CHECK(&sse_app == &app);
 	auto &static_app = app.serve_static("/assets", std::filesystem::temp_directory_path().string());
 	CHECK(&static_app == &app);
@@ -158,7 +158,7 @@ TEST_CASE(
 	"http app: generic route registration and introspection stay on facade",
 	"[http][app]") {
 	auto app = chttp::App::default_server();
-	auto &added = app.add("REPORT", "/reports/{id}", [](Request const &req) {
+	auto &added = app.add("REPORT", "/reports/{id}", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::text(std::string{req.params["id"]});
 	});
 	CHECK(&added == &app);
@@ -166,7 +166,7 @@ TEST_CASE(
 	auto &ctx_added = app.add_context(
 		"POST",
 		"/jobs/{id}",
-		[](RequestView const &, chttp::RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
+		[](conflux::http::RequestView const &, chttp::RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
 			auto [task, source] = conflux::work::root::make_task_source<conflux::http::Response>();
 			(void)source.try_set_value(
 				conflux::work::root::Success<conflux::http::Response>{conflux::http::Response::text("queued")});
@@ -207,14 +207,14 @@ void ensure_server() {
 		cfg.taskrun_flag = true;
 
 		conflux::http::Router router;
-		router.get("/", [](Request const &) {
+		router.get("/", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::html("<html><body><h1>Hello from conflux!</h1></body></html>");
 		});
-		router.get("/hello/{name}", [](Request const &req) {
+		router.get("/hello/{name}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::html(
 				std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 		});
-		router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+		router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 		// Pools captured by value so their lifetime ties to the router/server.
 		// Avoids atexit race: a function-local static here would destruct
 		// before the test server registry destructs (LIFO), while the ring
@@ -222,54 +222,54 @@ void ensure_server() {
 		auto defer_ok_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
 		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
 		defer_full_pool->stop();
-		router.get("/api/defer-ok", [defer_ok_pool](Request const &) {
+		router.get("/api/defer-ok", [defer_ok_pool](conflux::http::OwnedRequest const &) {
 			return conflux::http::defer(defer_ok_pool, [] {
 				return conflux::http::Response::json(R"({"defer":"ok"})");
 			});
 		});
-		router.get("/api/defer-full", [defer_full_pool](Request const &) {
+		router.get("/api/defer-full", [defer_full_pool](conflux::http::OwnedRequest const &) {
 			return conflux::http::defer(defer_full_pool, [] {
 				return conflux::http::Response::json(R"({"defer":"unreachable"})");
 			});
 		});
-		router.get("/api/task-ping", [](Request const &) -> conflux::work::root::Task<conflux::http::Response> {
+		router.get("/api/task-ping", [](conflux::http::OwnedRequest const &) -> conflux::work::root::Task<conflux::http::Response> {
 			auto [task, source] = conflux::work::root::make_task_source<conflux::http::Response>();
 			(void)source.try_set_value(
 				conflux::work::root::Success<conflux::http::Response>{
 					conflux::http::Response::json(R"({"task":"ok"})")});
 			return std::move(task);
 		});
-		router.get("/api/echo-header", [](Request const &req) {
+		router.get("/api/echo-header", [](conflux::http::OwnedRequest const &req) {
 			auto v = req.headers["x-test-header"];
 			if (v.empty()) {
 				return conflux::http::Response::not_found("x-test-header");
 			}
 			return conflux::http::Response::text(std::string{v});
 		});
-		router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
-		router.post("/api/echo-json", [](Request const &req) { return conflux::http::Response::json(req.body); });
-		router.get("/api/echo-query", [](Request const &req) {
+		router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+		router.post("/api/echo-json", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::json(req.body); });
+		router.get("/api/echo-query", [](conflux::http::OwnedRequest const &req) {
 			auto v = req.query["key"];
 			if (v.empty()) {
 				return conflux::http::Response::not_found("key");
 			}
 			return conflux::http::Response::text(std::string{v});
 		});
-		router.post("/api/echo-form", [](Request const &req) {
+		router.post("/api/echo-form", [](conflux::http::OwnedRequest const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
 				return conflux::http::Response::not_found("field");
 			}
 			return conflux::http::Response::text(std::string{v});
 		});
-		router.post("/api/multipart-field", [](Request const &req) {
+		router.post("/api/multipart-field", [](conflux::http::OwnedRequest const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
 				return conflux::http::Response::not_found("field");
 			}
 			return conflux::http::Response::text(std::string{v});
 		});
-		router.post("/api/multipart-file", [](RequestView const &req) {
+		router.post("/api/multipart-file", [](conflux::http::RequestView const &req) {
 			if (req.files.empty()) {
 				return conflux::http::Response::not_found("file");
 			}
@@ -282,14 +282,14 @@ void ensure_server() {
 					f.content_type,
 					f.data.size()));
 		});
-		router.post("/api/multipart-counts", [](RequestView const &req) {
+		router.post("/api/multipart-counts", [](conflux::http::RequestView const &req) {
 			return conflux::http::Response::json(
 				std::format(R"({{"fields":{},"files":{}}})", req.form.values("field").size(), req.files.size()));
 		});
 		router.add_context(
 			"POST",
 			"/api/multipart-file-async",
-			[](RequestView req, chttp::RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
+			[](conflux::http::RequestView req, chttp::RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
 				auto [gate, source] = conflux::work::root::make_task_source<int>();
 				std::thread([source = std::move(source)] mutable {
 					std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -308,27 +308,27 @@ void ensure_server() {
 						f.content_type,
 						f.data));
 			});
-		router.get("/api/with-header", [](Request const &) {
+		router.get("/api/with-header", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("ok");
 			r.headers["X-Custom"] = "hello";
 			r.headers["X-Another"] = "world";
 			return r;
 		});
-		router.get("/api/redirect-302", [](Request const &) { return conflux::http::Response::redirect("/api/ping"); });
-		router.get("/api/redirect-301", [](Request const &) {
+		router.get("/api/redirect-302", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::redirect("/api/ping"); });
+		router.get("/api/redirect-301", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect("/api/ping", 301);
 		});
 		// PUT / PATCH / DELETE / OPTIONS routes.
-		router.put("/api/resource/{id}", [](Request const &req) {
+		router.put("/api/resource/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
 		});
-		router.patch("/api/resource/{id}", [](Request const &req) {
+		router.patch("/api/resource/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"method":"PATCH","id":"{}"}})", req.params["id"]));
 		});
-		router.del("/api/resource/{id}", [](Request const &req) {
+		router.del("/api/resource/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"method":"DELETE","id":"{}"}})", req.params["id"]));
 		});
-		router.options("/api/resource", [](Request const &) {
+		router.options("/api/resource", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("");
 			r.status = 204;
 			r.status_text = "No Content";
@@ -337,24 +337,24 @@ void ensure_server() {
 		});
 		// Route group: /api/v2/* with a version header middleware.
 		router.group("/api/v2", [](conflux::http::Router::Group &g) {
-			g.use([](Request const &req, conflux::http::Router::Handler const &next) {
+			g.use([](conflux::http::OwnedRequest const &req, conflux::http::Router::Handler const &next) {
 				auto resp = next(req);
 				resp.headers["X-Api-Version"] = "2";
 				return resp;
 			});
-			g.get("/status", [](Request const &) {
+			g.get("/status", [](conflux::http::OwnedRequest const &) {
 				return conflux::http::Response::json(R"({"v":"2","status":"ok"})");
 			});
-			g.get("/item/{id}", [](Request const &req) {
+			g.get("/item/{id}", [](conflux::http::OwnedRequest const &req) {
 				return conflux::http::Response::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 			});
 		});
 		// Route outside the group — must NOT have X-Api-Version header.
-		router.get("/api/v1/status", [](Request const &) {
+		router.get("/api/v1/status", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::json(R"({"v":"1","status":"ok"})");
 		});
 		// Cookie echo: returns value of named cookie.
-		router.get("/api/echo-cookie", [](Request const &req) {
+		router.get("/api/echo-cookie", [](conflux::http::OwnedRequest const &req) {
 			auto v = req.cookies["name"];
 			if (v.empty()) {
 				return conflux::http::Response::not_found("name");
@@ -362,21 +362,21 @@ void ensure_server() {
 			return conflux::http::Response::text(std::string{v});
 		});
 		// Set-cookie: sets two cookies on the response.
-		router.get("/api/set-cookie", [](Request const &) {
+		router.get("/api/set-cookie", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("ok");
 			r.set_cookie("session", "abc123", "Path=/; HttpOnly");
 			r.set_cookie("theme", "dark");
 			return r;
 		});
 		// SSE endpoint: streams 3 events then closes.
-		router.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
+		router.sse("/events", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 			auto _ = ch->send("data: event1\n\n");
 			CONFLUX_DISCARD(ch->send("data: event2\n\n"));
 			CONFLUX_DISCARD(ch->send("data: event3\n\n"));
 			ch->close();
 		});
 		// Named-param SSE endpoint.
-		router.sse("/events/{name}", [](Request const &req, std::shared_ptr<conflux::http::SseChannel> const &ch) {
+		router.sse("/events/{name}", [](conflux::http::OwnedRequest const &req, std::shared_ptr<conflux::http::SseChannel> const &ch) {
 			auto _ = ch->send(std::format("data: hello {}\n\n", req.params["name"]));
 			ch->close();
 		});
@@ -392,7 +392,7 @@ void ensure_redirect_follow_servers() {
 		Config cfg = mw_config();
 
 		conflux::http::Router target;
-		target.get("/echo-headers", [](Request const &req) {
+		target.get("/echo-headers", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(
 				std::format(
 					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
@@ -404,7 +404,7 @@ void ensure_redirect_follow_servers() {
 		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
 
 		conflux::http::Router source;
-		source.get("/echo-headers", [](Request const &req) {
+		source.get("/echo-headers", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(
 				std::format(
 					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
@@ -413,7 +413,7 @@ void ensure_redirect_follow_servers() {
 					std::string{req.headers["proxy-authorization"]},
 					std::string{req.headers["host"]}));
 		});
-		auto echo_redirect = [](Request const &req) {
+		auto echo_redirect = [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(
 				std::format(
 					"method={}\nbody={}\ncontent-type={}",
@@ -423,20 +423,20 @@ void ensure_redirect_follow_servers() {
 		};
 		source.get("/echo-redirect", echo_redirect);
 		source.post("/echo-redirect", echo_redirect);
-		source.get("/same", [](Request const &) { return conflux::http::Response::redirect("/echo-headers"); });
-		source.get("/cross", [](Request const &) {
+		source.get("/same", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::redirect("/echo-headers"); });
+		source.get("/cross", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect(
 				std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
-		source.post("/see-other", [](Request const &) {
+		source.post("/see-other", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect("/echo-redirect", 303);
 		});
-		source.post("/temporary", [](Request const &) {
+		source.post("/temporary", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect("/echo-redirect", 307);
 		});
-		source.get("/loop", [](Request const &) { return conflux::http::Response::redirect("/loop"); });
-		source.get("/async-start", [](Request const &) { return conflux::http::Response::redirect("/async-final"); });
-		source.get("/async-final", [](Request const &) { return conflux::http::Response::text("async-ok"); });
+		source.get("/loop", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::redirect("/loop"); });
+		source.get("/async-start", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::redirect("/async-final"); });
+		source.get("/async-final", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("async-ok"); });
 		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
 
 		conflux::http::Router front;
@@ -446,7 +446,7 @@ void ensure_redirect_follow_servers() {
 		};
 		front.get_context(
 			"/async-follow",
-			[popts](RequestView const &, chttp::RequestContext const &ctx)
+			[popts](conflux::http::RequestView const &, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
 				HttpClient client{};
 				auto result = co_await async_send(
@@ -586,11 +586,11 @@ void ensure_compress_server() {
 		conflux::http::Router router;
 		router.use(compress_middleware());
 		// Large body (>256 bytes) so min_body_size is exceeded.
-		router.get("/big", [](Request const &) { return conflux::http::Response::html(std::string(512, 'A')); });
+		router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 		// Small body (<256 bytes).
-		router.get("/small", [](Request const &) { return conflux::http::Response::html("hi"); });
+		router.get("/small", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("hi"); });
 		// Non-compressible MIME type.
-		router.get("/bin", [](Request const &) {
+		router.get("/bin", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response r;
 			r.status = 200;
 			r.status_text = "OK";
@@ -608,7 +608,7 @@ void ensure_cors_compress_server() {
 		conflux::http::Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
-		router.get("/big", [](Request const &) { return conflux::http::Response::html(std::string(512, 'A')); });
+		router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -624,7 +624,7 @@ void ensure_security_server() {
 		sopts.hsts_only_on_tls = false;
 		conflux::http::Router router;
 		router.use(security_headers_middleware(sopts));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_security_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -638,8 +638,8 @@ void ensure_cors_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
-		router.get("/api", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-		router.get("/vary", [](Request const &) {
+		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+		router.get("/vary", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("vary");
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
@@ -654,10 +654,10 @@ void ensure_cors_cred_server() {
 		conflux::http::Router router;
 		router.use(cors_middleware({
 			.allowed_origins = {"*"},
-			.expose_headers = {"X-Custom-Header", "X-Request-Id"},
+			.expose_headers = {"X-Custom-Header", "X-conflux::http::OwnedRequest-Id"},
 			.allow_credentials = true,
 		}));
-		router.get("/api", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 		g_cors_cred_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -667,7 +667,7 @@ void ensure_cors_wildcard_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(cors_middleware()); // default: allowed_origins={"*"}, no credentials
-		router.get("/api", [](Request const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -682,7 +682,7 @@ void ensure_auth_server() {
 		conflux::http::Router router;
 		router.use(basic_auth_middleware(
 			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
-		router.get("/protected", [](Request const &) { return conflux::http::Response::text("secret"); });
+		router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -692,7 +692,7 @@ void ensure_bearer_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
-		router.get("/protected", [](Request const &) { return conflux::http::Response::text("secret"); });
+		router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
 		g_bearer_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -707,7 +707,7 @@ void ensure_rate_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -718,7 +718,7 @@ void ensure_rate_burst_server() {
 		conflux::http::Router router;
 		// 1 base + 2 burst = 3 total capacity
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_burst_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -727,7 +727,7 @@ void ensure_rate_zero_clients_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -745,7 +745,7 @@ void ensure_forwarded_server() {
 		// Trust only 127.0.0.1/32.
 		router.use(forwarded_middleware({.trusted_proxies = {"127.0.0.1/32"}}));
 		// Echo the remote_addr so tests can inspect it.
-		router.get("/addr", [](Request const &req) { return conflux::http::Response::text(req.remote_addr); });
+		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -755,7 +755,7 @@ void ensure_forwarded_strict_empty_server() {
 		conflux::http::Router router;
 		// Default strict_mode=true, empty trusted_proxies → no peer is trusted.
 		router.use(forwarded_middleware({}));
-		router.get("/addr", [](Request const &req) { return conflux::http::Response::text(req.remote_addr); });
+		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_strict_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -765,7 +765,7 @@ void ensure_forwarded_lax_empty_server() {
 		conflux::http::Router router;
 		// Legacy trust-all-on-empty behaviour.
 		router.use(forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
-		router.get("/addr", [](Request const &req) { return conflux::http::Response::text(req.remote_addr); });
+		router.get("/addr", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.remote_addr); });
 		g_fwd_lax_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -780,7 +780,7 @@ void ensure_rid_server() {
 		conflux::http::Router router;
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
-		router.get("/", [](Request const &req) {
+		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["x-request-id"]});
 		});
 		g_rid_port = start_mw_server(mw_config(), std::move(router));
@@ -801,7 +801,7 @@ void ensure_ipallow_server() {
 			.mode = IpFilterMode::allowlist,
 			.cidrs = {"127.0.0.0/8"},
 		}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_ipallow_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -814,7 +814,7 @@ void ensure_ipblock_server() {
 			.mode = IpFilterMode::blocklist,
 			.cidrs = {"127.0.0.1/32"},
 		}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_ipblock_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -828,7 +828,7 @@ void ensure_ipallow_block_server() {
 			.mode = IpFilterMode::allowlist,
 			.cidrs = {"192.168.0.0/24"},
 		}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_ipallow_block_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -842,7 +842,7 @@ void ensure_ipblock_pass_server() {
 			.mode = IpFilterMode::blocklist,
 			.cidrs = {"10.0.0.0/8"},
 		}));
-		router.get("/", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_ipblock_pass_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -864,21 +864,21 @@ void ensure_cache_server() {
 						},
 			.default_directive = "no-cache",
 		}));
-		router.get("/image", [](Request const &) {
+		router.get("/image", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response r;
 			r.content_type = "image/png";
 			r.set_text_body("img");
 			return r;
 		});
-		router.get("/css", [](Request const &) {
+		router.get("/css", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response r;
 			r.content_type = "text/css";
 			r.set_text_body("body{}");
 			return r;
 		});
-		router.get("/api", [](Request const &) { return conflux::http::Response::json(R"({})"); });
-		router.get("/html", [](Request const &) { return conflux::http::Response::html("<p>hi</p>"); });
-		router.get("/custom", [](Request const &) {
+		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({})"); });
+		router.get("/html", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("<p>hi</p>"); });
+		router.get("/custom", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("x");
 			r.headers["Cache-Control"] = "max-age=999";
 			return r;
@@ -897,7 +897,7 @@ void ensure_ts_remove_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(trailing_slash_middleware()); // default: remove
-		router.get("/foo", [](Request const &) { return conflux::http::Response::text("foo"); });
+		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_remove_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -906,7 +906,7 @@ void ensure_ts_add_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.mode = TrailingSlashMode::add}));
-		router.get("/bar/", [](Request const &) { return conflux::http::Response::text("bar"); });
+		router.get("/bar/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("bar"); });
 		g_ts_add_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -916,7 +916,7 @@ void ensure_ts_308_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 308}));
-		router.get("/foo", [](Request const &) { return conflux::http::Response::text("foo"); });
+		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_308_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -926,7 +926,7 @@ void ensure_ts_307_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(trailing_slash_middleware({.redirect_status = 307}));
-		router.get("/foo", [](Request const &) { return conflux::http::Response::text("foo"); });
+		router.get("/foo", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("foo"); });
 		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1049,8 +1049,8 @@ void ensure_redirect_server() {
 					  {.from = "/api/v1/", .to = "/api/v2/", .status = 302, .prefix_match = true},
 					  }
         }));
-		router.get("/new", [](Request const &) { return conflux::http::Response::text("new"); });
-		router.get("/api/v2/users", [](Request const &) { return conflux::http::Response::text("v2-users"); });
+		router.get("/new", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("new"); });
+		router.get("/api/v2/users", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("v2-users"); });
 		g_redirect_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1064,8 +1064,8 @@ void ensure_csrf_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(csrf_middleware());
-		router.get("/page", [](Request const &) { return conflux::http::Response::html("<form>"); });
-		router.post("/submit", [](Request const &) { return conflux::http::Response::text("ok"); });
+		router.get("/page", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("<form>"); });
+		router.post("/submit", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_csrf_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1079,8 +1079,8 @@ void ensure_etag_server() {
 	std::call_once(flag, [] {
 		conflux::http::Router router;
 		router.use(etag_middleware());
-		router.get("/content", [](Request const &) { return conflux::http::Response::text("hello world"); });
-		router.get("/empty", [](Request const &) { return conflux::http::Response::text(""); });
+		router.get("/content", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("hello world"); });
+		router.get("/empty", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
 		g_etag_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1098,66 +1098,66 @@ void ensure_resp_cache_server() {
 			.max_entries = 16,
 			.default_ttl = std::chrono::seconds{60},
 		}));
-		router.get("/counted", [](Request const &) {
+		router.get("/counted", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			return conflux::http::Response::text(std::format("visit {}", n));
 		});
-		router.post("/counted", [](Request const &) {
+		router.post("/counted", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			return conflux::http::Response::text(std::format("post {}", n));
 		});
-		router.get("/no-store", [](Request const &) {
+		router.get("/no-store", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("uncacheable");
 			r.headers["Cache-Control"] = "no-store";
 			return r;
 		});
-		router.get("/vary", [](Request const &req) {
+		router.get("/vary", [](conflux::http::OwnedRequest const &req) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("{} enc={}", n, req.headers["accept-encoding"]));
 			r.headers["Vary"] = "Accept-Encoding";
 			return r;
 		});
-		router.get("/vary-star", [](Request const &) {
+		router.get("/vary-star", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("star {}", n));
 			r.headers["Vary"] = "*";
 			return r;
 		});
-		router.get("/private", [](Request const &) {
+		router.get("/private", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("priv {}", n));
 			r.headers["Cache-Control"] = "private";
 			return r;
 		});
-		router.get("/max-age-zero", [](Request const &) {
+		router.get("/max-age-zero", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("zero {}", n));
 			r.headers["Cache-Control"] = "max-age=0";
 			return r;
 		});
-		router.get("/no-cache", [](Request const &) {
+		router.get("/no-cache", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("nocache {}", n));
 			r.headers["Cache-Control"] = "no-cache";
 			return r;
 		});
-		router.get("/cache-control-substrings", [](Request const &) {
+		router.get("/cache-control-substrings", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("substrings {}", n));
 			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
 			return r;
 		});
-		router.get("/set-cookie-resp", [](Request const &) {
+		router.get("/set-cookie-resp", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("cookie {}", n));
 			r.set_cookie("sid", "abc");
 			return r;
 		});
-		router.get("/not-found-resp", [](Request const &) {
+		router.get("/not-found-resp", [](conflux::http::OwnedRequest const &) {
 			++g_resp_cache_count;
 			return conflux::http::Response::not_found("/not-found-resp");
 		});
-		router.get("/query", [](Request const &req) {
+		router.get("/query", [](conflux::http::OwnedRequest const &req) {
 			int n = ++g_resp_cache_count;
 			return conflux::http::Response::text(std::format("{} value={}", n, req.query["value"]));
 		});
@@ -1179,7 +1179,7 @@ void ensure_slog_server() {
 
 		conflux::http::Router router;
 		router.use(structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
-		router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 		g_slog_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -1194,7 +1194,7 @@ void ensure_trace_server() {
 		conflux::http::Router router;
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
-		router.get("/", [](Request const &req) {
+		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["traceparent"]});
 		});
 		g_trace_port = start_mw_server(mw_config(), std::move(router));
@@ -1213,13 +1213,13 @@ void ensure_vhost_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router api_router;
-		api_router.get("/status", [](Request const &) { return conflux::http::Response::text("api"); });
+		api_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("api"); });
 
 		conflux::http::Router web_router;
-		web_router.get("/status", [](Request const &) { return conflux::http::Response::text("web"); });
+		web_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("web"); });
 
 		conflux::http::Router def_router;
-		def_router.get("/status", [](Request const &) { return conflux::http::Response::text("default"); });
+		def_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("default"); });
 
 		auto vhr = std::make_shared<VHostRouter>();
 		vhr->add("api.example.com", std::move(api_router));
@@ -1227,7 +1227,7 @@ void ensure_vhost_server() {
 		vhr->set_default(std::move(def_router));
 
 		conflux::http::Router main;
-		main.use([vhr](Request const &req, conflux::http::Router::Handler const &) { return vhr->dispatch(req); });
+		main.use([vhr](conflux::http::OwnedRequest const &req, conflux::http::Router::Handler const &) { return vhr->dispatch(req); });
 		g_vhost_port = start_mw_server(mw_config(), std::move(main));
 	});
 }
@@ -1235,10 +1235,10 @@ void ensure_vhost_direct_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router api_router;
-		api_router.get("/status", [](Request const &) { return conflux::http::Response::text("api-direct"); });
+		api_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("api-direct"); });
 
 		conflux::http::Router def_router;
-		def_router.get("/status", [](Request const &) { return conflux::http::Response::text("default-direct"); });
+		def_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("default-direct"); });
 
 		VHostRouter vhost_router;
 		vhost_router.add("api.example.com", std::move(api_router));
@@ -1253,7 +1253,7 @@ void ensure_proxy_server() {
 		auto cfg = mw_config();
 
 		conflux::http::Router upstream;
-		upstream.get("/ping", [](Request const &) {
+		upstream.get("/ping", [](conflux::http::OwnedRequest const &) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 			auto resp = conflux::http::Response::text("proxied-ok");
 			resp.headers["X-Upstream"] = "yes";
@@ -1270,7 +1270,7 @@ void ensure_proxy_server() {
 		front.add_context(
 			"GET",
 			"/proxy/ping",
-			[popts = std::move(popts)](RequestView const &req, chttp::RequestContext const &ctx)
+			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
 				co_return co_await async_proxy(req, popts, ctx.ring);
 			});
@@ -1309,12 +1309,12 @@ TEST_CASE(
 TEST_CASE(
 	"router dispatch preserves generic route priority before literal index hits") {
 	conflux::http::Router router;
-	router.get("/{id}", [](RequestView const &req) {
+	router.get("/{id}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::text(std::string{"generic:"} + std::string{req.params["id"]});
 	});
-	router.get("/health", [](RequestView const &) { return conflux::http::Response::text("literal"); });
+	router.get("/health", [](conflux::http::RequestView const &) { return conflux::http::Response::text("literal"); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/health";
 	req.version = "HTTP/1.1";
@@ -1325,10 +1325,10 @@ TEST_CASE(
 TEST_CASE(
 	"router dispatch uses method-scoped literal lookup") {
 	conflux::http::Router router;
-	router.post("/health", [](RequestView const &) { return conflux::http::Response::text("post"); });
-	router.get("/health", [](RequestView const &) { return conflux::http::Response::text("get"); });
+	router.post("/health", [](conflux::http::RequestView const &) { return conflux::http::Response::text("post"); });
+	router.get("/health", [](conflux::http::RequestView const &) { return conflux::http::Response::text("get"); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/health";
 	req.version = "HTTP/1.1";
@@ -1794,7 +1794,7 @@ TEST_CASE(
 	Config cfg = Config::test();
 	cfg.request_timeout_ms = 1500;
 	conflux::http::Router router;
-	router.post("/upload", [](Request const &req) { return conflux::http::Response::text(req.body); });
+	router.post("/upload", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1813,7 +1813,7 @@ TEST_CASE(
 
 	auto timeout_response = read_one_response(fd);
 	::close(fd);
-	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 Request Timeout"));
+	REQUIRE(timeout_response.starts_with("HTTP/1.1 408 conflux::http::OwnedRequest Timeout"));
 	check_problem_code(timeout_response, "body_timeout");
 }
 TEST_CASE(
@@ -2132,7 +2132,7 @@ TEST_CASE(
 		"POST",
 		"/async-timeout",
 		timeout,
-		[&observed_reason](RequestView const &, chttp::RequestContext const &) -> chttp::Task<chttp::Response> {
+		[&observed_reason](conflux::http::RequestView const &, chttp::RequestContext const &) -> chttp::Task<chttp::Response> {
 			auto source_slot = std::make_shared<std::optional<root::TaskSource<chttp::Response>>>();
 			auto [task, source] = root::make_cancellable_task_source<chttp::Response>(
 				[&observed_reason, source_slot](root::CancelReason reason) noexcept {
@@ -2306,7 +2306,7 @@ TEST_CASE(
 	"response status_text with CRLF is sanitized") {
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.get("/bad-status", [](Request const &) {
+	router.get("/bad-status", [](conflux::http::OwnedRequest const &) {
 		conflux::http::Response r = conflux::http::Response::text("ok");
 		r.status = 299;
 		r.status_text = "Fine\r\nX-Injected: yes";
@@ -2335,7 +2335,7 @@ TEST_CASE(
 	cfg.http_redirect_to_https = true;
 	cfg.https_redirect_hosts = {"example.com"};
 	conflux::http::Router router;
-	router.get("/path", [](Request const &) { return conflux::http::Response::text("ok"); });
+	router.get("/path", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	LocalTcpClient client{srv.port()};
@@ -2401,7 +2401,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
@@ -2450,7 +2450,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};
@@ -2475,7 +2475,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto const port = srv.port();
@@ -2505,7 +2505,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.get("/large", [](Request const &) { return conflux::http::Response::text(std::string(512 * 1024, 'x')); });
+	router.get("/large", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(512 * 1024, 'x')); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};
@@ -2531,7 +2531,7 @@ TEST_CASE(
 	"[http.lifecycle]") {
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	LocalTcpClient client{srv.port()};

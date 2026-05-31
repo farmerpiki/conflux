@@ -18,7 +18,7 @@ import bench_common;
 using namespace std::literals;
 using conflux::http::Config;
 using conflux::http::HttpServerMetrics;
-using HttpRequest = conflux::http::Request;
+using HttpRequest = conflux::http::OwnedRequest;
 using HttpServer = ::HttpServer;
 using Router = ::Router;
 using conflux::http::WsConn;

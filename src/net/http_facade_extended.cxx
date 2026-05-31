@@ -22,18 +22,18 @@ using WorkPoolQueueStats = ::WorkPoolQueueStats;
 using Router = std::remove_reference_t<decltype(router(std::declval<App &>()))>;
 
 template<class F>
-concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, Next const &next) {
+concept ViewMiddleware = requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, Next const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 template<class F>
-concept RequestMiddleware = requires(std::decay_t<F> &fn, ::Request const &req, Next const &next) {
+concept RequestMiddleware = requires(std::decay_t<F> &fn, conflux::http::OwnedRequest const &req, Next const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 template<class F>
 concept AsyncMiddleware =
-	requires(std::decay_t<F> &fn, RequestView const &req, RequestContext const &ctx, AsyncNext const &next) {
+	requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, RequestContext const &ctx, AsyncNext const &next) {
 		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
 	};
 
@@ -60,7 +60,7 @@ concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddlewar
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = app.openapi_spec(title, version);
-	return [spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); };
+	return [spec = std::move(spec)](conflux::http::RequestView const &) -> Response { return Response::json(spec); };
 }
 
 template<typename F>

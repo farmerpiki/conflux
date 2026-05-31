@@ -120,9 +120,9 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::HttpRejectReason, conflux::http::HttpRejectReason>);
 	static_assert(std::same_as<chttp::HttpRejectionMetrics, conflux::http::HttpRejectionMetrics>);
 	static_assert(std::same_as<chttp::HttpServerMetrics, conflux::http::HttpServerMetrics>);
-	static_assert(std::same_as<chttp::RequestView, RequestView>);
-	static_assert(std::same_as<chttp::Request, RequestView>);
-	static_assert(std::same_as<chttp::OwnedRequest, Request>);
+	static_assert(std::same_as<chttp::RequestView, conflux::http::RequestView>);
+	static_assert(std::same_as<chttp::Request, conflux::http::RequestView>);
+	static_assert(std::same_as<chttp::OwnedRequest, conflux::http::OwnedRequest>);
 	static_assert(std::same_as<chttp::UploadedFile, conflux::http::UploadedFile>);
 	static_assert(std::same_as<chttp::CloneableFunction<void()>, conflux::http::CloneableFunction<void()>>);
 }
@@ -165,7 +165,7 @@ TEST_CASE(
 	HttpFieldsView cookies;
 	cookies.emplace_back("sid", "abc-123");
 
-	RequestView req{
+	conflux::http::RequestView req{
 		"GET",
 		"/items/42",
 		"HTTP/1.1",
@@ -213,7 +213,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: typed owned request field extractors preserve owned lifetimes",
 	"[http.core]") {
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.headers.set("Content-Length", "512");
 	req.query.emplace_back("debug", "off");
 	req.cookies.emplace_back("theme", "dark");
@@ -314,7 +314,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: request views own uploaded files when converted",
 	"[http.core]") {
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/upload";
 	req.version = "HTTP/1.1";
@@ -322,7 +322,7 @@ TEST_CASE(
 	req.files.push_back(conflux::http::UploadedFile::borrowed("file", "a.txt", "text/plain", "payload"));
 	req.body = "body";
 
-	RequestView view{req};
+	conflux::http::RequestView view{req};
 	auto owned = view.to_owned();
 	REQUIRE(owned.files.size() == 1);
 	CHECK(owned.files[0].owns_metadata);

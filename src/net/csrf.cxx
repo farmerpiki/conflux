@@ -24,7 +24,7 @@ std::string generate_token() {
 export struct CsrfOptions {
 	// Name of the cookie that stores the CSRF token.
 	std::string cookie_name{"csrf_token"};
-	// Request header the client must echo the token in.
+	// conflux::http::OwnedRequest header the client must echo the token in.
 	std::string header_name{"X-CSRF-Token"};
 	// Form field the client may echo the token in (checked if header absent).
 	std::string form_field{"csrf_token"};
@@ -47,7 +47,7 @@ export conflux::http::Router::Middleware csrf_middleware(
 			lower_cookie = std::move(lower_cookie),
 			lower_header = std::move(lower_header),
 			lower_field = std::move(lower_field)](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto is_protected =
 			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });

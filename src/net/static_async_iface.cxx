@@ -28,19 +28,19 @@ export conflux::http::Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache);
 
 export conflux::http::Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache);
 
 export conflux::http::Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache);

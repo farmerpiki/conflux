@@ -40,7 +40,7 @@ export conflux::http::Router::Handler openapi_handler(
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
-	return [spec = std::move(spec)](RequestView const &) -> conflux::http::Response {
+	return [spec = std::move(spec)](conflux::http::RequestView const &) -> conflux::http::Response {
 		return conflux::http::Response::json(spec);
 	};
 }
@@ -55,7 +55,7 @@ export conflux::http::Router::Handler openapi_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](RequestView const &req) -> conflux::http::Response {
+		current = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &req) -> conflux::http::Response {
 			return mw(req, next);
 		};
 	}

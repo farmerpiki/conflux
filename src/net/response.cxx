@@ -375,18 +375,18 @@ struct Response {
 		case kHttpNotModified                : return "Not Modified";
 		case kHttpTemporaryRedirect          : return "Temporary Redirect";
 		case kHttpPermanentRedirect          : return "Permanent Redirect";
-		case kHttpBadRequest                 : return "Bad Request";
+		case kHttpBadRequest                 : return "Bad conflux::http::OwnedRequest";
 		case kHttpUnauthorized               : return "Unauthorized";
 		case kHttpForbidden                  : return "Forbidden";
 		case kHttpNotFound                   : return "Not Found";
 		case kHttpMethodNotAllowed           : return "Method Not Allowed";
-		case 408                             : return "Request Timeout";
+		case 408                             : return "conflux::http::OwnedRequest Timeout";
 		case kHttpRequestEntityTooLarge      : return "Content Too Large";
 		case kHttpUriTooLong                 : return "URI Too Long";
 		case 417                             : return "Expectation Failed";
 		case kHttpRangeNotSatisfiable        : return "Range Not Satisfiable";
 		case kHttpUnprocessableEntity        : return "Unprocessable Entity";
-		case kHttpRequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
+		case kHttpRequestHeaderFieldsTooLarge: return "conflux::http::OwnedRequest Header Fields Too Large";
 		case kHttpTooManyRequests            : return "Too Many Requests";
 		case kHttpInternalServerError        : return "Internal Server Error";
 		case kHttpBadGateway                 : return "Bad Gateway";
@@ -507,13 +507,13 @@ struct Response {
 	}
 	[[nodiscard]] static Response bad_request(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ? std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
+		auto body = detail.empty() ? std::string{"<html><body><h1>400 Bad conflux::http::OwnedRequest</h1></body></html>"} :
 									 std::format(
-										 "<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>",
+										 "<html><body><h1>400 Bad conflux::http::OwnedRequest</h1><p>{}</p></body></html>",
 										 response_html_escape(detail));
 		Response r;
 		r.status = kHttpBadRequest;
-		r.status_text = "Bad Request";
+		r.status_text = "Bad conflux::http::OwnedRequest";
 		r.content_type = std::string{kContentTypeHtmlUtf8};
 		r.set_text_body(std::move(body));
 		return r;
@@ -586,9 +586,9 @@ struct Response {
 	[[nodiscard]] static Response header_fields_too_large() {
 		Response r;
 		r.status = kHttpRequestHeaderFieldsTooLarge;
-		r.status_text = "Request Header Fields Too Large";
+		r.status_text = "conflux::http::OwnedRequest Header Fields Too Large";
 		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>431 Request Header Fields Too Large</h1></body></html>");
+		r.set_text_body("<html><body><h1>431 conflux::http::OwnedRequest Header Fields Too Large</h1></body></html>");
 		return r;
 	}
 	[[nodiscard]] static Response bad_gateway(

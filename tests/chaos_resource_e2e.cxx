@@ -174,7 +174,7 @@ TEST_CASE(
 
 	for (int i = 0; i < 6; ++i) {
 		conflux::http::Router router;
-		router.get("/ping", [](Request const &) { return conflux::http::Response::text("pong"); });
+		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 		{
 			ScopedTestServer srv{chaos_config(), std::move(router)};
 			auto resp = http_get_on(srv.port(), "/ping", "Connection: close\r\n");

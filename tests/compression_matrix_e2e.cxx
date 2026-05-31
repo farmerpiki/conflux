@@ -199,9 +199,9 @@ std::uint16_t compression_port() {
 		Config cfg = mw_config();
 		conflux::http::Router router;
 		router.use(compress_middleware({.min_body_size = 64}));
-		router.get("/large", [](Request const &) { return conflux::http::Response::text(std::string(4096, 'A')); });
-		router.get("/small", [](Request const &) { return conflux::http::Response::text(std::string(32, 's')); });
-		router.get("/binary", [](Request const &) {
+		router.get("/large", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(4096, 'A')); });
+		router.get("/small", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(32, 's')); });
+		router.get("/binary", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response response;
 			response.status = 200;
 			response.status_text = "OK";
@@ -209,8 +209,8 @@ std::uint16_t compression_port() {
 			response.set_text_body(std::string(4096, '\0'));
 			return response;
 		});
-		router.post("/echo", [](Request const &req) { return conflux::http::Response::text(req.body); });
-		router.sse("/events", [](Request const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
+		router.post("/echo", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+		router.sse("/events", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
 			(void)channel->send("data: hello\n\n");
 			channel->close();
 		});

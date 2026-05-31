@@ -1,4 +1,4 @@
-// Request tracing middleware: W3C traceparent propagation + before/after hooks.
+// conflux::http::OwnedRequest tracing middleware: W3C traceparent propagation + before/after hooks.
 // Parses incoming traceparent header (trace-id, parent-id), generates a new
 // std::span-id for this hop, and exposes the context to before/after callbacks.
 // The outgoing traceparent is set in the response header.
@@ -71,9 +71,9 @@ export struct TraceContext {
 };
 export struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
-	TraceCallback<void(Request &, TraceContext const &)> on_start{};
+	TraceCallback<void(conflux::http::OwnedRequest &, TraceContext const &)> on_start{};
 	// Called after the downstream handler. May modify the response (e.g. add trace headers).
-	TraceCallback<void(Request const &, conflux::http::Response &, TraceContext const &)> on_end{};
+	TraceCallback<void(conflux::http::OwnedRequest const &, conflux::http::Response &, TraceContext const &)> on_end{};
 	// Forward the traceparent header in the response.
 	bool propagate_in_response{true};
 };
@@ -117,7 +117,7 @@ std::pair<std::string, std::string> parse_traceparent(
 export conflux::http::Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		TraceContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];

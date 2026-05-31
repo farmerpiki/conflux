@@ -80,7 +80,7 @@ TEST_CASE(
 	"recv_bundle.e2e: buf_ring survives abrupt-close flood",
 	"[recv_bundle][e2e]") {
 	conflux::http::Router router;
-	router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	ScopedTestServer srv{small_ring_cfg(), std::move(router)};
 	std::uint16_t const port = srv.port();
 
@@ -103,7 +103,7 @@ TEST_CASE(
 	"recv_bundle.e2e: buf_ring survives abrupt-close flood without direct accept",
 	"[recv_bundle][e2e]") {
 	conflux::http::Router router;
-	router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	ScopedTestServer srv{small_ring_cfg_non_direct_accept(), std::move(router)};
 	std::uint16_t const port = srv.port();
 

@@ -36,7 +36,7 @@ export struct SecurityOptions {
 export conflux::http::Router::Middleware security_headers_middleware(
 	SecurityOptions opts = {}) {
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {

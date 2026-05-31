@@ -12,7 +12,7 @@ import conflux.net.http_server_helpers;
 TEST_CASE(
 	"http_server_helpers: header name validation follows HTTP token grammar",
 	"[http_server_helpers]") {
-	CHECK(is_valid_header_name("X-Request-ID"));
+	CHECK(is_valid_header_name("X-conflux::http::OwnedRequest-ID"));
 	CHECK(is_valid_header_name("!#$%&'*+-.^_`|~09AZaz"));
 	CHECK_FALSE(is_valid_header_name(""));
 	CHECK_FALSE(is_valid_header_name("Bad Header"));

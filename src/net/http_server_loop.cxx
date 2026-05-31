@@ -141,7 +141,7 @@ Ring::~Ring() {
 }
 
 [[nodiscard]] conflux::http::Response Ring::dispatch(
-	RequestView const &req) const {
+	conflux::http::RequestView const &req) const {
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch(req);
 	}
@@ -156,7 +156,7 @@ Ring::~Ring() {
 }
 
 [[nodiscard]] std::optional<conflux::http::Response> Ring::try_dispatch_context(
-	RequestView const &req) const {
+	conflux::http::RequestView const &req) const {
 	if (!client_task_ring_) {
 		return std::nullopt;
 	}
@@ -171,7 +171,7 @@ Ring::~Ring() {
 }
 
 [[nodiscard]] std::shared_ptr<WorkPool> Ring::resolve_ws_work_pool(
-	RequestView const &req) const {
+	conflux::http::RequestView const &req) const {
 	if (vhost_router != nullptr) {
 		return vhost_router->resolved_work_pool(req.headers["host"]);
 	}

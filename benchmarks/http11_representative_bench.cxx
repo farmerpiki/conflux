@@ -787,14 +787,14 @@ Router make_router(
 		router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
 		router.use(etag_middleware());
 	}
-	router.get("/api/ping", [](Request const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
-	router.get("/users/{id}", [](Request const &req) {
+	router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	router.get("/users/{id}", [](conflux::http::OwnedRequest const &req) {
 		auto const id = req.params["id"];
 		return conflux::http::Response::json(std::format(R"({{"id":"{}","name":"user-{}","active":true}})", id, id));
 	});
-	router.get("/json/medium", [&medium_json](Request const &) { return conflux::http::Response::json(medium_json); });
-	router.post("/api/echo-body", [](Request const &req) { return conflux::http::Response::text(req.body); });
-	router.get("/body/64k", [&body_64k](Request const &) { return conflux::http::Response::text(body_64k); });
+	router.get("/json/medium", [&medium_json](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(medium_json); });
+	router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
+	router.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body_64k); });
 	router.serve_static("/", std::string{static_dir.string()});
 	return router;
 }

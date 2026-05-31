@@ -806,7 +806,7 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](Request const &) {
+			r.get(std::format("/body/{}", label), [body_ptr](conflux::http::OwnedRequest const &) {
 				return conflux::http::Response::text(*body_ptr);
 			});
 		}
@@ -831,7 +831,7 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](Request const &) {
+			r.get(std::format("/body/{}", label), [body_ptr](conflux::http::OwnedRequest const &) {
 				return conflux::http::Response::text(*body_ptr);
 			});
 		}

@@ -38,7 +38,7 @@ template<class Arg>
 	body += json_string(typeid(Arg).name());
 #endif
 	body += '}';
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
+	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad conflux::http::OwnedRequest");
 }
 
 template<class T>
@@ -63,7 +63,7 @@ template<class T>
 concept OptionalFieldValue = requires { typename OptionalFieldType<std::remove_cvref_t<T>>::type; };
 
 [[nodiscard]] std::optional<std::pair<std::string_view, std::string_view>> path_param_at(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::size_t index) noexcept {
 	std::size_t i = 0;
 	for (auto const &[name, value]: req.params) {
@@ -77,7 +77,7 @@ concept OptionalFieldValue = requires { typename OptionalFieldType<std::remove_c
 
 template<class T>
 [[nodiscard]] std::expected<T, HttpFieldError> path_param_as_at(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	std::size_t index) {
 	auto param = path_param_at(req, index);
 	auto name = std::format("#{}", index);
@@ -95,7 +95,7 @@ template<class T>
 #if CONFLUX_HAS_JSON
 template<class T, class Members, std::size_t... Is>
 [[nodiscard]] T extract_query_params_impl(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	Members const &members,
 	std::index_sequence<Is...>) {
 	T out{};
@@ -118,7 +118,7 @@ template<class T, class Members, std::size_t... Is>
 
 template<class T>
 [[nodiscard]] T extract_query_params(
-	RequestView const &req) {
+	conflux::http::RequestView const &req) {
 	auto const members = conflux::json::JsonMembers<T>::members();
 	return extract_query_params_impl<T>(
 		req,
@@ -128,7 +128,7 @@ template<class T>
 
 template<class T, class Members, std::size_t... Is>
 [[nodiscard]] T extract_form_params_impl(
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	Members const &members,
 	std::index_sequence<Is...>) {
 	T out{};
@@ -150,7 +150,7 @@ template<class T, class Members, std::size_t... Is>
 
 template<class T>
 [[nodiscard]] T extract_form_params(
-	RequestView const &req) {
+	conflux::http::RequestView const &req) {
 	auto const members = conflux::json::JsonMembers<T>::members();
 	return extract_form_params_impl<T>(
 		req,

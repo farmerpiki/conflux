@@ -218,7 +218,7 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static Response run_scoped_middlewares(
 		std::shared_ptr<ScopedMiddlewareList const> const &middlewares,
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		conflux::http::Router::Handler inner) {
 		if (!middlewares || middlewares->empty()) {
 			return inner(req);
@@ -226,14 +226,14 @@ class App : public detail::AppRouteVerbAccessors {
 		for (auto it = middlewares->rbegin(); it != middlewares->rend(); ++it) {
 			auto mw = *it;
 			auto next = std::move(inner);
-			inner = [mw = std::move(mw), next = std::move(next)](RequestView const &r) mutable { return mw(r, next); };
+			inner = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &r) mutable { return mw(r, next); };
 		}
 		return inner(req);
 	}
 
 	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_middlewares(
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
-		RequestView req,
+		conflux::http::RequestView req,
 		RequestContext const &ctx,
 		conflux::http::Router::ContextHandler inner) {
 		if (!middlewares || middlewares->empty()) {
@@ -246,14 +246,14 @@ class App : public detail::AppRouteVerbAccessors {
 
 			conflux::work::root::Task<Response> call(
 				std::shared_ptr<Step> self,
-				RequestView const &r,
+				conflux::http::RequestView const &r,
 				RequestContext const &c) {
 				if (index == middlewares->size()) {
 					return inner(r, c);
 				}
 				auto const &middleware = (*middlewares)[index++];
 				conflux::http::Router::ContextHandler next =
-					[self = std::move(self)](RequestView const &next_req, RequestContext const &next_ctx) mutable
+					[self = std::move(self)](conflux::http::RequestView const &next_req, RequestContext const &next_ctx) mutable
 					-> conflux::work::root::Task<Response> { return self->call(self, next_req, next_ctx); };
 				return middleware(r, c, next);
 			}
@@ -264,7 +264,7 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static std::optional<Response> route_auth_failure(
 		std::string_view policy,
-		RequestView const &req) {
+		conflux::http::RequestView const &req) {
 		if (policy.empty()) {
 			return std::nullopt;
 		}
@@ -276,7 +276,7 @@ class App : public detail::AppRouteVerbAccessors {
 	}
 
 	[[nodiscard]] static std::optional<BasicAuth> parse_basic_auth(
-		RequestView const &req) {
+		conflux::http::RequestView const &req) {
 		auto credentials = parse_basic_credentials(req.header("authorization"));
 		if (!credentials) {
 			return std::nullopt;
@@ -286,7 +286,7 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static std::optional<Response> route_rate_limit_failure(
 		AppRouteRateLimit &policy,
-		RequestView const &req) {
+		conflux::http::RequestView const &req) {
 		if (!policy.enabled) {
 			return std::nullopt;
 		}
@@ -465,14 +465,14 @@ public:
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
-				 fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
+				 fn = std::decay_t<F>(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
 					conflux::http::Router::Handler inner = [bearer_token_policy,
 															rate_limit,
 															timeout,
 #if CONFLUX_HAS_JSON
 															json_options,
 #endif
-															&fn](RequestView const &inner_req) mutable {
+															&fn](conflux::http::RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -489,11 +489,11 @@ public:
 					};
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
-		} else if constexpr (requires(Fn &fn, RequestView const &req) {
+		} else if constexpr (requires(Fn &fn, conflux::http::RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
-			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
-			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
+			record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::RequestView const &>>();
 			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
@@ -511,14 +511,14 @@ public:
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
-				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				 fn = Fn(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
 					conflux::http::Router::Handler inner = [bearer_token_policy,
 															rate_limit,
 															timeout,
 #if CONFLUX_HAS_JSON
 															json_options,
 #endif
-															&fn](RequestView const &inner_req) mutable {
+															&fn](conflux::http::RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -535,11 +535,11 @@ public:
 					};
 					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
 				});
-		} else if constexpr (requires(Fn &fn, ::Request const &req) {
+		} else if constexpr (requires(Fn &fn, conflux::http::OwnedRequest const &req) {
 								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
-			record_route_metadata<std::tuple<::Request>>(method, path, "app", loc);
-			record_return_metadata<std::invoke_result_t<Fn &, ::Request const &>>();
+			record_route_metadata<std::tuple<conflux::http::OwnedRequest>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::OwnedRequest const &>>();
 			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
@@ -557,14 +557,14 @@ public:
 #if CONFLUX_HAS_JSON
 				 json_options,
 #endif
-				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				 fn = Fn(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
 					conflux::http::Router::Handler inner = [bearer_token_policy,
 															rate_limit,
 															timeout,
 #if CONFLUX_HAS_JSON
 															json_options,
 #endif
-															&fn](RequestView const &inner_req) mutable {
+															&fn](conflux::http::RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -622,7 +622,7 @@ public:
 		auto const before = route_metadata_.size();
 		add(method, path, std::forward<F>(handler), loc);
 		if (route_metadata_.size() == before) {
-			record_route_metadata<std::tuple<RequestView>>(method, path, "raw", loc);
+			record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "raw", loc);
 		}
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
@@ -635,7 +635,7 @@ public:
 		auto const before = route_metadata_.size();
 		add(method, path, std::forward<F>(handler), loc);
 		if (route_metadata_.size() == before) {
-			record_route_metadata<std::tuple<RequestView>>(http_method_name(method), path, "raw", loc);
+			record_route_metadata<std::tuple<conflux::http::RequestView>>(http_method_name(method), path, "raw", loc);
 		}
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
@@ -856,7 +856,7 @@ public:
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		record_route_metadata<std::tuple<RequestView>>(http_method_name(HttpMethod::get), path, "sse", loc);
+		record_route_metadata<std::tuple<conflux::http::RequestView>>(http_method_name(HttpMethod::get), path, "sse", loc);
 		record_return_metadata<Response>();
 		router_.sse(path, std::forward<F>(handler));
 		return *this;
@@ -866,7 +866,7 @@ public:
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		record_route_metadata<std::tuple<RequestView>>(http_method_name(HttpMethod::get), path, "ws", loc);
+		record_route_metadata<std::tuple<conflux::http::RequestView>>(http_method_name(HttpMethod::get), path, "ws", loc);
 		record_return_metadata<Response>();
 		router_.ws(path, std::forward<F>(handler));
 		return *this;
@@ -1242,7 +1242,7 @@ public:
 		auto spec = openapi_spec(title, version);
 		return get(
 			path,
-			[spec = std::move(spec)](RequestView const &) -> Response { return Response::json(spec); },
+			[spec = std::move(spec)](conflux::http::RequestView const &) -> Response { return Response::json(spec); },
 			loc);
 	}
 	[[nodiscard]] ValidationReport validate() const {
@@ -1602,7 +1602,7 @@ public:
 		F &&handler,
 		std::source_location loc) {
 		using Fn = std::decay_t<F>;
-		record_route_metadata<std::tuple<RequestView>>(method, path, "context", loc);
+		record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "context", loc);
 		record_return_metadata<conflux::work::root::Task<Response>>();
 		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
@@ -1613,11 +1613,11 @@ public:
 			path,
 			timeout,
 			[bearer_token_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
-				RequestView const &req,
+				conflux::http::RequestView const &req,
 				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 				conflux::http::Router::ContextHandler inner =
 					[bearer_token_policy, rate_limit, &fn](
-						RequestView const &inner_req,
+						conflux::http::RequestView const &inner_req,
 						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
 					if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 						co_return *std::move(denied);
@@ -1727,7 +1727,7 @@ public:
 #if CONFLUX_HAS_JSON
 	template<class ContentTypePredicate>
 	static void validate_json_body_request(
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		ContentTypePredicate content_type_ok,
 		std::size_t max_body_size) {
 		if (!content_type_ok(req.header("content-type"))) {
@@ -1764,7 +1764,7 @@ public:
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
-		RequestView const &req
+		conflux::http::RequestView const &req
 #if CONFLUX_HAS_JSON
 		,
 		AppJsonOptions const &json_options,
@@ -1986,7 +1986,7 @@ public:
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
-				"HTTP app handler argument must be http::RequestView, http::Request, http::Path<...>, "
+				"HTTP app handler argument must be http::RequestView, http::OwnedRequest, http::Path<...>, "
 				"http::PathAt<...>, http::Query<...>, http::Header<...>, http::Cookie<...>, http::Form<...>, "
 				"http::QueryParams<...>, http::FormParams<...>, http::BodyText, http::Json<T>, http::JsonDocument, "
 				"http::JsonPatch, http::MergePatch, http::BodyBytes, http::OwnedBodyBytes, http::Multipart, "
@@ -1999,7 +1999,7 @@ public:
 
 	template<class Arg, std::size_t Index>
 	[[nodiscard]] static auto make_inline_path_arg(
-		RequestView const &req) {
+		conflux::http::RequestView const &req) {
 		using Clean = std::remove_cvref_t<Arg>;
 		if constexpr (std::same_as<Clean, std::string_view>) {
 			auto param = detail::path_param_at(req, Index);
@@ -2015,7 +2015,7 @@ public:
 	template<class Args, std::size_t Index>
 	[[nodiscard]] static auto make_fixed_route_arg(
 		StateMap const &states,
-		RequestView const &req
+		conflux::http::RequestView const &req
 #if CONFLUX_HAS_JSON
 		,
 		AppJsonOptions const &json_options,
@@ -2043,7 +2043,7 @@ public:
 	[[nodiscard]] static Response invoke_fixed_route(
 		StateMap const &states,
 		Fn &fn,
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -2161,7 +2161,7 @@ public:
 	[[nodiscard]] static conflux::work::root::Task<Response> invoke_fixed_route_async(
 		StateMap const &states,
 		Fn &fn,
-		RequestView req,
+		conflux::http::RequestView req,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -2266,7 +2266,7 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+			](conflux::http::RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,
@@ -2278,7 +2278,7 @@ public:
 						 app_max_body_size,
 						 json_options
 #endif
-					](RequestView const &inner_req,
+					](conflux::http::RequestView const &inner_req,
 						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							co_return *std::move(denied);
@@ -2322,7 +2322,7 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](RequestView const &req) mutable {
+			](conflux::http::RequestView const &req) mutable {
 					conflux::http::Router::Handler inner = [states,
 															bearer_token_policy,
 															rate_limit,
@@ -2334,7 +2334,7 @@ public:
 															app_max_body_size,
 															json_options
 #endif
-					](RequestView const &inner_req) mutable {
+					](conflux::http::RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -2367,7 +2367,7 @@ public:
 	[[nodiscard]] static Response invoke_extracted(
 		StateMap const &states,
 		Fn &fn,
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -2398,7 +2398,7 @@ public:
 	[[nodiscard]] static conflux::work::root::Task<Response> invoke_extracted_async(
 		StateMap const &states,
 		Fn &fn,
-		RequestView req,
+		conflux::http::RequestView req,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -2490,7 +2490,7 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+			](conflux::http::RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,
@@ -2502,7 +2502,7 @@ public:
 						 app_max_body_size,
 						 json_options
 #endif
-					](RequestView const &inner_req,
+					](conflux::http::RequestView const &inner_req,
 						RequestContext const &) mutable -> conflux::work::root::Task<Response> {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							co_return *std::move(denied);
@@ -2546,7 +2546,7 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](RequestView const &req) mutable {
+			](conflux::http::RequestView const &req) mutable {
 					conflux::http::Router::Handler inner = [states,
 															bearer_token_policy,
 															rate_limit,
@@ -2558,7 +2558,7 @@ public:
 															app_max_body_size,
 															json_options
 #endif
-					](RequestView const &inner_req) mutable {
+					](conflux::http::RequestView const &inner_req) mutable {
 						if (auto denied = route_auth_failure(*bearer_token_policy, inner_req)) {
 							return *std::move(denied);
 						}
@@ -2591,7 +2591,7 @@ public:
 	template<class Arg, class Body>
 	[[nodiscard]] static auto make_json_handler_arg(
 		StateMap const &states,
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		Json<Body> const &body) {
 		using Clean = std::remove_cvref_t<Arg>;
 		if constexpr (detail::JsonArg<Clean>) {
@@ -2607,7 +2607,7 @@ public:
 	[[nodiscard]] static Response invoke_json_extracted(
 		StateMap const &states,
 		Fn &fn,
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		Json<Body> const &body,
 		std::index_sequence<Is...>,
 		AppJsonOptions const &json_options) {
@@ -2649,7 +2649,7 @@ public:
 			 decode_opts = decode_opts,
 			 max_body_size,
 			 app_max_body_size,
-			 json_options](RequestView const &req) mutable -> Response {
+			 json_options](conflux::http::RequestView const &req) mutable -> Response {
 				if (auto denied = route_auth_failure(*bearer_token_policy, req)) {
 					return *std::move(denied);
 				}

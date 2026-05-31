@@ -80,9 +80,9 @@ template<class Arg>
 	} else if constexpr (JsonArg<Clean>) {
 		return "Json";
 	} else if constexpr (RequestViewArg<Clean>) {
-		return "RequestView";
+		return "conflux::http::RequestView";
 	} else if constexpr (RequestArg<Clean>) {
-		return "Request";
+		return "conflux::http::OwnedRequest";
 	} else {
 		return "unknown";
 	}

@@ -302,7 +302,7 @@ void add_header_middlewares(
 	Router &router,
 	std::size_t count) {
 	for (std::size_t i = 0; i < count; ++i) {
-		router.use([i](RequestView const &req, Router::Handler const &next) {
+		router.use([i](conflux::http::RequestView const &req, Router::Handler const &next) {
 			auto resp = next(req);
 			resp.headers.set(std::format("X-Bench-Mw-{}", i), "1");
 			return resp;
@@ -314,17 +314,17 @@ void append_standard_routes(
 	PathState &state,
 	std::string small_json,
 	std::string medium_json) {
-	state.router.get("/api/ping", [](RequestView const &) { return conflux::http::Response::text("pong"); });
-	state.router.get("/hello/{name}", [](RequestView const &req) {
+	state.router.get("/api/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::text("pong"); });
+	state.router.get("/hello/{name}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
 	});
-	state.router.get("/api/json-small", [body = std::move(small_json)](RequestView const &) {
+	state.router.get("/api/json-small", [body = std::move(small_json)](conflux::http::RequestView const &) {
 		return conflux::http::Response::json(body);
 	});
-	state.router.get("/api/json-medium", [body = std::move(medium_json)](RequestView const &) {
+	state.router.get("/api/json-medium", [body = std::move(medium_json)](conflux::http::RequestView const &) {
 		return conflux::http::Response::json(body);
 	});
-	state.router.post("/api/echo-size", [](RequestView const &req) {
+	state.router.post("/api/echo-size", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::text(std::to_string(req.body.size()));
 	});
 }
@@ -452,7 +452,7 @@ void append_standard_routes(
 		auto body = make_multipart_body(kBoundary, 8, 2, 2048);
 		state->description = "parse multipart/form-data with text fields and files, route counts, serialize";
 		state->raw = make_post_request("/api/multipart-counts", body, "multipart/form-data; boundary=benchBoundary42");
-		state->router.post("/api/multipart-counts", [](RequestView const &req) {
+		state->router.post("/api/multipart-counts", [](conflux::http::RequestView const &req) {
 			std::size_t file_bytes = 0;
 			for (auto const &file: req.files) {
 				file_bytes += file.data.size();
@@ -550,7 +550,7 @@ void apply_phase(
 	return {std::move(c)};
 }
 
-[[nodiscard]] RequestView make_request_view(
+[[nodiscard]] conflux::http::RequestView make_request_view(
 	std::string_view raw,
 	ParserLimits const &limits,
 	conflux::http1::ParsedRequest &parsed,
@@ -599,7 +599,7 @@ void apply_phase(
 		}
 	}
 
-	return RequestView{
+	return conflux::http::RequestView{
 		parsed.method,
 		path,
 		parsed.version,

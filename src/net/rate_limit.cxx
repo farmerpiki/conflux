@@ -84,7 +84,7 @@ export conflux::http::Router::Middleware rate_limit_middleware(
 
 	return [opts,
 			capacity,
-			state](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+			state](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const now = Clock::now();
 		auto const key = req.remote_addr.empty() ?
 							 std::string{"unknown"} :

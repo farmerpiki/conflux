@@ -38,21 +38,21 @@ namespace conflux::http {
 
 	StaticRouteRegistration routes{
 		.pattern = std::move(pattern),
-		.get = [rd, root_dir_fd, sopts = effective_sopts, &static_cache](RequestView const &req) -> Response {
+		.get = [rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
 			return handle_static_get_request(rd, root_dir_fd->fd(), sopts, req, static_cache);
 		},
 	};
 
 	if (effective_sopts.allow_put) {
 		routes.put = StaticRouteHandler{
-			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](RequestView const &req) -> Response {
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
 				return handle_static_put(rd, root_dir_fd->fd(), sopts, req, static_cache);
 			}};
 	}
 
 	if (effective_sopts.allow_delete) {
 		routes.del = StaticRouteHandler{
-			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](RequestView const &req) -> Response {
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
 				return handle_static_delete(rd, root_dir_fd->fd(), sopts, req, static_cache);
 			}};
 	}

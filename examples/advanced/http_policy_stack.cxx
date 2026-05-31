@@ -46,7 +46,7 @@ int main() {
 		.allowed_origins = {"https://app.example"},
 		.allowed_methods = {"GET", "POST", "OPTIONS"},
 		.allowed_headers = {"Content-Type", "Authorization", "X-CSRF-Token"},
-		.expose_headers = {"X-Request-Id", "Traceparent", "ETag"},
+		.expose_headers = {"X-conflux::http::OwnedRequest-Id", "Traceparent", "ETag"},
 		.allow_credentials = true,
 	}));
 	app.use(forwarded_middleware({
@@ -91,7 +91,7 @@ int main() {
 	}));
 	app.use(structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
 
-	app.get("/", [](Request const &) {
+	app.get("/", [](conflux::http::OwnedRequest const &) {
 		return conflux::http::Response::html(
 			"<html><body><h1>policy stack</h1>"
 			"<ul>"
@@ -103,12 +103,12 @@ int main() {
 			"</ul></body></html>");
 	});
 
-	app.get("/dashboard", [](Request const &req) {
+	app.get("/dashboard", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::text(
 			format("dashboard request_id={} trace={}\n", req.headers["x-request-id"], req.headers["traceparent"]));
 	});
 
-	app.get("/v2/users", [](Request const &req) {
+	app.get("/v2/users", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::json(
 			std::format(
 				R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
@@ -116,7 +116,7 @@ int main() {
 				req.headers["x-request-id"]));
 	});
 
-	app.get("/form", [](Request const &req) {
+	app.get("/form", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::html(
 			std::format(
 				"<html><body><h1>CSRF form</h1>"
@@ -128,19 +128,19 @@ int main() {
 				req.cookies["csrf_token"]));
 	});
 
-	app.get("/login", [](Request const &) {
+	app.get("/login", [](conflux::http::OwnedRequest const &) {
 		auto resp = conflux::http::Response::text("signed session cookie set; try /me\n");
 		resp.set_cookie("session", sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 
-	app.get("/me", [](Request const &req) {
+	app.get("/me", [](conflux::http::OwnedRequest const &req) {
 		auto user = req.cookies["session"];
 		return user.empty() ? conflux::http::Response::unauthorized("Session") :
 							  conflux::http::Response::text(std::format("session user={}\n", user));
 	});
 
-	app.post("/submit", [](Request const &req) {
+	app.post("/submit", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::text(std::format("accepted value={}\n", req.form["value"]));
 	});
 

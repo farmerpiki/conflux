@@ -189,7 +189,7 @@ conflux::http::Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
@@ -230,7 +230,7 @@ conflux::http::Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
@@ -299,7 +299,7 @@ conflux::http::Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
-	RequestView const &req,
+	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);

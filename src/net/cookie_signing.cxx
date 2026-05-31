@@ -120,7 +120,7 @@ export conflux::http::Router::Middleware cookie_signing_middleware(
 		throw std::invalid_argument{valid.error()};
 	}
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
 			if (value.find('.') == std::string::npos) {

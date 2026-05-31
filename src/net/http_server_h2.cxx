@@ -587,7 +587,7 @@ int Ring::h2_on_frame_recv_cb(
 		request_lease->cookies,
 		request_lease->files);
 
-	RequestView const req{
+	conflux::http::RequestView const req{
 		method,
 		path,
 		version,

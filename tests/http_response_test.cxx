@@ -50,14 +50,14 @@ TEST_CASE(
 	"[http.response]") {
 	static_assert(std::same_as<chttp::Response, conflux::http::Response>);
 
-	CHECK(conflux::http::Response::status_text_for(kHttpBadRequest) == "Bad Request");
-	CHECK(conflux::http::Response::status_text_for(408) == "Request Timeout");
+	CHECK(conflux::http::Response::status_text_for(kHttpBadRequest) == "Bad conflux::http::OwnedRequest");
+	CHECK(conflux::http::Response::status_text_for(408) == "conflux::http::OwnedRequest Timeout");
 	CHECK(conflux::http::Response::status_text_for(417) == "Expectation Failed");
 	CHECK(conflux::http::Response::status_text_for(599).empty());
 
 	auto text = chttp::Response::text("bad", kHttpBadRequest);
 	CHECK(text.status == kHttpBadRequest);
-	CHECK(text.status_text == "Bad Request");
+	CHECK(text.status_text == "Bad conflux::http::OwnedRequest");
 	CHECK(text.text_body() == "bad");
 
 	auto json = chttp::Response::json("{}", kHttpCreated);
@@ -185,7 +185,7 @@ TEST_CASE(
 	{
 		auto resp = conflux::http::Response::header_fields_too_large();
 		CHECK(resp.status == kHttpRequestHeaderFieldsTooLarge);
-		CHECK(resp.status_text == "Request Header Fields Too Large");
+		CHECK(resp.status_text == "conflux::http::OwnedRequest Header Fields Too Large");
 	}
 	{
 		auto resp = conflux::http::Response::bad_gateway("upstream failed");

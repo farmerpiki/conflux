@@ -28,7 +28,7 @@ export struct CacheControlOptions {
 export conflux::http::Router::Middleware cache_control_middleware(
 	CacheControlOptions opts = {}) {
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		// Don't overwrite an explicit Cache-Control already set by the handler.

@@ -72,10 +72,10 @@ int main() {
 	cfg.http3.enabled = true;
 
 	conflux::http::Router router;
-	router.get("/", [](RequestView const &) {
+	router.get("/", [](conflux::http::RequestView const &) {
 		return conflux::http::Response::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
 	});
-	router.get("/ping", [](RequestView const &) {
+	router.get("/ping", [](conflux::http::RequestView const &) {
 		return conflux::http::Response::json(R"({"transport":"h3-ready"})");
 	});
 

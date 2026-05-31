@@ -451,7 +451,7 @@ TEST_CASE(
 
 	REQUIRE(app.validate().ok());
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json";
 	req.headers["content-type"] = "application/json";
@@ -674,7 +674,7 @@ TEST_CASE(
 		return response;
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/items/42?debug=true";
 	req.headers.set("Authorization", "Bearer secret");
@@ -682,7 +682,7 @@ TEST_CASE(
 
 	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);
-	CHECK(response.headers.get("X-Request-ID").has_value());
+	CHECK(response.headers.get("X-conflux::http::OwnedRequest-ID").has_value());
 	CHECK(response.headers.get("Traceparent").has_value());
 	REQUIRE(logs.size() == 1);
 	auto const log_doc = require_json_text(logs[0]);
@@ -694,7 +694,7 @@ TEST_CASE(
 	std::array<std::string_view, 2> const secrets{"debug=true", "Bearer secret"};
 	check_json_contains_no_secret(log_doc.root(), secrets);
 
-	Request metrics_req;
+	conflux::http::OwnedRequest metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = http::router(app).dispatch(metrics_req);
@@ -735,7 +735,7 @@ TEST_CASE(
 			.access_log_sink = [&](std::string const &line) { logs.push_back(line); },
 		}));
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/missing?token=secret";
 	auto missing = http::router(app).dispatch(req);
@@ -746,7 +746,7 @@ TEST_CASE(
 	std::array<std::string_view, 1> const secrets{"token=secret"};
 	check_json_contains_no_secret(log_doc.root(), secrets);
 
-	Request metrics_req;
+	conflux::http::OwnedRequest metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = http::router(app).dispatch(metrics_req);
@@ -788,7 +788,7 @@ TEST_CASE(
 					},
 			}));
 
-	Request metrics_req;
+	conflux::http::OwnedRequest metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = http::router(app).dispatch(metrics_req);
@@ -820,7 +820,7 @@ TEST_CASE(
 					},
 			}));
 
-	Request metrics_req;
+	conflux::http::OwnedRequest metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = http::router(app).dispatch(metrics_req);
@@ -843,7 +843,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.use(middleware);
 
-	Request metrics_req;
+	conflux::http::OwnedRequest metrics_req;
 	metrics_req.method = "GET";
 	metrics_req.path = "/metrics";
 	auto metrics = http::router(app).dispatch(metrics_req);
@@ -887,7 +887,7 @@ TEST_CASE(
 	});
 	app.get("/events", [channel] { return http::sse(channel); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/events";
 
@@ -911,7 +911,7 @@ TEST_CASE(
 	CHECK(routes[0].method == "GET");
 	CHECK(routes[0].path == "/context");
 	CHECK(routes[0].handler_kind == "context");
-	CHECK(routes[0].extractors == std::vector<std::string>{"RequestView"});
+	CHECK(routes[0].extractors == std::vector<std::string>{"conflux::http::RequestView"});
 	CHECK(http::router(app).has_context_routes());
 }
 
@@ -990,7 +990,7 @@ TEST_CASE(
 	CHECK(routes[0].path == "/api/items/{id}");
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/api/items/42";
 
@@ -1013,7 +1013,7 @@ TEST_CASE(
 	CHECK(routes[0].path == "/api/items");
 	CHECK(routes[1].path == "/api/users");
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/api/items";
 	CHECK(http::router(app).dispatch(req).text_body() == "items");
@@ -1041,7 +1041,7 @@ TEST_CASE(
 	CHECK(routes[0].middleware_count == 1);
 	CHECK(routes[0].extractors == std::vector<std::string>{"Path<id>"});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/api/items/42";
 
@@ -1095,7 +1095,7 @@ TEST_CASE(
 	CHECK(routes[0].timeout == std::chrono::milliseconds{250});
 	CHECK(routes[0].max_body_size == 32);
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/api/v1/items";
 	req.body = "hello";
@@ -1258,7 +1258,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/private", [] { return http::text("secret"); }).require_bearer_token("user");
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/private";
 
@@ -1281,7 +1281,7 @@ TEST_CASE(
 	app.get("/private-state", [](http::State<std::string> state) { return http::text(state.get()); })
 		.require_bearer_token("user");
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/private-state";
 
@@ -1301,7 +1301,7 @@ TEST_CASE(
 	app.get("/limited", [] { return http::text("ok"); })
 		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/limited";
 	req.remote_addr = "203.0.113.10";
@@ -1322,7 +1322,7 @@ TEST_CASE(
 	app.get("/limited", [] { return http::text("ok"); })
 		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/limited";
 	req.remote_addr = "0:0:0:0:0:0:0:1";
@@ -1341,7 +1341,7 @@ TEST_CASE(
 			"tiny",
 			http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 2});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/limited";
 
@@ -1370,7 +1370,7 @@ TEST_CASE(
 	app.get("/deferred", [deferred] { return conflux::http::Response::deferred(deferred); })
 		.timeout(std::chrono::milliseconds{25});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/deferred";
 
@@ -1444,7 +1444,7 @@ TEST_CASE(
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
 	app.get("/openapi.json", http::openapi_handler(app, "Facade API", "1.2.3"));
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/openapi.json";
 
@@ -1463,7 +1463,7 @@ TEST_CASE(
 	app.get("/health", [] { return http::text("ok"); }).name("health.check");
 	(void)app.openapi("/schema.json", "Mounted API", "2.0.0");
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/schema.json";
 
@@ -1514,7 +1514,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/needs-state";
 
@@ -1560,7 +1560,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/answer", [] { return http::Json{FacadeAnswer{.value = "ok"}}; });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/answer";
 
@@ -1579,7 +1579,7 @@ TEST_CASE(
 
 	app.get("/state", [](http::State<std::string> state) { return http::text(state.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/state";
 
@@ -1594,7 +1594,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get<"/hello/{name}">([](http::Path<"name"> name) { return http::text(name.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/hello/Ada";
 
@@ -1641,7 +1641,7 @@ TEST_CASE(
     });
 	CHECK(app.validate().ok());
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/typed/42";
 
@@ -1667,7 +1667,7 @@ TEST_CASE(
     });
 	CHECK(app.validate().ok());
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/todos/-42";
 
@@ -1718,7 +1718,7 @@ TEST_CASE(
 	CHECK(routes[0].extractors[0] == "PathAt<0>");
 	CHECK(routes[0].extractors[1] == "PathAt<1>");
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/teams/core/users/42";
 
@@ -1763,7 +1763,7 @@ TEST_CASE(
 			return http::text(std::format("{}:{}:{}", q.get(), request_id.get(), session.get()));
 		});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/fields";
 	req.query["q"] = "search";
@@ -1781,7 +1781,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/request-id", [](http::RequestId request_id) { return http::text(request_id.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/request-id";
 	req.headers["x-request-id"] = "req-123";
@@ -1804,7 +1804,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", conn.remote_addr, conn.is_tls ? "tls" : "plain"));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/conn";
 	req.remote_addr = "203.0.113.10";
@@ -1826,7 +1826,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/trace", [](http::TraceContext trace) { return http::text(trace.traceparent); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/trace";
 	req.headers["traceparent"] = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
@@ -1847,7 +1847,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/bearer", [](http::BearerToken bearer) { return http::text(bearer.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/bearer";
 	req.headers["authorization"] = "bearer  token-123 \t";
@@ -1868,7 +1868,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/bearer", [](http::RequiredBearerToken bearer) { return http::text(bearer.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/bearer";
 
@@ -1898,7 +1898,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.get("/bearer", [](http::OptionalBearerToken bearer) { return http::text(bearer.get().value_or("none")); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/bearer";
 	CHECK(http::router(app).dispatch(req).text_body() == "none");
@@ -1915,7 +1915,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", auth.username, auth.password));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/basic";
 	req.headers["authorization"] = "Basic YWxpY2U6czNjcmV0";
@@ -1938,7 +1938,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", auth->username, auth->password));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/basic";
 
@@ -1971,7 +1971,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", auth.get()->username, auth.get()->password));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/basic";
 	CHECK(http::router(app).dispatch(req).text_body() == "none");
@@ -1988,7 +1988,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", id.get(), page.get()));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/items/42";
 	req.params["id"] = "42";
@@ -2020,7 +2020,7 @@ TEST_CASE(
 				std::format("{}:{}:{}:{}", id.value_or(0), page.value_or(1), limit.value_or(10), session.value_or(99)));
 		});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/items/42";
 	req.params["id"] = "42";
@@ -2054,7 +2054,7 @@ TEST_CASE(
 			return http::text(std::format("{}:{}:{}", id.get(), page.value_or(1), session.value_or(0)));
 		});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/aliases";
 	req.query["id"] = "42";
@@ -2085,7 +2085,7 @@ TEST_CASE(
 			return http::text(std::format("{}:{}:{}:{}", q.get(), token.get(), session.get(), name.get()));
 		});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/required-fields";
 	req.query["q"] = "";
@@ -2134,7 +2134,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", name.get(), age.get()));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/submit";
 	req.form["name"] = "Ada";
@@ -2157,7 +2157,7 @@ TEST_CASE(
 		return http::text(std::format("{}", age.value_or(0)));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/submit";
 	req.form["age"] = "37";
@@ -2184,7 +2184,7 @@ TEST_CASE(
 			return http::text(std::format("{}:{}", id.get(), age.value_or(0)));
 		});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/form-aliases";
 	req.form["id"] = "42";
@@ -2209,7 +2209,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/search";
 	req.query["q"] = "conflux";
@@ -2235,7 +2235,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page.value_or(1)));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/search";
 	req.query["q"] = "conflux";
@@ -2260,7 +2260,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/search";
 	req.form["q"] = "conflux";
@@ -2286,7 +2286,7 @@ TEST_CASE(
 		return http::text(std::format("{}:{}", search->q, search->page.value_or(1)));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/search";
 	req.form["q"] = "conflux";
@@ -2309,7 +2309,7 @@ TEST_CASE(
 	auto app = http::app();
 	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json";
 	req.body = R"({"value":"ok"})";
@@ -2358,7 +2358,7 @@ TEST_CASE(
 		return http::text(*dumped);
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json-doc";
 	req.body = R"({"value":"ok"})";
@@ -2401,7 +2401,7 @@ TEST_CASE(
 	app.json_options(http::AppJsonOptions{.max_body_size = 8});
 	app.post("/json-doc", [](http::JsonDocument) { return http::no_content(); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json-doc";
 	req.headers["content-type"] = "application/json";
@@ -2422,7 +2422,7 @@ TEST_CASE(
 		return http::no_content();
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "PATCH";
 	req.path = "/patch";
 	req.body = R"([{"op":"add","path":"/name","value":"Ada"}])";
@@ -2481,7 +2481,7 @@ TEST_CASE(
 		   })
 		.max_body_size(8);
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "PATCH";
 	req.path = "/merge";
 	req.body = R"({"a":1})";
@@ -2525,7 +2525,7 @@ TEST_CASE(
 	REQUIRE(routes.size() == 1);
 	CHECK(routes[0].max_body_size == 8);
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json";
 	req.headers["content-type"] = "application/json";
@@ -2549,7 +2549,7 @@ TEST_CASE(
 			.max_body_size = 64});
 	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/json";
 	req.headers["content-type"] = "application/json";
@@ -2573,7 +2573,7 @@ TEST_CASE(
 	app.post("/echo-bytes", [](http::BodyBytes body) { return http::text(body.text_view()); });
 	app.post("/echo-owned", [](http::OwnedBodyBytes body) { return http::text(body.get()); });
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/echo-text";
 	req.body = "hello";
@@ -2602,7 +2602,7 @@ TEST_CASE(
 				file == nullptr ? std::string_view{} : file->data));
 	});
 
-	Request req;
+	conflux::http::OwnedRequest req;
 	req.method = "POST";
 	req.path = "/upload";
 	req.form["title"] = "Report";
@@ -2712,7 +2712,7 @@ TEST_CASE(
 	CHECK(problem.response.content_type == "application/problem+json");
 	CHECK(
 		problem.response.text_body()
-		== R"({"type":"about:blank","title":"Bad Request","status":400,"detail":"title is required","code":"invalid_todo"})");
+		== R"({"type":"about:blank","title":"Bad conflux::http::OwnedRequest","status":400,"detail":"title is required","code":"invalid_todo"})");
 
 	auto rich = http::problem::bad_request("invalid_user", "invalid user")
 					.type_uri("https://example.test/problems/invalid-user")
@@ -2722,12 +2722,12 @@ TEST_CASE(
 	rich.rebuild();
 	CHECK(
 		rich.response.text_body()
-		== R"({"type":"https://example.test/problems/invalid-user","title":"Bad Request","status":400,"detail":"invalid user","instance":"/users","code":"invalid_user","trace_id":"abc","fields":{"email":"is required"}})");
+		== R"({"type":"https://example.test/problems/invalid-user","title":"Bad conflux::http::OwnedRequest","status":400,"detail":"invalid user","instance":"/users","code":"invalid_user","trace_id":"abc","fields":{"email":"is required"}})");
 	auto converted =
 		http::into_response(http::problem::bad_request("invalid_user", "invalid user").field("name", "is required"));
 	CHECK(
 		converted.text_body()
-		== R"({"type":"about:blank","title":"Bad Request","status":400,"detail":"invalid user","code":"invalid_user","fields":{"name":"is required"}})");
+		== R"({"type":"about:blank","title":"Bad conflux::http::OwnedRequest","status":400,"detail":"invalid user","code":"invalid_user","fields":{"name":"is required"}})");
 
 	CHECK(http::problem::not_found("missing", "not found").response.status == kHttpNotFound);
 	CHECK(http::problem::unauthorized("login_required", "sign in").response.status == kHttpUnauthorized);

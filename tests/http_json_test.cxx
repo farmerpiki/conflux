@@ -150,16 +150,16 @@ TEST_CASE(
 TEST_CASE(
 	"http json: app route helpers keep provider selection explicit",
 	"[http.json]") {
-	Request req{
+	conflux::http::OwnedRequest req{
 		.method = "GET",
 		.path = "/value",
 		.version = "HTTP/1.1",
 		.remote_addr = "127.0.0.1",
 	};
-	RequestView view{req};
+	conflux::http::RequestView view{req};
 
 	auto handler =
-		hj::make_handler_with<StreamingOnlyProvider>([](RequestView const &) { return StreamingPayload{.value = 11}; });
+		hj::make_handler_with<StreamingOnlyProvider>([](conflux::http::RequestView const &) { return StreamingPayload{.value = 11}; });
 	auto resp = handler(view);
 	CHECK(resp.status == kHttpOk);
 	CHECK(resp.content_type == "application/json");
@@ -172,14 +172,14 @@ TEST_CASE(
 TEST_CASE(
 	"http json: decoded route helpers use boundary decode and response traits",
 	"[http.json]") {
-	Request req{
+	conflux::http::OwnedRequest req{
 		.method = "POST",
 		.path = "/add-one",
 		.version = "HTTP/1.1",
 		.remote_addr = "127.0.0.1",
 		.body = "41",
 	};
-	RequestView view{req};
+	conflux::http::RequestView view{req};
 
 	auto handler = hj::make_decode_handler_with<BoundaryRouteProvider, InputPayload>(
 		[](InputPayload const &body) { return StreamingPayload{.value = body.value + 1}; });
@@ -190,7 +190,7 @@ TEST_CASE(
 	CHECK_FALSE(BoundaryRouteProvider::last_copy_input);
 
 	req.body = "not-an-int";
-	auto bad = handler(RequestView{req});
+	auto bad = handler(conflux::http::RequestView{req});
 	CHECK(bad.status == kHttpBadRequest);
 	CHECK(bad.content_type == "application/problem+json");
 	check_problem_code(bad, "json.decode.type_mismatch");

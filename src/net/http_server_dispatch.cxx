@@ -212,7 +212,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = conflux::http::Response::text("Bad Request", kHttpBadRequest);
+			auto r = conflux::http::Response::text("Bad conflux::http::OwnedRequest", kHttpBadRequest);
 			conn.own_response = format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;
@@ -365,7 +365,7 @@ void dispatch_request(
 		request_files = std::make_shared<std::vector<conflux::http::UploadedFile>>(std::move(files));
 		file_views = *request_files;
 	}
-	RequestView const req{
+	conflux::http::RequestView const req{
 		method,
 		path,
 		version,

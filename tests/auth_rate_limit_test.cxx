@@ -15,9 +15,9 @@ using Clock = AuthThrottleClock;
 	return Clock::time_point{std::chrono::seconds{seconds}};
 }
 
-[[nodiscard]] RequestView make_auth_request() {
-	static Request req;
-	req = Request{};
+[[nodiscard]] conflux::http::RequestView make_auth_request() {
+	static conflux::http::OwnedRequest req;
+	req = conflux::http::OwnedRequest{};
 	req.method = "POST";
 	req.path = "/login";
 	req.version = "HTTP/1.1";
@@ -25,7 +25,7 @@ using Clock = AuthThrottleClock;
 	req.form["username"] = "alice";
 	req.query["user"] = "bob";
 	req.headers["Authorization"] = "Bearer secret-token";
-	return RequestView{req};
+	return conflux::http::RequestView{req};
 }
 
 } // namespace
@@ -154,11 +154,11 @@ TEST_CASE(
 							.max_subjects = 4,
 							}
     };
-	auto middleware = auth_throttle_middleware(limiter, [](RequestView const &req) {
+	auto middleware = auth_throttle_middleware(limiter, [](conflux::http::RequestView const &req) {
 		return auth_throttle_form_key(req, "username");
 	});
 	auto req = make_auth_request();
-	conflux::http::Router::Handler fail = [](RequestView const &) {
+	conflux::http::Router::Handler fail = [](conflux::http::RequestView const &) {
 		conflux::http::Response r;
 		r.status = 401;
 		r.status_text = "Unauthorized";

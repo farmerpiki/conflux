@@ -99,11 +99,11 @@ export conflux::http::Router::Middleware cors_middleware(
 	CorsOptions opts = {}) {
 	auto policy = cors_detail::PreparedCorsOptions{std::move(opts)};
 	return [policy = std::move(policy)](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto request_origin = req.headers["origin"];
 
-		// Preflight: OPTIONS + Origin + Access-Control-Request-Method
+		// Preflight: OPTIONS + Origin + Access-Control-conflux::http::OwnedRequest-Method
 		if (req.method == "OPTIONS"
 			&& !request_origin.empty()
 			&& !req.headers["access-control-request-method"].empty()) {

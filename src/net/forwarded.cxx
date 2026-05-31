@@ -43,7 +43,7 @@ export conflux::http::Router::Middleware forwarded_middleware(
 	}
 
 	return [opts = std::move(opts), cidrs = std::move(cidrs)](
-			   RequestView const &req,
+			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {

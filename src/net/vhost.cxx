@@ -55,7 +55,7 @@ public:
 		return default_ != nullptr ? default_->work_pool() : nullptr;
 	}
 	[[nodiscard]] conflux::http::Response dispatch(
-		RequestView const &req) const {
+		conflux::http::RequestView const &req) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
@@ -67,15 +67,15 @@ public:
 		return conflux::http::Response::not_found(req.path);
 	}
 	[[nodiscard]] conflux::http::Response dispatch(
-		Request const &req) const {
-		return dispatch(RequestView{req});
+		conflux::http::OwnedRequest const &req) const {
+		return dispatch(conflux::http::RequestView{req});
 	}
 	[[nodiscard]] bool has_context_routes() const noexcept {
 		return std::ranges::any_of(vhosts_, [](auto const &kv) noexcept { return kv.second.has_context_routes(); })
 			|| (default_ && default_->has_context_routes());
 	}
 	[[nodiscard]] std::optional<conflux::http::Response> dispatch_context(
-		RequestView const &req,
+		conflux::http::RequestView const &req,
 		conflux::http::RequestContext const &ctx) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
 		auto it = vhosts_.find(std::string{host});

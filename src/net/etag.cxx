@@ -40,7 +40,7 @@ conflux::http::Response not_modified(
 } // namespace etag_detail
 export conflux::http::Router::Middleware etag_middleware(
 	ETagOptions opts = {}) {
-	return [opts](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
 
 		// Skip: already has ETag, empty body, SSE/WS, or mmap response.

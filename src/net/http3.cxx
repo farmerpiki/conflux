@@ -523,7 +523,7 @@ void dispatch_stream(
 		hdrs_view.emplace_back(k, v);
 	}
 	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
-	RequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
+	conflux::http::RequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
 		s.response = Response::internal_error("no router");
 	} else {

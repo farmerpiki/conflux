@@ -29,7 +29,7 @@ export struct RedirectOptions {
 export conflux::http::Router::Middleware redirect_middleware(
 	RedirectOptions opts = {}) {
 	return [opts = std::move(
-				opts)](RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		for (auto const &rule: opts.rules) {
 			bool matched = false;
 			std::string target = rule.to;

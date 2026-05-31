@@ -375,6 +375,22 @@ if(TARGET conflux_http_core)
     target_compile_definitions(conflux_http_core_tests PRIVATE
         "ASSERT_PROBE_BIN=\"$<TARGET_FILE:http_request_assert_probe>\"")
     add_dependencies(conflux_http_core_tests http_request_assert_probe)
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_request
+        SOURCE http_core_compile_fail_global_request.cxx
+        TEST http-core/compile-fail-global-request
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "Request")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_request_view
+        SOURCE http_core_compile_fail_global_request_view.cxx
+        TEST http-core/compile-fail-global-request-view
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "RequestView")
 endif()
 
 if(TARGET conflux_net_http)
