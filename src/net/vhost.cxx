@@ -12,7 +12,9 @@ import conflux.work;
 // VHostRouter routes requests to per-host Routers.
 // The Host port (":port") is stripped before matching.
 // A default Router handles requests for unknown hosts.
-export class VHostRouter {
+export namespace conflux::http {
+
+class VHostRouter {
 public:
 	// Register a Router for an exact host name (e.g. "api.example.com").
 	VHostRouter &add(
@@ -93,3 +95,5 @@ private:
 	std::unique_ptr<conflux::http::Router> default_;
 	std::shared_ptr<WorkPool> work_pool_{};
 };
+
+} // namespace conflux::http

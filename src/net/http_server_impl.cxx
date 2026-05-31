@@ -139,7 +139,7 @@ struct HttpServer::Impl {
 	unsigned rings{};
 	std::uint32_t uring_flags{};
 	conflux::http::Router router;
-	VHostRouter vhost_router;
+	conflux::http::VHostRouter vhost_router;
 	bool use_vhost = false;
 	std::vector<std::unique_ptr<Ring>> ring_vec;
 	std::vector<int> shutdown_efds;
@@ -239,7 +239,7 @@ HttpServer::HttpServer(
 
 HttpServer::HttpServer(
 	conflux::http::Config const &cfg,
-	VHostRouter &&vhost_router)
+	conflux::http::VHostRouter &&vhost_router)
 	: impl_(new Impl{}) {
 	impl_->use_vhost = true;
 	impl_->vhost_router = std::move(vhost_router);
@@ -270,7 +270,7 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 
 std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	conflux::http::Config const &cfg,
-	VHostRouter &&vhost_router) {
+	conflux::http::VHostRouter &&vhost_router) {
 	if (auto error = startup_config_error(cfg)) {
 		return std::unexpected{std::move(*error)};
 	}

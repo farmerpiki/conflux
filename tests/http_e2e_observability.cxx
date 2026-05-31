@@ -1502,7 +1502,7 @@ TEST_CASE(
 	conflux::http::Router web_router;
 	conflux::http::Router def_router;
 
-	VHostRouter vhost;
+	conflux::http::VHostRouter vhost;
 	vhost.set_work_pool(shared_pool);
 	vhost.add("api.example.com", std::move(api_router));
 	vhost.add("web.example.com", std::move(web_router));
@@ -1528,7 +1528,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"vhost: default construction does not allocate work pool") {
-	VHostRouter vhost;
+	conflux::http::VHostRouter vhost;
 	CHECK_FALSE(vhost.work_pool());
 
 	conflux::http::Router plain;
@@ -1547,7 +1547,7 @@ TEST_CASE(
 	conflux::http::Router api_router;
 	conflux::http::Router def_router;
 
-	VHostRouter vhost;
+	conflux::http::VHostRouter vhost;
 	vhost.add("api.example.com", std::move(api_router));
 	vhost.set_default(std::move(def_router));
 
@@ -1565,7 +1565,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		conflux::http::Router api;
 		api.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("api"); });
-		VHostRouter vhost;
+		conflux::http::VHostRouter vhost;
 		vhost.add("api.example.com", std::move(api));
 		// No set_default call.
 		Config const cfg{.port = 0, .rings = 1};
@@ -1578,7 +1578,7 @@ TEST_CASE(
 	"vhost: IPv6 host with port is stripped before matching") {
 	conflux::http::Router api;
 	api.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("api-v6"); });
-	VHostRouter vhost;
+	conflux::http::VHostRouter vhost;
 	vhost.add("[::1]", std::move(api));
 
 	conflux::http::OwnedRequest req;
@@ -1594,7 +1594,7 @@ TEST_CASE(
 	"vhost: IPv6 host without port matches directly") {
 	conflux::http::Router api;
 	api.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("api-v6-noport"); });
-	VHostRouter vhost;
+	conflux::http::VHostRouter vhost;
 	vhost.add("[::1]", std::move(api));
 
 	conflux::http::OwnedRequest req;

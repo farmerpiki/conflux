@@ -115,7 +115,7 @@ TEST_CASE(
 
 	conflux::http::Router def;
 	def.get("/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	VHostRouter vhosts;
+	conflux::http::VHostRouter vhosts;
 	vhosts.set_default(std::move(def));
 
 	auto const port = conflux::tests::test_servers().start(cfg, std::move(vhosts));

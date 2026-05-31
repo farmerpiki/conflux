@@ -35,7 +35,7 @@ static conflux::http::Router make_web_router() {
 }
 
 int main() {
-	VHostRouter hosts;
+	conflux::http::VHostRouter hosts;
 	hosts.add("api.local.test", make_api_router());
 	hosts.add("web.local.test", make_web_router());
 

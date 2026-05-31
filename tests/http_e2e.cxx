@@ -1221,7 +1221,7 @@ void ensure_vhost_server() {
 		conflux::http::Router def_router;
 		def_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("default"); });
 
-		auto vhr = std::make_shared<VHostRouter>();
+		auto vhr = std::make_shared<conflux::http::VHostRouter>();
 		vhr->add("api.example.com", std::move(api_router));
 		vhr->add("web.example.com", std::move(web_router));
 		vhr->set_default(std::move(def_router));
@@ -1240,7 +1240,7 @@ void ensure_vhost_direct_server() {
 		conflux::http::Router def_router;
 		def_router.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("default-direct"); });
 
-		VHostRouter vhost_router;
+		conflux::http::VHostRouter vhost_router;
 		vhost_router.add("api.example.com", std::move(api_router));
 		vhost_router.set_default(std::move(def_router));
 

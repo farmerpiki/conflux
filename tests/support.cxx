@@ -292,7 +292,7 @@ public:
 	}
 	std::uint16_t start(
 		conflux::http::Config const &cfg,
-		VHostRouter vhost_router) {
+		conflux::http::VHostRouter vhost_router) {
 		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = std::make_shared<HttpServer>(cfg, std::move(vhost_router));
 		{

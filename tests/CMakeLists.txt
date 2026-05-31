@@ -1647,6 +1647,16 @@ if(TARGET conflux_http_server_helpers)
         PRIVATE conflux_http_server_helpers conflux_http_realtime conflux_options Catch2::Catch2WithMain)
 endif()
 
+if(TARGET conflux_http_vhost)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_vhost_compile_fail_global_vhost_router
+        SOURCE http_vhost_compile_fail_global_vhost_router.cxx
+        TEST http-vhost/compile-fail-global-vhost-router
+        LINK conflux_http_vhost conflux_options
+        LABELS http compile-fail
+        EXPECT "VHostRouter")
+endif()
+
 if(TARGET conflux_http_server AND CONFLUX_EXPERIMENTAL_SEND_ZC)
     add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)
     target_link_libraries(conflux_send_zc_lifecycle_tests
