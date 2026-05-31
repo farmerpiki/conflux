@@ -584,13 +584,18 @@ struct H2Stats {
 	double ns_per_iter{};
 	std::size_t streams_per_iter{};
 	std::size_t body_bytes_per_iter{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
 
 [[nodiscard]] H2Stats run_variant(
 	Variant const &v,
 	std::size_t iterations,
 	std::size_t warmup,
-	std::string_view config_name) {
+	std::string_view config_name,
+	BenchArgs const &args) {
 	if (v.iters_override > 0) {
 		iterations = std::min(iterations, v.iters_override);
 		warmup = std::min(warmup, std::max(std::size_t{1}, v.iters_override / 5));
@@ -601,22 +606,22 @@ struct H2Stats {
 	}
 
 	std::size_t measured_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		measured_bytes += v.run();
-	}
-	auto const t1 = bench_now_ns();
+	BenchSamplePlan const plan = bench_sample_plan(iterations, warmup, args.samples, args.batch);
+	auto stats = bench_measure_batched([&] { measured_bytes += v.run(); }, plan);
 
-	auto const total = t1 - t0;
 	return H2Stats{
 		.config = config_name,
 		.variant = v.name,
 		.bottleneck = v.bottleneck,
-		.iterations = iterations,
-		.total_ns = total,
-		.ns_per_iter = static_cast<double>(total) / static_cast<double>(iterations),
+		.iterations = stats.iterations,
+		.total_ns = stats.total_ns,
+		.ns_per_iter = stats.ns_per_iter,
 		.streams_per_iter = v.streams_per_iter,
-		.body_bytes_per_iter = measured_bytes / iterations};
+		.body_bytes_per_iter = measured_bytes / stats.iterations,
+		.sample_count = stats.sample_count,
+		.batch = stats.batch,
+		.timer_sample_ns = stats.timer_sample_ns,
+		.timer_overhead_pct = stats.timer_overhead_pct};
 }
 
 void print_h2_stats(
@@ -628,7 +633,8 @@ void print_h2_stats(
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
 			"\"protocol\":\"h2\",\"label\":\"live-kernel-sanity\",\"bottleneck\":\"{}\","
-			"\"streams_per_iter\":{},\"total_streams\":{},\"ns_per_stream\":{:.2f},\"body_bytes_per_iter\":{}}}",
+			"\"streams_per_iter\":{},\"total_streams\":{},\"ns_per_stream\":{:.2f},\"body_bytes_per_iter\":{},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
 			s.config,
 			s.variant,
 			s.iterations,
@@ -638,7 +644,11 @@ void print_h2_stats(
 			s.streams_per_iter,
 			total_streams,
 			ns_per_stream,
-			s.body_bytes_per_iter);
+			s.body_bytes_per_iter,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct);
 		return;
 	}
 	std::println(
@@ -767,7 +777,7 @@ int main(
 			continue;
 		}
 		try {
-			auto const stats = run_variant(v, iters, warmup, config_name);
+			auto const stats = run_variant(v, iters, warmup, config_name, args);
 			print_h2_stats(stats, json);
 		} catch (std::exception const &e) {
 			if (json) {
