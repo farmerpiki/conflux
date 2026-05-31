@@ -72,18 +72,21 @@ struct Config {
 	bool json_out = false;
 	bool keep_file = false;
 	bool allow_non_nvme = false;
+	BenchArgs bench;
 };
 
 [[nodiscard]] Config parse_args(
 	std::span<char *> args) {
 	Config cfg;
+	auto base = bench_parse_args(args);
+	cfg.iterations = base.iterations;
+	cfg.warmup = base.warmup;
+	cfg.config_name = std::move(base.config_name);
+	cfg.json_out = base.json_out;
+	cfg.bench = std::move(base);
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--depth" && i + 1 < args.size()) {
+		if (a == "--depth" && i + 1 < args.size()) {
 			cfg.depth = bench_parse_sz(args[++i]);
 		} else if (a == "--chunk" && i + 1 < args.size()) {
 			cfg.chunk = bench_parse_sz(args[++i]);
@@ -91,10 +94,6 @@ struct Config {
 			cfg.path = args[++i];
 		} else if (a == "--mode" && i + 1 < args.size()) {
 			cfg.mode = args[++i];
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
 		} else if (a == "--keep-file") {
 			cfg.keep_file = true;
 		} else if (a == "--allow-non-nvme") {
@@ -233,6 +232,10 @@ struct StorageStats {
 	std::size_t chunk{};
 	std::size_t direct_reads{};
 	std::size_t fallbacks{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 	bool live_kernel_sanity{true};
 };
 
@@ -245,6 +248,8 @@ void print_stats(
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"operations\":{},\"bytes\":{},\"total_ns\":{},"
 			"\"ns_per_iter\":{:.2f},\"mib_per_s\":{:.2f},\"depth\":{},\"chunk\":{},\"direct_reads\":{},\"fallbacks\":{}"
+			","
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}"
 			",\"label\":\"{}\"}}",
 			s.config,
 			s.variant,
@@ -258,6 +263,10 @@ void print_stats(
 			s.chunk,
 			s.direct_reads,
 			s.fallbacks,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct,
 			s.live_kernel_sanity ? "live-kernel-sanity" : "micro/user-space");
 		return;
 	}
@@ -265,11 +274,15 @@ void print_stats(
 		std::print("[{}] ", s.config);
 	}
 	std::println(
-		"{:<22} {:>10} ops  {:>9.2f} ns/op  {:>10.2f} MiB/s  depth={} chunk={} direct={} fallback={}",
+		"{:<22} {:>10} ops  {:>9.2f} ns/op  {:>10.2f} MiB/s  [{}×{} timer≈{:.2f}%] depth={} chunk={} direct={} "
+		"fallback={}",
 		s.variant,
 		s.operations,
 		s.ns_per_op,
 		s.mib_per_s,
+		s.sample_count,
+		s.batch,
+		s.timer_overhead_pct,
 		s.depth,
 		s.chunk,
 		s.direct_reads,
@@ -285,40 +298,85 @@ void print_stats(
 	return (((batch * cfg.depth) + idx) % slots) * cfg.chunk;
 }
 
+struct StorageMeasure {
+	std::size_t batches{};
+	std::size_t bytes{};
+	std::uint64_t total_ns{};
+	double ns_per_batch{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
+};
+
+template<class F>
+[[nodiscard]] StorageMeasure measure_storage_batches(
+	Config const &cfg,
+	F &&fn) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
+	for (std::size_t i = 0; i < plan.warmup_iterations; ++i) {
+		(void)fn(i);
+	}
+	std::vector<std::uint64_t> samples;
+	samples.reserve(plan.samples);
+	std::size_t total_bytes = 0;
+	std::uint64_t total_ns = 0;
+	for (std::size_t sample = 0; sample < plan.samples; ++sample) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t batch = 0; batch < plan.batch; ++batch) {
+			total_bytes += fn(sample * plan.batch + batch);
+		}
+		auto const elapsed = bench_now_ns() - t0;
+		total_ns += elapsed;
+		samples.push_back(elapsed);
+	}
+	std::ranges::sort(samples);
+	return {
+		.batches = plan.iterations,
+		.bytes = total_bytes,
+		.total_ns = total_ns,
+		.ns_per_batch = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch),
+		.sample_count = plan.samples,
+		.batch = plan.batch,
+		.timer_sample_ns = plan.timer_sample_ns,
+		.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns),
+	};
+}
+
 [[nodiscard]] StorageStats finish_stats(
 	Config const &cfg,
 	std::string_view variant,
-	std::size_t operations,
-	std::size_t bytes,
-	std::uint64_t elapsed,
+	StorageMeasure const &measurement,
 	std::size_t direct_reads = 0,
 	std::size_t fallbacks = 0) {
-	double const secs = static_cast<double>(elapsed) / 1'000'000'000.0;
+	std::size_t const operations = measurement.batches * cfg.depth;
+	double const secs = static_cast<double>(measurement.total_ns) / 1'000'000'000.0;
 	return StorageStats{
 		.config = cfg.config_name,
 		.variant = variant,
 		.operations = operations,
-		.bytes = bytes,
-		.total_ns = elapsed,
-		.ns_per_op = static_cast<double>(elapsed) / static_cast<double>(operations),
-		.mib_per_s = secs > 0.0 ? (static_cast<double>(bytes) / static_cast<double>(mib)) / secs : 0.0,
+		.bytes = measurement.bytes,
+		.total_ns = measurement.total_ns,
+		.ns_per_op = measurement.ns_per_batch / static_cast<double>(cfg.depth),
+		.mib_per_s = secs > 0.0 ? (static_cast<double>(measurement.bytes) / static_cast<double>(mib)) / secs : 0.0,
 		.depth = cfg.depth,
 		.chunk = cfg.chunk,
 		.direct_reads = direct_reads,
 		.fallbacks = fallbacks,
+		.sample_count = measurement.sample_count,
+		.batch = measurement.batch * cfg.depth,
+		.timer_sample_ns = measurement.timer_sample_ns,
+		.timer_overhead_pct = measurement.timer_overhead_pct,
 	};
 }
 
 StorageStats bench_pread(
 	int fd,
 	Config const &cfg,
-	std::size_t file_bytes,
-	std::size_t batches,
-	bool warmup) {
+	std::size_t file_bytes) {
 	std::vector<std::byte> buf(cfg.chunk);
-	std::size_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	auto measurement = measure_storage_batches(cfg, [&](std::size_t batch) {
+		std::size_t total_bytes = 0;
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			ssize_t const rc =
 				::pread(fd, buf.data(), cfg.chunk, static_cast<off_t>(read_offset(batch, i, cfg, file_bytes)));
@@ -327,25 +385,22 @@ StorageStats bench_pread(
 			}
 			total_bytes += static_cast<std::size_t>(rc);
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (!warmup && total_bytes == 0) {
+		return total_bytes;
+	});
+	if (measurement.bytes == 0) {
 		throw std::runtime_error{"pread read zero bytes"};
 	}
-	return finish_stats(cfg, "pread"sv, batches * cfg.depth, total_bytes, elapsed, 0, 0);
+	return finish_stats(cfg, "pread"sv, measurement, 0, 0);
 }
 
 StorageStats bench_uring_read(
 	conflux::file_io::FileReader &files,
 	conflux::uring::FileHandle const &fh,
 	Config const &cfg,
-	std::size_t file_bytes,
-	std::size_t batches,
-	bool warmup) {
+	std::size_t file_bytes) {
 	std::vector<std::vector<std::byte>> bufs(cfg.depth, std::vector<std::byte>(cfg.chunk));
-	std::size_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	auto measurement = measure_storage_batches(cfg, [&](std::size_t batch) {
+		std::size_t total_bytes = 0;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<std::size_t>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -358,12 +413,12 @@ StorageStats bench_uring_read(
 			}
 			total_bytes += *slot->value;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (!warmup && total_bytes == 0) {
+		return total_bytes;
+	});
+	if (measurement.bytes == 0) {
 		throw std::runtime_error{"io_uring_read read zero bytes"};
 	}
-	return finish_stats(cfg, "io_uring_read"sv, batches * cfg.depth, total_bytes, elapsed, 0, 0);
+	return finish_stats(cfg, "io_uring_read"sv, measurement, 0, 0);
 }
 
 StorageStats bench_read_fixed(
@@ -371,12 +426,9 @@ StorageStats bench_read_fixed(
 	conflux::uring::FileHandle const &fh,
 	conflux::file_io::FixedBufferPool &pool,
 	Config const &cfg,
-	std::size_t file_bytes,
-	std::size_t batches,
-	bool warmup) {
-	std::size_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t file_bytes) {
+	auto measurement = measure_storage_batches(cfg, [&](std::size_t batch) {
+		std::size_t total_bytes = 0;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<conflux::file_io::FileReader::ReadFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -395,24 +447,21 @@ StorageStats bench_read_fixed(
 			}
 			total_bytes += slot->value->bytes;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (!warmup && total_bytes == 0) {
+		return total_bytes;
+	});
+	if (measurement.bytes == 0) {
 		throw std::runtime_error{"read_fixed read zero bytes"};
 	}
-	return finish_stats(cfg, "read_fixed"sv, batches * cfg.depth, total_bytes, elapsed, 0, 0);
+	return finish_stats(cfg, "read_fixed"sv, measurement, 0, 0);
 }
 
 StorageStats bench_iopoll_read_fixed(
 	conflux::file_io::IopollStorageRing &storage,
 	conflux::uring::FileHandle const &fh,
 	Config const &cfg,
-	std::size_t file_bytes,
-	std::size_t batches,
-	bool warmup) {
-	std::size_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t file_bytes) {
+	auto measurement = measure_storage_batches(cfg, [&](std::size_t batch) {
+		std::size_t total_bytes = 0;
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = storage.try_acquire_buffer();
 			if (!buf) {
@@ -425,12 +474,12 @@ StorageStats bench_iopoll_read_fixed(
 				std::chrono::seconds{5});
 			total_bytes += result.bytes;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (!warmup && total_bytes == 0) {
+		return total_bytes;
+	});
+	if (measurement.bytes == 0) {
 		throw std::runtime_error{"iopoll_read_fixed read zero bytes"};
 	}
-	return finish_stats(cfg, "iopoll_read_fixed"sv, batches * cfg.depth, total_bytes, elapsed, batches * cfg.depth, 0);
+	return finish_stats(cfg, "iopoll_read_fixed"sv, measurement, measurement.batches * cfg.depth, 0);
 }
 
 void run_file_reader_modes(
@@ -461,8 +510,7 @@ void run_file_reader_modes(
 	auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDONLY | O_CLOEXEC));
 
 	if (wants_mode(cfg, "io_uring_read"sv)) {
-		(void)bench_uring_read(files, handle, cfg, file_bytes, cfg.warmup, true);
-		stats.push_back(bench_uring_read(files, handle, cfg, file_bytes, cfg.iterations, false));
+		stats.push_back(bench_uring_read(files, handle, cfg, file_bytes));
 	}
 	if (wants_mode(cfg, "read_fixed"sv)) {
 		conflux::file_io::RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
@@ -473,8 +521,7 @@ void run_file_reader_modes(
 		if (!pool.ok() || pool.capacity() < cfg.depth) {
 			throw BenchSkip{"fixed buffer pool init failed"};
 		}
-		(void)bench_read_fixed(files, handle, pool, cfg, file_bytes, cfg.warmup, true);
-		stats.push_back(bench_read_fixed(files, handle, pool, cfg, file_bytes, cfg.iterations, false));
+		stats.push_back(bench_read_fixed(files, handle, pool, cfg, file_bytes));
 	}
 }
 
@@ -502,8 +549,7 @@ void run_iopoll_mode(
 	}
 	conflux::uring::FileHandle handle = conflux::uring::FileHandle::from_fd(direct_fd.fd);
 	direct_fd.fd = -1;
-	(void)bench_iopoll_read_fixed(*storage, handle, cfg, file_bytes, cfg.warmup, true);
-	stats.push_back(bench_iopoll_read_fixed(*storage, handle, cfg, file_bytes, cfg.iterations, false));
+	stats.push_back(bench_iopoll_read_fixed(*storage, handle, cfg, file_bytes));
 }
 
 } // namespace
@@ -538,8 +584,7 @@ int main(
 			if (!fd.valid()) {
 				throw std::runtime_error{std::format("open pread file failed: {}", std::strerror(errno))};
 			}
-			(void)bench_pread(fd.fd, cfg, file_bytes, cfg.warmup, true);
-			stats.push_back(bench_pread(fd.fd, cfg, file_bytes, cfg.iterations, false));
+			stats.push_back(bench_pread(fd.fd, cfg, file_bytes));
 		}
 
 		run_file_reader_modes(cfg, file, file_bytes, stats);
