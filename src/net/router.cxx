@@ -17,12 +17,15 @@ export import conflux.net.http.response;
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-// Metadata for a single registered route, exposed by Router::route_infos().
-export struct RouteInfo {
+export namespace conflux::http {
+
+struct RouteInfo {
 	std::string method;
-	std::string path_pattern; // OpenAPI-style path e.g. /users/{id}
-	std::vector<std::string> path_params; // captured parameter names in order
+	std::string path_pattern;
+	std::vector<std::string> path_params;
 };
+
+} // namespace conflux::http
 export using NextHandler = conflux::http::CloneableFunction<Response(RequestView const &)>;
 export using MiddlewareFunction = conflux::http::CloneableFunction<Response(RequestView const &, NextHandler const &)>;
 export using ContextNextHandler = conflux::http::CloneableFunction<
@@ -302,7 +305,7 @@ public:
 		return *this;
 	}
 	// Return metadata for all registered route entry points.
-	[[nodiscard]] std::vector<RouteInfo> route_infos() const;
+	[[nodiscard]] std::vector<conflux::http::RouteInfo> route_infos() const;
 	template<typename F>
 	Router &sse(
 		std::string_view path,

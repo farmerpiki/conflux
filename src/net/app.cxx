@@ -38,7 +38,7 @@ export namespace conflux::http {
 class App;
 Router &router(App &app) noexcept;
 Router const &router(App const &app) noexcept;
-std::vector<RouteInfo> route_infos(App const &app);
+std::vector<conflux::http::RouteInfo> route_infos(App const &app);
 
 namespace detail {
 
@@ -1119,7 +1119,7 @@ public:
 	[[nodiscard]] conflux::http::Config const &config() const { return cfg_; }
 	friend Router &router(App &app) noexcept;
 	friend Router const &router(App const &app) noexcept;
-	friend std::vector<RouteInfo> route_infos(App const &app);
+	friend std::vector<conflux::http::RouteInfo> route_infos(App const &app);
 	[[nodiscard]] std::vector<AppRouteInfo> routes() const {
 		std::vector<AppRouteInfo> out;
 		out.reserve(route_metadata_.size());
@@ -2767,7 +2767,7 @@ private:
 	return app.router_;
 }
 
-[[nodiscard]] std::vector<RouteInfo> route_infos(
+[[nodiscard]] std::vector<conflux::http::RouteInfo> route_infos(
 	App const &app) {
 	return router(app).route_infos();
 }

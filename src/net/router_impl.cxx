@@ -297,10 +297,10 @@ template<typename RouteT>
 
 template<typename RouteT>
 void append_route_info(
-	std::vector<RouteInfo> &result,
+	std::vector<conflux::http::RouteInfo> &result,
 	std::string_view method,
 	RouteT const &route) {
-	RouteInfo info;
+	conflux::http::RouteInfo info;
 	info.method = std::string{method};
 	info.path_pattern = route.path_pattern;
 	for (auto const &seg: route.pattern) {
@@ -313,7 +313,7 @@ void append_route_info(
 
 template<typename RouteT>
 void append_route_infos(
-	std::vector<RouteInfo> &result,
+	std::vector<conflux::http::RouteInfo> &result,
 	std::vector<RouteT> const &routes) {
 	for (auto const &route: routes) {
 		append_route_info(result, route.method, route);
@@ -609,8 +609,8 @@ Router &Router::ws_prepared(
 	return *this;
 }
 
-[[nodiscard]] std::vector<RouteInfo> Router::route_infos() const {
-	std::vector<RouteInfo> result;
+[[nodiscard]] std::vector<conflux::http::RouteInfo> Router::route_infos() const {
+	std::vector<conflux::http::RouteInfo> result;
 	result.reserve(impl_->routes.size() + impl_->context_routes.size() + impl_->sse_routes.size());
 	append_route_infos(result, impl_->routes);
 	append_route_infos(result, impl_->context_routes);

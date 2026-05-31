@@ -826,6 +826,14 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "RouteInfo")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_route_info
+        SOURCE http_router_compile_fail_global_route_info.cxx
+        TEST http-router/compile-fail-global-route-info
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RouteInfo")
 endif()
 
 if(TARGET conflux_http_response)

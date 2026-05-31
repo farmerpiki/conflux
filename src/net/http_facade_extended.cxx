@@ -16,7 +16,6 @@ import conflux.types;
 export namespace conflux::http {
 
 using Router = ::Router;
-using RouteInfo = ::RouteInfo;
 using WorkPool = ::WorkPool;
 using WorkPoolOptions = ::WorkPoolOptions;
 using WorkPoolQueueMode = ::WorkPoolQueueMode;
