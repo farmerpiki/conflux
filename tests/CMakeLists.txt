@@ -220,6 +220,14 @@ if(TARGET conflux)
         EXPECT "CompletionTable")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_static_async_compile_fail_global_handler
+        SOURCE static_async_compile_fail_global_handler.cxx
+        TEST api-surface/static-async-hides-global-handler
+        LINK conflux_http_static_async conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "handle_static_get_request")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_watch_compile_fail_global_watcher
         SOURCE file_watch_compile_fail_global_watcher.cxx
         TEST api-surface/file-watch-hides-global-watcher

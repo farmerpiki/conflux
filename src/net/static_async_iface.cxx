@@ -9,38 +9,42 @@ import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.http.response;
 
-export conflux::work::root::Task<void> do_serve_static_file(
-	std::shared_ptr<conflux::http::DeferredResponse> dr,
-	conflux::http::Response base,
+export namespace conflux::http {
+
+conflux::work::root::Task<void> do_serve_static_file(
+	std::shared_ptr<DeferredResponse> dr,
+	Response base,
 	std::size_t send_off,
 	std::size_t send_sz,
 	std::size_t total_size,
 	conflux::work::root::Task<conflux::uring::FileHandle> open_task);
 
-export conflux::http::Response handle_static_get(
+Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
-	conflux::http::StaticOptions const &static_options,
-	conflux::http::detail::StaticRequest const &r,
-	conflux::http::detail::StaticCacheStore &static_cache);
+	StaticOptions const &static_options,
+	detail::StaticRequest const &r,
+	detail::StaticCacheStore &static_cache);
 
-export conflux::http::Response handle_static_get_request(
+Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
-	conflux::http::StaticOptions const &sopts,
-	conflux::http::RequestView const &req,
-	conflux::http::detail::StaticCacheStore &static_cache);
+	StaticOptions const &sopts,
+	RequestView const &req,
+	detail::StaticCacheStore &static_cache);
 
-export conflux::http::Response handle_static_put(
+Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
-	conflux::http::StaticOptions const &sopts,
-	conflux::http::RequestView const &req,
-	conflux::http::detail::StaticCacheStore &static_cache);
+	StaticOptions const &sopts,
+	RequestView const &req,
+	detail::StaticCacheStore &static_cache);
 
-export conflux::http::Response handle_static_delete(
+Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
-	conflux::http::StaticOptions const &sopts,
-	conflux::http::RequestView const &req,
-	conflux::http::detail::StaticCacheStore &static_cache);
+	StaticOptions const &sopts,
+	RequestView const &req,
+	detail::StaticCacheStore &static_cache);
+
+} // namespace conflux::http

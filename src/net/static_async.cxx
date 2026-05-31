@@ -174,6 +174,8 @@ struct StaticAcceptedEncodings {
 
 } // namespace
 
+namespace conflux::http {
+
 conflux::work::root::Task<void> do_save_static_file(
 	conflux::file_io::FileReader *fr,
 	std::shared_ptr<std::string> body_owned,
@@ -870,6 +872,7 @@ conflux::work::root::Task<void> do_save_static_file(
 		dr->complete(std::move(resp));
 	} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 }
+
 conflux::work::root::Task<void> do_delete_static_file(
 	std::shared_ptr<conflux::http::DeferredResponse> dr,
 	std::shared_ptr<std::string> fp,
@@ -885,3 +888,5 @@ conflux::work::root::Task<void> do_delete_static_file(
 										 conflux::http::Response::internal_error());
 	} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 }
+
+} // namespace conflux::http
