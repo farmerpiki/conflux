@@ -280,6 +280,10 @@ struct RowStats {
 	HttpServerMetrics metrics{};
 	SsePressureMetrics sse{};
 	conflux::work::WorkPoolQueueStats work{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
 
 [[nodiscard]] RowStats make_local_policy_row(
@@ -309,6 +313,7 @@ void emit(
 			"\"queue_depth_high_water\":{},\"queue_bytes_high_water\":{},"
 			"\"p50_ns\":{},\"p90_ns\":{},\"p99_ns\":{},\"p999_ns\":{},\"max_ns\":{},"
 			"\"fd_count_start\":{},\"fd_count_end\":{},\"rss_kb_start\":{},\"rss_kb_end\":{},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"sq_dropped\":{},\"cq_overflow\":{},\"accept_rejected\":{},"
 			"\"connections_closed_for_pressure\":{},\"response_backpressure_events\":{},"
 			"\"sse_dropped_newest\":{},\"sse_dropped_oldest\":{},\"sse_disconnected_for_pressure\":{},"
@@ -339,6 +344,10 @@ void emit(
 			s.fd_end,
 			s.rss_start,
 			s.rss_end,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct,
 			s.metrics.sq_dropped,
 			s.metrics.cq_overflow,
 			p.accept_rejected,
@@ -550,20 +559,30 @@ RowStats run_sse_policy(
 
 RowStats run_local_sse_drop_newest(
 	std::string_view config,
-	std::size_t iterations) {
+	std::size_t iterations,
+	BenchArgs const &args) {
 	auto const frame = make_sse_frame(192);
 	SseChannel ch{1024, SseOverflowPolicy::DropNewest};
 	auto const backlog = fill_drop_newest(ch, frame);
+	for (std::size_t i = 0; i < args.warmup; ++i) {
+		(void)ch.send(frame);
+	}
 	auto const before = ch.pressure_metrics();
 	std::uint64_t rejected = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		if (!ch.send(frame)) {
-			++rejected;
-		}
-	}
-	auto row = make_local_policy_row(config, "local_sse_overflow_drop_newest", iterations, bench_now_ns() - t0);
+	BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
+	auto stats = bench_measure_batched(
+		[&] {
+			if (!ch.send(frame)) {
+				++rejected;
+			}
+		},
+		plan);
+	auto row = make_local_policy_row(config, "local_sse_overflow_drop_newest", stats.iterations, stats.total_ns);
 	auto const after = ch.pressure_metrics();
+	row.sample_count = stats.sample_count;
+	row.batch = stats.batch;
+	row.timer_sample_ns = stats.timer_sample_ns;
+	row.timer_overhead_pct = stats.timer_overhead_pct;
 	row.dropped = rejected;
 	row.queue_depth_high_water = backlog;
 	row.sse.dropped_newest = after.dropped_newest - before.dropped_newest;
@@ -572,7 +591,8 @@ RowStats run_local_sse_drop_newest(
 
 RowStats run_local_sse_drop_oldest(
 	std::string_view config,
-	std::size_t iterations) {
+	std::size_t iterations,
+	BenchArgs const &args) {
 	auto const frame = make_sse_frame(192);
 	SseChannel ch{1024, SseOverflowPolicy::DropOldest};
 	std::uint64_t seeded = 0;
@@ -581,16 +601,27 @@ RowStats run_local_sse_drop_oldest(
 			++seeded;
 		}
 	}
-	auto const before = ch.pressure_metrics();
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
+	for (std::size_t i = 0; i < args.warmup; ++i) {
 		if (ch.send(frame)) {
 			++seeded;
 		}
 	}
-	auto row = make_local_policy_row(config, "local_sse_overflow_drop_oldest", iterations, bench_now_ns() - t0);
+	auto const before = ch.pressure_metrics();
+	BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
+	auto stats = bench_measure_batched(
+		[&] {
+			if (ch.send(frame)) {
+				++seeded;
+			}
+		},
+		plan);
+	auto row = make_local_policy_row(config, "local_sse_overflow_drop_oldest", stats.iterations, stats.total_ns);
 	auto const after = ch.pressure_metrics();
-	row.accepted = iterations;
+	row.sample_count = stats.sample_count;
+	row.batch = stats.batch;
+	row.timer_sample_ns = stats.timer_sample_ns;
+	row.timer_overhead_pct = stats.timer_overhead_pct;
+	row.accepted = stats.iterations;
 	row.queue_depth_high_water = seeded;
 	row.sse.dropped_oldest = after.dropped_oldest - before.dropped_oldest;
 	return row;
@@ -598,21 +629,33 @@ RowStats run_local_sse_drop_oldest(
 
 RowStats run_local_sse_disconnect(
 	std::string_view config,
-	std::size_t iterations) {
+	std::size_t iterations,
+	BenchArgs const &args) {
 	auto const frame = make_sse_frame(192);
-	std::uint64_t disconnected = 0;
-	std::uint64_t rejected = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
+	for (std::size_t i = 0; i < args.warmup; ++i) {
 		SseChannel ch{256, SseOverflowPolicy::Disconnect};
 		while (ch.send(frame)) {}
-		auto const metrics = ch.pressure_metrics();
-		disconnected += metrics.disconnected_for_pressure;
-		if (!ch.send(frame)) {
-			++rejected;
-		}
+		(void)ch.send(frame);
 	}
-	auto row = make_local_policy_row(config, "local_sse_overflow_disconnect_cycle", iterations, bench_now_ns() - t0);
+	std::uint64_t disconnected = 0;
+	std::uint64_t rejected = 0;
+	BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
+	auto stats = bench_measure_batched(
+		[&] {
+			SseChannel ch{256, SseOverflowPolicy::Disconnect};
+			while (ch.send(frame)) {}
+			auto const metrics = ch.pressure_metrics();
+			disconnected += metrics.disconnected_for_pressure;
+			if (!ch.send(frame)) {
+				++rejected;
+			}
+		},
+		plan);
+	auto row = make_local_policy_row(config, "local_sse_overflow_disconnect_cycle", stats.iterations, stats.total_ns);
+	row.sample_count = stats.sample_count;
+	row.batch = stats.batch;
+	row.timer_sample_ns = stats.timer_sample_ns;
+	row.timer_overhead_pct = stats.timer_overhead_pct;
 	row.dropped = rejected;
 	row.sse.disconnected_for_pressure = disconnected;
 	return row;
@@ -659,19 +702,29 @@ struct SaturatedPool {
 
 RowStats run_local_workpool_full(
 	std::string_view config,
-	std::size_t iterations) {
+	std::size_t iterations,
+	BenchArgs const &args) {
 	SaturatedPool saturated;
+	for (std::size_t i = 0; i < args.warmup; ++i) {
+		(void)saturated.pool.enqueue([] {});
+	}
 	std::uint64_t accepted = 0;
 	std::uint64_t rejected = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		if (saturated.pool.enqueue([] {})) {
-			++accepted;
-		} else {
-			++rejected;
-		}
-	}
-	auto row = make_local_policy_row(config, "local_workpool_enqueue_full_reject", iterations, bench_now_ns() - t0);
+	BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
+	auto stats = bench_measure_batched(
+		[&] {
+			if (saturated.pool.enqueue([] {})) {
+				++accepted;
+			} else {
+				++rejected;
+			}
+		},
+		plan);
+	auto row = make_local_policy_row(config, "local_workpool_enqueue_full_reject", stats.iterations, stats.total_ns);
+	row.sample_count = stats.sample_count;
+	row.batch = stats.batch;
+	row.timer_sample_ns = stats.timer_sample_ns;
+	row.timer_overhead_pct = stats.timer_overhead_pct;
 	row.accepted = accepted;
 	row.dropped = rejected;
 	row.queue_depth_high_water = saturated.backlog_seed;
@@ -907,16 +960,16 @@ int main(
 				row = run_ws_workpool_full(config, std::max<std::size_t>(connections, 16), duration_s);
 			} else if (name == "local_sse_drop_newest"sv) {
 				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
-				row = run_local_sse_drop_newest(config, iterations);
+				row = run_local_sse_drop_newest(config, iterations, args);
 			} else if (name == "local_sse_drop_oldest"sv) {
 				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
-				row = run_local_sse_drop_oldest(config, iterations);
+				row = run_local_sse_drop_oldest(config, iterations, args);
 			} else if (name == "local_sse_disconnect"sv) {
 				auto const iterations = args.iterations == 0 ? std::size_t{10000} : args.iterations;
-				row = run_local_sse_disconnect(config, iterations);
+				row = run_local_sse_disconnect(config, iterations, args);
 			} else if (name == "local_workpool_full"sv) {
 				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
-				row = run_local_workpool_full(config, iterations);
+				row = run_local_workpool_full(config, iterations, args);
 			} else if (name == "local_workpool_full_contended"sv) {
 				auto const iterations = args.iterations == 0 ? std::size_t{100000} : args.iterations;
 				row = run_local_workpool_full_contended(config, iterations);
