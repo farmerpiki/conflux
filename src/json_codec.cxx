@@ -3884,6 +3884,44 @@ inline constexpr auto fp_member_names_v = [] {
 // Value decode dispatch
 // ---------------------------------------------------------------------------
 
+template<class E>
+[[nodiscard]] consteval std::size_t fp_vector_min_bytes_per_element() noexcept {
+	if constexpr (is_fixed_numeric_array_v<E>) {
+		return std::tuple_size_v<E> * 2U + 1U;
+	} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
+		return 2U;
+	} else if constexpr (std::floating_point<E>) {
+		return 4U;
+	} else if constexpr (std::same_as<E, bool>) {
+		return 5U;
+	} else if constexpr (is_basic_string_of_char_v<E>) {
+		return 4U;
+	} else {
+		return 8U;
+	}
+}
+
+template<class E>
+[[nodiscard]] inline std::size_t fp_vector_initial_reserve(
+	std::size_t remaining) noexcept {
+	constexpr std::size_t kMaxInitialReserveBytes = [] {
+		if constexpr (is_fixed_numeric_array_v<E>) {
+			return 8192U;
+		} else if constexpr (
+			(std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E> || std::same_as<E, bool>) {
+			return 64U;
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			return 1024U;
+		} else {
+			return 2048U;
+		}
+	}();
+	constexpr std::size_t kMaxInitialReserve =
+		std::max<std::size_t>(4U, kMaxInitialReserveBytes / std::max<std::size_t>(sizeof(E), 1U));
+	std::size_t const estimated = remaining / fp_vector_min_bytes_per_element<E>();
+	return std::min<std::size_t>(kMaxInitialReserve, std::max<std::size_t>(4U, estimated));
+}
+
 template<class T>
 [[nodiscard]] FpStatus fp_decode_struct(T &out, FpCursor &c, FpLimits const &lim) noexcept;
 
@@ -3957,10 +3995,8 @@ template<class T>
 			--c.depth;
 			return FpStatus::ok;
 		}
-		// Same initial reserve heuristic as JsonReader::initial_array_reserve_hint.
 		if (out.capacity() == 0) {
-			constexpr std::size_t kMaxInitialReserveBytes = 4096U;
-			out.reserve(std::min<std::size_t>(4U, std::max<std::size_t>(1U, kMaxInitialReserveBytes / sizeof(E))));
+			out.reserve(fp_vector_initial_reserve<E>(c.remaining()));
 		}
 		for (;;) {
 			E &slot = out.emplace_back();
