@@ -10,6 +10,8 @@ export module conflux.file_io.buffers;
 import std;
 import conflux.types;
 
+namespace conflux::file_io {
+
 // ---------------------------------------------------------------------------
 // RegisteredBufferTable: owns the io_uring registered-buffer table lifecycle.
 // One instance per ring. Pools carve slices from it.
@@ -183,3 +185,5 @@ inline FixedBuffer::~FixedBuffer() {
 		pool_->release(local_slot_);
 	}
 }
+
+} // namespace conflux::file_io

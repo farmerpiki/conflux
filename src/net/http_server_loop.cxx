@@ -339,9 +339,10 @@ void Ring::init(
 	if (file_io_slabs > 0 && file_io_pipe_pairs > 0) {
 		auto const total_buf_slots =
 			static_cast<unsigned>(file_io_slabs + (send_fixed_buffers_enabled ? send_buffer_slabs : std::size_t{0}));
-		auto table = std::make_unique<RegisteredBufferTable>(&ring, total_buf_slots);
+		auto table = std::make_unique<conflux::file_io::RegisteredBufferTable>(&ring, total_buf_slots);
 		if (table->ok()) {
-			auto file_pool = std::make_unique<FixedBufferPool>(table.get(), 0, file_io_slabs, file_io_slab_bytes);
+			auto file_pool =
+				std::make_unique<conflux::file_io::FixedBufferPool>(table.get(), 0, file_io_slabs, file_io_slab_bytes);
 			auto pipes = std::make_unique<conflux::file_io::PipePool>(file_io_pipe_pairs);
 			if (file_pool->ok() && file_pool->capacity() > 0 && pipes->capacity() > 0) {
 				file_completions = std::make_unique<CompletionTable>();
@@ -355,7 +356,7 @@ void Ring::init(
 						return pack(Op::FileIo, gen, static_cast<int>(slot));
 					});
 				if (send_fixed_buffers_enabled && send_buffer_slabs > 0) {
-					auto sp = std::make_unique<FixedBufferPool>(
+					auto sp = std::make_unique<conflux::file_io::FixedBufferPool>(
 						buf_table.get(),
 						static_cast<unsigned>(file_io_slabs),
 						send_buffer_slabs,
@@ -454,7 +455,7 @@ void Ring::conn_erase(
 	conn.zc_state.after_notification = conflux::http::SendZcPendingAction::none;
 	conn.zc_state.close_after_notification = false;
 	conn.zc_tls_bypass_counted = false;
-	conn.send_buf = FixedBuffer{};
+	conn.send_buf = conflux::file_io::FixedBuffer{};
 	conn.send_buf_base_written = 0;
 	conn.send_buf_len = 0;
 	conn.is_tls = false;

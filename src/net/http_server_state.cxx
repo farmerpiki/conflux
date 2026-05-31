@@ -273,7 +273,7 @@ struct alignas(
 	std::string own_response{};
 	PartialBuf partial{};
 	std::size_t written = 0;
-	FixedBuffer send_buf{};
+	conflux::file_io::FixedBuffer send_buf{};
 	std::size_t send_buf_base_written{};
 	std::size_t send_buf_len{};
 	std::size_t request_bytes = 0; // bytes consumed by current dispatched request
@@ -461,9 +461,9 @@ struct Ring {
 	// file_io pools — constructed after io_uring_queue_init. Shared by
 	// static-file serving and any other caller that grabs files.get().
 	std::unique_ptr<CompletionTable> file_completions{};
-	std::unique_ptr<RegisteredBufferTable> buf_table{};
-	std::unique_ptr<FixedBufferPool> fixed_buffers{};
-	std::unique_ptr<FixedBufferPool> send_buffers{};
+	std::unique_ptr<conflux::file_io::RegisteredBufferTable> buf_table{};
+	std::unique_ptr<conflux::file_io::FixedBufferPool> fixed_buffers{};
+	std::unique_ptr<conflux::file_io::FixedBufferPool> send_buffers{};
 	std::unique_ptr<conflux::file_io::PipePool> splice_pipes{};
 	std::unique_ptr<FileReader> files{};
 	bool send_fixed_buffers_supported{false};
@@ -639,14 +639,14 @@ struct Ring {
 	// calls back into handle_streamed_splice_done on the ring std::thread.
 	void start_streamed_body(int fd);
 #if CONFLUX_HAS_TLS
-	// TLS streamed body: acquire a FixedBuffer, read_fixed a chunk of the file,
+	// TLS streamed body: acquire a conflux::file_io::FixedBuffer, read_fixed a chunk of the file,
 	// SSL_write it into wbio, flush and re-queue the TLS send. Pipelining depth
 	// is effectively 1 per connection — suitable for unbuffered streaming.
 	void start_streamed_tls_chunk(int fd);
 	void on_streamed_tls_chunk_done(
 		int fd,
 		std::uint32_t conn_gen,
-		FixedBuffer buf,
+		conflux::file_io::FixedBuffer buf,
 		std::size_t bytes,
 		std::exception_ptr const &err);
 	void write_mapped_tls_chunk(int fd, Conn &conn);

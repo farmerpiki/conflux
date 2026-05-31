@@ -362,11 +362,11 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	RegisteredBufferTable tbl{&fx->ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&fx->ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}
@@ -487,7 +487,7 @@ TEST_CASE(
 	CHECK(captured == ENOENT);
 }
 TEST_CASE(
-	"file_io: FixedBufferPool try_acquire drains and refills on release",
+	"file_io: conflux::file_io::FixedBufferPool try_acquire drains and refills on release",
 	"[file_io][unit]") {
 	::io_uring ring{};
 	if (::io_uring_queue_init(8, &ring, 0) < 0) {
@@ -497,11 +497,11 @@ TEST_CASE(
 		io_uring *r;
 		~G() { ::io_uring_queue_exit(r); }
 	} const g{&ring};
-	RegisteredBufferTable tbl{&ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}
@@ -569,11 +569,11 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	RegisteredBufferTable tbl{&fx->ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&fx->ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}
@@ -672,11 +672,11 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	RegisteredBufferTable tbl{&fx->ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&fx->ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}
@@ -732,11 +732,11 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	RegisteredBufferTable tbl{&fx->ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&fx->ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}
@@ -2167,11 +2167,11 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	RegisteredBufferTable tbl{&fx->ring, 2};
+	conflux::file_io::RegisteredBufferTable tbl{&fx->ring, 2};
 	if (!tbl.ok()) {
 		SKIP("register_buffers_sparse unsupported");
 	}
-	FixedBufferPool pool{&tbl, 0, 2, 4096};
+	conflux::file_io::FixedBufferPool pool{&tbl, 0, 2, 4096};
 	if (!pool.ok()) {
 		SKIP("fixed buffer pool init failed");
 	}

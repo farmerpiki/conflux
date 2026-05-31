@@ -228,6 +228,14 @@ if(TARGET conflux)
         EXPECT "PipePool")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_file_io_compile_fail_global_fixed_buffer
+        SOURCE file_io_compile_fail_global_fixed_buffer.cxx
+        TEST api-surface/file-io-hides-global-fixed-buffer
+        LINK conflux_file_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "FixedBuffer")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_io_sync_compile_fail_global_unique_fd
         SOURCE file_io_sync_compile_fail_global_unique_fd.cxx
         TEST api-surface/file-io-sync-hides-global-unique-fd

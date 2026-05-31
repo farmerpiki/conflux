@@ -235,7 +235,7 @@ void Ring::start_streamed_tls_chunk(
 	auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 	auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
 	auto const want = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf->size()));
-	FixedBuffer b = std::move(*buf);
+	conflux::file_io::FixedBuffer b = std::move(*buf);
 	auto *file_handle = conn.streamed_file->handle.get_if<FileHandle>();
 	if (file_handle == nullptr) {
 		conn.streamed_file->notify_failed();
@@ -256,7 +256,7 @@ void Ring::start_streamed_tls_chunk(
 void Ring::on_streamed_tls_chunk_done(
 	int fd,
 	std::uint32_t conn_gen,
-	FixedBuffer buf,
+	conflux::file_io::FixedBuffer buf,
 	std::size_t bytes,
 	std::exception_ptr const &err) {
 	auto const ufd = static_cast<std::size_t>(fd);
@@ -683,7 +683,7 @@ void Ring::finish_plain_send(
 	conn.has_response = false;
 	conn.own_response.clear();
 	conn.zc_tls_bypass_counted = false;
-	conn.send_buf = FixedBuffer{};
+	conn.send_buf = conflux::file_io::FixedBuffer{};
 	conn.send_buf_base_written = 0;
 	conn.send_buf_len = 0;
 	handle_send_complete(fd, conn);
@@ -781,7 +781,7 @@ void Ring::handle_send(
 
 	if (res == -EINVAL && conn.send_buf.valid()) {
 		send_fixed_buffers_supported = false;
-		conn.send_buf = FixedBuffer{};
+		conn.send_buf = conflux::file_io::FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
 		queue_send(fd);
@@ -789,7 +789,7 @@ void Ring::handle_send(
 	}
 	if (res > 0) {
 		if (!conn.has_response) {
-			conn.send_buf = FixedBuffer{};
+			conn.send_buf = conflux::file_io::FixedBuffer{};
 			conn.send_buf_base_written = 0;
 			conn.send_buf_len = 0;
 			conn.send_queued = false;
@@ -805,7 +805,7 @@ void Ring::handle_send(
 		}
 		finish_plain_send(fd, conn);
 	} else {
-		conn.send_buf = FixedBuffer{};
+		conn.send_buf = conflux::file_io::FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
 		queue_close(fd);
@@ -885,6 +885,8 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	try {
 		auto result = co_await std::move(read_task);
 		ring->on_streamed_tls_chunk_done(fd, conn_gen, std::move(result.buffer), std::min(result.bytes, want), {});
-	} catch (...) { ring->on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, std::current_exception()); }
+	} catch (...) {
+		ring->on_streamed_tls_chunk_done(fd, conn_gen, conflux::file_io::FixedBuffer{}, 0, std::current_exception());
+	}
 }
 #endif // CONFLUX_HAS_TLS
