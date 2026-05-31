@@ -754,6 +754,22 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "conflux_http_extended_unexpected_workpool_global_visible")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_extended_compile_fail_global_router
+        SOURCE http_facade_extended_compile_fail_global_router.cxx
+        TEST http-facade-extended/compile-fail-global-router
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Router")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_extended_compile_fail_global_route_info
+        SOURCE http_facade_extended_compile_fail_global_route_info.cxx
+        TEST http-facade-extended/compile-fail-global-route-info
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "RouteInfo")
 endif()
 
 if(TARGET conflux_http_response)
