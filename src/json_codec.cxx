@@ -3293,6 +3293,11 @@ template<class T>
 		}
 		if (mant <= (std::uint64_t{1} << 53U)) {
 			double v = static_cast<double>(mant);
+			if (eff_exp == 0) {
+				out = static_cast<T>(neg ? -v : v);
+				c.p = p;
+				return FpStatus::ok;
+			}
 			if (eff_exp < 0) {
 				v /= kFpPow10[static_cast<std::size_t>(-eff_exp)];
 			} else {
