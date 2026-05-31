@@ -8,11 +8,10 @@ import std;
 import std.compat;
 import conflux.types;
 
-// HTTP/2 ALPN protocol identifier.
-export inline std::string_view const kH2Alpn = "h2";
-// Configure an SSL_CTX to advertise HTTP/2 via ALPN.
-// Call this after creating the SSL_CTX in HttpServer when HTTP/2 is desired.
-export void http2_configure_alpn(
+export namespace conflux::http::detail {
+
+inline std::string_view const kH2Alpn = "h2";
+void http2_configure_alpn(
 	SSL_CTX *ctx) {
 	// Server-side ALPN callback: prefer h2, fall back to http/1.1.
 	// Uses SSL_select_next_proto which handles NPN wire-std::format length prefixes
@@ -36,11 +35,12 @@ export void http2_configure_alpn(
 		},
 		nullptr);
 }
-// Returns true if the negotiated protocol on this SSL connection is h2.
-export bool http2_negotiated(
+bool http2_negotiated(
 	SSL const *ssl) {
 	unsigned char const *proto{};
 	unsigned int proto_len{};
 	SSL_get0_alpn_selected(ssl, &proto, &proto_len);
 	return proto != nullptr && proto_len == kH2Alpn.size() && memcmp(proto, kH2Alpn.data(), proto_len) == 0;
 }
+
+} // namespace conflux::http::detail

@@ -186,7 +186,7 @@ void HttpServer::initialize(
 		impl_->tls_ctx.emplace(primary_opts);
 		SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
 	#if CONFLUX_HAS_HTTP2
-		http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+		conflux::http::detail::http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 	#endif
 	#if CONFLUX_HAS_HTTP3
 		if (cfg.http3.enabled) {

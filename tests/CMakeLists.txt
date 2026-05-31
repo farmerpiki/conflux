@@ -2099,6 +2099,24 @@ if(TARGET conflux_net_cancel)
         EXPECT "ActiveTaskCancelRelay")
 endif()
 
+if(TARGET conflux_http2)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http2_compile_fail_global_configure_alpn
+        SOURCE http2_compile_fail_global_configure_alpn.cxx
+        TEST http2/compile-fail-global-configure-alpn
+        LINK conflux_http2 conflux_options
+        LABELS http compile-fail
+        EXPECT "http2_configure_alpn")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http2_compile_fail_global_negotiated
+        SOURCE http2_compile_fail_global_negotiated.cxx
+        TEST http2/compile-fail-global-negotiated
+        LINK conflux_http2 conflux_options
+        LABELS http compile-fail
+        EXPECT "http2_negotiated")
+endif()
+
 add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)
 target_link_libraries(conflux_cq_overflow_tests
     PRIVATE

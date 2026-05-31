@@ -303,7 +303,7 @@ void Ring::phase1b_tls_one(
 			conn.tls_hs_done = true;
 			conn.ktls_send = (BIO_get_ktls_send(SSL_get_wbio(conn.ssl.get())) != 0);
 	#if CONFLUX_HAS_HTTP2
-			conn.is_h2 = http2_negotiated(conn.ssl.get());
+			conn.is_h2 = conflux::http::detail::http2_negotiated(conn.ssl.get());
 	#endif
 		} else {
 			int const err = SSL_get_error(conn.ssl.get(), r);
