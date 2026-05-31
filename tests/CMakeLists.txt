@@ -212,6 +212,22 @@ if(TARGET conflux)
         EXPECT "run")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_stdio
+        SOURCE process_compile_fail_global_stdio.cxx
+        TEST api-surface/process-hides-global-stdio
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Stdio")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_spawn_options
+        SOURCE process_compile_fail_global_spawn_options.cxx
+        TEST api-surface/process-hides-global-spawn-options
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "SpawnOptions")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_uring_handle_compile_fail_global_io_handle
         SOURCE uring_handle_compile_fail_global_io_handle.cxx
         TEST api-surface/uring-handle-hides-global-io-handle
@@ -258,6 +274,14 @@ if(TARGET conflux)
         LINK conflux_file_watch conflux_options
         LABELS build api-surface compile-fail
         EXPECT "FileWatcher")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_watch_compile_fail_global_event_kind
+        SOURCE file_watch_compile_fail_global_event_kind.cxx
+        TEST api-surface/file-watch-hides-global-event-kind
+        LINK conflux_file_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "FileEventKind")
 
     conflux_add_compile_fail_test(
         TARGET conflux_file_map_compile_fail_global_mapped_body
@@ -2493,6 +2517,38 @@ if(CONFLUX_HAS_DB STREQUAL "true")
         LINK conflux_pg conflux_options
         LABELS build api-surface compile-fail
         EXPECT "conflux.db")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_db_compile_fail_global_pg_error
+        SOURCE db_compile_fail_global_pg_error.cxx
+        TEST api-surface/db-hides-global-pg-error
+        LINK conflux_pg conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "PgError")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_db_compile_fail_global_column
+        SOURCE db_compile_fail_global_column.cxx
+        TEST api-surface/db-hides-global-column
+        LINK conflux_pg conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Column")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_db_compile_fail_global_pool_config
+        SOURCE db_compile_fail_global_pool_config.cxx
+        TEST api-surface/db-hides-global-pool-config
+        LINK conflux_pg conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "PoolConfig")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_db_compile_fail_global_tx_options
+        SOURCE db_compile_fail_global_tx_options.cxx
+        TEST api-surface/db-hides-global-tx-options
+        LINK conflux_pg conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TxOptions")
 
     add_executable(conflux_db_tests db_test.cxx)
     target_link_libraries(conflux_db_tests
