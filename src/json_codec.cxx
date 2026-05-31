@@ -4100,7 +4100,6 @@ template<class T>
 			}
 			if (*c.p == ',') {
 				++c.p;
-				c.skip_ws();
 				continue;
 			}
 			if (*c.p == ']') {
