@@ -3378,24 +3378,41 @@ struct FpStringView {
 	return FpStatus::ok;
 }
 
+[[nodiscard]] inline std::uint32_t fp_hex_digit(
+	char const ch) noexcept {
+	if (ch >= '0' && ch <= '9') {
+		return static_cast<std::uint32_t>(ch - '0');
+	}
+	if (ch >= 'a' && ch <= 'f') {
+		return static_cast<std::uint32_t>(ch - 'a') + 10U;
+	}
+	if (ch >= 'A' && ch <= 'F') {
+		return static_cast<std::uint32_t>(ch - 'A') + 10U;
+	}
+	return 16U;
+}
+
 [[nodiscard]] inline std::optional<std::uint32_t> fp_hex4(
 	char const *p) noexcept {
 	std::uint32_t v = 0;
 	for (std::size_t i = 0; i < 4; ++i) {
-		char const ch = p[i];
-		std::uint32_t d{};
-		if (ch >= '0' && ch <= '9') {
-			d = static_cast<std::uint32_t>(ch - '0');
-		} else if (ch >= 'a' && ch <= 'f') {
-			d = static_cast<std::uint32_t>(ch - 'a') + 10U;
-		} else if (ch >= 'A' && ch <= 'F') {
-			d = static_cast<std::uint32_t>(ch - 'A') + 10U;
-		} else {
+		std::uint32_t const d = fp_hex_digit(p[i]);
+		if (d >= 16U) {
 			return std::nullopt;
 		}
 		v = (v << 4U) | d;
 	}
 	return v;
+}
+
+[[nodiscard]] inline std::optional<char> fp_hex2_byte(
+	char const *p) noexcept {
+	std::uint32_t const hi = fp_hex_digit(p[0]);
+	std::uint32_t const lo = fp_hex_digit(p[1]);
+	if ((hi | lo) >= 16U) {
+		return std::nullopt;
+	}
+	return static_cast<char>((hi << 4U) | lo);
 }
 
 // Owned-string decode with inline escape handling (including \uXXXX and
@@ -3462,6 +3479,15 @@ template<class String>
 				++p;
 				if (p + 4 > end) {
 					return FpStatus::bail;
+				}
+				if (p[0] == '0' && p[1] == '0') {
+					auto const byte = fp_hex2_byte(p + 2);
+					if (!byte) {
+						return FpStatus::bail;
+					}
+					out.push_back(*byte);
+					p += 4;
+					break;
 				}
 				auto cp_opt = fp_hex4(p);
 				if (!cp_opt) {
