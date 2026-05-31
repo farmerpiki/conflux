@@ -61,6 +61,10 @@ namespace {
 
 struct AllocBenchStats {
 	BenchStats timing;
+	double best_ns_per_iter{};
+	double p10_ns_per_iter{};
+	double p50_ns_per_iter{};
+	double p99_ns_per_iter{};
 	double allocations_per_iter{};
 	double allocated_bytes_per_iter{};
 };
@@ -120,19 +124,29 @@ template<typename F>
 		samples.push_back(elapsed);
 	}
 	std::ranges::sort(samples);
-	double const median_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
+	auto sample_ns = [&](std::size_t idx) {
+		return static_cast<double>(samples[std::min(idx, samples.size() - 1U)]) / static_cast<double>(plan.batch);
+	};
+	double const best_ns = sample_ns(0);
+	double const p10_ns = sample_ns(plan.samples / 10U);
+	double const p50_ns = sample_ns(plan.samples / 2U);
+	double const p99_ns = sample_ns((plan.samples * 99U) / 100U);
 	double const mbs =
-		bytes > 0 && median_ns > 0.0 ? static_cast<double>(bytes) / (median_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
+		bytes > 0 && p50_ns > 0.0 ? static_cast<double>(bytes) / (p50_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
 	double const denom = static_cast<double>(plan.iterations);
 	BenchStats timing{
 		.iterations = plan.iterations,
 		.total_ns = total_ns,
-		.ns_per_iter = median_ns,
+		.ns_per_iter = p50_ns,
 		.throughput = mbs,
 	};
 	bench_apply_sample_plan(timing, plan);
 	return {
 		.timing = timing,
+		.best_ns_per_iter = best_ns,
+		.p10_ns_per_iter = p10_ns,
+		.p50_ns_per_iter = p50_ns,
+		.p99_ns_per_iter = p99_ns,
 		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
 	};
@@ -147,6 +161,8 @@ void print_row(
 	if (cfg.json_out) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"best_ns_per_iter\":{:.2f},\"p10_ns_per_iter\":{:.2f},\"p50_ns_per_iter\":{:.2f},"
+			"\"p99_ns_per_iter\":{:.2f},"
 			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"mb_per_s\":{:.2f},\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
 			s.timing.config,
@@ -154,6 +170,10 @@ void print_row(
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.best_ns_per_iter,
+			s.p10_ns_per_iter,
+			s.p50_ns_per_iter,
+			s.p99_ns_per_iter,
 			s.timing.sample_count,
 			s.timing.batch,
 			s.timing.timer_sample_ns,
@@ -163,10 +183,14 @@ void print_row(
 			s.allocated_bytes_per_iter);
 	} else {
 		std::println(
-			"[json-direct-struct-bench] {:<52} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B  [{}×{} "
+			"[json-direct-struct-bench] {:<52} {:>10.1f} ns  best {:>10.1f}  p10 {:>10.1f}  p99 {:>10.1f}  "
+			"{:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B  [{}×{} "
 			"timer≈{:.2f}%]",
 			variant,
 			s.timing.ns_per_iter,
+			s.best_ns_per_iter,
+			s.p10_ns_per_iter,
+			s.p99_ns_per_iter,
 			s.timing.throughput,
 			s.allocations_per_iter,
 			s.allocated_bytes_per_iter,
@@ -745,11 +769,11 @@ int main(
 	Config const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	if (!cfg.json_out) {
 		std::println(
-			"[json-direct-struct-bench] benchmark                                             median      throughput   "
-			"  allocations");
+			"[json-direct-struct-bench] benchmark                                             median        best       p10"
+			"       p99  throughput     allocations");
 		std::println(
 			"[json-direct-struct-bench] "
-			"---------------------------------------------------------------------------------------");
+			"---------------------------------------------------------------------------------------------------------------");
 	}
 	bench_order_matrix(cfg);
 	bench_duplicate_matrix(cfg);
