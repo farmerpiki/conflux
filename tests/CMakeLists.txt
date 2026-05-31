@@ -834,6 +834,30 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "RouteInfo")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_next_handler
+        SOURCE http_router_compile_fail_global_next_handler.cxx
+        TEST http-router/compile-fail-global-next-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "NextHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_middleware_function
+        SOURCE http_router_compile_fail_global_middleware_function.cxx
+        TEST http-router/compile-fail-global-middleware-function
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "MiddlewareFunction")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_router_compile_fail_global_context_next_handler
+        SOURCE http_router_compile_fail_global_context_next_handler.cxx
+        TEST http-router/compile-fail-global-context-next-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "ContextNextHandler")
 endif()
 
 if(TARGET conflux_http_response)

@@ -25,11 +25,12 @@ struct RouteInfo {
 	std::vector<std::string> path_params;
 };
 
-} // namespace conflux::http
-export using NextHandler = conflux::http::CloneableFunction<Response(RequestView const &)>;
-export using MiddlewareFunction = conflux::http::CloneableFunction<Response(RequestView const &, NextHandler const &)>;
-export using ContextNextHandler = conflux::http::CloneableFunction<
+using NextHandler = conflux::http::CloneableFunction<Response(RequestView const &)>;
+using MiddlewareFunction = conflux::http::CloneableFunction<Response(RequestView const &, NextHandler const &)>;
+using ContextNextHandler = conflux::http::CloneableFunction<
 	conflux::work::root::Task<Response>(RequestView const &, conflux::http::RequestContext const &)>;
+
+} // namespace conflux::http
 
 export template<class R>
 concept HandlerResult = std::same_as<R, Response> || std::same_as<R, conflux::work::root::Task<Response>>;
@@ -58,7 +59,7 @@ concept ContextMiddlewareFunction = requires(
 	std::decay_t<F> &fn,
 	RequestView const &req,
 	conflux::http::RequestContext const &ctx,
-	ContextNextHandler const &next) {
+	conflux::http::ContextNextHandler const &next) {
 	{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
 };
 
@@ -66,12 +67,12 @@ export template<class F>
 concept AsyncMiddleware = ContextMiddlewareFunction<F>;
 
 export template<class F>
-concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, NextHandler const &next) {
+concept ViewMiddleware = requires(std::decay_t<F> &fn, RequestView const &req, conflux::http::NextHandler const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
 export template<class F>
-concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, NextHandler const &next) {
+concept RequestMiddleware = requires(std::decay_t<F> &fn, Request const &req, conflux::http::NextHandler const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
 };
 
@@ -151,15 +152,15 @@ struct RouteVerbAccessors {
 
 export class Router : public RouteVerbAccessors {
 public:
-	using Handler = NextHandler;
-	using ContextHandler = ContextNextHandler;
+	using Handler = conflux::http::NextHandler;
+	using ContextHandler = conflux::http::ContextNextHandler;
 	using ContextMiddleware = conflux::http::CloneableFunction<conflux::work::root::Task<
 		Response>(RequestView const &, conflux::http::RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
 	using SseHandler =
 		conflux::http::CloneableFunction<void(RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
-	using Middleware = MiddlewareFunction;
+	using Middleware = conflux::http::MiddlewareFunction;
 	using WsHandler = conflux::http::CloneableFunction<void(RequestView const &, conflux::http::WsConn &)>;
 	using ErrorHandler = conflux::http::CloneableFunction<Response(RequestView const &, std::exception const &)>;
 	Router();
