@@ -128,182 +128,206 @@ constexpr std::array<SyntheticLoopCase, 3> kLoopCases{
 	co_return sum;
 }
 
+void scale_stats_to_operations(
+	BenchStats &stats,
+	std::size_t operations_per_iteration) noexcept {
+	stats.iterations *= operations_per_iteration;
+	stats.batch *= operations_per_iteration;
+	stats.ns_per_iter /= static_cast<double>(operations_per_iteration);
+}
+
 BenchStats bench_ready_task_join(
-	std::size_t iters) {
+	BenchArgs const &args) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
 	std::uint64_t sink = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [task, source] = root::make_task_source<std::size_t>();
-		(void)source.try_set_value(root::Success<std::size_t>{1});
-		auto outcome = root::blocking_join(std::move(task));
-		if (!outcome.is_success()) {
-			std::println(std::cerr, "ready_task_join did not succeed");
-			std::exit(1);
-		}
-		sink += outcome.success().value;
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (sink != iters) {
+	auto stats = bench_measure_batched(
+		[&] {
+			auto [task, source] = root::make_task_source<std::size_t>();
+			(void)source.try_set_value(root::Success<std::size_t>{1});
+			auto outcome = root::blocking_join(std::move(task));
+			if (!outcome.is_success()) {
+				std::println(std::cerr, "ready_task_join did not succeed");
+				std::exit(1);
+			}
+			sink += outcome.success().value;
+		},
+		plan);
+	if (sink != plan.iterations + plan.warmup_iterations) {
 		std::println(std::cerr, "bad ready_task_join sink: {}", sink);
 		std::exit(1);
 	}
-	return {{}, "ready_task_join"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	stats.variant = "ready_task_join"sv;
+	return stats;
 }
 
 BenchStats bench_synthetic_cqe_task(
-	std::size_t iters) {
+	BenchArgs const &args) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
 	std::uint64_t sink = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		conflux::uring::CompletionTable completions{1};
-		auto [task, source] = root::make_task_source<std::size_t>();
-		auto [slot, gen] =
-			completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
-				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-			});
-		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
-		auto outcome = root::blocking_join(std::move(task));
-		if (!outcome.is_success()) {
-			std::println(std::cerr, "synthetic_cqe_task did not succeed");
-			std::exit(1);
-		}
-		sink += outcome.success().value;
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (sink != iters) {
-		std::println(std::cerr, "bad synthetic_cqe_task sink: {}", sink);
-		std::exit(1);
-	}
-	return {{}, "synthetic_cqe_task"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
-}
-
-BenchStats bench_await_synthetic_cqes(
-	std::size_t iters,
-	DepthCase dc) {
-	std::uint64_t sink = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t iter = 0; iter < iters; ++iter) {
-		conflux::uring::CompletionTable completions{dc.depth};
-		std::vector<CompletionEntry> entries;
-		std::vector<root::Task<std::size_t>> tasks;
-		entries.reserve(dc.depth);
-		tasks.reserve(dc.depth);
-		for (std::size_t i = 0; i < dc.depth; ++i) {
+	auto stats = bench_measure_batched(
+		[&] {
+			conflux::uring::CompletionTable completions{1};
 			auto [task, source] = root::make_task_source<std::size_t>();
 			auto [slot, gen] =
 				completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
 					(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
 				});
-			entries.push_back({.slot = slot, .gen = gen});
-			tasks.push_back(std::move(task));
-		}
-
-		auto waiter = await_all(std::move(tasks));
-		for (auto const &entry: entries) {
-			completions.dispatch(entry.slot, entry.gen, 1, conflux::uring::CqeFlags{});
-		}
-		auto outcome = root::blocking_join(std::move(waiter));
-		if (!outcome.is_success()) {
-			std::println(std::cerr, "await_synthetic_cqes did not succeed at depth {}", dc.depth);
-			std::exit(1);
-		}
-		sink += outcome.success().value;
+			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
+			auto outcome = root::blocking_join(std::move(task));
+			if (!outcome.is_success()) {
+				std::println(std::cerr, "synthetic_cqe_task did not succeed");
+				std::exit(1);
+			}
+			sink += outcome.success().value;
+		},
+		plan);
+	if (sink != plan.iterations + plan.warmup_iterations) {
+		std::println(std::cerr, "bad synthetic_cqe_task sink: {}", sink);
+		std::exit(1);
 	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = iters * dc.depth;
+	stats.variant = "synthetic_cqe_task"sv;
+	return stats;
+}
+
+BenchStats bench_await_synthetic_cqes(
+	BenchArgs const &args,
+	DepthCase dc) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
+	std::uint64_t sink = 0;
+	auto stats = bench_measure_batched(
+		[&] {
+			conflux::uring::CompletionTable completions{dc.depth};
+			std::vector<CompletionEntry> entries;
+			std::vector<root::Task<std::size_t>> tasks;
+			entries.reserve(dc.depth);
+			tasks.reserve(dc.depth);
+			for (std::size_t i = 0; i < dc.depth; ++i) {
+				auto [task, source] = root::make_task_source<std::size_t>();
+				auto [slot, gen] =
+					completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+						(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+					});
+				entries.push_back({.slot = slot, .gen = gen});
+				tasks.push_back(std::move(task));
+			}
+
+			auto waiter = await_all(std::move(tasks));
+			for (auto const &entry: entries) {
+				completions.dispatch(entry.slot, entry.gen, 1, conflux::uring::CqeFlags{});
+			}
+			auto outcome = root::blocking_join(std::move(waiter));
+			if (!outcome.is_success()) {
+				std::println(std::cerr, "await_synthetic_cqes did not succeed at depth {}", dc.depth);
+				std::exit(1);
+			}
+			sink += outcome.success().value;
+		},
+		plan);
+	std::size_t const ops = (plan.iterations + plan.warmup_iterations) * dc.depth;
 	if (sink != ops) {
 		std::println(std::cerr, "bad await_synthetic_cqes sink depth {}: {} != {}", dc.depth, sink, ops);
 		std::exit(1);
 	}
-	return {dc.config, "await_synthetic_cqes"sv, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	stats.config = dc.config;
+	stats.variant = "await_synthetic_cqes"sv;
+	scale_stats_to_operations(stats, dc.depth);
+	return stats;
 }
 
 BenchStats bench_synthetic_io_loop(
-	std::size_t iters,
+	BenchArgs const &args,
 	SyntheticLoopCase lc,
 	SyntheticIoKind kind,
 	std::string_view variant) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
 	std::uint64_t sink = 0;
 	std::uint64_t ops = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t iter = 0; iter < iters; ++iter) {
-		SyntheticIoDevice device{2, kind};
-		auto task = synthetic_io_loop(device, lc);
-		while (!task.control().ready()) {
-			device.complete_one();
-		}
-		auto outcome = root::blocking_join(std::move(task));
-		if (!outcome.is_success()) {
-			std::println(std::cerr, "{} failed", variant);
-			std::exit(1);
-		}
-		sink += outcome.success().value;
-		ops += device.completed;
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	auto const expected = static_cast<std::uint64_t>(iters) * static_cast<std::uint64_t>(lc.bytes);
+	auto stats = bench_measure_batched(
+		[&] {
+			SyntheticIoDevice device{2, kind};
+			auto task = synthetic_io_loop(device, lc);
+			while (!task.control().ready()) {
+				device.complete_one();
+			}
+			auto outcome = root::blocking_join(std::move(task));
+			if (!outcome.is_success()) {
+				std::println(std::cerr, "{} failed", variant);
+				std::exit(1);
+			}
+			sink += outcome.success().value;
+			ops += device.completed;
+		},
+		plan);
+	auto const expected =
+		static_cast<std::uint64_t>(plan.iterations + plan.warmup_iterations) * static_cast<std::uint64_t>(lc.bytes);
 	if (sink != expected) {
 		std::println(std::cerr, "bad {} sink: {} != {}", variant, sink, expected);
 		std::exit(1);
 	}
-	return {lc.config, variant, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	std::size_t const ops_per_iteration = (lc.bytes + lc.chunk - 1U) / lc.chunk;
+	stats.config = lc.config;
+	stats.variant = variant;
+	scale_stats_to_operations(stats, ops_per_iteration);
+	if (ops != (plan.iterations + plan.warmup_iterations) * ops_per_iteration) {
+		std::println(std::cerr, "bad {} ops: {}", variant, ops);
+		std::exit(1);
+	}
+	return stats;
 }
 
 BenchStats bench_cancel_before_completion(
-	std::size_t iters) {
+	BenchArgs const &args) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
 	std::uint64_t cancelled = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [task, source] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = true});
-		task.cancel();
-		(void)source.try_set_cancelled();
-		auto outcome = root::blocking_join(std::move(task));
-		if (!outcome.is_cancelled()) {
-			std::println(std::cerr, "cancel_before_completion did not cancel");
-			std::exit(1);
-		}
-		++cancelled;
+	auto stats = bench_measure_batched(
+		[&] {
+			auto [task, source] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = true});
+			task.cancel();
+			(void)source.try_set_cancelled();
+			auto outcome = root::blocking_join(std::move(task));
+			if (!outcome.is_cancelled()) {
+				std::println(std::cerr, "cancel_before_completion did not cancel");
+				std::exit(1);
+			}
+			++cancelled;
+		},
+		plan);
+	if (cancelled != plan.iterations + plan.warmup_iterations) {
+		std::println(std::cerr, "bad cancel_before_completion sink: {}", cancelled);
+		std::exit(1);
 	}
-	auto const elapsed = bench_now_ns() - t0;
-	return {
-		{},
-		"cancel_before_completion"sv,
-		cancelled,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(cancelled)};
+	stats.variant = "cancel_before_completion"sv;
+	return stats;
 }
 
 BenchStats bench_cancel_after_synthetic_cqe(
-	std::size_t iters) {
+	BenchArgs const &args) {
+	BenchSamplePlan const plan = bench_sample_plan(args.iterations, args.warmup, args.samples, args.batch);
 	std::uint64_t ready = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		conflux::uring::CompletionTable completions{1};
-		auto [task, source] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = true});
-		auto [slot, gen] =
-			completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
-				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-			});
-		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
-		task.cancel();
-		auto outcome = root::blocking_join(std::move(task));
-		if (!outcome.is_success()) {
-			std::println(std::cerr, "cancel_after_synthetic_cqe did not preserve ready success");
-			std::exit(1);
-		}
-		ready += outcome.success().value;
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (ready != iters) {
+	auto stats = bench_measure_batched(
+		[&] {
+			conflux::uring::CompletionTable completions{1};
+			auto [task, source] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = true});
+			auto [slot, gen] =
+				completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+					(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+				});
+			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
+			task.cancel();
+			auto outcome = root::blocking_join(std::move(task));
+			if (!outcome.is_success()) {
+				std::println(std::cerr, "cancel_after_synthetic_cqe did not preserve ready success");
+				std::exit(1);
+			}
+			ready += outcome.success().value;
+		},
+		plan);
+	if (ready != plan.iterations + plan.warmup_iterations) {
 		std::println(std::cerr, "bad cancel_after_synthetic_cqe sink: {}", ready);
 		std::exit(1);
 	}
-	return {
-		{},
-		"cancel_after_synthetic_cqe"sv,
-		iters,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(iters)};
+	stats.variant = "cancel_after_synthetic_cqe"sv;
+	return stats;
 }
 
 } // namespace
@@ -318,35 +342,19 @@ int main(
 
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 
-	if (cfg.warmup > 0) {
-		(void)bench_ready_task_join(cfg.warmup);
-		(void)bench_synthetic_cqe_task(cfg.warmup);
-		for (auto dc: kDepthCases) {
-			(void)bench_await_synthetic_cqes(cfg.warmup, dc);
-		}
-		for (auto lc: kLoopCases) {
-			(void)bench_synthetic_io_loop(cfg.warmup, lc, SyntheticIoKind::file_read, "synthetic_file_read_loop"sv);
-			(void)bench_synthetic_io_loop(cfg.warmup, lc, SyntheticIoKind::socket_send, "synthetic_socket_send_loop"sv);
-		}
-		(void)bench_cancel_before_completion(cfg.warmup);
-		(void)bench_cancel_after_synthetic_cqe(cfg.warmup);
-	}
-
 	std::vector<BenchStats> stats;
 	stats.reserve(4 + kDepthCases.size() + (kLoopCases.size() * 2));
-	stats.push_back(bench_ready_task_join(cfg.iterations));
-	stats.push_back(bench_synthetic_cqe_task(cfg.iterations));
+	stats.push_back(bench_ready_task_join(cfg));
+	stats.push_back(bench_synthetic_cqe_task(cfg));
 	for (auto dc: kDepthCases) {
-		stats.push_back(bench_await_synthetic_cqes(cfg.iterations, dc));
+		stats.push_back(bench_await_synthetic_cqes(cfg, dc));
 	}
 	for (auto lc: kLoopCases) {
-		stats.push_back(
-			bench_synthetic_io_loop(cfg.iterations, lc, SyntheticIoKind::file_read, "synthetic_file_read_loop"sv));
-		stats.push_back(
-			bench_synthetic_io_loop(cfg.iterations, lc, SyntheticIoKind::socket_send, "synthetic_socket_send_loop"sv));
+		stats.push_back(bench_synthetic_io_loop(cfg, lc, SyntheticIoKind::file_read, "synthetic_file_read_loop"sv));
+		stats.push_back(bench_synthetic_io_loop(cfg, lc, SyntheticIoKind::socket_send, "synthetic_socket_send_loop"sv));
 	}
-	stats.push_back(bench_cancel_before_completion(cfg.iterations));
-	stats.push_back(bench_cancel_after_synthetic_cqe(cfg.iterations));
+	stats.push_back(bench_cancel_before_completion(cfg));
+	stats.push_back(bench_cancel_after_synthetic_cqe(cfg));
 	for (std::size_t i = 0; i < stats.size(); ++i) {
 		bench_print(stats[i], cfg.json_out, i == 0);
 	}
