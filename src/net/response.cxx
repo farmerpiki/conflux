@@ -224,9 +224,9 @@ struct Response {
 	int status = kHttpOk;
 	std::string status_text = "OK";
 	std::string content_type = std::string{kContentTypeHtmlUtf8};
-	::HttpFields headers = ::HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
+	conflux::http::HttpFields headers = conflux::http::HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
 	std::vector<std::string> set_cookies{}; // Set-Cookie headers (one per entry)
-	::HttpFields trailers = ::HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
+	conflux::http::HttpFields trailers = conflux::http::HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
 	bool head_only = false; // true → send headers only, suppress body (HEAD requests)
 	std::size_t content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
 	BodyKind body_kind = BodyKind::text;

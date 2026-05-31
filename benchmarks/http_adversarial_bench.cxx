@@ -449,7 +449,7 @@ struct AdversarialStats {
 
 	out.parsed_headers = parsed.headers.size();
 	out.consumed_bytes = std::min(c.raw.size(), parsed.header_end_offset + 4);
-	HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView headers{true};
 	headers.reserve(parsed.headers.size());
 	for (auto const &[name, field_value]: parsed.headers) {
 		headers.emplace_back(name, field_value);

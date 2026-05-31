@@ -1386,7 +1386,7 @@ TEST_CASE(
 	"http client: convenience client sends headers and parses response headers") {
 	ensure_server();
 	HttpClient client{};
-	HttpFields headers{true};
+	conflux::http::HttpFields headers{true};
 	headers["X-Test-Header"] = "client-header";
 
 	auto response = client.blocking_send(

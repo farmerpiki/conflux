@@ -105,7 +105,7 @@ export std::vector<Segment> parse_pattern(
 namespace {
 
 void add_path_param(
-	HttpFieldsView &params,
+	conflux::http::HttpFieldsView &params,
 	std::string_view name,
 	std::string_view raw_value) {
 	if (!url_needs_path_decode(raw_value)) {
@@ -120,13 +120,13 @@ void add_path_param(
 export bool match_segments(
 	std::vector<Segment> const &pattern,
 	std::string_view path,
-	HttpFieldsView &out_params) {
+	conflux::http::HttpFieldsView &out_params) {
 	// Wildcard tail: last segment {*name} matches everything remaining.
 	if (!pattern.empty() && pattern.back().is_wildcard) {
 		// Match all non-wildcard leading segments first.
 		auto prefix_count = pattern.size() - 1;
 		std::size_t pos = 0;
-		HttpFieldsView tmp;
+		conflux::http::HttpFieldsView tmp;
 		for (std::size_t i = 0; i < prefix_count; ++i) {
 			if (pos >= path.size()) {
 				return false;
@@ -151,7 +151,7 @@ export bool match_segments(
 
 	std::size_t pos = 0;
 	std::size_t i = 0;
-	HttpFieldsView tmp;
+	conflux::http::HttpFieldsView tmp;
 	while (true) {
 		if (i >= pattern.size()) {
 			return false;

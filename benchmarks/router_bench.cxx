@@ -145,7 +145,7 @@ void print_stats(
 	}
 }
 Case make_httpfields_lookup_case() {
-	auto headers = std::make_shared<HttpFields>(true);
+	auto headers = std::make_shared<conflux::http::HttpFields>(true);
 	headers->emplace_back("Content-Type", "application/json");
 	headers->emplace_back("Accept-Encoding", "br, zstd, gzip");
 	headers->emplace_back("X-conflux::http::OwnedRequest-Id", "abc-123");

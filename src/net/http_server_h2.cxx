@@ -66,11 +66,11 @@ static constexpr std::size_t kH2PendingSendCap = std::size_t{64} * 1024;
 struct H2RequestLease {
 	std::string method{};
 	std::string path{};
-	HttpFields headers{};
+	conflux::http::HttpFields headers{};
 	std::string body{};
-	HttpFieldsView query{};
-	HttpFieldsView form{};
-	HttpFieldsView cookies{};
+	conflux::http::HttpFieldsView query{};
+	conflux::http::HttpFieldsView form{};
+	conflux::http::HttpFieldsView cookies{};
 	std::vector<conflux::http::UploadedFile> files{};
 };
 
@@ -577,7 +577,7 @@ int Ring::h2_on_frame_recv_cb(
 	std::string_view const path = target.path;
 	std::string_view const version = "HTTP/2";
 	std::string_view const body = request_lease->body;
-	HttpFieldsView const params;
+	conflux::http::HttpFieldsView const params;
 	populate_request_parts(
 		target,
 		request_lease->headers,

@@ -17,7 +17,7 @@ export struct TrailingSlashOptions {
 namespace trailing_slash_detail {
 
 inline std::string build_query(
-	HttpFieldsView const &query) {
+	conflux::http::HttpFieldsView const &query) {
 	std::size_t size = query.empty() ? 0 : query.size() - 1;
 	for (auto const &[k, v]: query) {
 		size += url_percent_encoded_size(k) + 1 + url_percent_encoded_size(v);

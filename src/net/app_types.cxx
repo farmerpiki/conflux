@@ -647,7 +647,7 @@ struct MergePatch {
 #endif
 
 struct Multipart {
-	HttpFieldsView form;
+	conflux::http::HttpFieldsView form;
 	std::span<conflux::http::UploadedFile const> files;
 
 	[[nodiscard]] std::string_view form_value(

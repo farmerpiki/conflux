@@ -684,34 +684,34 @@ template<typename Fields, typename T>
 
 template<typename T>
 [[nodiscard]] std::expected<T, HttpFieldError> http_field_as(
-	HttpFields const &fields,
+	conflux::http::HttpFields const &fields,
 	HttpFieldSource source,
 	std::string_view name) {
-	return http_field_as_impl<HttpFields, T>(fields, source, name);
+	return http_field_as_impl<conflux::http::HttpFields, T>(fields, source, name);
 }
 
 template<typename T>
 [[nodiscard]] std::expected<T, HttpFieldError> http_field_as(
-	HttpFieldsView const &fields,
+	conflux::http::HttpFieldsView const &fields,
 	HttpFieldSource source,
 	std::string_view name) {
-	return http_field_as_impl<HttpFieldsView, T>(fields, source, name);
+	return http_field_as_impl<conflux::http::HttpFieldsView, T>(fields, source, name);
 }
 
 template<typename T>
 [[nodiscard]] std::expected<std::optional<T>, HttpFieldError> http_field_optional_as(
-	HttpFields const &fields,
+	conflux::http::HttpFields const &fields,
 	HttpFieldSource source,
 	std::string_view name) {
-	return http_field_optional_as_impl<HttpFields, T>(fields, source, name);
+	return http_field_optional_as_impl<conflux::http::HttpFields, T>(fields, source, name);
 }
 
 template<typename T>
 [[nodiscard]] std::expected<std::optional<T>, HttpFieldError> http_field_optional_as(
-	HttpFieldsView const &fields,
+	conflux::http::HttpFieldsView const &fields,
 	HttpFieldSource source,
 	std::string_view name) {
-	return http_field_optional_as_impl<HttpFieldsView, T>(fields, source, name);
+	return http_field_optional_as_impl<conflux::http::HttpFieldsView, T>(fields, source, name);
 }
 
 } // namespace conflux::http
@@ -817,11 +817,11 @@ struct OwnedRequest : ::HttpRequestFieldAccessors {
 	std::string version;
 	std::string remote_addr; // peer IP address (best-effort with multishot accept)
 	bool is_tls = false; // true when request arrived over a TLS connection
-	::HttpFields params; // {name} captures
-	::HttpFields headers = ::HttpFields(true); // case-insensitive lookup
-	::HttpFields query; // parsed from URL ?k=v&...
-	::HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
-	::HttpFields cookies; // parsed from Cookie: header
+	conflux::http::HttpFields params; // {name} captures
+	conflux::http::HttpFields headers = conflux::http::HttpFields(true); // case-insensitive lookup
+	conflux::http::HttpFields query; // parsed from URL ?k=v&...
+	conflux::http::HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
+	conflux::http::HttpFields cookies; // parsed from Cookie: header
 	std::vector<conflux::http::UploadedFile> files; // parsed from multipart/form-data body
 	std::string body;
 	[[nodiscard]] OwnedRequest to_owned() const { return *this; }
@@ -832,11 +832,11 @@ struct RequestView : ::HttpRequestFieldAccessors {
 	std::string_view version;
 	std::string_view remote_addr;
 	bool is_tls = false;
-	::HttpFieldsView params;
-	::HttpFieldsView headers;
-	::HttpFieldsView query;
-	::HttpFieldsView form;
-	::HttpFieldsView cookies;
+	conflux::http::HttpFieldsView params;
+	conflux::http::HttpFieldsView headers;
+	conflux::http::HttpFieldsView query;
+	conflux::http::HttpFieldsView form;
+	conflux::http::HttpFieldsView cookies;
 	std::span<conflux::http::UploadedFile const> files;
 	std::string_view body;
 	RequestView(
@@ -845,11 +845,11 @@ struct RequestView : ::HttpRequestFieldAccessors {
 		std::string_view version_,
 		std::string_view remote_addr_,
 		bool is_tls_,
-		::HttpFieldsView params_,
-		::HttpFieldsView headers_,
-		::HttpFieldsView query_,
-		::HttpFieldsView form_,
-		::HttpFieldsView cookies_,
+		conflux::http::HttpFieldsView params_,
+		conflux::http::HttpFieldsView headers_,
+		conflux::http::HttpFieldsView query_,
+		conflux::http::HttpFieldsView form_,
+		conflux::http::HttpFieldsView cookies_,
 		std::span<conflux::http::UploadedFile const> files_,
 		std::string_view body_)
 		: method(method_)

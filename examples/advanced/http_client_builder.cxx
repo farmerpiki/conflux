@@ -32,13 +32,13 @@ int main() {
 	url.set_query_param("q", "fast json & http");
 	url.set_query_param("limit", "25");
 
-	HttpFields defaults{true};
+	conflux::http::HttpFields defaults{true};
 	defaults.set("User-Agent", "conflux-example/1");
 	defaults.append("Accept", "application/json");
 	defaults.append("Accept", "text/plain");
 	std::println("accept values: {}", defaults.values("accept").size());
 
-	HttpFields form;
+	conflux::http::HttpFields form;
 	form.set("name", "Ada Lovelace");
 	form.set("role", "admin/operator");
 

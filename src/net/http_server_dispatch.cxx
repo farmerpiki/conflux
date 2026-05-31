@@ -174,11 +174,11 @@ void dispatch_request(
 	std::string_view path = conflux::http::origin_form_path_from_target(target.path);
 	std::string_view const redirect_query = target.query_suffix;
 	std::string_view const version = parsed.version;
-	HttpFieldsView const params;
-	HttpFieldsView headers{true};
-	HttpFieldsView query;
-	HttpFieldsView form;
-	HttpFieldsView cookies;
+	conflux::http::HttpFieldsView const params;
+	conflux::http::HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView query;
+	conflux::http::HttpFieldsView form;
+	conflux::http::HttpFieldsView cookies;
 	std::vector<conflux::http::UploadedFile> files;
 	std::string_view body;
 

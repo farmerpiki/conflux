@@ -35,7 +35,7 @@ export namespace conflux::http {
 struct ClientResponseHead {
 	int status{502};
 	std::string status_text{"Bad Gateway"};
-	HttpFields headers = HttpFields(true);
+	conflux::http::HttpFields headers = conflux::http::HttpFields(true);
 	std::vector<std::string> set_cookies{};
 };
 struct ClientResponse {
@@ -53,7 +53,7 @@ struct HttpClientOptions {
 	std::size_t max_header_bytes{64 * 1024};
 	std::size_t max_body_bytes{16 * 1024 * 1024};
 	std::size_t max_buffered_bytes{4 * 1024 * 1024};
-	HttpFields default_headers = HttpFields(true);
+	conflux::http::HttpFields default_headers = conflux::http::HttpFields(true);
 	void *resolver{nullptr}; // conflux::net::dns::Resolver*; void* avoids exporting dns types
 };
 

@@ -32,7 +32,7 @@ int main(
 		return 0;
 	}
 	if (probe == "form_after_body") {
-		HttpFields fields{true};
+		conflux::http::HttpFields fields{true};
 		fields.emplace_back("two", "true");
 		auto builder = conflux::http::ClientRequest::post("http://example.test/submit");
 		builder.body("one").body_form(fields);

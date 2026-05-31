@@ -11,7 +11,7 @@ namespace client_wire_detail {
 using namespace conflux::http;
 
 [[nodiscard]] bool default_header_key_eq(
-	HttpFields const &defaults,
+	conflux::http::HttpFields const &defaults,
 	std::string_view lhs,
 	std::string_view rhs) noexcept {
 	return defaults.case_insensitive() ? ascii_iequals(lhs, rhs) : lhs == rhs;
@@ -115,8 +115,8 @@ struct EffectiveRequestHeader {
 };
 
 [[nodiscard]] std::vector<EffectiveRequestHeader> make_effective_request_headers(
-	HttpFields const &defaults,
-	HttpFields const &headers) {
+	conflux::http::HttpFields const &defaults,
+	conflux::http::HttpFields const &headers) {
 	std::vector<EffectiveRequestHeader> out;
 	out.reserve(defaults.size() + headers.size());
 	for (auto const &[k, v]: defaults) {
@@ -205,7 +205,7 @@ export namespace conflux::http::client_wire {
 struct ParsedResponseHead {
 	int status{502};
 	std::string status_text{};
-	HttpFields headers = HttpFields(true);
+	conflux::http::HttpFields headers = conflux::http::HttpFields(true);
 	std::vector<std::string> set_cookies{};
 	std::size_t content_length{0};
 	bool has_content_length{false};
@@ -284,7 +284,7 @@ struct ParsedResponseHead {
 [[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect_request(
 	ClientRequest const &req,
 	int status,
-	HttpFields const &response_headers) {
+	conflux::http::HttpFields const &response_headers) {
 	if (!is_redirect_status(status)) {
 		return std::nullopt;
 	}
@@ -304,7 +304,7 @@ struct ParsedResponseHead {
 	}
 	bool const cross_origin = !same_origin(req.url(), *next_url);
 	bool const drop_body = status == 303;
-	HttpFields next_headers{req.headers().case_insensitive()};
+	conflux::http::HttpFields next_headers{req.headers().case_insensitive()};
 	next_headers.clear();
 	for (auto const &[k, v]: req.headers()) {
 		if (ascii_iequals(k, "host")) {
@@ -433,7 +433,7 @@ void accumulate_telemetry(
 
 [[nodiscard]] std::string build_http1_request_wire(
 	ClientRequest const &req,
-	HttpFields const &default_headers) {
+	conflux::http::HttpFields const &default_headers) {
 	using namespace client_wire_detail;
 	auto const &url = req.url();
 	auto const caller_host = req.headers()["host"];

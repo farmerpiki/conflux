@@ -187,7 +187,7 @@ struct H2Stream {
 	std::string path{};
 	std::string scheme{"https"};
 	std::string authority{};
-	HttpFields headers{};
+	conflux::http::HttpFields headers{};
 	std::string body{};
 	std::size_t expected_body_size{};
 	bool body_reserved{};
@@ -204,7 +204,7 @@ struct H2Stream {
 	// conflux::http::Response state for the data provider callback:
 	std::string response_body{};
 	std::size_t response_off{};
-	HttpFields response_trailers{};
+	conflux::http::HttpFields response_trailers{};
 	int deferred_efd{-1};
 	// SSE streaming state (non-null → H2 SSE stream):
 	std::shared_ptr<conflux::http::SseChannel> sse_channel{};

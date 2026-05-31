@@ -145,9 +145,9 @@ void append_len_field(
 }
 std::string build_cache_key(
 	std::string_view path,
-	HttpFieldsView const &query,
+	conflux::http::HttpFieldsView const &query,
 	std::span<std::string const> vary,
-	HttpFieldsView const &req_headers) {
+	conflux::http::HttpFieldsView const &req_headers) {
 	std::size_t capacity = path.size();
 	if (!query.empty()) {
 		capacity += 3;

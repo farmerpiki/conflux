@@ -134,7 +134,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 void append_headers_json(
 	std::string &out,
 	std::string_view key,
-	HttpFieldsView const &headers,
+	conflux::http::HttpFieldsView const &headers,
 	std::vector<std::string> const &sensitive,
 	bool redact) {
 	out += std::format(R"(,"{}":{{)", key);
@@ -180,7 +180,7 @@ void append_headers_json(
 		append_headers_json(line, "request_headers", req.headers, sensitive, opts.redact_sensitive_headers);
 	}
 	if (opts.log_response_headers) {
-		HttpFieldsView response_headers;
+		conflux::http::HttpFieldsView response_headers;
 		for (auto const &[name, value]: resp.headers) {
 			if (ascii_iequals(name, "__conflux-route-pattern")) {
 				continue;

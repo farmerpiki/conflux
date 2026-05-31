@@ -391,6 +391,38 @@ if(TARGET conflux_http_core)
         LINK conflux_http_core conflux_options
         LABELS http compile-fail
         EXPECT "RequestView")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_field_eq
+        SOURCE http_core_compile_fail_global_field_eq.cxx
+        TEST http-core/compile-fail-global-field-eq
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "FieldEq")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_field_hash
+        SOURCE http_core_compile_fail_global_field_hash.cxx
+        TEST http-core/compile-fail-global-field-hash
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "FieldHash")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_http_fields
+        SOURCE http_core_compile_fail_global_http_fields.cxx
+        TEST http-core/compile-fail-global-http-fields
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpFields")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_core_compile_fail_global_http_fields_view
+        SOURCE http_core_compile_fail_global_http_fields_view.cxx
+        TEST http-core/compile-fail-global-http-fields-view
+        LINK conflux_http_core conflux_options
+        LABELS http compile-fail
+        EXPECT "HttpFieldsView")
 endif()
 
 if(TARGET conflux_net_http)

@@ -152,17 +152,17 @@ TEST_CASE(
 TEST_CASE(
 	"http core: typed server request field extractors parse common values",
 	"[http.core]") {
-	HttpFieldsView params;
+	conflux::http::HttpFieldsView params;
 	params.emplace_back("id", "42");
-	HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView headers{true};
 	headers.emplace_back("X-Limit", "128");
-	HttpFieldsView query;
+	conflux::http::HttpFieldsView query;
 	query.emplace_back("page", "3");
 	query.emplace_back("enabled", "yes");
 	query.emplace_back("bad", "12x");
-	HttpFieldsView form;
+	conflux::http::HttpFieldsView form;
 	form.emplace_back("price", "19.5");
-	HttpFieldsView cookies;
+	conflux::http::HttpFieldsView cookies;
 	cookies.emplace_back("sid", "abc-123");
 
 	conflux::http::RequestView req{
@@ -239,7 +239,7 @@ TEST_CASE(
 TEST_CASE(
 	"http core: ClientRequest builder encodes auth and form bodies",
 	"[http.core]") {
-	HttpFields form{true};
+	conflux::http::HttpFields form{true};
 	form.emplace_back("a b", "c+d");
 	form.emplace_back("slash", "/=");
 

@@ -2707,12 +2707,12 @@ TEST_CASE(
 	srv.stop();
 }
 // ---------------------------------------------------------------------------
-// HttpFields — set/erase
+// conflux::http::HttpFields — set/erase
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"HttpFields::set replaces all duplicate entries with a single one") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::set replaces all duplicate entries with a single one") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("Set-Cookie", "a=1");
 	f.emplace_back("Set-Cookie", "b=2");
 	f.emplace_back("Set-Cookie", "c=3");
@@ -2725,15 +2725,15 @@ TEST_CASE(
 	REQUIRE(f.contains("set-cookie"));
 }
 TEST_CASE(
-	"HttpFields::set inserts when key absent") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::set inserts when key absent") {
+	conflux::http::HttpFields f{true};
 	f.set("Content-Type", "text/plain");
 	REQUIRE(f.size() == 1);
 	REQUIRE(f.get("content-type") == "text/plain");
 }
 TEST_CASE(
-	"HttpFields::set preserves positions of other keys") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::set preserves positions of other keys") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("A", "1");
 	f.emplace_back("Dup", "x");
 	f.emplace_back("B", "2");
@@ -2753,8 +2753,8 @@ TEST_CASE(
 	REQUIRE(f.get("c") == "3");
 }
 TEST_CASE(
-	"HttpFields::erase removes all matches and returns count") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::erase removes all matches and returns count") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("Cookie", "a=1");
 	f.emplace_back("Cookie", "b=2");
 	f.emplace_back("Host", "example.com");
@@ -2766,15 +2766,15 @@ TEST_CASE(
 	REQUIRE(f.get("host") == "example.com");
 }
 TEST_CASE(
-	"HttpFields::erase returns 0 when key absent") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::erase returns 0 when key absent") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("A", "1");
 	REQUIRE(f.erase("missing") == 0);
 	REQUIRE(f.size() == 1);
 }
 TEST_CASE(
-	"HttpFields index stays consistent after set then erase") {
-	HttpFields f{true};
+	"conflux::http::HttpFields index stays consistent after set then erase") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("X", "1");
 	f.emplace_back("X", "2");
 	f.emplace_back("Y", "a");
@@ -2791,8 +2791,8 @@ TEST_CASE(
 	REQUIRE(f.size() == 1);
 }
 TEST_CASE(
-	"HttpFields::values returns all entries for duplicate keys") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::values returns all entries for duplicate keys") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("Cookie", "a=1");
 	f.emplace_back("Cookie", "b=2");
 	f.emplace_back("Cookie", "c=3");
@@ -2805,8 +2805,8 @@ TEST_CASE(
 	REQUIRE(std::ranges::contains(vals, sv{"c=3"}));
 }
 TEST_CASE(
-	"HttpFields zero-allocation value callbacks visit duplicate keys") {
-	HttpFields f{true};
+	"conflux::http::HttpFields zero-allocation value callbacks visit duplicate keys") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("Set-Cookie", "a=1");
 	f.emplace_back("set-cookie", "b=2");
 	f.emplace_back("Other", "x");
@@ -2823,30 +2823,30 @@ TEST_CASE(
 	CHECK(f.any_value("set-cookie", [](std::string_view value) { return value == "b=2"; }));
 	CHECK_FALSE(f.any_value("set-cookie", [](std::string_view value) { return value == "c=3"; }));
 
-	HttpFieldsView view{f};
+	conflux::http::HttpFieldsView view{f};
 	vals.clear();
-	for_each_header_value(view, "set-cookie", [&](std::string_view value) { vals.push_back(value); });
+	conflux::http::for_each_header_value(view, "set-cookie", [&](std::string_view value) { vals.push_back(value); });
 	REQUIRE(vals == (std::vector<std::string_view>{"a=1", "b=2"}));
 	visits = 0;
-	CHECK_FALSE(for_each_header_value_until(view, "set-cookie", [&](std::string_view value) {
+	CHECK_FALSE(conflux::http::for_each_header_value_until(view, "set-cookie", [&](std::string_view value) {
 		++visits;
 		return value != "b=2";
 	}));
 	CHECK(visits == 2);
-	CHECK(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "a=1"; }));
-	CHECK_FALSE(any_header_value(view, "set-cookie", [](std::string_view value) { return value == "z=9"; }));
+	CHECK(conflux::http::any_header_value(view, "set-cookie", [](std::string_view value) { return value == "a=1"; }));
+	CHECK_FALSE(conflux::http::any_header_value(view, "set-cookie", [](std::string_view value) { return value == "z=9"; }));
 }
 TEST_CASE(
-	"HttpFields::value_or returns default when key absent") {
-	HttpFields f{true};
+	"conflux::http::HttpFields::value_or returns default when key absent") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("A", "hello");
 	REQUIRE(f.value_or("A") == "hello");
 	REQUIRE(f.value_or("Missing", "default") == "default");
 	REQUIRE(f.value_or("Missing") == "");
 }
 TEST_CASE(
-	"HttpFields case-insensitive lookup folds only ASCII letters") {
-	HttpFields f{true};
+	"conflux::http::HttpFields case-insensitive lookup folds only ASCII letters") {
+	conflux::http::HttpFields f{true};
 	f.emplace_back("X^Name", "caret");
 	f.emplace_back("X~Name", "tilde");
 	REQUIRE(f.get("x^name") == "caret");
@@ -2854,7 +2854,7 @@ TEST_CASE(
 	REQUIRE(f.values("x^name").size() == 1);
 	REQUIRE(f.values("x~name").size() == 1);
 
-	HttpFieldsView view{f};
+	conflux::http::HttpFieldsView view{f};
 	REQUIRE(view.get("x^name") == "caret");
 	REQUIRE(view.get("x~name") == "tilde");
 	REQUIRE(view.values("x^name").size() == 1);

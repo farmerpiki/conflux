@@ -358,7 +358,7 @@ export [[nodiscard]] std::string_view extract_param(
 
 export void parse_cookies(
 	std::string_view cookie_header,
-	HttpFieldsView &out) {
+	conflux::http::HttpFieldsView &out) {
 	std::size_t pos = 0;
 	while (pos < cookie_header.size()) {
 		auto sep = cookie_header.find(';', pos);
@@ -381,7 +381,7 @@ export void parse_cookies(
 }
 
 export [[nodiscard]] bool has_connection_token(
-	HttpFieldsView const &headers,
+	conflux::http::HttpFieldsView const &headers,
 	std::string_view wanted) {
 	return headers.any_value("connection", [&](std::string_view header_value) {
 		return conflux::http::header_token_contains(header_value, wanted);
@@ -395,7 +395,7 @@ export enum class ExpectState : std::uint8_t {
 };
 
 export [[nodiscard]] ExpectState parse_expect_header(
-	HttpFieldsView const &headers) {
+	conflux::http::HttpFieldsView const &headers) {
 	bool saw_continue = false;
 	bool unsupported = false;
 	headers.for_each_value_until("expect", [&](std::string_view header_value) {
@@ -421,7 +421,7 @@ export [[nodiscard]] ExpectState parse_expect_header(
 }
 
 export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
-	HttpFieldsView const &headers) {
+	conflux::http::HttpFieldsView const &headers) {
 	std::size_t token_count = 0;
 	bool valid = true;
 	headers.for_each_value_until("transfer-encoding", [&](std::string_view header_value) {
@@ -475,7 +475,7 @@ struct MultipartBoundaryMatch {
 export void parse_multipart(
 	std::string_view body,
 	std::string_view boundary,
-	HttpFieldsView &form,
+	conflux::http::HttpFieldsView &form,
 	std::vector<conflux::http::UploadedFile> &files) {
 	std::string delim;
 	delim.reserve(boundary.size() + 2);
@@ -566,11 +566,11 @@ export void parse_multipart(
 
 export void populate_request_parts(
 	conflux::http::PathQueryView const &target,
-	HttpFieldsView const &headers,
+	conflux::http::HttpFieldsView const &headers,
 	std::string_view body,
-	HttpFieldsView &query,
-	HttpFieldsView &form,
-	HttpFieldsView &cookies,
+	conflux::http::HttpFieldsView &query,
+	conflux::http::HttpFieldsView &form,
+	conflux::http::HttpFieldsView &cookies,
 	std::vector<conflux::http::UploadedFile> &files) {
 	if (!target.query_suffix.empty()) {
 		parse_urlencoded(target.query, query);

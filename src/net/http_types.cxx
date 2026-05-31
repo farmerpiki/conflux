@@ -17,7 +17,10 @@ import conflux.utils;
 			   return ascii_ci_fold(x) == ascii_ci_fold(y);
 		   });
 }
-export struct FieldHash {
+
+export namespace conflux::http {
+
+struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};
 	[[nodiscard]] std::size_t operator ()(
@@ -36,7 +39,7 @@ export struct FieldHash {
 		return operator ()(std::string_view{s});
 	}
 };
-export struct FieldEq {
+struct FieldEq {
 	using is_transparent = void;
 	bool ci{false};
 	[[nodiscard]] bool operator ()(
@@ -217,7 +220,7 @@ public:
 };
 
 // Vector-backed string map. Linear scan — sufficient for HTTP header counts (<100).
-export class HttpFields : public HttpFieldsLookupAccessors {
+class HttpFields : public HttpFieldsLookupAccessors {
 	friend struct HttpFieldsLookupAccessors;
 	std::vector<std::pair<std::string, std::string>> data_;
 	bool case_insensitive_{false};
@@ -287,7 +290,7 @@ public:
 	}
 	void clear() noexcept { data_.clear(); }
 };
-export class HttpFieldsView : public HttpFieldsLookupAccessors {
+class HttpFieldsView : public HttpFieldsLookupAccessors {
 	friend struct HttpFieldsLookupAccessors;
 	struct OwnedStorage {
 		std::atomic<std::size_t> refs{1};
@@ -394,28 +397,27 @@ public:
 		return out;
 	}
 };
-export template<class Fields, class F>
+template<class Fields, class F>
 void for_each_header_value(
 	Fields const &fields,
 	std::string_view key,
 	F &&fn) {
 	fields.for_each_value(key, std::forward<F>(fn));
 }
-export template<class Fields, class F>
+template<class Fields, class F>
 bool for_each_header_value_until(
 	Fields const &fields,
 	std::string_view key,
 	F &&fn) {
 	return fields.for_each_value_until(key, std::forward<F>(fn));
 }
-export template<class Fields, class Pred>
+template<class Fields, class Pred>
 [[nodiscard]] bool any_header_value(
 	Fields const &fields,
 	std::string_view key,
 	Pred &&pred) {
 	return fields.any_value(key, std::forward<Pred>(pred));
 }
-export namespace conflux::http {
 
 [[nodiscard]] std::string http_date(
 	time_t epoch) {

@@ -97,7 +97,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	ErrorHandler const &error_handler,
 	Pool const &work_pool) {
 	try {
-		HttpFieldsView matched_params;
+		conflux::http::HttpFieldsView matched_params;
 		bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 
 		// Regular routes first. Candidate selection has already filtered by method.
@@ -232,7 +232,7 @@ export template<typename ContextRouteRange, typename Ctx>
 	if (context_routes.empty()) {
 		return std::nullopt;
 	}
-	HttpFieldsView matched_params;
+	conflux::http::HttpFieldsView matched_params;
 	bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 	for (auto const &route: context_routes) {
 		matched_params.clear();

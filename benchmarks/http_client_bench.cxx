@@ -135,7 +135,7 @@ using conflux::http::ClientRequest;
 using conflux::http::ClientResult;
 using conflux::http::HttpClient;
 using conflux::http::HttpClientOptions;
-using ::HttpFields;
+using conflux::http::HttpFields;
 
 struct ScopedAllocationCounting {
 	ScopedAllocationCounting() {
@@ -586,10 +586,10 @@ struct BenchCase {
 	std::function<ClientStats(std::string_view config, std::size_t warmup, std::size_t iterations)> run;
 };
 
-[[nodiscard]] HttpFields make_headers(
+[[nodiscard]] conflux::http::HttpFields make_headers(
 	std::size_t count,
 	std::string_view prefix = "X-Bench-Header") {
-	HttpFields fields{true};
+	conflux::http::HttpFields fields{true};
 	fields.reserve(count);
 	for (std::size_t i = 0; i < count; ++i) {
 		fields.emplace_back(std::format("{}-{}", prefix, i), std::format("value-{}", i));
@@ -624,7 +624,7 @@ struct BenchCase {
 	std::string variant,
 	std::string description,
 	ClientRequest req,
-	HttpFields defaults,
+	conflux::http::HttpFields defaults,
 	std::size_t default_iterations) {
 	auto const variant_name = variant;
 	return BenchCase{
@@ -879,7 +879,7 @@ struct BenchCase {
 			"micro/client_wire/build/get_minimal",
 			"Build minimal GET request wire bytes",
 			make_get_request("http://127.0.0.1:8080/bench"),
-			HttpFields{true},
+			conflux::http::HttpFields{true},
 			300000);
 	}
 	if (id == "wire_get_16_headers"sv) {
@@ -888,7 +888,7 @@ struct BenchCase {
 			"micro/client_wire/build/get_16_headers",
 			"Build GET request with 16 caller headers",
 			make_get_request("http://127.0.0.1:8080/bench?x=1", 16),
-			HttpFields{true},
+			conflux::http::HttpFields{true},
 			150000);
 	}
 	if (id == "wire_get_defaults_override"sv) {
@@ -911,7 +911,7 @@ struct BenchCase {
 			"micro/client_wire/build/post_64k",
 			"Build POST request headers for a 64 KiB request body",
 			make_post_request("http://127.0.0.1:8080/upload", 64 * 1024, 8),
-			HttpFields{true},
+			conflux::http::HttpFields{true},
 			100000);
 	}
 	if (id == "head_simple_cl"sv) {

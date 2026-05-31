@@ -25,7 +25,7 @@ public:
 	static Builder method(std::string_view m, std::string_view url);
 	[[nodiscard]] std::string_view method() const noexcept { return method_; }
 	[[nodiscard]] Url const &url() const noexcept { return url_; }
-	[[nodiscard]] HttpFields const &headers() const noexcept { return headers_; }
+	[[nodiscard]] conflux::http::HttpFields const &headers() const noexcept { return headers_; }
 	[[nodiscard]] std::string const &body() const noexcept { return body_; }
 	[[nodiscard]] HttpTimeouts timeouts() const noexcept { return timeouts_; }
 	[[nodiscard]] bool verify_peer() const noexcept { return verify_peer_; }
@@ -38,7 +38,7 @@ private:
 
 	std::string method_{"GET"};
 	Url url_{};
-	HttpFields headers_{true}; // case-insensitive
+	conflux::http::HttpFields headers_{true}; // case-insensitive
 	std::string body_{};
 	HttpTimeouts timeouts_{};
 	bool verify_peer_{true};
@@ -124,7 +124,7 @@ public:
 	}
 	auto &&query_params(
 		this auto &&self,
-		HttpFields const &kv) {
+		conflux::http::HttpFields const &kv) {
 		for (auto const &[k, v]: kv) {
 			self.req_.url_.set_query_param(k, v);
 		}
@@ -141,7 +141,7 @@ public:
 	}
 	auto &&headers(
 		this auto &&self,
-		HttpFields const &h) {
+		conflux::http::HttpFields const &h) {
 		for (auto const &[k, v]: h) {
 			self.req_.headers_.set(k, v);
 		}
@@ -226,7 +226,7 @@ public:
 	}
 	auto &&body_form(
 		this auto &&self,
-		HttpFields const &fields) {
+		conflux::http::HttpFields const &fields) {
 		self.assert_single_body();
 		std::size_t reserve_n = fields.empty() ? 0 : fields.size() - 1;
 		for (auto const &[k, v]: fields) {

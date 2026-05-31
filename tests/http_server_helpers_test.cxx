@@ -156,7 +156,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: cookies parse repeated and valueless entries",
 	"[http_server_helpers]") {
-	HttpFieldsView cookies;
+	conflux::http::HttpFieldsView cookies;
 	parse_cookies("a=1; b=two words ; flag; a=2", cookies);
 
 	REQUIRE(cookies.size() == 4);
@@ -170,7 +170,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: cookie parser trims RFC optional whitespace",
 	"[http_server_helpers]") {
-	HttpFieldsView cookies;
+	conflux::http::HttpFieldsView cookies;
 	parse_cookies("\t sid = abc \t;\t csrf_token = tok \t; ;\tflag\t", cookies);
 
 	REQUIRE(cookies.size() == 3);
@@ -183,7 +183,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: connection tokens are comma split and case-insensitive",
 	"[http_server_helpers]") {
-	HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView headers{true};
 	headers.emplace_back("Connection", "keep-alive, Upgrade");
 	headers.emplace_back("connection", "x-custom");
 
@@ -196,7 +196,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: expect and transfer-encoding validation reject ambiguous framing",
 	"[http_server_helpers]") {
-	HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView headers{true};
 	CHECK(parse_expect_header(headers) == ExpectState::none);
 
 	headers.emplace_back("Expect", "100-continue");
@@ -204,19 +204,19 @@ TEST_CASE(
 	headers.emplace_back("Expect", "other-token");
 	CHECK(parse_expect_header(headers) == ExpectState::unsupported);
 
-	HttpFieldsView chunked{true};
+	conflux::http::HttpFieldsView chunked{true};
 	chunked.emplace_back("Transfer-Encoding", "chunked");
 	CHECK(has_valid_chunked_transfer_encoding(chunked));
 
-	HttpFieldsView double_chunked{true};
+	conflux::http::HttpFieldsView double_chunked{true};
 	double_chunked.emplace_back("Transfer-Encoding", "chunked, chunked");
 	CHECK_FALSE(has_valid_chunked_transfer_encoding(double_chunked));
 
-	HttpFieldsView identity{true};
+	conflux::http::HttpFieldsView identity{true};
 	identity.emplace_back("Transfer-Encoding", "identity");
 	CHECK_FALSE(has_valid_chunked_transfer_encoding(identity));
 
-	HttpFieldsView empty_token{true};
+	conflux::http::HttpFieldsView empty_token{true};
 	empty_token.emplace_back("Transfer-Encoding", "chunked,");
 	CHECK_FALSE(has_valid_chunked_transfer_encoding(empty_token));
 }
@@ -224,7 +224,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: urlencoded parsing borrows plain fields and owns decoded fields",
 	"[http_server_helpers]") {
-	HttpFieldsView fields;
+	conflux::http::HttpFieldsView fields;
 	parse_urlencoded("plain=value&spaced=a+b&encoded=%7Bok%7D&flag", fields);
 
 	REQUIRE(fields.size() == 4);
@@ -249,7 +249,7 @@ TEST_CASE(
 		"file-body\r\n"
 		"--AaB03x--\r\n";
 
-	HttpFieldsView form;
+	conflux::http::HttpFieldsView form;
 	std::vector<conflux::http::UploadedFile> files;
 	parse_multipart(body, "AaB03x", form, files);
 

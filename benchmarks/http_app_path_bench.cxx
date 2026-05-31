@@ -554,10 +554,10 @@ void apply_phase(
 	std::string_view raw,
 	ParserLimits const &limits,
 	conflux::http1::ParsedRequest &parsed,
-	HttpFieldsView &headers,
-	HttpFieldsView &query,
-	HttpFieldsView &form,
-	HttpFieldsView &cookies,
+	conflux::http::HttpFieldsView &headers,
+	conflux::http::HttpFieldsView &query,
+	conflux::http::HttpFieldsView &form,
+	conflux::http::HttpFieldsView &cookies,
 	std::vector<conflux::http::UploadedFile> &files,
 	std::string_view &path,
 	std::string_view &body) {
@@ -605,7 +605,7 @@ void apply_phase(
 		parsed.version,
 		"127.0.0.1"sv,
 		false,
-		HttpFieldsView{},
+		conflux::http::HttpFieldsView{},
 		headers,
 		query,
 		form,
@@ -617,10 +617,10 @@ void apply_phase(
 [[nodiscard]] std::size_t run_one(
 	PathState &state) {
 	conflux::http1::ParsedRequest parsed;
-	HttpFieldsView headers{true};
-	HttpFieldsView query;
-	HttpFieldsView form;
-	HttpFieldsView cookies;
+	conflux::http::HttpFieldsView headers{true};
+	conflux::http::HttpFieldsView query;
+	conflux::http::HttpFieldsView form;
+	conflux::http::HttpFieldsView cookies;
 	std::vector<conflux::http::UploadedFile> files;
 	std::string_view path;
 	std::string_view body;

@@ -518,7 +518,7 @@ void dispatch_stream(
 		return;
 	}
 	s.response_submitted = true;
-	HttpFieldsView hdrs_view;
+	conflux::http::HttpFieldsView hdrs_view;
 	for (auto const &[k, v]: s.headers) {
 		hdrs_view.emplace_back(k, v);
 	}

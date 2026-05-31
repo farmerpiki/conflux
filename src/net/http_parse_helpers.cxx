@@ -91,7 +91,7 @@ export [[nodiscard]] bool content_type_is_json_like(
 
 export void parse_urlencoded(
 	std::string_view data,
-	HttpFieldsView &out) {
+	conflux::http::HttpFieldsView &out) {
 	if (!data.empty()) {
 		std::size_t fields = 1;
 		for (auto const c: data) {
