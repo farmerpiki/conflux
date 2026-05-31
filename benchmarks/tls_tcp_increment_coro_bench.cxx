@@ -33,6 +33,8 @@ constexpr std::uint64_t pack_ud(
 struct Config {
 	std::size_t iterations = 10000;
 	std::size_t warmup = 2000;
+	std::size_t samples = 0;
+	std::size_t batch = 0;
 	bool json_out = false;
 };
 namespace {
@@ -55,6 +57,10 @@ Config parse_args(
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
 			cfg.warmup = parse_u64(args[++i]);
+		} else if (a == "--samples" && i + 1 < args.size()) {
+			cfg.samples = parse_u64(args[++i]);
+		} else if (a == "--batch" && i + 1 < args.size()) {
+			cfg.batch = parse_u64(args[++i]);
 		} else if (a == "--json") {
 			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
@@ -345,6 +351,30 @@ std::uint64_t run_coroutine(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 
+template<class Fn>
+BenchStats measure_batched_loop(
+	std::string_view variant,
+	Config const &cfg,
+	Fn &&fn) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.samples, cfg.batch);
+	std::uint64_t total_ns = 0;
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		(void)fn(plan.batch);
+	}
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		total_ns += fn(plan.batch);
+	}
+	BenchStats stats{
+		.config = "default",
+		.variant = variant,
+		.iterations = plan.iterations,
+		.total_ns = total_ns,
+		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(plan.iterations),
+	};
+	bench_apply_sample_plan(stats, plan);
+	return stats;
+}
+
 } // namespace
 int main(
 	int argc,
@@ -393,24 +423,18 @@ int main(
 		try {
 			block_on(files, tls.handshake_connect());
 
-			(void)run_callback(files, tls, cfg.warmup, 0);
-			std::uint64_t const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
-													run_coroutine(files, tls, cfg.iterations, cfg.warmup);
-			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			std::string_view const label = (which == 0) ? "callback" : "coroutine";
+			auto const stats = measure_batched_loop(label, cfg, [&](std::size_t n) {
+				return (which == 0) ? run_callback(files, tls, n, cfg.warmup) :
+									  run_coroutine(files, tls, n, cfg.warmup);
+			});
 			if (cfg.json_out) {
-				std::println(
-					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
-					"2f}}}",
-					label,
-					cfg.iterations,
-					ns,
-					per);
+				bench_print(stats, true, false);
 			} else {
 				if (which == 0) {
-					std::println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
+					std::println("iterations: {}, warmup: {}", stats.iterations, cfg.warmup);
 				}
-				std::println("  {:<10} {:>8.1f} ns/iter ({} ns total)", label, per, ns);
+				std::println("  {:<10} {:>8.1f} ns/iter ({} ns total)", label, stats.ns_per_iter, stats.total_ns);
 			}
 		} catch (std::exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 
