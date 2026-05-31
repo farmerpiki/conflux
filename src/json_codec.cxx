@@ -3209,45 +3209,6 @@ template<class T>
 inline constexpr std::array<double, 23> kFpPow10{1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
 												 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
 
-[[nodiscard]] inline std::uint64_t fp_parse_short_digits(
-	char const *p,
-	std::size_t len) noexcept {
-	std::uint64_t value = static_cast<std::uint64_t>(p[0] - '0');
-	if (len >= 2U) {
-		value = value * 10U + static_cast<std::uint64_t>(p[1] - '0');
-	}
-	if (len >= 3U) {
-		value = value * 10U + static_cast<std::uint64_t>(p[2] - '0');
-	}
-	if (len >= 4U) {
-		value = value * 10U + static_cast<std::uint64_t>(p[3] - '0');
-	}
-	return value;
-}
-
-struct FpDigitRun {
-	std::size_t len{};
-	std::uint64_t mant{};
-	bool exact{true};
-};
-
-[[nodiscard]] inline FpDigitRun fp_scan_digits_mantissa(
-	char const *p,
-	std::size_t n,
-	std::uint64_t mant = 0,
-	std::size_t max_mant_digits = 17U) noexcept {
-	FpDigitRun run{.mant = mant};
-	while (run.len < n && run.len < max_mant_digits && p[run.len] >= '0' && p[run.len] <= '9') {
-		run.mant = run.mant * 10U + static_cast<std::uint64_t>(p[run.len] - '0');
-		++run.len;
-	}
-	if (run.len < n && p[run.len] >= '0' && p[run.len] <= '9') {
-		run.exact = false;
-		run.len += fp_scan_digits(p + run.len, n - run.len);
-	}
-	return run;
-}
-
 // Single-pass floating-point parse. Locates and validates the lexeme in one
 // scan, accumulating the mantissa as it goes. For values where Clinger's fast
 // path applies (mantissa <= 2^53, decimal exponent within +/-22), the result
@@ -3271,27 +3232,40 @@ template<class T>
 	}
 	bool const starts_zero = *p == '0';
 
-	char const *const int_start = p;
-	FpDigitRun const int_run = fp_scan_digits_mantissa(p, static_cast<std::size_t>(end - p));
-	std::size_t const int_len = int_run.len;
-	p += int_len;
+	std::uint64_t mant = 0;
+	std::size_t int_len = 0;
+	std::size_t total_digits = 0;
+	bool exact = true;
+	do {
+		if (total_digits < 17U) {
+			mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
+			++total_digits;
+		} else {
+			exact = false;
+		}
+		++int_len;
+		++p;
+	} while (p < end && *p >= '0' && *p <= '9');
 	if (starts_zero && int_len > 1) {
 		return FpStatus::bail;
 	}
 
-	char const *frac_start = p;
 	std::size_t frac_len = 0;
-	FpDigitRun frac_run{.mant = int_run.mant, .exact = int_run.exact};
 	if (p < end && *p == '.') {
 		++p;
-		frac_start = p;
-		std::size_t const frac_mant_digits = int_len < 17U ? 17U - int_len : 0U;
-		frac_run = fp_scan_digits_mantissa(p, static_cast<std::size_t>(end - p), int_run.mant, frac_mant_digits);
-		frac_len = frac_run.len;
-		if (frac_len == 0) {
+		if (p >= end || *p < '0' || *p > '9') {
 			return FpStatus::bail;
 		}
-		p += frac_len;
+		do {
+			if (total_digits < 17U) {
+				mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
+				++total_digits;
+			} else {
+				exact = false;
+			}
+			++frac_len;
+			++p;
+		} while (p < end && *p >= '0' && *p <= '9');
 	}
 
 	std::int64_t exp_val = 0;
@@ -3326,31 +3300,8 @@ template<class T>
 	}
 
 	// Clinger fast path (exact only when the target is double).
-	std::size_t const total_digits = int_len + frac_len;
 	std::int64_t const eff_exp = exp_val - static_cast<std::int64_t>(frac_len);
-	if (std::same_as<T, double> && !neg && frac_len == 0 && !exp_overlong && exp_val == 0 && int_len <= 4U) {
-		auto const mant = fp_parse_short_digits(int_start, int_len);
-		out = static_cast<T>(static_cast<double>(mant));
-		c.p = p;
-		return FpStatus::ok;
-	}
-	if (std::same_as<T, double> && !neg && frac_len == 1U && !exp_overlong && exp_val == 0 && int_len <= 4U) {
-		auto const mant =
-			fp_parse_short_digits(int_start, int_len) * 10ULL + static_cast<std::uint64_t>(frac_start[0] - '0');
-		out = static_cast<T>(static_cast<double>(mant) / 10.0);
-		c.p = p;
-		return FpStatus::ok;
-	}
-	if (std::same_as<T, double> && !neg && frac_len == 6U && !exp_overlong && exp_val == 0 && int_len <= 4U) {
-		auto const mant = fp_parse_short_digits(int_start, int_len) * 1000000ULL
-						+ fp_parse_short_digits(frac_start, 3U) * 1000ULL
-						+ fp_parse_short_digits(frac_start + 3U, 3U);
-		out = static_cast<T>(static_cast<double>(mant) / 1e6);
-		c.p = p;
-		return FpStatus::ok;
-	}
-	if (std::same_as<T, double> && frac_run.exact && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22) {
-		std::uint64_t const mant = frac_run.mant;
+	if (std::same_as<T, double> && !exp_overlong && exact && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22) {
 		if (mant <= (std::uint64_t{1} << 53U)) {
 			double v = static_cast<double>(mant);
 			if (eff_exp == 0) {
