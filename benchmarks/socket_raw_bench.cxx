@@ -179,34 +179,22 @@ BenchStats run_variant(
 	Variant const &v,
 	std::size_t iterations,
 	std::size_t warmup,
-	std::string_view config_name) {
+	std::string_view config_name,
+	BenchArgs const &args) {
 	if (v.setup) {
 		v.setup();
 	}
 
-	for (std::size_t i = 0; i < warmup; ++i) {
-		v.run();
-	}
-
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		v.run();
-	}
-	auto const t1 = bench_now_ns();
+	BenchSamplePlan const plan = bench_sample_plan(iterations, warmup, args.samples, args.batch);
+	auto stats = bench_measure_batched([&] { v.run(); }, plan);
 
 	if (v.teardown) {
 		v.teardown();
 	}
 
-	auto const total = t1 - t0;
-	auto const ns_pi = static_cast<double>(total) / static_cast<double>(iterations);
-	return BenchStats{
-		.config = config_name,
-		.variant = v.name,
-		.iterations = iterations,
-		.total_ns = total,
-		.ns_per_iter = ns_pi,
-	};
+	stats.config = config_name;
+	stats.variant = v.name;
+	return stats;
 }
 // ── accept / close / lifecycle variants ────────────────────────────────────
 
@@ -242,7 +230,7 @@ void run_accept_close(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // raw_accept_direct_close: single-shot accept into direct fd slot, close direct
@@ -288,7 +276,7 @@ void run_accept_direct_close(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	drain_cqes(rg.get());
 	dft.reset();
@@ -340,7 +328,7 @@ void run_accept_direct_reuse_cycle(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // raw_shutdown_close: linked shutdown(WR) + close pair
@@ -372,7 +360,7 @@ void run_shutdown_close(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // ── recv variants ──────────────────────────────────────────────────────────
@@ -440,7 +428,7 @@ void run_multishot_recv_1conn(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(cli, SHUT_RDWR);
@@ -525,7 +513,7 @@ void run_multishot_recv_Nconn(
 
 	auto iters = std::min(args.iterations, std::size_t{50000});
 	auto warmup = std::min(args.warmup, std::size_t{10000});
-	auto s = run_variant(v, iters, warmup, config_name);
+	auto s = run_variant(v, iters, warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	for (auto &c: clients) {
@@ -604,7 +592,7 @@ void run_recv_fixed_fd(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(cli, SHUT_RDWR);
@@ -650,7 +638,7 @@ void run_send_variant(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
@@ -701,7 +689,7 @@ void run_send_fixed_fd(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
@@ -746,7 +734,7 @@ void run_writev_variant(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
@@ -791,7 +779,7 @@ void run_direct_fd_install(
 	};
 
 	(void)dft.install(0, srv);
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // direct_fd_alloc_free: conflux::socket_io::DirectFdTable install + clear (no io_uring SQE)
@@ -806,7 +794,7 @@ void run_direct_fd_alloc_free(
 		.run = [&] { conflux::socket_io::DirectFdTable dft{rg.get(), 64}; },
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // direct_fd_slot_exhaustion: fill table, free all, refill
@@ -846,7 +834,7 @@ void run_direct_fd_slot_exhaustion(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // raw_stale_cqe_after_reuse: accept-direct, close, reuse slot, verify gen rejects old CQE
@@ -873,7 +861,7 @@ void run_stale_cqe_after_reuse(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // ── cancel / timeout variants ──────────────────────────────────────────────
@@ -917,7 +905,7 @@ void run_cancel_recv(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // raw_cancel_by_user_data: start recv, cancel by ud
@@ -958,7 +946,7 @@ void run_cancel_by_user_data(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // raw_link_timeout: recv with IO_LINK + timeout
@@ -1002,7 +990,7 @@ void run_link_timeout(
 
 	auto iters = std::min(args.iterations, std::size_t{10000});
 	auto warmup = std::min(args.warmup, std::size_t{2000});
-	auto s = run_variant(v, iters, warmup, config_name);
+	auto s = run_variant(v, iters, warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // ── setsockopt variants ────────────────────────────────────────────────────
@@ -1050,7 +1038,7 @@ void run_setsockopt_variant(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // ── buffer ring variants ───────────────────────────────────────────────────
@@ -1078,7 +1066,7 @@ void run_buf_ring_alloc_recycle(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // buf_ring_batch_recycle_16: batch recycle 16 buffers
@@ -1103,7 +1091,7 @@ void run_buf_ring_batch_recycle_16(
 		.run = [&] { bufs.recycle_batch(ids); },
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // buf_ring_exhaustion_recover: drain all buffers, recycle all, verify recv resumes
@@ -1161,7 +1149,7 @@ void run_buf_ring_exhaustion_recover(
 
 	auto iters = std::min(args.iterations, std::size_t{5000});
 	auto warmup = std::min(args.warmup, std::size_t{1000});
-	auto s = run_variant(v, iters, warmup, config_name);
+	auto s = run_variant(v, iters, warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // ── generation table variants ──────────────────────────────────────────────
@@ -1183,7 +1171,7 @@ void run_gen_table_check(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // gen_table_bump_check: advance() then alive() alternating
@@ -1204,7 +1192,7 @@ void run_gen_table_bump_check(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // flow_deferred_close_abandon: force a deferred close and abandon it without
@@ -1253,7 +1241,7 @@ void run_flow_deferred_close_abandon(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // recv_arm_policy_resolve: compare default_ / poll_first / adaptive policy selection
@@ -1294,7 +1282,7 @@ void run_recv_arm_policy_resolve(
 					}
 				},
 		};
-		auto s = run_variant(v, args.iterations, args.warmup, config_name);
+		auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 		bench_print(s, json, false);
 		auto _ = sink;
 	};
@@ -1357,7 +1345,7 @@ void run_batch_send_32(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
@@ -1425,7 +1413,7 @@ void run_batch_recv_send_16(
 
 	auto iters = std::min(args.iterations, std::size_t{50000});
 	auto warmup = std::min(args.warmup, std::size_t{10000});
-	auto s = run_variant(v, iters, warmup, config_name);
+	auto s = run_variant(v, iters, warmup, config_name, args);
 	bench_print(s, json, false);
 	stop.store(true, std::memory_order_relaxed);
 	::shutdown(srv, SHUT_RDWR);
@@ -1456,7 +1444,7 @@ void run_buf_slices_from_cqe_classic(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // buf_slices_from_cqe_bundle_3_full / _bundle_3_partial_tail
@@ -1496,7 +1484,7 @@ void run_buf_slices_from_cqe_bundle(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // buf_slice_from_incremental_cqe: N synthetic partial CQEs per buffer, final recycles
@@ -1543,7 +1531,7 @@ void run_buf_slice_from_incremental_cqe(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // direct_slot_pool_acquire_release: acquire() + release_empty() cycle
@@ -1564,7 +1552,7 @@ void run_direct_slot_pool_acquire_release(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 // direct_slot_pool_full_lifecycle: adopt_kernel_allocated → mark_closing → release_closed
@@ -1586,7 +1574,7 @@ void run_direct_slot_pool_full_lifecycle(
 			},
 	};
 
-	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	auto s = run_variant(v, args.iterations, args.warmup, config_name, args);
 	bench_print(s, json, false);
 }
 
