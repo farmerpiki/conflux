@@ -25,25 +25,24 @@ export struct BenchUringFileConfig {
 	std::size_t chunk = 4096;
 	std::string config_name;
 	bool json_out = false;
+	BenchArgs bench;
 };
 
 export [[nodiscard]] BenchUringFileConfig bench_parse_uring_file_args(
 	std::span<char *> args) {
 	BenchUringFileConfig cfg;
+	auto base = bench_parse_args(args);
+	cfg.iterations = base.iterations;
+	cfg.warmup = base.warmup;
+	cfg.config_name = std::move(base.config_name);
+	cfg.json_out = base.json_out;
+	cfg.bench = std::move(base);
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--depth" && i + 1 < args.size()) {
+		if (a == "--depth" && i + 1 < args.size()) {
 			cfg.depth = bench_parse_sz(args[++i]);
 		} else if (a == "--chunk" && i + 1 < args.size()) {
 			cfg.chunk = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
 		}
 	}
 	cfg.depth = std::max<std::size_t>(1, cfg.depth);

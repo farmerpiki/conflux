@@ -23,12 +23,12 @@ BenchStats bench_read_storm(
 	conflux::file_io::FileReader &files,
 	conflux::uring::FileHandle const &fh,
 	BenchUringFileConfig const &cfg,
-	std::vector<std::vector<std::byte>> &buffers,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	std::vector<std::vector<std::byte>> &buffers) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
 	std::uint64_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t batch_index = 0;
+	auto run_batch = [&] {
+		std::size_t const batch = batch_index++;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<std::size_t>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -42,25 +42,29 @@ BenchStats bench_read_storm(
 			}
 			total_bytes += *slot->value;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	if (!warmup && total_bytes == 0) {
+	};
+	auto stats = bench_measure_batched(run_batch, plan);
+	if (total_bytes == 0) {
 		throw std::runtime_error{"read storm read zero bytes"};
 	}
-	return {cfg.config_name, "read_storm"sv, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	stats.config = cfg.config_name;
+	stats.variant = "read_storm"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 BenchStats bench_write_storm(
 	conflux::file_io::FileReader &files,
 	conflux::uring::FileHandle const &fh,
 	BenchUringFileConfig const &cfg,
-	std::vector<std::vector<std::byte>> const &buffers,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	std::vector<std::vector<std::byte>> const &buffers) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
 	std::uint64_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t batch_index = 0;
+	auto run_batch = [&] {
+		std::size_t const batch = batch_index++;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<std::size_t>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -74,13 +78,17 @@ BenchStats bench_write_storm(
 			}
 			total_bytes += *slot->value;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	if (!warmup && total_bytes == 0) {
+	};
+	auto stats = bench_measure_batched(run_batch, plan);
+	if (total_bytes == 0) {
 		throw std::runtime_error{"write storm wrote zero bytes"};
 	}
-	return {cfg.config_name, "write_storm"sv, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	stats.config = cfg.config_name;
+	stats.variant = "write_storm"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 } // namespace
@@ -113,12 +121,9 @@ int main(
 		conflux::file_io::FileReader files{&ring, &completions, bench_pack_ud};
 		auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDWR | O_CLOEXEC));
 
-		(void)bench_read_storm(files, handle, cfg, buffers, true);
-		(void)bench_write_storm(files, handle, cfg, buffers, true);
-
 		BenchStats stats[] = {
-			bench_read_storm(files, handle, cfg, buffers, false),
-			bench_write_storm(files, handle, cfg, buffers, false),
+			bench_read_storm(files, handle, cfg, buffers),
+			bench_write_storm(files, handle, cfg, buffers),
 		};
 		for (std::size_t i = 0; i < std::size(stats); ++i) {
 			bench_print(stats[i], cfg.json_out, i == 0);

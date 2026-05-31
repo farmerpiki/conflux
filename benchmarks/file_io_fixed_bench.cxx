@@ -23,12 +23,12 @@ BenchStats bench_read_fixed(
 	conflux::file_io::FileReader &files,
 	conflux::uring::FileHandle const &fh,
 	conflux::file_io::FixedBufferPool &pool,
-	BenchUringFileConfig const &cfg,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	BenchUringFileConfig const &cfg) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
 	std::uint64_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t batch_index = 0;
+	auto run_batch = [&] {
+		std::size_t const batch = batch_index++;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<conflux::file_io::FileReader::ReadFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -46,30 +46,29 @@ BenchStats bench_read_fixed(
 			}
 			total_bytes += slot->value->bytes;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	if (!warmup && total_bytes == 0) {
+	};
+	auto stats = bench_measure_batched(run_batch, plan);
+	if (total_bytes == 0) {
 		throw std::runtime_error{"fixed read read zero bytes"};
 	}
-	return {
-		cfg.config_name,
-		"read_fixed_storm"sv,
-		ops,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(ops)};
+	stats.config = cfg.config_name;
+	stats.variant = "read_fixed_storm"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 BenchStats bench_write_fixed(
 	conflux::file_io::FileReader &files,
 	conflux::uring::FileHandle const &fh,
 	conflux::file_io::FixedBufferPool &pool,
-	BenchUringFileConfig const &cfg,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	BenchUringFileConfig const &cfg) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
 	std::uint64_t total_bytes = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
+	std::size_t batch_index = 0;
+	auto run_batch = [&] {
+		std::size_t const batch = batch_index++;
 		std::atomic<std::size_t> done{0};
 		auto slots = bench_make_join_slots<conflux::file_io::FileReader::WriteFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
@@ -88,18 +87,17 @@ BenchStats bench_write_fixed(
 			}
 			total_bytes += slot->value->bytes;
 		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	if (!warmup && total_bytes == 0) {
+	};
+	auto stats = bench_measure_batched(run_batch, plan);
+	if (total_bytes == 0) {
 		throw std::runtime_error{"fixed write wrote zero bytes"};
 	}
-	return {
-		cfg.config_name,
-		"write_fixed_storm"sv,
-		ops,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(ops)};
+	stats.config = cfg.config_name;
+	stats.variant = "write_fixed_storm"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 } // namespace
@@ -135,12 +133,9 @@ int main(
 		}
 		auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDWR | O_CLOEXEC));
 
-		(void)bench_read_fixed(files, handle, pool, cfg, true);
-		(void)bench_write_fixed(files, handle, pool, cfg, true);
-
 		BenchStats stats[] = {
-			bench_read_fixed(files, handle, pool, cfg, false),
-			bench_write_fixed(files, handle, pool, cfg, false),
+			bench_read_fixed(files, handle, pool, cfg),
+			bench_write_fixed(files, handle, pool, cfg),
 		};
 		for (std::size_t i = 0; i < std::size(stats); ++i) {
 			bench_print(stats[i], cfg.json_out, i == 0);
