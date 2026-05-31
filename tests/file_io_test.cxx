@@ -392,7 +392,7 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	PipePool pipes{2};
+	conflux::file_io::PipePool pipes{2};
 	auto pipe = pipes.try_acquire();
 	REQUIRE(pipe.has_value());
 
@@ -786,7 +786,7 @@ TEST_CASE(
 TEST_CASE(
 	"file_io: PipePool acquire/release recycles pairs",
 	"[file_io][unit]") {
-	PipePool pool{3};
+	conflux::file_io::PipePool pool{3};
 	CHECK(pool.capacity() == 3);
 	CHECK(pool.available() == 3);
 

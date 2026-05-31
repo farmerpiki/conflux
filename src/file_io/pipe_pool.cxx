@@ -7,6 +7,8 @@ export module conflux.file_io.pipe_pool;
 import std;
 import conflux.types;
 
+namespace conflux::file_io {
+
 // ---------------------------------------------------------------------------
 // PipePair / PipePool: cache of pipe2(O_DIRECT | O_CLOEXEC) pairs for
 // zero-copy splice chains (file → pipe → socket).
@@ -140,3 +142,5 @@ inline PipePair::~PipePair() {
 		pool_->release(slot_);
 	}
 }
+
+} // namespace conflux::file_io

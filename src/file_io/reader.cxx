@@ -1410,7 +1410,7 @@ public:
 		std::uint64_t off,
 		std::size_t len,
 		int dst_fd,
-		PipePair pipe,
+		conflux::file_io::PipePair pipe,
 		bool dst_fixed = false) {
 		struct State {
 			io_uring *ring;
@@ -1419,7 +1419,7 @@ public:
 			int file_fd;
 			int dst_fd;
 			bool dst_fixed;
-			PipePair pipe;
+			conflux::file_io::PipePair pipe;
 			std::uint64_t file_off;
 			std::size_t remaining;
 			std::size_t delivered{0};

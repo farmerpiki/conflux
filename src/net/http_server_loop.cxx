@@ -342,7 +342,7 @@ void Ring::init(
 		auto table = std::make_unique<RegisteredBufferTable>(&ring, total_buf_slots);
 		if (table->ok()) {
 			auto file_pool = std::make_unique<FixedBufferPool>(table.get(), 0, file_io_slabs, file_io_slab_bytes);
-			auto pipes = std::make_unique<PipePool>(file_io_pipe_pairs);
+			auto pipes = std::make_unique<conflux::file_io::PipePool>(file_io_pipe_pairs);
 			if (file_pool->ok() && file_pool->capacity() > 0 && pipes->capacity() > 0) {
 				file_completions = std::make_unique<CompletionTable>();
 				buf_table = std::move(table);

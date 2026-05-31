@@ -218,6 +218,14 @@ if(TARGET conflux)
         LINK conflux_file_map conflux_options
         LABELS build api-surface compile-fail
         EXPECT "MappedBody")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_io_compile_fail_global_pipe_pool
+        SOURCE file_io_compile_fail_global_pipe_pool.cxx
+        TEST api-surface/file-io-hides-global-pipe-pool
+        LINK conflux_file_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "PipePool")
 endif()
 
 add_executable(conflux_tests)

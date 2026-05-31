@@ -464,7 +464,7 @@ struct Ring {
 	std::unique_ptr<RegisteredBufferTable> buf_table{};
 	std::unique_ptr<FixedBufferPool> fixed_buffers{};
 	std::unique_ptr<FixedBufferPool> send_buffers{};
-	std::unique_ptr<PipePool> splice_pipes{};
+	std::unique_ptr<conflux::file_io::PipePool> splice_pipes{};
 	std::unique_ptr<FileReader> files{};
 	bool send_fixed_buffers_supported{false};
 
