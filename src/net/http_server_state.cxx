@@ -282,7 +282,7 @@ struct alignas(
 	bool request_in_progress = false;
 	bool expect_continue_sent = false;
 	std::string remote_addr{}; // peer IP, set on accept
-	ChunkedDecodeState chunked_decode{};
+	conflux::http::ChunkedDecodeState chunked_decode{};
 	// mmap path: non-null when current response has a zero-copy file region
 	std::shared_ptr<MappedBody> mapped_file{};
 	std::size_t mapped_total{}; // own_response.size() + mapped_file->size

@@ -308,9 +308,10 @@ void Ring::phase1_copy_recv_bufs() {
 		std::size_t raw_receive_cap = max_body_size;
 		raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_header_block_size);
 		raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_request_line_size);
-		raw_receive_cap =
-			bounded_add(raw_receive_cap, bounded_mul(parser_limits.max_chunks, kMaxChunkSizeLineBytes + 4));
-		raw_receive_cap = bounded_add(raw_receive_cap, kMaxChunkTrailerBytes);
+		raw_receive_cap = bounded_add(
+			raw_receive_cap,
+			bounded_mul(parser_limits.max_chunks, conflux::http::kMaxChunkSizeLineBytes + 4));
+		raw_receive_cap = bounded_add(raw_receive_cap, conflux::http::kMaxChunkTrailerBytes);
 		raw_receive_cap = bounded_add(raw_receive_cap, 6);
 		if (recv_buffered > raw_receive_cap) {
 			{

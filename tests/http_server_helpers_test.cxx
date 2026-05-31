@@ -225,7 +225,7 @@ TEST_CASE(
 	"http_server_helpers: urlencoded parsing borrows plain fields and owns decoded fields",
 	"[http_server_helpers]") {
 	conflux::http::HttpFieldsView fields;
-	parse_urlencoded("plain=value&spaced=a+b&encoded=%7Bok%7D&flag", fields);
+	conflux::http::parse_urlencoded("plain=value&spaced=a+b&encoded=%7Bok%7D&flag", fields);
 
 	REQUIRE(fields.size() == 4);
 	CHECK(fields["plain"] == "value");
@@ -266,18 +266,18 @@ TEST_CASE(
 	"http_server_helpers: complete and incremental chunked decoders agree",
 	"[http_server_helpers]") {
 	std::string body;
-	auto consumed = decode_chunked("4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nTrailer: ok\r\n\r\nextra", 64, 8, body);
+	auto consumed = conflux::http::decode_chunked("4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nTrailer: ok\r\n\r\nextra", 64, 8, body);
 	REQUIRE(consumed > 0);
 	CHECK(body == "Wikipedia");
 
 	std::string raw = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n";
 	std::size_t const start = raw.find("4\r\n");
 	REQUIRE(start != std::string::npos);
-	ChunkedDecodeState st;
-	CHECK(decode_chunked_incremental(raw, start, 64, 8, st) == 0);
+	conflux::http::ChunkedDecodeState st;
+	CHECK(conflux::http::decode_chunked_incremental(raw, start, 64, 8, st) == 0);
 	CHECK(st.body == "Wiki");
 	raw += "5\r\npedia\r\n0\r\n\r\n";
-	auto inc_consumed = decode_chunked_incremental(raw, start, 64, 8, st);
+	auto inc_consumed = conflux::http::decode_chunked_incremental(raw, start, 64, 8, st);
 	REQUIRE(inc_consumed > 0);
 	CHECK(st.body == "Wikipedia");
 	CHECK(static_cast<std::size_t>(inc_consumed) == raw.size() - start);
@@ -287,10 +287,10 @@ TEST_CASE(
 	"http_server_helpers: chunked decoder reports incomplete, malformed, and too-large bodies",
 	"[http_server_helpers]") {
 	std::string body;
-	CHECK(decode_chunked("4\r\nWi", 64, 8, body) == 0);
-	CHECK(decode_chunked("x\r\nnope\r\n", 64, 8, body) == -1);
-	CHECK(decode_chunked("5\r\nhello\r\n0\r\n\r\n", 4, 8, body) == -2);
+	CHECK(conflux::http::decode_chunked("4\r\nWi", 64, 8, body) == 0);
+	CHECK(conflux::http::decode_chunked("x\r\nnope\r\n", 64, 8, body) == -1);
+	CHECK(conflux::http::decode_chunked("5\r\nhello\r\n0\r\n\r\n", 4, 8, body) == -2);
 
-	ChunkedDecodeState st;
-	CHECK(decode_chunked_incremental("5\r\nhello\r\n0\r\n\r\n", 0, 4, 8, st) == -2);
+	conflux::http::ChunkedDecodeState st;
+	CHECK(conflux::http::decode_chunked_incremental("5\r\nhello\r\n0\r\n\r\n", 0, 4, 8, st) == -2);
 }

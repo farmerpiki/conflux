@@ -442,9 +442,9 @@ bool recv_chunked(
 	too_large = false;
 	decoded.clear();
 	decoded.reserve(std::min(encoded.size(), cap));
-	ChunkedDecodeState chunked;
+	conflux::http::ChunkedDecodeState chunked;
 	for (;;) {
-		auto const rc = decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
+		auto const rc = conflux::http::decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
 		if (rc > 0) {
 			decoded = std::move(chunked.body);
 			return true;

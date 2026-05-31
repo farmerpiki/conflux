@@ -8,6 +8,8 @@ export import conflux.net.http.types;
 import std;
 import conflux.utils;
 
+namespace conflux::http {
+
 export constexpr std::size_t kMaxChunkHexDigits = 16;
 export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
@@ -309,3 +311,5 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 		}
 	}
 }
+
+} // namespace conflux::http

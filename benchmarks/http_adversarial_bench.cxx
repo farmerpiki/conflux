@@ -508,9 +508,9 @@ struct AdversarialStats {
 			return out;
 		}
 		if (c.decode_chunked_body) {
-			ChunkedDecodeState state;
+			conflux::http::ChunkedDecodeState state;
 			auto const body_start = parsed.header_end_offset + 4;
-			auto const rc = decode_chunked_incremental(c.raw, body_start, c.max_body_size, c.limits.max_chunks, state);
+			auto const rc = conflux::http::decode_chunked_incremental(c.raw, body_start, c.max_body_size, c.limits.max_chunks, state);
 			if (rc == 0) {
 				out.complete = false;
 				out.decoded_body_bytes = state.body.size();

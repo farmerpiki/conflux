@@ -578,7 +578,7 @@ void apply_phase(
 
 	query.clear();
 	if (!target.query.empty()) {
-		parse_urlencoded(target.query, query);
+		conflux::http::parse_urlencoded(target.query, query);
 	}
 
 	cookies.clear();
@@ -588,11 +588,11 @@ void apply_phase(
 
 	form.clear();
 	if (conflux::http::ascii_iequals(headers["content-type"], "application/x-www-form-urlencoded")) {
-		parse_urlencoded(body, form);
+		conflux::http::parse_urlencoded(body, form);
 	}
 
 	files.clear();
-	if (content_type_is_multipart_form_data(headers["content-type"])) {
+	if (conflux::http::content_type_is_multipart_form_data(headers["content-type"])) {
 		auto const boundary = conflux::http::extract_param(headers["content-type"], "boundary");
 		if (!boundary.empty()) {
 			conflux::http::parse_multipart(body, boundary, form, files);

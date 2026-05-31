@@ -66,6 +66,6 @@ int main() {
 	std::println("redirect limit: {} verify_peer={}", req.max_redirects(), req.verify_peer());
 
 	std::string body;
-	auto consumed = decode_chunked("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", 64, 8, body);
+	auto consumed = conflux::http::decode_chunked("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", 64, 8, body);
 	std::println("chunked decode: {}", consumed > 0 ? body : "<invalid>");
 }

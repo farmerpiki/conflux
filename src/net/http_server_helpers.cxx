@@ -575,14 +575,14 @@ export void populate_request_parts(
 	conflux::http::HttpFieldsView &cookies,
 	std::vector<conflux::http::UploadedFile> &files) {
 	if (!target.query_suffix.empty()) {
-		parse_urlencoded(target.query, query);
+		conflux::http::parse_urlencoded(target.query, query);
 	}
 
 	auto const content_type = headers["content-type"];
-	if (content_type_is_form_urlencoded(content_type)) {
-		parse_urlencoded(body, form);
+	if (conflux::http::content_type_is_form_urlencoded(content_type)) {
+		conflux::http::parse_urlencoded(body, form);
 	}
-	if (content_type_is_multipart_form_data(content_type)) {
+	if (conflux::http::content_type_is_multipart_form_data(content_type)) {
 		auto const boundary = extract_param(content_type, "boundary");
 		if (!boundary.empty()) {
 			parse_multipart(body, boundary, form, files);

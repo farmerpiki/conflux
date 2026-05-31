@@ -336,7 +336,7 @@ A `poll` timeout currently surfaces as `read` / `write` (whichever phase was wai
 ## Chunked decoding
 
 Standalone chunked-body parsing now lives in `conflux.net.http_server_helpers`.
-Import that module and call `decode_chunked(...)` or `decode_chunked_incremental(...)` when you need to process already-received chunked data outside the client transport.
+Import that module and call `conflux::http::decode_chunked(...)` or `conflux::http::decode_chunked_incremental(...)` when you need to process already-received chunked data outside the client transport.
 
 ## What this client does NOT do (yet)
 

@@ -308,7 +308,7 @@ void dispatch_request(
 		body = raw.substr(body_start, content_length);
 		body_stream_bytes = content_length;
 	} else if (transfer_encoding_count != 0) {
-		auto rc = decode_chunked_incremental(raw, body_start, max_body_size, limits.max_chunks, conn.chunked_decode);
+		auto rc = conflux::http::decode_chunked_incremental(raw, body_start, max_body_size, limits.max_chunks, conn.chunked_decode);
 		if (rc == 0) {
 			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_continue();

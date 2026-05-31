@@ -18,13 +18,13 @@ export namespace conflux::http::detail {
 #if CONFLUX_HAS_JSON
 [[nodiscard]] std::string_view content_type_media_type(
 	std::string_view content_type) noexcept {
-	return ::content_type_media_type(content_type);
+	return conflux::http::content_type_media_type(content_type);
 }
 
 [[nodiscard]] bool content_type_matches(
 	std::string_view content_type,
 	std::string_view expected) noexcept {
-	return ::content_type_matches(content_type, expected);
+	return conflux::http::content_type_matches(content_type, expected);
 }
 
 [[nodiscard]] bool content_type_is_json(

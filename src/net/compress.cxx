@@ -136,9 +136,9 @@ bool zstd_supported() noexcept {
 }
 bool is_compressible(
 	std::string_view content_type) {
-	auto const media_type = content_type_media_type(content_type);
+	auto const media_type = conflux::http::content_type_media_type(content_type);
 	return media_type.starts_with("text/")
-		|| content_type_is_json_like(media_type)
+		|| conflux::http::content_type_is_json_like(media_type)
 		|| conflux::http::ascii_iequals(media_type, "application/xml")
 		|| conflux::http::ascii_iequals(media_type, "application/javascript")
 		|| conflux::http::ascii_iequals(media_type, "image/svg+xml");

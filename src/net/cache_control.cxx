@@ -37,7 +37,7 @@ Router::Middleware cache_control_middleware(
 			return resp;
 		}
 
-		auto const mime = content_type_media_type(resp.content_type);
+		auto const mime = conflux::http::content_type_media_type(resp.content_type);
 
 		for (auto const &rule: opts.rules) {
 			if (rule.mime_prefix.empty() || mime.starts_with(rule.mime_prefix)) {
