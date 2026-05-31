@@ -1010,6 +1010,14 @@ if(TARGET conflux_net_http)
         LINK conflux_net_http conflux_options
         LABELS http compile-fail
         EXPECT "StaticRouteRegistration")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_static_compile_fail_global_static_options
+        SOURCE http_static_compile_fail_global_static_options.cxx
+        TEST http-static/compile-fail-global-static-options
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "StaticOptions")
 endif()
 
 if(TARGET conflux_http_policy)

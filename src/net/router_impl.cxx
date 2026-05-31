@@ -715,7 +715,7 @@ void Router::launch_sse_handler(
 Router &Router::serve_static(
 	std::string_view url_prefix,
 	std::string root_dir,
-	StaticOptions const &sopts) {
+	conflux::http::StaticOptions const &sopts) {
 	auto routes = make_static_route_registration(
 		url_prefix,
 		std::move(root_dir),

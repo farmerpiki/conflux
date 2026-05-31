@@ -874,7 +874,7 @@ public:
 	App &serve_static(
 		std::string_view url_prefix,
 		std::string root_dir,
-		StaticOptions const &sopts = {},
+		conflux::http::StaticOptions const &sopts = {},
 		std::source_location loc = std::source_location::current()) {
 		static_mounts_.push_back(
 			StaticMountMetadata{

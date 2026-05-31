@@ -17,7 +17,7 @@ namespace conflux::http {
 [[nodiscard]] StaticRouteRegistration make_static_route_registration(
 	std::string_view url_prefix,
 	std::string root_dir,
-	StaticOptions const &sopts,
+	conflux::http::StaticOptions const &sopts,
 	StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache) {
 	while (!root_dir.empty() && root_dir.back() == '/') {

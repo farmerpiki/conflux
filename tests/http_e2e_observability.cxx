@@ -3270,7 +3270,7 @@ TEST_CASE(
 	write_file("beta.html", "b");
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 
@@ -3306,7 +3306,7 @@ TEST_CASE(
 	write_file("mango.txt");
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 
@@ -3345,7 +3345,7 @@ TEST_CASE(
 	::close(wfd);
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.directory_listing = true;
 	router.serve_static("/s", std::string{tmpdir}, sopts);
 

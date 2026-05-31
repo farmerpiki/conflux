@@ -413,7 +413,7 @@ TEST_CASE(
 
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.allow_put = true;
 	sopts.file_cache.enabled = true;
 	sopts.file_cache.small_file_max_bytes = 1024 * 1024;

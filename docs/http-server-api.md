@@ -460,7 +460,7 @@ public:
     // Static file serving.
     Router& serve_static(std::string_view url_prefix,
                          std::string root_dir,
-                         StaticOptions const& = {});
+                         conflux::http::StaticOptions const& = {});
 
     // Middleware (applied in registration order, outermost first).
     template<class F> requires ::Middleware<F>
@@ -792,7 +792,7 @@ blocking-fd transition before the handler owns the connection.
 
 ## Static/realtime component modules
 
-`StaticOptions` is exported by `conflux.net.http.static_files` / `conflux::http_static`.
+`conflux::http::StaticOptions` is exported by `conflux.net.http.static_files` / `conflux::http_static`.
 Server request vocabulary (`UploadedFile`, `Request`, `RequestView`,
 `CloneableFunction`) is exported by `conflux.net.http.server_types`, which is
 part of `conflux::http_core`. SSE and WebSocket types/helpers (`SseOverflowPolicy`,
@@ -823,7 +823,7 @@ struct StaticOptions {
     bool                     allow_delete{false};
 };
 
-app.serve_static("/assets", "./public", StaticOptions{
+app.serve_static("/assets", "./public", conflux::http::StaticOptions{
     .precompressed = true,
     .cache_control = "max-age=86400, public",
 });

@@ -5,7 +5,9 @@ import conflux.types;
 import conflux.work;
 import conflux.net.config;
 
-export struct StaticOptions {
+export namespace conflux::http {
+
+struct StaticOptions {
 	// Cache-Control header value. Empty = no Cache-Control header set.
 	std::string cache_control{"max-age=3600, public"};
 	// Serve pre-compressed .gz or .br sidecars when the client accepts them.
@@ -21,3 +23,5 @@ export struct StaticOptions {
 	bool allow_put{false};
 	bool allow_delete{false};
 };
+
+} // namespace conflux::http

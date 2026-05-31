@@ -467,7 +467,7 @@ public:
 	// Path traversal ("..") is rejected with 403.
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
-	Router &serve_static(std::string_view url_prefix, std::string root_dir, StaticOptions const &sopts = {});
+	Router &serve_static(std::string_view url_prefix, std::string root_dir, conflux::http::StaticOptions const &sopts = {});
 	[[nodiscard]] Response dispatch(conflux::http::OwnedRequest const &req) const;
 	[[nodiscard]] Response dispatch(conflux::http::RequestView const &req) const;
 	[[nodiscard]] std::optional<Response>

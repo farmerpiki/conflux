@@ -188,7 +188,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 conflux::http::Response handle_static_get_request(
 	std::string const &rd,
 	int root_fd,
-	StaticOptions const &sopts,
+	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
@@ -229,7 +229,7 @@ conflux::http::Response handle_static_get_request(
 conflux::http::Response handle_static_put(
 	std::string const &rd,
 	int root_fd,
-	StaticOptions const &sopts,
+	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
@@ -298,7 +298,7 @@ conflux::http::Response handle_static_put(
 conflux::http::Response handle_static_delete(
 	std::string const &rd,
 	int root_fd,
-	StaticOptions const &sopts,
+	conflux::http::StaticOptions const &sopts,
 	conflux::http::RequestView const &req,
 	StaticCacheStore &static_cache) {
 	try {
@@ -364,7 +364,7 @@ conflux::http::Response handle_static_delete(
 conflux::http::Response handle_static_get(
 	std::string const &rd,
 	int root_fd,
-	StaticOptions const &static_options,
+	conflux::http::StaticOptions const &static_options,
 	StaticRequest const &r,
 	StaticCacheStore &static_cache) {
 	try {

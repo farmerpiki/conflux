@@ -808,7 +808,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.allow_put = true;
 	sopts.allow_delete = true;
 	router.serve_static("/static", std::string{tmpdir} + "/", sopts);
@@ -893,7 +893,7 @@ TEST_CASE(
 	auto pool = std::make_shared<WorkPool>();
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.offload_pool = pool;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
@@ -998,7 +998,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.allow_put = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
@@ -1081,7 +1081,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	conflux::http::Router router;
-	StaticOptions sopts{};
+	conflux::http::StaticOptions sopts{};
 	sopts.allow_delete = true;
 	router.serve_static("/static", std::string{tmpdir}, sopts);
 
