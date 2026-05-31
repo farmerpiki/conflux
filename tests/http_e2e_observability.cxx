@@ -1393,7 +1393,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(tracing_middleware({.propagate_in_response = false}));
+		router.use(conflux::http::tracing_middleware({.propagate_in_response = false}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1407,10 +1407,10 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(tracing_middleware({
+		router.use(conflux::http::tracing_middleware({
 			.on_end = [](conflux::http::OwnedRequest const &,
 						 conflux::http::Response &res,
-						 TraceContext const &ctx) { res.headers["X-Trace-Id"] = ctx.trace_id; },
+						 conflux::http::TracingContext const &ctx) { res.headers["X-Trace-Id"] = ctx.trace_id; },
 			.propagate_in_response = false,
 		}));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
@@ -1427,8 +1427,8 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(tracing_middleware({
-			.on_start = [](conflux::http::OwnedRequest &req, TraceContext const &ctx) { req.headers["x-injected-span"] = ctx.span_id; },
+		router.use(conflux::http::tracing_middleware({
+			.on_start = [](conflux::http::OwnedRequest &req, conflux::http::TracingContext const &ctx) { req.headers["x-injected-span"] = ctx.span_id; },
 			.propagate_in_response = false,
 		}));
 		// Echo the injected span id from the request.

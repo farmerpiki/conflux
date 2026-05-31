@@ -1112,6 +1112,38 @@ if(TARGET conflux_http_observability)
         EXPECT "structured_log_middleware")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_trace_context
+        SOURCE http_middleware_compile_fail_global_trace_context.cxx
+        TEST http-middleware/compile-fail-global-trace-context
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "TraceContext")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_tracing_context
+        SOURCE http_middleware_compile_fail_global_tracing_context.cxx
+        TEST http-middleware/compile-fail-global-tracing-context
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "TracingContext")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_tracing_options
+        SOURCE http_middleware_compile_fail_global_tracing_options.cxx
+        TEST http-middleware/compile-fail-global-tracing-options
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "TracingOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_tracing_middleware
+        SOURCE http_middleware_compile_fail_global_tracing_middleware.cxx
+        TEST http-middleware/compile-fail-global-tracing-middleware
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "tracing_middleware")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_metrics_compile_fail_global_counter
         SOURCE http_metrics_compile_fail_global_counter.cxx
         TEST http-metrics/compile-fail-global-counter

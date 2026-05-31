@@ -38,13 +38,13 @@ using AsyncNext = Router::AsyncNext;
 }
 
 [[nodiscard]] Router::Middleware trace_context(
-	TracingOptions opts = {}) {
-	return tracing_middleware(std::move(opts));
+	conflux::http::TracingOptions opts = {}) {
+	return conflux::http::tracing_middleware(std::move(opts));
 }
 
 [[nodiscard]] Router::Middleware tracing(
-	TracingOptions opts = {}) {
-	return tracing_middleware(std::move(opts));
+	conflux::http::TracingOptions opts = {}) {
+	return conflux::http::tracing_middleware(std::move(opts));
 }
 
 [[nodiscard]] Router::Middleware security_headers(

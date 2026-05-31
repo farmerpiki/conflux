@@ -838,7 +838,7 @@ public:
 			++middleware_count_;
 		}
 		if (middleware.options.trace_context) {
-			router_.use(::tracing_middleware());
+			router_.use(conflux::http::tracing_middleware());
 			++middleware_count_;
 		}
 		router_.use(middleware);

@@ -1192,7 +1192,7 @@ void ensure_trace_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(tracing_middleware({.propagate_in_response = true}));
+		router.use(conflux::http::tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
 		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["traceparent"]});

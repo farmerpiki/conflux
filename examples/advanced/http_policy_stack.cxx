@@ -59,7 +59,7 @@ int main() {
 	}));
 
 	app.use(conflux::http::request_id_middleware());
-	app.use(tracing_middleware({.propagate_in_response = true}));
+	app.use(conflux::http::tracing_middleware({.propagate_in_response = true}));
 	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,
 		.csp = "default-src 'self'; frame-ancestors 'none'",
