@@ -60,7 +60,7 @@ BenchStats run_depth_variant(
 
 BenchStats bench_direct_slot_lease(
 	Config const &cfg) {
-	DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
+	conflux::net::detail::DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
 	std::vector<std::uint32_t> slots(cfg.depth);
 	std::uint64_t sink = 0;
 	auto stats = run_depth_variant(cfg, "direct_slot_lease_empty"sv, [&] {
@@ -87,7 +87,7 @@ BenchStats bench_direct_slot_lease(
 
 BenchStats bench_direct_slot_close_lifecycle(
 	Config const &cfg) {
-	DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
+	conflux::net::detail::DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
 	std::uint64_t sink = 0;
 	auto stats = run_depth_variant(cfg, "direct_slot_close_lifecycle"sv, [&] {
 		for (std::uint32_t slot = 0; slot < static_cast<std::uint32_t>(cfg.depth); ++slot) {
@@ -111,7 +111,7 @@ BenchStats bench_direct_slot_close_lifecycle(
 
 BenchStats bench_deferred_close_queue(
 	Config const &cfg) {
-	DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
+	conflux::net::detail::DirectSlotPool pool{static_cast<std::uint32_t>(cfg.depth)};
 	std::vector<CloseTicket> queue;
 	queue.reserve(cfg.depth);
 	std::uint64_t sink = 0;

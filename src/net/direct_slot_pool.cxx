@@ -8,21 +8,23 @@ import conflux.utils;
 // Internal — do not include from public headers.
 // Requires: std::uint8_t, std::uint32_t, V, std::expected, std::unexpected, eprintln, std::format in scope.
 
-export enum class DirectSlotState : std::uint8_t {
+export namespace conflux::net::detail {
+
+enum class DirectSlotState : std::uint8_t {
 	free_slot,
 	leased_empty,
 	populated,
 	closing,
 	poisoned,
 };
-export enum class DirectSlotError : std::uint8_t {
+enum class DirectSlotError : std::uint8_t {
 	not_registered,
 	exhausted,
 	out_of_range,
 	bad_state,
 	install_failed,
 };
-export struct DirectSlotPool {
+struct DirectSlotPool {
 	explicit DirectSlotPool(
 		std::uint32_t capacity)
 		: capacity_{capacity} {
@@ -167,7 +169,7 @@ private:
 	std::vector<std::uint32_t> free_stack_{};
 	std::vector<std::uint32_t> free_pos_{};
 };
-export struct DirectSlotLease {
+struct DirectSlotLease {
 	DirectSlotPool *pool_{};
 	std::uint32_t slot_{~std::uint32_t{}};
 	DirectSlotLease() noexcept = default;
@@ -204,3 +206,5 @@ export struct DirectSlotLease {
 	[[nodiscard]] std::uint32_t slot() const noexcept { return slot_; }
 	void detach() noexcept { pool_ = nullptr; }
 };
+
+} // namespace conflux::net::detail

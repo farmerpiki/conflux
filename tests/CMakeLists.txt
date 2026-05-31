@@ -2073,6 +2073,22 @@ target_link_libraries(conflux_direct_slot_pool_tests
 target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
 conflux_discover_tests(conflux_direct_slot_pool_tests)
 
+conflux_add_compile_fail_test(
+    TARGET conflux_direct_slot_pool_compile_fail_global_pool
+    SOURCE direct_slot_pool_compile_fail_global_pool.cxx
+    TEST direct-slot-pool/compile-fail-global-pool
+    LINK conflux_direct_slot_pool conflux_options
+    LABELS compile-fail
+    EXPECT "DirectSlotPool")
+
+conflux_add_compile_fail_test(
+    TARGET conflux_direct_slot_pool_compile_fail_global_state
+    SOURCE direct_slot_pool_compile_fail_global_state.cxx
+    TEST direct-slot-pool/compile-fail-global-state
+    LINK conflux_direct_slot_pool conflux_options
+    LABELS compile-fail
+    EXPECT "DirectSlotState")
+
 add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)
 target_link_libraries(conflux_cq_overflow_tests
     PRIVATE

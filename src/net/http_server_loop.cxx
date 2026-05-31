@@ -321,7 +321,7 @@ void Ring::init(
 	if (direct_fds_->registered() && direct_fds_->install(static_cast<std::uint32_t>(listen_fd), listen_fd)) {
 		listen_fixed = true;
 		caps.socket_direct_alloc = caps.op_socket && direct_fds_->registered();
-		direct_slots_ = std::make_unique<DirectSlotPool>(direct_fds_->capacity());
+		direct_slots_ = std::make_unique<conflux::net::detail::DirectSlotPool>(direct_fds_->capacity());
 		if (!direct_slots_->install_os_fd(static_cast<std::uint32_t>(listen_fd), listen_fd)) {
 			direct_slots_.reset();
 			listen_fixed = false;

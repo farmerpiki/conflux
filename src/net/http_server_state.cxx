@@ -404,7 +404,7 @@ struct Ring {
 
 	std::unique_ptr<BufferRing> buf_ring_;
 	std::unique_ptr<DirectFdTable> direct_fds_;
-	std::unique_ptr<DirectSlotPool> direct_slots_;
+	std::unique_ptr<conflux::net::detail::DirectSlotPool> direct_slots_;
 	int tcp_opt_one_ = 1; // stable optval for cmd_sock SETSOCKOPT
 
 	conflux::uring::IoUringCaps caps{};
@@ -504,7 +504,8 @@ struct Ring {
 	Ring &operator =(Ring &&) = delete;
 	[[nodiscard]] conflux::http::Response dispatch(conflux::http::RequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
-	[[nodiscard]] std::optional<conflux::http::Response> try_dispatch_context(conflux::http::RequestView const &req) const;
+	[[nodiscard]] std::optional<conflux::http::Response>
+	try_dispatch_context(conflux::http::RequestView const &req) const;
 	[[nodiscard]] std::shared_ptr<std::string> acquire_request_buffer();
 	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(conflux::http::RequestView const &req) const;
 	void clear_deferred_wait(int deferred_efd);

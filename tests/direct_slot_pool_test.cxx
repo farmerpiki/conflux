@@ -8,8 +8,8 @@ import conflux.net.detail.direct_slot_pool;
 namespace {
 
 constexpr std::uint32_t kCap = 8;
-DirectSlotPool make_pool() {
-	return DirectSlotPool{kCap};
+conflux::net::detail::DirectSlotPool make_pool() {
+	return conflux::net::detail::DirectSlotPool{kCap};
 }
 
 } // namespace
@@ -20,7 +20,7 @@ TEST_CASE(
 	CHECK(p.free_count() == kCap);
 	auto r = p.adopt_kernel_allocated(3);
 	REQUIRE(r);
-	CHECK(p.slot_state(3) == DirectSlotState::populated);
+	CHECK(p.slot_state(3) == conflux::net::detail::DirectSlotState::populated);
 	CHECK(p.free_count() == kCap - 1);
 }
 TEST_CASE(
@@ -30,7 +30,7 @@ TEST_CASE(
 	REQUIRE(p.adopt_kernel_allocated(2));
 	auto r = p.adopt_kernel_allocated(2);
 	REQUIRE(!r);
-	CHECK(r.error() == DirectSlotError::bad_state);
+	CHECK(r.error() == conflux::net::detail::DirectSlotError::bad_state);
 	CHECK(p.free_count() == kCap - 1);
 }
 TEST_CASE(
@@ -40,9 +40,9 @@ TEST_CASE(
 	REQUIRE(p.adopt_kernel_allocated(1));
 	CHECK(p.free_count() == kCap - 1);
 	REQUIRE(p.mark_closing(1));
-	CHECK(p.slot_state(1) == DirectSlotState::closing);
+	CHECK(p.slot_state(1) == conflux::net::detail::DirectSlotState::closing);
 	REQUIRE(p.release_closed(1));
-	CHECK(p.slot_state(1) == DirectSlotState::free_slot);
+	CHECK(p.slot_state(1) == conflux::net::detail::DirectSlotState::free_slot);
 	CHECK(p.free_count() == kCap);
 	CHECK(p.poisoned_count() == 0);
 }
@@ -53,11 +53,11 @@ TEST_CASE(
 	REQUIRE(p.adopt_kernel_allocated(5));
 	REQUIRE(p.mark_closing(5));
 	p.poison(5, -9);
-	CHECK(p.slot_state(5) == DirectSlotState::poisoned);
+	CHECK(p.slot_state(5) == conflux::net::detail::DirectSlotState::poisoned);
 	CHECK(p.poisoned_count() == 1);
 	auto r = p.adopt_kernel_allocated(5);
 	REQUIRE(!r);
-	CHECK(r.error() == DirectSlotError::bad_state);
+	CHECK(r.error() == conflux::net::detail::DirectSlotError::bad_state);
 }
 TEST_CASE(
 	"dsp.release_bad_state: release_closed from non-closing → bad_state",
@@ -66,23 +66,23 @@ TEST_CASE(
 	REQUIRE(p.adopt_kernel_allocated(4));
 	auto r = p.release_closed(4);
 	REQUIRE(!r);
-	CHECK(r.error() == DirectSlotError::bad_state);
-	CHECK(p.slot_state(4) == DirectSlotState::populated);
+	CHECK(r.error() == conflux::net::detail::DirectSlotError::bad_state);
+	CHECK(p.slot_state(4) == conflux::net::detail::DirectSlotState::populated);
 
 	auto r2 = p.release_closed(0);
 	REQUIRE(!r2);
-	CHECK(r2.error() == DirectSlotError::bad_state);
+	CHECK(r2.error() == conflux::net::detail::DirectSlotError::bad_state);
 }
 TEST_CASE(
 	"dsp.install_os_fd: listener slot excluded from free list",
 	"[direct_slot_pool]") {
 	auto p = make_pool();
 	REQUIRE(p.install_os_fd(0, 3));
-	CHECK(p.slot_state(0) == DirectSlotState::populated);
+	CHECK(p.slot_state(0) == conflux::net::detail::DirectSlotState::populated);
 	CHECK(p.free_count() == kCap - 1);
 	auto r = p.adopt_kernel_allocated(0);
 	REQUIRE(!r);
-	CHECK(r.error() == DirectSlotError::bad_state);
+	CHECK(r.error() == conflux::net::detail::DirectSlotError::bad_state);
 }
 TEST_CASE(
 	"dsp.adopt_failure_consistency: failed adopt leaves pool count unchanged",
@@ -116,7 +116,7 @@ TEST_CASE(
 		REQUIRE(p.adopt_kernel_allocated(i));
 	}
 	CHECK(p.free_count() == 0);
-	CHECK(p.slot_state(0) == DirectSlotState::populated);
+	CHECK(p.slot_state(0) == conflux::net::detail::DirectSlotState::populated);
 }
 TEST_CASE(
 	"dsp.mark_closing_bad_state: mark_closing from wrong states → bad_state or out_of_range",
@@ -125,24 +125,24 @@ TEST_CASE(
 	// from free_slot
 	auto r1 = p.mark_closing(0);
 	REQUIRE(!r1);
-	CHECK(r1.error() == DirectSlotError::bad_state);
+	CHECK(r1.error() == conflux::net::detail::DirectSlotError::bad_state);
 	// from closing (double mark)
 	REQUIRE(p.adopt_kernel_allocated(1));
 	REQUIRE(p.mark_closing(1));
 	auto r2 = p.mark_closing(1);
 	REQUIRE(!r2);
-	CHECK(r2.error() == DirectSlotError::bad_state);
+	CHECK(r2.error() == conflux::net::detail::DirectSlotError::bad_state);
 	// from poisoned
 	REQUIRE(p.adopt_kernel_allocated(2));
 	REQUIRE(p.mark_closing(2));
 	p.poison(2, -9);
 	auto r3 = p.mark_closing(2);
 	REQUIRE(!r3);
-	CHECK(r3.error() == DirectSlotError::bad_state);
+	CHECK(r3.error() == conflux::net::detail::DirectSlotError::bad_state);
 	// out of range
 	auto r4 = p.mark_closing(kCap);
 	REQUIRE(!r4);
-	CHECK(r4.error() == DirectSlotError::out_of_range);
+	CHECK(r4.error() == conflux::net::detail::DirectSlotError::out_of_range);
 }
 TEST_CASE(
 	"dsp.poison_from_populated: poison skips mark_closing, slot still poisoned",
@@ -150,7 +150,7 @@ TEST_CASE(
 	auto p = make_pool();
 	REQUIRE(p.adopt_kernel_allocated(3));
 	p.poison(3, -5);
-	CHECK(p.slot_state(3) == DirectSlotState::poisoned);
+	CHECK(p.slot_state(3) == conflux::net::detail::DirectSlotState::poisoned);
 	CHECK(p.poisoned_count() == 1);
 }
 TEST_CASE(
@@ -163,5 +163,5 @@ TEST_CASE(
 	CHECK(p.poisoned_count() == 1);
 	p.poison(4, -9);
 	CHECK(p.poisoned_count() == 1);
-	CHECK(p.slot_state(4) == DirectSlotState::poisoned);
+	CHECK(p.slot_state(4) == conflux::net::detail::DirectSlotState::poisoned);
 }

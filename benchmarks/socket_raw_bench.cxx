@@ -1534,7 +1534,7 @@ void run_direct_slot_pool_acquire_release(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	DirectSlotPool pool{256};
+	conflux::net::detail::DirectSlotPool pool{256};
 
 	auto v = Variant{
 		.name = "direct_slot_pool_acquire_release",
@@ -1555,7 +1555,7 @@ void run_direct_slot_pool_full_lifecycle(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	DirectSlotPool pool{256};
+	conflux::net::detail::DirectSlotPool pool{256};
 	std::uint32_t slot = 0;
 
 	auto v = Variant{
