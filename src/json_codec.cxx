@@ -3239,13 +3239,13 @@ struct FpDigitRun {
 	std::uint64_t mant = 0,
 	std::size_t max_mant_digits = 17U) noexcept {
 	FpDigitRun run{.mant = mant};
-	while (run.len < n && p[run.len] >= '0' && p[run.len] <= '9') {
-		if (run.len < max_mant_digits) {
-			run.mant = run.mant * 10U + static_cast<std::uint64_t>(p[run.len] - '0');
-		} else {
-			run.exact = false;
-		}
+	while (run.len < n && run.len < max_mant_digits && p[run.len] >= '0' && p[run.len] <= '9') {
+		run.mant = run.mant * 10U + static_cast<std::uint64_t>(p[run.len] - '0');
 		++run.len;
+	}
+	if (run.len < n && p[run.len] >= '0' && p[run.len] <= '9') {
+		run.exact = false;
+		run.len += fp_scan_digits(p + run.len, n - run.len);
 	}
 	return run;
 }
