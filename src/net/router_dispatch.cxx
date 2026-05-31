@@ -16,6 +16,8 @@ import conflux.work;
 	#define CONFLUX_ROUTER_LAZY_ROUTE_METADATA 1
 #endif
 
+namespace conflux::http::detail {
+
 export struct DeferredTaskOptions {
 	std::chrono::milliseconds timeout = conflux::http::DeferredResponse::kDefaultTimeout;
 };
@@ -81,11 +83,6 @@ export conflux::http::Response router_defer_http_task(
 	return conflux::http::Response::deferred(std::move(deferred));
 }
 
-export conflux::http::Response router_run_async_http_task(
-	conflux::work::root::Task<conflux::http::Response> task) {
-	return router_defer_http_task(std::move(task));
-}
-
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] conflux::http::Response dispatch_immediate_routes(
 	conflux::http::RequestView const &req,
@@ -104,7 +101,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		for (auto const &route: routes) {
 			matched_params.clear();
 			bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-														match_segments(route.pattern, path_sv, matched_params);
+														conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 			if (matched) {
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
 				std::string_view const effective_method =
@@ -177,7 +174,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 			for (auto const &route: sse_routes) {
 				matched_params.clear();
 				bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-															match_segments(route.pattern, path_sv, matched_params);
+															conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
 					auto channel = std::make_shared<conflux::http::SseChannel>();
 					conflux::http::OwnedRequest matched = req.to_owned();
@@ -185,7 +182,11 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
 					matched.params.emplace_back("__conflux_route_pattern", route.path_pattern);
-					router_launch_sse_handler(work_pool, route.handler, std::move(matched), channel);
+					conflux::http::detail::router_launch_sse_handler(
+						work_pool,
+						route.handler,
+						std::move(matched),
+						channel);
 					auto resp = conflux::http::Response::sse(std::move(channel));
 					if (observe_route) {
 						resp.headers.set("__conflux-route-pattern", route.path_pattern);
@@ -202,27 +203,6 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
-export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] conflux::http::Response dispatch_sync_routes(
-	conflux::http::RequestView const &req,
-	std::string_view path_sv,
-	bool is_head,
-	RouteRange const &routes,
-	SseRange const &sse_routes,
-	NotFoundHandler const &not_found_handler,
-	ErrorHandler const &error_handler,
-	Pool const &work_pool) {
-	return dispatch_immediate_routes(
-		req,
-		path_sv,
-		is_head,
-		routes,
-		sse_routes,
-		not_found_handler,
-		error_handler,
-		work_pool);
-}
-
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_tasks(
 	conflux::http::RequestView const &req,
@@ -237,7 +217,7 @@ export template<typename ContextRouteRange, typename Ctx>
 	for (auto const &route: context_routes) {
 		matched_params.clear();
 		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-													match_segments(route.pattern, path_sv, matched_params);
+													conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
 			auto all_params = req.params;
 			for (auto const &[k, v]: matched_params) {
@@ -297,23 +277,16 @@ export template<typename ContextRouteRange, typename Ctx>
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_task(
-	conflux::http::RequestView const &req,
-	Ctx const &ctx,
-	std::string_view path_sv,
-	ContextRouteRange const &context_routes) {
-	return dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
-}
-
-export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<conflux::http::Response> dispatch_context_routes(
 	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
 	ContextRouteRange const &context_routes) {
-	auto deferred_task = dispatch_context_route_task(req, ctx, path_sv, context_routes);
+	auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
 	if (!deferred_task) {
 		return std::nullopt;
 	}
 	return router_defer_http_task(std::move(deferred_task->task), deferred_task->options);
 }
+
+} // namespace conflux::http::detail

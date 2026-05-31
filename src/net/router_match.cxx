@@ -7,6 +7,8 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.utils;
 
+namespace conflux::http::detail {
+
 export struct Segment {
 	std::string value;
 	bool is_param; // true -> {name} single-segment capture
@@ -205,3 +207,5 @@ export std::string segments_to_pattern(
 	}
 	return out;
 }
+
+} // namespace conflux::http::detail

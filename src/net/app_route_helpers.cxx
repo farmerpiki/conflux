@@ -16,7 +16,7 @@ struct RoutePatternInfo {
 
 [[nodiscard]] RoutePatternInfo route_pattern_info(
 	std::string_view path) {
-	auto parsed = parse_route_pattern(path);
+	auto parsed = conflux::http::detail::parse_route_pattern(path);
 	return {
 		.error = std::move(parsed.error),
 		.shape = std::move(parsed.shape),

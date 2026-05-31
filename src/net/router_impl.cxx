@@ -30,14 +30,14 @@ struct MethodRouteLookupIndex {
 struct Router::Impl {
 	struct Route {
 		std::string method{};
-		std::vector<Segment> pattern{};
+		std::vector<conflux::http::detail::Segment> pattern{};
 		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
 		Handler handler{};
 	};
 	struct SseRoute {
-		std::vector<Segment> pattern{};
+		std::vector<conflux::http::detail::Segment> pattern{};
 		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
@@ -45,7 +45,7 @@ struct Router::Impl {
 	};
 	struct ContextRoute {
 		std::string method{};
-		std::vector<Segment> pattern{};
+		std::vector<conflux::http::detail::Segment> pattern{};
 		std::string path_pattern{};
 		std::string exact_path{};
 		bool has_exact_path{};
@@ -94,7 +94,7 @@ template<typename Fn>
 }
 
 [[nodiscard]] std::optional<std::string_view> first_literal_key(
-	std::vector<Segment> const &pattern) noexcept {
+	std::vector<conflux::http::detail::Segment> const &pattern) noexcept {
 	std::size_t index = 0;
 	if (pattern.size() > 1 && !pattern[0].is_param && !pattern[0].is_wildcard && pattern[0].value.empty()) {
 		index = 1;
@@ -120,15 +120,15 @@ template<typename Fn>
 }
 
 [[nodiscard]] bool is_exact_literal_pattern(
-	std::vector<Segment> const &pattern) noexcept {
-	return std::ranges::none_of(pattern, [](Segment const &segment) {
+	std::vector<conflux::http::detail::Segment> const &pattern) noexcept {
+	return std::ranges::none_of(pattern, [](conflux::http::detail::Segment const &segment) {
 		return segment.is_param || segment.is_wildcard;
 	});
 }
 
 void index_route_pattern(
 	RouteLookupIndex &index,
-	std::vector<Segment> const &pattern,
+	std::vector<conflux::http::detail::Segment> const &pattern,
 	std::string_view exact_path,
 	std::size_t route_index) {
 	if (!exact_path.empty()) {
@@ -333,7 +333,7 @@ template<typename ImplT>
 	auto sse_routes = indexed_route_range(
 		impl.sse_routes,
 		is_head ? RouteLookupSelection{} : select_routes_for_path(impl.sse_index, path_sv));
-	return dispatch_sync_routes(
+	return conflux::http::detail::dispatch_immediate_routes(
 		req,
 		path_sv,
 		is_head,
@@ -355,7 +355,7 @@ template<typename ImplT>
 	auto routes = indexed_route_range(
 		impl.context_routes,
 		select_method_routes(impl.context_route_indexes, route_method, path_sv));
-	return dispatch_context_routes(req, ctx, path_sv, routes);
+	return conflux::http::detail::dispatch_context_routes(req, ctx, path_sv, routes);
 }
 
 template<typename ImplT>
@@ -374,7 +374,7 @@ template<typename ImplT>
 			auto routes = indexed_route_range(
 				impl.context_routes,
 				select_method_routes(impl.context_route_indexes, route_method, path_sv));
-			if (auto deferred_task = dispatch_context_route_tasks(r, c, path_sv, routes)) {
+			if (auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(r, c, path_sv, routes)) {
 				auto resp = co_await std::move(deferred_task->task);
 				if (is_head) {
 					resp.head_only = true;
@@ -458,10 +458,10 @@ void Router::add_prepared(
 	std::string_view method,
 	std::string_view path,
 	Handler handler) {
-	auto pattern = parse_pattern(path);
+	auto pattern = conflux::http::detail::parse_pattern(path);
 	auto const route_index = impl_->routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = segments_to_pattern(pattern);
+	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	index_route_pattern(
 		find_or_add_method_index(impl_->route_indexes, method).routes,
 		pattern,
@@ -496,10 +496,10 @@ void Router::add_context_prepared(
 	std::string_view path,
 	std::shared_ptr<std::chrono::milliseconds> timeout,
 	ContextHandler handler) {
-	auto pattern = parse_pattern(path);
+	auto pattern = conflux::http::detail::parse_pattern(path);
 	auto const route_index = impl_->context_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = segments_to_pattern(pattern);
+	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	index_route_pattern(
 		find_or_add_method_index(impl_->context_route_indexes, method).routes,
 		pattern,
@@ -555,10 +555,10 @@ void Router::sse_prepared(
 	std::string_view path,
 	SseHandler handler) {
 	(void)impl_->ensure_work_pool();
-	auto pattern = parse_pattern(path);
+	auto pattern = conflux::http::detail::parse_pattern(path);
 	auto const route_index = impl_->sse_routes.size();
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = segments_to_pattern(pattern);
+	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	index_route_pattern(impl_->sse_index, pattern, has_exact_path ? path : std::string_view{}, route_index);
 	impl_->sse_routes.push_back({
 		.pattern = std::move(pattern),
@@ -624,7 +624,7 @@ Router &Router::ws_prepared(
 
 [[nodiscard]] Response Router::defer_http_task(
 	conflux::work::root::Task<Response> task) {
-	return router_defer_http_task(std::move(task));
+	return conflux::http::detail::router_defer_http_task(std::move(task));
 }
 
 [[nodiscard]] Response Router::run_async_http_task(
@@ -637,7 +637,7 @@ void Router::launch_sse_handler(
 	SseHandler handler,
 	conflux::http::OwnedRequest matched,
 	std::shared_ptr<conflux::http::SseChannel> const &channel) {
-	router_launch_sse_handler(pool, std::move(handler), std::move(matched), channel);
+	conflux::http::detail::router_launch_sse_handler(pool, std::move(handler), std::move(matched), channel);
 }
 
 [[nodiscard]] Response Router::run_middlewares(
@@ -767,7 +767,7 @@ Router &Router::serve_static(
 		ContextHandler inner = [this, path_sv, is_head](
 								   conflux::http::RequestView const &r,
 								   conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
-			if (auto deferred_task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
+			if (auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
 				auto resp = co_await std::move(deferred_task->task);
 				if (is_head) {
 					resp.head_only = true;

@@ -96,7 +96,7 @@ Conflux task/executor machinery.
 | `sync_wait` | `conflux.work` | keep | Already prefix-style and matches familiar async ecosystem terminology. |
 | `run_on_task` | `conflux.work` | `async_run_on` | Removed for public preview cleanup. |
 | `block_on_socket_task` | `conflux.socket_io.blocking` | `sync_wait_socket_task` | Preferred name landed; old name remains as a compatibility alias. |
-| `dispatch_sync_routes` | `conflux.net.router_dispatch` | `dispatch_immediate_routes` | Preferred name landed; old helper remains as a compatibility alias. Internal exported helper; not executor-owned sync API, just immediate route dispatch on current ring thread. |
+| `dispatch_sync_routes` | `conflux.net.router_dispatch` | `conflux::http::detail::dispatch_immediate_routes` | Removed the old wrapper during global export cleanup. Internal helper; not executor-owned sync API, just immediate route dispatch on current ring thread. |
 | `Router::dispatch` | `conflux.net.router` | keep | Immediate in-process dispatch; ordinary method name is clear. |
 
 ## Names containing `async` but not returning an awaitable
@@ -111,7 +111,7 @@ class, context dispatch, or deferred response creation instead of async executio
 | `VHostRouter::dispatch_async` | `conflux.net.vhost` | `dispatch_context` | Removed for public preview cleanup. |
 | `try_dispatch_async` | `src/net/http_server_impl.cxx` | `try_dispatch_context` | Internal helper renamed. |
 | `dispatch_async_routes` | `conflux.net.router_dispatch` | `dispatch_context_routes` | Removed for public preview cleanup. |
-| `router_run_async_http_task` / `Router::run_async_http_task` | router dispatch internals | `router_defer_http_task` / `Router::defer_http_task` | Preferred names landed; old names remain compatibility aliases. |
+| `router_run_async_http_task` / `Router::run_async_http_task` | router dispatch internals | `conflux::http::detail::router_defer_http_task` / `Router::defer_http_task` | Removed the internal wrapper during global export cleanup. |
 | `conflux.net.http.static_async` | static-file module | decide later | The module contains async/static helpers and blocking write fallbacks. Split route registration/static I/O first, then rename. |
 
 Suggested branch shape: one `router/dispatch-naming-aliases` branch after static
