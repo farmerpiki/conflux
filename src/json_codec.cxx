@@ -3282,17 +3282,18 @@ template<class T>
 			++p;
 		}
 		char const *const exp_start = p;
-		std::size_t const exp_len = fp_scan_digits(p, static_cast<std::size_t>(end - p));
-		if (exp_len == 0) {
+		if (p >= end || *p < '0' || *p > '9') {
 			return FpStatus::bail;
 		}
-		p += exp_len;
-		if (exp_len > 4U) {
-			exp_overlong = true; // huge exponent: let from_chars classify
-		} else {
-			for (char const *q = exp_start; q != exp_start + exp_len; ++q) {
-				exp_val = exp_val * 10 + (*q - '0');
+		do {
+			if (static_cast<std::size_t>(p - exp_start) < 4U) {
+				exp_val = exp_val * 10 + (*p - '0');
+			} else {
+				exp_overlong = true;
 			}
+			++p;
+		} while (p < end && *p >= '0' && *p <= '9');
+		if (!exp_overlong) {
 			if (exp_neg) {
 				exp_val = -exp_val;
 			}
