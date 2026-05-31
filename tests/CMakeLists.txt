@@ -380,6 +380,38 @@ if(TARGET conflux)
         EXPECT "WorkPool")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_work_pool_options
+        SOURCE work_compile_fail_global_work_pool_options.cxx
+        TEST api-surface/work-hides-global-work-pool-options
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "WorkPoolOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_ring_lane
+        SOURCE work_compile_fail_global_ring_lane.cxx
+        TEST api-surface/work-hides-global-ring-lane
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "RingLane")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_ring_lane_options
+        SOURCE work_compile_fail_global_ring_lane_options.cxx
+        TEST api-surface/work-hides-global-ring-lane-options
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "RingLaneOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_cancelled
+        SOURCE work_compile_fail_global_cancelled.cxx
+        TEST api-surface/work-hides-global-cancelled
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Cancelled")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_work_compile_fail_global_task
         SOURCE work_compile_fail_global_task.cxx
         TEST api-surface/work-hides-global-task
