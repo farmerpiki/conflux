@@ -63,7 +63,7 @@ int main() {
 	namespace http = conflux::http;
 	auto app = http::app();
 
-	app.use(request_id_middleware());
+	app.use(conflux::http::request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
 	app.use(
 		[](http::RequestView const &req,

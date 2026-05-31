@@ -834,7 +834,7 @@ public:
 	App &use(
 		ObservabilityMiddleware const &middleware) {
 		if (middleware.options.request_id) {
-			router_.use(::request_id_middleware());
+			router_.use(conflux::http::request_id_middleware());
 			++middleware_count_;
 		}
 		if (middleware.options.trace_context) {

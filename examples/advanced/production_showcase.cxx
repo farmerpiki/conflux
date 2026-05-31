@@ -181,7 +181,7 @@ int main() {
 		conflux::http::SseOverflowPolicy::DropNewest);
 
 	app.state_shared(todos);
-	app.use(request_id_middleware());
+	app.use(conflux::http::request_id_middleware());
 	app.use(metrics_middleware(metrics));
 	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,

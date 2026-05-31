@@ -16,7 +16,8 @@ import conflux.net.http.json_string;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
-export struct StructuredLogOptions {
+export namespace conflux::http {
+struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
 	std::string log_file;
 	// Rotate to a new file each UTC day. Only meaningful when log_file is set.
@@ -92,7 +93,7 @@ private:
 	UniqueFd file_{};
 	int current_day_{-1};
 };
-export conflux::http::Router::Middleware structured_log_middleware(
+Router::Middleware structured_log_middleware(
 	StructuredLogOptions opts = {}) {
 	std::string app_name = std::move(opts.app_name);
 	auto sink = std::make_shared<LogSink>(std::move(opts.log_file), opts.daily_rotate);
@@ -132,3 +133,5 @@ export conflux::http::Router::Middleware structured_log_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

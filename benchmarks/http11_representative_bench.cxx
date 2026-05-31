@@ -782,10 +782,10 @@ Router make_router(
 	if (middleware) {
 		conflux::http::SecurityOptions sopts{};
 		sopts.hsts_only_on_tls = false;
-		router.use(request_id_middleware());
+		router.use(conflux::http::request_id_middleware());
 		router.use(conflux::http::security_headers_middleware(sopts));
-		router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
-		router.use(etag_middleware());
+		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://bench.example"}}));
+		router.use(conflux::http::etag_middleware());
 	}
 	router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	router.get("/users/{id}", [](conflux::http::OwnedRequest const &req) {

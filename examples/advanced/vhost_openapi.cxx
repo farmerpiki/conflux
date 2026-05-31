@@ -13,7 +13,7 @@ import std;
 
 static conflux::http::Router make_api_router() {
 	conflux::http::Router api;
-	api.use(request_id_middleware());
+	api.use(conflux::http::request_id_middleware());
 	api.get("/status", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::json(
 			std::format(R"({{"host":"api","request_id":"{}"}})", req.headers["x-request-id"]));

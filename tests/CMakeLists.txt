@@ -1078,6 +1078,83 @@ if(TARGET conflux_http_policy)
         EXPECT "TrailingSlashOptions")
 endif()
 
+if(TARGET conflux_http_observability)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_request_id_options
+        SOURCE http_middleware_compile_fail_global_request_id_options.cxx
+        TEST http-middleware/compile-fail-global-request-id-options
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "RequestIdOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_request_id_middleware
+        SOURCE http_middleware_compile_fail_global_request_id_middleware.cxx
+        TEST http-middleware/compile-fail-global-request-id-middleware
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "request_id_middleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_structured_log_options
+        SOURCE http_middleware_compile_fail_global_structured_log_options.cxx
+        TEST http-middleware/compile-fail-global-structured-log-options
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "StructuredLogOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_structured_log_middleware
+        SOURCE http_middleware_compile_fail_global_structured_log_middleware.cxx
+        TEST http-middleware/compile-fail-global-structured-log-middleware
+        LINK conflux_http_observability conflux_options
+        LABELS http compile-fail
+        EXPECT "structured_log_middleware")
+endif()
+
+if(TARGET conflux_http_policy)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_cors_options
+        SOURCE http_middleware_compile_fail_global_cors_options.cxx
+        TEST http-middleware/compile-fail-global-cors-options
+        LINK conflux_http_policy conflux_options
+        LABELS http compile-fail
+        EXPECT "CorsOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_cors_default_max_age
+        SOURCE http_middleware_compile_fail_global_cors_default_max_age.cxx
+        TEST http-middleware/compile-fail-global-cors-default-max-age
+        LINK conflux_http_policy conflux_options
+        LABELS http compile-fail
+        EXPECT "kCorsDefaultMaxAge")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_cors_middleware
+        SOURCE http_middleware_compile_fail_global_cors_middleware.cxx
+        TEST http-middleware/compile-fail-global-cors-middleware
+        LINK conflux_http_policy conflux_options
+        LABELS http compile-fail
+        EXPECT "cors_middleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_etag_options
+        SOURCE http_middleware_compile_fail_global_etag_options.cxx
+        TEST http-middleware/compile-fail-global-etag-options
+        LINK conflux_http_policy conflux_options
+        LABELS http compile-fail
+        EXPECT "ETagOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_middleware_compile_fail_global_etag_middleware
+        SOURCE http_middleware_compile_fail_global_etag_middleware.cxx
+        TEST http-middleware/compile-fail-global-etag-middleware
+        LINK conflux_http_policy conflux_options
+        LABELS http compile-fail
+        EXPECT "etag_middleware")
+
+endif()
+
 if(TARGET conflux_http_response)
     add_executable(conflux_http_response_tests http_response_test.cxx)
     target_link_libraries(conflux_http_response_tests

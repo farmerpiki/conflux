@@ -829,7 +829,7 @@ TEST_CASE(
 	REQUIRE(extract_body(resp) == "deleted");
 }
 // ---------------------------------------------------------------------------
-// etag_middleware
+// conflux::http::etag_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -904,7 +904,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(etag_middleware({.weak = true}));
+		router.use(conflux::http::etag_middleware({.weak = true}));
 		router.get("/w", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("body"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -941,7 +941,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router r;
-		r.use(etag_middleware());
+		r.use(conflux::http::etag_middleware());
 		r.get("/custom", [](conflux::http::OwnedRequest const &) {
 			auto resp = conflux::http::Response::text("body");
 			resp.headers["ETag"] = "\"custom-etag-42\"";
@@ -1228,7 +1228,7 @@ TEST_CASE(
 	srv.stop();
 }
 // ---------------------------------------------------------------------------
-// structured_log_middleware
+// conflux::http::structured_log_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1267,7 +1267,7 @@ TEST_CASE(
 
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.use(structured_log_middleware({.log_file = path}));
+	router.use(conflux::http::structured_log_middleware({.log_file = path}));
 	router.get("/x", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 
@@ -1300,7 +1300,7 @@ TEST_CASE(
 
 	Config cfg = mw_config();
 	conflux::http::Router router;
-	router.use(structured_log_middleware({.log_file = path, .app_name = "test"}));
+	router.use(conflux::http::structured_log_middleware({.log_file = path, .app_name = "test"}));
 	router.get("/{*path}", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 

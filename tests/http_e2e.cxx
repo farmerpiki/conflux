@@ -606,7 +606,7 @@ void ensure_cors_compress_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
+		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
 		router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
@@ -629,7 +629,7 @@ void ensure_security_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// cors_middleware test server
+// conflux::http::cors_middleware test server
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_cors_port = 0;
@@ -637,7 +637,7 @@ void ensure_cors_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
+		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 		router.get("/vary", [](conflux::http::OwnedRequest const &) {
 			auto r = conflux::http::Response::text("vary");
@@ -652,7 +652,7 @@ void ensure_cors_cred_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cors_middleware({
+		router.use(conflux::http::cors_middleware({
 			.allowed_origins = {"*"},
 			.expose_headers = {"X-Custom-Header", "X-Request-Id"},
 			.allow_credentials = true,
@@ -666,7 +666,7 @@ void ensure_cors_wildcard_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(cors_middleware()); // default: allowed_origins={"*"}, no credentials
+		router.use(conflux::http::cors_middleware()); // default: allowed_origins={"*"}, no credentials
 		router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -770,7 +770,7 @@ void ensure_forwarded_lax_empty_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// request_id_middleware helpers
+// conflux::http::request_id_middleware helpers
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_rid_port = 0;
@@ -778,7 +778,7 @@ void ensure_rid_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(request_id_middleware());
+		router.use(conflux::http::request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
 		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["x-request-id"]});
@@ -1070,7 +1070,7 @@ void ensure_csrf_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// etag_middleware test server
+// conflux::http::etag_middleware test server
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_etag_port = 0;
@@ -1078,7 +1078,7 @@ void ensure_etag_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(etag_middleware());
+		router.use(conflux::http::etag_middleware());
 		router.get("/content", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("hello world"); });
 		router.get("/empty", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
 		g_etag_port = start_mw_server(mw_config(), std::move(router));
@@ -1165,7 +1165,7 @@ void ensure_resp_cache_server() {
 	});
 }
 // ---------------------------------------------------------------------------
-// structured_log_middleware test server
+// conflux::http::structured_log_middleware test server
 // ---------------------------------------------------------------------------
 
 std::uint16_t g_slog_port = 0;
@@ -1178,7 +1178,7 @@ void ensure_slog_server() {
 		::close(tmp);
 
 		conflux::http::Router router;
-		router.use(structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
+		router.use(conflux::http::structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
 		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 		g_slog_port = start_mw_server(mw_config(), std::move(router));
 	});

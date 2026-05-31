@@ -33,8 +33,8 @@ using Result = std::expected<T, Problem>;
 using Next = Router::Handler;
 using AsyncNext = Router::AsyncNext;
 [[nodiscard]] Router::Middleware request_id(
-	RequestIdOptions opts = {}) {
-	return request_id_middleware(std::move(opts));
+	conflux::http::RequestIdOptions opts = {}) {
+	return conflux::http::request_id_middleware(std::move(opts));
 }
 
 [[nodiscard]] Router::Middleware trace_context(

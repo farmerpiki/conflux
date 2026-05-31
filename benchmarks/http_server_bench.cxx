@@ -634,7 +634,7 @@ int main(
 
 	// cors
 	Router cors_router;
-	cors_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
+	cors_router.use(conflux::http::cors_middleware({.allowed_origins = {"https://bench.example"}}));
 	cors_router.get("/api", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
 	auto cors = start_server(bench_config(), std::move(cors_router));
 
@@ -646,7 +646,7 @@ int main(
 
 	// etag
 	Router etag_router;
-	etag_router.use(etag_middleware());
+	etag_router.use(conflux::http::etag_middleware());
 	etag_router.get("/content", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("hello world"); });
 	auto etag = start_server(bench_config(), std::move(etag_router));
 
@@ -663,9 +663,9 @@ int main(
 	// full_stack
 	Router fs_router;
 	fs_router.use(conflux::http::security_headers_middleware(sopts));
-	fs_router.use(cors_middleware({.allowed_origins = {"https://bench.example"}}));
+	fs_router.use(conflux::http::cors_middleware({.allowed_origins = {"https://bench.example"}}));
 	fs_router.use(compress_middleware());
-	fs_router.use(etag_middleware());
+	fs_router.use(conflux::http::etag_middleware());
 	fs_router.get("/big", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html(std::string(512, 'A')); });
 	auto full_stack = start_server(bench_config(), std::move(fs_router));
 

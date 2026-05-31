@@ -1713,7 +1713,7 @@ TEST_CASE(
 	REQUIRE(resp.find("X-Frame-Options") == std::string::npos);
 }
 // ---------------------------------------------------------------------------
-// cors_middleware
+// conflux::http::cors_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2542,7 +2542,7 @@ TEST_CASE(
 	REQUIRE(extract_body(resp).empty());
 }
 // ---------------------------------------------------------------------------
-// request_id_middleware
+// conflux::http::request_id_middleware
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2590,7 +2590,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(request_id_middleware({.trust_incoming = false}));
+		router.use(conflux::http::request_id_middleware({.trust_incoming = false}));
 		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["x-request-id"]});
 		});
@@ -2611,7 +2611,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(request_id_middleware({.header = "X-Trace-ID"}));
+		router.use(conflux::http::request_id_middleware({.header = "X-Trace-ID"}));
 		router.get("/", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(std::string{req.headers["x-trace-id"]});
 		});

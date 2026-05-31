@@ -5,7 +5,8 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
-export struct RequestIdOptions {
+export namespace conflux::http {
+struct RequestIdOptions {
 	// Header to read/write the request ID on.
 	std::string header{"X-Request-ID"};
 
@@ -43,7 +44,7 @@ std::string generate_uuid() {
 // Middleware factory: stamp X-Request-ID (or configured header) on every
 // request/response. Echoes an existing header from the client when
 // trust_incoming is true; generates a UUID v4 otherwise.
-export conflux::http::Router::Middleware request_id_middleware(
+Router::Middleware request_id_middleware(
 	RequestIdOptions opts = {}) {
 	// Lowercase header name for lookup in req.headers (keys are lowercased).
 	std::string lower_header = ascii_lower(opts.header);
@@ -71,3 +72,5 @@ export conflux::http::Router::Middleware request_id_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

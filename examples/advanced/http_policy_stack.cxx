@@ -42,7 +42,7 @@ int main() {
 
 	// Register broad request boundary policy first: first-registered middleware is
 	// the outer wrapper, so CORS preflight can short-circuit before auth/CSRF.
-	app.use(cors_middleware({
+	app.use(conflux::http::cors_middleware({
 		.allowed_origins = {"https://app.example"},
 		.allowed_methods = {"GET", "POST", "OPTIONS"},
 		.allowed_headers = {"Content-Type", "Authorization", "X-CSRF-Token"},
@@ -58,7 +58,7 @@ int main() {
 		.cidrs = {"203.0.113.0/24"},
 	}));
 
-	app.use(request_id_middleware());
+	app.use(conflux::http::request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
 	app.use(conflux::http::security_headers_middleware({
 		.hsts_max_age = 0,
@@ -75,7 +75,7 @@ int main() {
 	app.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
 	app.use(cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
 	app.use(csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
-	app.use(etag_middleware({.weak = true}));
+	app.use(conflux::http::etag_middleware({.weak = true}));
 	app.use(conflux::http::response_cache_middleware({
 		.max_entries = 64,
 		.max_bytes = 512 * 1024,
@@ -89,7 +89,7 @@ int main() {
 					},
 		.default_directive = "max-age=60, public",
 	}));
-	app.use(structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
+	app.use(conflux::http::structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
 
 	app.get("/", [](conflux::http::OwnedRequest const &) {
 		return conflux::http::Response::html(

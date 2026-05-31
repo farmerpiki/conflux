@@ -5,8 +5,9 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 
-export constexpr unsigned kCorsDefaultMaxAge = 86400U; // 24 hours
-export struct CorsOptions {
+export namespace conflux::http {
+constexpr unsigned kCorsDefaultMaxAge = 86400U; // 24 hours
+struct CorsOptions {
 	std::vector<std::string> allowed_origins{"*"};
 	std::vector<std::string> allowed_methods{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"};
 	std::vector<std::string> allowed_headers{"Content-Type", "Authorization", "Accept"};
@@ -95,7 +96,7 @@ void inject_cors_headers(
 // Middleware factory: handle CORS preflight and inject CORS headers.
 // Register this before other middleware so OPTIONS preflights short-circuit
 // before route matching attempts (first-registered = outermost wrapper).
-export conflux::http::Router::Middleware cors_middleware(
+Router::Middleware cors_middleware(
 	CorsOptions opts = {}) {
 	auto policy = cors_detail::PreparedCorsOptions{std::move(opts)};
 	return [policy = std::move(policy)](
@@ -130,3 +131,5 @@ export conflux::http::Router::Middleware cors_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

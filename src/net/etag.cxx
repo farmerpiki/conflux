@@ -13,7 +13,8 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
-export struct ETagOptions {
+export namespace conflux::http {
+struct ETagOptions {
 	// Use weak ETags (W/"std::hash"). Weak ETags are semantically equivalent
 	// but tolerate minor std::byte-level differences (e.g. gzip vary).
 	bool weak{false};
@@ -38,7 +39,7 @@ conflux::http::Response not_modified(
 }
 
 } // namespace etag_detail
-export conflux::http::Router::Middleware etag_middleware(
+Router::Middleware etag_middleware(
 	ETagOptions opts = {}) {
 	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto resp = next(req);
@@ -77,3 +78,5 @@ export conflux::http::Router::Middleware etag_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http
