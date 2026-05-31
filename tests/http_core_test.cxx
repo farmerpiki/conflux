@@ -124,6 +124,7 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::Request, RequestView>);
 	static_assert(std::same_as<chttp::OwnedRequest, Request>);
 	static_assert(std::same_as<chttp::UploadedFile, conflux::http::UploadedFile>);
+	static_assert(std::same_as<chttp::CloneableFunction<void()>, conflux::http::CloneableFunction<void()>>);
 }
 
 TEST_CASE(

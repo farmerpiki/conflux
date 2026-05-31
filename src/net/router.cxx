@@ -23,10 +23,10 @@ export struct RouteInfo {
 	std::string path_pattern; // OpenAPI-style path e.g. /users/{id}
 	std::vector<std::string> path_params; // captured parameter names in order
 };
-export using NextHandler = CloneableFunction<Response(RequestView const &)>;
-export using MiddlewareFunction = CloneableFunction<Response(RequestView const &, NextHandler const &)>;
-export using ContextNextHandler =
-	CloneableFunction<conflux::work::root::Task<Response>(RequestView const &, conflux::http::RequestContext const &)>;
+export using NextHandler = conflux::http::CloneableFunction<Response(RequestView const &)>;
+export using MiddlewareFunction = conflux::http::CloneableFunction<Response(RequestView const &, NextHandler const &)>;
+export using ContextNextHandler = conflux::http::CloneableFunction<
+	conflux::work::root::Task<Response>(RequestView const &, conflux::http::RequestContext const &)>;
 
 export template<class R>
 concept HandlerResult = std::same_as<R, Response> || std::same_as<R, conflux::work::root::Task<Response>>;
@@ -150,14 +150,15 @@ export class Router : public RouteVerbAccessors {
 public:
 	using Handler = NextHandler;
 	using ContextHandler = ContextNextHandler;
-	using ContextMiddleware = CloneableFunction<conflux::work::root::Task<
+	using ContextMiddleware = conflux::http::CloneableFunction<conflux::work::root::Task<
 		Response>(RequestView const &, conflux::http::RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
-	using SseHandler = CloneableFunction<void(RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
+	using SseHandler =
+		conflux::http::CloneableFunction<void(RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = MiddlewareFunction;
-	using WsHandler = CloneableFunction<void(RequestView const &, conflux::http::WsConn &)>;
-	using ErrorHandler = CloneableFunction<Response(RequestView const &, std::exception const &)>;
+	using WsHandler = conflux::http::CloneableFunction<void(RequestView const &, conflux::http::WsConn &)>;
+	using ErrorHandler = conflux::http::CloneableFunction<Response(RequestView const &, std::exception const &)>;
 	Router();
 	explicit Router(conflux::http::Config const &cfg);
 	~Router();
@@ -165,7 +166,8 @@ public:
 	Router &operator =(Router const &) = delete;
 	Router(Router &&o) noexcept;
 	Router &operator =(Router &&o) noexcept;
-	// NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks): false positive on CloneableFunction ownership.
+	// NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks): false positive on conflux::http::CloneableFunction
+	// ownership.
 	template<typename F>
 	Router &add(
 		std::string_view method,

@@ -905,7 +905,9 @@ using Request = RequestView;
 
 } // namespace conflux::http
 
-export template<typename>
+export namespace conflux::http {
+
+template<typename>
 class CloneableFunction;
 template<typename R, typename... Args>
 class CloneableFunction<R(Args...)> {
@@ -1044,3 +1046,5 @@ public:
 		return target()->invoke(std::forward<Args>(args)...);
 	}
 };
+
+} // namespace conflux::http

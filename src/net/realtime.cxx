@@ -951,7 +951,7 @@ private:
 // Token carried in Response.ws_upgrade to signal a 101 WebSocket upgrade.
 struct WsUpgrade {
 	std::string accept_key;
-	CloneableFunction<void(RequestView const &, WsConn &)> handler;
+	conflux::http::CloneableFunction<void(RequestView const &, WsConn &)> handler;
 };
 
 } // namespace conflux::http

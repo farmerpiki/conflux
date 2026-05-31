@@ -460,6 +460,14 @@ if(TARGET conflux_net_http)
         EXPECT "UploadedFile")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_cloneable_function
+        SOURCE http_facade_compile_fail_global_cloneable_function.cxx
+        TEST http-facade/compile-fail-global-cloneable-function
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "CloneableFunction")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_http_method
         SOURCE http_facade_compile_fail_global_http_method.cxx
         TEST http-facade/compile-fail-global-http-method
