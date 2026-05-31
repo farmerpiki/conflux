@@ -42,19 +42,13 @@ Params make_params(
 	}
 	return p;
 }
-std::uint64_t run_callback(
+void run_callback_once(
 	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
-	std::size_t iters,
 	std::int64_t rows,
 	bool binary) {
-	auto const t0 = std::chrono::steady_clock::now();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto rs = block_on(reader, conn->query(std::string{kSql}, make_params(rows, binary)));
-		consume(rs);
-	}
-	auto const t1 = std::chrono::steady_clock::now();
-	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+	auto rs = block_on(reader, conn->query(std::string{kSql}, make_params(rows, binary)));
+	consume(rs);
 }
 Task<void> coro_one(
 	std::shared_ptr<Connection> const &conn,
@@ -64,18 +58,12 @@ Task<void> coro_one(
 	consume(rs);
 	co_return;
 }
-std::uint64_t run_coroutine(
+void run_coroutine_once(
 	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
-	std::size_t iters,
 	std::int64_t rows,
 	bool binary) {
-	auto const t0 = std::chrono::steady_clock::now();
-	for (std::size_t i = 0; i < iters; ++i) {
-		block_on(reader, coro_one(conn, rows, binary));
-	}
-	auto const t1 = std::chrono::steady_clock::now();
-	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+	block_on(reader, coro_one(conn, rows, binary));
 }
 
 } // namespace
@@ -136,21 +124,17 @@ int main(
 			return 0;
 		}
 
-		(void)run_callback(reader, conn, cfg.warmup, rows, binary);
-		(void)run_coroutine(reader, conn, cfg.warmup, rows, binary);
-
-		std::uint64_t const cb_ns = run_callback(reader, conn, cfg.iterations, rows, binary);
-		std::uint64_t const co_ns = run_coroutine(reader, conn, cfg.iterations, rows, binary);
-
-		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
-		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);
-
-		BenchStats cb_stats{cfg.config_name, "callback"sv, cfg.iterations, cb_ns, cb_per};
-		BenchStats co_stats{cfg.config_name, "coroutine"sv, cfg.iterations, co_ns, co_per};
+		BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.samples, cfg.batch);
+		auto cb_stats = bench_measure_batched([&] { run_callback_once(reader, conn, rows, binary); }, plan);
+		auto co_stats = bench_measure_batched([&] { run_coroutine_once(reader, conn, rows, binary); }, plan);
+		cb_stats.config = cfg.config_name;
+		cb_stats.variant = "callback"sv;
+		co_stats.config = cfg.config_name;
+		co_stats.variant = "coroutine"sv;
 		bench_print(cb_stats, cfg.json_out, true);
 		bench_print(co_stats, cfg.json_out, false);
 		if (!cfg.json_out) {
-			double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
+			double const delta_pct = 100.0 * (co_stats.ns_per_iter - cb_stats.ns_per_iter) / cb_stats.ns_per_iter;
 			std::println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
 			std::println("  sink       {}", sink.load(std::memory_order_relaxed));
 		}
