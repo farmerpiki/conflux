@@ -37,7 +37,7 @@ PipeConfig parse_pipe_args(
 	return cfg;
 }
 void setup_table(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn) {
 	(void)block_on(reader, conn->query("DROP TABLE IF EXISTS conflux_pipeline_bench"), std::chrono::seconds{30});
 	(void)block_on(
@@ -46,7 +46,7 @@ void setup_table(
 		std::chrono::seconds{30});
 }
 std::uint64_t run_plain(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
 	std::size_t batches,
 	std::size_t batch_n) {
@@ -66,7 +66,7 @@ std::uint64_t run_plain(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 std::uint64_t run_pipeline(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
 	std::size_t batches,
 	std::size_t batch_n) {
@@ -117,9 +117,9 @@ int main(
 		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
-	CompletionTable ct;
-	FileReader reader{&ring, &ct, pack_ud};
-	CurrentFileReaderScope const scope{&reader};
+	conflux::uring::CompletionTable ct;
+	conflux::file_io::FileReader reader{&ring, &ct, pack_ud};
+	conflux::file_io::CurrentFileReaderScope const scope{&reader};
 
 	try {
 		auto conn = block_on(reader, Connection::connect({.conninfo = raw}), std::chrono::seconds{30});

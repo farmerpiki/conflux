@@ -120,7 +120,7 @@ void bench_install_join(
 			if (outcome.is_failure()) {
 				slot->err = std::move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
-				slot->err = std::make_exception_ptr(::Cancelled{});
+				slot->err = std::make_exception_ptr(conflux::work::Cancelled{});
 			} else if constexpr (!std::is_void_v<T>) {
 				slot->value.emplace(std::move(outcome).success().value);
 			}
@@ -130,7 +130,7 @@ void bench_install_join(
 }
 
 export inline void bench_pump_until_count(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::atomic<std::size_t> &done,
 	std::size_t target) {
 	auto *ring = reader.ring();
@@ -169,7 +169,7 @@ export inline void bench_pump_until_count(
 
 export inline void bench_dispatch_cqes(
 	::io_uring &ring,
-	CompletionTable &completions,
+	conflux::uring::CompletionTable &completions,
 	std::size_t expected) {
 	std::size_t completed = 0;
 	while (completed < expected) {

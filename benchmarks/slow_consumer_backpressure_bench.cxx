@@ -136,7 +136,7 @@ struct BenchClient {
 };
 
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 };
@@ -161,10 +161,10 @@ void wait_for_server(
 
 ServerHandle start_server(
 	Config cfg,
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -279,7 +279,7 @@ struct RowStats {
 	LatencyStats latency{};
 	HttpServerMetrics metrics{};
 	SsePressureMetrics sse{};
-	WorkPoolQueueStats work{};
+	conflux::work::WorkPoolQueueStats work{};
 };
 
 [[nodiscard]] RowStats make_local_policy_row(
@@ -422,7 +422,7 @@ RowStats run_large_response_slow(
 	std::size_t body_bytes,
 	unsigned ring_entries) {
 	std::string body(body_bytes, 'B');
-	Router router;
+	conflux::http::Router router;
 	router.get("/large", [&body](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body); });
 	auto server = start_server(bench_config(1, ring_entries), std::move(router));
 
@@ -475,7 +475,7 @@ RowStats run_sse_policy(
 	int duration_s) {
 	std::mutex mu;
 	std::shared_ptr<SseChannel> channel;
-	Router router;
+	conflux::http::Router router;
 	router.get("/sse", [&](conflux::http::OwnedRequest const &) {
 		auto ch = std::make_shared<SseChannel>(max_queue_bytes, policy);
 		{
@@ -619,21 +619,21 @@ RowStats run_local_sse_disconnect(
 }
 
 struct SaturatedPool {
-	WorkPool pool;
+	conflux::work::WorkPool pool;
 	std::atomic<bool> release_worker{false};
 	std::atomic<bool> worker_started{false};
 	std::size_t backlog_seed{};
 
 	SaturatedPool()
 		: pool{
-			  WorkPoolOptions{
-							  .threads = 1,
-							  .max_inject_queue = 8,
-							  .inject_queue_shards = 1,
-							  .local_queue_capacity = 0,
-							  .queue_mode = WorkPoolQueueMode::no_stealing,
-							  .spin_before_park = 0,
-							  }
+			  conflux::work::WorkPoolOptions{
+											 .threads = 1,
+											 .max_inject_queue = 8,
+											 .inject_queue_shards = 1,
+											 .local_queue_capacity = 0,
+											 .queue_mode = conflux::work::WorkPoolQueueMode::no_stealing,
+											 .spin_before_park = 0,
+											 }
     } {
 		if (!pool.enqueue([this] {
 				worker_started.store(true, std::memory_order_release);
@@ -735,11 +735,11 @@ RowStats run_ws_workpool_full(
 	std::size_t handshakes,
 	int duration_s) {
 	auto release = std::make_shared<std::atomic<bool>>(false);
-	auto pool = std::make_shared<WorkPool>(WorkPoolOptions{
+	auto pool = std::make_shared<conflux::work::WorkPool>(conflux::work::WorkPoolOptions{
 		.threads = 1,
 		.max_inject_queue = 1,
 		.local_queue_capacity = 1,
-		.queue_mode = WorkPoolQueueMode::no_stealing,
+		.queue_mode = conflux::work::WorkPoolQueueMode::no_stealing,
 	});
 	(void)pool->enqueue([release] {
 		while (!release->load(std::memory_order_acquire)) {
@@ -752,7 +752,7 @@ RowStats run_ws_workpool_full(
 		}
 	});
 
-	Router router;
+	conflux::http::Router router;
 	router.set_work_pool(pool);
 	router.ws("/ws", [](conflux::http::OwnedRequest const &, WsConn &ws) {
 		std::string payload(4096, 'W');
@@ -823,7 +823,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"slow_consumer_backpressure","parser":"standard","configs":[{"name":"large_response_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"large response with client reading 1 KiB/s"},"args":["--case","large_response_slow_1kps","--config-name","large_response_slow_1kps","--duration","1"]},{"name":"ring_pressure_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"small ring + slow response readers"},"args":["--case","ring_pressure_slow_1kps","--config-name","ring_pressure_slow_1kps","--duration","1"]},{"name":"sse_drop_newest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_newest"},"args":["--case","sse_drop_newest","--config-name","sse_drop_newest","--duration","1"]},{"name":"sse_drop_oldest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_oldest"},"args":["--case","sse_drop_oldest","--config-name","sse_drop_oldest","--duration","1"]},{"name":"sse_disconnect","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client disconnect"},"args":["--case","sse_disconnect","--config-name","sse_disconnect","--duration","1"]},{"name":"ws_workpool_full","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"WebSocket handoff while work pool queue is full"},"args":["--case","ws_workpool_full","--config-name","ws_workpool_full","--duration","1"]},{"name":"local_sse_drop_newest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropNewest overflow"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_sse_drop_newest","--config-name","local_sse_drop_newest","--iterations","0","--warmup","0"]},{"name":"local_sse_drop_oldest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropOldest overflow"},"target_ms":500,"max_iterations":250000,"calibration_iterations":8,"args":["--case","local_sse_drop_oldest","--config-name","local_sse_drop_oldest","--iterations","0","--warmup","0"]},{"name":"local_sse_disconnect","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue Disconnect overflow"},"target_ms":250,"max_iterations":50000,"calibration_iterations":4,"args":["--case","local_sse_disconnect","--config-name","local_sse_disconnect","--iterations","0","--warmup","0"]},{"name":"local_workpool_full","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"WorkPool bounded queue full"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_workpool_full","--config-name","local_workpool_full","--iterations","0","--warmup","0"]},{"name":"local_workpool_full_contended","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"WorkPool bounded queue full with 4 producers"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":8,"args":["--case","local_workpool_full_contended","--config-name","local_workpool_full_contended","--iterations","0","--warmup","0"]}]})");
+		R"({"name":"slow_consumer_backpressure","parser":"standard","configs":[{"name":"large_response_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"large response with client reading 1 KiB/s"},"args":["--case","large_response_slow_1kps","--config-name","large_response_slow_1kps","--duration","1"]},{"name":"ring_pressure_slow_1kps","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"small ring + slow response readers"},"args":["--case","ring_pressure_slow_1kps","--config-name","ring_pressure_slow_1kps","--duration","1"]},{"name":"sse_drop_newest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_newest"},"args":["--case","sse_drop_newest","--config-name","sse_drop_newest","--duration","1"]},{"name":"sse_drop_oldest","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client drop_oldest"},"args":["--case","sse_drop_oldest","--config-name","sse_drop_oldest","--duration","1"]},{"name":"sse_disconnect","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"SSE slow client disconnect"},"args":["--case","sse_disconnect","--config-name","sse_disconnect","--duration","1"]},{"name":"ws_workpool_full","extra":{"kind":"live-kernel-sanity","evidence_role":"backpressure proof harness","case":"WebSocket handoff while work pool queue is full"},"args":["--case","ws_workpool_full","--config-name","ws_workpool_full","--duration","1"]},{"name":"local_sse_drop_newest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropNewest overflow"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_sse_drop_newest","--config-name","local_sse_drop_newest","--iterations","0","--warmup","0"]},{"name":"local_sse_drop_oldest","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue DropOldest overflow"},"target_ms":500,"max_iterations":250000,"calibration_iterations":8,"args":["--case","local_sse_drop_oldest","--config-name","local_sse_drop_oldest","--iterations","0","--warmup","0"]},{"name":"local_sse_disconnect","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"SSE bounded queue Disconnect overflow"},"target_ms":250,"max_iterations":50000,"calibration_iterations":4,"args":["--case","local_sse_disconnect","--config-name","local_sse_disconnect","--iterations","0","--warmup","0"]},{"name":"local_workpool_full","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"conflux::work::WorkPool bounded queue full"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--case","local_workpool_full","--config-name","local_workpool_full","--iterations","0","--warmup","0"]},{"name":"local_workpool_full_contended","extra":{"kind":"micro/user-space","evidence_role":"policy cost floor","case":"conflux::work::WorkPool bounded queue full with 4 producers"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":8,"args":["--case","local_workpool_full_contended","--config-name","local_workpool_full_contended","--iterations","0","--warmup","0"]}]})");
 
 	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::string selected = "large_response_slow_1kps";

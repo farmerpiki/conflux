@@ -55,7 +55,7 @@ import :state;
 using namespace conflux::socket_io;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -215,7 +215,7 @@ void Ring::handle_conn_close(
 				HTTP_TRACE(std::format("conn_close_direct_empty slot={} gen={}", slot, gen));
 			}
 			if (!direct_slots_->release_closed(slot)) {
-				eprintln(std::format("handle_conn_close: release_closed failed slot={}", slot));
+				conflux::utils::eprintln(std::format("handle_conn_close: release_closed failed slot={}", slot));
 			}
 		} else {
 			direct_slots_->poison(slot, res);
@@ -236,7 +236,7 @@ void Ring::handle_direct_slot_close(
 			HTTP_TRACE(std::format("direct_slot_close_empty slot={}", slot));
 		}
 		if (!direct_slots_->release_closed(slot)) {
-			eprintln(std::format("handle_direct_slot_close: release_closed failed slot={}", slot));
+			conflux::utils::eprintln(std::format("handle_direct_slot_close: release_closed failed slot={}", slot));
 		}
 	} else {
 		direct_slots_->poison(slot, res);

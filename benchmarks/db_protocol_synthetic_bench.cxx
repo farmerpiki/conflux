@@ -153,9 +153,9 @@ void append_i64_be(
 [[nodiscard]] std::uint32_t read_u32(
 	std::byte const *p) noexcept {
 	return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[0])) << 24U)
-		| (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[1])) << 16U)
-		| (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[2])) << 8U)
-		| static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[3]));
+		 | (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[1])) << 16U)
+		 | (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[2])) << 8U)
+		 | static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(p[3]));
 }
 
 [[nodiscard]] std::int64_t read_i64_be(
@@ -306,10 +306,12 @@ void print_row(
 	std::size_t bytes_per_scan,
 	bool &first) {
 	std::size_t const logical_rows = cfg.iterations * cfg.rows;
-	double const ns_per_row = static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, logical_rows));
+	double const ns_per_row =
+		static_cast<double>(total_ns) / static_cast<double>(std::max<std::size_t>(1, logical_rows));
 	if (cfg.json_out) {
 		std::println(
-			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":\"micro/user-space\",\"rows_per_scan\":{},\"payload_bytes\":{},\"bytes_per_scan\":{},\"sink\":{}}}",
+			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"label\":"
+			"\"micro/user-space\",\"rows_per_scan\":{},\"payload_bytes\":{},\"bytes_per_scan\":{},\"sink\":{}}}",
 			cfg.config_name,
 			variant,
 			logical_rows,

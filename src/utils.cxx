@@ -18,6 +18,9 @@ void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *
 export module conflux.utils;
 import std;
 import conflux.types;
+
+namespace conflux::utils {
+
 namespace utils_detail {
 
 inline constexpr std::uint64_t rotl(
@@ -793,8 +796,12 @@ public:
 	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
 };
 
+} // namespace conflux::utils
+
 template<>
-inline constexpr bool std::ranges::enable_borrowed_range<LineRange> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::utils::LineRange> = true;
+
+namespace conflux::utils {
 
 static_assert(std::ranges::borrowed_range<LineRange>);
 // Format an IpAddr as a string. IPv4-mapped addresses render as bare IPv4.
@@ -831,3 +838,5 @@ export bool wait_fd(
 	int const rc = ::poll(&pfd, 1, timeout_sec < 0 ? -1 : timeout_sec * 1000);
 	return rc > 0 && (pfd.revents & (events | POLLERR | POLLHUP)) != 0;
 }
+
+} // namespace conflux::utils

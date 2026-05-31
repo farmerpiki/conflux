@@ -43,7 +43,7 @@ Params make_params(
 	return p;
 }
 std::uint64_t run_callback(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
 	std::size_t iters,
 	std::int64_t rows,
@@ -65,7 +65,7 @@ Task<void> coro_one(
 	co_return;
 }
 std::uint64_t run_coroutine(
-	FileReader &reader,
+	conflux::file_io::FileReader &reader,
 	std::shared_ptr<Connection> const &conn,
 	std::size_t iters,
 	std::int64_t rows,
@@ -122,9 +122,9 @@ int main(
 		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
-	CompletionTable ct;
-	FileReader reader{&ring, &ct, pack_ud};
-	CurrentFileReaderScope const scope{&reader};
+	conflux::uring::CompletionTable ct;
+	conflux::file_io::FileReader reader{&ring, &ct, pack_ud};
+	conflux::file_io::CurrentFileReaderScope const scope{&reader};
 
 	try {
 		std::shared_ptr<Connection> conn{};

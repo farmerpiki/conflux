@@ -1,4 +1,4 @@
-// join_all_N_bench — measures join_all fan-out with N tasks.
+// join_all_N_bench — measures conflux::work::join_all fan-out with N tasks.
 //
 // Config JSON: { "n": N }  for N in {2, 10, 100}
 // Variants:

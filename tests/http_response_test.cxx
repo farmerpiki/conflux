@@ -15,6 +15,7 @@ import conflux.net.http.response;
 import conflux.work;
 
 namespace chttp = conflux::http;
+using namespace conflux::http;
 using chttp::DeferredResponse;
 using chttp::Response;
 

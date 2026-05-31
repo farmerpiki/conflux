@@ -1,4 +1,4 @@
-// workpool_enqueue_dequeue_bench — measures WorkPool enqueue/dequeue throughput.
+// workpool_enqueue_dequeue_bench — measures conflux::work::WorkPool enqueue/dequeue throughput.
 //
 // Config JSON: { "threads": N }  for N in {1, 4, 16, nproc}
 // Variants:
@@ -33,9 +33,10 @@ enum class BenchQueueMode : std::uint8_t {
 	stealing,
 	no_stealing,
 };
-[[nodiscard]] WorkPoolQueueMode pool_queue_mode(
+[[nodiscard]] conflux::work::WorkPoolQueueMode pool_queue_mode(
 	BenchQueueMode mode) noexcept {
-	return mode == BenchQueueMode::no_stealing ? WorkPoolQueueMode::no_stealing : WorkPoolQueueMode::stealing;
+	return mode == BenchQueueMode::no_stealing ? conflux::work::WorkPoolQueueMode::no_stealing :
+												 conflux::work::WorkPoolQueueMode::stealing;
 }
 [[nodiscard]] std::string_view single_thread_variant(
 	BenchQueueMode mode) noexcept {
@@ -96,7 +97,7 @@ struct WorkPoolFairnessStats {
 };
 struct WorkPoolBenchStats {
 	BenchStats timing;
-	WorkPoolQueueStats queue;
+	conflux::work::WorkPoolQueueStats queue;
 	WorkPoolFairnessStats fairness{};
 };
 void print_workpool_stats(
@@ -204,8 +205,8 @@ WorkPoolBenchStats bench_single_thread(
 	BenchQueueMode mode,
 	std::size_t iters,
 	std::size_t warmup) {
-	WorkPool pool{
-		WorkPoolOptions{.threads = 1, .queue_mode = pool_queue_mode(mode)}
+	conflux::work::WorkPool pool{
+		conflux::work::WorkPoolOptions{.threads = 1, .queue_mode = pool_queue_mode(mode)}
     };
 	auto do_iters = [&](std::size_t n) {
 		for (std::size_t i = 0; i < n; ++i) {
@@ -233,8 +234,8 @@ WorkPoolBenchStats bench_contended(
 	std::size_t iters,
 	std::size_t warmup) {
 	std::size_t const worker_count = std::max(std::size_t{1}, threads);
-	WorkPool pool{
-		WorkPoolOptions{.threads = worker_count, .queue_mode = pool_queue_mode(mode)}
+	conflux::work::WorkPool pool{
+		conflux::work::WorkPoolOptions{.threads = worker_count, .queue_mode = pool_queue_mode(mode)}
     };
 	std::size_t const per_thread = iters / threads;
 	auto do_wave = [&](std::size_t n_per) {
@@ -274,7 +275,7 @@ void wait_for_count(
 	}
 }
 void enqueue_counted_job(
-	WorkPool &pool,
+	conflux::work::WorkPool &pool,
 	std::atomic<std::size_t> &done) {
 	while (!pool.enqueue([&done] { done.fetch_add(1, std::memory_order_release); })) {
 		std::this_thread::yield();
@@ -331,7 +332,7 @@ public:
 	return x;
 }
 void enqueue_counted_work_job(
-	WorkPool &pool,
+	conflux::work::WorkPool &pool,
 	RunnerRecorder &recorder,
 	std::atomic<std::size_t> &done,
 	std::atomic<std::uint64_t> &checksum,
@@ -353,12 +354,12 @@ WorkPoolBenchStats bench_external_burst(
 	std::size_t iters,
 	std::size_t warmup) {
 	std::size_t const worker_count = std::max(std::size_t{1}, threads);
-	WorkPool pool{
-		WorkPoolOptions{
-						.threads = worker_count,
-						.max_inject_queue = std::max(std::size_t{4096}, iters + threads + 1),
-						.queue_mode = pool_queue_mode(mode),
-						}
+	conflux::work::WorkPool pool{
+		conflux::work::WorkPoolOptions{
+									   .threads = worker_count,
+									   .max_inject_queue = std::max(std::size_t{4096}, iters + threads + 1),
+									   .queue_mode = pool_queue_mode(mode),
+									   }
     };
 	std::size_t const per_thread = iters / threads;
 	auto do_wave = [&](std::size_t n_per) {
@@ -404,13 +405,13 @@ WorkPoolBenchStats bench_local_fanout(
 	std::size_t iters,
 	std::size_t warmup) {
 	std::size_t const worker_count = std::max(std::size_t{1}, threads);
-	WorkPool pool{
-		WorkPoolOptions{
-						.threads = worker_count,
-						.max_inject_queue = std::max(std::size_t{4096}, threads + 1),
-						.local_queue_capacity = std::max(std::max(std::size_t{1024}, iters + 1), warmup + 2),
-						.queue_mode = pool_queue_mode(mode),
-						}
+	conflux::work::WorkPool pool{
+		conflux::work::WorkPoolOptions{
+									   .threads = worker_count,
+									   .max_inject_queue = std::max(std::size_t{4096}, threads + 1),
+									   .local_queue_capacity = std::max(std::max(std::size_t{1024}, iters + 1), warmup + 2),
+									   .queue_mode = pool_queue_mode(mode),
+									   }
     };
 	auto do_wave = [&](std::size_t n) {
 		std::atomic<std::size_t> done{0};
@@ -447,13 +448,13 @@ WorkPoolBenchStats bench_local_backlog_redistribution(
 	std::size_t work_units) {
 	std::size_t const worker_count = std::max(std::size_t{2}, threads);
 	std::size_t const local_capacity = std::max(std::max(std::size_t{1024}, iters + 2), warmup + 2);
-	WorkPool pool{
-		WorkPoolOptions{
-						.threads = worker_count,
-						.max_inject_queue = std::max(std::size_t{4096}, worker_count + 1),
-						.local_queue_capacity = local_capacity,
-						.queue_mode = pool_queue_mode(mode),
-						}
+	conflux::work::WorkPool pool{
+		conflux::work::WorkPoolOptions{
+									   .threads = worker_count,
+									   .max_inject_queue = std::max(std::size_t{4096}, worker_count + 1),
+									   .local_queue_capacity = local_capacity,
+									   .queue_mode = pool_queue_mode(mode),
+									   }
     };
 	auto do_wave = [&](std::size_t n, bool record) -> WorkPoolFairnessStats {
 		std::atomic<std::size_t> done{0};

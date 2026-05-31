@@ -226,7 +226,9 @@ class App : public detail::AppRouteVerbAccessors {
 		for (auto it = middlewares->rbegin(); it != middlewares->rend(); ++it) {
 			auto mw = *it;
 			auto next = std::move(inner);
-			inner = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &r) mutable { return mw(r, next); };
+			inner = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &r) mutable {
+				return mw(r, next);
+			};
 		}
 		return inner(req);
 	}
@@ -253,8 +255,11 @@ class App : public detail::AppRouteVerbAccessors {
 				}
 				auto const &middleware = (*middlewares)[index++];
 				conflux::http::Router::ContextHandler next =
-					[self = std::move(self)](conflux::http::RequestView const &next_req, RequestContext const &next_ctx) mutable
-					-> conflux::work::root::Task<Response> { return self->call(self, next_req, next_ctx); };
+					[self = std::move(self)](
+						conflux::http::RequestView const &next_req,
+						RequestContext const &next_ctx) mutable -> conflux::work::root::Task<Response> {
+					return self->call(self, next_req, next_ctx);
+				};
 				return middleware(r, c, next);
 			}
 		};
@@ -277,7 +282,7 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static std::optional<BasicAuth> parse_basic_auth(
 		conflux::http::RequestView const &req) {
-			auto credentials = conflux::http::parse_basic_credentials(req.header("authorization"));
+		auto credentials = conflux::http::parse_basic_credentials(req.header("authorization"));
 		if (!credentials) {
 			return std::nullopt;
 		}
@@ -298,9 +303,10 @@ class App : public detail::AppRouteVerbAccessors {
 		}
 
 		auto const now = std::chrono::steady_clock::now();
-		auto const key = req.remote_addr.empty() ?
-							 std::string{"unknown"} :
-							 parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
+		auto const key = req.remote_addr.empty() ? std::string{"unknown"} :
+												   conflux::utils::parse_ip(req.remote_addr)
+													   .transform(conflux::utils::ip_to_string)
+													   .value_or(std::string{req.remote_addr});
 		auto retry_after = static_cast<unsigned>(policy.options.window.count());
 		bool allowed = false;
 
@@ -856,7 +862,11 @@ public:
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		record_route_metadata<std::tuple<conflux::http::RequestView>>(http_method_name(HttpMethod::get), path, "sse", loc);
+		record_route_metadata<std::tuple<conflux::http::RequestView>>(
+			http_method_name(HttpMethod::get),
+			path,
+			"sse",
+			loc);
 		record_return_metadata<Response>();
 		router_.sse(path, std::forward<F>(handler));
 		return *this;
@@ -866,7 +876,11 @@ public:
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		record_route_metadata<std::tuple<conflux::http::RequestView>>(http_method_name(HttpMethod::get), path, "ws", loc);
+		record_route_metadata<std::tuple<conflux::http::RequestView>>(
+			http_method_name(HttpMethod::get),
+			path,
+			"ws",
+			loc);
 		record_return_metadata<Response>();
 		router_.ws(path, std::forward<F>(handler));
 		return *this;
@@ -2266,7 +2280,8 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](conflux::http::RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+			](conflux::http::RequestView const &req,
+				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,
@@ -2490,7 +2505,8 @@ public:
 				 app_max_body_size,
 				 json_options
 #endif
-			](conflux::http::RequestView const &req, RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+			](conflux::http::RequestView const &req,
+				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states,
 						 bearer_token_policy,

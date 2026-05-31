@@ -10,6 +10,10 @@ import conflux.utils;
 
 namespace conflux::http {
 
+using conflux::utils::hex_char_to_int;
+using conflux::utils::url_decode;
+using conflux::utils::url_needs_component_decode;
+
 export constexpr std::size_t kMaxChunkHexDigits = 16;
 export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;

@@ -387,7 +387,7 @@ std::string_view strip_inline_comment(
 	std::string_view s) {
 	for (std::size_t i = 1; i < s.size(); ++i) {
 		if ((s[i] == '#' || s[i] == ';') && (s[i - 1] == ' ' || s[i - 1] == '\t')) {
-			return trim(s.substr(0, i));
+			return conflux::utils::trim(s.substr(0, i));
 		}
 	}
 	return s;
@@ -723,9 +723,9 @@ ParseResult parse_ini_contents(
 	std::string section;
 
 	std::size_t line_no = 0;
-	for (auto const line: LineRange{contents}) {
+	for (auto const line: conflux::utils::LineRange{contents}) {
 		++line_no;
-		auto s = trim(line.text);
+		auto s = conflux::utils::trim(line.text);
 		if (s.empty() || s[0] == '#' || s[0] == ';') {
 			continue;
 		}
@@ -733,7 +733,7 @@ ParseResult parse_ini_contents(
 		if (s[0] == '[') {
 			auto close = s.find(']', 1);
 			if (close != std::string_view::npos) {
-				section = std::string{trim(s.substr(1, close - 1))};
+				section = std::string{conflux::utils::trim(s.substr(1, close - 1))};
 			}
 			continue;
 		}
@@ -743,8 +743,8 @@ ParseResult parse_ini_contents(
 			continue;
 		}
 
-		auto key = trim(s.substr(0, eq));
-		auto val = trim(strip_inline_comment(trim(s.substr(eq + 1))));
+		auto key = conflux::utils::trim(s.substr(0, eq));
+		auto val = conflux::utils::trim(strip_inline_comment(conflux::utils::trim(s.substr(eq + 1))));
 
 		try {
 			bool applied = false;

@@ -158,7 +158,7 @@ public:
 		if (wake) {
 			std::uint64_t v = 1;
 			if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
-				eprintln(std::format("SseChannel::send: eventfd write: {}", strerror(errno)));
+				conflux::utils::eprintln(std::format("SseChannel::send: eventfd write: {}", strerror(errno)));
 			}
 		}
 		return enqueued;
@@ -198,7 +198,7 @@ public:
 		}
 		std::uint64_t v = 1;
 		if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
-			eprintln(std::format("SseChannel::close: eventfd write: {}", strerror(errno)));
+			conflux::utils::eprintln(std::format("SseChannel::close: eventfd write: {}", strerror(errno)));
 		} // wake the io_uring poll
 	}
 	void on_close(
@@ -332,8 +332,8 @@ bool is_valid_handshake(
 	conflux::http::RequestView const &req) {
 	return conflux::http::header_token_contains(req.headers["upgrade"], "websocket")
 		&& conflux::http::header_token_contains(req.headers["connection"], "upgrade")
-		&& trim(req.headers["sec-websocket-version"]) == "13"
-		&& is_valid_client_key(trim(req.headers["sec-websocket-key"]));
+		&& conflux::utils::trim(req.headers["sec-websocket-version"]) == "13"
+		&& is_valid_client_key(conflux::utils::trim(req.headers["sec-websocket-key"]));
 }
 // Build a complete WebSocket frame (server→client, unmasked) in one buffer so
 // the transport call below emits header+payload as a single TCP segment / TLS record.

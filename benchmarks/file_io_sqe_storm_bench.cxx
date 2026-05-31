@@ -1,4 +1,4 @@
-// file_io_sqe_storm_bench — batches many simple FileReader read/write SQEs.
+// file_io_sqe_storm_bench — batches many simple conflux::file_io::FileReader read/write SQEs.
 //
 // This keeps kernel round-trips in the measurement, but submits enough
 // independent SQEs per batch that completion callback/task-source overhead has
@@ -20,8 +20,8 @@ using namespace std::string_view_literals;
 namespace {
 
 BenchStats bench_read_storm(
-	FileReader &files,
-	FileHandle const &fh,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
 	BenchUringFileConfig const &cfg,
 	std::vector<std::vector<std::byte>> &buffers,
 	bool warmup) {
@@ -52,8 +52,8 @@ BenchStats bench_read_storm(
 }
 
 BenchStats bench_write_storm(
-	FileReader &files,
-	FileHandle const &fh,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
 	BenchUringFileConfig const &cfg,
 	std::vector<std::vector<std::byte>> const &buffers,
 	bool warmup) {
@@ -109,8 +109,8 @@ int main(
 	}
 
 	try {
-		CompletionTable completions{cfg.depth * 2U};
-		FileReader files{&ring, &completions, bench_pack_ud};
+		conflux::uring::CompletionTable completions{cfg.depth * 2U};
+		conflux::file_io::FileReader files{&ring, &completions, bench_pack_ud};
 		auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDWR | O_CLOEXEC));
 
 		(void)bench_read_storm(files, handle, cfg, buffers, true);

@@ -9,6 +9,9 @@ import conflux.utils;
 
 namespace conflux::http::detail {
 
+using conflux::utils::url_decode_path;
+using conflux::utils::url_needs_path_decode;
+
 export struct Segment {
 	std::string value;
 	bool is_param; // true -> {name} single-segment capture

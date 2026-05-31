@@ -18,7 +18,7 @@ namespace csrf_detail {
 
 std::string generate_token() {
 	std::array<unsigned char, 24> bytes{};
-	crypto_random_bytes(bytes);
+	conflux::utils::crypto_random_bytes(bytes);
 	return conflux::crypto::base64url_encode(bytes);
 }
 

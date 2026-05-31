@@ -219,17 +219,17 @@ void wait_for_server(
 }
 
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 };
 
 ServerHandle start_server(
 	Config cfg,
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -773,12 +773,12 @@ std::vector<WorkloadDef> make_workloads(
 	return out;
 }
 
-Router make_router(
+conflux::http::Router make_router(
 	bool middleware,
 	std::filesystem::path const &static_dir,
 	std::string const &medium_json,
 	std::string const &body_64k) {
-	Router router;
+	conflux::http::Router router;
 	if (middleware) {
 		conflux::http::SecurityOptions sopts{};
 		sopts.hsts_only_on_tls = false;
@@ -787,14 +787,22 @@ Router make_router(
 		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://bench.example"}}));
 		router.use(conflux::http::etag_middleware());
 	}
-	router.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
+	router.get("/api/ping", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::json(R"({"status":"ok"})");
+	});
 	router.get("/users/{id}", [](conflux::http::OwnedRequest const &req) {
 		auto const id = req.params["id"];
 		return conflux::http::Response::json(std::format(R"({{"id":"{}","name":"user-{}","active":true}})", id, id));
 	});
-	router.get("/json/medium", [&medium_json](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(medium_json); });
-	router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
-	router.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body_64k); });
+	router.get("/json/medium", [&medium_json](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::json(medium_json);
+	});
+	router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(req.body);
+	});
+	router.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::text(body_64k);
+	});
 	router.serve_static("/", std::string{static_dir.string()});
 	return router;
 }

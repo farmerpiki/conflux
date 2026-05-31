@@ -382,11 +382,11 @@ Case make_small_fn_heap_case() {
 		}};
 }
 // ---------------------------------------------------------------------------
-// work: WorkPool dispatch
+// work: conflux::work::WorkPool dispatch
 // ---------------------------------------------------------------------------
 
-WorkPoolOptions bench_pool_opts() {
-	WorkPoolOptions opts;
+conflux::work::WorkPoolOptions bench_pool_opts() {
+	conflux::work::WorkPoolOptions opts;
 #ifdef CONFLUX_BENCH_SPIN_BEFORE_PARK
 	opts.spin_before_park = CONFLUX_BENCH_SPIN_BEFORE_PARK;
 #endif
@@ -394,29 +394,32 @@ WorkPoolOptions bench_pool_opts() {
 	return opts;
 }
 Case make_pool_single_case() {
-	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<conflux::work::WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_single",
-		.description = "async_run_on(pool, fn) + root::value(task) — single dispatch roundtrip",
+		.description = "conflux::work::async_run_on(pool, fn) + root::value(task) — single dispatch roundtrip",
 		.default_iterations = 25000,
-		.run = [pool] { return static_cast<std::size_t>(root::value(async_run_on(*pool, [] { return 42; }))); }};
+		.run = [pool] {
+			return static_cast<std::size_t>(root::value(conflux::work::async_run_on(*pool, [] { return 42; })));
+		}};
 }
 Case make_pool_join_all_3_case() {
-	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<conflux::work::WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_join_all_3",
-		.description = "join_all(3 × run_on_task) + root::value — 3-way fan-out",
+		.description = "conflux::work::join_all(3 × run_on_task) + root::value — 3-way fan-out",
 		.default_iterations = 30000,
 		.run = [pool] {
-			auto [a, b, c] = root::value(join_all(
-				async_run_on(*pool, [] { return 1; }),
-				async_run_on(*pool, [] { return 2; }),
-				async_run_on(*pool, [] { return 3; })));
+			auto [a, b, c] = root::value(
+				conflux::work::join_all(
+					conflux::work::async_run_on(*pool, [] { return 1; }),
+					conflux::work::async_run_on(*pool, [] { return 2; }),
+					conflux::work::async_run_on(*pool, [] { return 3; })));
 			return static_cast<std::size_t>(a + b + c);
 		}};
 }
 Case make_pool_bursty_case() {
-	auto pool = std::make_shared<WorkPool>(bench_pool_opts());
+	auto pool = std::make_shared<conflux::work::WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_bursty_8",
 		.description = "burst of 8 tasks after idle gap — exercises park/wake path",
@@ -427,23 +430,24 @@ Case make_pool_bursty_case() {
 				std::atomic_signal_fence(std::memory_order_seq_cst);
 			}
 			// Burst 8 tasks
-			auto t0 = async_run_on(*pool, [] { return 1; });
-			auto t1 = async_run_on(*pool, [] { return 2; });
-			auto t2 = async_run_on(*pool, [] { return 3; });
-			auto t3 = async_run_on(*pool, [] { return 4; });
-			auto t4 = async_run_on(*pool, [] { return 5; });
-			auto t5 = async_run_on(*pool, [] { return 6; });
-			auto t6 = async_run_on(*pool, [] { return 7; });
-			auto t7 = async_run_on(*pool, [] { return 8; });
-			auto [a, b, c, d, e, f, g, h] = root::value(join_all(
-				std::move(t0),
-				std::move(t1),
-				std::move(t2),
-				std::move(t3),
-				std::move(t4),
-				std::move(t5),
-				std::move(t6),
-				std::move(t7)));
+			auto t0 = conflux::work::async_run_on(*pool, [] { return 1; });
+			auto t1 = conflux::work::async_run_on(*pool, [] { return 2; });
+			auto t2 = conflux::work::async_run_on(*pool, [] { return 3; });
+			auto t3 = conflux::work::async_run_on(*pool, [] { return 4; });
+			auto t4 = conflux::work::async_run_on(*pool, [] { return 5; });
+			auto t5 = conflux::work::async_run_on(*pool, [] { return 6; });
+			auto t6 = conflux::work::async_run_on(*pool, [] { return 7; });
+			auto t7 = conflux::work::async_run_on(*pool, [] { return 8; });
+			auto [a, b, c, d, e, f, g, h] = root::value(
+				conflux::work::join_all(
+					std::move(t0),
+					std::move(t1),
+					std::move(t2),
+					std::move(t3),
+					std::move(t4),
+					std::move(t5),
+					std::move(t6),
+					std::move(t7)));
 			return static_cast<std::size_t>(a + b + c + d + e + f + g + h);
 		}};
 }
@@ -496,19 +500,19 @@ Case make_eager_chain_nested_4_case() {
 		}};
 }
 // ---------------------------------------------------------------------------
-// work: RingLane
+// work: conflux::work::RingLane
 // ---------------------------------------------------------------------------
 
 Case make_ring_lane_case() {
 	struct State {
 		io_uring ring{};
-		std::unique_ptr<RingLane> lane;
+		std::unique_ptr<conflux::work::RingLane> lane;
 		State() {
 			int const rc = ::io_uring_queue_init(8, &ring, 0);
 			if (rc != 0) {
 				throw std::runtime_error{std::format("io_uring_queue_init failed: {}", rc)};
 			}
-			lane = std::make_unique<RingLane>(RingLaneOptions{
+			lane = std::make_unique<conflux::work::RingLane>(conflux::work::RingLaneOptions{
 				.ring_fd = ring.ring_fd,
 				.wake_user_data = 0x57524B42U,
 				.drain_budget = 0,
@@ -521,7 +525,7 @@ Case make_ring_lane_case() {
 	auto state = std::make_shared<State>();
 	return Case{
 		.name = "work/ring_lane_roundtrip",
-		.description = "RingLane enqueue from std::jthread + msg-ring wake + owner drain",
+		.description = "conflux::work::RingLane enqueue from std::jthread + msg-ring wake + owner drain",
 		.default_iterations = 5000,
 		.reps = 1,
 		.run = [state] {

@@ -427,22 +427,22 @@ void HttpServer::shutdown() {
 
 					if (i == 0 && impl_->cfg.startup_banner) {
 						auto const feat_s = caps_to_log_string(r.caps);
-						eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
-						eprintln(
+						conflux::utils::eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
+						conflux::utils::eprintln(
 							std::format(
 								"uring_setup_flags_requested={}",
 								conflux::http::detail::setup_flags_str(r.requested_setup_flags_)));
-						eprintln(
+						conflux::utils::eprintln(
 							std::format(
 								"uring_setup_flags_active={}",
 								conflux::http::detail::setup_flags_str(r.active_setup_flags_)));
-						eprintln(
+						conflux::utils::eprintln(
 							std::format(
 								"uring_setup_flags_stripped={}",
 								conflux::http::detail::setup_flags_str(r.stripped_setup_flags_)));
 					}
 					if (i == 0 && impl_->cfg.startup_banner)
-						eprintln(
+						conflux::utils::eprintln(
 							std::format(
 								"listening on {}://0.0.0.0:{}  "
 								"(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, "
@@ -556,7 +556,7 @@ void HttpServer::shutdown() {
 	out += "\n\nCapabilities:\n";
 	if (auto caps = conflux::runtime::detect_capabilities()) {
 		auto report = conflux::runtime::capability_report(*caps);
-		for (auto const line: LineRange{report}) {
+		for (auto const line: conflux::utils::LineRange{report}) {
 			out += "  ";
 			out += line.text;
 			out += '\n';

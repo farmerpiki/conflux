@@ -9,6 +9,9 @@ import conflux.file_io_sync;
 
 namespace conflux::templates {
 
+using conflux::utils::append_json_string_fallback;
+using conflux::utils::eprintln;
+
 // ---------------------------------------------------------------------------
 // Diagnostics
 // ---------------------------------------------------------------------------

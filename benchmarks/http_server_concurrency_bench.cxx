@@ -191,16 +191,16 @@ void wait_for_server(
 	throw std::runtime_error{"server did not start in time"};
 }
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 };
 ServerHandle start_server(
 	Config cfg,
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -598,10 +598,16 @@ int main(
 	auto const post_4k = make_post_request("/api/echo-body", 4096);
 
 	auto make_router = [&] {
-		Router r;
-		r.get("/api/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
-		r.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
-		r.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(body_64k); });
+		conflux::http::Router r;
+		r.get("/api/ping", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::json(R"({"status":"ok"})");
+		});
+		r.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) {
+			return conflux::http::Response::text(req.body);
+		});
+		r.get("/body/64k", [&body_64k](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::text(body_64k);
+		});
 		return r;
 	};
 
@@ -658,7 +664,7 @@ int main(
 	struct ServerConfig {
 		std::string_view suffix;
 		std::uint16_t port;
-		std::shared_ptr<HttpServer> server;
+		std::shared_ptr<conflux::http::HttpServer> server;
 	};
 	std::array<ServerConfig, 2> configs{
 		{{.suffix = "_r1"sv, .port = r1.port, .server = r1.server},

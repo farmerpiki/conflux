@@ -55,7 +55,7 @@ import :state;
 using namespace conflux::socket_io;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -277,7 +277,7 @@ void Ring::phase1_copy_recv_bufs() {
 				conn.incremental_buf_id = cqe_buffer_id(orig_flags);
 				conn.have_incremental_buf_id = true;
 				if (!cqe_has_more(orig_flags)) [[unlikely]] {
-					eprintln(
+					conflux::utils::eprintln(
 						std::format("incremental ring fault: fd={} !MORE+BUF_MORE; closing", static_cast<int>(ufd)));
 					queue_close(static_cast<int>(ufd));
 					continue;
@@ -322,7 +322,7 @@ void Ring::phase1_copy_recv_bufs() {
 			if (observability_hooks_.rejection) {
 				observability_hooks_.rejection(
 					conflux::http::HttpRejectReason::body_too_large,
-					kHttpRequestEntityTooLarge);
+					conflux::http::kHttpRequestEntityTooLarge);
 			}
 			conn.own_response =
 				"HTTP/1.1 413 Content Too Large\r\n"

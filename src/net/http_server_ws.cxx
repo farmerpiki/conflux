@@ -58,7 +58,7 @@ using conflux::uring::DirectFd;
 using conflux::uring::OsFd;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -164,7 +164,7 @@ void Ring::handoff_plain_ws(
 	if (!state.pool) {
 		if (accepted_sockets_direct) {
 			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-				eprintln(std::format("handoff_plain_ws: mark_closing failed slot={}", fd));
+				conflux::utils::eprintln(std::format("handoff_plain_ws: mark_closing failed slot={}", fd));
 			}
 			auto const ud = pack(Op::DirectSlotClose, 0, fd);
 			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
@@ -242,7 +242,7 @@ void Ring::handoff_tls_ws(
 		orig_ssl.reset();
 		if (accepted_sockets_direct) {
 			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-				eprintln(std::format("handoff_tls_ws: mark_closing failed slot={}", fd));
+				conflux::utils::eprintln(std::format("handoff_tls_ws: mark_closing failed slot={}", fd));
 			}
 			auto const ud = pack(Op::DirectSlotClose, 0, fd);
 			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
@@ -375,7 +375,7 @@ void Ring::handle_fixed_fd_install(
 
 	auto free_slot = [this, slot_fd] {
 		if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(slot_fd))) {
-			eprintln(std::format("free_slot: mark_closing failed slot={}", slot_fd));
+			conflux::utils::eprintln(std::format("free_slot: mark_closing failed slot={}", slot_fd));
 		}
 		if (!submit_close(
 				raw_,

@@ -86,7 +86,7 @@ BenchStats bench_nop_submit_cqe(
 
 BenchStats bench_timeout_remove_miss(
 	io_uring &ring,
-	CompletionTable &completions,
+	conflux::uring::CompletionTable &completions,
 	Config const &cfg,
 	bool warmup) {
 	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
@@ -142,7 +142,7 @@ int main(
 	}
 
 	try {
-		CompletionTable completions{cfg.depth * 2U};
+		conflux::uring::CompletionTable completions{cfg.depth * 2U};
 		(void)bench_nop_submit_cqe(ring, cfg, true);
 		(void)bench_timeout_remove_miss(ring, completions, cfg, true);
 		BenchStats stats[]{

@@ -63,7 +63,7 @@ using conflux::uring::OsFd;
 using conflux::uring::UserDataFn;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -731,7 +731,7 @@ void Ring::submit_conn_close_or_defer(
 	fd_table[ufd].closing = true;
 	if (direct_slots_ && accepted_sockets_direct) {
 		if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-			eprintln(std::format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
+			conflux::utils::eprintln(std::format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
 		}
 	}
 }
@@ -1099,7 +1099,7 @@ void Ring::handle_accept(
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
 			if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
 				if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(res))) {
-					eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", res));
+					conflux::utils::eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", res));
 				}
 			}
 			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
@@ -1132,7 +1132,8 @@ void Ring::handle_accept(
 	if (accepted_sockets_direct && direct_slots_) {
 		if (!direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
 			++accepted_direct_failures_;
-			eprintln(std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
+			conflux::utils::eprintln(
+				std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
 			accepted_sockets_direct = false;
 			submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
 			auto const ud = pack(Op::DirectSlotClose, 0, res);
@@ -1176,12 +1177,12 @@ void Ring::handle_accept(
 		sockaddr_in6 peer_addr{};
 		socklen_t peer_len = sizeof(peer_addr);
 		if (::getpeername(res, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
-			conn.remote_addr = ip_to_string(peer_addr.sin6_addr);
+			conn.remote_addr = conflux::utils::ip_to_string(peer_addr.sin6_addr);
 		} else {
 			conn.remote_addr.clear();
 		}
 	} else {
-		conn.remote_addr = ip_to_string(client_addr.sin6_addr);
+		conn.remote_addr = conflux::utils::ip_to_string(client_addr.sin6_addr);
 	}
 	conn.is_tls = false;
 #if CONFLUX_HAS_TLS
@@ -1244,7 +1245,8 @@ conflux::http::RunStatus Ring::run_loop() {
 		CPU_ZERO(&cs);
 		CPU_SET(static_cast<unsigned>(ring_core_), &cs);
 		if (::sched_setaffinity(0, sizeof(cs), &cs) < 0) {
-			eprintln(std::format("run_loop: sched_setaffinity ring_core={} failed errno={}", ring_core_, errno));
+			conflux::utils::eprintln(
+				std::format("run_loop: sched_setaffinity ring_core={} failed errno={}", ring_core_, errno));
 		}
 	}
 	if (worker_core_ >= 0 && ring.ring_fd >= 0) {
@@ -1257,7 +1259,8 @@ conflux::http::RunStatus Ring::run_loop() {
 			&cs,
 			static_cast<unsigned>(sizeof(cs)));
 		if (rc < 0) {
-			eprintln(std::format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
+			conflux::utils::eprintln(
+				std::format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
 		}
 	}
 	conflux::file_io::CurrentFileReaderScope const file_reader_scope{files.get()};

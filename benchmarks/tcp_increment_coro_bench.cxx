@@ -1,6 +1,7 @@
 // Benchmark: TCP round-trip (send N, expect N+1).
-// fr/* variants use FileReader; str/* variants use SocketTaskRing/TcpStream.
-// Phase 1: all four variants run against the same blocking single-connection server.
+// fr/* variants use conflux::file_io::FileReader; str/* variants use
+// conflux::socket_io::SocketTaskRing/conflux::socket_io::TcpStream. Phase 1: all four variants run against the same
+// blocking single-connection server.
 #include <arpa/inet.h>
 #include <charconv>
 #include <liburing.h>
@@ -228,10 +229,10 @@ std::uint64_t decode_line(
 	}
 	return n;
 }
-// ── fr/* (FileReader) variants ────────────────────────────────────────────────
+// ── fr/* (conflux::file_io::FileReader) variants ────────────────────────────────────────────────
 struct FrLineReader {
-	FileReader &files;
-	FileHandle const &handle;
+	conflux::file_io::FileReader &files;
+	conflux::uring::FileHandle const &handle;
 	std::array<std::byte, 128> buf{};
 	std::size_t held = 0;
 	conflux::work::root::Task<std::string_view> read_line() {
@@ -255,8 +256,8 @@ struct FrLineReader {
 	}
 };
 std::uint64_t run_fr_callback(
-	FileReader &files,
-	FileHandle const &sock,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &sock,
 	std::size_t iters,
 	std::uint64_t start) {
 	FrLineReader reader{.files = files, .handle = sock};
@@ -278,8 +279,8 @@ std::uint64_t run_fr_callback(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 conflux::work::root::Task<std::uint64_t> fr_coro_loop(
-	FileReader &files,
-	FileHandle const &sock,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &sock,
 	std::size_t iters,
 	std::uint64_t start) {
 	FrLineReader reader{.files = files, .handle = sock};
@@ -299,8 +300,8 @@ conflux::work::root::Task<std::uint64_t> fr_coro_loop(
 	co_return n;
 }
 std::uint64_t run_fr_coroutine(
-	FileReader &files,
-	FileHandle const &sock,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &sock,
 	std::size_t iters,
 	std::uint64_t start) {
 	auto const t0 = std::chrono::steady_clock::now();
@@ -308,10 +309,10 @@ std::uint64_t run_fr_coroutine(
 	auto const t1 = std::chrono::steady_clock::now();
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
-// ── str/* (SocketTaskRing) variants ───────────────────────────────────────────
+// ── str/* (conflux::socket_io::SocketTaskRing) variants ───────────────────────────────────────────
 struct StrLineReader {
-	TcpStream &stream;
-	SocketTaskRing &ring;
+	conflux::socket_io::TcpStream &stream;
+	conflux::socket_io::SocketTaskRing &ring;
 	std::array<std::uint8_t, 128> buf{};
 	std::size_t held = 0;
 	std::string_view read_line() {
@@ -337,8 +338,8 @@ struct StrLineReader {
 	}
 };
 std::uint64_t run_str_callback(
-	SocketTaskRing &ring,
-	TcpStream &stream,
+	conflux::socket_io::SocketTaskRing &ring,
+	conflux::socket_io::TcpStream &stream,
 	std::size_t iters,
 	std::uint64_t start) {
 	StrLineReader reader{.stream = stream, .ring = ring};
@@ -363,7 +364,7 @@ std::uint64_t run_str_callback(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 conflux::work::root::Task<std::uint64_t> str_coro_loop(
-	TcpStream &stream,
+	conflux::socket_io::TcpStream &stream,
 	std::size_t iters,
 	std::uint64_t start) {
 	std::array<std::uint8_t, 128> rbuf{};
@@ -399,8 +400,8 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 	co_return n;
 }
 std::uint64_t run_str_coroutine(
-	SocketTaskRing &ring,
-	TcpStream &stream,
+	conflux::socket_io::SocketTaskRing &ring,
+	conflux::socket_io::TcpStream &stream,
 	std::size_t iters,
 	std::uint64_t start) {
 	auto const t0 = std::chrono::steady_clock::now();
@@ -410,7 +411,7 @@ std::uint64_t run_str_coroutine(
 }
 // ── async server ──────────────────────────────────────────────────────────────
 conflux::work::root::Task<void> serve_one_async(
-	TcpStream stream) {
+	conflux::socket_io::TcpStream stream) {
 	std::array<std::uint8_t, 128> rbuf{};
 	std::size_t held = 0;
 	for (;;) {
@@ -461,8 +462,11 @@ void run_async_server(
 	std::atomic<std::uint16_t> &port_out,
 	std::atomic_flag &port_ready,
 	std::atomic_flag &stop) {
-	TcpListener listener{
-		TcpListenerOptions{.port = 0, .bind = TcpBindAddress::loopback_v4, .reuse_addr = true}
+	conflux::socket_io::TcpListener listener{
+		conflux::socket_io::TcpListenerOptions{
+											   .port = 0,
+											   .bind = conflux::socket_io::TcpBindAddress::loopback_v4,
+											   .reuse_addr = true}
     };
 	port_out.store(listener.port(), std::memory_order_release);
 	port_ready.test_and_set(std::memory_order_release);
@@ -470,13 +474,19 @@ void run_async_server(
 	if (::io_uring_queue_init(64, &raw, 0) < 0) {
 		return;
 	}
-	CompletionTable ct;
-	SocketTaskRing ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
-							return pack_ud(s, g);
-						}};
-	async_tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
-		return serve_one_async(std::move(s));
-	}).detach();
+	conflux::uring::CompletionTable ct;
+	conflux::socket_io::SocketTaskRing ring{
+		conflux::socket_io::SocketRawRing{&raw},
+		ct,
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
+	conflux::socket_io::async_tcp_accept_multishot(
+		listener,
+		ring,
+		{},
+		[](conflux::socket_io::TcpStream s) -> conflux::work::root::Task<void> {
+			return serve_one_async(std::move(s));
+		})
+		.detach();
 	auto drain = [&]() noexcept {
 		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
@@ -518,24 +528,24 @@ void run_async_server(
 }
 // ── str/parallel_4 ────────────────────────────────────────────────────────────
 conflux::work::root::Task<void> str_parallel_inner(
-	SocketTaskRing &ring,
+	conflux::socket_io::SocketTaskRing &ring,
 	std::uint16_t port,
 	std::size_t iters,
 	std::uint64_t start) {
 	auto ss = loopback_addr(port);
-	auto [s1, s2, s3, s4] = co_await join_all(
+	auto [s1, s2, s3, s4] = co_await conflux::work::join_all(
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)));
-	co_await join_all(
+	co_await conflux::work::join_all(
 		str_coro_loop(s1, iters, start),
 		str_coro_loop(s2, iters, start),
 		str_coro_loop(s3, iters, start),
 		str_coro_loop(s4, iters, start));
 }
 std::uint64_t run_str_parallel(
-	SocketTaskRing &ring,
+	conflux::socket_io::SocketTaskRing &ring,
 	std::uint16_t port,
 	std::size_t iters,
 	std::uint64_t start) {
@@ -595,12 +605,12 @@ int main(
 			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
 		}
-		CompletionTable ct;
+		conflux::uring::CompletionTable ct;
 		try {
 			if (which < 2) {
-				FileReader files{&raw, &ct, pack_ud};
+				conflux::file_io::FileReader files{&raw, &ct, pack_ud};
 				int const csock = connect_to(port);
-				FileHandle sock = FileHandle::from_fd(csock);
+				conflux::uring::FileHandle sock = conflux::uring::FileHandle::from_fd(csock);
 				(void)run_fr_callback(files, sock, cfg.warmup, 0);
 				std::uint64_t const ns = (which == 0) ? run_fr_callback(files, sock, cfg.iterations, cfg.warmup) :
 														run_fr_coroutine(files, sock, cfg.iterations, cfg.warmup);
@@ -625,12 +635,12 @@ int main(
 				(void)sock.release_fd();
 				::close(csock);
 			} else if (which < 4) {
-				SocketTaskRing task_ring{
-					SocketRawRing{&raw},
+				conflux::socket_io::SocketTaskRing task_ring{
+					conflux::socket_io::SocketRawRing{&raw},
 					ct,
 					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				auto ss = loopback_addr(port);
-				TcpStream stream =
+				conflux::socket_io::TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				std::uint64_t const ns = (which == 2) ?
@@ -652,12 +662,12 @@ int main(
 				server_stop.test_and_set(std::memory_order_release);
 				// stream dtor closes fd → unblocks server's ::read → server sees stop flag
 			} else if (which < 6) {
-				SocketTaskRing task_ring{
-					SocketRawRing{&raw},
+				conflux::socket_io::SocketTaskRing task_ring{
+					conflux::socket_io::SocketRawRing{&raw},
 					ct,
 					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				auto ss = loopback_addr(port);
-				TcpStream stream =
+				conflux::socket_io::TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				std::uint64_t const ns = (which == 4) ?
@@ -678,8 +688,8 @@ int main(
 				}
 				server_stop.test_and_set(std::memory_order_release);
 			} else {
-				SocketTaskRing task_ring{
-					SocketRawRing{&raw},
+				conflux::socket_io::SocketTaskRing task_ring{
+					conflux::socket_io::SocketRawRing{&raw},
 					ct,
 					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				(void)run_str_parallel(task_ring, port, cfg.warmup, 0);

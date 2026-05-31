@@ -10,6 +10,8 @@ import conflux.utils;
 
 export namespace conflux::net::detail {
 
+using conflux::utils::eprintln;
+
 enum class DirectSlotState : std::uint8_t {
 	free_slot,
 	leased_empty,

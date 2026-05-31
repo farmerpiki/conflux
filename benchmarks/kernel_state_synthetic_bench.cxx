@@ -141,7 +141,7 @@ BenchStats bench_deferred_close_queue(
 
 BenchStats bench_generation_advance_alive(
 	Config const &cfg) {
-	GenerationTable generations{static_cast<std::uint32_t>(cfg.depth)};
+	conflux::socket_io::GenerationTable generations{static_cast<std::uint32_t>(cfg.depth)};
 	std::uint64_t sink = 0;
 	auto stats = run_depth_variant(cfg, "generation_advance_alive"sv, [&] {
 		for (std::uint32_t slot = 0; slot < static_cast<std::uint32_t>(cfg.depth); ++slot) {
@@ -160,7 +160,7 @@ BenchStats bench_generation_advance_alive(
 
 BenchStats bench_generation_stale_reject(
 	Config const &cfg) {
-	GenerationTable generations{static_cast<std::uint32_t>(cfg.depth)};
+	conflux::socket_io::GenerationTable generations{static_cast<std::uint32_t>(cfg.depth)};
 	std::vector<std::uint32_t> stale(cfg.depth);
 	for (std::uint32_t slot = 0; slot < static_cast<std::uint32_t>(cfg.depth); ++slot) {
 		stale[slot] = generations.advance(slot);
@@ -182,12 +182,13 @@ BenchStats bench_generation_stale_reject(
 
 BenchStats bench_completion_dispatch_depth(
 	Config const &cfg) {
-	CompletionTable completions{cfg.depth};
+	conflux::uring::CompletionTable completions{cfg.depth};
 	std::vector<std::pair<std::uint32_t, std::uint32_t>> refs(cfg.depth);
 	std::uint64_t sink = 0;
 	auto stats = run_depth_variant(cfg, "completion_dispatch_depth"sv, [&] {
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
-			refs[i] = completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
+			refs[i] = completions.reserve(
+				[&sink](conflux::uring::IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
 		}
 		for (auto const [slot, gen]: refs) {
 			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});

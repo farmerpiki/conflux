@@ -29,7 +29,7 @@ using namespace std::literals;
 using conflux::http::Config;
 using HttpRequest = conflux::http::OwnedRequest;
 using conflux::http::Response;
-using Router = ::Router;
+using Router = conflux::http::Router;
 using conflux::http::SseChannel;
 
 namespace {
@@ -491,20 +491,20 @@ Config h2_bench_config(
 
 struct ServerHandle {
 	TempCertFiles certs;
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 };
 
 ServerHandle start_h2_server(
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	auto certs = make_self_signed_cert_files();
 	auto cfg = h2_bench_config();
 	cfg.cert_file = certs.cert;
 	cfg.key_file = certs.key;
 
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -531,10 +531,10 @@ ServerHandle start_h2_server(
 	return {.certs = std::move(certs), .server = srv, .thr = std::move(t), .port = p};
 }
 
-Router make_h2_router(
+conflux::http::Router make_h2_router(
 	std::string const &body_64k,
 	std::string const &body_128k) {
-	Router r;
+	conflux::http::Router r;
 	r.get("/api/ping", [](HttpRequest const &) { return conflux::http::Response::json(R"({"status":"ok"})"); });
 	r.get("/hello/{name}", [](HttpRequest const &req) {
 		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));

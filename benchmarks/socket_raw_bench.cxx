@@ -97,7 +97,7 @@ void wait_cqe(
 }
 
 void submit_or_throw(
-	SocketRawRing const &raw) {
+	conflux::socket_io::SocketRawRing const &raw) {
 	if (raw.submit() < 0) {
 		throw std::runtime_error{"io_uring_submit"};
 	}
@@ -218,7 +218,7 @@ void run_accept_close(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	auto v = Variant{
 		.name = "raw_accept_close",
@@ -253,8 +253,8 @@ void run_accept_direct_close(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
-	SocketRawRing raw{rg.get()};
-	auto dft = std::make_unique<DirectFdTable>(rg.get(), 64);
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	auto dft = std::make_unique<conflux::socket_io::DirectFdTable>(rg.get(), 64);
 	if (!dft->registered()) {
 		return;
 	}
@@ -279,7 +279,7 @@ void run_accept_direct_close(
 				int slot = cqe->res;
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (slot >= 0) {
-					submit_close(raw, DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
+					submit_close(raw, conflux::uring::DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
 					submit_or_throw(raw);
 					wait_cqe(rg.get(), &cqe);
 					io_uring_cqe_seen(rg.get(), cqe);
@@ -301,8 +301,8 @@ void run_accept_direct_reuse_cycle(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
-	SocketRawRing raw{rg.get()};
-	DirectFdTable dft{rg.get(), 64};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::DirectFdTable dft{rg.get(), 64};
 	if (!dft.registered()) {
 		return;
 	}
@@ -330,7 +330,7 @@ void run_accept_direct_reuse_cycle(
 					int slot = cqe->res;
 					io_uring_cqe_seen(rg.get(), cqe);
 					if (slot >= 0) {
-						submit_close(raw, DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
+						submit_close(raw, conflux::uring::DirectFd::from_direct(static_cast<std::uint32_t>(slot)), 2);
 						submit_or_throw(raw);
 						wait_cqe(rg.get(), &cqe);
 						io_uring_cqe_seen(rg.get(), cqe);
@@ -351,7 +351,7 @@ void run_shutdown_close(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	auto v = Variant{
 		.name = "raw_shutdown_close",
@@ -385,8 +385,8 @@ void run_multishot_recv_1conn(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	BufferRing bufs{
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -415,8 +415,8 @@ void run_multishot_recv_1conn(
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
-				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
-					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
+				if (cqe->res > 0 && conflux::socket_io::cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(conflux::socket_io::cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
@@ -455,8 +455,8 @@ void run_multishot_recv_Nconn(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{1024};
-	SocketRawRing raw{rg.get()};
-	BufferRing bufs{
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 4096, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -496,8 +496,8 @@ void run_multishot_recv_Nconn(
 				wait_cqe(rg.get(), &cqe);
 				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
 				std::uint64_t const ud = io_uring_cqe_get_data64(cqe);
-				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
-					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
+				if (cqe->res > 0 && conflux::socket_io::cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(conflux::socket_io::cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more && ud >= 100 && ud < 100 + kConns) {
@@ -543,12 +543,12 @@ void run_recv_fixed_fd(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	DirectFdTable dft{rg.get(), 64};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::DirectFdTable dft{rg.get(), 64};
 	if (!dft.registered()) {
 		return;
 	}
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -579,23 +579,23 @@ void run_recv_fixed_fd(
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				bool const more = ur::CqeFlags{cqe->flags}.any(ur::cqe_flags::more);
-				if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
-					bufs.recycle(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
+				if (cqe->res > 0 && conflux::socket_io::cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+					bufs.recycle(conflux::socket_io::cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
-					submit_recv_multishot(raw, DirectFd::from_direct(0), bufs, 10);
+					submit_recv_multishot(raw, conflux::uring::DirectFd::from_direct(0), bufs, 10);
 					submit_or_throw(raw);
 				}
 			},
 		.setup =
 			[&] {
-				submit_recv_multishot(raw, DirectFd::from_direct(0), bufs, 10);
+				submit_recv_multishot(raw, conflux::uring::DirectFd::from_direct(0), bufs, 10);
 				submit_or_throw(raw);
 			},
 		.teardown =
 			[&] {
-				submit_cancel_fd(raw, DirectFd::from_direct(0), 99);
+				submit_cancel_fd(raw, conflux::uring::DirectFd::from_direct(0), 99);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -621,7 +621,7 @@ void run_send_variant(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	int cli = connect_one(ls.port);
 	FdGuard cg{cli};
@@ -666,8 +666,8 @@ void run_send_fixed_fd(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	DirectFdTable dft{rg.get(), 64};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::DirectFdTable dft{rg.get(), 64};
 	if (!dft.registered()) {
 		return;
 	}
@@ -693,7 +693,7 @@ void run_send_fixed_fd(
 		.name = "raw_send_fixed_fd",
 		.run =
 			[&] {
-				submit_send_borrowed(raw, DirectFd::from_direct(0), kSend64.data(), kSend64.size(), 1);
+				submit_send_borrowed(raw, conflux::uring::DirectFd::from_direct(0), kSend64.data(), kSend64.size(), 1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -717,7 +717,7 @@ void run_writev_variant(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	int cli = connect_one(ls.port);
 	FdGuard cg{cli};
@@ -763,8 +763,8 @@ void run_direct_fd_install(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	DirectFdTable dft{rg.get(), 64};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::DirectFdTable dft{rg.get(), 64};
 	if (!dft.registered()) {
 		return;
 	}
@@ -794,7 +794,7 @@ void run_direct_fd_install(
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
 }
-// direct_fd_alloc_free: DirectFdTable install + clear (no io_uring SQE)
+// direct_fd_alloc_free: conflux::socket_io::DirectFdTable install + clear (no io_uring SQE)
 void run_direct_fd_alloc_free(
 	BenchArgs const &args,
 	bool json,
@@ -803,7 +803,7 @@ void run_direct_fd_alloc_free(
 
 	auto v = Variant{
 		.name = "direct_fd_alloc_free",
-		.run = [&] { DirectFdTable dft{rg.get(), 64}; },
+		.run = [&] { conflux::socket_io::DirectFdTable dft{rg.get(), 64}; },
 	};
 
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
@@ -835,7 +835,7 @@ void run_direct_fd_slot_exhaustion(
 		.name = "direct_fd_slot_exhaustion",
 		.run =
 			[&] {
-				DirectFdTable dft{rg.get(), kSlots};
+				conflux::socket_io::DirectFdTable dft{rg.get(), kSlots};
 				if (!dft.registered()) {
 					return;
 				}
@@ -855,7 +855,7 @@ void run_stale_cqe_after_reuse(
 	bool json,
 	std::string_view config_name) {
 	RingGuard rg{64};
-	GenerationTable gen{64};
+	conflux::socket_io::GenerationTable gen{64};
 
 	auto v = Variant{
 		.name = "raw_stale_cqe_after_reuse",
@@ -886,8 +886,8 @@ void run_cancel_recv(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	BufferRing bufs{
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -928,8 +928,8 @@ void run_cancel_by_user_data(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	BufferRing bufs{
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -969,7 +969,7 @@ void run_link_timeout(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	int cli = connect_one(ls.port);
 	FdGuard cg{cli};
@@ -1017,8 +1017,8 @@ void run_setsockopt_variant(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
-	DirectFdTable dft{rg.get(), 64};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
+	conflux::socket_io::DirectFdTable dft{rg.get(), 64};
 	if (!dft.registered()) {
 		return;
 	}
@@ -1035,7 +1035,14 @@ void run_setsockopt_variant(
 		.name = variant_name,
 		.run =
 			[&] {
-				submit_setsockopt_borrowed(raw, DirectFd::from_direct(0), level, optname, &optval, sizeof(optval), 1);
+				submit_setsockopt_borrowed(
+					raw,
+					conflux::uring::DirectFd::from_direct(0),
+					level,
+					optname,
+					&optval,
+					sizeof(optval),
+					1);
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
@@ -1054,7 +1061,7 @@ void run_buf_ring_alloc_recycle(
 	bool json,
 	std::string_view config_name) {
 	RingGuard rg{64};
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -1080,7 +1087,7 @@ void run_buf_ring_batch_recycle_16(
 	bool json,
 	std::string_view config_name) {
 	RingGuard rg{64};
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -1107,9 +1114,9 @@ void run_buf_ring_exhaustion_recover(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 	constexpr std::uint32_t kBufCount = 64;
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = kBufCount, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -1135,8 +1142,8 @@ void run_buf_ring_exhaustion_recover(
 					(void)::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL);
 					io_uring_cqe *cqe{};
 					wait_cqe(rg.get(), &cqe);
-					if (cqe->res > 0 && cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
-						drained.push_back(cqe_buffer_id(ur::CqeFlags{cqe->flags}));
+					if (cqe->res > 0 && conflux::socket_io::cqe_has_buffer(ur::CqeFlags{cqe->flags})) {
+						drained.push_back(conflux::socket_io::cqe_buffer_id(ur::CqeFlags{cqe->flags}));
 					}
 					io_uring_cqe_seen(rg.get(), cqe);
 				}
@@ -1164,7 +1171,7 @@ void run_gen_table_check(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	GenerationTable gen{1024};
+	conflux::socket_io::GenerationTable gen{1024};
 
 	auto v = Variant{
 		.name = "gen_table_check",
@@ -1184,7 +1191,7 @@ void run_gen_table_bump_check(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	GenerationTable gen{1024};
+	conflux::socket_io::GenerationTable gen{1024};
 
 	std::uint32_t slot = 0;
 	auto v = Variant{
@@ -1275,11 +1282,13 @@ void run_recv_arm_policy_resolve(
 			.run =
 				[&] {
 					for (ur::CqeFlags flg: flags) {
-						RecvArmPolicy arm = RecvArmPolicy::default_;
+						conflux::socket_io::RecvArmPolicy arm = conflux::socket_io::RecvArmPolicy::default_;
 						switch (mode) {
-						case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
-						case PolicyMode::poll_first: arm = RecvArmPolicy::poll_first; break;
-						case PolicyMode::adaptive  : arm = resolve_recv_arm_policy(true, true, true, flg); break;
+						case PolicyMode::default_  : arm = conflux::socket_io::RecvArmPolicy::default_; break;
+						case PolicyMode::poll_first: arm = conflux::socket_io::RecvArmPolicy::poll_first; break;
+						case PolicyMode::adaptive:
+							arm = conflux::socket_io::resolve_recv_arm_policy(true, true, true, flg);
+							break;
 						}
 						sink += static_cast<std::uint64_t>(arm);
 					}
@@ -1307,7 +1316,7 @@ void run_batch_send_32(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	int cli = connect_one(ls.port);
 	FdGuard cg{cli};
@@ -1362,7 +1371,7 @@ void run_batch_recv_send_16(
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
-	SocketRawRing raw{rg.get()};
+	conflux::socket_io::SocketRawRing raw{rg.get()};
 
 	int cli = connect_one(ls.port);
 	FdGuard cg{cli};
@@ -1430,7 +1439,7 @@ void run_buf_slices_from_cqe_classic(
 	bool json,
 	std::string_view config_name) {
 	RingGuard rg{64};
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = 4096, .group_id = 0, .huge_pages = false},
 		rg.caps()
@@ -1441,7 +1450,7 @@ void run_buf_slices_from_cqe_classic(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				auto const flags = cqe_buffer_flags(ur::BufId{id});
+				auto const flags = conflux::socket_io::cqe_buffer_flags(ur::BufId{id});
 				auto slices = buffer_slices_from_cqe(bufs, 64, flags, false);
 				slices.recycle_all();
 			},
@@ -1451,7 +1460,7 @@ void run_buf_slices_from_cqe_classic(
 	bench_print(s, json, false);
 }
 // buf_slices_from_cqe_bundle_3_full / _bundle_3_partial_tail
-// Simulate a 3-buffer bundle CQE using BufferRingMode::recv_bundle.
+// Simulate a 3-buffer bundle CQE using conflux::socket_io::BufferRingMode::recv_bundle.
 // partial_tail variant: last buffer holds fewer bytes, exercising the length math.
 void run_buf_slices_from_cqe_bundle(
 	BenchArgs const &args,
@@ -1461,9 +1470,13 @@ void run_buf_slices_from_cqe_bundle(
 	int res) {
 	RingGuard rg{64};
 	constexpr std::size_t kBufSz = 4096;
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
-		{.count = 256, .buf_size = kBufSz, .group_id = 0, .huge_pages = false, .mode = BufferRingMode::recv_bundle},
+		{.count = 256,
+				.buf_size = kBufSz,
+				.group_id = 0,
+				.huge_pages = false,
+				.mode = conflux::socket_io::BufferRingMode::recv_bundle},
 		rg.caps()
     };
 
@@ -1472,7 +1485,7 @@ void run_buf_slices_from_cqe_bundle(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				auto const flags = cqe_buffer_flags(ur::BufId{id});
+				auto const flags = conflux::socket_io::cqe_buffer_flags(ur::BufId{id});
 				auto slices = buffer_slices_from_cqe(bufs, res, flags, true);
 				volatile std::size_t acc = 0;
 				for (auto s: slices) {
@@ -1501,9 +1514,13 @@ void run_buf_slice_from_incremental_cqe(
 		return;
 	}
 	constexpr std::size_t kBufSz = 4096;
-	BufferRing bufs{
+	conflux::socket_io::BufferRing bufs{
 		rg.get(),
-		{.count = 256, .buf_size = kBufSz, .group_id = 0, .huge_pages = false, .mode = BufferRingMode::incremental},
+		{.count = 256,
+				.buf_size = kBufSz,
+				.group_id = 0,
+				.huge_pages = false,
+				.mode = conflux::socket_io::BufferRingMode::incremental},
 		rg.caps()
     };
 
@@ -1518,7 +1535,7 @@ void run_buf_slice_from_incremental_cqe(
 				for (int i = 0; i < n; ++i) {
 					bool const is_last = (i == n - 1);
 					std::size_t const res = is_last ? kBufSz - chunk * static_cast<std::size_t>(i) : chunk;
-					auto const flags = cqe_buffer_flags(ur::BufId{id}, !is_last);
+					auto const flags = conflux::socket_io::cqe_buffer_flags(ur::BufId{id}, !is_last);
 					auto slice = buffer_slice_from_incremental_cqe(bufs, static_cast<int>(res), flags);
 					acc += slice.size();
 					slice.recycle_if_final();

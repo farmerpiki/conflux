@@ -10,6 +10,7 @@ import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
 export namespace conflux::http {
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -118,7 +119,7 @@ void append_prometheus_label_set(
 		first = false;
 		out += label.name;
 		out += R"(=")";
-		append_json_string_content_fallback(out, label.value);
+		conflux::utils::append_json_string_content_fallback(out, label.value);
 		out += '"';
 	}
 	out += '}';
@@ -258,7 +259,9 @@ private:
 // Middleware: intercept every request, record method + status + latency.
 Router::Middleware metrics_middleware(
 	MetricsRegistry &registry) {
-	return [&registry](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [&registry](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const start = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		registry.record(req.method, resp.status, std::chrono::steady_clock::now() - start);
@@ -284,9 +287,8 @@ Router::Handler metrics_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &req) -> conflux::http::Response {
-			return mw(req, next);
-		};
+		current = [mw = std::move(mw), next = std::move(next)](
+					  conflux::http::RequestView const &req) -> conflux::http::Response { return mw(req, next); };
 	}
 	return current;
 }

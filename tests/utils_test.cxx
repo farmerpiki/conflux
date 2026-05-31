@@ -6,6 +6,9 @@
 import std;
 import conflux.types;
 import conflux.utils;
+
+using namespace conflux::utils;
+
 // ---------------------------------------------------------------------------
 // url_decode
 // ---------------------------------------------------------------------------

@@ -187,16 +187,16 @@ void wait_for_server(
 	wait_for_server("127.0.0.1"sv, port);
 }
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 };
 ServerHandle start_server(
 	Config cfg,
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -497,7 +497,7 @@ SendZcBenchStats run_concurrent_variant(
 	std::string_view config_name,
 	std::string name,
 	std::string_view mode,
-	std::function<Router()> router_factory,
+	std::function<conflux::http::Router()> router_factory,
 	std::string request,
 	std::size_t response_bytes,
 	std::size_t send_zc_threshold,
@@ -803,7 +803,7 @@ int main(
 	}
 
 	auto make_body_router = [&] {
-		Router r;
+		conflux::http::Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
 			r.get(std::format("/body/{}", label), [body_ptr](conflux::http::OwnedRequest const &) {
@@ -823,12 +823,12 @@ int main(
 		out.write(data.data(), static_cast<std::streamsize>(data.size()));
 	}
 	auto make_static_router = [&] {
-		Router r;
+		conflux::http::Router r;
 		r.serve_static("/", std::string{static_dir.string()});
 		return r;
 	};
 	auto make_remote_router = [&] {
-		Router r;
+		conflux::http::Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
 			r.get(std::format("/body/{}", label), [body_ptr](conflux::http::OwnedRequest const &) {
@@ -898,7 +898,7 @@ int main(
 
 	auto make_http_variant = [&](std::string name,
 								 std::string_view mode,
-								 std::function<Router()> router_factory,
+								 std::function<conflux::http::Router()> router_factory,
 								 std::string request,
 								 std::size_t iters_override = 0) {
 		struct State {
@@ -1103,7 +1103,7 @@ int main(
 
 	auto make_tls_variant = [&](std::string name,
 								std::string_view mode,
-								std::function<Router()> router_factory,
+								std::function<conflux::http::Router()> router_factory,
 								std::string request,
 								std::size_t iters_override = 200) {
 		struct State {

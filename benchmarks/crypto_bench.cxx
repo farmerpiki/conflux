@@ -48,13 +48,13 @@ int main(
 	std::array<unsigned char, 32> key{};
 	std::array<unsigned char, 12> iv{};
 	std::array<unsigned char, 16> aad{};
-	crypto_random_bytes(key);
-	crypto_random_bytes(iv);
-	crypto_random_bytes(aad);
+	conflux::utils::crypto_random_bytes(key);
+	conflux::utils::crypto_random_bytes(iv);
+	conflux::utils::crypto_random_bytes(aad);
 
 	for (std::size_t sz: {64UZ, 256UZ, 1024UZ, 4096UZ, 16384UZ, 65536UZ}) {
 		std::vector<unsigned char> pt(sz);
-		crypto_random_bytes(pt);
+		conflux::utils::crypto_random_bytes(pt);
 
 		auto enc_name = std::format("gcm_encrypt/{}", sz);
 		emit(
@@ -86,14 +86,14 @@ int main(
 
 	for (std::size_t sz: {16UZ, 64UZ, 256UZ, 1024UZ, 4096UZ}) {
 		std::vector<unsigned char> data(sz);
-		crypto_random_bytes(data);
+		conflux::utils::crypto_random_bytes(data);
 
-		auto name = std::format("hex_encode/{}", sz);
+		auto name = std::format("conflux::utils::hex_encode/{}", sz);
 		emit(
 			name,
 			measure(
 				[&] {
-					auto h = hex_encode(data);
+					auto h = conflux::utils::hex_encode(data);
 					asm volatile("" : : "r"(h.data()) : "memory");
 				},
 				cfg.warmup,
@@ -104,7 +104,7 @@ int main(
 
 	for (std::size_t sz: {32UZ, 64UZ, 256UZ}) {
 		std::vector<unsigned char> msg(sz);
-		crypto_random_bytes(msg);
+		conflux::utils::crypto_random_bytes(msg);
 
 		auto name = std::format("sha256/{}", sz);
 		emit(
@@ -153,7 +153,7 @@ int main(
 						c = 'X';
 					}
 					asm volatile("" : "+m"(*buf.data()));
-					ascii_lower_inplace(std::span{buf});
+					conflux::utils::ascii_lower_inplace(std::span{buf});
 					asm volatile("" : : "r"(buf.data()) : "memory");
 				},
 				cfg.warmup,
@@ -164,10 +164,10 @@ int main(
 
 	std::string const url_plain = "https://example.com/api/v1/users/12345/profile?format=json&lang=en";
 	emit(
-		"url_decode/plain_65",
+		"conflux::utils::url_decode/plain_65",
 		measure(
 			[&] {
-				auto r = url_decode(url_plain);
+				auto r = conflux::utils::url_decode(url_plain);
 				asm volatile("" : : "r"(r.data()) : "memory");
 			},
 			cfg.warmup,
@@ -176,10 +176,10 @@ int main(
 
 	std::string const url_encoded = "key1%3Dval1%26key2%3Dval2%26key3%3Dval3%26key4%3Dval4%26key5%3Dval5";
 	emit(
-		"url_decode/encoded_67",
+		"conflux::utils::url_decode/encoded_67",
 		measure(
 			[&] {
-				auto r = url_decode(url_encoded);
+				auto r = conflux::utils::url_decode(url_encoded);
 				asm volatile("" : : "r"(r.data()) : "memory");
 			},
 			cfg.warmup,

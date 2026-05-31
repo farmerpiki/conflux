@@ -1393,7 +1393,7 @@ struct TempCorpusFile {
 	}
 };
 conflux::work::root::Task<void> decode_file_once(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	std::string path) {
 	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	JsonAccumulator acc;
@@ -1417,7 +1417,7 @@ conflux::work::root::Task<void> decode_file_once(
 	(void)doc->root();
 }
 conflux::work::root::Task<void> decode_socket_once(
-	SocketTaskRing &ring,
+	conflux::socket_io::SocketTaskRing &ring,
 	std::uint16_t port) {
 	auto ss = loopback_addr(port);
 	auto stream = co_await async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in));
@@ -1453,12 +1453,12 @@ void bench_e2e_decode(
 	if (::io_uring_queue_init(64, &raw, 0) < 0) {
 		throw std::runtime_error{"io_uring_queue_init"};
 	}
-	CompletionTable ct;
+	conflux::uring::CompletionTable ct;
 	auto const pack_ud = [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
 		return (static_cast<std::uint64_t>(g) << 32U) | s;
 	};
-	FileReader files{&raw, &ct, pack_ud};
-	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
+	conflux::file_io::FileReader files{&raw, &ct, pack_ud};
+	conflux::socket_io::SocketTaskRing ring{conflux::socket_io::SocketRawRing{&raw}, ct, pack_ud};
 	try {
 		if (should_run(file_name)) {
 			auto file_stats =
@@ -2095,7 +2095,8 @@ int main(
 	bench_accumulate_chunked("accumulate/byte_span chunked (1MB large)", large_corpus, 4096);
 	if (!g_csv) {
 		std::println("[json-bench]");
-		std::println("[json-bench] -- e2e JSON decode: FileReader vs SocketTaskRing --");
+		std::println(
+			"[json-bench] -- e2e JSON decode: conflux::file_io::FileReader vs conflux::socket_io::SocketTaskRing --");
 	}
 	bench_e2e_decode("e2e/large_json_decode", large_corpus);
 

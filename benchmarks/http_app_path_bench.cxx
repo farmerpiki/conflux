@@ -151,7 +151,7 @@ struct PathState {
 	std::string description;
 	std::string raw;
 	ParserLimits limits{};
-	Router router;
+	conflux::http::Router router;
 	std::unique_ptr<conflux::http::App> app;
 	bool route_response = true;
 	bool serialize_response = true;
@@ -299,10 +299,10 @@ std::atomic<std::size_t> g_sink{};
 }
 
 void add_header_middlewares(
-	Router &router,
+	conflux::http::Router &router,
 	std::size_t count) {
 	for (std::size_t i = 0; i < count; ++i) {
-		router.use([i](conflux::http::RequestView const &req, Router::Handler const &next) {
+		router.use([i](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) {
 			auto resp = next(req);
 			resp.headers.set(std::format("X-Bench-Mw-{}", i), "1");
 			return resp;
@@ -314,7 +314,9 @@ void append_standard_routes(
 	PathState &state,
 	std::string small_json,
 	std::string medium_json) {
-	state.router.get("/api/ping", [](conflux::http::RequestView const &) { return conflux::http::Response::text("pong"); });
+	state.router.get("/api/ping", [](conflux::http::RequestView const &) {
+		return conflux::http::Response::text("pong");
+	});
 	state.router.get("/hello/{name}", [](conflux::http::RequestView const &req) {
 		return conflux::http::Response::text(std::format("hello {}", req.params["name"]));
 	});

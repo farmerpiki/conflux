@@ -329,7 +329,7 @@ struct alignas(
 	}
 	return "unknown";
 }
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif

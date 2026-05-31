@@ -321,7 +321,7 @@ void wait_for_server(
 }
 
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thr;
 	std::uint16_t port{};
 
@@ -373,9 +373,9 @@ struct ServerHandle {
 	Config cfg,
 	std::filesystem::path const &root) {
 	(void)::signal(SIGPIPE, SIG_IGN);
-	Router router;
+	conflux::http::Router router;
 	router.serve_static("/static", root.string());
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -420,7 +420,7 @@ struct StaticCase {
 	std::string_view name;
 	std::string_view strategy;
 	std::uint16_t port{};
-	HttpServer *server{};
+	conflux::http::HttpServer *server{};
 	std::string request;
 	bool tls{};
 	std::size_t response_body_bytes{};
@@ -669,7 +669,7 @@ int main(
 	auto add_case = [&](std::string_view name,
 						std::string_view strategy,
 						std::uint16_t port,
-						HttpServer *server,
+						conflux::http::HttpServer *server,
 						std::string request,
 						std::size_t body_bytes,
 						std::size_t churn_files = 0,

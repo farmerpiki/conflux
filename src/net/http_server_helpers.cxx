@@ -322,7 +322,7 @@ export [[nodiscard]] std::string_view extract_param(
 		if (!param.has_value || !conflux::http::ascii_iequals(param.name, param_name)) {
 			continue;
 		}
-		auto value = trim(param.value);
+		auto value = conflux::utils::trim(param.value);
 		if (value.empty() || value.front() != '"') {
 			return value;
 		}
@@ -541,8 +541,8 @@ export void parse_multipart(
 			auto le = part_headers_sv.find("\r\n", h);
 			auto line = le == std::string_view::npos ? part_headers_sv.substr(h) : part_headers_sv.substr(h, le - h);
 			if (auto colon = line.find(':'); colon != std::string_view::npos) {
-				auto key = trim(line.substr(0, colon));
-				auto val = trim(line.substr(colon + 1));
+				auto key = conflux::utils::trim(line.substr(0, colon));
+				auto val = conflux::utils::trim(line.substr(colon + 1));
 				if (conflux::http::ascii_iequals(key, "content-disposition")) {
 					disposition = val;
 				} else if (conflux::http::ascii_iequals(key, "content-type")) {

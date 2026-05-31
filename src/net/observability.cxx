@@ -81,7 +81,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 
 [[nodiscard]] std::string upper_method(
 	std::string_view method) {
-	return ascii_upper(method);
+	return conflux::utils::ascii_upper(method);
 }
 
 [[nodiscard]] std::string path_without_query(
@@ -121,7 +121,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 		"x-auth-token",
 		"x-csrf-token"};
 	for (auto header: opts.extra_sensitive_headers) {
-		ascii_lower_inplace(header);
+		conflux::utils::ascii_lower_inplace(header);
 		out.push_back(std::move(header));
 	}
 	return out;
@@ -130,7 +130,7 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 [[nodiscard]] bool is_sensitive(
 	std::vector<std::string> const &headers,
 	std::string_view name) {
-	return std::ranges::contains(headers, ascii_lower(name));
+	return std::ranges::contains(headers, conflux::utils::ascii_lower(name));
 }
 
 void append_headers_json(
@@ -374,10 +374,10 @@ struct ObservabilityRegistry {
 		[[nodiscard]] std::size_t operator ()(
 			RequestKey const &key) const noexcept {
 			auto h = std::hash<std::string>{}(key.service);
-			hash_combine(h, key.route);
-			hash_combine(h, key.method);
-			hash_combine(h, key.status_class);
-			hash_combine(h, key.status);
+			conflux::utils::hash_combine(h, key.route);
+			conflux::utils::hash_combine(h, key.method);
+			conflux::utils::hash_combine(h, key.status_class);
+			conflux::utils::hash_combine(h, key.status);
 			return h;
 		}
 	};
@@ -394,8 +394,8 @@ struct ObservabilityRegistry {
 		[[nodiscard]] std::size_t operator ()(
 			DurationKey const &key) const noexcept {
 			auto h = std::hash<std::string>{}(key.service);
-			hash_combine(h, key.route);
-			hash_combine(h, key.method);
+			conflux::utils::hash_combine(h, key.route);
+			conflux::utils::hash_combine(h, key.method);
 			return h;
 		}
 	};
@@ -599,7 +599,7 @@ struct ObservabilityMiddleware {
 			} else if (state->options.access_log_sink) {
 				state->options.access_log_sink(line);
 			} else {
-				eprintln(line);
+				conflux::utils::eprintln(line);
 			}
 		}
 		resp.headers.erase("__conflux-route-pattern");

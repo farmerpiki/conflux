@@ -556,7 +556,7 @@ void bench_utils(
 			std::format("ascii_lower/public-dispatch/{}", sz),
 			[&] {
 				lower_buf = lower_src;
-				ascii_lower_inplace(std::span<char>{lower_buf.data(), lower_buf.size()});
+				conflux::utils::ascii_lower_inplace(std::span<char>{lower_buf.data(), lower_buf.size()});
 				bench_keep_ptr(lower_buf.data());
 			},
 			warmup,
@@ -832,14 +832,14 @@ void bench_aes(
 	std::array<unsigned char, 32> key{};
 	std::array<unsigned char, 12> iv{};
 	std::array<unsigned char, 16> aad{};
-	crypto_random_bytes(key);
-	crypto_random_bytes(iv);
-	crypto_random_bytes(aad);
+	conflux::utils::crypto_random_bytes(key);
+	conflux::utils::crypto_random_bytes(iv);
+	conflux::utils::crypto_random_bytes(aad);
 
 	for (std::size_t sz: {256UZ, 4096UZ, 65536UZ}) {
 		std::vector<unsigned char> pt(sz);
 		std::vector<unsigned char> out(sz + 16UZ);
-		crypto_random_bytes(pt);
+		conflux::utils::crypto_random_bytes(pt);
 		auto const warmup = std::max(cfg.warmup / 20UZ, 1UZ);
 		auto const iters = std::max(cfg.iterations / 20UZ, 1UZ);
 

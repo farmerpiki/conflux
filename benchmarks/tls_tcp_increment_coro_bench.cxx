@@ -292,7 +292,7 @@ struct AsyncTlsLineReader {
 	}
 };
 std::uint64_t run_callback(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	conflux::net_tls::TlsAsyncStream &tls,
 	std::size_t iters,
 	std::uint64_t start) {
@@ -335,7 +335,7 @@ Task<std::uint64_t> coro_loop(
 	co_return n;
 }
 std::uint64_t run_coroutine(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	conflux::net_tls::TlsAsyncStream &tls,
 	std::size_t iters,
 	std::uint64_t start) {
@@ -381,12 +381,12 @@ int main(
 			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
 		}
-		CompletionTable ct;
-		FileReader files{&ring, &ct, pack_ud};
+		conflux::uring::CompletionTable ct;
+		conflux::file_io::FileReader files{&ring, &ct, pack_ud};
 
 		conflux::net_tls::TlsContext cctx;
 		cctx.set_verify_peer(false);
-		FileHandle sock = FileHandle::from_fd(csock);
+		conflux::uring::FileHandle sock = conflux::uring::FileHandle::from_fd(csock);
 		conflux::net_tls::TlsAsyncStream tls{cctx, files, std::move(sock)};
 		(void)tls.set_server_name("localhost");
 

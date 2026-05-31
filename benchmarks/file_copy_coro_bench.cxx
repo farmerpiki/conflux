@@ -57,7 +57,9 @@ Config parse_args(
 		} else if (a == "--no-odirect") {
 			cfg.no_odirect = true;
 		} else if (a == "--help" || a == "-h") {
-			std::println("Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--json] [--no-odirect]");
+			std::println(
+				"Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--json] "
+				"[--no-odirect]");
 			std::exit(0);
 		}
 	}
@@ -96,7 +98,7 @@ void drop_caches() noexcept {
 	}
 }
 std::uint64_t run_callback(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	Config const &cfg,
 	bool cold_cache,
 	bool sync_dst) {
@@ -128,7 +130,7 @@ std::uint64_t run_callback(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 Task<void> coro_copy(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	std::string src_path,
 	std::string dst_path,
 	std::size_t chunk,
@@ -152,7 +154,7 @@ Task<void> coro_copy(
 	co_return;
 }
 std::uint64_t run_coroutine(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	Config const &cfg,
 	bool cold_cache,
 	bool sync_dst) {
@@ -166,7 +168,7 @@ std::uint64_t run_coroutine(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 std::uint64_t run_splice_chain(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	Config const &cfg,
 	std::size_t bytes,
 	bool cold_cache,
@@ -177,7 +179,7 @@ std::uint64_t run_splice_chain(
 	::unlink(cfg.dst_path.c_str());
 	auto const t0 = std::chrono::steady_clock::now();
 
-	PipePool pipes{1};
+	conflux::file_io::PipePool pipes{1};
 	auto pipe = pipes.try_acquire();
 	if (!pipe.has_value()) {
 		throw std::runtime_error{"splice pipe unavailable"};
@@ -323,8 +325,8 @@ int main(
 		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
-	CompletionTable ct;
-	FileReader files{&ring, &ct, pack_ud};
+	conflux::uring::CompletionTable ct;
+	conflux::file_io::FileReader files{&ring, &ct, pack_ud};
 
 	try {
 		bool odirect_available = !cfg.no_odirect;
@@ -381,16 +383,24 @@ int main(
 		double const cb_cached_avg = static_cast<double>(cb_cached.total_ns) / static_cast<double>(cfg.runs);
 		double const co_cached_avg = static_cast<double>(co_cached.total_ns) / static_cast<double>(cfg.runs);
 		double const sp_cached_avg = static_cast<double>(sp_cached.total_ns) / static_cast<double>(cfg.runs);
-		double const odirect_avg = odirect_available ? static_cast<double>(odirect.total_ns) / static_cast<double>(cfg.runs) : 0.0;
+		double const odirect_avg =
+			odirect_available ? static_cast<double>(odirect.total_ns) / static_cast<double>(cfg.runs) : 0.0;
 		double const delta_coro = 100.0 * (co_avg - cb_avg) / cb_avg;
 		double const delta_splice = 100.0 * (sp_avg - cb_avg) / cb_avg;
 		double const delta_coro_cached = 100.0 * (co_cached_avg - cb_cached_avg) / cb_cached_avg;
 		double const delta_splice_cached = 100.0 * (sp_cached_avg - cb_cached_avg) / cb_cached_avg;
 
 		if (cfg.json_out) {
-			auto print_json = [&](std::string_view variant, Agg const &agg, double avg, bool cold_cache, bool sync_dst, bool direct_io = false) {
+			auto print_json = [&](std::string_view variant,
+								  Agg const &agg,
+								  double avg,
+								  bool cold_cache,
+								  bool sync_dst,
+								  bool direct_io = false) {
 				std::println(
-					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{},\"label\":\"live-kernel-sanity\",\"cold_cache\":{},\"sync_dst\":{},\"direct_io\":{}}}",
+					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
+					"2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{},\"label\":\"live-kernel-"
+					"sanity\",\"cold_cache\":{},\"sync_dst\":{},\"direct_io\":{}}}",
 					variant,
 					cfg.runs,
 					agg.total_ns,
@@ -436,19 +446,22 @@ int main(
 				mib_per_sec(bytes, static_cast<std::uint64_t>(sp_avg)),
 				mib_per_sec(bytes, sp.best_ns));
 			std::println(
-				"  callback cached_no_fsync     avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				"  callback cached_no_fsync     avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} "
+				"MiB/s",
 				cb_cached_avg / 1e6,
 				static_cast<double>(cb_cached.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<std::uint64_t>(cb_cached_avg)),
 				mib_per_sec(bytes, cb_cached.best_ns));
 			std::println(
-				"  coroutine cached_no_fsync    avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				"  coroutine cached_no_fsync    avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} "
+				"MiB/s",
 				co_cached_avg / 1e6,
 				static_cast<double>(co_cached.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<std::uint64_t>(co_cached_avg)),
 				mib_per_sec(bytes, co_cached.best_ns));
 			std::println(
-				"  splice cached_no_fsync       avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				"  splice cached_no_fsync       avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} "
+				"MiB/s",
 				sp_cached_avg / 1e6,
 				static_cast<double>(sp_cached.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<std::uint64_t>(sp_cached_avg)),
@@ -456,7 +469,8 @@ int main(
 			std::println("  delta        {:+.2f}% avg (coro vs callback)", delta_coro);
 			if (odirect_available) {
 				std::println(
-					"  copy_odirect no_fsync       avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+					"  copy_odirect no_fsync       avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best "
+					"{:>6.1f} MiB/s",
 					odirect_avg / 1e6,
 					static_cast<double>(odirect.best_ns) / 1e6,
 					mib_per_sec(bytes, static_cast<std::uint64_t>(odirect_avg)),

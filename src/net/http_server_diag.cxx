@@ -55,7 +55,7 @@ import :state;
 using namespace conflux::socket_io;
 
 #if CONFLUX_HTTP_TRACE
-	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
 #else
 	#define HTTP_TRACE(MSG) ((void)0)
 #endif
@@ -132,7 +132,7 @@ void Ring::try_grow_cq_after_overflow() noexcept {
 	if (resized) {
 		saw_overflow_since_last_resize_ = false;
 		if (startup_banner) {
-			eprintln(std::format("ring_cq_resized={}->{} after overflow", cur, target));
+			conflux::utils::eprintln(std::format("ring_cq_resized={}->{} after overflow", cur, target));
 		}
 		return;
 	}
@@ -148,7 +148,7 @@ void Ring::try_grow_cq_after_overflow() noexcept {
 		cq_resize_unsupported_ = true;
 	}
 	if (startup_banner) {
-		eprintln(std::format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
+		conflux::utils::eprintln(std::format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
 	}
 }
 
@@ -233,7 +233,7 @@ void Ring::dispatch_cqe_fatal(
 		default:
 			{
 				// unknown op — future Op additions must be handled here
-				eprintln(
+				conflux::utils::eprintln(
 					std::format(
 						"dispatch_cqe_fatal: unknown op={} ud=0x{:x}",
 						static_cast<unsigned>(static_cast<std::uint8_t>(op)),
@@ -242,38 +242,39 @@ void Ring::dispatch_cqe_fatal(
 			}
 		}
 	} catch (std::exception const &e) {
-		eprint("dispatch_cqe_fatal: suppressed std::exception: ");
-		eprintln(e.what());
-	} catch (...) { eprintln("dispatch_cqe_fatal: suppressed unknown std::exception"); }
+		conflux::utils::eprint("dispatch_cqe_fatal: suppressed std::exception: ");
+		conflux::utils::eprintln(e.what());
+	} catch (...) { conflux::utils::eprintln("dispatch_cqe_fatal: suppressed unknown std::exception"); }
 }
 
 void Ring::emit_ring_diagnostics() noexcept {
 	try {
 		auto const features_str = caps_to_log_string(caps);
-		eprintln(std::format("ring_features={}", features_str.empty() ? "none" : features_str));
+		conflux::utils::eprintln(std::format("ring_features={}", features_str.empty() ? "none" : features_str));
 		std::uint32_t const overflow_now = raw_.ring().cq_overflow_count();
-		eprintln(std::format("ring_cq_overflow={}", overflow_now));
+		conflux::utils::eprintln(std::format("ring_cq_overflow={}", overflow_now));
 		if (fatal_cq_overflow_count_ > 0) {
-			eprintln(
+			conflux::utils::eprintln(
 				std::format(
 					"ring_cq_overflow_delta={}",
 					overflow_now > fatal_cq_overflow_count_ ? overflow_now - fatal_cq_overflow_count_ : 0u));
 		}
-		eprintln(std::format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
+		conflux::utils::eprintln(std::format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
 		{
 			std::uint32_t const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
-			eprintln(std::format("ring_sq_dropped={}", v));
+			conflux::utils::eprintln(std::format("ring_sq_dropped={}", v));
 		}
 		// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
 		int const rfd = ring.ring_fd;
 		if (rfd >= 0) {
 			auto const path = std::format("/proc/self/fdinfo/{}", rfd);
 			if (auto fdinfo = conflux::file_io_sync::blocking_read_text_file_nothrow(path, std::size_t{64} * 1024)) {
-				for (auto const line: LineRange{*fdinfo}) {
+				for (auto const line: conflux::utils::LineRange{*fdinfo}) {
 					if (line.text.starts_with("CqOverflowList:")) {
 						auto pos = line.text.find(':');
 						if (pos != std::string_view::npos) {
-							eprintln(std::format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
+							conflux::utils::eprintln(
+								std::format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
 						}
 					}
 				}
@@ -288,15 +289,15 @@ void Ring::emit_ring_diagnostics() noexcept {
 			case ServerFatalReason::internal_exception   : reason_str = "internal_exception"; break;
 			default                                      : reason_str = "unknown"; break;
 			}
-			eprintln(std::format("ring_fatal_reason={}", reason_str));
+			conflux::utils::eprintln(std::format("ring_fatal_reason={}", reason_str));
 		}
 		if (overflow_flush_limit_hit_) {
-			eprintln("ring_overflow_flush_limit_hit=1");
+			conflux::utils::eprintln("ring_overflow_flush_limit_hit=1");
 		}
 	} catch (std::exception const &e) {
-		eprint("emit_ring_diagnostics: suppressed std::exception: ");
-		eprintln(e.what());
-	} catch (...) { eprintln("emit_ring_diagnostics: suppressed unknown std::exception"); }
+		conflux::utils::eprint("emit_ring_diagnostics: suppressed std::exception: ");
+		conflux::utils::eprintln(e.what());
+	} catch (...) { conflux::utils::eprintln("emit_ring_diagnostics: suppressed unknown std::exception"); }
 }
 
 void Ring::flush_overflow_cqes_until_clear_or_limit() noexcept {

@@ -6,6 +6,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 export namespace conflux::http {
+
 struct ForwardedOptions {
 	// CIDRs trusted to set forwarding headers.
 	// If empty and strict_mode is true (the default): trust nobody. Forwarding
@@ -28,7 +29,7 @@ namespace forwarded_detail {
 std::string_view xff_first(
 	std::string_view value) noexcept {
 	auto comma = value.find(',');
-	return trim((comma == std::string_view::npos) ? value : std::string_view{value.data(), comma});
+	return conflux::utils::trim((comma == std::string_view::npos) ? value : std::string_view{value.data(), comma});
 }
 
 } // namespace forwarded_detail
@@ -38,7 +39,7 @@ std::string_view xff_first(
 // Headers from untrusted peers are stripped before passing downstream.
 Router::Middleware forwarded_middleware(
 	ForwardedOptions opts = {}) {
-	auto cidrs = parse_cidr_list(opts.trusted_proxies);
+	auto cidrs = conflux::utils::parse_cidr_list(opts.trusted_proxies);
 	if (opts.trusted_proxies.empty() && !opts.strict_mode) {
 		eprintln("forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
 	}
@@ -48,8 +49,10 @@ Router::Middleware forwarded_middleware(
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {
-			auto const peer_ip = parse_ip(req.remote_addr).value_or(IpAddr{});
-			return std::ranges::any_of(cidrs, [&](IpCidr const &c) { return cidr_match(c, peer_ip); });
+			auto const peer_ip = conflux::utils::parse_ip(req.remote_addr).value_or(conflux::utils::IpAddr{});
+			return std::ranges::any_of(cidrs, [&](conflux::utils::IpCidr const &c) {
+				return conflux::utils::cidr_match(c, peer_ip);
+			});
 		}();
 
 		if (!trusted) {
@@ -69,7 +72,7 @@ Router::Middleware forwarded_middleware(
 		if (real_ip.empty() && opts.use_x_real_ip) {
 			auto xri = req.headers["x-real-ip"];
 			if (!xri.empty()) {
-				real_ip = std::string{trim(xri)};
+				real_ip = std::string{conflux::utils::trim(xri)};
 			}
 		}
 
@@ -79,8 +82,8 @@ Router::Middleware forwarded_middleware(
 
 		// Normalize to canonical form so downstream modules (rate limiter,
 		// ip_filter) key on the same std::string regardless of proxy notation.
-		if (auto parsed = parse_ip(real_ip)) {
-			real_ip = ip_to_string(*parsed);
+		if (auto parsed = conflux::utils::parse_ip(real_ip)) {
+			real_ip = conflux::utils::ip_to_string(*parsed);
 		}
 
 		auto enriched = req.to_owned();

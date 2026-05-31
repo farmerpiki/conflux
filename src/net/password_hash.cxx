@@ -28,6 +28,8 @@ import conflux.net.config;
 
 export namespace conflux::http {
 
+using conflux::utils::crypto_random_bytes;
+
 enum class PasswordHashAlgorithm {
 	argon2id,
 	pbkdf2_sha256,

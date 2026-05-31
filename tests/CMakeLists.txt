@@ -180,6 +180,14 @@ if(TARGET conflux)
         EXPECT "sha256")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_url_decode
+        SOURCE utils_compile_fail_global_url_decode.cxx
+        TEST api-surface/utils-hides-global-url-decode
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "url_decode")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_smtp_compile_fail_global_client
         SOURCE smtp_compile_fail_global_client.cxx
         TEST api-surface/smtp-hides-global-client

@@ -6,6 +6,7 @@ import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
 export namespace conflux::http {
+
 struct RequestIdOptions {
 	// Header to read/write the request ID on.
 	std::string header{"X-Request-ID"};
@@ -15,6 +16,8 @@ struct RequestIdOptions {
 	bool trust_incoming{true};
 };
 namespace request_id_detail {
+
+using conflux::utils::random_bytes;
 
 // Generate a UUID v4 (random) as a hex std::string without dashes.
 // Uses /dev/urandom — no dependency on OpenSSL.

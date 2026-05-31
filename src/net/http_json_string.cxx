@@ -5,6 +5,9 @@ import conflux.utils;
 
 export namespace conflux::http::detail {
 
+using conflux::utils::append_json_string_fallback;
+using conflux::utils::json_string_fallback;
+
 void append_json_string(
 	std::string &out,
 	std::string_view value) {

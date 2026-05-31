@@ -14,6 +14,7 @@ import conflux.net.router;
 import conflux.work;
 
 namespace http = conflux::http;
+using namespace conflux::http;
 using conflux::http::ConfigIssueCode;
 using conflux::http::DeferredResponse;
 using conflux::http::Response;

@@ -24,6 +24,13 @@ import conflux.net.http.static_core;
 
 namespace http_detail = conflux::http::detail;
 using conflux::errnum;
+using conflux::http::kHttpCreated;
+using conflux::http::kHttpForbidden;
+using conflux::http::kHttpNoContent;
+using conflux::http::kHttpNotModified;
+using conflux::http::kHttpOk;
+using conflux::http::kHttpPartialContent;
+using conflux::http::kHttpRangeNotSatisfiable;
 using conflux::uring::FileHandle;
 
 namespace {

@@ -8,6 +8,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 export namespace conflux::http {
+
 struct RateLimitOptions {
 	// Maximum requests allowed per window.
 	unsigned requests{100};
@@ -83,13 +84,14 @@ Router::Middleware rate_limit_middleware(
 	auto state = std::make_shared<State>(std::max<std::size_t>(opts.max_clients, 1));
 	unsigned const capacity = opts.requests + opts.burst;
 
-	return [opts,
-			capacity,
-			state](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts, capacity, state](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const now = Clock::now();
-		auto const key = req.remote_addr.empty() ?
-							 std::string{"unknown"} :
-							 parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
+		auto const key = req.remote_addr.empty() ? std::string{"unknown"} :
+												   conflux::utils::parse_ip(req.remote_addr)
+													   .transform(conflux::utils::ip_to_string)
+													   .value_or(std::string{req.remote_addr});
 
 		bool allowed = false;
 		auto retry_after = static_cast<unsigned>(opts.window.count());

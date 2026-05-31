@@ -36,6 +36,7 @@ struct SmtpEnvelope {
 
 namespace smtp_detail {
 
+using conflux::utils::wait_fd;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;
 

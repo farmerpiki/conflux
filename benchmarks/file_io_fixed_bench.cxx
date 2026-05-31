@@ -1,4 +1,4 @@
-// file_io_fixed_bench — batches FileReader fixed-buffer read/write SQEs.
+// file_io_fixed_bench — batches conflux::file_io::FileReader fixed-buffer read/write SQEs.
 //
 // The benchmark keeps kernel round-trips in the measurement, but submits enough
 // independent fixed-buffer SQEs per batch for completion callback ownership
@@ -20,9 +20,9 @@ using namespace std::string_view_literals;
 namespace {
 
 BenchStats bench_read_fixed(
-	FileReader &files,
-	FileHandle const &fh,
-	FixedBufferPool &pool,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
+	conflux::file_io::FixedBufferPool &pool,
 	BenchUringFileConfig const &cfg,
 	bool warmup) {
 	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
@@ -30,7 +30,7 @@ BenchStats bench_read_fixed(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		auto slots = bench_make_join_slots<FileReader::ReadFixedResult>(cfg.depth, done);
+		auto slots = bench_make_join_slots<conflux::file_io::FileReader::ReadFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = pool.try_acquire();
 			if (!buf) {
@@ -61,9 +61,9 @@ BenchStats bench_read_fixed(
 }
 
 BenchStats bench_write_fixed(
-	FileReader &files,
-	FileHandle const &fh,
-	FixedBufferPool &pool,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
+	conflux::file_io::FixedBufferPool &pool,
 	BenchUringFileConfig const &cfg,
 	bool warmup) {
 	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
@@ -71,7 +71,7 @@ BenchStats bench_write_fixed(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		auto slots = bench_make_join_slots<FileReader::WriteFixedResult>(cfg.depth, done);
+		auto slots = bench_make_join_slots<conflux::file_io::FileReader::WriteFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = pool.try_acquire();
 			if (!buf) {
@@ -123,13 +123,13 @@ int main(
 	}
 
 	try {
-		CompletionTable completions{cfg.depth * 2U};
-		FileReader files{&ring, &completions, bench_pack_ud};
-		RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
+		conflux::uring::CompletionTable completions{cfg.depth * 2U};
+		conflux::file_io::FileReader files{&ring, &completions, bench_pack_ud};
+		conflux::file_io::RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
 		if (!table.ok()) {
 			throw std::runtime_error{"registered fixed buffers unsupported"};
 		}
-		FixedBufferPool pool{&table, 0, cfg.depth, cfg.chunk};
+		conflux::file_io::FixedBufferPool pool{&table, 0, cfg.depth, cfg.chunk};
 		if (!pool.ok() || pool.capacity() < cfg.depth) {
 			throw std::runtime_error{"fixed buffer pool init failed"};
 		}

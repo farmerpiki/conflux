@@ -10,6 +10,9 @@ import conflux.utils;
 import conflux.net.http.types;
 export namespace conflux::http {
 
+using conflux::utils::append_url_form_encoded;
+using conflux::utils::url_form_encoded_size;
+
 // ─── ClientRequest ──────────────────────────────────────────────────────────────
 
 class ClientRequest {

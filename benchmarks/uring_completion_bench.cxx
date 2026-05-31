@@ -1,4 +1,4 @@
-// uring_completion_bench — isolates CompletionTable reserve/dispatch overhead.
+// uring_completion_bench — isolates conflux::uring::CompletionTable reserve/dispatch overhead.
 //
 // The variants intentionally use copyable callbacks so the same benchmark
 // source compiles against the old std::function baseline and the new move-only
@@ -35,7 +35,7 @@ struct LargeCapture {
 	std::uint64_t *sink{};
 
 	void operator ()(
-		IoResult r) const noexcept {
+		conflux::uring::IoResult r) const noexcept {
 		*sink += words[static_cast<std::size_t>(r.res) & (words.size() - 1U)];
 	}
 };
@@ -45,11 +45,11 @@ void run_warmup(
 	if (warmup == 0) {
 		return;
 	}
-	CompletionTable completions{64};
+	conflux::uring::CompletionTable completions{64};
 	std::uint64_t sink = 0;
 	for (std::size_t i = 0; i < warmup; ++i) {
-		auto [slot, gen] =
-			completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
+		auto [slot, gen] = completions.reserve(
+			[&sink](conflux::uring::IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
 		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 	}
 	if (sink == 0) {
@@ -59,12 +59,12 @@ void run_warmup(
 
 BenchStats bench_small_callback(
 	BenchSamplePlan const &plan) {
-	CompletionTable completions{64};
+	conflux::uring::CompletionTable completions{64};
 	std::uint64_t sink = 0;
 	auto stats = bench_measure_batched(
 		[&] {
-			auto [slot, gen] =
-				completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
+			auto [slot, gen] = completions.reserve(
+				[&sink](conflux::uring::IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
 			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 		},
 		plan);
@@ -78,12 +78,12 @@ BenchStats bench_small_callback(
 
 BenchStats bench_shared_callback(
 	BenchSamplePlan const &plan) {
-	CompletionTable completions{64};
+	conflux::uring::CompletionTable completions{64};
 	auto sink = std::make_shared<std::uint64_t>(0);
 	auto stats = bench_measure_batched(
 		[&] {
-			auto [slot, gen] =
-				completions.reserve([sink](IoResult r) noexcept { *sink += static_cast<std::uint64_t>(r.res); });
+			auto [slot, gen] = completions.reserve(
+				[sink](conflux::uring::IoResult r) noexcept { *sink += static_cast<std::uint64_t>(r.res); });
 			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 		},
 		plan);
@@ -97,7 +97,7 @@ BenchStats bench_shared_callback(
 
 BenchStats bench_large_callback(
 	BenchSamplePlan const &plan) {
-	CompletionTable completions{64};
+	conflux::uring::CompletionTable completions{64};
 	std::uint64_t sink = 0;
 	LargeCapture base{.sink = &sink};
 	for (std::size_t i = 0; i < base.words.size(); ++i) {
@@ -122,12 +122,12 @@ BenchStats bench_multishot_dispatch_depth(
 	BenchSamplePlan const &plan,
 	DepthCase dc) {
 	auto const depth = dc.depth;
-	CompletionTable completions{depth};
+	conflux::uring::CompletionTable completions{depth};
 	std::uint64_t sink = 0;
 	std::vector<std::pair<std::uint32_t, std::uint32_t>> entries;
 	entries.reserve(depth);
 	for (std::size_t i = 0; i < depth; ++i) {
-		auto [slot, gen] = completions.reserve_multishot([&sink](IoResult r) noexcept {
+		auto [slot, gen] = completions.reserve_multishot([&sink](conflux::uring::IoResult r) noexcept {
 			if (r.res > 0) {
 				sink += static_cast<std::uint64_t>(r.res);
 			}

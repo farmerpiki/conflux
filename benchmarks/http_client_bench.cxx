@@ -142,9 +142,7 @@ struct ScopedAllocationCounting {
 		reset_allocation_counters();
 		g_count_allocations.store(true, std::memory_order_relaxed);
 	}
-	~ScopedAllocationCounting() {
-		g_count_allocations.store(false, std::memory_order_relaxed);
-	}
+	~ScopedAllocationCounting() { g_count_allocations.store(false, std::memory_order_relaxed); }
 	ScopedAllocationCounting(ScopedAllocationCounting const &) = delete;
 	ScopedAllocationCounting &operator =(ScopedAllocationCounting const &) = delete;
 };
@@ -235,7 +233,8 @@ void send_all(
 	pos += "Content-Length: "sv.size();
 	auto const end = header_block.find("\r\n"sv, pos);
 	std::size_t out{};
-	auto const *last = end == std::string_view::npos ? header_block.data() + header_block.size() : header_block.data() + end;
+	auto const *last =
+		end == std::string_view::npos ? header_block.data() + header_block.size() : header_block.data() + end;
 	(void)std::from_chars(header_block.data() + pos, last, out);
 	return out;
 }
@@ -438,7 +437,8 @@ class LoopbackHttpServer {
 		}
 		if (scenario_.split_header) {
 			auto const marker = final_response_.find("\r\n\r\n"sv);
-			auto const split = marker == std::string::npos ? std::min<std::size_t>(final_response_.size(), 32) : marker + 2;
+			auto const split =
+				marker == std::string::npos ? std::min<std::size_t>(final_response_.size(), 32) : marker + 2;
 			send_all(conn.get(), std::string_view{final_response_}.substr(0, split));
 			send_all(conn.get(), std::string_view{final_response_}.substr(split));
 			return;
@@ -465,9 +465,7 @@ class LoopbackHttpServer {
 			}
 			try {
 				serve_one(fd);
-			} catch (...) {
-				errors_.fetch_add(1, std::memory_order_relaxed);
-			}
+			} catch (...) { errors_.fetch_add(1, std::memory_order_relaxed); }
 			served_.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
@@ -550,7 +548,10 @@ void print_stats(
 	bool json_out) {
 	if (json_out) {
 		std::println(
-			"{{\"config\":\"{}\",\"variant\":\"{}\",\"kind\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"request_bytes_per_iter\":{:.2f},\"response_bytes_per_iter\":{:.2f},\"response_body_bytes_per_iter\":{:.2f},\"allocations_per_iter\":{:.4f},\"allocated_bytes_per_iter\":{:.2f},\"dns_ns_per_iter\":{:.2f},\"connect_ns_per_iter\":{:.2f},\"ttfb_ns_per_iter\":{:.2f},\"body_ns_per_iter\":{:.2f}}}",
+			"{{\"config\":\"{}\",\"variant\":\"{}\",\"kind\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{"
+			":.2f},\"request_bytes_per_iter\":{:.2f},\"response_bytes_per_iter\":{:.2f},\"response_body_bytes_per_"
+			"iter\":{:.2f},\"allocations_per_iter\":{:.4f},\"allocated_bytes_per_iter\":{:.2f},\"dns_ns_per_iter\":{:."
+			"2f},\"connect_ns_per_iter\":{:.2f},\"ttfb_ns_per_iter\":{:.2f},\"body_ns_per_iter\":{:.2f}}}",
 			s.config,
 			s.variant,
 			s.kind,
@@ -633,7 +634,9 @@ struct BenchCase {
 		.kind = "micro/client-wire-build",
 		.description = std::move(description),
 		.default_iterations = default_iterations,
-		.run = [req = std::move(req), defaults = std::move(defaults), variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
+		.run = [req = std::move(req),
+				defaults = std::move(defaults),
+				variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
 			for (std::size_t i = 0; i < warmup; ++i) {
 				auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
 				g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
@@ -659,7 +662,8 @@ struct BenchCase {
 				.iterations = iterations,
 				.total_ns = total_ns,
 				.ns_per_iter = per_iter(total_ns, iterations),
-				.ops_per_second = total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
+				.ops_per_second =
+					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
 				.request_bytes_per_iter = per_iter(request_bytes, iterations),
 				.response_bytes_per_iter = per_iter(response_bytes, iterations),
 				.response_body_bytes_per_iter = per_iter(response_body_bytes, iterations),
@@ -699,7 +703,8 @@ struct BenchCase {
 		.kind = "micro/client-response-head-parse",
 		.description = std::move(description),
 		.default_iterations = default_iterations,
-		.run = [head = std::move(response_head), variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
+		.run = [head = std::move(response_head),
+				variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
 			for (std::size_t i = 0; i < warmup; ++i) {
 				auto parsed = conflux::http::client_wire::parse_http1_response_head(head, 16 * 1024 * 1024);
 				if (!parsed) {
@@ -729,7 +734,8 @@ struct BenchCase {
 				.iterations = iterations,
 				.total_ns = total_ns,
 				.ns_per_iter = per_iter(total_ns, iterations),
-				.ops_per_second = total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
+				.ops_per_second =
+					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
 				.response_bytes_per_iter = per_iter(response_bytes, iterations),
 				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), iterations),
 				.allocated_bytes_per_iter = per_iter(g_allocated_bytes.load(std::memory_order_relaxed), iterations)};
@@ -767,7 +773,8 @@ struct BenchCase {
 		.kind = "loopback/http-client-blocking",
 		.description = scenario.description,
 		.default_iterations = default_iterations,
-		.run = [scenario = std::move(scenario)](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
+		.run = [scenario =
+					std::move(scenario)](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
 			auto const total_calls = warmup + iterations;
 			LoopbackHttpServer server{scenario, total_calls * connections_per_iteration(scenario)};
 			HttpClientOptions opts{};
@@ -787,7 +794,9 @@ struct BenchCase {
 				if (!result) {
 					throw std::runtime_error{std::format("warmup request failed: {}", result.error().message)};
 				}
-				g_sink.fetch_add(result->body.size() + static_cast<std::size_t>(result->head.status), std::memory_order_relaxed);
+				g_sink.fetch_add(
+					result->body.size() + static_cast<std::size_t>(result->head.status),
+					std::memory_order_relaxed);
 			}
 
 			std::uint64_t request_bytes{};
@@ -829,7 +838,8 @@ struct BenchCase {
 				.iterations = iterations,
 				.total_ns = total_ns,
 				.ns_per_iter = per_iter(total_ns, iterations),
-				.ops_per_second = total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
+				.ops_per_second =
+					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
 				.request_bytes_per_iter = per_iter(request_bytes, iterations),
 				.response_bytes_per_iter = per_iter(response_bytes, iterations),
 				.response_body_bytes_per_iter = per_iter(response_body_bytes, iterations),
@@ -894,9 +904,9 @@ struct BenchCase {
 	if (id == "wire_get_defaults_override"sv) {
 		auto defaults = make_headers(16, "X-Default");
 		auto req = ClientRequest::get("http://127.0.0.1:8080/bench")
-				   .header("X-Default-7", "override")
-				   .header("User-Agent", "conflux-client-bench")
-				   .build();
+					   .header("X-Default-7", "override")
+					   .header("User-Agent", "conflux-client-bench")
+					   .build();
 		return make_wire_case(
 			std::string{id},
 			"micro/client_wire/build/default_headers_override",
@@ -1187,7 +1197,10 @@ int main(
 		}
 		for (auto const &c: cases) {
 			auto const iterations = parsed.iterations == 0 ? c.default_iterations : parsed.iterations;
-			auto stats = c.run(parsed.config_name.empty() ? c.id : std::string_view{parsed.config_name}, parsed.warmup, iterations);
+			auto stats = c.run(
+				parsed.config_name.empty() ? c.id : std::string_view{parsed.config_name},
+				parsed.warmup,
+				iterations);
 			print_stats(stats, parsed.json_out);
 		}
 		std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));

@@ -12,6 +12,8 @@ import conflux.utils;
 
 export namespace conflux::http {
 
+using conflux::utils::random_bytes;
+
 template<typename>
 class TraceCallback;
 template<typename R, typename... Args>
@@ -75,7 +77,8 @@ struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
 	TraceCallback<void(conflux::http::OwnedRequest &, TracingContext const &)> on_start{};
 	// Called after the downstream handler. May modify the response (e.g. add trace headers).
-	TraceCallback<void(conflux::http::OwnedRequest const &, conflux::http::Response &, TracingContext const &)> on_end{};
+	TraceCallback<void(conflux::http::OwnedRequest const &, conflux::http::Response &, TracingContext const &)>
+		on_end{};
 	// Forward the traceparent header in the response.
 	bool propagate_in_response{true};
 };
@@ -118,8 +121,9 @@ std::pair<std::string, std::string> parse_traceparent(
 } // namespace tracing_detail
 Router::Middleware tracing_middleware(
 	TracingOptions opts = {}) {
-	return [opts = std::move(
-				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts = std::move(opts)](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		TracingContext ctx;
 		// Parse incoming traceparent.
 		auto incoming_tp = req.headers["traceparent"];

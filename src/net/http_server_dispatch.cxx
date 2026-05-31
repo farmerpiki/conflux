@@ -212,7 +212,7 @@ void dispatch_request(
 			}
 		}
 		if (host.empty() || canonical_host.empty()) {
-			auto r = conflux::http::Response::text("Bad Request", kHttpBadRequest);
+			auto r = conflux::http::Response::text("Bad Request", conflux::http::kHttpBadRequest);
 			conn.own_response = conflux::http::format_response(r, ring.alt_svc_header, true);
 			conn.has_response = true;
 			conn.close_after_send = true;
@@ -308,7 +308,12 @@ void dispatch_request(
 		body = raw.substr(body_start, content_length);
 		body_stream_bytes = content_length;
 	} else if (transfer_encoding_count != 0) {
-		auto rc = conflux::http::decode_chunked_incremental(raw, body_start, max_body_size, limits.max_chunks, conn.chunked_decode);
+		auto rc = conflux::http::decode_chunked_incremental(
+			raw,
+			body_start,
+			max_body_size,
+			limits.max_chunks,
+			conn.chunked_decode);
 		if (rc == 0) {
 			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_continue();
@@ -394,7 +399,7 @@ void dispatch_request(
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
 				.count();
 		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
-			eprintln(
+			conflux::utils::eprintln(
 				std::format(
 					"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
 					method,

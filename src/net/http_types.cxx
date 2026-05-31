@@ -20,6 +20,10 @@ import conflux.utils;
 
 export namespace conflux::http {
 
+using conflux::utils::append_url_percent_encoded;
+using conflux::utils::ascii_lower;
+using conflux::utils::url_percent_encoded_size;
+
 struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};

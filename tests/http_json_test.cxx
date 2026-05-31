@@ -11,6 +11,7 @@ import conflux.net.router;
 
 namespace jb = conflux::json::boundary;
 namespace hj = conflux::http::codec::json;
+using namespace conflux::http;
 
 namespace {
 
@@ -158,8 +159,8 @@ TEST_CASE(
 	};
 	conflux::http::RequestView view{req};
 
-	auto handler =
-		hj::make_handler_with<StreamingOnlyProvider>([](conflux::http::RequestView const &) { return StreamingPayload{.value = 11}; });
+	auto handler = hj::make_handler_with<StreamingOnlyProvider>(
+		[](conflux::http::RequestView const &) { return StreamingPayload{.value = 11}; });
 	auto resp = handler(view);
 	CHECK(resp.status == kHttpOk);
 	CHECK(resp.content_type == "application/json");

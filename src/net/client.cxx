@@ -32,6 +32,8 @@ import conflux.net.tls;
 
 export namespace conflux::http {
 
+using conflux::utils::wait_fd;
+
 struct ClientResponseHead {
 	int status{502};
 	std::string status_text{"Bad Gateway"};

@@ -32,6 +32,31 @@ import conflux.net.http.realtime;
 
 export namespace conflux::http {
 
+using conflux::utils::eprintln;
+using conflux::utils::kHttpBadGateway;
+using conflux::utils::kHttpBadRequest;
+using conflux::utils::kHttpCreated;
+using conflux::utils::kHttpForbidden;
+using conflux::utils::kHttpFound;
+using conflux::utils::kHttpGatewayTimeout;
+using conflux::utils::kHttpInternalServerError;
+using conflux::utils::kHttpMethodNotAllowed;
+using conflux::utils::kHttpMovedPermanently;
+using conflux::utils::kHttpNoContent;
+using conflux::utils::kHttpNotFound;
+using conflux::utils::kHttpNotModified;
+using conflux::utils::kHttpOk;
+using conflux::utils::kHttpPartialContent;
+using conflux::utils::kHttpPermanentRedirect;
+using conflux::utils::kHttpRangeNotSatisfiable;
+using conflux::utils::kHttpRequestEntityTooLarge;
+using conflux::utils::kHttpRequestHeaderFieldsTooLarge;
+using conflux::utils::kHttpTemporaryRedirect;
+using conflux::utils::kHttpTooManyRequests;
+using conflux::utils::kHttpUnauthorized;
+using conflux::utils::kHttpUnprocessableEntity;
+using conflux::utils::kHttpUriTooLong;
+
 class DeferredResponse;
 
 enum class StreamedFileResult : std::uint8_t {
@@ -224,9 +249,11 @@ struct Response {
 	int status = kHttpOk;
 	std::string status_text = "OK";
 	std::string content_type = std::string{kContentTypeHtmlUtf8};
-	conflux::http::HttpFields headers = conflux::http::HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
+	conflux::http::HttpFields headers =
+		conflux::http::HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
 	std::vector<std::string> set_cookies{}; // Set-Cookie headers (one per entry)
-	conflux::http::HttpFields trailers = conflux::http::HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
+	conflux::http::HttpFields trailers =
+		conflux::http::HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
 	bool head_only = false; // true → send headers only, suppress body (HEAD requests)
 	std::size_t content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
 	BodyKind body_kind = BodyKind::text;

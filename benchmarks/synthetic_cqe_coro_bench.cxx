@@ -1,6 +1,6 @@
 // synthetic_cqe_coro_bench — no-kernel coroutine/completion isolation rows.
 //
-// These rows synthesize CQE dispatch through CompletionTable and root::Task
+// These rows synthesize CQE dispatch through conflux::uring::CompletionTable and root::Task
 // sources so coroutine frame allocation, continuation dispatch, task-source
 // completion, and callback ownership are visible without a live io_uring trip.
 
@@ -48,7 +48,7 @@ struct SyntheticIoDevice {
 		std::int32_t res{};
 	};
 
-	CompletionTable completions;
+	conflux::uring::CompletionTable completions;
 	std::deque<Pending> pending;
 	std::size_t submitted = 0;
 	std::size_t completed = 0;
@@ -63,13 +63,14 @@ struct SyntheticIoDevice {
 	[[nodiscard]] root::Task<std::size_t> async_op(
 		std::size_t bytes) {
 		auto [task, source] = root::make_task_source<std::size_t>();
-		auto [slot, gen] = completions.reserve([source = std::move(source)](IoResult r) mutable noexcept {
-			if (r.res < 0) {
-				(void)source.try_set_error(std::make_error_code(std::errc::io_error));
-				return;
-			}
-			(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		});
+		auto [slot, gen] =
+			completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+				if (r.res < 0) {
+					(void)source.try_set_error(std::make_error_code(std::errc::io_error));
+					return;
+				}
+				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			});
 		pending.push_back(
 			Pending{
 				.slot = slot,
@@ -154,11 +155,12 @@ BenchStats bench_synthetic_cqe_task(
 	std::uint64_t sink = 0;
 	auto const t0 = bench_now_ns();
 	for (std::size_t i = 0; i < iters; ++i) {
-		CompletionTable completions{1};
+		conflux::uring::CompletionTable completions{1};
 		auto [task, source] = root::make_task_source<std::size_t>();
-		auto [slot, gen] = completions.reserve([source = std::move(source)](IoResult r) mutable noexcept {
-			(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		});
+		auto [slot, gen] =
+			completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			});
 		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 		auto outcome = root::blocking_join(std::move(task));
 		if (!outcome.is_success()) {
@@ -181,16 +183,17 @@ BenchStats bench_await_synthetic_cqes(
 	std::uint64_t sink = 0;
 	auto const t0 = bench_now_ns();
 	for (std::size_t iter = 0; iter < iters; ++iter) {
-		CompletionTable completions{dc.depth};
+		conflux::uring::CompletionTable completions{dc.depth};
 		std::vector<CompletionEntry> entries;
 		std::vector<root::Task<std::size_t>> tasks;
 		entries.reserve(dc.depth);
 		tasks.reserve(dc.depth);
 		for (std::size_t i = 0; i < dc.depth; ++i) {
 			auto [task, source] = root::make_task_source<std::size_t>();
-			auto [slot, gen] = completions.reserve([source = std::move(source)](IoResult r) mutable noexcept {
-				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-			});
+			auto [slot, gen] =
+				completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+					(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+				});
 			entries.push_back({.slot = slot, .gen = gen});
 			tasks.push_back(std::move(task));
 		}
@@ -275,11 +278,12 @@ BenchStats bench_cancel_after_synthetic_cqe(
 	std::uint64_t ready = 0;
 	auto const t0 = bench_now_ns();
 	for (std::size_t i = 0; i < iters; ++i) {
-		CompletionTable completions{1};
+		conflux::uring::CompletionTable completions{1};
 		auto [task, source] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = true});
-		auto [slot, gen] = completions.reserve([source = std::move(source)](IoResult r) mutable noexcept {
-			(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		});
+		auto [slot, gen] =
+			completions.reserve([source = std::move(source)](conflux::uring::IoResult r) mutable noexcept {
+				(void)source.try_set_value(root::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			});
 		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
 		task.cancel();
 		auto outcome = root::blocking_join(std::move(task));

@@ -336,8 +336,8 @@ StorageStats bench_pread(
 }
 
 StorageStats bench_uring_read(
-	FileReader &files,
-	FileHandle const &fh,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
 	Config const &cfg,
 	std::size_t file_bytes,
 	std::size_t batches,
@@ -367,9 +367,9 @@ StorageStats bench_uring_read(
 }
 
 StorageStats bench_read_fixed(
-	FileReader &files,
-	FileHandle const &fh,
-	FixedBufferPool &pool,
+	conflux::file_io::FileReader &files,
+	conflux::uring::FileHandle const &fh,
+	conflux::file_io::FixedBufferPool &pool,
 	Config const &cfg,
 	std::size_t file_bytes,
 	std::size_t batches,
@@ -378,7 +378,7 @@ StorageStats bench_read_fixed(
 	auto const t0 = bench_now_ns();
 	for (std::size_t batch = 0; batch < batches; ++batch) {
 		std::atomic<std::size_t> done{0};
-		auto slots = bench_make_join_slots<FileReader::ReadFixedResult>(cfg.depth, done);
+		auto slots = bench_make_join_slots<conflux::file_io::FileReader::ReadFixedResult>(cfg.depth, done);
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
 			auto buf = pool.try_acquire();
 			if (!buf) {
@@ -404,8 +404,8 @@ StorageStats bench_read_fixed(
 }
 
 StorageStats bench_iopoll_read_fixed(
-	IopollStorageRing &storage,
-	FileHandle const &fh,
+	conflux::file_io::IopollStorageRing &storage,
+	conflux::uring::FileHandle const &fh,
 	Config const &cfg,
 	std::size_t file_bytes,
 	std::size_t batches,
@@ -456,8 +456,8 @@ void run_file_reader_modes(
 		}
 	} guard{&ring};
 
-	CompletionTable completions{cfg.depth * 2U};
-	FileReader files{&ring, &completions, bench_pack_ud};
+	conflux::uring::CompletionTable completions{cfg.depth * 2U};
+	conflux::file_io::FileReader files{&ring, &completions, bench_pack_ud};
 	auto handle = block_on(files, files.async_open(AT_FDCWD, file.path, O_RDONLY | O_CLOEXEC));
 
 	if (wants_mode(cfg, "io_uring_read"sv)) {
@@ -465,11 +465,11 @@ void run_file_reader_modes(
 		stats.push_back(bench_uring_read(files, handle, cfg, file_bytes, cfg.iterations, false));
 	}
 	if (wants_mode(cfg, "read_fixed"sv)) {
-		RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
+		conflux::file_io::RegisteredBufferTable table{&ring, static_cast<unsigned>(cfg.depth)};
 		if (!table.ok()) {
 			throw BenchSkip{"registered fixed buffers unsupported"};
 		}
-		FixedBufferPool pool{&table, 0, cfg.depth, cfg.chunk};
+		conflux::file_io::FixedBufferPool pool{&table, 0, cfg.depth, cfg.chunk};
 		if (!pool.ok() || pool.capacity() < cfg.depth) {
 			throw BenchSkip{"fixed buffer pool init failed"};
 		}
@@ -486,12 +486,12 @@ void run_iopoll_mode(
 	if (!wants_mode(cfg, "iopoll_read_fixed"sv)) {
 		return;
 	}
-	IopollStorageRingOptions options{
+	conflux::file_io::IopollStorageRingOptions options{
 		.entries = static_cast<unsigned>(std::max<std::size_t>(256, cfg.depth * 2U)),
 		.fixed_buffer_slots = static_cast<unsigned>(cfg.depth),
 		.fixed_buffer_bytes = cfg.chunk,
 	};
-	auto storage_result = IopollStorageRing::create(options);
+	auto storage_result = conflux::file_io::IopollStorageRing::create(options);
 	if (!storage_result) {
 		throw BenchSkip{std::format("iopoll storage ring unavailable: {}", storage_result.error().what())};
 	}
@@ -500,7 +500,7 @@ void run_iopoll_mode(
 	if (!direct_fd.valid()) {
 		throw BenchSkip{std::format("O_DIRECT open failed: {}", std::strerror(errno))};
 	}
-	FileHandle handle = FileHandle::from_fd(direct_fd.fd);
+	conflux::uring::FileHandle handle = conflux::uring::FileHandle::from_fd(direct_fd.fd);
 	direct_fd.fd = -1;
 	(void)bench_iopoll_read_fixed(*storage, handle, cfg, file_bytes, cfg.warmup, true);
 	stats.push_back(bench_iopoll_read_fixed(*storage, handle, cfg, file_bytes, cfg.iterations, false));

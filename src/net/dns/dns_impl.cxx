@@ -28,6 +28,9 @@ using conflux::socket_io::TcpStream;
 using conflux::socket_io::UdpSocket;
 using conflux::uring::CompletionTable;
 using conflux::uring::UserDataFn;
+using conflux::utils::ascii_lower;
+using conflux::utils::ascii_lower_inplace;
+using conflux::utils::LineRange;
 using conflux::work::Cancelled;
 using conflux::work::join_all;
 

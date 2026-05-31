@@ -183,11 +183,13 @@ Case make_typed_field_extract_case() {
 }
 Case make_router_exact_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.get("/health", [](conflux::http::RequestView const &) { return conflux::http::Response::text("ok"); });
+	state->router.get("/health", [](conflux::http::RequestView const &) {
+		return conflux::http::Response::text("ok");
+	});
 	state->req.method = "GET";
 	state->req.path = "/health";
 	state->req.version = "HTTP/1.1";
@@ -200,7 +202,7 @@ Case make_router_exact_case() {
 }
 Case make_router_params_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
@@ -219,7 +221,7 @@ Case make_router_params_case() {
 }
 Case make_compress_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
@@ -245,7 +247,7 @@ Case make_compress_case() {
 }
 Case make_compress_negotiation_miss_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
@@ -271,7 +273,7 @@ Case make_compress_negotiation_miss_case() {
 }
 Case make_compress_below_threshold_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
@@ -301,7 +303,7 @@ Case make_codec_payload_case_owned(
 	struct State {
 		std::string name;
 		std::string description;
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 	};
@@ -334,7 +336,7 @@ Case make_gzip_backend_payload_case(
 	struct State {
 		std::string name;
 		std::string description;
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 		std::shared_ptr<std::string> payload{std::make_shared<std::string>()};
 		conflux::http::GzipBackend backend;
@@ -343,8 +345,10 @@ Case make_gzip_backend_payload_case(
 	auto state = std::make_shared<State>();
 	state->backend = backend;
 	state->name = std::format("backend/{}/{}B", conflux::http::gzip_backend_name(backend), payload_size);
-	state->description =
-		std::format("Gzip backend {} on {} std::byte text payloads", conflux::http::gzip_backend_name(backend), payload_size);
+	state->description = std::format(
+		"Gzip backend {} on {} std::byte text payloads",
+		conflux::http::gzip_backend_name(backend),
+		payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(conflux::http::compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](conflux::http::RequestView const &) {
@@ -371,7 +375,7 @@ Case make_gzip_backend_payload_case(
 }
 Case make_route_json_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
@@ -391,11 +395,11 @@ Case make_route_json_case() {
 }
 Case make_route_json_with_header_middleware_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](conflux::http::RequestView const &req, Router::Handler const &next) {
+	state->router.use([](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
 		return resp;
@@ -419,7 +423,7 @@ Case make_route_json_with_header_middleware_case() {
 }
 Case make_route_json_with_compress_negotiation_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
@@ -444,11 +448,11 @@ Case make_route_json_with_compress_negotiation_case() {
 }
 Case make_flow_route_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](conflux::http::RequestView const &req, Router::Handler const &next) {
+	state->router.use([](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) {
 		auto resp = next(req);
 		resp.headers["X-Bench"] = "flow";
 		return resp;
@@ -474,12 +478,15 @@ Case make_flow_route_case() {
 }
 Case make_flow_not_found_case() {
 	struct State {
-		Router router;
+		conflux::http::Router router;
 		conflux::http::OwnedRequest req;
 	};
 	auto state = std::make_shared<State>();
-	state->router.use([](conflux::http::RequestView const &req, Router::Handler const &next) { return next(req); });
-	state->router.get("/api/health", [](conflux::http::RequestView const &) { return conflux::http::Response::text("ok"); });
+	state->router.use(
+		[](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) { return next(req); });
+	state->router.get("/api/health", [](conflux::http::RequestView const &) {
+		return conflux::http::Response::text("ok");
+	});
 	state->req.method = "GET";
 	state->req.path = "/api/missing/resource";
 	state->req.version = "HTTP/1.1";

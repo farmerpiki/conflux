@@ -19,8 +19,8 @@ using namespace std::literals;
 using conflux::http::Config;
 using conflux::http::HttpServerMetrics;
 using HttpRequest = conflux::http::OwnedRequest;
-using HttpServer = ::HttpServer;
-using Router = ::Router;
+using HttpServer = conflux::http::HttpServer;
+using Router = conflux::http::Router;
 using conflux::http::WsConn;
 
 namespace {
@@ -279,7 +279,7 @@ void emit(
 		r.errors);
 }
 
-template <class Fn>
+template<class Fn>
 [[nodiscard]] Row run_micro(
 	std::string_view config,
 	std::string variant,
@@ -319,7 +319,7 @@ template <class Fn>
 }
 
 struct ServerHandle {
-	std::shared_ptr<HttpServer> server;
+	std::shared_ptr<conflux::http::HttpServer> server;
 	std::thread thread;
 	std::uint16_t port{};
 };
@@ -365,10 +365,10 @@ void wait_for_server(
 
 [[nodiscard]] ServerHandle start_server(
 	Config cfg,
-	Router router) {
+	conflux::http::Router router) {
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
-	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
+	auto srv = std::make_shared<conflux::http::HttpServer>(cfg, std::move(router));
 	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
@@ -551,10 +551,10 @@ struct BenchClient {
 	}
 };
 
-[[nodiscard]] Router make_router(
+[[nodiscard]] conflux::http::Router make_router(
 	std::size_t push_frames = 64,
 	std::size_t push_payload = 4096) {
-	Router router;
+	conflux::http::Router router;
 	router.ws("/ws_echo", [](HttpRequest const &, WsConn &ws) {
 		for (;;) {
 			auto frame = ws.recv();
@@ -888,34 +888,36 @@ void run_handshake_case(
 	std::size_t warmup,
 	bool json) {
 	static constexpr std::string_view kKey = "dGhlIHNhbXBsZSBub25jZQ==";
-	emit(run_micro(
-			 config,
-			 "handshake_accept_key",
-			 "sha1-base64-accept-key",
-			 iterations,
-			 1,
-			 kKey.size(),
-			 warmup,
-			 [] {
-				 auto out = conflux::http::detail::ws_accept_key(kKey);
-				 use_sink(out);
-				 return out.size() == 28;
-			 }),
-		 json);
-	emit(run_micro(
-			 config,
-			 "handshake_validate_key",
-			 "client-key-base64-validation",
-			 iterations,
-			 1,
-			 kKey.size(),
-			 warmup,
-			 [] {
-				 bool const ok = conflux::http::detail::is_valid_client_key(kKey);
-				 use_sink(ok ? 1 : 0);
-				 return ok;
-			 }),
-		 json);
+	emit(
+		run_micro(
+			config,
+			"handshake_accept_key",
+			"sha1-base64-accept-key",
+			iterations,
+			1,
+			kKey.size(),
+			warmup,
+			[] {
+				auto out = conflux::http::detail::ws_accept_key(kKey);
+				use_sink(out);
+				return out.size() == 28;
+			}),
+		json);
+	emit(
+		run_micro(
+			config,
+			"handshake_validate_key",
+			"client-key-base64-validation",
+			iterations,
+			1,
+			kKey.size(),
+			warmup,
+			[] {
+				bool const ok = conflux::http::detail::is_valid_client_key(kKey);
+				use_sink(ok ? 1 : 0);
+				return ok;
+			}),
+		json);
 }
 
 void run_build_case(
@@ -923,23 +925,25 @@ void run_build_case(
 	std::size_t iterations,
 	std::size_t warmup,
 	bool json) {
-	for (auto size: {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
+	for (auto size:
+		 {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
 		auto payload = make_payload(size, 'b');
 		auto variant = std::format("build_frame_{}", size);
-		emit(run_micro(
-				 config,
-				 std::move(variant),
-				 "server-frame-construction-allocation",
-				 iterations,
-				 1,
-				 size,
-				 warmup,
-				 [&] {
-					 auto frame = conflux::http::detail::ws_build_frame(0x1U, as_bytes(payload));
-					 use_sink(frame);
-					 return frame.size() >= payload.size() + 2;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				std::move(variant),
+				"server-frame-construction-allocation",
+				iterations,
+				1,
+				size,
+				warmup,
+				[&] {
+					auto frame = conflux::http::detail::ws_build_frame(0x1U, as_bytes(payload));
+					use_sink(frame);
+					return frame.size() >= payload.size() + 2;
+				}),
+			json);
 	}
 }
 
@@ -957,24 +961,29 @@ void run_header_case(
 	cases.push_back({"parse_header_8", make_masked_frame(0x1U, make_payload(8)), true});
 	cases.push_back({"parse_header_126", make_masked_frame(0x1U, make_payload(126)), true});
 	cases.push_back({"parse_header_65536", make_masked_frame(0x2U, make_payload(65536)), true});
-	cases.push_back({"parse_header_protocol_error_unmasked", std::string{"\x81\x05hello", 7}, false});
+	cases.push_back({
+		"parse_header_protocol_error_unmasked",
+		std::string{"\x81\x05hello", 7},
+		false
+    });
 	for (auto const &c: cases) {
-		emit(run_micro(
-				 config,
-				 std::string{c.name},
-				 "frame-header-parse-and-validation",
-				 iterations,
-				 1,
-				 c.wire.size(),
-				 warmup,
-				 [&] {
-					 conflux::http::detail::FrameHeader hdr{};
-					 auto const st = conflux::http::detail::parse_frame_header(as_bytes(c.wire), hdr);
-					 use_sink(hdr.payload_len + hdr.header_size + static_cast<unsigned>(hdr.opcode));
-					 return c.ok ? st == conflux::http::detail::FrameParseStatus::Ok
-							   : st == conflux::http::detail::FrameParseStatus::ProtocolError;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				std::string{c.name},
+				"frame-header-parse-and-validation",
+				iterations,
+				1,
+				c.wire.size(),
+				warmup,
+				[&] {
+					conflux::http::detail::FrameHeader hdr{};
+					auto const st = conflux::http::detail::parse_frame_header(as_bytes(c.wire), hdr);
+					use_sink(hdr.payload_len + hdr.header_size + static_cast<unsigned>(hdr.opcode));
+					return c.ok ? st == conflux::http::detail::FrameParseStatus::Ok :
+								  st == conflux::http::detail::FrameParseStatus::ProtocolError;
+				}),
+			json);
 	}
 }
 
@@ -983,91 +992,96 @@ void run_recv_case(
 	std::size_t iterations,
 	std::size_t warmup,
 	bool json) {
-	for (auto size: {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
+	for (auto size:
+		 {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
 		auto payload = make_payload(size, 'r');
 		auto frame = make_masked_frame(0x1U, payload);
 		auto variant = std::format("recv_single_{}", size);
-		emit(run_micro(
-				 config,
-				 std::move(variant),
-				 "actual-WsConn-recv-parse-copy-unmask-utf8",
-				 iterations,
-				 1,
-				 size,
-				 warmup,
-				 [&] {
-					 WsConn ws{-1, std::string{frame}};
-					 auto f = ws.recv();
-					 if (f) {
-						 use_sink(f->payload);
-					 }
-					 return f && f->payload == payload;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				std::move(variant),
+				"actual-WsConn-recv-parse-copy-unmask-utf8",
+				iterations,
+				1,
+				size,
+				warmup,
+				[&] {
+					WsConn ws{-1, std::string{frame}};
+					auto f = ws.recv();
+					if (f) {
+						use_sink(f->payload);
+					}
+					return f && f->payload == payload;
+				}),
+			json);
 	}
 	{
 		auto payload = make_payload(32, 's');
 		auto frame = make_masked_frame(0x1U, payload);
 		auto wire = repeated_wire(frame, 100);
-		emit(run_micro(
-				 config,
-				 "recv_stream_100x32",
-				 "actual-WsConn-buffer-consume-compaction",
-				 iterations,
-				 100,
-				 payload.size(),
-				 warmup,
-				 [&] {
-					 WsConn ws{-1, std::string{wire}};
-					 for (int i = 0; i < 100; ++i) {
-						 auto f = ws.recv();
-						 if (!f || f->payload != payload) {
-							 return false;
-						 }
-						 use_sink(f->payload);
-					 }
-					 return true;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				"recv_stream_100x32",
+				"actual-WsConn-buffer-consume-compaction",
+				iterations,
+				100,
+				payload.size(),
+				warmup,
+				[&] {
+					WsConn ws{-1, std::string{wire}};
+					for (int i = 0; i < 100; ++i) {
+						auto f = ws.recv();
+						if (!f || f->payload != payload) {
+							return false;
+						}
+						use_sink(f->payload);
+					}
+					return true;
+				}),
+			json);
 	}
 	{
 		auto payload = make_payload(4096, 'f');
 		auto wire = make_fragmented_text(payload, 16);
-		emit(run_micro(
-				 config,
-				 "recv_fragmented_16x256",
-				 "actual-WsConn-fragment-accumulator",
-				 iterations,
-				 1,
-				 payload.size(),
-				 warmup,
-				 [&] {
-					 WsConn ws{-1, std::string{wire}};
-					 auto f = ws.recv();
-					 if (f) {
-						 use_sink(f->payload);
-					 }
-					 return f && f->payload == payload;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				"recv_fragmented_16x256",
+				"actual-WsConn-fragment-accumulator",
+				iterations,
+				1,
+				payload.size(),
+				warmup,
+				[&] {
+					WsConn ws{-1, std::string{wire}};
+					auto f = ws.recv();
+					if (f) {
+						use_sink(f->payload);
+					}
+					return f && f->payload == payload;
+				}),
+			json);
 	}
 	{
 		auto close = make_close_frame(1000, std::string(64, 'c'));
-		emit(run_micro(
-				 config,
-				 "recv_close_payload_64",
-				 "actual-WsConn-control-close-payload-validation",
-				 iterations,
-				 1,
-				 66,
-				 warmup,
-				 [&] {
-					 WsConn ws{-1, std::string{close}};
-					 auto f = ws.recv();
-					 use_sink(f ? f->payload.size() : 0);
-					 return !f;
-				 }),
-			 json);
+		emit(
+			run_micro(
+				config,
+				"recv_close_payload_64",
+				"actual-WsConn-control-close-payload-validation",
+				iterations,
+				1,
+				66,
+				warmup,
+				[&] {
+					WsConn ws{-1, std::string{close}};
+					auto f = ws.recv();
+					use_sink(f ? f->payload.size() : 0);
+					return !f;
+				}),
+			json);
 	}
 }
 
@@ -1227,7 +1241,9 @@ int main(
 		} else if (name == "live"sv) {
 			iterations = explicit_iters && args.iterations != 0 ? args.iterations : 20;
 			emit(run_live_upgrade(config, iterations, warmup), args.json_out);
-			emit(run_live_echo(config, "live_echo_100x32", std::max<std::size_t>(1, iterations / 2), 100, 32, warmup), args.json_out);
+			emit(
+				run_live_echo(config, "live_echo_100x32", std::max<std::size_t>(1, iterations / 2), 100, 32, warmup),
+				args.json_out);
 			emit(run_live_echo(config, "live_echo_20x4k", iterations, 20, 4096, warmup), args.json_out);
 			emit(run_live_ping_pong(config, std::max<std::size_t>(1, iterations / 2), 100, 32, warmup), args.json_out);
 			emit(run_live_fragmented(config, iterations, 4096, 16, warmup), args.json_out);

@@ -462,9 +462,10 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 [[nodiscard]] std::string auth_throttle_remote_key(
 	conflux::http::RequestView const &req,
 	std::string_view scope = "remote") {
-	auto subject = req.remote_addr.empty() ?
-					   std::string{"unknown"} :
-					   parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
+	auto subject = req.remote_addr.empty() ? std::string{"unknown"} :
+											 conflux::utils::parse_ip(req.remote_addr)
+												 .transform(conflux::utils::ip_to_string)
+												 .value_or(std::string{req.remote_addr});
 	return auth_throttle_key(scope, subject);
 }
 

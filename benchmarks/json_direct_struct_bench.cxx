@@ -769,11 +769,13 @@ int main(
 	Config const cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	if (!cfg.json_out) {
 		std::println(
-			"[json-direct-struct-bench] benchmark                                             median        best       p10"
+			"[json-direct-struct-bench] benchmark                                             median        best       "
+			"p10"
 			"       p99  throughput     allocations");
 		std::println(
 			"[json-direct-struct-bench] "
-			"---------------------------------------------------------------------------------------------------------------");
+			"----------------------------------------------------------------------------------------------------------"
+			"-----");
 	}
 	bench_order_matrix(cfg);
 	bench_duplicate_matrix(cfg);
