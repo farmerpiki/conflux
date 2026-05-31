@@ -1123,6 +1123,15 @@ TEST_CASE(
 	CHECK(r->y == 7LL);
 }
 TEST_CASE(
+	"json: decode_full_into updates existing JsonMembers struct",
+	"[json][codec][members]") {
+	Point point{.x = 1, .y = 2};
+	auto r = decode_full_into(point, R"({"x":3,"y":7})");
+	REQUIRE(r.has_value());
+	CHECK(point.x == 3LL);
+	CHECK(point.y == 7LL);
+}
+TEST_CASE(
 	"json: JsonMembers decode missing required member yields missing_member",
 	"[json][codec][members]") {
 	auto doc = parse(R"({"x":3})");

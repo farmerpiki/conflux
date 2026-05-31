@@ -971,6 +971,9 @@ export template<class T>
 std::expected<T, JsonError>
 decode_full(std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
 export template<class T>
+std::expected<void, JsonError>
+decode_full_into(T &out, std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
+export template<class T>
 std::expected<void, JsonError> write_json_direct(std::string &out, T const &value, JsonDumpOptions const &opts = {});
 export template<class T>
 std::expected<std::string, JsonError> dump_direct(T const &value, JsonDumpOptions const &opts = {});
@@ -4458,7 +4461,8 @@ std::expected<T, JsonError> decode_full(
 	return std::move(value);
 }
 export template<class T>
-std::expected<T, JsonError> decode_full(
+std::expected<void, JsonError> decode_full_into(
+	T &out,
 	std::string_view input,
 	JsonParseOptions const &parse_opts,
 	JsonDecodeOptions const &decode_opts) {
@@ -4469,10 +4473,9 @@ std::expected<T, JsonError> decode_full(
 	// no positional diagnostics) are produced directly.
 	if constexpr (detail::fastpath::fp_supported_v<T>) {
 		if (parse_opts.mode == ParseMode::strict) {
-			T fast_result{};
 			detail::fastpath::FpError fast_error{};
-			switch (detail::fastpath::fp_decode_document<T>(fast_result, fast_error, input, parse_opts, decode_opts)) {
-			case detail::fastpath::FpStatus::ok: return fast_result;
+			switch (detail::fastpath::fp_decode_document<T>(out, fast_error, input, parse_opts, decode_opts)) {
+			case detail::fastpath::FpStatus::ok: return {};
 			case detail::fastpath::FpStatus::error:
 				{
 					std::string_view const name = fast_error.member_name;
@@ -4499,7 +4502,45 @@ std::expected<T, JsonError> decode_full(
 		}
 	}
 	JsonReader reader{input, parse_opts};
-	return decode_full<T>(reader, decode_opts);
+	auto ne = reader.next();
+	if (!ne) {
+		return std::unexpected(std::move(ne).error());
+	}
+	if (!*ne) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::unexpected_eof,
+				.message = "std::unexpected end of input"});
+	}
+	JsonDecodeScratch scratch;
+	if (auto decoded = detail::decode_into<T>(out, reader, **ne, decode_opts, &scratch); !decoded) {
+		return decoded;
+	}
+	auto next = reader.next();
+	if (!next) {
+		return std::unexpected(std::move(next).error());
+	}
+	if (*next) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::trailing_garbage,
+				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
+				.message = "trailing JSON value after document root"});
+	}
+	return {};
+}
+export template<class T>
+std::expected<T, JsonError> decode_full(
+	std::string_view input,
+	JsonParseOptions const &parse_opts,
+	JsonDecodeOptions const &decode_opts) {
+	T result{};
+	if (auto decoded = decode_full_into<T>(result, input, parse_opts, decode_opts); !decoded) {
+		return std::unexpected(std::move(decoded).error());
+	}
+	return result;
 }
 export template<class T>
 std::expected<T, JsonError> decode_borrowed(
