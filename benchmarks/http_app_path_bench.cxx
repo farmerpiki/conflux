@@ -181,7 +181,7 @@ struct BenchAppJsonBody {
 } // namespace
 
 template<>
-struct JsonMembers<BenchAppJsonBody> {
+struct conflux::json::JsonMembers<BenchAppJsonBody> {
 	static constexpr auto members() {
 		return std::tuple{
 			json_member("id", &BenchAppJsonBody::id),

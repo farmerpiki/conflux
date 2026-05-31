@@ -610,7 +610,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume();
+	auto state = h.consume_for_abandon();
 	if (!state) {
 		return AbandonStatus::empty;
 	}
@@ -625,7 +625,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume();
+	auto state = h.consume_for_abandon();
 	if (!state) {
 		return AbandonStatus::empty;
 	}
@@ -639,7 +639,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume();
+	auto state = h.consume_for_abandon();
 	if (!state) {
 		return AbandonStatus::empty;
 	}
