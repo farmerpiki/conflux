@@ -3309,6 +3309,13 @@ template<class T>
 		c.p = p;
 		return FpStatus::ok;
 	}
+	if (std::same_as<T, double> && !neg && frac_len == 1U && !exp_overlong && exp_val == 0 && int_len <= 4U) {
+		auto const mant =
+			fp_parse_short_digits(int_start, int_len) * 10ULL + static_cast<std::uint64_t>(frac_start[0] - '0');
+		out = static_cast<T>(static_cast<double>(mant) / 10.0);
+		c.p = p;
+		return FpStatus::ok;
+	}
 	if (std::same_as<T, double> && !neg && frac_len == 6U && !exp_overlong && exp_val == 0 && int_len <= 4U) {
 		auto const mant = fp_parse_short_digits(int_start, int_len) * 1000000ULL
 						+ fp_parse_short_digits(frac_start, 3U) * 1000ULL
