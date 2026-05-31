@@ -15,7 +15,7 @@ export conflux::work::root::Task<void> do_serve_static_file(
 	std::size_t send_off,
 	std::size_t send_sz,
 	std::size_t total_size,
-	conflux::work::root::Task<FileHandle> open_task);
+	conflux::work::root::Task<conflux::uring::FileHandle> open_task);
 
 export conflux::http::Response handle_static_get(
 	std::string const &rd,

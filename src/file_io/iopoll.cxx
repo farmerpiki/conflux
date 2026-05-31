@@ -18,6 +18,9 @@ export import conflux.file_io.reader;
 namespace conflux::file_io {
 
 namespace root = conflux::work::root;
+using conflux::uring::FileHandle;
+using conflux::uring::RingFd;
+using conflux::uring::visit_fd;
 
 // ---------------------------------------------------------------------------
 // IopollFileReader / IopollStorageRing: storage-only fixed-buffer reads on a

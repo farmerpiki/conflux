@@ -25,6 +25,7 @@ import conflux.pg.result;
 
 namespace conflux::pg {
 namespace root = conflux::work::root;
+using conflux::uring::FileHandle;
 using conflux::work::Cancelled;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;

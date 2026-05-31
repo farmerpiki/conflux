@@ -204,6 +204,14 @@ if(TARGET conflux)
         EXPECT "run")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_uring_handle_compile_fail_global_io_handle
+        SOURCE uring_handle_compile_fail_global_io_handle.cxx
+        TEST api-surface/uring-handle-hides-global-io-handle
+        LINK conflux_uring conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "IoHandle")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_watch_compile_fail_global_watcher
         SOURCE file_watch_compile_fail_global_watcher.cxx
         TEST api-surface/file-watch-hides-global-watcher

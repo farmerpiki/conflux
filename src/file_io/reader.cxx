@@ -33,6 +33,11 @@ namespace conflux::file_io {
 export using FileIoError = IoError;
 
 namespace root = conflux::work::root;
+using conflux::uring::FileHandle;
+using conflux::uring::OsFd;
+using conflux::uring::release_fd_tag;
+using conflux::uring::RingFd;
+using conflux::uring::visit_fd;
 namespace {
 
 std::atomic<std::uint64_t> g_async_staging_counter{0};

@@ -38,6 +38,7 @@ import conflux.net.http_server_helpers;
 import conflux.net.http_server_config;
 import conflux.uring;
 import conflux.uring.completion;
+import conflux.uring.handle;
 import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
@@ -53,6 +54,8 @@ import conflux.net.tls;
 #endif
 import :state;
 using namespace conflux::socket_io;
+using conflux::uring::DirectFd;
+using conflux::uring::OsFd;
 
 #if CONFLUX_HTTP_TRACE
 	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))

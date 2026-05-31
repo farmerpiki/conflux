@@ -19,6 +19,7 @@ namespace conflux::net_tls {
 
 using conflux::IoError;
 using conflux::socket_io::TcpStream;
+using conflux::uring::FileHandle;
 
 export struct TlsError : std::runtime_error {
 	explicit TlsError(

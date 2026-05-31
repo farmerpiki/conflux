@@ -23,6 +23,10 @@ namespace wroot = conflux::work::root;
 
 namespace conflux::socket_io {
 
+using conflux::uring::DirectFd;
+using conflux::uring::OsFd;
+using conflux::uring::RingFd;
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Buffer lifetime contract for Task methods:

@@ -24,6 +24,7 @@ import conflux.net.http.static_core;
 
 namespace http_detail = conflux::http::detail;
 using conflux::errnum;
+using conflux::uring::FileHandle;
 
 namespace {
 

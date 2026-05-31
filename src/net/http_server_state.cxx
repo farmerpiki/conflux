@@ -41,6 +41,7 @@ import conflux.net.http_server_config;
 import conflux.small_function;
 import conflux.uring;
 import conflux.uring.completion;
+import conflux.uring.handle;
 import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
@@ -56,6 +57,8 @@ import conflux.net.tls;
 #endif
 
 using namespace conflux::socket_io;
+using conflux::uring::DirectFd;
+using conflux::uring::OsFd;
 using conflux::work::WorkPool;
 enum class Op : std::uint8_t {
 	Accept,

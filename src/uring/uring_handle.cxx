@@ -5,19 +5,12 @@ export module conflux.uring.handle;
 
 import std;
 import conflux.uring;
-import conflux_uring_fd;
+export import conflux_uring_fd;
 import conflux_uring_sqe;
 
-export using OsFd = conflux::uring::OsFd;
-export using DirectFd = conflux::uring::DirectFd;
-export template<typename T>
-concept ClassicFd = conflux::uring::ClassicFd<T>;
-export template<typename T>
-concept DirectFdLike = conflux::uring::DirectFdLike<T>;
-export template<typename T>
-concept RingFd = conflux::uring::RingFd<T>;
+export namespace conflux::uring {
 
-export class IoHandle {
+class IoHandle {
 	enum class Kind : std::uint8_t {
 		invalid,
 		os,
@@ -124,9 +117,9 @@ public:
 		return slot;
 	}
 };
-export using FileHandle = IoHandle;
+using FileHandle = IoHandle;
 
-export decltype(auto) visit_fd(
+decltype(auto) visit_fd(
 	IoHandle const &h,
 	auto &&fn) {
 	if (h.is_direct()) {
@@ -135,7 +128,7 @@ export decltype(auto) visit_fd(
 	return std::forward<decltype(fn)>(fn)(h.os_fd());
 }
 
-export decltype(auto) release_fd_tag(
+decltype(auto) release_fd_tag(
 	IoHandle &h,
 	auto &&fn) {
 	if (h.is_direct()) {
@@ -143,3 +136,5 @@ export decltype(auto) release_fd_tag(
 	}
 	return std::forward<decltype(fn)>(fn)(h.release_os_fd());
 }
+
+} // namespace conflux::uring

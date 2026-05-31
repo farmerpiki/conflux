@@ -24,6 +24,8 @@ import conflux.file_io.driver;
 import conflux.file_io_sync;
 
 namespace root = conflux::work::root;
+using conflux::uring::FileHandle;
+
 namespace {
 
 [[nodiscard]] std::string temp_file_root() {

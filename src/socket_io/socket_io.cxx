@@ -25,7 +25,12 @@ namespace conflux::socket_io {
 
 // ─── handle types ────────────────────────────────────────────────────────────
 
-export using OwnedSocketHandle = IoHandle;
+using conflux::uring::DirectFd;
+using conflux::uring::IoHandle;
+using conflux::uring::OsFd;
+using conflux::uring::RingFd;
+
+export using OwnedSocketHandle = conflux::uring::IoHandle;
 // ─── SocketRawRing ───────────────────────────────────────────────────────────
 // Non-owning wrapper around io_uring* for raw SQE submission.
 // Does NOT own CompletionTable — raw callers dispatch CQEs themselves.
