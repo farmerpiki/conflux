@@ -39,7 +39,7 @@ set(CONFLUX_BENCH_SPIN "" CACHE STRING "Override spin_before_park in work_bench 
 
 if(TARGET conflux_work)
     conflux_add_recordable_benchmark(conflux_work_benchmarks work_bench.cxx)
-    target_link_libraries(conflux_work_benchmarks PRIVATE conflux_work conflux_options conflux_bench_release_opts)
+    target_link_libraries(conflux_work_benchmarks PRIVATE bench_common conflux_work conflux_options conflux_bench_release_opts)
     if(NOT CONFLUX_BENCH_SPIN STREQUAL "")
         target_compile_definitions(conflux_work_benchmarks PRIVATE "CONFLUX_BENCH_SPIN_BEFORE_PARK=${CONFLUX_BENCH_SPIN}")
     endif()

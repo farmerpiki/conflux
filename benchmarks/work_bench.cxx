@@ -5,6 +5,7 @@ import conflux.small_function;
 import conflux.types;
 import conflux.work;
 import conflux.work.carrier.coro;
+import bench_common;
 
 using namespace std::string_view_literals;
 
@@ -28,6 +29,7 @@ struct Config {
 	bool list_only = false;
 	std::string filter;
 	std::optional<std::size_t> iterations_override;
+	BenchArgs bench;
 	enum class Format : std::uint8_t {
 		table,
 		json,
@@ -42,6 +44,10 @@ struct Stats {
 	double min_ns{};
 	double p10_ns{};
 	double mad_ns{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
 using BenchFn = conflux::detail::small_move_only_function<std::size_t()>;
 struct Case {
@@ -57,6 +63,13 @@ void print_usage() {
 Config parse_args(
 	std::span<char *> args) {
 	Config cfg;
+	cfg.bench = bench_parse_args(args);
+	if (cfg.bench.iterations_explicit && cfg.bench.iterations > 0) {
+		cfg.iterations_override = cfg.bench.iterations;
+	}
+	if (cfg.bench.json_out) {
+		cfg.format = Config::Format::json;
+	}
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view arg = args[i];
 		if (arg == "--list") {
@@ -75,16 +88,7 @@ Config parse_args(
 			continue;
 		}
 		if (arg == "--iterations") {
-			if (i + 1 >= args.size()) {
-				throw std::invalid_argument{"--iterations requires a value"};
-			}
-			std::size_t iters = 0;
-			auto const value = std::string_view{args[++i]};
-			auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), iters);
-			if (ec != std::errc{} || ptr != value.data() + value.size() || iters == 0) {
-				throw std::invalid_argument{"--iterations must be a positive integer"};
-			}
-			cfg.iterations_override = iters;
+			++i;
 			continue;
 		}
 		if (arg == "--samples" || arg == "--batch" || arg == "--warmup" || arg == "--config-name") {
@@ -127,21 +131,24 @@ std::size_t warmup_iterations(
 }
 Stats measure_case(
 	Case const &bench,
+	BenchArgs const &args,
 	std::size_t iterations) {
-	for (std::size_t i = 0; i < warmup_iterations(iterations); ++i) {
+	BenchSamplePlan const plan =
+		bench_sample_plan(iterations, warmup_iterations(iterations), args.samples, args.batch, bench.reps);
+	std::vector<double> times;
+	times.reserve(plan.samples);
+	for (std::size_t i = 0; i < plan.warmup_iterations; ++i) {
 		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
-
-	std::vector<double> times;
-	times.reserve(bench.reps);
-	for (std::size_t r = 0; r < bench.reps; ++r) {
-		auto const t0 = std::chrono::steady_clock::now();
-		for (std::size_t i = 0; i < iterations; ++i) {
+	std::uint64_t total_ns = 0;
+	for (std::size_t r = 0; r < plan.samples; ++r) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t i = 0; i < plan.batch; ++i) {
 			sink.fetch_add(bench.run(), std::memory_order_relaxed);
 		}
-		auto const dt =
-			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
-		times.push_back(static_cast<double>(dt) / static_cast<double>(iterations));
+		auto const dt = bench_now_ns() - t0;
+		total_ns += dt;
+		times.push_back(static_cast<double>(dt) / static_cast<double>(plan.batch));
 	}
 
 	std::ranges::sort(times);
@@ -160,15 +167,18 @@ Stats measure_case(
 	std::ranges::sort(devs);
 	double const mad_ns = (n % 2 == 0) ? (devs[n / 2 - 1] + devs[n / 2]) / 2.0 : devs[n / 2];
 
-	auto const total_ns = static_cast<std::uint64_t>(med_ns * static_cast<double>(iterations));
 	return Stats{
 		.name = bench.name,
-		.iterations = iterations,
+		.iterations = plan.iterations,
 		.total_ns = total_ns,
 		.ns_per_iter = med_ns,
 		.min_ns = min_ns,
 		.p10_ns = p10_ns,
 		.mad_ns = mad_ns,
+		.sample_count = plan.samples,
+		.batch = plan.batch,
+		.timer_sample_ns = plan.timer_sample_ns,
+		.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns),
 	};
 }
 void print_header(
@@ -199,14 +209,19 @@ void print_stats(
 	} else {
 		std::println(
 			"{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"min\":{:."
-			"2f},\"p10\":{:.2f},\"mad\":{:.2f}}}",
+			"2f},\"p10\":{:.2f},\"mad\":{:.2f},\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},"
+			"\"timer_overhead_pct\":{:.4f}}}",
 			stats.name,
 			stats.iterations,
 			stats.total_ns,
 			stats.ns_per_iter,
 			stats.min_ns,
 			stats.p10_ns,
-			stats.mad_ns);
+			stats.mad_ns,
+			stats.sample_count,
+			stats.batch,
+			stats.timer_sample_ns,
+			stats.timer_overhead_pct);
 	}
 }
 // ---------------------------------------------------------------------------
@@ -603,7 +618,7 @@ int main(
 				continue;
 			}
 			auto const iterations = cfg.iterations_override.value_or(bench.default_iterations);
-			print_stats(measure_case(bench, iterations), cfg.format);
+			print_stats(measure_case(bench, cfg.bench, iterations), cfg.format);
 		}
 		std::println(std::cerr, "sink={}", sink.load(std::memory_order_relaxed));
 		return 0;
