@@ -64,6 +64,16 @@
 #   BENCH_RUN_TIMEOUT_SEC
 #                      wall-clock timeout for one benchmark process execution
 #                      (default: 600).
+#   BENCH_BATCH_SAMPLES
+#                      target timed samples per calibrated row; benchmarks that
+#                      support --samples/--batch keep percentile categories while
+#                      amortising clock_gettime overhead (default: 100).
+#   BENCH_BATCH_TARGET_MS
+#                      target duration for each timed batch where timer metadata
+#                      is available; 0 disables this floor (default: 5).
+#   BENCH_BATCH_TIMER_MULTIPLE
+#                      minimum batch duration as a multiple of the measured
+#                      CLOCK_MONOTONIC_RAW sample cost (default: 300).
 #   ALLOW_NON_PERF_BENCH_PRESET=1
 #                      allow non-perf presets for explicit experiments. The normal
 #                      recording path requires perf-* presets, RelWithDebInfo,
@@ -113,6 +123,9 @@ BENCH_MIN_ITERATIONS="${BENCH_MIN_ITERATIONS:-1}"
 BENCH_CALIBRATION_ITERATIONS="${BENCH_CALIBRATION_ITERATIONS:-16}"
 BENCH_CALIBRATION_MIN_SAMPLE_MS="${BENCH_CALIBRATION_MIN_SAMPLE_MS:-50}"
 BENCH_RUN_TIMEOUT_SEC="${BENCH_RUN_TIMEOUT_SEC:-600}"
+BENCH_BATCH_SAMPLES="${BENCH_BATCH_SAMPLES:-100}"
+BENCH_BATCH_TARGET_MS="${BENCH_BATCH_TARGET_MS:-5}"
+BENCH_BATCH_TIMER_MULTIPLE="${BENCH_BATCH_TIMER_MULTIPLE:-300}"
 ALLOW_NON_PERF_BENCH_PRESET="${ALLOW_NON_PERF_BENCH_PRESET:-0}"
 CONFLUX_ALLOW_SANITIZED_BENCHMARKS="${CONFLUX_ALLOW_SANITIZED_BENCHMARKS:-OFF}"
 BENCH_LOAD_FACTOR="${BENCH_LOAD_FACTOR:-1.5}"
@@ -482,11 +495,22 @@ calibrate_once() {
   fi
   require_result_rows "$tmpf" "$binary"
   jq -Rsc --argjson iterations "$iterations" '
-    [split("\n")[] | select(length > 0) | try fromjson catch empty | .ns_per_iter? // empty] as $rows
+    [split("\n")[] | select(length > 0) | try fromjson catch empty] as $rows
+    | [$rows[] | .ns_per_iter? // empty] as $ns
+    | [$rows[] | (.timer_sample_ns? // 0) | select(. > 0)] as $timer_samples
+    | [$rows[]
+        | {ns:(.ns_per_iter? // empty),
+           batch:((.batch? // 1) | if . > 0 then . else 1 end),
+           timer:(.timer_sample_ns? // 0)}
+        | select(.ns != null)] as $timed
     | {
         iterations: $iterations,
-        sum_ns_per_iter: (($rows | add) // 0),
-        sample_ns: ((($rows | add) // 0) * $iterations)
+        row_count: ($ns | length),
+        sum_ns_per_iter: (($ns | add) // 0),
+        min_ns_per_iter: (($ns | min) // 0),
+        timer_sample_ns: (($timer_samples | max) // 0),
+        min_estimated_op_ns: (([$timed[] | ([.ns - (.timer / .batch), 1] | max)] | min) // 0),
+        sample_ns: ((($ns | add) // 0) * $iterations)
       }' "$tmpf"
   rm -f "$tmpf"
 }
@@ -514,11 +538,67 @@ rewrite_args_for_iterations() {
     return 0
   fi
 
-  local warmup
-  warmup=$(derive_warmup_iters "$override")
-  mapfile -t args < <(rewrite_args_set_value --iterations "$override" "${args[@]}")
+  local batch_plan samples batch final_iterations warmup
+  batch_plan=$(compute_calibrated_batch_plan "$override" "$BENCH_TARGET_MS" '{}')
+  samples=$(jq -r '.samples' <<< "$batch_plan")
+  batch=$(jq -r '.batch' <<< "$batch_plan")
+  final_iterations=$(jq -r '.iterations' <<< "$batch_plan")
+  warmup=$(derive_warmup_iters "$final_iterations")
+  mapfile -t args < <(rewrite_args_set_value --iterations "$final_iterations" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --samples "$samples" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --batch "$batch" "${args[@]}")
   mapfile -t args < <(rewrite_args_set_value --warmup "$warmup" "${args[@]}")
   printf '%s\n' "${args[@]}"
+}
+
+compute_calibrated_batch_plan() {
+  local calibrated="$1" target_ms="$2" probe_json="$3"
+  local timer_sample_ns min_estimated_op_ns
+  timer_sample_ns=$(jq -r '.timer_sample_ns // 0' <<< "$probe_json")
+  min_estimated_op_ns=$(jq -r '.min_estimated_op_ns // 0' <<< "$probe_json")
+  awk \
+    -v iterations="$calibrated" \
+    -v desired_samples="$BENCH_BATCH_SAMPLES" \
+    -v target_batch_ms="$BENCH_BATCH_TARGET_MS" \
+    -v timer_multiple="$BENCH_BATCH_TIMER_MULTIPLE" \
+    -v timer_sample_ns="$timer_sample_ns" \
+    -v min_estimated_op_ns="$min_estimated_op_ns" \
+    -v target_ms="$target_ms" '
+    function ceil_pos(x) {
+      if (x <= 1) return 1
+      i = int(x)
+      return i == x ? i : i + 1
+    }
+    BEGIN {
+      total = int(iterations)
+      desired = int(desired_samples)
+      if (total < 1) total = 1
+      if (desired < 1) desired = 1
+      if (total <= desired) {
+        samples = total
+        batch = 1
+      } else {
+        samples = desired
+        batch = ceil_pos(total / samples)
+      }
+      if (total > desired && min_estimated_op_ns > 0 && timer_sample_ns > 0) {
+        timer_batch = ceil_pos((timer_sample_ns * timer_multiple) / min_estimated_op_ns)
+        if (batch < timer_batch) batch = timer_batch
+        effective_target_batch_ms = target_batch_ms
+        if (target_ms > 0 && desired > 0) {
+          target_cap_ms = target_ms / desired
+          if (target_cap_ms > 0 && effective_target_batch_ms > target_cap_ms) {
+            effective_target_batch_ms = target_cap_ms
+          }
+        }
+        if (effective_target_batch_ms > 0) {
+          target_batch = ceil_pos((effective_target_batch_ms * 1000000.0) / min_estimated_op_ns)
+          if (batch < target_batch) batch = target_batch
+        }
+      }
+      final_iterations = samples * batch
+      printf "{\"samples\":%d,\"batch\":%d,\"iterations\":%d,\"timer_sample_ns\":%.0f,\"min_estimated_op_ns\":%.6f,\"target_batch_ms\":%.6f,\"effective_target_batch_ms\":%.6f,\"timer_multiple\":%.6f}\n", samples, batch, final_iterations, timer_sample_ns, min_estimated_op_ns, target_batch_ms, effective_target_batch_ms, timer_multiple
+    }'
 }
 
 rewrite_args_for_target_runtime() {
@@ -577,20 +657,31 @@ rewrite_args_for_target_runtime() {
     fi
   fi
 
+  local final_probe_json="${final_probe:-{}}" batch_plan samples batch final_iterations
+  batch_plan=$(compute_calibrated_batch_plan "$calibrated" "$target_ms" "$final_probe_json")
+  samples=$(jq -r '.samples' <<< "$batch_plan")
+  batch=$(jq -r '.batch' <<< "$batch_plan")
+  final_iterations=$(jq -r '.iterations' <<< "$batch_plan")
+  calibrated="$final_iterations"
+
   warmup=$(derive_warmup_iters "$calibrated")
   mapfile -t args < <(rewrite_args_set_value --iterations "$calibrated" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --samples "$samples" "${args[@]}")
+  mapfile -t args < <(rewrite_args_set_value --batch "$batch" "${args[@]}")
   mapfile -t args < <(rewrite_args_set_value --warmup "$warmup" "${args[@]}")
-  local final_probe_json="${final_probe:-"{}"}"
   set_calibration_extra "$(jq -nc \
     --argjson target_ms "$target_ms" \
     --argjson calibration_iterations "$calibration_iterations" \
     --argjson iterations "$calibrated" \
     --argjson warmup "$warmup" \
+    --argjson samples "$samples" \
+    --argjson batch "$batch" \
     --argjson max_iterations "$max_iterations" \
     --argjson min_sample_ms "$min_sample_ms" \
     --argjson pass_count "${pass_count:-0}" \
     --argjson final_probe "$final_probe_json" \
-    '{target_ms:$target_ms, calibration_iterations:$calibration_iterations, iterations:$iterations, warmup:$warmup, max_iterations:$max_iterations, min_sample_ms:$min_sample_ms, passes:$pass_count, final_probe:$final_probe}')"
+    --argjson batch_plan "$batch_plan" \
+    '{target_ms:$target_ms, calibration_iterations:$calibration_iterations, iterations:$iterations, warmup:$warmup, samples:$samples, batch:$batch, max_iterations:$max_iterations, min_sample_ms:$min_sample_ms, passes:$pass_count, final_probe:$final_probe, batch_plan:$batch_plan}')"
   printf '%s\n' "${args[@]}"
 }
 

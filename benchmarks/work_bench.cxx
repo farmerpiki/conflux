@@ -87,6 +87,13 @@ Config parse_args(
 			cfg.iterations_override = iters;
 			continue;
 		}
+		if (arg == "--samples" || arg == "--batch" || arg == "--warmup" || arg == "--config-name") {
+			if (i + 1 >= args.size()) {
+				throw std::invalid_argument{std::format("{} requires a value", arg)};
+			}
+			++i;
+			continue;
+		}
 		if (arg == "--format") {
 			if (i + 1 >= args.size()) {
 				throw std::invalid_argument{"--format requires a value"};

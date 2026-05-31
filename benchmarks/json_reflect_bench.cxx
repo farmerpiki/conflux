@@ -60,24 +60,24 @@ struct AllocBenchStats {
 template<typename F>
 AllocBenchStats measure_alloc(
 	F &&fn,
-	std::size_t warmup,
-	std::size_t iters,
-	std::size_t batch = 1,
+	BenchSamplePlan const &plan,
 	std::size_t bytes = 0) {
-	for (std::size_t i = 0; i < warmup * batch; ++i) {
-		fn();
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			fn();
+		}
 	}
 	std::vector<std::uint64_t> samples;
-	samples.reserve(iters);
+	samples.reserve(plan.samples);
 	std::uint64_t total = 0;
 	std::uint64_t total_allocs = 0;
 	std::uint64_t total_bytes = 0;
-	for (std::size_t i = 0; i < iters; ++i) {
+	for (std::size_t i = 0; i < plan.samples; ++i) {
 		g_alloc_count.store(0, std::memory_order_relaxed);
 		g_alloc_bytes.store(0, std::memory_order_relaxed);
 		g_count_allocations.store(true, std::memory_order_relaxed);
 		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < batch; ++j) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
 			fn();
 		}
 		std::uint64_t const elapsed = bench_now_ns() - t0;
@@ -87,24 +87,43 @@ AllocBenchStats measure_alloc(
 		total_bytes += g_alloc_bytes.load(std::memory_order_relaxed);
 		samples.push_back(elapsed);
 	}
-	sort(samples.begin(), samples.end());
-	double const med = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
+	std::ranges::sort(samples);
+	double const med = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
 	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
-	double const denom = static_cast<double>(iters * batch);
+	double const denom = static_cast<double>(plan.iterations);
+	BenchStats timing{
+		.iterations = plan.iterations,
+		.total_ns = total,
+		.ns_per_iter = med,
+		.throughput = mbs,
+	};
+	bench_apply_sample_plan(timing, plan);
 	return {
-		.timing =
-			{
-					 .iterations = iters * batch,
-					 .total_ns = total,
-					 .ns_per_iter = med,
-					 .throughput = mbs,
-					 },
+		.timing = timing,
 		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
 	};
 }
 
 bool g_json = false;
+BenchArgs g_args;
+
+[[nodiscard]] BenchSamplePlan make_plan(
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1) {
+	return bench_sample_plan(g_args, iters, warmup, batch);
+}
+
+template<typename F>
+AllocBenchStats measure_alloc(
+	F &&fn,
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1,
+	std::size_t bytes = 0) {
+	return measure_alloc(std::forward<F>(fn), make_plan(warmup, iters, batch), bytes);
+}
 void print_alloc_row(
 	std::string_view name,
 	AllocBenchStats s) {
@@ -112,22 +131,31 @@ void print_alloc_row(
 	if (g_json) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
 			s.timing.config,
 			s.timing.variant,
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_sample_ns,
+			s.timing.timer_overhead_pct,
 			s.allocations_per_iter,
 			s.allocated_bytes_per_iter);
 	} else {
 		std::println(
-			"[json-reflect-bench] {:<36} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B",
+			"[json-reflect-bench] {:<36} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B  [{}×{} "
+			"timer≈{:.2f}%]",
 			name,
 			s.timing.ns_per_iter,
 			s.timing.throughput,
 			s.allocations_per_iter,
-			s.allocated_bytes_per_iter);
+			s.allocated_bytes_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_overhead_pct);
 	}
 }
 
@@ -228,6 +256,7 @@ int main(
 		argv,
 		R"({"name":"json_reflect","parser":"standard","configs":[{"name":"p2996","extra":{"reflection":true},"args":[]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	g_args = cfg;
 	g_json = cfg.json_out;
 
 	using Provider = conflux::json::boundary::NativeReflectJsonProvider;
@@ -365,7 +394,10 @@ int main(
 	});
 	run("decode/reflection/direct/medium/duplicate_unknown_ignore", [&] {
 		return measure_alloc(
-			[&] { require_decode(decode_borrowed<ReflectMedium>(medium_unknown_duplicate, duplicate_reject, ignore_unknown)); },
+			[&] {
+				require_decode(
+					decode_borrowed<ReflectMedium>(medium_unknown_duplicate, duplicate_reject, ignore_unknown));
+			},
 			100,
 			500,
 			1,
@@ -373,7 +405,9 @@ int main(
 	});
 	run("decode/reflection/direct/medium/json5_duplicate_reject", [&] {
 		return measure_alloc(
-			[&] { require_decode_reject(decode_borrowed<ReflectMedium>(medium_json5_duplicate, json5_duplicate_reject)); },
+			[&] {
+				require_decode_reject(decode_borrowed<ReflectMedium>(medium_json5_duplicate, json5_duplicate_reject));
+			},
 			100,
 			500,
 			1,

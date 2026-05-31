@@ -228,9 +228,14 @@ All recordable `conflux_*bench*` binaries implement a standard interface:
   `scripts/bench_record.sh` for auto-discovery.
 - `--json` — outputs NDJSON in the standard shape:
   `{"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X}`.
-  Benchmarks may add extra fields. JSON serde benchmarks emit
-  `allocations_per_iter` and `allocated_bytes_per_iter` for allocation-aware
-  DOM/direct comparisons.
+  Benchmarks may add extra fields. Batched benchmark rows also emit
+  `sample_count`, `batch`, `timer_sample_ns`, and `timer_overhead_pct`. JSON
+  serde benchmarks emit `allocations_per_iter` and `allocated_bytes_per_iter`
+  for allocation-aware DOM/direct comparisons.
+- `--samples N` / `--batch N` — optional timed-sample controls. A sample is one
+  timed region; a batch is the number of benchmark operations inside that timed
+  region. Benchmarks should report per-operation `ns_per_iter` by dividing the
+  timed sample by `batch`.
 
 `--bench-info` JSON shape:
 
@@ -256,13 +261,24 @@ All recordable `conflux_*bench*` binaries implement a standard interface:
 For standard parser configs, `--iterations 0` is a recorder-only request for
 calibration. `scripts/bench_record.sh` runs a short probe, reruns calibration
 when the probe is below `calibration_min_sample_ms`, then replaces
-`--iterations 0` with a measured count derived from `target_ms`. Counts are
-rounded to two significant digits: 500ms targets round up because 500ms is a
-minimum, while larger targets round down. `max_iterations: 0` means uncapped.
-The calibration uses the sum of all emitted row `ns_per_iter` values, so
-multi-variant binaries target the whole launch rather than giving every row a
-full target duration. Fixed-duration load/congestion/tail configs should keep
-explicit `--duration`/fixed arguments and omit `--iterations 0`.
+`--iterations 0` with a measured total operation count derived from
+`target_ms`. Counts are rounded to two significant digits: 500ms targets round
+up because 500ms is a minimum, while larger targets round down.
+`max_iterations: 0` means uncapped. The calibration uses the sum of all emitted
+row `ns_per_iter` values, so multi-variant binaries target the whole launch
+rather than giving every row a full target duration.
+
+After total-operation calibration, the recorder rewrites the launch with
+`--samples` and `--batch`. The default split targets about 100 timed samples,
+so a calibrated 500k-operation row becomes roughly 100 samples × 5k operations
+per sample instead of 500k one-operation timing regions. When timer metadata is
+available, the recorder also raises the batch so each timed region is at least
+`BENCH_BATCH_TIMER_MULTIPLE` × the measured `CLOCK_MONOTONIC_RAW` sampling cost
+and, by default, approximately `BENCH_BATCH_TARGET_MS=5` milliseconds. Very
+small calibrated counts keep `batch=1` and use fewer samples. This preserves
+the one- or two-pass automatic calibration behavior while keeping per-sample
+syscall cost visible and amortized. Fixed-duration load/congestion/tail configs
+should keep explicit `--duration`/fixed arguments and omit `--iterations 0`.
 
 Parsers:
 
@@ -317,6 +333,10 @@ Default recorder behavior:
   short sub-2-second launches; congestion, slow-consumer, tail-latency, and
   duration-based load configs stay explicit because longer wall time is part of
   what they test.
+- `BENCH_BATCH_SAMPLES`, `BENCH_BATCH_TARGET_MS`, and
+  `BENCH_BATCH_TIMER_MULTIPLE` control the calibrated sample/batch split. The
+  defaults are 100 samples, about 5ms per timed batch when possible, and a
+  minimum batch duration of 300× the measured timer sample cost.
 
 Focused component commands:
 

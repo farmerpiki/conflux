@@ -15,8 +15,7 @@ using namespace std::string_view_literals;
 namespace {
 
 struct Config {
-	std::size_t iterations = 200000;
-	std::size_t warmup = 20000;
+	BenchArgs bench;
 	std::size_t depth = 64;
 	std::string config_name = "depth_64";
 	bool json_out = false;
@@ -25,18 +24,13 @@ struct Config {
 Config parse_args(
 	std::span<char *> args) {
 	Config cfg;
+	cfg.bench = bench_parse_args(args);
+	cfg.config_name = cfg.bench.config_name.empty() ? std::string{"depth_64"} : cfg.bench.config_name;
+	cfg.json_out = cfg.bench.json_out;
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--depth" && i + 1 < args.size()) {
+		if (a == "--depth" && i + 1 < args.size()) {
 			cfg.depth = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
 		}
 	}
 	cfg.depth = std::clamp<std::size_t>(cfg.depth, 1, 4096);
@@ -55,23 +49,13 @@ BenchStats run_depth_variant(
 	Config const &cfg,
 	std::string_view variant,
 	Fn &&fn) {
-	for (std::size_t i = 0; i < cfg.warmup; ++i) {
-		fn();
-	}
-
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < cfg.iterations; ++i) {
-		fn();
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = cfg.iterations * cfg.depth;
-	return {
-		.config = cfg.config_name,
-		.variant = variant,
-		.iterations = ops,
-		.total_ns = elapsed,
-		.ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(ops),
-	};
+	auto const plan = bench_sample_plan(cfg.bench, 200000, 20000);
+	auto stats = bench_measure_batched(std::forward<Fn>(fn), plan);
+	stats.config = cfg.config_name;
+	stats.variant = variant;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	return stats;
 }
 
 BenchStats bench_direct_slot_lease(
@@ -203,9 +187,7 @@ BenchStats bench_completion_dispatch_depth(
 	std::uint64_t sink = 0;
 	auto stats = run_depth_variant(cfg, "completion_dispatch_depth"sv, [&] {
 		for (std::size_t i = 0; i < cfg.depth; ++i) {
-			refs[i] = completions.reserve([&sink](IoResult r) noexcept {
-				sink += static_cast<std::uint64_t>(r.res);
-			});
+			refs[i] = completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
 		}
 		for (auto const [slot, gen]: refs) {
 			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});

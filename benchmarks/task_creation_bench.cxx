@@ -21,32 +21,48 @@ void run_warmup(
 	std::size_t warmup) {
 	for (std::size_t i = 0; i < warmup; ++i) {
 		auto [task, source] = root::make_task_source<int>();
-		(void)source.try_set_value(root::Success<int>{42});
-		(void)root::blocking_join(std::move(task));
+		auto set_result = source.try_set_value(root::Success<int>{42});
+		auto join_result = root::blocking_join(std::move(task));
+		if (!set_result) [[unlikely]] {
+			std::terminate();
+		}
+		auto _ = join_result;
 	}
 }
 BenchStats bench_task_creation(
-	std::size_t iters) {
-	std::uint64_t const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [task, source] = root::make_task_source<int>();
-		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
-		[[maybe_unused]] auto outcome = root::blocking_join(std::move(task));
-	}
-	std::uint64_t const elapsed = bench_now_ns() - t0;
-	return {{}, "task_creation"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	BenchSamplePlan const &plan) {
+	auto stats = bench_measure_batched(
+		[i = std::size_t{}]() mutable {
+			auto [task, source] = root::make_task_source<int>();
+			auto set_result = source.try_set_value(root::Success<int>{static_cast<int>(i)});
+			++i;
+			auto join_result = root::blocking_join(std::move(task));
+			if (!set_result) [[unlikely]] {
+				std::terminate();
+			}
+			auto _ = join_result;
+		},
+		plan);
+	stats.variant = "task_creation"sv;
+	return stats;
 }
 BenchStats bench_task_drop_joinable(
 	std::string_view variant_name,
-	std::size_t iters) {
-	std::uint64_t const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [task, source] = root::make_task_source<int>();
-		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
-		(void)root::blocking_join(std::move(task)); // remove after E1.x auto-detach
-	}
-	std::uint64_t const elapsed = bench_now_ns() - t0;
-	return {{}, variant_name, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	BenchSamplePlan const &plan) {
+	auto stats = bench_measure_batched(
+		[i = std::size_t{}]() mutable {
+			auto [task, source] = root::make_task_source<int>();
+			auto set_result = source.try_set_value(root::Success<int>{static_cast<int>(i)});
+			++i;
+			auto join_result = root::blocking_join(std::move(task));
+			if (!set_result) [[unlikely]] {
+				std::terminate();
+			}
+			auto _ = join_result;
+		},
+		plan);
+	stats.variant = variant_name;
+	return stats;
 }
 
 } // namespace
@@ -59,12 +75,13 @@ int main(
 		R"({"name":"task_creation","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
 
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
-	run_warmup(cfg.warmup);
+	auto const plan = bench_sample_plan(cfg, 200000, 40000);
+	run_warmup(plan.warmup_iterations);
 
 	BenchStats stats[] = {
-		bench_task_creation(cfg.iterations),
-		bench_task_drop_joinable("task_drop_joinable_release"sv, cfg.iterations),
-		bench_task_drop_joinable("task_drop_joinable_debug"sv, cfg.iterations),
+		bench_task_creation(plan),
+		bench_task_drop_joinable("task_drop_joinable_release"sv, plan),
+		bench_task_drop_joinable("task_drop_joinable_debug"sv, plan),
 	};
 	for (std::size_t i = 0; i < std::size(stats); ++i) {
 		bench_print(stats[i], cfg.json_out, i == 0);

@@ -14,31 +14,10 @@ BenchStats measure(
 	std::size_t bytes = 0) {
 	iters = std::max(iters, std::size_t{1});
 	batch = std::max(batch, std::size_t{1});
-	for (std::size_t i = 0; i < warmup * batch; ++i) {
-		fn();
-	}
-	std::vector<std::uint64_t> samples;
-	samples.reserve(iters);
-	std::uint64_t total = 0;
-	for (std::size_t i = 0; i < iters; ++i) {
-		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < batch; ++j) {
-			fn();
-		}
-		std::uint64_t const elapsed = bench_now_ns() - t0;
-		total += elapsed;
-		samples.push_back(elapsed);
-	}
-	sort(samples.begin(), samples.end());
-	double const med = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
-	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
-	return {
-		.iterations = iters * batch,
-		.total_ns = total,
-		.ns_per_iter = med,
-		.throughput = mbs,
-	};
+	BenchSamplePlan const plan = bench_sample_plan(iters * batch, warmup * batch);
+	return bench_measure_batched(std::forward<F>(fn), plan, bytes);
 }
+
 bool g_json = false;
 bool g_first = true;
 void emit(

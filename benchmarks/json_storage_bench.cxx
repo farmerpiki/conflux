@@ -49,31 +49,21 @@ public:
 };
 
 struct Config {
-	std::size_t iterations = 500;
-	std::size_t warmup = 50;
+	BenchArgs bench;
 	std::string config_name = "default";
 	bool json_out = false;
-	std::vector<std::string> filters;
 };
 
 Config parse_args(
 	std::span<char *> args) {
-	Config cfg;
-	for (std::size_t i = 1; i < args.size(); ++i) {
-		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
-		} else if (a == "--filter" && i + 1 < args.size()) {
-			cfg.filters.emplace_back(args[++i]);
-		}
-	}
-	return cfg;
+	auto bench = bench_parse_args(args);
+	std::string config_name = bench.config_name.empty() ? std::string{"default"} : bench.config_name;
+	bool const json_out = bench.json_out;
+	return {
+		.bench = std::move(bench),
+		.config_name = std::move(config_name),
+		.json_out = json_out,
+	};
 }
 
 std::string make_plain_sparse_strings(
@@ -150,43 +140,60 @@ Sample measure_parse(
 	std::string_view variant,
 	std::string_view corpus,
 	JsonParseOptions opts,
-	std::size_t iterations) {
+	BenchSamplePlan const &plan) {
 	JsonParseStorageStats last_stats{};
 	std::size_t last_allocations{};
 	std::size_t last_bytes{};
 	std::size_t last_peak{};
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		CountingResource resource;
-		auto doc = parse(corpus, opts, &resource);
-		if (!doc) {
-			throw std::runtime_error{std::format("parse failed for {}: {}", variant, doc.error().message)};
+	std::uint64_t total_ns = 0;
+	std::vector<std::uint64_t> samples;
+	samples.reserve(plan.samples);
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			CountingResource resource;
+			auto doc = parse(corpus, opts, &resource);
+			if (!doc) {
+				throw std::runtime_error{std::format("parse failed for {}: {}", variant, doc.error().message)};
+			}
 		}
-		last_stats = doc->parse_storage_stats();
-		last_allocations = resource.allocations_;
-		last_bytes = resource.bytes_allocated_;
-		last_peak = resource.peak_live_bytes_;
 	}
-	auto const elapsed = bench_now_ns() - t0;
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			CountingResource resource;
+			auto doc = parse(corpus, opts, &resource);
+			if (!doc) {
+				throw std::runtime_error{std::format("parse failed for {}: {}", variant, doc.error().message)};
+			}
+			last_stats = doc->parse_storage_stats();
+			last_allocations = resource.allocations_;
+			last_bytes = resource.bytes_allocated_;
+			last_peak = resource.peak_live_bytes_;
+		}
+		auto const elapsed = bench_now_ns() - t0;
+		total_ns += elapsed;
+		samples.push_back(elapsed);
+	}
+	std::ranges::sort(samples);
+	auto timing = BenchStats{
+		.config = config,
+		.variant = variant,
+		.iterations = plan.iterations,
+		.total_ns = total_ns,
+		.ns_per_iter = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch)};
+	bench_apply_sample_plan(timing, plan);
 	return {
-		.timing =
-			BenchStats{
-					   .config = config,
-					   .variant = variant,
-					   .iterations = iterations,
-					   .total_ns = elapsed,
-					   .ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations)},
+		.timing = timing,
 		.stats = last_stats,
 		.pmr_allocations = last_allocations,
 		.pmr_bytes_allocated = last_bytes,
-		.pmr_peak_live_bytes = last_peak
-    };
+		.pmr_peak_live_bytes = last_peak};
 }
 
 void print_sample(
 	Sample const &s,
 	bool json_out,
-	bool first) {
+	bool first [[maybe_unused]]) {
 	if (!json_out) {
 		bench_print(s.timing, false, first);
 		std::println(
@@ -201,6 +208,7 @@ void print_sample(
 	}
 	std::println(
 		"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+		"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 		"\"input_bytes\":{},\"nodes_size\":{},\"nodes_capacity\":{},"
 		"\"array_children_size\":{},\"array_children_capacity\":{},"
 		"\"object_members_size\":{},\"object_members_capacity\":{},"
@@ -213,6 +221,10 @@ void print_sample(
 		s.timing.iterations,
 		s.timing.total_ns,
 		s.timing.ns_per_iter,
+		s.timing.sample_count,
+		s.timing.batch,
+		s.timing.timer_sample_ns,
+		s.timing.timer_overhead_pct,
 		s.stats.input_bytes,
 		s.stats.nodes_size,
 		s.stats.nodes_capacity,
@@ -231,7 +243,6 @@ void print_sample(
 		s.stats.duplicate_member_hits,
 		s.stats.first_wins_rollbacks,
 		s.stats.last_wins_updates);
-	(void)first;
 }
 
 } // namespace
@@ -257,11 +268,11 @@ int main(
 
 	try {
 		auto run = [&](std::string_view variant, std::string_view corpus, JsonParseOptions opts) {
-			if (!bench_matches_filter(std::span<std::string const>{cfg.filters}, variant)) {
+			if (!bench_matches_filter(cfg.bench, variant)) {
 				return;
 			}
-			(void)measure_parse(cfg.config_name, variant, corpus, opts, cfg.warmup);
-			print_sample(measure_parse(cfg.config_name, variant, corpus, opts, cfg.iterations), cfg.json_out, false);
+			auto const plan = bench_sample_plan(cfg.bench, 500, 50);
+			print_sample(measure_parse(cfg.config_name, variant, corpus, opts, plan), cfg.json_out, false);
 		};
 		run("plain_sparse_strings"sv, sparse, default_opts);
 		run("escape_heavy_strings"sv, escaped, default_opts);

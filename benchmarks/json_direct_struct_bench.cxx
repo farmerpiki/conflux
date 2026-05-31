@@ -66,60 +66,50 @@ struct AllocBenchStats {
 };
 
 struct Config {
-	std::size_t iterations{500};
-	std::size_t warmup{100};
+	BenchArgs bench;
 	std::string config_name{"default"};
 	bool json_out{false};
-	std::vector<std::string> filters;
 };
 
 [[nodiscard]] Config parse_args(
 	std::span<char *> args) {
-	Config cfg;
-	for (std::size_t i = 1; i < args.size(); ++i) {
-		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
-		} else if (a == "--filter" && i + 1 < args.size()) {
-			cfg.filters.emplace_back(args[++i]);
-		}
-	}
-	return cfg;
+	auto bench = bench_parse_args(args);
+	std::string config_name = bench.config_name.empty() ? std::string{"default"} : bench.config_name;
+	bool const json_out = bench.json_out;
+	return {
+		.bench = std::move(bench),
+		.config_name = std::move(config_name),
+		.json_out = json_out,
+	};
 }
 
 [[nodiscard]] bool should_run(
 	Config const &cfg,
 	std::string_view variant) {
-	return bench_matches_filter(std::span<std::string const>{cfg.filters}, variant);
+	return bench_matches_filter(cfg.bench, variant);
 }
 
 template<typename F>
 [[nodiscard]] AllocBenchStats measure_alloc(
 	F &&fn,
-	std::size_t warmup,
-	std::size_t iters,
-	std::size_t batch,
+	BenchSamplePlan const &plan,
 	std::size_t bytes) {
-	for (std::size_t i = 0; i < warmup * batch; ++i) {
-		fn();
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			fn();
+		}
 	}
 	std::vector<std::uint64_t> samples;
-	samples.reserve(iters);
+	samples.reserve(plan.samples);
 	std::uint64_t total_ns = 0;
 	std::uint64_t total_allocs = 0;
 	std::uint64_t total_bytes = 0;
-	for (std::size_t i = 0; i < iters; ++i) {
+	for (std::size_t i = 0; i < plan.samples; ++i) {
 		g_alloc_count.store(0, std::memory_order_relaxed);
 		g_alloc_bytes.store(0, std::memory_order_relaxed);
 		g_count_allocations.store(true, std::memory_order_relaxed);
 		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < batch; ++j) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
 			fn();
 		}
 		std::uint64_t const elapsed = bench_now_ns() - t0;
@@ -130,18 +120,19 @@ template<typename F>
 		samples.push_back(elapsed);
 	}
 	std::ranges::sort(samples);
-	double const median_ns = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
+	double const median_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
 	double const mbs =
 		bytes > 0 && median_ns > 0.0 ? static_cast<double>(bytes) / (median_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
-	double const denom = static_cast<double>(iters * batch);
+	double const denom = static_cast<double>(plan.iterations);
+	BenchStats timing{
+		.iterations = plan.iterations,
+		.total_ns = total_ns,
+		.ns_per_iter = median_ns,
+		.throughput = mbs,
+	};
+	bench_apply_sample_plan(timing, plan);
 	return {
-		.timing =
-			{
-					 .iterations = iters * batch,
-					 .total_ns = total_ns,
-					 .ns_per_iter = median_ns,
-					 .throughput = mbs,
-					 },
+		.timing = timing,
 		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
 	};
@@ -156,30 +147,35 @@ void print_row(
 	if (cfg.json_out) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"mb_per_s\":{:.2f},\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
 			s.timing.config,
 			s.timing.variant,
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_sample_ns,
+			s.timing.timer_overhead_pct,
 			s.timing.throughput,
 			s.allocations_per_iter,
 			s.allocated_bytes_per_iter);
 	} else {
 		std::println(
-			"[json-direct-struct-bench] {:<52} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B",
+			"[json-direct-struct-bench] {:<52} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B  [{}×{} "
+			"timer≈{:.2f}%]",
 			variant,
 			s.timing.ns_per_iter,
 			s.timing.throughput,
 			s.allocations_per_iter,
-			s.allocated_bytes_per_iter);
+			s.allocated_bytes_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_overhead_pct);
 	}
 }
 
-// Batch many decode calls inside each timed window so the cost of the two
-// bench_now_ns() calls per sample is amortized to noise. On hosts whose kernel
-// clocksource is not TSC (e.g. acpi_pm fallback), a single clock_gettime can
-// cost microseconds, which would otherwise dominate per-iteration medians.
 inline constexpr std::size_t kRowBatch = 256;
 
 template<class F>
@@ -192,9 +188,8 @@ void run_row(
 	if (!should_run(cfg, variant)) {
 		return;
 	}
-	std::size_t const iters = cfg.iterations == 0 ? 500 : cfg.iterations;
-	std::size_t const warmup = cfg.warmup == 0 ? 100 : cfg.warmup;
-	print_row(cfg, variant, measure_alloc(std::forward<F>(fn), warmup, iters, batch, bytes));
+	BenchSamplePlan const plan = bench_sample_plan(cfg.bench, 500, 100, batch);
+	print_row(cfg, variant, measure_alloc(std::forward<F>(fn), plan, bytes));
 }
 
 template<class T>

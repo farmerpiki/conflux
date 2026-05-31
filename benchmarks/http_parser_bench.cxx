@@ -69,33 +69,21 @@ ParserCase make_case(
 
 BenchStats bench_parser_case(
 	ParserCase const &c,
-	std::size_t warmup,
-	std::size_t iterations) {
+	BenchSamplePlan const &plan) {
 	conflux::http1::ParsedRequest parsed;
-	for (std::size_t i = 0; i < warmup; ++i) {
-		auto const st = conflux::http1::parse_request(c.raw, c.limits, parsed);
-		if (st != c.expected) {
-			throw std::runtime_error{"unexpected warmup parser status"};
-		}
-		g_sink.fetch_add(parsed.headers.size() + parsed.header_end_offset, std::memory_order_relaxed);
-	}
-
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		auto const st = conflux::http1::parse_request(c.raw, c.limits, parsed);
-		if (st != c.expected) {
-			throw std::runtime_error{"unexpected parser status"};
-		}
-		g_sink.fetch_add(parsed.headers.size() + parsed.header_end_offset, std::memory_order_relaxed);
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	return {
-		.config = c.name,
-		.variant = c.name,
-		.iterations = iterations,
-		.total_ns = elapsed,
-		.ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations),
-		.throughput = 1e9 / (static_cast<double>(elapsed) / static_cast<double>(iterations))};
+	auto stats = bench_measure_batched(
+		[&] {
+			auto const st = conflux::http1::parse_request(c.raw, c.limits, parsed);
+			if (st != c.expected) {
+				throw std::runtime_error{"unexpected parser status"};
+			}
+			g_sink.fetch_add(parsed.headers.size() + parsed.header_end_offset, std::memory_order_relaxed);
+		},
+		plan);
+	stats.config = c.name;
+	stats.variant = c.name;
+	stats.throughput = stats.ns_per_iter > 0.0 ? 1e9 / stats.ns_per_iter : 0.0;
+	return stats;
 }
 
 std::string_view parse_case_name(
@@ -122,7 +110,8 @@ int main(
 	auto const args = std::span{argv, static_cast<std::size_t>(argc)};
 	auto cfg = bench_parse_args(args);
 	auto c = make_case(parse_case_name(args));
-	auto stats = bench_parser_case(c, cfg.warmup, cfg.iterations);
+	auto const plan = bench_sample_plan(cfg, 200000, 40000);
+	auto stats = bench_parser_case(c, plan);
 	bench_print(stats, cfg.json_out, true);
 	std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));
 }

@@ -58,21 +58,10 @@ int main(
 		}
 	}
 
-	for (std::size_t i = 0; i < cfg.warmup; ++i) {
-		run_once(n);
-	}
+	auto const plan = bench_sample_plan(cfg, 200000, 40000);
+	auto s = bench_measure_batched([&] { run_once(n); }, plan);
 
-	std::uint64_t const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < cfg.iterations; ++i) {
-		run_once(n);
-	}
-	std::uint64_t const elapsed = bench_now_ns() - t0;
-
-	BenchStats s{
-		cfg.config_name,
-		"join_all_N"sv,
-		cfg.iterations,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(cfg.iterations)};
+	s.config = cfg.config_name;
+	s.variant = "join_all_N"sv;
 	bench_print(s, cfg.json_out, true);
 }

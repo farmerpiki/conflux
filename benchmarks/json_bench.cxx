@@ -73,58 +73,57 @@ struct AllocBenchStats {
 };
 
 template<typename F>
+BenchStats measure(F &&fn, std::size_t warmup, std::size_t iters, std::size_t batch = 1, std::size_t bytes = 0);
+template<typename F>
+AllocBenchStats
+measure_alloc(F &&fn, std::size_t warmup, std::size_t iters, std::size_t batch = 1, std::size_t bytes = 0);
+
+bool g_csv = false;
+bool g_first_row = true;
+std::vector<std::string> g_filters;
+BenchArgs g_args;
+
+[[nodiscard]] BenchSamplePlan make_plan(
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1) {
+	return bench_sample_plan(g_args, iters, warmup, batch);
+}
+
+template<typename F>
 BenchStats measure(
 	F &&fn,
 	std::size_t warmup,
 	std::size_t iters,
-	std::size_t batch = 1,
-	std::size_t bytes = 0) {
-	for (std::size_t i = 0; i < warmup * batch; ++i) {
-		fn();
-	}
-	std::vector<std::uint64_t> samples;
-	samples.reserve(iters);
-	std::uint64_t total = 0;
-	for (std::size_t i = 0; i < iters; ++i) {
-		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < batch; ++j) {
-			fn();
-		}
-		std::uint64_t const elapsed = bench_now_ns() - t0;
-		total += elapsed;
-		samples.push_back(elapsed);
-	}
-	sort(samples.begin(), samples.end());
-	double const med = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
-	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
-	return {
-		.iterations = iters * batch,
-		.total_ns = total,
-		.ns_per_iter = med,
-		.throughput = mbs,
-	};
+	std::size_t batch,
+	std::size_t bytes) {
+	return bench_measure_batched(std::forward<F>(fn), make_plan(warmup, iters, batch), bytes);
 }
+
 template<typename F>
 AllocBenchStats measure_alloc(
 	F &&fn,
 	std::size_t warmup,
 	std::size_t iters,
-	std::size_t batch = 1,
-	std::size_t bytes = 0) {
-	for (std::size_t i = 0; i < warmup * batch; ++i) {
-		fn();
+	std::size_t batch,
+	std::size_t bytes) {
+	BenchSamplePlan const plan = make_plan(warmup, iters, batch);
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			fn();
+		}
 	}
 	std::vector<std::uint64_t> samples;
-	samples.reserve(iters);
+	samples.reserve(plan.samples);
 	std::uint64_t total = 0;
 	std::uint64_t total_allocs = 0;
 	std::uint64_t total_bytes = 0;
-	for (std::size_t i = 0; i < iters; ++i) {
+	for (std::size_t i = 0; i < plan.samples; ++i) {
 		g_alloc_count.store(0, std::memory_order_relaxed);
 		g_alloc_bytes.store(0, std::memory_order_relaxed);
 		g_count_allocations.store(true, std::memory_order_relaxed);
 		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < batch; ++j) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
 			fn();
 		}
 		std::uint64_t const elapsed = bench_now_ns() - t0;
@@ -134,25 +133,23 @@ AllocBenchStats measure_alloc(
 		total_bytes += g_alloc_bytes.load(std::memory_order_relaxed);
 		samples.push_back(elapsed);
 	}
-	sort(samples.begin(), samples.end());
-	double const med = static_cast<double>(samples[iters / 2]) / static_cast<double>(batch);
+	std::ranges::sort(samples);
+	double const med = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
 	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
-	double const denom = static_cast<double>(iters * batch);
+	double const denom = static_cast<double>(plan.iterations);
+	BenchStats timing{
+		.iterations = plan.iterations,
+		.total_ns = total,
+		.ns_per_iter = med,
+		.throughput = mbs,
+	};
+	bench_apply_sample_plan(timing, plan);
 	return {
-		.timing =
-			{
-					 .iterations = iters * batch,
-					 .total_ns = total,
-					 .ns_per_iter = med,
-					 .throughput = mbs,
-					 },
+		.timing = timing,
 		.allocations_per_iter = static_cast<double>(total_allocs) / denom,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / denom,
 	};
 }
-bool g_csv = false;
-bool g_first_row = true;
-std::vector<std::string> g_filters;
 
 void print_row(std::string_view name, BenchStats s);
 void print_alloc_row(std::string_view name, AllocBenchStats s);
@@ -190,9 +187,22 @@ void print_row(
 		bench_print(s, true, g_first_row);
 		g_first_row = false;
 	} else if (s.throughput > 0.0) {
-		print("[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s\n", name, s.ns_per_iter, s.throughput);
+		print(
+			"[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s  [{}×{} timer≈{:.2f}%]\n",
+			name,
+			s.ns_per_iter,
+			s.throughput,
+			s.sample_count,
+			s.batch,
+			s.timer_overhead_pct);
 	} else {
-		print("[json-bench] {:<40} {:>10.1f} ns\n", name, s.ns_per_iter);
+		print(
+			"[json-bench] {:<40} {:>10.1f} ns  [{}×{} timer≈{:.2f}%]\n",
+			name,
+			s.ns_per_iter,
+			s.sample_count,
+			s.batch,
+			s.timer_overhead_pct);
 	}
 }
 void print_alloc_row(
@@ -202,30 +212,41 @@ void print_alloc_row(
 	if (g_csv) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
 			s.timing.config,
 			s.timing.variant,
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_sample_ns,
+			s.timing.timer_overhead_pct,
 			s.allocations_per_iter,
 			s.allocated_bytes_per_iter);
 		g_first_row = false;
 	} else if (s.timing.throughput > 0.0) {
 		print(
-			"[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B\n",
+			"[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s  {:>6.2f} allocs  {:>8.1f} B  [{}×{} timer≈{:.2f}%]\n",
 			name,
 			s.timing.ns_per_iter,
 			s.timing.throughput,
 			s.allocations_per_iter,
-			s.allocated_bytes_per_iter);
+			s.allocated_bytes_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_overhead_pct);
 	} else {
 		print(
-			"[json-bench] {:<40} {:>10.1f} ns  {:>6.2f} allocs  {:>8.1f} B\n",
+			"[json-bench] {:<40} {:>10.1f} ns  {:>6.2f} allocs  {:>8.1f} B  [{}×{} timer≈{:.2f}%]\n",
 			name,
 			s.timing.ns_per_iter,
 			s.allocations_per_iter,
-			s.allocated_bytes_per_iter);
+			s.allocated_bytes_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_overhead_pct);
 	}
 }
 // ---------------------------------------------------------------------------
@@ -1994,6 +2015,7 @@ int main(
 		argv,
 		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	g_args = cfg;
 	g_csv = cfg.json_out;
 	g_filters = cfg.filters;
 	if (!g_csv) {

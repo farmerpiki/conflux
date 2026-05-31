@@ -72,7 +72,7 @@ Config parse_args(
 			++i;
 			continue;
 		}
-		if (arg == "--warmup" || arg == "--config-name") {
+		if (arg == "--warmup" || arg == "--config-name" || arg == "--samples" || arg == "--batch") {
 			if (i + 1 >= args.size()) {
 				throw std::invalid_argument{std::format("{} requires a value", arg)};
 			}
@@ -113,23 +113,14 @@ Config parse_args(
 BenchStats measure_case(
 	Case const &bench,
 	std::size_t warmup,
-	std::size_t iterations) {
-	for (std::size_t i = 0; i < warmup; ++i) {
-		sink.fetch_add(bench.run(), std::memory_order_relaxed);
-	}
-
-	auto const start = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		sink.fetch_add(bench.run(), std::memory_order_relaxed);
-	}
-	auto const total_ns = bench_now_ns() - start;
-	return BenchStats{
-		.config = "",
-		.variant = bench.name,
-		.iterations = iterations,
-		.total_ns = total_ns,
-		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(iterations),
-		.throughput = 1e9 / (static_cast<double>(total_ns) / static_cast<double>(iterations))};
+	std::size_t iterations,
+	BenchArgs const &args) {
+	BenchSamplePlan const plan = bench_sample_plan(iterations, warmup, args.samples, args.batch);
+	auto stats = bench_measure_batched([&] { sink.fetch_add(bench.run(), std::memory_order_relaxed); }, plan);
+	stats.config = args.config_name;
+	stats.variant = bench.name;
+	stats.throughput = stats.ns_per_iter > 0.0 ? 1e9 / stats.ns_per_iter : 0.0;
+	return stats;
 }
 void print_list(
 	std::vector<Case> const &cases) {
@@ -587,7 +578,7 @@ int main(
 				cfg.bench_args.iterations == 0 ? bench->default_iterations : cfg.bench_args.iterations;
 			auto const warmup = cfg.bench_args.iterations == 0 ? benchmark_detail::warmup_iterations(iterations) :
 																 cfg.bench_args.warmup;
-			auto const stats = benchmark_detail::measure_case(*bench, warmup, iterations);
+			auto const stats = benchmark_detail::measure_case(*bench, warmup, iterations, cfg.bench_args);
 			benchmark_detail::print_stats(stats, cfg.format);
 		}
 		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(std::memory_order_relaxed));

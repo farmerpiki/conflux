@@ -42,6 +42,9 @@ struct LargeCapture {
 
 void run_warmup(
 	std::size_t warmup) {
+	if (warmup == 0) {
+		return;
+	}
 	CompletionTable completions{64};
 	std::uint64_t sink = 0;
 	for (std::size_t i = 0; i < warmup; ++i) {
@@ -55,64 +58,68 @@ void run_warmup(
 }
 
 BenchStats bench_small_callback(
-	std::size_t iters) {
+	BenchSamplePlan const &plan) {
 	CompletionTable completions{64};
 	std::uint64_t sink = 0;
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [slot, gen] =
-			completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
-		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (sink != iters) {
+	auto stats = bench_measure_batched(
+		[&] {
+			auto [slot, gen] =
+				completions.reserve([&sink](IoResult r) noexcept { sink += static_cast<std::uint64_t>(r.res); });
+			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
+		},
+		plan);
+	if (sink != plan.iterations) {
 		std::println(std::cerr, "bad small sink: {}", sink);
 		std::exit(1);
 	}
-	return {{}, "small_callback"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	stats.variant = "small_callback"sv;
+	return stats;
 }
 
 BenchStats bench_shared_callback(
-	std::size_t iters) {
+	BenchSamplePlan const &plan) {
 	CompletionTable completions{64};
 	auto sink = std::make_shared<std::uint64_t>(0);
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [slot, gen] =
-			completions.reserve([sink](IoResult r) noexcept { *sink += static_cast<std::uint64_t>(r.res); });
-		completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	if (*sink != iters) {
+	auto stats = bench_measure_batched(
+		[&] {
+			auto [slot, gen] =
+				completions.reserve([sink](IoResult r) noexcept { *sink += static_cast<std::uint64_t>(r.res); });
+			completions.dispatch(slot, gen, 1, conflux::uring::CqeFlags{});
+		},
+		plan);
+	if (*sink != plan.iterations) {
 		std::println(std::cerr, "bad shared sink: {}", *sink);
 		std::exit(1);
 	}
-	return {{}, "shared_callback"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	stats.variant = "shared_callback"sv;
+	return stats;
 }
 
 BenchStats bench_large_callback(
-	std::size_t iters) {
+	BenchSamplePlan const &plan) {
 	CompletionTable completions{64};
 	std::uint64_t sink = 0;
 	LargeCapture base{.sink = &sink};
 	for (std::size_t i = 0; i < base.words.size(); ++i) {
 		base.words[i] = i + 1U;
 	}
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto [slot, gen] = completions.reserve(base);
-		completions.dispatch(slot, gen, static_cast<int>(i), conflux::uring::CqeFlags{});
-	}
-	auto const elapsed = bench_now_ns() - t0;
+	auto stats = bench_measure_batched(
+		[&, i = std::size_t{}]() mutable {
+			auto [slot, gen] = completions.reserve(base);
+			completions.dispatch(slot, gen, static_cast<int>(i), conflux::uring::CqeFlags{});
+			++i;
+		},
+		plan);
 	if (sink == 0) {
 		std::println(std::cerr, "bad large sink");
 		std::exit(1);
 	}
-	return {{}, "large_callback"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
+	stats.variant = "large_callback"sv;
+	return stats;
 }
 
 BenchStats bench_multishot_dispatch_depth(
-	std::size_t iters,
+	BenchSamplePlan const &plan,
 	DepthCase dc) {
 	auto const depth = dc.depth;
 	CompletionTable completions{depth};
@@ -129,20 +136,24 @@ BenchStats bench_multishot_dispatch_depth(
 	}
 
 	auto const flags = conflux::uring::cqe_flags::more;
-	auto const t0 = bench_now_ns();
-	for (std::size_t iter = 0; iter < iters; ++iter) {
-		for (auto const [slot, gen]: entries) {
-			completions.dispatch(slot, gen, 1, flags);
-		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = iters * depth;
+	auto stats = bench_measure_batched(
+		[&] {
+			for (auto const [slot, gen]: entries) {
+				completions.dispatch(slot, gen, 1, flags);
+			}
+		},
+		plan);
+	std::size_t const ops = plan.iterations * depth;
 	if (sink != ops) {
 		std::println(std::cerr, "bad multishot sink depth {}: {} != {}", depth, sink, ops);
 		std::exit(1);
 	}
-	(void)completions.cancel_all();
-	return {dc.config, dc.variant, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	auto _ = completions.cancel_all();
+	stats.config = dc.config;
+	stats.variant = dc.variant;
+	stats.iterations = ops;
+	stats.ns_per_iter /= static_cast<double>(depth);
+	return stats;
 }
 
 } // namespace
@@ -156,15 +167,16 @@ int main(
 		R"({"name":"uring_completion","parser":"standard","configs":[{"name":"default","extra":{"label":"micro/user-space","depths":[1,8,32,128,512]},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
 
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
-	run_warmup(cfg.warmup);
+	auto const plan = bench_sample_plan(cfg, 200000, 20000);
+	run_warmup(plan.warmup_iterations);
 
 	std::vector<BenchStats> stats;
 	stats.reserve(3 + kDepthCases.size());
-	stats.push_back(bench_small_callback(cfg.iterations));
-	stats.push_back(bench_shared_callback(cfg.iterations));
-	stats.push_back(bench_large_callback(cfg.iterations));
+	stats.push_back(bench_small_callback(plan));
+	stats.push_back(bench_shared_callback(plan));
+	stats.push_back(bench_large_callback(plan));
 	for (auto dc: kDepthCases) {
-		stats.push_back(bench_multishot_dispatch_depth(cfg.iterations, dc));
+		stats.push_back(bench_multishot_dispatch_depth(plan, dc));
 	}
 	for (std::size_t i = 0; i < stats.size(); ++i) {
 		bench_print(stats[i], cfg.json_out, i == 0);

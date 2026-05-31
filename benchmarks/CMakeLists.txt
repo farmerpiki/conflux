@@ -336,7 +336,7 @@ endif()
 
 if(TARGET conflux)
     conflux_add_recordable_benchmark(conflux_template_bench template_bench.cxx)
-    target_link_libraries(conflux_template_bench PRIVATE conflux conflux_options)
+    target_link_libraries(conflux_template_bench PRIVATE bench_common conflux conflux_options)
 endif()
 
 if(TARGET conflux_work)

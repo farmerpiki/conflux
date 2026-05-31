@@ -22,22 +22,17 @@ void add_n(
 BenchStats bench_params(
 	std::string_view cfg_name,
 	std::size_t n_params,
-	std::size_t iters,
-	std::size_t warmup) {
-	for (std::size_t i = 0; i < warmup; ++i) {
-		Params p;
-		add_n(p, n_params);
-		sink.fetch_add(reinterpret_cast<std::uintptr_t>(p.values()), std::memory_order_relaxed);
-	}
-	std::uint64_t const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iters; ++i) {
-		Params p;
-		add_n(p, n_params);
-		sink.fetch_add(reinterpret_cast<std::uintptr_t>(p.values()), std::memory_order_relaxed);
-	}
-	std::uint64_t const elapsed = bench_now_ns() - t0;
-	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
-	return {cfg_name, std::string_view{"params_bind"}, iters, elapsed, ns_pi};
+	BenchSamplePlan const &plan) {
+	auto stats = bench_measure_batched(
+		[&] {
+			Params p;
+			add_n(p, n_params);
+			sink.fetch_add(reinterpret_cast<std::uintptr_t>(p.values()), std::memory_order_relaxed);
+		},
+		plan);
+	stats.config = cfg_name;
+	stats.variant = std::string_view{"params_bind"};
+	return stats;
 }
 
 } // namespace
@@ -62,7 +57,8 @@ int main(
 		}
 	}
 
-	auto stats = bench_params(cfg.config_name, n_params, cfg.iterations, cfg.warmup);
+	auto const plan = bench_sample_plan(cfg, 200000, 40000);
+	auto stats = bench_params(cfg.config_name, n_params, plan);
 	bench_print(stats, cfg.json_out, true);
 	if (!cfg.json_out) {
 		std::println("(sink={})", sink.load());

@@ -2,52 +2,63 @@ import std;
 import conflux.types;
 import conflux.templates;
 import conflux.json;
+import bench_common;
 namespace {
 
 struct Stats {
 	double median_ns;
 	std::size_t iters;
 	double total_ns;
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
+bool g_csv = false;
+bool g_json = false;
+BenchArgs g_args;
+
 template<typename F>
 Stats measure(
 	F &&fn,
 	std::size_t warmup,
 	std::size_t iters) {
-	for (std::size_t i = 0; i < warmup; ++i) {
-		fn();
-	}
-	std::vector<double> samples;
-	samples.reserve(iters);
-	double total_ns = 0.0;
-	for (std::size_t i = 0; i < iters; ++i) {
-		auto t0 = std::chrono::steady_clock::now();
-		fn();
-		auto t1 = std::chrono::steady_clock::now();
-		auto const dur = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-		total_ns += dur;
-		samples.push_back(dur);
-	}
-	sort(samples.begin(), samples.end());
-	return {samples[iters / 2], iters, total_ns};
+	BenchSamplePlan const plan = bench_sample_plan(g_args, iters, warmup);
+	auto stats = bench_measure_batched(std::forward<F>(fn), plan);
+	return {
+		.median_ns = stats.ns_per_iter,
+		.iters = stats.iterations,
+		.total_ns = static_cast<double>(stats.total_ns),
+		.sample_count = stats.sample_count,
+		.batch = stats.batch,
+		.timer_sample_ns = stats.timer_sample_ns,
+		.timer_overhead_pct = stats.timer_overhead_pct,
+	};
 }
-bool g_csv = false;
-bool g_json = false;
 void report(
 	std::string_view name,
 	Stats const &s) {
 	if (g_json) {
-		auto const ns_per_iter = s.total_ns / static_cast<double>(s.iters);
 		std::println(
-			R"({{"config":"default","variant":"{}","iterations":{},"total_ns":{},"ns_per_iter":{:.2f}}})",
+			R"({{"config":"default","variant":"{}","iterations":{},"total_ns":{},"ns_per_iter":{:.2f},"sample_count":{},"batch":{},"timer_sample_ns":{},"timer_overhead_pct":{:.4f}}})",
 			name,
 			s.iters,
 			static_cast<std::uint64_t>(s.total_ns),
-			ns_per_iter);
+			s.median_ns,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct);
 	} else if (g_csv) {
 		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<std::uint64_t>(s.total_ns), s.median_ns);
 	} else {
-		std::println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
+		std::println(
+			"[tmpl-bench] {:<50} {:>10.1f} ns  [{}×{} timer≈{:.2f}%]",
+			name,
+			s.median_ns,
+			s.sample_count,
+			s.batch,
+			s.timer_overhead_pct);
 	}
 }
 // ---------------------------------------------------------------------------
@@ -170,7 +181,7 @@ int main(
 		if (a == "--bench-info") {
 			std::print(
 				"{}\n",
-				R"({"name":"template","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+				R"({"name":"template","parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space"},"target_ms":500,"max_iterations":100000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]}]})");
 			return 0;
 		}
 		if (a == "--csv") {
@@ -180,6 +191,8 @@ int main(
 			g_json = true;
 		}
 	}
+	g_args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	g_json = g_json || g_args.json_out;
 	if (g_json) {
 		// NDJSON mode is consumed by scripts/bench_record.sh.
 	} else if (g_csv) {
