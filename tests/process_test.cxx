@@ -9,6 +9,9 @@ import std;
 import conflux.types;
 import conflux.process;
 import conflux.work;
+
+using conflux::work::sync_wait;
+using conflux::work::WorkPool;
 namespace {
 
 std::string drain_stdout(

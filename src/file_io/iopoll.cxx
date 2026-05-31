@@ -331,7 +331,7 @@ T block_on_iopoll(
 			if (outcome.is_failure()) {
 				slot->err = std::move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
-				slot->err = std::make_exception_ptr(::Cancelled{});
+				slot->err = std::make_exception_ptr(conflux::work::Cancelled{});
 			} else if constexpr (!std::is_void_v<T>) {
 				slot->value.emplace(std::move(outcome).success().value);
 			}

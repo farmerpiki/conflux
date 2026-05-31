@@ -8,6 +8,16 @@ import conflux.work;
 import conflux.net.io_buffer;
 
 namespace root = conflux::work::root;
+using conflux::work::async_run_cancellable_on;
+using conflux::work::async_run_on;
+using conflux::work::Cancelled;
+using conflux::work::join_all;
+using conflux::work::RingLane;
+using conflux::work::RingLaneOptions;
+using conflux::work::sync_wait;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
+using conflux::work::WorkPoolQueueMode;
 TEST_CASE(
 	"work: async_run_on executes callable on pool",
 	"[work]") {

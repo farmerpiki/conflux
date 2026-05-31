@@ -17,6 +17,8 @@ void ignore_noexcept_callback_failure() noexcept {}
 
 } // namespace
 
+namespace conflux::work {
+
 struct alignas(
 	64) WorkPoolWorker {
 	explicit WorkPoolWorker(
@@ -594,3 +596,5 @@ bool RingLane::on_owner_thread() const noexcept {
 int RingLane::ring_fd() const noexcept {
 	return ring_lane_state(state_)->options.ring_fd;
 }
+
+} // namespace conflux::work

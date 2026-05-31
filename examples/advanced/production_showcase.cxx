@@ -15,6 +15,9 @@ import conflux.net.http.realtime;
 import std;
 
 namespace http = conflux::http;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
+using conflux::work::WorkPoolQueueMode;
 using namespace std::chrono_literals;
 
 struct Todo {
@@ -183,10 +186,11 @@ int main() {
 	app.state_shared(todos);
 	app.use(conflux::http::request_id_middleware());
 	app.use(conflux::http::metrics_middleware(metrics));
-	app.use(conflux::http::security_headers_middleware({
-		.hsts_max_age = 0,
-		.csp = "default-src 'none'; frame-ancestors 'none'",
-	}));
+	app.use(
+		conflux::http::security_headers_middleware({
+			.hsts_max_age = 0,
+			.csp = "default-src 'none'; frame-ancestors 'none'",
+		}));
 	app.use(conflux::http::cache_control_middleware({.default_directive = "no-store"}));
 	app.use(conflux::http::rate_limit_middleware({.requests = 120, .window = 60s, .burst = 20}));
 
@@ -213,7 +217,8 @@ int main() {
 	app.get("/events", [events] { return http::sse(events); });
 
 	std::vector<http::Router::Middleware> metrics_auth;
-	metrics_auth.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
+	metrics_auth.push_back(
+		conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
 	app.get("/metrics", conflux::http::metrics_handler_protected(metrics, std::move(metrics_auth)));
 
 	auto server = std::move(app).prepare_server({.port = 9105});

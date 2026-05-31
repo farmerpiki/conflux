@@ -12,7 +12,10 @@ import conflux.file_io;
 import conflux.db;
 
 using namespace conflux::db;
+using conflux::work::Cancelled;
 using conflux::work::root::Task;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
 namespace {
 
 constexpr std::uint64_t pack_ud(

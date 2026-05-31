@@ -20,6 +20,8 @@ import conflux.work;
 
 namespace conflux::process {
 
+using conflux::work::async_run_on;
+
 // ---------------------------------------------------------------------------
 // Stdio — describes how stdin/stdout/stderr is connected in the child process.
 // ---------------------------------------------------------------------------

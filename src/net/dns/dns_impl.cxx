@@ -26,6 +26,8 @@ using conflux::socket_io::ConnectOptions;
 using conflux::socket_io::SocketRawRing;
 using conflux::socket_io::TcpStream;
 using conflux::socket_io::UdpSocket;
+using conflux::work::Cancelled;
+using conflux::work::join_all;
 
 namespace dns_local {
 

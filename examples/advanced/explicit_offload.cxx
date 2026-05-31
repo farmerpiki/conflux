@@ -11,6 +11,9 @@ import conflux.net.http.native_json;
 import std;
 
 namespace http = conflux::http;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
+using conflux::work::WorkPoolQueueMode;
 
 struct StatusReply {
 	std::string status;

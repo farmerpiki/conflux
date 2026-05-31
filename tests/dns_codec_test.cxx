@@ -12,6 +12,8 @@ import conflux.net.dns;
 
 using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
 // ---------------------------------------------------------------------------
 // is_valid_hostname — RFC 2181 §11 length-only rules
 // ---------------------------------------------------------------------------

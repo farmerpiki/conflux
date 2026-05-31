@@ -13,7 +13,7 @@ int main() {
 	auto openapi = conflux::http::openapi_handler(app, "API", "1.0.0");
 	(void)openapi;
 
-	WorkPool pool{WorkPoolOptions{.threads = 1}};
+	conflux::http::WorkPool pool{conflux::http::WorkPoolOptions{.threads = 1}};
 	auto offloaded = conflux::http::offload(pool, [] { return conflux::http::text("ok"); });
 	(void)offloaded;
 	auto offloaded_problem =

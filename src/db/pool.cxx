@@ -13,6 +13,9 @@ import conflux.file_io;
 
 namespace conflux::pg {
 namespace root = conflux::work::root;
+using conflux::work::Cancelled;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
 export struct TxOptions {
 	enum class Iso : std::uint8_t {
 		ReadCommitted,

@@ -15,10 +15,10 @@ import conflux.net.http.response;
 
 export namespace conflux::http {
 
-using WorkPool = ::WorkPool;
-using WorkPoolOptions = ::WorkPoolOptions;
-using WorkPoolQueueMode = ::WorkPoolQueueMode;
-using WorkPoolQueueStats = ::WorkPoolQueueStats;
+using WorkPool = conflux::work::WorkPool;
+using WorkPoolOptions = conflux::work::WorkPoolOptions;
+using WorkPoolQueueMode = conflux::work::WorkPoolQueueMode;
+using WorkPoolQueueStats = conflux::work::WorkPoolQueueStats;
 using Router = std::remove_reference_t<decltype(router(std::declval<App &>()))>;
 
 template<class F>
@@ -32,10 +32,13 @@ concept RequestMiddleware = requires(std::decay_t<F> &fn, conflux::http::OwnedRe
 };
 
 template<class F>
-concept AsyncMiddleware =
-	requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, RequestContext const &ctx, AsyncNext const &next) {
-		{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
-	};
+concept AsyncMiddleware = requires(
+	std::decay_t<F> &fn,
+	conflux::http::RequestView const &req,
+	RequestContext const &ctx,
+	AsyncNext const &next) {
+	{ std::invoke(fn, req, ctx, next) } -> std::same_as<conflux::work::root::Task<Response>>;
+};
 
 template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;

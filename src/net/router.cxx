@@ -19,6 +19,8 @@ export import conflux.net.http.response;
 
 export namespace conflux::http {
 
+using conflux::work::WorkPool;
+
 struct RouteInfo {
 	std::string method;
 	std::string path_pattern;
@@ -26,7 +28,8 @@ struct RouteInfo {
 };
 
 using NextHandler = conflux::http::CloneableFunction<Response(conflux::http::RequestView const &)>;
-using MiddlewareFunction = conflux::http::CloneableFunction<Response(conflux::http::RequestView const &, NextHandler const &)>;
+using MiddlewareFunction =
+	conflux::http::CloneableFunction<Response(conflux::http::RequestView const &, NextHandler const &)>;
 using ContextNextHandler = conflux::http::CloneableFunction<
 	conflux::work::root::Task<Response>(conflux::http::RequestView const &, conflux::http::RequestContext const &)>;
 
@@ -65,9 +68,10 @@ template<class F>
 concept AsyncMiddleware = ContextMiddlewareFunction<F>;
 
 template<class F>
-concept ViewMiddleware = requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, conflux::http::NextHandler const &next) {
-	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
-};
+concept ViewMiddleware =
+	requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, conflux::http::NextHandler const &next) {
+		{ std::invoke(fn, req, next) } -> std::same_as<Response>;
+	};
 
 template<class F>
 concept RequestMiddleware =
@@ -152,12 +156,14 @@ public:
 	using ContextMiddleware = conflux::http::CloneableFunction<conflux::work::root::Task<
 		Response>(conflux::http::RequestView const &, conflux::http::RequestContext const &, ContextHandler const &)>;
 	using AsyncNext = ContextHandler;
-	using SseHandler =
-		conflux::http::CloneableFunction<void(conflux::http::RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
+	using SseHandler = conflux::http::CloneableFunction<
+		void(conflux::http::RequestView const &, std::shared_ptr<conflux::http::SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = conflux::http::MiddlewareFunction;
-	using WsHandler = conflux::http::CloneableFunction<void(conflux::http::RequestView const &, conflux::http::WsConn &)>;
-	using ErrorHandler = conflux::http::CloneableFunction<Response(conflux::http::RequestView const &, std::exception const &)>;
+	using WsHandler =
+		conflux::http::CloneableFunction<void(conflux::http::RequestView const &, conflux::http::WsConn &)>;
+	using ErrorHandler =
+		conflux::http::CloneableFunction<Response(conflux::http::RequestView const &, std::exception const &)>;
 	Router();
 	explicit Router(conflux::http::Config const &cfg);
 	~Router();
@@ -467,7 +473,8 @@ public:
 	// Path traversal ("..") is rejected with 403.
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
-	Router &serve_static(std::string_view url_prefix, std::string root_dir, conflux::http::StaticOptions const &sopts = {});
+	Router &
+	serve_static(std::string_view url_prefix, std::string root_dir, conflux::http::StaticOptions const &sopts = {});
 	[[nodiscard]] Response dispatch(conflux::http::OwnedRequest const &req) const;
 	[[nodiscard]] Response dispatch(conflux::http::RequestView const &req) const;
 	[[nodiscard]] std::optional<Response>
@@ -519,12 +526,14 @@ private:
 			if constexpr (std::same_as<Ret, Response>) {
 				return Handler{std::forward<F>(fn)};
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
-				return Handler{[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
-					auto invoke_view = [](Fn &handler, conflux::http::RequestView view) -> conflux::work::root::Task<Response> {
-						co_return co_await std::invoke(handler, view);
-					};
-					return defer_http_task(invoke_view(wrapped, conflux::http::RequestView{req}));
-				}};
+				return Handler{
+					[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
+						auto invoke_view = [](Fn &handler,
+											  conflux::http::RequestView view) -> conflux::work::root::Task<Response> {
+							co_return co_await std::invoke(handler, view);
+						};
+						return defer_http_task(invoke_view(wrapped, conflux::http::RequestView{req}));
+					}};
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
@@ -533,25 +542,32 @@ private:
 		} else if constexpr (std::invocable<Fn &, conflux::http::OwnedRequest const &>) {
 			using Ret = std::invoke_result_t<Fn &, conflux::http::OwnedRequest const &>;
 			if constexpr (std::same_as<Ret, Response>) {
-				return Handler{[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
-					auto owned = req.to_owned();
-					return std::invoke(wrapped, owned);
-				}};
+				return Handler{
+					[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
+						auto owned = req.to_owned();
+						return std::invoke(wrapped, owned);
+					}};
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
-				return Handler{[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
-					auto owned = req.to_owned();
-					auto invoke_owned = [](Fn &handler, conflux::http::OwnedRequest owned_req) -> conflux::work::root::Task<Response> {
-						co_return co_await std::invoke(handler, owned_req);
-					};
-					return defer_http_task(invoke_owned(wrapped, std::move(owned)));
-				}};
+				return Handler{
+					[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
+						auto owned = req.to_owned();
+						auto invoke_owned =
+							[](Fn &handler,
+							   conflux::http::OwnedRequest owned_req) -> conflux::work::root::Task<Response> {
+							co_return co_await std::invoke(handler, owned_req);
+						};
+						return defer_http_task(invoke_owned(wrapped, std::move(owned)));
+					}};
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Handler returning conflux::http::OwnedRequest const& must return Response or root::Task<Response>");
+					"Handler returning conflux::http::OwnedRequest const& must return Response or "
+					"root::Task<Response>");
 			}
 		} else {
-			static_assert(kDependentFalse<Fn>, "Handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
+			static_assert(
+				kDependentFalse<Fn>,
+				"Handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
 		}
 	}
 	template<typename F>
@@ -588,12 +604,15 @@ private:
 			return Middleware{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, conflux::http::OwnedRequest const &, Handler const &>) {
 			return Middleware{
-				[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req, Handler const &next) mutable -> Response {
+				[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req, Handler const &next) mutable
+					-> Response {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned, next);
 				}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "Middleware must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
+			static_assert(
+				kDependentFalse<Fn>,
+				"Middleware must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
 		}
 	}
 	template<typename F>
@@ -642,16 +661,23 @@ private:
 		} else {
 			static_assert(
 				kDependentFalse<Fn>,
-				"Async middleware must accept conflux::http::RequestView const&, RequestContext const&, and Router::AsyncNext const&");
+				"Async middleware must accept conflux::http::RequestView const&, RequestContext const&, and "
+				"Router::AsyncNext const&");
 		}
 	}
 	template<typename F>
 	static SseHandler make_sse_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, conflux::http::RequestView const &, std::shared_ptr<conflux::http::SseChannel>>) {
+		if constexpr (std::invocable<
+						  Fn &,
+						  conflux::http::RequestView const &,
+						  std::shared_ptr<conflux::http::SseChannel>>) {
 			return SseHandler{std::forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel>>) {
+		} else if constexpr (std::invocable<
+								 Fn &,
+								 conflux::http::OwnedRequest const &,
+								 std::shared_ptr<conflux::http::SseChannel>>) {
 			return SseHandler{[wrapped = Fn(std::forward<F>(fn))](
 								  conflux::http::RequestView const &req,
 								  std::shared_ptr<conflux::http::SseChannel> ch) mutable {
@@ -659,7 +685,9 @@ private:
 				std::invoke(wrapped, owned, std::move(ch));
 			}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "SSE handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
+			static_assert(
+				kDependentFalse<Fn>,
+				"SSE handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
 		}
 	}
 	template<typename F>
@@ -669,13 +697,17 @@ private:
 		if constexpr (std::invocable<Fn &, conflux::http::RequestView const &, conflux::http::WsConn &>) {
 			return WsHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, conflux::http::OwnedRequest const &, conflux::http::WsConn &>) {
-			return WsHandler{
-				[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req, conflux::http::WsConn &ws) mutable {
-					auto owned = req.to_owned();
-					std::invoke(wrapped, owned, ws);
-				}};
+			return WsHandler{[wrapped = Fn(std::forward<F>(fn))](
+								 conflux::http::RequestView const &req,
+								 conflux::http::WsConn &ws) mutable {
+				auto owned = req.to_owned();
+				std::invoke(wrapped, owned, ws);
+			}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "WebSocket handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
+			static_assert(
+				kDependentFalse<Fn>,
+				"WebSocket handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest "
+				"const&");
 		}
 	}
 	template<typename F>
@@ -686,13 +718,16 @@ private:
 			return ErrorHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, conflux::http::OwnedRequest const &, std::exception const &>) {
 			return ErrorHandler{
-				[wrapped =
-					 Fn(std::forward<F>(fn))](conflux::http::RequestView const &req, std::exception const &ex) mutable -> Response {
+				[wrapped = Fn(std::forward<F>(fn))](
+					conflux::http::RequestView const &req,
+					std::exception const &ex) mutable -> Response {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned, ex);
 				}};
 		} else {
-			static_assert(kDependentFalse<Fn>, "Error handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
+			static_assert(
+				kDependentFalse<Fn>,
+				"Error handler must accept conflux::http::RequestView const& or conflux::http::OwnedRequest const&");
 		}
 	}
 };

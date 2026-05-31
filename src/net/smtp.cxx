@@ -36,6 +36,9 @@ struct SmtpEnvelope {
 
 namespace smtp_detail {
 
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
+
 inline int try_connect_addr(
 	::sockaddr const *sa,
 	::socklen_t sa_len,

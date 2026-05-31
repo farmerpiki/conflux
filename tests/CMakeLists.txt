@@ -282,6 +282,14 @@ if(TARGET conflux)
         LINK conflux_socket_io conflux_options
         LABELS build api-surface compile-fail
         EXPECT "SyncWaitSocketTaskTimeout")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_global_work_pool
+        SOURCE work_compile_fail_global_work_pool.cxx
+        TEST api-surface/work-hides-global-work-pool
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "WorkPool")
 endif()
 
 add_executable(conflux_tests)

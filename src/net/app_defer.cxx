@@ -9,6 +9,8 @@ import conflux.work;
 
 export namespace conflux::http {
 
+using conflux::work::WorkPool;
+
 template<typename Fn>
 	requires(std::invocable<Fn &> && IntoResponse<std::invoke_result_t<Fn &>>)
 [[nodiscard]] Response defer(

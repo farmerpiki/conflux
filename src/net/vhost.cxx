@@ -14,6 +14,8 @@ import conflux.work;
 // A default Router handles requests for unknown hosts.
 export namespace conflux::http {
 
+using conflux::work::WorkPool;
+
 class VHostRouter {
 public:
 	// Register a Router for an exact host name (e.g. "api.example.com").

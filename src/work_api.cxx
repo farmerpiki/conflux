@@ -17,6 +17,9 @@ import conflux.types;
 import conflux.small_function;
 export import conflux.work.root;
 import conflux.work.race;
+
+namespace conflux::work {
+
 export struct Cancelled final : std::runtime_error {
 	Cancelled()
 		: std::runtime_error{"work cancelled"} {}
@@ -458,14 +461,14 @@ public:
 	[[nodiscard]] bool on_owner_thread() const noexcept;
 	[[nodiscard]] int ring_fd() const noexcept;
 };
-namespace conflux::work::root {
+namespace root {
 
 template<>
 inline constexpr bool enable_address_capability_v<WorkPool> = true;
 template<>
 inline constexpr bool enable_address_capability_v<RingLane> = true;
 
-} // namespace conflux::work::root
+} // namespace root
 export template<typename Target, typename Fn>
 [[nodiscard]] auto async_run_on(
 	Target &target,
@@ -521,17 +524,17 @@ export template<typename Target, typename Fn>
 	}
 	return std::move(task);
 }
-export namespace conflux::work::race {
+export namespace race {
 
 template<typename Target, typename Fn>
 [[nodiscard]] auto task_on(
 	Target &target,
 	std::string_view label,
 	Fn &&fn) {
-	return candidate(label, ::async_run_cancellable_on(target, std::forward<Fn>(fn)));
+	return candidate(label, async_run_cancellable_on(target, std::forward<Fn>(fn)));
 }
 
-} // namespace conflux::work::race
+} // namespace race
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a std::thread pool (not io_uring).
 export template<typename T>
@@ -543,33 +546,30 @@ T sync_wait(
 		std::rethrow_exception(std::move(outcome).failure().error);
 	}
 	if (outcome.is_cancelled()) {
-		throw ::Cancelled{};
+		throw conflux::work::Cancelled{};
 	}
 	if constexpr (!std::is_void_v<T>) {
 		return std::move(outcome).success().value;
 	}
 }
-export namespace conflux::work {
 
-template<typename T>
+export template<typename T>
 using Task = root::Task<T>;
 
-template<typename T>
+export template<typename T>
 using TaskSource = root::TaskSource<T>;
 
-using TaskControl = root::TaskControl;
+export using TaskControl = root::TaskControl;
 
-template<typename T>
+export template<typename T>
 using Outcome = root::Outcome<T>;
 
-using CancelReason = root::CancelReason;
+export using CancelReason = root::CancelReason;
 
-using root::blocking_join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
-using root::join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
-using root::make_task_source; // NOLINT(misc-unused-using-decls)
-using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
-
-} // namespace conflux::work
+export using root::blocking_join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+export using root::join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+export using root::make_task_source; // NOLINT(misc-unused-using-decls)
+export using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
 // P9 join_all: single-allocation implementation.
 // Two allocs total: make_task_source (output control block) +
 // std::make_shared<JoinState> (slots, handles, and join state in one block).
@@ -704,3 +704,5 @@ export template<typename... Ts>
 
 	return std::move(root_task);
 }
+
+} // namespace conflux::work

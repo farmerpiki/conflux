@@ -4,6 +4,12 @@ import conflux.work;
 import conflux.types;
 import std;
 
+using conflux::work::async_run_on;
+using conflux::work::join_all;
+using conflux::work::sync_wait;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
+
 static bool is_prime(
 	std::int64_t n) {
 	if (n < 2) {

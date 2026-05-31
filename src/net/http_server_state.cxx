@@ -56,6 +56,7 @@ import conflux.net.tls;
 #endif
 
 using namespace conflux::socket_io;
+using conflux::work::WorkPool;
 enum class Op : std::uint8_t {
 	Accept,
 	Recv,

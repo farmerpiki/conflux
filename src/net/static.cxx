@@ -7,6 +7,8 @@ import conflux.net.config;
 
 export namespace conflux::http {
 
+using conflux::work::WorkPool;
+
 struct StaticOptions {
 	// Cache-Control header value. Empty = no Cache-Control header set.
 	std::string cache_control{"max-age=3600, public"};

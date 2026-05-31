@@ -22,6 +22,8 @@ import conflux.net.router;
 import conflux.net.tls;
 import conflux.work;
 import conflux.tests.external_support;
+
+using conflux::work::WorkPool;
 namespace {
 
 // ---------------------------------------------------------------------------

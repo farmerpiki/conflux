@@ -53,24 +53,33 @@ void _check_facade_make_and_join() {
 
 namespace snapshot_work_pool_api {
 
-using _WorkPool = ::WorkPool;
-using _WorkPoolOptions = ::WorkPoolOptions;
-using _WorkPoolQueueMode = ::WorkPoolQueueMode;
-using _WorkPoolQueueStats = ::WorkPoolQueueStats;
-using _RingLane = ::RingLane;
-using _RingLaneOptions = ::RingLaneOptions;
+using _WorkPool = conflux::work::WorkPool;
+using _WorkPoolOptions = conflux::work::WorkPoolOptions;
+using _WorkPoolQueueMode = conflux::work::WorkPoolQueueMode;
+using _WorkPoolQueueStats = conflux::work::WorkPoolQueueStats;
+using _RingLane = conflux::work::RingLane;
+using _RingLaneOptions = conflux::work::RingLaneOptions;
 
-static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), std::size_t>);
-static_assert(::WorkPoolQueueMode::stealing != ::WorkPoolQueueMode::no_stealing);
-static_assert(std::same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
-static_assert(std::same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().admission_lock_contentions), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
-static_assert(std::same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
+static_assert(std::same_as<
+			  decltype(std::declval<conflux::work::WorkPoolOptions>().queue_mode),
+			  conflux::work::WorkPoolQueueMode>);
+static_assert(std::same_as<decltype(std::declval<conflux::work::WorkPoolOptions>().inject_queue_shards), std::size_t>);
+static_assert(conflux::work::WorkPoolQueueMode::stealing != conflux::work::WorkPoolQueueMode::no_stealing);
+static_assert(
+	std::same_as<decltype(std::declval<conflux::work::WorkPool &>().queue_stats()), conflux::work::WorkPoolQueueStats>);
+static_assert(std::same_as<decltype(std::declval<conflux::work::WorkPool &>().reset_queue_stats()), void>);
+static_assert(
+	std::same_as<decltype(std::declval<conflux::work::WorkPoolQueueStats>().enqueue_attempts), std::uint64_t>);
+static_assert(std::same_as<
+			  decltype(std::declval<conflux::work::WorkPoolQueueStats>().admission_lock_contentions),
+			  std::uint64_t>);
+static_assert(
+	std::same_as<decltype(std::declval<conflux::work::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
+static_assert(
+	std::same_as<decltype(std::declval<conflux::work::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
+static_assert(std::same_as<decltype(std::declval<conflux::work::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
+static_assert(
+	std::same_as<decltype(std::declval<conflux::work::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
 
 } // namespace snapshot_work_pool_api
 // ---------------------------------------------------------------------------
@@ -126,10 +135,11 @@ static_assert(std::is_same_v<
 static_assert(std::is_same_v<
 			  decltype(root::make_cancellable_task([](root::Cancellation) -> root::Task<int> { co_return 1; })),
 			  root::Task<int>>);
-static_assert(
-	std::is_same_v<
-		decltype(async_run_cancellable_on(std::declval<::WorkPool &>(), [](root::Cancellation) noexcept { return 1; })),
-		root::Task<int>>);
+static_assert(std::is_same_v<
+			  decltype(conflux::work::async_run_cancellable_on(
+				  std::declval<conflux::work::WorkPool &>(),
+				  [](root::Cancellation) noexcept { return 1; })),
+			  root::Task<int>>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
@@ -530,7 +540,7 @@ static_assert(std::is_same_v<
 			  race::race_candidate<int>>);
 static_assert(std::is_same_v<
 			  decltype(race::task_on(
-				  std::declval<::WorkPool &>(),
+				  std::declval<conflux::work::WorkPool &>(),
 				  std::string_view{},
 				  [](root::Cancellation) noexcept { return 1; })),
 			  race::race_candidate<int>>);

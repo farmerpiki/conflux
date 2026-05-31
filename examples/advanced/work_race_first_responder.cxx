@@ -4,6 +4,9 @@ import std;
 
 namespace root = conflux::work::root;
 namespace race = conflux::work::race;
+using conflux::work::async_run_cancellable_on;
+using conflux::work::WorkPool;
+using conflux::work::WorkPoolOptions;
 using namespace std::chrono_literals;
 
 struct SourceStats {
