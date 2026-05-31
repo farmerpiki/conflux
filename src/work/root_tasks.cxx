@@ -441,7 +441,7 @@ template<class Fn>
 // [option] Keep separate (JoinHandle awaits → yields Result)
 //   Pros: Zero runtime overhead, clean separation (lifecycle vs. output),
 //         matches tokio/async-std patterns, compile-time correctness.
-//   Cons: Two types, requires understanding the join() → Result
+//   Cons: Two types, requires understanding the join handle → Result
 //         relationship.
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {

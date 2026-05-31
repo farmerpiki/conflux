@@ -251,7 +251,7 @@ Case make_root_operation_value_case() {
 Case make_root_task_cancelled_case() {
 	return Case{
 		.name = "root/task_cancelled",
-		.description = "make_task_source + try_set_cancelled + root::join (outcome check)",
+		.description = "make_task_source + try_set_cancelled + blocking_join (outcome check)",
 		.default_iterations = 200000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();

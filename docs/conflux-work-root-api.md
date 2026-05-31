@@ -379,7 +379,7 @@ silently dropped.
 callback is already installed on the control block, awaiting the task fails
 deterministically with `JoinError::ready_callback_already_installed`. After
 resumption, they extract the result through the ready-only path, so they do not
-fall back to the `blocking_join(...)` compatibility seam.
+fall back to `blocking_join(...)`.
 
 ## Join, Value, and Join Handles
 

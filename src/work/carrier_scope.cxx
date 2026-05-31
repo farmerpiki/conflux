@@ -128,7 +128,7 @@ public:
 		return cancel_reason_;
 	}
 	// Track the join handle's control then join: cancel() fired concurrently
-	// will signal the task to cancel, causing root::join to return Cancelled.
+	// will signal the task to cancel, causing blocking_join to return Cancelled.
 	template<root::work_value T>
 	[[nodiscard]] Chain<T> admit(
 		root::TaskJoinHandle<T> &&jh) {

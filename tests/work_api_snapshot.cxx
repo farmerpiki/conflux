@@ -364,9 +364,8 @@ void _check_make_posted_source() {
 	(void)posted;
 	(void)source;
 }
-// blocking_join(Task<T>&&) — unevaluated decltype; join remains a compatibility alias.
+// blocking_join(Task<T>&&) — unevaluated decltype.
 using _blocking_join_result_int = decltype(root::blocking_join(std::declval<root::Task<int> &&>()));
-using _join_result_int = decltype(root::blocking_join(std::declval<root::Task<int> &&>()));
 using _try_join_ready_result_int = decltype(root::try_join_ready(std::declval<root::Task<int> &&>()));
 using _join_ready_result_int = decltype(root::join_ready(std::declval<root::Task<int> &&>()));
 
