@@ -461,7 +461,8 @@ BenchStats run_variant(
 	Variant const &v,
 	std::size_t iterations,
 	std::size_t warmup,
-	std::string_view config_name) {
+	std::string_view config_name,
+	BenchArgs const &args) {
 	if (v.iters_override) {
 		iterations = std::min(iterations, v.iters_override);
 		warmup = std::min(warmup, std::max(std::size_t{2}, v.iters_override / 5));
@@ -470,18 +471,10 @@ BenchStats run_variant(
 		v.setup();
 	}
 
-	std::uint64_t t0{};
-	std::uint64_t t1{};
+	BenchStats stats;
 	try {
-		for (std::size_t i = 0; i < warmup; ++i) {
-			v.run();
-		}
-
-		t0 = bench_now_ns();
-		for (std::size_t i = 0; i < iterations; ++i) {
-			v.run();
-		}
-		t1 = bench_now_ns();
+		BenchSamplePlan const plan = bench_sample_plan(iterations, warmup, args.samples, args.batch);
+		stats = bench_measure_batched([&] { v.run(); }, plan);
 	} catch (...) {
 		if (v.teardown) {
 			v.teardown();
@@ -493,15 +486,9 @@ BenchStats run_variant(
 		v.teardown();
 	}
 
-	auto const total = t1 - t0;
-	auto const ns_pi = static_cast<double>(total) / static_cast<double>(iterations);
-	return BenchStats{
-		.config = config_name,
-		.variant = v.name,
-		.iterations = iterations,
-		.total_ns = total,
-		.ns_per_iter = ns_pi,
-	};
+	stats.config = config_name;
+	stats.variant = v.name;
+	return stats;
 }
 void print_variant(
 	BenchStats const &s,
@@ -513,7 +500,8 @@ void print_variant(
 			auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
 			std::println(
 				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"ops_"
-				"per_iter\":{},\"total_ops\":{},\"ns_per_op\":{:.2f}}}",
+				"per_iter\":{},\"total_ops\":{},\"ns_per_op\":{:.2f},\"sample_count\":{},\"batch\":{},"
+				"\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
 				s.config,
 				s.variant,
 				s.iterations,
@@ -521,15 +509,24 @@ void print_variant(
 				s.ns_per_iter,
 				ops_per_iter,
 				total_ops,
-				ns_per_op);
+				ns_per_op,
+				s.sample_count,
+				s.batch,
+				s.timer_sample_ns,
+				s.timer_overhead_pct);
 		} else {
 			std::println(
-				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
+				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+				"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
 				s.config,
 				s.variant,
 				s.iterations,
 				s.total_ns,
-				s.ns_per_iter);
+				s.ns_per_iter,
+				s.sample_count,
+				s.batch,
+				s.timer_sample_ns,
+				s.timer_overhead_pct);
 		}
 	} else if (ops_per_iter > 1) {
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
@@ -1898,7 +1895,7 @@ int main(
 			continue;
 		}
 		try {
-			auto const stats = run_variant(v, iters, warmup, config_name);
+			auto const stats = run_variant(v, iters, warmup, config_name, args);
 			print_variant(stats, json, v.ops_per_iter);
 		} catch (std::exception const &e) {
 			variant_failed = true;
