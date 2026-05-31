@@ -259,6 +259,10 @@ struct StringsOwned {
 	std::string long_escaped;
 };
 
+struct StringArrayDoc {
+	std::vector<std::string> values;
+};
+
 struct NumericScalars {
 	std::int64_t i{};
 	std::uint64_t u{};
@@ -369,6 +373,12 @@ struct conflux::json::JsonMembers<StringsOwned> {
 		};
 	}
 	static constexpr std::string_view type_name() { return "StringsOwned"; }
+};
+
+template<>
+struct conflux::json::JsonMembers<StringArrayDoc> {
+	static constexpr auto members() { return std::tuple{json_member("values", &StringArrayDoc::values)}; }
+	static constexpr std::string_view type_name() { return "StringArrayDoc"; }
 };
 
 template<>
@@ -632,6 +642,19 @@ enum class NumberShape : std::uint8_t {
 		long_escaped);
 }
 
+[[nodiscard]] std::string make_string_array_json(
+	std::size_t count) {
+	std::string out{R"({"values":[)"};
+	for (std::size_t i = 0; i < count; ++i) {
+		if (i != 0) {
+			out += ',';
+		}
+		out += std::format(R"("s{}")", i);
+	}
+	out += "]}";
+	return out;
+}
+
 void bench_order_matrix(
 	Config const &cfg) {
 	std::string const medium_decl = make_medium_json(OrderShape::declaration);
@@ -762,9 +785,17 @@ void bench_string_matrix(
 	Config const &cfg) {
 	std::string const plain = make_strings_json(false);
 	std::string const escaped = make_strings_json(true);
+	std::string const array4 = make_string_array_json(4);
+	std::string const array32 = make_string_array_json(32);
 	run_row(cfg, "strings/owned/plain_long", plain.size(), [&] { require_ok(decode_borrowed<StringsOwned>(plain)); });
 	run_row(cfg, "strings/owned/escaped_long", escaped.size(), [&] {
 		require_ok(decode_borrowed<StringsOwned>(escaped));
+	});
+	run_row(cfg, "strings/vector/plain4", array4.size(), [&] {
+		require_ok(decode_borrowed<StringArrayDoc>(array4));
+	});
+	run_row(cfg, "strings/vector/plain32", array32.size(), [&] {
+		require_ok(decode_borrowed<StringArrayDoc>(array32));
 	});
 }
 
