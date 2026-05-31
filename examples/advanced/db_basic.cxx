@@ -1,7 +1,7 @@
 // conflux.pg basic example.
 //
 // Connects to PostgreSQL via PG_CONNINFO, runs a SELECT, prints rows.
-// Uses file_io's block_on helper to drive a single-thread io_uring.
+// Uses file_io's conflux::file_io::block_on helper to drive a single-thread io_uring.
 #include <liburing.h>
 
 import std;
@@ -33,16 +33,18 @@ int main() {
 		return 1;
 	}
 	CompletionTable ct;
-	FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept { return pack_ud(s, g); }};
-	CurrentFileReaderScope const scope{&reader};
+	conflux::file_io::FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept {
+											return pack_ud(s, g);
+										}};
+	conflux::file_io::CurrentFileReaderScope const scope{&reader};
 
 	try {
-		auto conn = block_on(reader, Connection::connect({.conninfo = raw}));
+		auto conn = conflux::file_io::block_on(reader, Connection::connect({.conninfo = raw}));
 		std::println("connected — backend pid {}, server {}", conn->backend_pid(), conn->server_version());
 
 		Params p;
 		p.add(std::int64_t{3});
-		auto rs = block_on(
+		auto rs = conflux::file_io::block_on(
 			reader,
 			conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", std::move(p)));
 		std::println("rows: {} cols: {}", rs.rows(), rs.cols());

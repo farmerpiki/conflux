@@ -332,7 +332,7 @@ void Ring::init(
 
 	// file_io pools: constructed here so register_buffers_sparse runs before
 	// buf_ring setup (both touch io_uring internal state; ordering is
-	// defensive — buf_ring uses a separate bgid). Install FileReader only
+	// defensive — buf_ring uses a separate bgid). Install conflux::file_io::FileReader only
 	// when both streaming paths have usable resources; otherwise serve_static
 	// falls back to the mmap path instead of selecting an async response that
 	// cannot deliver its body.
@@ -349,7 +349,7 @@ void Ring::init(
 				buf_table = std::move(table);
 				fixed_buffers = std::move(file_pool);
 				splice_pipes = std::move(pipes);
-				files = std::make_unique<FileReader>(
+				files = std::make_unique<conflux::file_io::FileReader>(
 					&ring,
 					file_completions.get(),
 					[](std::uint32_t slot, std::uint32_t gen) noexcept {
@@ -1254,7 +1254,7 @@ conflux::http::RunStatus Ring::run_loop() {
 			eprintln(std::format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
 		}
 	}
-	CurrentFileReaderScope const file_reader_scope{files.get()};
+	conflux::file_io::CurrentFileReaderScope const file_reader_scope{files.get()};
 
 	queue_multishot_accept();
 	arm_shutdown_read();

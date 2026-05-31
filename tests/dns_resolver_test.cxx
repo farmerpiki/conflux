@@ -821,7 +821,7 @@ TEST_CASE(
 	DnsMockServer const mock; // default: NXDOMAIN for everything
 
 	auto result = r.resolve_blocking("no.such.domain", 80, mock_opts(mock));
-	// For native_udp, resolve_blocking catches DnsError thrown from block_on
+	// For native_udp, resolve_blocking catches DnsError thrown from conflux::file_io::block_on
 	// and returns unexpected{} with DnsErrorKind::nxdomain.
 	REQUIRE_FALSE(result.has_value());
 	CHECK(result.error().kind == DnsErrorKind::nxdomain);
@@ -1088,7 +1088,7 @@ TEST_CASE(
 	CHECK(malformed.query_count("malformed-fallback.test", 1) == 1);
 	CHECK(good.query_count("malformed-fallback.test", 1) == 1);
 }
-// decode for block_on — matches pack_ud: gen in upper 32, slot in lower 32.
+// decode for conflux::file_io::block_on — matches pack_ud: gen in upper 32, slot in lower 32.
 struct PackUdDecode {
 	std::pair<std::uint32_t, std::uint32_t> operator ()(
 		std::uint64_t ud) const noexcept {
@@ -1122,7 +1122,7 @@ TEST_CASE(
 
 	bool cancelled = false;
 	try {
-		(void)block_on<ResolveResult>(
+		(void)conflux::file_io::block_on<ResolveResult>(
 			*r.file_reader(),
 			std::move(task),
 			std::make_optional(std::chrono::milliseconds{5000}),
@@ -1168,7 +1168,7 @@ TEST_CASE(
 
 	bool cancelled = false;
 	try {
-		(void)block_on<ResolveResult>(
+		(void)conflux::file_io::block_on<ResolveResult>(
 			*r.file_reader(),
 			std::move(task),
 			std::make_optional(std::chrono::milliseconds{5000}),
@@ -1214,7 +1214,7 @@ TEST_CASE(
 	using RR = ResolveResult;
 	auto first = r.resolve("coalesce.test", 80, opts);
 	auto second = r.resolve("coalesce.test", 80, opts);
-	auto [res1, res2] = block_on<std::tuple<RR, RR>>(
+	auto [res1, res2] = conflux::file_io::block_on<std::tuple<RR, RR>>(
 		*r.file_reader(),
 		join_all(std::move(first), std::move(second)),
 		std::make_optional(std::chrono::milliseconds{5000}),
@@ -1261,7 +1261,7 @@ TEST_CASE(
 
 	bool second_cancelled = false;
 	try {
-		(void)block_on<ResolveResult>(
+		(void)conflux::file_io::block_on<ResolveResult>(
 			*r.file_reader(),
 			std::move(second),
 			std::make_optional(std::chrono::milliseconds{5000}),
@@ -1269,7 +1269,7 @@ TEST_CASE(
 	} catch (DnsError const &e) { second_cancelled = e.kind == DnsErrorKind::cancelled; }
 	CHECK(second_cancelled);
 
-	auto first_result = block_on<ResolveResult>(
+	auto first_result = conflux::file_io::block_on<ResolveResult>(
 		*r.file_reader(),
 		std::move(first),
 		std::make_optional(std::chrono::milliseconds{5000}),
@@ -1310,7 +1310,7 @@ TEST_CASE(
 	ResolveOptions opts;
 	opts.allow_v6 = false;
 	opts.query_timeout = std::chrono::milliseconds{100};
-	auto result = block_on<ResolveResult>(
+	auto result = conflux::file_io::block_on<ResolveResult>(
 		*r.file_reader(),
 		r.resolve("www", 80, opts),
 		std::make_optional(std::chrono::milliseconds{5000}),
@@ -1465,7 +1465,7 @@ TEST_CASE(
 	CHECK_FALSE(second.from_coalesced);
 
 	// Now pump the resolver-owned ring so first completes cleanly.
-	auto first_result = block_on<ResolveResult>(
+	auto first_result = conflux::file_io::block_on<ResolveResult>(
 		*r.file_reader(),
 		std::move(first),
 		std::make_optional(std::chrono::milliseconds{5000}),

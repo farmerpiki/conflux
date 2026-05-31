@@ -173,7 +173,7 @@ struct StaticAcceptedEncodings {
 } // namespace
 
 conflux::work::root::Task<void> do_save_static_file(
-	FileReader *fr,
+	conflux::file_io::FileReader *fr,
 	std::shared_ptr<std::string> body_owned,
 	std::shared_ptr<std::string> fp,
 	bool existed,
@@ -250,7 +250,7 @@ conflux::http::Response handle_static_put(
 		bool const existed = probe.valid();
 		probe.reset();
 
-		if (auto *fr = current_file_reader(); fr != nullptr) {
+		if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr) {
 			auto body_owned = std::make_shared<std::string>(req.body);
 			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
@@ -327,7 +327,7 @@ conflux::http::Response handle_static_delete(
 		}
 		probe.reset();
 
-		if (auto *fr = current_file_reader(); fr != nullptr) {
+		if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr) {
 			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto fp = std::make_shared<std::string>(full_path);
 			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
@@ -713,26 +713,27 @@ conflux::http::Response handle_static_get(
 				return resp;
 			};
 			if (auto cached =
-					static_cache.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
-						if (!is_range_request) {
-							auto resp = conflux::http::Response{
-								.status = kHttpOk,
-								.status_text = "OK",
-								.content_type = entry.mime};
-							resp.headers["ETag"] = entry.etag;
-							resp.headers["Last-Modified"] = entry.last_modified;
-							resp.headers["Accept-Ranges"] = "bytes";
-							if (!entry.content_encoding.empty()) {
-								resp.headers["Content-Encoding"] = entry.content_encoding;
+					static_cache
+						.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
+							if (!is_range_request) {
+								auto resp = conflux::http::Response{
+									.status = kHttpOk,
+									.status_text = "OK",
+									.content_type = entry.mime};
+								resp.headers["ETag"] = entry.etag;
+								resp.headers["Last-Modified"] = entry.last_modified;
+								resp.headers["Accept-Ranges"] = "bytes";
+								if (!entry.content_encoding.empty()) {
+									resp.headers["Content-Encoding"] = entry.content_encoding;
+								}
+								if (!static_options.cache_control.empty()) {
+									resp.headers["Cache-Control"] = static_options.cache_control;
+								}
+								resp.set_text_body(entry.body);
+								return resp;
 							}
-							if (!static_options.cache_control.empty()) {
-								resp.headers["Cache-Control"] = static_options.cache_control;
-							}
-							resp.set_text_body(entry.body);
-							return resp;
-						}
-						return make_cached_response(entry);
-					})) {
+							return make_cached_response(entry);
+						})) {
 				return std::move(*cached);
 			}
 			conflux::file_io_sync::UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
@@ -776,13 +777,13 @@ conflux::http::Response handle_static_get(
 			return resp;
 		}
 
-		// Async uring path: when a FileReader is installed for this
+		// Async uring path: when a conflux::file_io::FileReader is installed for this
 		// std::thread (i.e. we are running on a ring std::thread, not offloaded to
 		// a WorkPool) and no compressed std::variant was picked, open the
 		// file via IORING_OP_OPENAT and return a deferred response that
 		// carries a StreamedFile once the open CQE fires. Otherwise
 		// fall back to the synchronous mmap path below.
-		if (auto *fr = current_file_reader(); fr != nullptr && content_encoding.empty()) {
+		if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr && content_encoding.empty()) {
 			auto dr = std::make_shared<conflux::http::DeferredResponse>();
 			auto base =
 				is_range_request ? base_response(kHttpPartialContent, "Partial Content") : base_response(kHttpOk, "OK");
@@ -850,7 +851,7 @@ conflux::work::root::Task<void> do_serve_static_file(
 	} catch (...) { dr->complete(conflux::http::Response::not_found("async open failed")); }
 }
 conflux::work::root::Task<void> do_save_static_file(
-	FileReader *fr,
+	conflux::file_io::FileReader *fr,
 	std::shared_ptr<std::string> body_owned,
 	std::shared_ptr<std::string> fp,
 	bool existed,
@@ -876,7 +877,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 		co_await std::move(unlink_task);
 		static_cache.evict_path_and_sidecars(*fp);
 		dr->complete(conflux::http::Response::no_content());
-	} catch (FileIoError const &e) {
+	} catch (conflux::file_io::FileIoError const &e) {
 		dr->complete(
 			e.code().value() == ENOENT ? conflux::http::Response::not_found(*fp) :
 										 conflux::http::Response::internal_error());

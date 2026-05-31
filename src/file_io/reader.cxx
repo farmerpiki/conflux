@@ -28,6 +28,8 @@ export import conflux.file_io_sync;
 export import conflux.file_io.buffers;
 export import conflux.file_io.pipe_pool;
 
+namespace conflux::file_io {
+
 export using FileIoError = IoError;
 
 namespace root = conflux::work::root;
@@ -454,13 +456,13 @@ public:
 	// completion callback we keep it alive until the CQE fires, then move it
 	// into the resolved value so the caller decides when to release.
 	struct ReadFixedResult {
-		conflux::file_io::FixedBuffer buffer;
+		FixedBuffer buffer;
 		std::size_t bytes{};
 	};
 	[[nodiscard]] root::Task<ReadFixedResult> read_fixed(
 		FileHandle const &fh,
 		std::uint64_t offset,
-		conflux::file_io::FixedBuffer buf,
+		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 		auto [task, src, sqe] = prepare_sqe_direct<ReadFixedResult>();
 		if (!sqe) {
@@ -500,7 +502,7 @@ public:
 	[[nodiscard]] root::Task<ReadFixedResult> read_nocache_fixed(
 		FileHandle const &fh,
 		std::uint64_t offset,
-		conflux::file_io::FixedBuffer buf,
+		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max(),
 		std::size_t block_size = 4096) {
 		std::size_t const actual_cap = std::min(max_bytes, buf.size());
@@ -542,13 +544,13 @@ public:
 	// The buffer is held by the completion callback until the CQE fires, then returned
 	// to the caller (who decides when to release the slot back to the pool).
 	struct WriteFixedResult {
-		conflux::file_io::FixedBuffer buffer;
+		FixedBuffer buffer;
 		std::size_t bytes{};
 	};
 	[[nodiscard]] root::Task<WriteFixedResult> write_fixed(
 		FileHandle const &fh,
 		std::uint64_t offset,
-		conflux::file_io::FixedBuffer buf,
+		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 		auto [task, src, sqe] = prepare_sqe_direct<WriteFixedResult>();
 		if (!sqe) {
@@ -1410,7 +1412,7 @@ public:
 		std::uint64_t off,
 		std::size_t len,
 		int dst_fd,
-		conflux::file_io::PipePair pipe,
+		PipePair pipe,
 		bool dst_fixed = false) {
 		struct State {
 			io_uring *ring;
@@ -1419,7 +1421,7 @@ public:
 			int file_fd;
 			int dst_fd;
 			bool dst_fixed;
-			conflux::file_io::PipePair pipe;
+			PipePair pipe;
 			std::uint64_t file_off;
 			std::size_t remaining;
 			std::size_t delivered{0};
@@ -2114,3 +2116,5 @@ public:
 		}
 	}
 };
+
+} // namespace conflux::file_io

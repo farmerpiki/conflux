@@ -32,8 +32,10 @@ int main() {
 		return 1;
 	}
 	CompletionTable ct;
-	FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept { return pack_ud(s, g); }};
-	CurrentFileReaderScope const scope{&reader};
+	conflux::file_io::FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept {
+											return pack_ud(s, g);
+										}};
+	conflux::file_io::CurrentFileReaderScope const scope{&reader};
 
 	auto pool = Pool::create({
 		.conn = {.conninfo = raw},
@@ -42,17 +44,21 @@ int main() {
 	});
 
 	try {
-		auto a = block_on(reader, pool->acquire());
-		auto b = block_on(reader, pool->acquire());
+		auto a = conflux::file_io::block_on(reader, pool->acquire());
+		auto b = conflux::file_io::block_on(reader, pool->acquire());
 
 		Params pa;
 		pa.add(std::string_view{"alpha"});
-		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pa)));
+		auto ra = conflux::file_io::block_on(
+			reader,
+			a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pa)));
 		std::println("a: {}", ra[0].as<std::string_view>(0));
 
 		Params pb;
 		pb.add(std::string_view{"beta"});
-		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pb)));
+		auto rb = conflux::file_io::block_on(
+			reader,
+			b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", std::move(pb)));
 		std::println("b: {}", rb[0].as<std::string_view>(0));
 	} catch (std::exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 

@@ -268,7 +268,7 @@ public:
 private:
 	Connection(
 		PGConnPtr conn,
-		FileReader *reader,
+		conflux::file_io::FileReader *reader,
 		std::shared_ptr<WorkPool> cancel_pool) noexcept
 		: conn_{std::move(conn)}
 		, reader_{reader}
@@ -308,7 +308,7 @@ private:
 	void op_done_();
 
 	PGConnPtr conn_;
-	FileReader *reader_{nullptr};
+	conflux::file_io::FileReader *reader_{nullptr};
 	std::shared_ptr<WorkPool> cancel_pool_{};
 	std::thread::id owner_{};
 	bool closed_{false};
@@ -371,7 +371,7 @@ namespace detail {
 
 struct ConnectState : std::enable_shared_from_this<ConnectState> {
 	PGConnPtr conn{};
-	FileReader *reader{nullptr};
+	conflux::file_io::FileReader *reader{nullptr};
 	std::shared_ptr<WorkPool> cancel_pool{};
 	std::shared_ptr<root::TaskSource<std::shared_ptr<Connection>>> dst{};
 	std::chrono::steady_clock::time_point deadline{};
@@ -475,10 +475,11 @@ root::Task<std::shared_ptr<Connection>> Connection::connect(
 	ConnectParams const &params) {
 	auto [task, shared_src] =
 		root::make_shared_task_source<std::shared_ptr<Connection>>(root::SubmitOptions{.enable_cancellation = false});
-	auto *reader = current_file_reader();
+	auto *reader = conflux::file_io::current_file_reader();
 	if (reader == nullptr) {
 		auto _ = shared_src->try_set_exception(
-			std::make_exception_ptr(PgError{"conflux.pg: no current FileReader (not on a ring lane)"}));
+			std::make_exception_ptr(
+				PgError{"conflux.pg: no current conflux::file_io::FileReader (not on a ring lane)"}));
 		return std::move(task);
 	}
 	if (::PQisthreadsafe() == 0) {
@@ -925,7 +926,7 @@ root::Task<Result> Connection::query(
 	if (!opts.deadline || opts.deadline->count() <= 0) {
 		return query(sql, std::move(params));
 	}
-	auto *reader = current_file_reader();
+	auto *reader = conflux::file_io::current_file_reader();
 	if (reader == nullptr) {
 		return query(sql, std::move(params));
 	}
@@ -1484,7 +1485,7 @@ root::Task<std::shared_ptr<std::string const>> QueryCache::load_async(
 			return std::move(task);
 		}
 	}
-	auto *reader = current_file_reader();
+	auto *reader = conflux::file_io::current_file_reader();
 	if (reader == nullptr) {
 		try {
 			auto _ = shared_src->try_set_value(root::Success<std::shared_ptr<std::string const>>{load_or_throw(name)});
@@ -1493,7 +1494,7 @@ root::Task<std::shared_ptr<std::string const>> QueryCache::load_async(
 	}
 	auto name_owned = std::string{name};
 	auto path = (root_ / (name_owned + ".psql")).string();
-	[](FileReader *reader,
+	[](conflux::file_io::FileReader *reader,
 	   std::shared_ptr<root::TaskSource<std::shared_ptr<std::string const>>> shared_src,
 	   std::string name_owned,
 	   QueryCache *self,

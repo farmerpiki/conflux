@@ -145,7 +145,7 @@ auto with_transaction(
 	std::string const begin_stmt = detail::begin_sql(opt);
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
-			if (auto *reader = current_file_reader(); reader != nullptr) {
+			if (auto *reader = conflux::file_io::current_file_reader(); reader != nullptr) {
 				co_await conflux::uring::async_timeout(
 					reader->ring(),
 					*reader->completions(),
@@ -280,7 +280,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 		}
 	});
 	if (cfg_.acquire_timeout.count() > 0) {
-		if (auto *reader = current_file_reader(); reader != nullptr) {
+		if (auto *reader = conflux::file_io::current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
 			[](std::shared_ptr<Waiter> waiter, root::Task<void> to_task) -> root::Task<void> {
 				try {

@@ -35,13 +35,13 @@ public:
 	DbRuntime(DbRuntime const &) = delete;
 	DbRuntime &operator =(DbRuntime const &) = delete;
 
-	FileReader &reader() noexcept { return reader_; }
+	conflux::file_io::FileReader &reader() noexcept { return reader_; }
 
 private:
 	::io_uring ring_{};
 	CompletionTable completions_{};
-	FileReader reader_{&ring_, &completions_, pack_user_data};
-	CurrentFileReaderScope scope_{&reader_};
+	conflux::file_io::FileReader reader_{&ring_, &completions_, pack_user_data};
+	conflux::file_io::CurrentFileReaderScope scope_{&reader_};
 };
 
 } // namespace
@@ -55,11 +55,11 @@ int main() {
 
 	try {
 		DbRuntime runtime;
-		auto conn = block_on(runtime.reader(), pg::Connection::connect({.conninfo = conninfo}));
+		auto conn = conflux::file_io::block_on(runtime.reader(), pg::Connection::connect({.conninfo = conninfo}));
 
 		pg::Params params;
 		params.add(std::string_view{"conflux"});
-		auto rows = block_on(
+		auto rows = conflux::file_io::block_on(
 			runtime.reader(),
 			conn->query(
 				"SELECT $1::text AS name, current_database() AS database, "

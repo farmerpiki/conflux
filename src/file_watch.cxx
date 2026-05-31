@@ -186,7 +186,7 @@ public:
 		if (impl_->started.test_and_set()) {
 			return;
 		}
-		auto *reader = current_file_reader();
+		auto *reader = conflux::file_io::current_file_reader();
 		if (reader == nullptr) {
 			impl_->started.clear();
 			throw std::logic_error{"FileWatcher::start requires an active conflux.file_io ring context"};

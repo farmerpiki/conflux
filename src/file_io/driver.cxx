@@ -10,6 +10,8 @@ import conflux.work;
 export import conflux.uring.completion;
 export import conflux.file_io.reader;
 
+namespace conflux::file_io {
+
 // ---------------------------------------------------------------------------
 // Thread-local FileReader registration.
 //
@@ -155,3 +157,5 @@ T block_on(
 		return std::move(*slot->value);
 	}
 }
+
+} // namespace conflux::file_io

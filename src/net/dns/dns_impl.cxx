@@ -147,7 +147,8 @@ void parse_resolv_options(
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	std::filesystem::path const &path) noexcept {
 	ResolvConfig out;
-	auto const contents = conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
+	auto const contents =
+		conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -189,7 +190,8 @@ void parse_resolv_options(
 [[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
 	std::filesystem::path const &path) noexcept {
 	std::unordered_map<std::string, std::vector<Endpoint>> out;
-	auto const contents = conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
+	auto const contents =
+		conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -1045,7 +1047,7 @@ struct InFlightKeyEq {
 };
 struct Resolver::Impl {
 	ResolverBackend backend{};
-	std::unique_ptr<FileReader> reader{};
+	std::unique_ptr<conflux::file_io::FileReader> reader{};
 	std::unique_ptr<SocketTaskRing> task_ring{};
 	WorkPool *pool{nullptr};
 	ResolverOptions opts;
@@ -1067,10 +1069,10 @@ Resolver::Resolver(
 	: impl_{std::make_shared<Impl>()} {
 	impl_->backend = ResolverBackend::native_udp;
 	auto shared_ud = std::make_shared<UserDataFn>(std::move(encode_ud));
-	impl_->reader =
-		std::make_unique<FileReader>(ring, completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t {
-			return (*shared_ud)(s, g);
-		});
+	impl_->reader = std::make_unique<conflux::file_io::FileReader>(
+		ring,
+		completions,
+		[shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t { return (*shared_ud)(s, g); });
 	impl_->task_ring = std::make_unique<SocketTaskRing>(
 		SocketRawRing{ring},
 		*completions,
@@ -1663,7 +1665,7 @@ void Resolver::reload() {
 ResolverBackend Resolver::backend() const noexcept {
 	return impl_->backend;
 }
-FileReader *Resolver::file_reader() const noexcept {
+conflux::file_io::FileReader *Resolver::file_reader() const noexcept {
 	return impl_->reader.get();
 }
 

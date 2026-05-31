@@ -171,7 +171,7 @@ void Ring::queue_send_streamed(
 	}
 }
 
-// Acquire a pipe P and submit the splice chain via FileReader. Completion
+// Acquire a pipe P and submit the splice chain via conflux::file_io::FileReader. Completion
 // calls back into handle_streamed_splice_done on the ring std::thread.
 void Ring::start_streamed_body(
 	int fd) {
@@ -881,7 +881,7 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	int fd,
 	std::uint32_t conn_gen,
 	std::size_t want,
-	conflux::work::root::Task<FileReader::ReadFixedResult> read_task) {
+	conflux::work::root::Task<conflux::file_io::FileReader::ReadFixedResult> read_task) {
 	try {
 		auto result = co_await std::move(read_task);
 		ring->on_streamed_tls_chunk_done(fd, conn_gen, std::move(result.buffer), std::min(result.bytes, want), {});

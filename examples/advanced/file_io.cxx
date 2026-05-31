@@ -1,7 +1,7 @@
 // Advanced runtime example: direct conflux.file_io.driver with caller-owned io_uring.
 //
-// Demonstrates using FileReader with a caller-owned io_uring and completion
-// table. The block_on helper drives the ring until each Flow resolves.
+// Demonstrates using conflux::file_io::FileReader with a caller-owned io_uring and completion
+// table. The conflux::file_io::block_on helper drives the ring until each Flow resolves.
 #include <fcntl.h>
 #include <liburing.h>
 #include <unistd.h>
@@ -56,10 +56,10 @@ int main() {
 	}
 
 	CompletionTable completions;
-	FileReader files{&ring, &completions, pack_ud};
+	conflux::file_io::FileReader files{&ring, &completions, pack_ud};
 
 	try {
-		auto handle = block_on(files, files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
+		auto handle = conflux::file_io::block_on(files, files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
 		if (!handle.valid()) {
 			std::println(std::cerr, "async_open returned invalid handle");
 			::io_uring_queue_exit(&ring);
@@ -67,7 +67,8 @@ int main() {
 		}
 
 		std::array<std::byte, 128> buf{};
-		auto got = block_on(files, files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
+		auto got =
+			conflux::file_io::block_on(files, files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
 		std::println("read {} bytes: {}", got, std::string_view{reinterpret_cast<char const *>(buf.data()), got});
 	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());

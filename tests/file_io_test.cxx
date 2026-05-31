@@ -43,7 +43,7 @@ constexpr std::uint64_t pack_ud(
 struct RingFixture {
 	::io_uring ring{};
 	CompletionTable completions{};
-	FileReader reader;
+	conflux::file_io::FileReader reader;
 	bool ring_ok{false};
 	RingFixture()
 		: reader{&ring, &completions, [](std::uint32_t slot, std::uint32_t gen) noexcept {
@@ -341,16 +341,18 @@ TEST_CASE(
 
 	auto tf = TempFile::create("hello file_io");
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	conflux::file_io_sync::FileStat const st =
-		block_on(fx->reader, fx->reader.async_stat(handle), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_stat(handle), std::chrono::seconds{5});
 	CHECK(st.size == std::string_view{"hello file_io"}.size());
 
 	std::array<std::byte, 32> buf{};
-	std::size_t const got = block_on(
+	std::size_t const got = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}),
 		std::chrono::seconds{5});
@@ -376,12 +378,16 @@ TEST_CASE(
 	std::string const content(1024, 'Z');
 	auto tf = TempFile::create(content);
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileReader::ReadFixedResult const got =
-		block_on(fx->reader, fx->reader.read_fixed(handle, 0, std::move(*buf)), std::chrono::seconds{5});
+	conflux::file_io::FileReader::ReadFixedResult const got = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.read_fixed(handle, 0, std::move(*buf)),
+		std::chrono::seconds{5});
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
 	for (std::size_t i = 0; i < got.bytes; ++i) {
@@ -405,11 +411,13 @@ TEST_CASE(
 	// Enlarge the sink pipe so a single splice completes in one chunk.
 	::fcntl(sink_pipe[1], F_SETPIPE_SZ, 1 << 20);
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	std::size_t const delivered = block_on(
+	std::size_t const delivered = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], std::move(*pipe)),
 		std::chrono::seconds{5});
@@ -442,7 +450,7 @@ TEST_CASE(
 	FileHandle handle;
 	int open_error = 0;
 	try {
-		handle = block_on(
+		handle = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_open_direct(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2),
 			std::chrono::seconds{5});
@@ -459,14 +467,14 @@ TEST_CASE(
 	CHECK(handle.direct_slot() == 2);
 
 	std::array<std::byte, 32> buf{};
-	std::size_t const got = block_on(
+	std::size_t const got = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}),
 		std::chrono::seconds{5});
 	REQUIRE(got == std::string_view{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
-	block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
+	conflux::file_io::block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
 	::io_uring_unregister_files(&fx->ring);
 }
 TEST_CASE(
@@ -476,7 +484,7 @@ TEST_CASE(
 
 	int captured = 0;
 	try {
-		(void)block_on(
+		(void)conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_open(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC),
 			std::chrono::seconds{5});
@@ -525,11 +533,11 @@ TEST_CASE(
 #if !CONFLUX_ENABLE_IOPOLL_STORAGE_TEST
 	SKIP("experimental IOPOLL/O_DIRECT storage-ring test disabled at build time");
 #else
-	IopollStorageRingOptions options{};
+	conflux::file_io::IopollStorageRingOptions options{};
 	options.entries = 32;
 	options.fixed_buffer_slots = 2;
 	options.fixed_buffer_bytes = 4096;
-	auto storage = IopollStorageRing::create(options);
+	auto storage = conflux::file_io::IopollStorageRing::create(options);
 	if (!storage) {
 		INFO(std::format("iopoll storage ring unavailable: {}", storage.error().what()));
 		SKIP("iopoll storage ring unavailable");
@@ -580,8 +588,10 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle const wh =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const wh = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(wh.valid());
 
 	// Fill a fixed buffer with known content and write it.
@@ -590,7 +600,7 @@ TEST_CASE(
 	std::string const payload(512, 'W');
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
-	FileReader::WriteFixedResult const wresult = block_on(
+	conflux::file_io::FileReader::WriteFixedResult const wresult = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.write_fixed(wh, 0, std::move(*write_buf), payload.size()),
 		std::chrono::seconds{5});
@@ -615,8 +625,10 @@ TEST_CASE(
 	std::string const content = part_a + part_b;
 	auto tf = TempFile::create(content);
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	std::array<std::byte, 64> buf_a{};
@@ -626,8 +638,10 @@ TEST_CASE(
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	std::size_t const got =
-		block_on(fx->reader, fx->reader.readv_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
+	std::size_t const got = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.readv_into(handle, 0, std::move(iovs)),
+		std::chrono::seconds{5});
 
 	REQUIRE(got == content.size());
 	for (std::size_t i = 0; i < buf_a.size(); ++i) {
@@ -644,8 +658,10 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	std::string const seg_a(48, 'X');
@@ -657,8 +673,10 @@ TEST_CASE(
 		iovec{.iov_base = const_cast<char *>(seg_b.data()), .iov_len = seg_b.size()},
 	};
 
-	std::size_t const written =
-		block_on(fx->reader, fx->reader.writev_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
+	std::size_t const written = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.writev_into(handle, 0, std::move(iovs)),
+		std::chrono::seconds{5});
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
 	std::string verify(seg_a.size() + seg_b.size(), '\0');
@@ -690,7 +708,7 @@ TEST_CASE(
 	FileHandle handle;
 	int open_err = 0;
 	try {
-		handle = block_on(
+		handle = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
 			std::chrono::seconds{5});
@@ -705,10 +723,10 @@ TEST_CASE(
 	auto buf = pool.try_acquire();
 	REQUIRE(buf.has_value());
 
-	FileReader::ReadFixedResult got{};
+	conflux::file_io::FileReader::ReadFixedResult got{};
 	int read_err = 0;
 	try {
-		got = block_on(
+		got = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), content.size()),
 			std::chrono::seconds{5});
@@ -747,7 +765,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	try {
-		handle = block_on(
+		handle = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
 			std::chrono::seconds{5});
@@ -760,11 +778,11 @@ TEST_CASE(
 	auto buf = pool.try_acquire();
 	REQUIRE(buf.has_value());
 
-	FileReader::ReadFixedResult got{};
+	conflux::file_io::FileReader::ReadFixedResult got{};
 	int read_err = 0;
 	// conflux::http::OwnedRequest only 512 bytes from a 4096-byte file.
 	try {
-		got = block_on(
+		got = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), 512),
 			std::chrono::seconds{5});
@@ -817,7 +835,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_unlink(AT_FDCWD, path), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_unlink(AT_FDCWD, path), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -838,7 +856,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_rename(AT_FDCWD, src.path, AT_FDCWD, dst_path), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_rename(AT_FDCWD, src.path, AT_FDCWD, dst_path),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -860,7 +881,10 @@ TEST_CASE(
 	int err = 0;
 	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 	try {
-		block_on(fx->reader, fx->reader.async_fadvise(handle, 0, 4096, POSIX_FADV_SEQUENTIAL), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_fadvise(handle, 0, 4096, POSIX_FADV_SEQUENTIAL),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -882,7 +906,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_madvise(addr, static_cast<std::uint32_t>(kSize), MADV_SEQUENTIAL),
 			std::chrono::seconds{5});
@@ -905,7 +929,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_mkdirat(AT_FDCWD, dir_path, 0755), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_mkdirat(AT_FDCWD, dir_path, 0755),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -928,7 +955,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_symlinkat(src.path, AT_FDCWD, link_path), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_symlinkat(src.path, AT_FDCWD, link_path),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -951,7 +981,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_ftruncate(handle, 1024), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_ftruncate(handle, 1024), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -978,7 +1008,10 @@ TEST_CASE(
 	std::string const xattr_name = "user.test_key";
 	std::string const xattr_val = "hello_xattr";
 	try {
-		block_on(fx->reader, fx->reader.async_fsetxattr(handle, xattr_name, xattr_val), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_fsetxattr(handle, xattr_name, xattr_val),
+			std::chrono::seconds{5});
 		set_ok = true;
 	} catch (std::system_error const &se) { set_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -994,7 +1027,7 @@ TEST_CASE(
 	std::size_t got = 0;
 	int get_err = 0;
 	try {
-		got = block_on(
+		got = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_fgetxattr(handle, xattr_name, std::span<char>{buf.data(), buf.size()}),
 			std::chrono::seconds{5});
@@ -1018,7 +1051,8 @@ TEST_CASE(
 
 	int err = 0;
 	try {
-		(void)block_on(fx->reader, fx->reader.async_fixed_fd_install(handle), std::chrono::seconds{5});
+		(void)
+			conflux::file_io::block_on(fx->reader, fx->reader.async_fixed_fd_install(handle), std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
 
@@ -1041,7 +1075,7 @@ TEST_CASE(
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
-		handle = block_on(
+		handle = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0),
 			std::chrono::seconds{5});
@@ -1076,7 +1110,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_shutdown(handle, SHUT_WR), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_shutdown(handle, SHUT_WR), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1119,7 +1153,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		got = block_on(
+		got = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_tee(src_pipe[0], dst_pipe[1], payload.size()),
 			std::chrono::seconds{5});
@@ -1152,7 +1186,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_linkat(AT_FDCWD, src.path, AT_FDCWD, dst_path), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_linkat(AT_FDCWD, src.path, AT_FDCWD, dst_path),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1182,7 +1219,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_sync_file_range(handle, 0, 4096, SYNC_FILE_RANGE_WRITE),
 			std::chrono::seconds{5});
@@ -1205,7 +1242,7 @@ TEST_CASE(
 	int err = 0;
 	// user_data 0xDEADBEEF has no pending op — should resolve (ENOENT → ok path).
 	try {
-		block_on(fx->reader, fx->reader.async_cancel(0xDEADBEEFULL), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel(0xDEADBEEFULL), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1226,7 +1263,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_cancel_fd(tmp.fd), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel_fd(tmp.fd), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1256,7 +1293,10 @@ TEST_CASE(
 
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_connect(handle, addr, sizeof(sockaddr_in)), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_connect(handle, addr, sizeof(sockaddr_in)),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1275,7 +1315,10 @@ TEST_CASE(
 	std::uint32_t woken = 42;
 	int err = 0;
 	try {
-		woken = block_on(fx->reader, fx->reader.async_futex_wake(&futex_word, UINT64_MAX), std::chrono::seconds{5});
+		woken = conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_futex_wake(&futex_word, UINT64_MAX),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1295,7 +1338,7 @@ TEST_CASE(
 	int err = 0;
 	// val=0 but *futex=1 — condition already met, returns immediately.
 	try {
-		block_on(fx->reader, fx->reader.async_futex_wait(&futex_word, 0), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_futex_wait(&futex_word, 0), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1314,7 +1357,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_msg_ring(fx->ring.ring_fd, 42, 0xCAFEBABEULL), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_msg_ring(fx->ring.ring_fd, 42, 0xCAFEBABEULL),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1336,7 +1382,7 @@ TEST_CASE(
 	int set_err = 0;
 	std::string const xattr_val = "path_xattr_val";
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_setxattr(tmp.path, "user.path_test_key", xattr_val),
 			std::chrono::seconds{5});
@@ -1355,7 +1401,7 @@ TEST_CASE(
 	std::size_t got = 0;
 	int get_err = 0;
 	try {
-		got = block_on(
+		got = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_getxattr(tmp.path, "user.path_test_key", std::span<char>{buf.data(), buf.size()}),
 			std::chrono::seconds{5});
@@ -1377,7 +1423,7 @@ TEST_CASE(
 	siginfo_t info{};
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_waitid(P_PID, static_cast<id_t>(99999999), &info),
 			std::chrono::seconds{5});
@@ -1404,7 +1450,7 @@ TEST_CASE(
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
-		fds = block_on(fx->reader, fx->reader.async_pipe(O_CLOEXEC), std::chrono::seconds{5});
+		fds = conflux::file_io::block_on(fx->reader, fx->reader.async_pipe(O_CLOEXEC), std::chrono::seconds{5});
 #if defined(__clang__) || defined(__GNUC__)
 	#pragma GCC diagnostic pop
 #endif
@@ -1453,7 +1499,10 @@ TEST_CASE(
 	bool bind_ok = false;
 	int bind_err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_bind(handle, addr, sizeof(sockaddr_in)), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_bind(handle, addr, sizeof(sockaddr_in)),
+			std::chrono::seconds{5});
 		bind_ok = true;
 	} catch (std::system_error const &se) { bind_err = se.code().value(); } catch (...) {
 	}
@@ -1467,7 +1516,7 @@ TEST_CASE(
 	bool listen_ok = false;
 	int listen_err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_listen(handle), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_listen(handle), std::chrono::seconds{5});
 		listen_ok = true;
 	} catch (std::system_error const &se) { listen_err = se.code().value(); } catch (...) {
 	}
@@ -1485,7 +1534,7 @@ TEST_CASE(
 
 	bool ok = false;
 	try {
-		block_on(fx->reader, fx->reader.async_nop(), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_nop(), std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1503,8 +1552,10 @@ TEST_CASE(
 	std::string const content(64, 'R');
 	TempFile const tf = TempFile::create(content);
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	std::array<std::byte, 64> buf{};
@@ -1515,7 +1566,10 @@ TEST_CASE(
 	std::size_t got = 0;
 	int err = 0;
 	try {
-		got = block_on(fx->reader, fx->reader.readv2_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
+		got = conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.readv2_into(handle, 0, std::move(iovs)),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1534,8 +1588,10 @@ TEST_CASE(
 	}
 
 	TempFile const tf = TempFile::create();
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	std::string const payload(32, 'W');
@@ -1546,7 +1602,10 @@ TEST_CASE(
 	std::size_t written = 0;
 	int err = 0;
 	try {
-		written = block_on(fx->reader, fx->reader.writev2_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
+		written = conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.writev2_into(handle, 0, std::move(iovs)),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1568,7 +1627,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_timeout(std::chrono::milliseconds{10}), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_timeout(std::chrono::milliseconds{10}),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1596,7 +1658,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_futex_waitv(std::move(waiters)), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_futex_waitv(std::move(waiters)),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1619,7 +1684,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_msg_ring_fd(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL),
 			std::chrono::seconds{5});
@@ -1643,7 +1708,7 @@ TEST_CASE(
 	int err = 0;
 	// Remove a timeout tag that was never armed — should resolve (ENOENT→ok).
 	try {
-		block_on(fx->reader, fx->reader.async_timeout_remove(0xDEADULL), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_timeout_remove(0xDEADULL), std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1662,7 +1727,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_timeout_update(0xBEEFULL, std::chrono::milliseconds{100}),
 			std::chrono::seconds{5});
@@ -1690,7 +1755,8 @@ TEST_CASE(
 	std::uint32_t mask{0};
 	bool ok{false};
 	try {
-		mask = block_on(fx->reader, fx->reader.async_poll_add(pfd[0], POLLIN), std::chrono::seconds{5});
+		mask =
+			conflux::file_io::block_on(fx->reader, fx->reader.async_poll_add(pfd[0], POLLIN), std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1722,7 +1788,7 @@ TEST_CASE(
 	// reserved slot 0 gen 1 (first reservation after construction).
 	// Use async_cancel_fd instead — simpler to test.
 	try {
-		block_on(fx->reader, fx->reader.async_cancel_fd(sv[0], 0), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel_fd(sv[0], 0), std::chrono::seconds{5});
 		remove_ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1771,7 +1837,8 @@ TEST_CASE(
 
 	FileHandle const listen_handle = FileHandle::from_fd(dup(listen_fd));
 	try {
-		FileHandle fh = block_on(fx->reader, fx->reader.async_accept(listen_handle), std::chrono::seconds{5});
+		FileHandle fh =
+			conflux::file_io::block_on(fx->reader, fx->reader.async_accept(listen_handle), std::chrono::seconds{5});
 		accepted_fd = fh.release_fd();
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1797,13 +1864,17 @@ TEST_CASE(
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
 	std::string const payload = "send_recv_test";
-	std::size_t const sent =
-		block_on(fx->reader, fx->reader.async_send(sender, payload.data(), payload.size()), std::chrono::seconds{5});
+	std::size_t const sent = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_send(sender, payload.data(), payload.size()),
+		std::chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	std::array<char, 64> buf{};
-	std::size_t const recvd =
-		block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
+	std::size_t const recvd = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_recv(recver, buf.data(), buf.size()),
+		std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1825,7 +1896,8 @@ TEST_CASE(
 	send_hdr.msg_iov = &send_iov;
 	send_hdr.msg_iovlen = 1;
 
-	std::size_t const sent = block_on(fx->reader, fx->reader.async_sendmsg(sender, &send_hdr), std::chrono::seconds{5});
+	std::size_t const sent =
+		conflux::file_io::block_on(fx->reader, fx->reader.async_sendmsg(sender, &send_hdr), std::chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	std::array<char, 64> buf{};
@@ -1835,7 +1907,7 @@ TEST_CASE(
 	recv_hdr.msg_iovlen = 1;
 
 	std::size_t const recvd =
-		block_on(fx->reader, fx->reader.async_recvmsg(recver, &recv_hdr), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_recvmsg(recver, &recv_hdr), std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1858,7 +1930,10 @@ TEST_CASE(
 	ev.data.fd = pfd[0];
 	bool ctl_ok{false};
 	try {
-		block_on(fx->reader, fx->reader.async_epoll_ctl(epfd, pfd[0], EPOLL_CTL_ADD, &ev), std::chrono::seconds{5});
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_epoll_ctl(epfd, pfd[0], EPOLL_CTL_ADD, &ev),
+			std::chrono::seconds{5});
 		ctl_ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1871,7 +1946,7 @@ TEST_CASE(
 	std::array<epoll_event, 4> events{};
 	int n_events{0};
 	try {
-		n_events = block_on(
+		n_events = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_epoll_wait(epfd, events.data(), static_cast<int>(events.size())),
 			std::chrono::seconds{5});
@@ -1900,7 +1975,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_provide_buffers(region->data(), kBufLen, kNr, kBgid),
 			std::chrono::seconds{5});
@@ -1914,7 +1989,10 @@ TEST_CASE(
 	if (ok) {
 		bool rm_ok{false};
 		try {
-			block_on(fx->reader, fx->reader.async_remove_buffers(kNr, kBgid), std::chrono::seconds{5});
+			conflux::file_io::block_on(
+				fx->reader,
+				fx->reader.async_remove_buffers(kNr, kBgid),
+				std::chrono::seconds{5});
 			rm_ok = true;
 		} catch (...) { // NOLINT(bugprone-empty-catch)
 		}
@@ -1935,7 +2013,10 @@ TEST_CASE(
 	FileHandle handle;
 	bool ok{false};
 	try {
-		handle = block_on(fx->reader, fx->reader.async_openat2(AT_FDCWD, tf.path, how), std::chrono::seconds{5});
+		handle = conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_openat2(AT_FDCWD, tf.path, how),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1967,7 +2048,7 @@ TEST_CASE(
 	memcpy(&dest, &ra, sizeof(ra));
 
 	std::string const payload = "sendto_udp_test";
-	std::size_t const sent = block_on(
+	std::size_t const sent = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.async_sendto(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)),
 		std::chrono::seconds{5});
@@ -1975,8 +2056,10 @@ TEST_CASE(
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
 	std::array<char, 64> buf{};
-	std::size_t const recvd =
-		block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
+	std::size_t const recvd = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_recv(recver, buf.data(), buf.size()),
+		std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1999,7 +2082,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n = block_on(
+		std::size_t const n = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_unsafe_send_zc_sent(sender, payload.data(), payload.size()),
 			std::chrono::seconds{5});
@@ -2030,7 +2113,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n = block_on(
+		std::size_t const n = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_send_zc(sender, payload.data(), payload.size()),
 			std::chrono::seconds{5});
@@ -2061,7 +2144,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.async_unlinkat(AT_FDCWD, path), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_unlinkat(AT_FDCWD, path), std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -2080,7 +2163,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_renameat(AT_FDCWD, src_path, AT_FDCWD, dst_path),
 			std::chrono::seconds{5});
@@ -2103,7 +2186,7 @@ TEST_CASE(
 	dir.mkdir_sub("sub");
 
 	std::string const payload = "async atomic nested content";
-	block_on(
+	conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.async_atomic_write(dir.fd, std::string{"sub/out.txt"}, std::as_bytes(std::span{payload})),
 		std::chrono::seconds{5});
@@ -2124,7 +2207,7 @@ TEST_CASE(
 	std::string const replacement = "replacement";
 	int err = 0;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_atomic_write(
 				dir.fd,
@@ -2150,7 +2233,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.async_mkdir(path), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_mkdir(path), std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -2185,11 +2268,13 @@ TEST_CASE(
 	auto const view = wbuf->view();
 	memcpy(view.data(), content.data(), content.size());
 
-	FileHandle const handle =
-		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC), std::chrono::seconds{5});
+	FileHandle const handle = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.async_open(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC),
+		std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	std::size_t const written = block_on(
+	std::size_t const written = conflux::file_io::block_on(
 		fx->reader,
 		fx->reader.async_write_fixed(
 			handle,
@@ -2203,8 +2288,10 @@ TEST_CASE(
 	// Verify via read_fixed.
 	auto rbuf = pool.try_acquire();
 	REQUIRE(rbuf.has_value());
-	FileReader::ReadFixedResult const rr =
-		block_on(fx->reader, fx->reader.read_fixed(handle, 0, std::move(*rbuf)), std::chrono::seconds{5});
+	conflux::file_io::FileReader::ReadFixedResult const rr = conflux::file_io::block_on(
+		fx->reader,
+		fx->reader.read_fixed(handle, 0, std::move(*rbuf)),
+		std::chrono::seconds{5});
 	REQUIRE(rr.bytes == content.size());
 	auto const rview = rr.buffer.view();
 	CHECK(memcmp(rview.data(), content.data(), content.size()) == 0);
@@ -2229,7 +2316,7 @@ TEST_CASE(
 	int err{0};
 	// Slot 0 is the registered slot; IORING_FILE_INDEX_ALLOC let kernel choose.
 	try {
-		handle = block_on(
+		handle = conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_openat_direct(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0),
 			std::chrono::seconds{5});
@@ -2240,7 +2327,7 @@ TEST_CASE(
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == ENFILE;
 	CHECK(passed);
 	if (handle.valid()) {
-		block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
+		conflux::file_io::block_on(fx->reader, fx->reader.async_close(std::move(handle)), std::chrono::seconds{5});
 	}
 	::io_uring_unregister_files(&fx->ring);
 }
@@ -2260,7 +2347,8 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::pair<int, int> const p = block_on(fx->reader, fx->reader.async_pipe_direct(0), std::chrono::seconds{5});
+		std::pair<int, int> const p =
+			conflux::file_io::block_on(fx->reader, fx->reader.async_pipe_direct(0), std::chrono::seconds{5});
 		ok = (p.first >= 0 || p.second >= 0);
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2280,7 +2368,7 @@ TEST_CASE(
 	int err{0};
 	int const ring_fd = fx->ring.ring_fd;
 	try {
-		block_on(
+		conflux::file_io::block_on(
 			fx->reader,
 			fx->reader.async_msg_ring_cqe_flags(ring_fd, 42, 0xBEEFULL, 0, 0),
 			std::chrono::seconds{5});
@@ -2312,8 +2400,10 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n =
-			block_on(fx->reader, fx->reader.async_unsafe_sendmsg_zc_sent(sender, &hdr), std::chrono::seconds{5});
+		std::size_t const n = conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_unsafe_sendmsg_zc_sent(sender, &hdr),
+			std::chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2342,7 +2432,8 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n = block_on(fx->reader, fx->reader.async_sendmsg_zc(sender, &hdr), std::chrono::seconds{5});
+		std::size_t const n =
+			conflux::file_io::block_on(fx->reader, fx->reader.async_sendmsg_zc(sender, &hdr), std::chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}

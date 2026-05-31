@@ -236,6 +236,22 @@ if(TARGET conflux)
         EXPECT "FixedBuffer")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_file_io_compile_fail_global_reader
+        SOURCE file_io_compile_fail_global_reader.cxx
+        TEST api-surface/file-io-hides-global-reader
+        LINK conflux_file_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "FileReader")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_io_compile_fail_global_iopoll
+        SOURCE file_io_compile_fail_global_iopoll.cxx
+        TEST api-surface/file-io-hides-global-iopoll
+        LINK conflux_file_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "IopollStorageRingOptions")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_io_sync_compile_fail_global_unique_fd
         SOURCE file_io_sync_compile_fail_global_unique_fd.cxx
         TEST api-surface/file-io-sync-hides-global-unique-fd

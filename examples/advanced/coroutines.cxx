@@ -31,7 +31,7 @@ constexpr std::uint64_t pack_ud(
 	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 root::Task<std::string> read_file(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	std::string path) {
 	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	if (!handle.valid()) {
@@ -42,7 +42,7 @@ root::Task<std::string> read_file(
 	co_return std::string{reinterpret_cast<char const *>(buf.data()), got};
 }
 root::Task<void> demo(
-	FileReader &files,
+	conflux::file_io::FileReader &files,
 	std::string path) {
 	auto first = co_await read_file(files, path);
 	auto second = co_await read_file(files, path);
@@ -74,10 +74,10 @@ int main() {
 		return 1;
 	}
 	CompletionTable completions;
-	FileReader files{&ring, &completions, pack_ud};
+	conflux::file_io::FileReader files{&ring, &completions, pack_ud};
 
 	try {
-		block_on(files, demo(files, path));
+		conflux::file_io::block_on(files, demo(files, path));
 	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);

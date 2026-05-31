@@ -643,7 +643,7 @@ public:
 	[[nodiscard]] ResolverBackend backend() const noexcept;
 
 	// Exposed for tests that pump the ring directly (e.g. coalescing tests).
-	[[nodiscard]] FileReader *file_reader() const noexcept;
+	[[nodiscard]] conflux::file_io::FileReader *file_reader() const noexcept;
 
 private:
 	[[nodiscard]] root::Task<ResolveResult> resolve_flow(

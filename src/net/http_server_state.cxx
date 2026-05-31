@@ -338,7 +338,7 @@ conflux::work::root::Task<void> do_streamed_tls_chunk(
 	int fd,
 	std::uint32_t conn_gen,
 	std::size_t want,
-	conflux::work::root::Task<FileReader::ReadFixedResult> read_task);
+	conflux::work::root::Task<conflux::file_io::FileReader::ReadFixedResult> read_task);
 struct Ring {
 	struct DrainControl {
 		conflux::http::DrainOptions options{};
@@ -465,7 +465,7 @@ struct Ring {
 	std::unique_ptr<conflux::file_io::FixedBufferPool> fixed_buffers{};
 	std::unique_ptr<conflux::file_io::FixedBufferPool> send_buffers{};
 	std::unique_ptr<conflux::file_io::PipePool> splice_pipes{};
-	std::unique_ptr<FileReader> files{};
+	std::unique_ptr<conflux::file_io::FileReader> files{};
 	bool send_fixed_buffers_supported{false};
 
 	// pool sizing — set from Config before run_loop()
@@ -635,7 +635,7 @@ struct Ring {
 	// SSL_write (TLS). queue_send_streamed only handles phase 1; phase 2 is
 	// triggered from handle_send once the header bytes are acked.
 	void queue_send_streamed(int fd);
-	// Acquire a pipe P and submit the splice chain via FileReader. Completion
+	// Acquire a pipe P and submit the splice chain via conflux::file_io::FileReader. Completion
 	// calls back into handle_streamed_splice_done on the ring std::thread.
 	void start_streamed_body(int fd);
 #if CONFLUX_HAS_TLS

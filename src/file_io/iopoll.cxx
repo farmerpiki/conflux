@@ -15,6 +15,8 @@ export import conflux.file_io_sync;
 export import conflux.file_io.buffers;
 export import conflux.file_io.reader;
 
+namespace conflux::file_io {
+
 namespace root = conflux::work::root;
 
 // ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ export class IopollFileReader {
 	}
 
 	[[nodiscard]] root::Task<FileReader::ReadFixedResult> ready_read_result(
-		conflux::file_io::FixedBuffer buf,
+		FixedBuffer buf,
 		std::size_t bytes) const {
 		auto [task, raw_src] =
 			root::make_task_source<FileReader::ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
@@ -91,7 +93,7 @@ public:
 	[[nodiscard]] root::Task<FileReader::ReadFixedResult> read_nocache_fixed(
 		FileHandle const &fh,
 		std::uint64_t offset,
-		conflux::file_io::FixedBuffer buf,
+		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max(),
 		std::size_t block_size = 4096) {
 		if (!fh.valid()) {
@@ -119,7 +121,7 @@ public:
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
-		auto holder = std::make_shared<conflux::file_io::FixedBuffer>(std::move(buf));
+		auto holder = std::make_shared<FixedBuffer>(std::move(buf));
 		conflux::uring::Sqe sqe_view{sqe};
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe_view.prep_read_fixed(
@@ -160,8 +162,8 @@ export class IopollStorageRing {
 	io_uring ring_{};
 	bool ring_valid_{false};
 	CompletionTable completions_{64};
-	std::unique_ptr<conflux::file_io::RegisteredBufferTable> buffer_table_{};
-	std::unique_ptr<conflux::file_io::FixedBufferPool> buffers_{};
+	std::unique_ptr<RegisteredBufferTable> buffer_table_{};
+	std::unique_ptr<FixedBufferPool> buffers_{};
 	std::unique_ptr<IopollFileReader> reader_{};
 	IopollStorageRingOptions options_{};
 
@@ -204,17 +206,14 @@ public:
             };
 		}
 		out->ring_valid_ = true;
-		auto table = std::make_unique<conflux::file_io::RegisteredBufferTable>(&out->ring_, options.fixed_buffer_slots);
+		auto table = std::make_unique<RegisteredBufferTable>(&out->ring_, options.fixed_buffer_slots);
 		if (!table->ok()) {
 			return std::unexpected{
 				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer table unsupported"}
             };
 		}
-		auto buffers = std::make_unique<conflux::file_io::FixedBufferPool>(
-			table.get(),
-			0,
-			options.fixed_buffer_slots,
-			options.fixed_buffer_bytes);
+		auto buffers =
+			std::make_unique<FixedBufferPool>(table.get(), 0, options.fixed_buffer_slots, options.fixed_buffer_bytes);
 		if (!buffers->ok() || buffers->capacity() == 0) {
 			return std::unexpected{
 				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer pool init"}
@@ -236,9 +235,9 @@ public:
 	[[nodiscard]] IopollFileReader &reader() noexcept { return *reader_; }
 	[[nodiscard]] IopollFileReader const &reader() const noexcept { return *reader_; }
 	[[nodiscard]] CompletionTable &completions() noexcept { return completions_; }
-	[[nodiscard]] conflux::file_io::FixedBufferPool *buffers() noexcept { return buffers_.get(); }
+	[[nodiscard]] FixedBufferPool *buffers() noexcept { return buffers_.get(); }
 	[[nodiscard]] IopollStorageRingOptions options() const noexcept { return options_; }
-	[[nodiscard]] std::optional<conflux::file_io::FixedBuffer> try_acquire_buffer() {
+	[[nodiscard]] std::optional<FixedBuffer> try_acquire_buffer() {
 		if (!buffers_) {
 			return std::nullopt;
 		}
@@ -347,3 +346,5 @@ T block_on_iopoll(
 		return std::move(*slot->value);
 	}
 }
+
+} // namespace conflux::file_io

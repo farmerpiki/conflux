@@ -333,20 +333,20 @@ public:
 	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_.get(); }
 	[[nodiscard]] int fd() const noexcept { return fd_; }
 };
-// Async client TLS over a FileReader-driven socket. SSL is attached to memory
+// Async client TLS over a conflux::file_io::FileReader-driven socket. SSL is attached to memory
 // BIOs; ciphertext is shuttled to/from the socket via io_uring.
 export class TlsAsyncStream : public tls_detail::ClientNameAccessors {
 	UniqueSsl ssl_;
 	BIO *rbio_{nullptr}; // owned by ssl_ after SSL_set_bio
 	BIO *wbio_{nullptr}; // owned by ssl_ after SSL_set_bio
-	FileReader *files_{nullptr};
+	conflux::file_io::FileReader *files_{nullptr};
 	FileHandle sock_{};
 	std::array<std::byte, static_cast<std::size_t>(16U) * 1024U> scratch_{};
 
 public:
 	TlsAsyncStream(
 		TlsContext &ctx,
-		FileReader &files,
+		conflux::file_io::FileReader &files,
 		FileHandle sock)
 		: ssl_{SSL_new(ctx.native_handle())}
 		, files_{&files}
