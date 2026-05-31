@@ -13,6 +13,9 @@ export module conflux.file_io_sync;
 
 import std;
 import conflux.types;
+
+namespace conflux::file_io_sync {
+
 // ───────────────────────────────────────────────────────────────────────
 // FileStat — portable stat result for cache revalidation.
 // ───────────────────────────────────────────────────────────────────────
@@ -740,3 +743,5 @@ export inline std::optional<std::string> blocking_read_text_file_nothrow(
 	std::size_t max_bytes = std::size_t{16} * 1024 * 1024) noexcept {
 	return read_text_file_nothrow(path, max_bytes);
 }
+
+} // namespace conflux::file_io_sync

@@ -267,7 +267,7 @@ void Ring::emit_ring_diagnostics() noexcept {
 		int const rfd = ring.ring_fd;
 		if (rfd >= 0) {
 			auto const path = std::format("/proc/self/fdinfo/{}", rfd);
-			if (auto fdinfo = blocking_read_text_file_nothrow(path, std::size_t{64} * 1024)) {
+			if (auto fdinfo = conflux::file_io_sync::blocking_read_text_file_nothrow(path, std::size_t{64} * 1024)) {
 				for (auto const line: LineRange{*fdinfo}) {
 					if (line.text.starts_with("CqOverflowList:")) {
 						auto pos = line.text.find(':');

@@ -17,6 +17,7 @@ import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
 export namespace conflux::http {
+
 struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
 	std::string log_file;
@@ -53,7 +54,7 @@ public:
 		}
 		std::string l = line + '\n';
 		auto bytes = std::as_bytes(std::span{l});
-		[[maybe_unused]] auto _ = blocking_write_all_fd(fd, bytes);
+		[[maybe_unused]] auto _ = conflux::file_io_sync::blocking_write_all_fd(fd, bytes);
 	}
 
 private:
@@ -77,10 +78,11 @@ private:
 		if (daily_rotate_) {
 			fpath += std::format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
-		auto file = blocking_open_file(fpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+		auto file = conflux::file_io_sync::blocking_open_file(fpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
 		if (!file) {
 			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, file.error().what());
-			[[maybe_unused]] auto _ = blocking_write_all_fd(STDERR_FILENO, std::as_bytes(std::span{msg}));
+			[[maybe_unused]] auto _ =
+				conflux::file_io_sync::blocking_write_all_fd(STDERR_FILENO, std::as_bytes(std::span{msg}));
 		} else {
 			file_ = std::move(*file);
 		}
@@ -90,7 +92,7 @@ private:
 	bool daily_rotate_;
 	std::mutex mtx_;
 	bool stderr_{false};
-	UniqueFd file_{};
+	conflux::file_io_sync::UniqueFd file_{};
 	int current_day_{-1};
 };
 Router::Middleware structured_log_middleware(

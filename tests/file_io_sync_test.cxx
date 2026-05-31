@@ -82,30 +82,32 @@ struct TempDir {
 
 } // namespace
 TEST_CASE(
-	"file_io_sync: blocking_open_tmpfile creates writable unnamed temp",
+	"file_io_sync: conflux::file_io_sync::blocking_open_tmpfile creates writable unnamed temp",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto result = blocking_open_tmpfile(dir.fd);
+	auto result = conflux::file_io_sync::blocking_open_tmpfile(dir.fd);
 	REQUIRE(result.has_value());
 	CHECK(result->fd() >= 0);
 	CHECK(result->unnamed());
 }
 TEST_CASE(
-	"file_io_sync: blocking_write_file_atomic_at creates new file",
+	"file_io_sync: conflux::file_io_sync::blocking_write_file_atomic_at creates new file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	std::string_view text = "hello atomic world";
-	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"newfile.txt"}, text);
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, std::string_view{"newfile.txt"}, text);
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("newfile.txt") == text);
 }
 TEST_CASE(
-	"file_io_sync: blocking_write_file_atomic_at replaces existing file",
+	"file_io_sync: conflux::file_io_sync::blocking_write_file_atomic_at replaces existing file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("target.txt", "old content");
-	auto r =
-		blocking_write_text_file_atomic_at(dir.fd, std::string_view{"target.txt"}, std::string_view{"new content"});
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		std::string_view{"target.txt"},
+		std::string_view{"new content"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("target.txt") == "new content");
 }
@@ -114,12 +116,12 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("keep.txt", "original");
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"keep.txt"},
 		std::string_view{"overwrite"},
-		TempFileOptions{},
-		TempPublishMode::create_new);
+		conflux::file_io_sync::TempFileOptions{},
+		conflux::file_io_sync::TempPublishMode::create_new);
 	CHECK(!r.has_value());
 	CHECK(dir.read_file("keep.txt") == "original");
 }
@@ -128,7 +130,10 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.mkdir_sub("sub");
-	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"sub/nested.txt"}, std::string_view{"deep"});
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		std::string_view{"sub/nested.txt"},
+		std::string_view{"deep"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("sub/nested.txt") == "deep");
 }
@@ -136,7 +141,10 @@ TEST_CASE(
 	"file_io_sync: absolute path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"/etc/passwd"}, std::string_view{"nope"});
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		std::string_view{"/etc/passwd"},
+		std::string_view{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -144,7 +152,10 @@ TEST_CASE(
 	"file_io_sync: .. path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"../escape.txt"}, std::string_view{"nope"});
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		std::string_view{"../escape.txt"},
+		std::string_view{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -152,11 +163,11 @@ TEST_CASE(
 	"file_io_sync: named-temp fallback works when O_TMPFILE disabled",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"fallback.txt"},
 		std::string_view{"via named"},
-		TempFileOptions{.prefer_otmpfile = false});
+		conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("fallback.txt") == "via named");
 }
@@ -164,11 +175,12 @@ TEST_CASE(
 	"file_io_sync: file_and_directory durability path runs without error",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"durable.txt"},
 		std::string_view{"synced"},
-		TempFileOptions{.durability = TempDurability::file_and_directory});
+		conflux::file_io_sync::TempFileOptions{
+			.durability = conflux::file_io_sync::TempDurability::file_and_directory});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("durable.txt") == "synced");
 }
@@ -177,12 +189,12 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("exists.txt", "present");
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"exists.txt"},
 		std::string_view{"replace"},
-		TempFileOptions{},
-		TempPublishMode::create_new);
+		conflux::file_io_sync::TempFileOptions{},
+		conflux::file_io_sync::TempPublishMode::create_new);
 	CHECK(!r.has_value());
 	CHECK(dir.file_exists("exists.txt"));
 	CHECK(dir.read_file("exists.txt") == "present");
@@ -191,12 +203,12 @@ TEST_CASE(
 	"file_io_sync: create_new succeeds for new file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"brand_new.txt"},
 		std::string_view{"fresh"},
-		TempFileOptions{},
-		TempPublishMode::create_new);
+		conflux::file_io_sync::TempFileOptions{},
+		conflux::file_io_sync::TempPublishMode::create_new);
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("brand_new.txt") == "fresh");
 }
@@ -204,11 +216,11 @@ TEST_CASE(
 	"file_io_sync: durability none skips fsync",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(
+	auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
 		dir.fd,
 		std::string_view{"fast.txt"},
 		std::string_view{"no sync"},
-		TempFileOptions{.durability = TempDurability::none});
+		conflux::file_io_sync::TempFileOptions{.durability = conflux::file_io_sync::TempDurability::none});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("fast.txt") == "no sync");
 }
@@ -216,16 +228,29 @@ TEST_CASE(
 	"file_io_sync: empty and dot paths rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{""}, std::string_view{"data"}).has_value());
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{"."}, std::string_view{"data"}).has_value());
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{".."}, std::string_view{"data"}).has_value());
+	CHECK(!conflux::file_io_sync::blocking_write_text_file_atomic_at(
+			   dir.fd,
+			   std::string_view{""},
+			   std::string_view{"data"})
+			   .has_value());
+	CHECK(!conflux::file_io_sync::blocking_write_text_file_atomic_at(
+			   dir.fd,
+			   std::string_view{"."},
+			   std::string_view{"data"})
+			   .has_value());
+	CHECK(!conflux::file_io_sync::blocking_write_text_file_atomic_at(
+			   dir.fd,
+			   std::string_view{".."},
+			   std::string_view{"data"})
+			   .has_value());
 }
 TEST_CASE(
-	"file_io_sync: binary blocking_write_file_atomic_at round-trips bytes",
+	"file_io_sync: binary conflux::file_io_sync::blocking_write_file_atomic_at round-trips bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	std::array<std::byte, 4> bytes{std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}};
-	auto r = blocking_write_file_atomic_at(dir.fd, std::string_view{"binary.bin"}, std::span{bytes});
+	auto r =
+		conflux::file_io_sync::blocking_write_file_atomic_at(dir.fd, std::string_view{"binary.bin"}, std::span{bytes});
 	REQUIRE(r.has_value());
 	auto content = dir.read_file("binary.bin");
 	REQUIRE(content.size() == 4);
@@ -236,55 +261,57 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"file_io_sync: blocking_read_file_at reads contained relative files",
+	"file_io_sync: conflux::file_io_sync::blocking_read_file_at reads contained relative files",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("data.txt", "hello read");
-	auto content = blocking_read_file_at(dir.fd, "data.txt");
+	auto content = conflux::file_io_sync::blocking_read_file_at(dir.fd, "data.txt");
 	REQUIRE(content.has_value());
 	CHECK(*content == "hello read");
 }
 
 TEST_CASE(
-	"file_io_sync: blocking_read_file_at enforces byte limit",
+	"file_io_sync: conflux::file_io_sync::blocking_read_file_at enforces byte limit",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("data.txt", "hello read");
-	auto content = blocking_read_file_at(dir.fd, "data.txt", 4);
+	auto content = conflux::file_io_sync::blocking_read_file_at(dir.fd, "data.txt", 4);
 	REQUIRE_FALSE(content.has_value());
 	CHECK(content.error().code().value() == EFBIG);
 }
 
 TEST_CASE(
-	"file_io_sync: blocking_openat_contained opens files below root only",
+	"file_io_sync: conflux::file_io_sync::blocking_openat_contained opens files below root only",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("safe.txt", "safe");
-	auto fd = blocking_openat_contained(dir.fd, "safe.txt", O_RDONLY);
+	auto fd = conflux::file_io_sync::blocking_openat_contained(dir.fd, "safe.txt", O_RDONLY);
 	REQUIRE(fd.has_value());
-	auto content = blocking_read_all_fd(fd->fd());
+	auto content = conflux::file_io_sync::blocking_read_all_fd(fd->fd());
 	REQUIRE(content.has_value());
 	CHECK(*content == "safe");
 
-	auto escaped = blocking_openat_contained(dir.fd, "../safe.txt", O_RDONLY);
+	auto escaped = conflux::file_io_sync::blocking_openat_contained(dir.fd, "../safe.txt", O_RDONLY);
 	REQUIRE_FALSE(escaped.has_value());
 	CHECK(escaped.error().code().value() == EINVAL);
 }
 
 TEST_CASE(
-	"file_io_sync: blocking_read_text_file reads absolute paths with limit",
+	"file_io_sync: conflux::file_io_sync::blocking_read_text_file reads absolute paths with limit",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("text.txt", "hello text");
 	auto path = std::format("{}/{}", dir.path, "text.txt");
-	auto content = blocking_read_text_file(path);
+	auto content = conflux::file_io_sync::blocking_read_text_file(path);
 	REQUIRE(content.has_value());
 	CHECK(*content == "hello text");
 
-	auto too_small = blocking_read_text_file(path, 4);
+	auto too_small = conflux::file_io_sync::blocking_read_text_file(path, 4);
 	REQUIRE_FALSE(too_small.has_value());
 	CHECK(too_small.error().code().value() == EFBIG);
-	CHECK(blocking_read_text_file_nothrow("/tmp/conflux_missing_no_std_streams_file").has_value() == false);
+	CHECK(
+		conflux::file_io_sync::blocking_read_text_file_nothrow("/tmp/conflux_missing_no_std_streams_file").has_value()
+		== false);
 }
 
 TEST_CASE(
@@ -292,17 +319,19 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	std::string_view text = "legacy sync aliases";
-	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+	auto tmp = conflux::file_io_sync::blocking_open_tmpfile(
+		dir.fd,
+		conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
-	auto wr = write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
+	auto wr = conflux::file_io_sync::write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"legacy.txt"});
+	auto pub = conflux::file_io_sync::blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"legacy.txt"});
 	REQUIRE(pub.has_value());
 
-	auto file = blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
+	auto file = conflux::file_io_sync::blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
 	REQUIRE(file.has_value());
-	auto bytes = read_all_fd(file->fd());
+	auto bytes = conflux::file_io_sync::read_all_fd(file->fd());
 	REQUIRE(bytes.has_value());
 	CHECK(*bytes == text);
 }
@@ -312,9 +341,11 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	for (auto name: {std::string_view{""}, std::string_view{"."}, std::string_view{".."}, std::string_view{"a/b"}}) {
-		auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+		auto tmp = conflux::file_io_sync::blocking_open_tmpfile(
+			dir.fd,
+			conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
 		REQUIRE(tmp.has_value());
-		auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, name);
+		auto pub = conflux::file_io_sync::blocking_publish_tmpfile(std::move(*tmp), dir.fd, name);
 		REQUIRE_FALSE(pub.has_value());
 		CHECK(pub.error().code().value() == EINVAL);
 	}
@@ -325,28 +356,31 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	std::string_view text = "blocking aliases";
-	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+	auto tmp = conflux::file_io_sync::blocking_open_tmpfile(
+		dir.fd,
+		conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
-	auto wr = blocking_write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
+	auto wr =
+		conflux::file_io_sync::blocking_write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"alias.txt"});
+	auto pub = conflux::file_io_sync::blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(pub.has_value());
 
-	auto stat = blocking_stat_at(dir.fd, std::string_view{"alias.txt"});
+	auto stat = conflux::file_io_sync::blocking_stat_at(dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(stat.has_value());
 	CHECK(stat->size == text.size());
 
-	auto content = blocking_read_file_at(dir.fd, "alias.txt");
+	auto content = conflux::file_io_sync::blocking_read_file_at(dir.fd, "alias.txt");
 	REQUIRE(content.has_value());
 	CHECK(*content == text);
 
 	auto full = std::format("{}/{}", dir.path, "alias.txt");
-	UniqueFd fd{::open(full.c_str(), O_RDONLY | O_CLOEXEC)};
+	conflux::file_io_sync::UniqueFd fd{::open(full.c_str(), O_RDONLY | O_CLOEXEC)};
 	REQUIRE(fd.valid());
-	auto fd_stat = blocking_fstat(fd.fd());
+	auto fd_stat = conflux::file_io_sync::blocking_fstat(fd.fd());
 	REQUIRE(fd_stat.has_value());
-	auto fd_content = blocking_read_all_fd(fd.fd());
+	auto fd_content = conflux::file_io_sync::blocking_read_all_fd(fd.fd());
 	REQUIRE(fd_content.has_value());
 	CHECK(*fd_content == text);
 
@@ -363,12 +397,16 @@ TEST_CASE(
 	"file_io_sync: blocking atomic write aliases round-trip text and bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto text = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"text.txt"}, std::string_view{"new name"});
+	auto text = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		std::string_view{"text.txt"},
+		std::string_view{"new name"});
 	REQUIRE(text.has_value());
 	CHECK(dir.read_file("text.txt") == "new name");
 
 	std::array<std::byte, 3> bytes{std::byte{0x41}, std::byte{0x42}, std::byte{0x43}};
-	auto binary = blocking_write_file_atomic_at(dir.fd, std::string_view{"bytes.bin"}, std::span{bytes});
+	auto binary =
+		conflux::file_io_sync::blocking_write_file_atomic_at(dir.fd, std::string_view{"bytes.bin"}, std::span{bytes});
 	REQUIRE(binary.has_value());
 	CHECK(dir.read_file("bytes.bin") == "ABC");
 }

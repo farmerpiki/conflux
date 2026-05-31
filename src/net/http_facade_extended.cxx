@@ -44,7 +44,7 @@ concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddlewar
 	std::filesystem::path const &path,
 	std::string content_type = "application/octet-stream") {
 	auto path_string = path.string();
-	auto body = blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
+	auto body = conflux::file_io_sync::blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
 	if (!body) {
 		auto const err = errnum(body);
 		if (err == ENOENT || err == ENOTDIR) {

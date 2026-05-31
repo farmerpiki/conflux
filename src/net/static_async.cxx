@@ -35,7 +35,7 @@ int contained_static_open(
 	if (rel.empty() || rel == ".") {
 		return ::openat(root_fd, ".", flags | O_CLOEXEC, mode);
 	}
-	auto fd = blocking_openat_contained(root_fd, rel, flags, mode);
+	auto fd = conflux::file_io_sync::blocking_openat_contained(root_fd, rel, flags, mode);
 	if (!fd) {
 		errno = fd.error().code().value();
 		return -1;
@@ -246,7 +246,7 @@ conflux::http::Response handle_static_put(
 		}
 		std::string rel{rel_sv};
 
-		UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
+		conflux::file_io_sync::UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
 		bool const existed = probe.valid();
 		probe.reset();
 
@@ -269,7 +269,10 @@ conflux::http::Response handle_static_put(
 												   existed,
 												   &static_cache,
 												   dr]() mutable {
-				auto r = blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
+				auto r = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+					rfd,
+					std::string_view{rel},
+					std::string_view{*body_owned});
 				if (!r) {
 					dr->complete(conflux::http::Response::internal_error());
 					return;
@@ -286,7 +289,10 @@ conflux::http::Response handle_static_put(
 			return conflux::http::Response::deferred(std::move(dr));
 		}
 
-		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
+		if (!conflux::file_io_sync::blocking_write_text_file_atomic_at(
+				root_fd,
+				std::string_view{rel},
+				std::string_view{req.body})) {
 			return conflux::http::Response::internal_error();
 		}
 		static_cache.evict_path_and_sidecars(full_path);
@@ -315,7 +321,7 @@ conflux::http::Response handle_static_delete(
 		}
 		std::string rel{rel_sv};
 
-		UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
+		conflux::file_io_sync::UniqueFd probe{contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC)};
 		if (!probe) {
 			return errno == ENOENT ? conflux::http::Response::not_found(*norm) : conflux::http::Response::forbidden();
 		}
@@ -334,7 +340,7 @@ conflux::http::Response handle_static_delete(
 			auto ok = sopts.offload_pool->enqueue(
 				[full_path = std::move(full_path), rel = std::move(rel), rfd, &static_cache, dr]() mutable {
 					try {
-						auto unlinked = blocking_unlink_file_at(rfd, rel);
+						auto unlinked = conflux::file_io_sync::blocking_unlink_file_at(rfd, rel);
 						if (!unlinked) {
 							auto const err = errnum(unlinked);
 							dr->complete(
@@ -352,7 +358,7 @@ conflux::http::Response handle_static_delete(
 			return conflux::http::Response::deferred(std::move(dr));
 		}
 
-		auto unlinked = blocking_unlink_file_at(root_fd, rel);
+		auto unlinked = conflux::file_io_sync::blocking_unlink_file_at(root_fd, rel);
 		if (!unlinked) {
 			auto const err = errnum(unlinked);
 			return err == ENOENT ? conflux::http::Response::not_found(*norm) :
@@ -379,7 +385,7 @@ conflux::http::Response handle_static_get(
 		std::string rel_str{rel_path};
 
 		struct ::stat st{};
-		UniqueFd probe_fd{
+		conflux::file_io_sync::UniqueFd probe_fd{
 			rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
 							  contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC)};
 		if (!probe_fd) {
@@ -392,7 +398,8 @@ conflux::http::Response handle_static_get(
 
 		if (S_ISDIR(st.st_mode)) {
 			auto index_rel = rel_str.empty() ? std::string{"index.html"} : rel_str + "/index.html";
-			UniqueFd idx_fd{contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
+			conflux::file_io_sync::UniqueFd idx_fd{
+				contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
 			if (idx_fd) {
 				if (::fstat(idx_fd.fd(), &st) != 0 || !S_ISREG(st.st_mode)) {
 					return conflux::http::Response::not_found(file_param);
@@ -402,7 +409,7 @@ conflux::http::Response handle_static_get(
 				file_param += "/index.html";
 				rel_str = index_rel;
 			} else if (static_options.directory_listing) {
-				UniqueFd dfd{
+				conflux::file_io_sync::UniqueFd dfd{
 					rel_str.empty() ?
 						contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
 						contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
@@ -455,7 +462,8 @@ conflux::http::Response handle_static_get(
 			auto const accepted = parse_static_accept_encoding(r.accept_encoding);
 			if (accepted.br) {
 				auto br_rel = rel_str + ".br";
-				UniqueFd br_fd{contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC)};
+				conflux::file_io_sync::UniqueFd br_fd{
+					contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC)};
 				if (br_fd) {
 					struct ::stat br_st{};
 					if (::fstat(br_fd.fd(), &br_st) == 0 && S_ISREG(br_st.st_mode)) {
@@ -468,7 +476,8 @@ conflux::http::Response handle_static_get(
 			}
 			if (content_encoding.empty() && accepted.gzip) {
 				auto gz_rel = rel_str + ".gz";
-				UniqueFd gz_fd{contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC)};
+				conflux::file_io_sync::UniqueFd gz_fd{
+					contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC)};
 				if (gz_fd) {
 					struct ::stat gz_st{};
 					if (::fstat(gz_fd.fd(), &gz_st) == 0 && S_ISREG(gz_st.st_mode)) {
@@ -726,7 +735,7 @@ conflux::http::Response handle_static_get(
 					})) {
 				return std::move(*cached);
 			}
-			UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
+			conflux::file_io_sync::UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
 			if (!fd) {
 				return conflux::http::Response::not_found(file_param);
 			}

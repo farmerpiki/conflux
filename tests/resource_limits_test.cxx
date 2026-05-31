@@ -293,7 +293,8 @@ TEST_CASE(
 			::rmdir(tmpdir);
 			::_exit(3);
 		}
-		auto result = blocking_write_text_file_atomic_at(root, "too-large.txt", std::string(4096, 'x'));
+		auto result =
+			conflux::file_io_sync::blocking_write_text_file_atomic_at(root, "too-large.txt", std::string(4096, 'x'));
 		::close(root);
 		(void)::unlink((std::string{tmpdir} + "/too-large.txt").c_str());
 		::rmdir(tmpdir);

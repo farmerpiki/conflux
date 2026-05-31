@@ -345,7 +345,8 @@ TEST_CASE(
 		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), std::chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileStat const st = block_on(fx->reader, fx->reader.async_stat(handle), std::chrono::seconds{5});
+	conflux::file_io_sync::FileStat const st =
+		block_on(fx->reader, fx->reader.async_stat(handle), std::chrono::seconds{5});
 	CHECK(st.size == std::string_view{"hello file_io"}.size());
 
 	std::array<std::byte, 32> buf{};
@@ -2130,7 +2131,7 @@ TEST_CASE(
 				std::string{"target.txt"},
 				std::as_bytes(std::span{replacement}),
 				0644,
-				TempPublishMode::create_new),
+				conflux::file_io_sync::TempPublishMode::create_new),
 			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); }
 

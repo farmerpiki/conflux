@@ -366,19 +366,19 @@ public:
 		return std::move(task);
 	}
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
-	[[nodiscard]] root::Task<FileStat> async_statx(
+	[[nodiscard]] root::Task<conflux::file_io_sync::FileStat> async_statx(
 		int dir_fd,
 		std::string path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS) {
 		return async_statx(OsFd::from_os(dir_fd), std::move(path), flags, mask);
 	}
-	[[nodiscard]] root::Task<FileStat> async_statx(
+	[[nodiscard]] root::Task<conflux::file_io_sync::FileStat> async_statx(
 		RingFd auto const &dir_fd,
 		std::string path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS) {
-		auto [task, shared_src, sqe] = prepare_sqe<FileStat>();
+		auto [task, shared_src, sqe] = prepare_sqe<conflux::file_io_sync::FileStat>();
 		if (!sqe) {
 			return std::move(task);
 		}
@@ -393,7 +393,7 @@ public:
 					return;
 				}
 				auto const &s = *stx_owner;
-				FileStat const out{
+				conflux::file_io_sync::FileStat const out{
 					.size = s.stx_size,
 					.mtime_ns = static_cast<std::uint64_t>(s.stx_mtime.tv_sec) * 1000000000ULL + s.stx_mtime.tv_nsec,
 					.ctime_ns = static_cast<std::uint64_t>(s.stx_ctime.tv_sec) * 1000000000ULL + s.stx_ctime.tv_nsec,
@@ -407,7 +407,7 @@ public:
 		return std::move(task);
 	}
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
-	[[nodiscard]] root::Task<FileStat> async_stat(
+	[[nodiscard]] root::Task<conflux::file_io_sync::FileStat> async_stat(
 		FileHandle const &fh) {
 		return visit_fd(fh, [this](RingFd auto fd) { return async_statx(fd, std::string{}, AT_EMPTY_PATH); });
 	}
@@ -2054,8 +2054,8 @@ public:
 		std::string rel_path,
 		std::span<std::byte const> data,
 		mode_t mode = 0644,
-		TempPublishMode pub_mode = TempPublishMode::replace_existing,
-		TempDurability durability = TempDurability::file_and_directory) {
+		conflux::file_io_sync::TempPublishMode pub_mode = conflux::file_io_sync::TempPublishMode::replace_existing,
+		conflux::file_io_sync::TempDurability durability = conflux::file_io_sync::TempDurability::file_and_directory) {
 		auto parts = split_contained_atomic_path_async(rel_path);
 		if (!parts) {
 			throw parts.error();
@@ -2079,7 +2079,7 @@ public:
 				off += wrote;
 			}
 
-			if (durability >= TempDurability::file) {
+			if (durability >= conflux::file_io_sync::TempDurability::file) {
 				co_await async_fsync(fh, true);
 			}
 
@@ -2088,7 +2088,7 @@ public:
 				staging_entry_exists = true;
 			}
 
-			if (pub_mode == TempPublishMode::replace_existing) {
+			if (pub_mode == conflux::file_io_sync::TempPublishMode::replace_existing) {
 				co_await async_renameat(parent_fd, std::string{staging}, parent_fd, std::move(parts->basename));
 			} else {
 				co_await async_renameat(
@@ -2100,7 +2100,7 @@ public:
 			}
 			staging_entry_exists = false;
 
-			if (durability >= TempDurability::file_and_directory) {
+			if (durability >= conflux::file_io_sync::TempDurability::file_and_directory) {
 				co_await async_fsync(parent_fh);
 			}
 		} catch (...) { cleanup_error = std::current_exception(); }

@@ -43,7 +43,7 @@ namespace {
 }
 
 [[nodiscard]] conflux::json::JsonFileError make_file_error(
-	FileIoSyncError const &err) {
+	conflux::file_io_sync::FileIoSyncError const &err) {
 	return conflux::json::JsonFileError{
 		.stage = conflux::json::JsonFileStage::read,
 		.file_errno = err.code().value(),
@@ -67,7 +67,8 @@ export namespace conflux::json {
 	int root_fd,
 	std::string_view contained_relative_path,
 	JsonParseOptions const &opts = {}) {
-	auto bytes = blocking_read_file_at(root_fd, contained_relative_path, json_file_read_limit(opts));
+	auto bytes =
+		conflux::file_io_sync::blocking_read_file_at(root_fd, contained_relative_path, json_file_read_limit(opts));
 	if (!bytes) {
 		return std::unexpected{make_file_error(bytes.error())};
 	}

@@ -347,7 +347,7 @@ public:
 			}
 		}
 		auto path = root_ / (std::string{name} + ".psql");
-		auto bytes = blocking_read_text_file(path.string());
+		auto bytes = conflux::file_io_sync::blocking_read_text_file(path.string());
 		if (!bytes) {
 			throw std::filesystem::filesystem_error{"query file open failed", path, bytes.error().code()};
 		}

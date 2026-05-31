@@ -57,7 +57,10 @@ TEST_CASE(
 	"json_file: blocking_parse_file_at reads and parses via explicit component",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":42,"name":"ok"})");
+	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(
+		dir.fd,
+		"config.json",
+		R"({"answer":42,"name":"ok"})");
 	REQUIRE(wr.has_value());
 
 	auto doc = blocking_parse_file_at(dir.fd, "config.json");
@@ -72,7 +75,7 @@ TEST_CASE(
 	"json_file: blocking_parse_file_at reports parse failures separately from read failures",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = blocking_write_text_file_atomic_at(dir.fd, "bad.json", R"({"broken": )");
+	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, "bad.json", R"({"broken": )");
 	REQUIRE(wr.has_value());
 
 	auto doc = blocking_parse_file_at(dir.fd, "bad.json");
@@ -86,7 +89,7 @@ TEST_CASE(
 	"json_file: blocking_parse_file_at uses parse max_input_size as read limit",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":42})");
+	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":42})");
 	REQUIRE(wr.has_value());
 
 	JsonParseOptions opts{};
@@ -101,7 +104,7 @@ TEST_CASE(
 	"json_file: blocking parse aliases read and parse via explicit component",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":43})");
+	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":43})");
 	REQUIRE(wr.has_value());
 
 	auto doc = blocking_parse_file_at(dir.fd, "config.json");

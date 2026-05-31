@@ -8,7 +8,7 @@ int main() {
 	}
 	static_assert(conflux::uring::DirectFdLike<conflux::uring::DirectFd>);
 
-	UniqueFd fd;
+	conflux::file_io_sync::UniqueFd fd;
 	if (fd.valid()) {
 		return 1;
 	}

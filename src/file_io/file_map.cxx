@@ -19,7 +19,7 @@ namespace conflux::file_map {
 using FileMapError = IoError;
 export std::expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
 	int fd,
-	FileStat const &st) noexcept {
+	conflux::file_io_sync::FileStat const &st) noexcept {
 	if (st.size == 0) {
 		return MappedFileLease{};
 	}
@@ -45,9 +45,9 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 			FileMapError{errno, "file_map: openat2"}
         };
 	}
-	UniqueFd guard{fd};
+	conflux::file_io_sync::UniqueFd guard{fd};
 
-	auto st = blocking_fstat(fd);
+	auto st = conflux::file_io_sync::blocking_fstat(fd);
 	if (!st) {
 		return std::unexpected{
 			FileMapError{st.error().code().value(), "file_map: fstat"}

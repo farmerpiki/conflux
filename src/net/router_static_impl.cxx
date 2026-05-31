@@ -32,29 +32,27 @@ namespace conflux::http {
 	if (!effective_sopts.file_cache.enabled) {
 		effective_sopts.file_cache = static_file_cache;
 	}
-	auto root_dir_file = blocking_open_directory(root_dir);
-	auto root_dir_fd = std::make_shared<UniqueFd>(root_dir_file ? std::move(*root_dir_file) : UniqueFd{});
+	auto root_dir_file = conflux::file_io_sync::blocking_open_directory(root_dir);
+	auto root_dir_fd = std::make_shared<conflux::file_io_sync::UniqueFd>(
+		root_dir_file ? std::move(*root_dir_file) : conflux::file_io_sync::UniqueFd{});
 	auto rd = std::move(root_dir);
 
 	StaticRouteRegistration routes{
 		.pattern = std::move(pattern),
-		.get = [rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
-			return handle_static_get_request(rd, root_dir_fd->fd(), sopts, req, static_cache);
-		},
+		.get = [rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req)
+			-> Response { return handle_static_get_request(rd, root_dir_fd->fd(), sopts, req, static_cache); },
 	};
 
 	if (effective_sopts.allow_put) {
 		routes.put = StaticRouteHandler{
-			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
-				return handle_static_put(rd, root_dir_fd->fd(), sopts, req, static_cache);
-			}};
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req)
+				-> Response { return handle_static_put(rd, root_dir_fd->fd(), sopts, req, static_cache); }};
 	}
 
 	if (effective_sopts.allow_delete) {
 		routes.del = StaticRouteHandler{
-			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req) -> Response {
-				return handle_static_delete(rd, root_dir_fd->fd(), sopts, req, static_cache);
-			}};
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](conflux::http::RequestView const &req)
+				-> Response { return handle_static_delete(rd, root_dir_fd->fd(), sopts, req, static_cache); }};
 	}
 
 	return routes;

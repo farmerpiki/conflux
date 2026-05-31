@@ -257,7 +257,7 @@ Environment::Impl::build_cache_from_directory() const {
 	report.templates_seen = files.size();
 	for (auto const &path: files) {
 		auto name = path.filename().string();
-		auto contents = blocking_read_text_file(path.string());
+		auto contents = conflux::file_io_sync::blocking_read_text_file(path.string());
 		if (!contents) {
 			add_template_diag(
 				report,

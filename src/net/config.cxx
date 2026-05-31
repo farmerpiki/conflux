@@ -376,7 +376,7 @@ namespace conflux::http { namespace {
 std::expected<std::string, int> read_text_file_local(
 	std::string_view path,
 	std::size_t max_bytes) {
-	auto bytes = blocking_read_text_file(path, max_bytes);
+	auto bytes = conflux::file_io_sync::blocking_read_text_file(path, max_bytes);
 	if (!bytes) {
 		return std::unexpected{bytes.error().code().value()};
 	}

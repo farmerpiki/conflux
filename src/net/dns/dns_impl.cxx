@@ -147,7 +147,7 @@ void parse_resolv_options(
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	std::filesystem::path const &path) noexcept {
 	ResolvConfig out;
-	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
+	auto const contents = conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -189,7 +189,7 @@ void parse_resolv_options(
 [[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
 	std::filesystem::path const &path) noexcept {
 	std::unordered_map<std::string, std::vector<Endpoint>> out;
-	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
+	auto const contents = conflux::file_io_sync::blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}

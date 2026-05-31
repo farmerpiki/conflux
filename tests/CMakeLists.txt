@@ -226,6 +226,14 @@ if(TARGET conflux)
         LINK conflux_file_io conflux_options
         LABELS build api-surface compile-fail
         EXPECT "PipePool")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_io_sync_compile_fail_global_unique_fd
+        SOURCE file_io_sync_compile_fail_global_unique_fd.cxx
+        TEST api-surface/file-io-sync-hides-global-unique-fd
+        LINK conflux_file_io_sync conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "UniqueFd")
 endif()
 
 add_executable(conflux_tests)
