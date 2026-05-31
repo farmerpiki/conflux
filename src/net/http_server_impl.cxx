@@ -157,10 +157,10 @@ struct HttpServer::Impl {
 	// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
 	std::atomic<int> wq_ring_fd_{-2};
 #if CONFLUX_HAS_TLS
-	std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
+	std::optional<conflux::net_tls::TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
 #endif
 #if CONFLUX_HAS_HTTP3
-	std::optional<TlsServerContext> http3_tls_ctx;
+	std::optional<conflux::net_tls::TlsServerContext> http3_tls_ctx;
 	std::mutex http3_mu;
 	std::unique_ptr<conflux::http::detail::Http3Listener> http3_listener;
 #endif
@@ -175,8 +175,8 @@ void HttpServer::initialize(
 #if CONFLUX_HAS_TLS
 	// TLS setup: create SSL_CTX if cert and key are provided.
 	if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
-		init_openssl_once();
-		TlsServerOptions const primary_opts{
+		conflux::net_tls::init_openssl_once();
+		conflux::net_tls::TlsServerOptions const primary_opts{
 			.cert_file = cfg.cert_file,
 			.key_file = cfg.key_file,
 			.cipher_list = cfg.tls_cipher_list,
@@ -199,7 +199,7 @@ void HttpServer::initialize(
 		for (auto const &vh: cfg.virtual_hosts) {
 			impl_->tls_ctx->add_vhost(
 				vh.hostname,
-				TlsServerOptions{
+				conflux::net_tls::TlsServerOptions{
 					.cert_file = vh.cert_file,
 					.key_file = vh.key_file,
 					.cipher_list = cfg.tls_cipher_list,

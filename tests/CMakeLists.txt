@@ -186,6 +186,14 @@ if(TARGET conflux)
         LINK conflux_net_smtp conflux_options
         LABELS build api-surface compile-fail
         EXPECT "SmtpClient")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_tls_compile_fail_global_context
+        SOURCE tls_compile_fail_global_context.cxx
+        TEST api-surface/tls-hides-global-context
+        LINK conflux_net_tls conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TlsContext")
 endif()
 
 add_executable(conflux_tests)

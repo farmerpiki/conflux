@@ -69,8 +69,8 @@ struct Connection {
 	int fd{-1};
 	bool use_tls{false};
 #if CONFLUX_HAS_TLS
-	std::optional<TlsContext> tls_ctx;
-	std::optional<TlsStream> tls_stream;
+	std::optional<conflux::net_tls::TlsContext> tls_ctx;
+	std::optional<conflux::net_tls::TlsStream> tls_stream;
 #endif
 };
 // Convert std::chrono::milliseconds to seconds for wait_fd (ceiling, ≥1 if ms>0).
@@ -514,8 +514,8 @@ ClientResult do_blocking_request(
 	}
 
 #if CONFLUX_HAS_TLS
-	std::optional<TlsContext> tls_ctx;
-	std::optional<TlsStream> tls_stream;
+	std::optional<conflux::net_tls::TlsContext> tls_ctx;
+	std::optional<conflux::net_tls::TlsStream> tls_stream;
 #endif
 
 	if (use_tls) {
@@ -526,7 +526,7 @@ ClientResult do_blocking_request(
 
 		try {
 			tls_ctx.emplace();
-		} catch (TlsError const &e) {
+		} catch (conflux::net_tls::TlsError const &e) {
 			::close(fd);
 			return std::unexpected(
 				HttpError{
@@ -561,7 +561,7 @@ ClientResult do_blocking_request(
 
 		try {
 			tls_stream.emplace(*tls_ctx, fd);
-		} catch (TlsError const &e) {
+		} catch (conflux::net_tls::TlsError const &e) {
 			::close(fd);
 			return std::unexpected(
 				HttpError{

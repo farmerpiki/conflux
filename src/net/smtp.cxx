@@ -168,8 +168,8 @@ class SmtpClient {
 	int fd_{-1};
 	int timeout_sec_{30};
 	bool tls_active_{false};
-	std::optional<TlsContext> tls_ctx_{};
-	std::optional<TlsStream> tls_stream_{};
+	std::optional<conflux::net_tls::TlsContext> tls_ctx_{};
+	std::optional<conflux::net_tls::TlsStream> tls_stream_{};
 	std::string rx_buf_{};
 	std::string ehlo_caps_{};
 	conflux::net::dns::Resolver *resolver_{nullptr};
@@ -393,7 +393,7 @@ private:
 		bool verify_peer) {
 		try {
 			tls_ctx_.emplace();
-		} catch (TlsError const &) { return false; }
+		} catch (conflux::net_tls::TlsError const &) { return false; }
 		if (verify_peer) {
 			tls_ctx_->set_verify_peer(true);
 			if (!tls_ctx_->set_default_verify_paths()) {
@@ -402,7 +402,7 @@ private:
 		}
 		try {
 			tls_stream_.emplace(*tls_ctx_, fd_);
-		} catch (TlsError const &) { return false; }
+		} catch (conflux::net_tls::TlsError const &) { return false; }
 		if (!tls_stream_->set_server_name(host)) {
 			return false;
 		}

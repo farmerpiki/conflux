@@ -1,4 +1,4 @@
-// TLS variant of tcp_increment_coro_bench. Client uses TlsAsyncStream (memory
+// TLS variant of tcp_increment_coro_bench. Client uses conflux::net_tls::TlsAsyncStream (memory
 // BIOs shuttled through io_uring). Server is blocking OpenSSL on a std::thread
 // with SSL_set_fd. Self-signed cert generated in memory at startup.
 #include <arpa/inet.h>
@@ -133,7 +133,7 @@ void run_server(
 	int one = 1;
 	::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 
-	UniqueSsl const ssl{SSL_new(sctx)};
+	conflux::net_tls::UniqueSsl const ssl{SSL_new(sctx)};
 	if (!ssl) {
 		::close(cfd);
 		return;
@@ -262,7 +262,7 @@ std::uint64_t decode_line(
 	return n;
 }
 struct AsyncTlsLineReader {
-	TlsAsyncStream &tls;
+	conflux::net_tls::TlsAsyncStream &tls;
 	std::array<std::byte, 256> buf{};
 	std::size_t held = 0;
 	Task<std::string_view> read_line() {
@@ -293,7 +293,7 @@ struct AsyncTlsLineReader {
 };
 std::uint64_t run_callback(
 	FileReader &files,
-	TlsAsyncStream &tls,
+	conflux::net_tls::TlsAsyncStream &tls,
 	std::size_t iters,
 	std::uint64_t start) {
 	AsyncTlsLineReader reader{.tls = tls};
@@ -315,7 +315,7 @@ std::uint64_t run_callback(
 	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 Task<std::uint64_t> coro_loop(
-	TlsAsyncStream &tls,
+	conflux::net_tls::TlsAsyncStream &tls,
 	std::size_t iters,
 	std::uint64_t start) {
 	AsyncTlsLineReader reader{.tls = tls};
@@ -336,7 +336,7 @@ Task<std::uint64_t> coro_loop(
 }
 std::uint64_t run_coroutine(
 	FileReader &files,
-	TlsAsyncStream &tls,
+	conflux::net_tls::TlsAsyncStream &tls,
 	std::size_t iters,
 	std::uint64_t start) {
 	auto const t0 = std::chrono::steady_clock::now();
@@ -357,7 +357,7 @@ int main(
 
 	auto kc = make_self_signed();
 
-	UniqueSslCtx const sctx{SSL_CTX_new(TLS_server_method())};
+	conflux::net_tls::UniqueSslCtx const sctx{SSL_CTX_new(TLS_server_method())};
 	if (!sctx) {
 		std::println(std::cerr, "SSL_CTX_new server failed");
 		return 1;
@@ -384,10 +384,10 @@ int main(
 		CompletionTable ct;
 		FileReader files{&ring, &ct, pack_ud};
 
-		TlsContext cctx;
+		conflux::net_tls::TlsContext cctx;
 		cctx.set_verify_peer(false);
 		FileHandle sock = FileHandle::from_fd(csock);
-		TlsAsyncStream tls{cctx, files, std::move(sock)};
+		conflux::net_tls::TlsAsyncStream tls{cctx, files, std::move(sock)};
 		(void)tls.set_server_name("localhost");
 
 		try {

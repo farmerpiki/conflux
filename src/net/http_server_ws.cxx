@@ -194,7 +194,7 @@ void Ring::launch_tls_ws_handler(
 	int fd,
 	SSL *ssl,
 	std::string initial_buf) {
-	UniqueSsl owned{ssl};
+	conflux::net_tls::UniqueSsl owned{ssl};
 	auto pressure_counter = ws_pressure_counter_;
 	auto registry = active_ws_registry;
 	register_active_ws(fd);
@@ -328,7 +328,7 @@ void Ring::queue_ws_fixed_install(
 			std::move(initial_buf)
 #if CONFLUX_HAS_TLS
 				,
-			UniqueSsl{ssl}
+			conflux::net_tls::UniqueSsl{ssl}
 #endif
 		});
 	if (!submit_fixed_fd_install(raw_, static_cast<std::uint32_t>(slot_fd), pack(Op::FixedFdInstall, 0, slot_fd))) {

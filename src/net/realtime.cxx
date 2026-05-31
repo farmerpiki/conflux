@@ -889,7 +889,7 @@ private:
 
 	int fd_;
 #if CONFLUX_HAS_TLS
-	UniqueSsl ssl_;
+	conflux::net_tls::UniqueSsl ssl_;
 #endif
 	std::atomic_flag closed_{};
 	std::atomic_flag pressure_counted_{};

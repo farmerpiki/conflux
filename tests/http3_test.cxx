@@ -82,7 +82,7 @@ TEST_CASE(
 	router.get("/", [](conflux::http::RequestView const &) { return conflux::http::Response::text("hi"); });
 	conflux::http::Http3Config cfg{};
 	cfg.enabled = true;
-	UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
+	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
 	REQUIRE(ctx);
 	conflux::http::detail::Http3Listener listener(&router, cfg, 0, ctx.get());
 	listener.start();

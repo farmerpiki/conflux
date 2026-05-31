@@ -14,6 +14,9 @@ import conflux.file_io;
 import conflux.socket_io.coro;
 import conflux.net.cancel;
 namespace wroot = conflux::work::root;
+
+namespace conflux::net_tls {
+
 export struct TlsError : std::runtime_error {
 	explicit TlsError(
 		std::string const &msg)
@@ -719,3 +722,5 @@ public:
 	}
 	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_.get(); }
 };
+
+} // namespace conflux::net_tls

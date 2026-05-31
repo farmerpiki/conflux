@@ -52,7 +52,7 @@ constexpr std::size_t kClientMaxChunkCount = 100000;
 	return out.empty() ? "TLS error" : out;
 }
 [[nodiscard]] std::string tls_error_string(
-	TlsError const &e) {
+	conflux::net_tls::TlsError const &e) {
 	auto q = tls_error_string();
 	return q.empty() || q == "TLS error" ? std::string{e.what()} : q;
 }
@@ -90,7 +90,7 @@ struct PlainStreamRef {
 };
 #if CONFLUX_HAS_TLS
 struct TlsStreamRef {
-	TcpTlsStream &s;
+	conflux::net_tls::TcpTlsStream &s;
 	std::chrono::milliseconds per_recv;
 	std::chrono::milliseconds per_write;
 	[[nodiscard]] wroot::Task<std::size_t> recv(
@@ -442,11 +442,11 @@ wroot::Task<ClientResult> do_async_request(
 	tel.connect = std::chrono::steady_clock::now() - t1;
 	bool const is_tls = (url.scheme == "https");
 #if CONFLUX_HAS_TLS
-	std::optional<TcpTlsStream> tls_stream;
+	std::optional<conflux::net_tls::TcpTlsStream> tls_stream;
 	if (is_tls) {
 		bool const verify = req.verify_peer() && opts.verify_peer;
 		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
-		TlsContext tls_ctx;
+		conflux::net_tls::TlsContext tls_ctx;
 		tls_ctx.set_verify_peer(verify);
 		if (verify) {
 			if (!opts.ca_bundle_path.empty()) {
@@ -471,7 +471,7 @@ wroot::Task<ClientResult> do_async_request(
 		TP const tls_dl = timeouts.tls.count() > 0 ? t_tls + timeouts.tls : TP::max();
 		try {
 			co_await tls_stream->handshake_connect(tls_dl);
-		} catch (wroot::CancelledError const &) { throw; } catch (TlsError const &e) {
+		} catch (wroot::CancelledError const &) { throw; } catch (conflux::net_tls::TlsError const &e) {
 			co_return std::unexpected(
 				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = tls_error_string(e)});
 		} catch (IoError const &e) {

@@ -258,7 +258,7 @@ struct alignas(
 	bool is_tls = false; // set after first-std::byte sniff; used by dispatch_request
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
-	UniqueSsl ssl;
+	conflux::net_tls::UniqueSsl ssl;
 	std::string tls_rx_cipher{}; // encrypted bytes received from the socket, before SSL_read()
 	std::string tls_send_pending{}; // encrypted bytes generated while no send can be submitted
 	std::string tls_send_inflight{}; // stable borrowed storage for in-flight io_uring SEND
@@ -365,7 +365,7 @@ struct Ring {
 		WsHandoffState state{};
 		std::string initial_buf{};
 #if CONFLUX_HAS_TLS
-		UniqueSsl ssl{};
+		conflux::net_tls::UniqueSsl ssl{};
 #endif
 	};
 	struct ActiveWsRegistry {

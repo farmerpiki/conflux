@@ -2098,7 +2098,7 @@ void ensure_tls_server() {
 std::string tls_raw(
 	std::uint16_t port,
 	std::string_view raw_request) {
-	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
 	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2108,7 +2108,7 @@ std::string tls_raw(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
 
-	UniqueSsl const ssl{SSL_new(ctx.get())};
+	conflux::net_tls::UniqueSsl const ssl{SSL_new(ctx.get())};
 	SSL_set_fd(ssl.get(), fd);
 	SSL_connect(ssl.get());
 
@@ -2236,7 +2236,7 @@ TEST_CASE(
 TEST_CASE(
 	"TLS: pipelined requests on one connection both succeed") {
 	ensure_tls_server();
-	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
 	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2246,7 +2246,7 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	UniqueSsl const ssl{SSL_new(ctx.get())};
+	conflux::net_tls::UniqueSsl const ssl{SSL_new(ctx.get())};
 	SSL_set_fd(ssl.get(), fd);
 	REQUIRE(SSL_connect(ssl.get()) == 1);
 
@@ -2361,7 +2361,7 @@ TEST_CASE(
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
 
-	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
 	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2372,7 +2372,7 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	UniqueSsl const ssl{SSL_new(ctx.get())};
+	conflux::net_tls::UniqueSsl const ssl{SSL_new(ctx.get())};
 	SSL_set_fd(ssl.get(), fd);
 	REQUIRE(SSL_connect(ssl.get()) == 1);
 

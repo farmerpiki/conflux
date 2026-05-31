@@ -190,8 +190,8 @@ struct H2Client {
 	std::map<std::int32_t, H2Response> responses_;
 
 private:
-	UniqueSslCtx ctx_;
-	UniqueSsl ssl_;
+	conflux::net_tls::UniqueSslCtx ctx_;
+	conflux::net_tls::UniqueSsl ssl_;
 	int fd_ = -1;
 	nghttp2_session *session_ = nullptr;
 	std::map<std::int32_t, std::unique_ptr<ReqBody>> req_bodies_;
@@ -639,7 +639,9 @@ TEST_CASE(
 TEST_CASE(
 	"h2: response trailers arrive after body") {
 	conflux::http::Router router;
-	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
+	router.get("/ping", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::json(R"({"ok":true})");
+	});
 	router.get("/with-trailers", [](conflux::http::OwnedRequest const &) {
 		conflux::http::Response resp;
 		resp.status = 200;
@@ -671,7 +673,9 @@ TEST_CASE(
 	std::string large_body(kBodySize, 'X');
 	conflux::http::Router r;
 	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
-	r.get("/big", [&large_body](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(large_body); });
+	r.get("/big", [&large_body](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::text(large_body);
+	});
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};
 	H2Client client{fx.port()};
 	auto resp = client.get("/big");
