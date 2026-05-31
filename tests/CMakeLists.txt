@@ -540,6 +540,46 @@ if(TARGET conflux_net_http)
         EXPECT "SendZcMetrics")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_pending_action
+        SOURCE http_facade_compile_fail_global_send_zc_pending_action.cxx
+        TEST http-facade/compile-fail-global-send-zc-pending-action
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcPendingAction")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_cqe_action
+        SOURCE http_facade_compile_fail_global_send_zc_cqe_action.cxx
+        TEST http-facade/compile-fail-global-send-zc-cqe-action
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcCqeAction")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_cqe_state
+        SOURCE http_facade_compile_fail_global_send_zc_cqe_state.cxx
+        TEST http-facade/compile-fail-global-send-zc-cqe-state
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcCqeState")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_cqe_input
+        SOURCE http_facade_compile_fail_global_send_zc_cqe_input.cxx
+        TEST http-facade/compile-fail-global-send-zc-cqe-input
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcCqeInput")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_global_send_zc_cqe_outcome
+        SOURCE http_facade_compile_fail_global_send_zc_cqe_outcome.cxx
+        TEST http-facade/compile-fail-global-send-zc-cqe-outcome
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "SendZcCqeOutcome")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_global_http_field_source
         SOURCE http_facade_compile_fail_global_http_field_source.cxx
         TEST http-facade/compile-fail-global-http-field-source

@@ -295,7 +295,7 @@ struct alignas(
 	bool streamed_headers_sent = false;
 	std::uint64_t streamed_delivered = 0;
 	bool streamed_splice_in_flight = false;
-	SendZcCqeState zc_state{};
+	conflux::http::SendZcCqeState zc_state{};
 	bool zc_tls_bypass_counted = false;
 #if CONFLUX_HAS_HTTP2
 	bool is_h2{};

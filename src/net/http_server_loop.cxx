@@ -450,7 +450,7 @@ void Ring::conn_erase(
 	conn.streamed_delivered = 0;
 	conn.streamed_splice_in_flight = false;
 	conn.zc_state.waiting_notification = false;
-	conn.zc_state.after_notification = SendZcPendingAction::none;
+	conn.zc_state.after_notification = conflux::http::SendZcPendingAction::none;
 	conn.zc_state.close_after_notification = false;
 	conn.zc_tls_bypass_counted = false;
 	conn.send_buf = FixedBuffer{};

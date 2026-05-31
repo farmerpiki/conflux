@@ -199,14 +199,16 @@ struct HttpRejectionMetrics {
 
 } // namespace conflux::http
 
-export enum class SendZcPendingAction : std::uint8_t {
+export namespace conflux::http {
+
+enum class SendZcPendingAction : std::uint8_t {
 	none,
 	complete_response,
 	resubmit_response,
 	close_after_error,
 };
 
-export enum class SendZcCqeAction : std::uint8_t {
+enum class SendZcCqeAction : std::uint8_t {
 	none,
 	complete_response,
 	resubmit_response,
@@ -214,13 +216,13 @@ export enum class SendZcCqeAction : std::uint8_t {
 	close_after_notification,
 };
 
-export struct SendZcCqeState {
+struct SendZcCqeState {
 	bool waiting_notification{};
 	bool close_after_notification{};
 	SendZcPendingAction after_notification{SendZcPendingAction::none};
 };
 
-export struct SendZcCqeInput {
+struct SendZcCqeInput {
 	int result{};
 	bool notification{};
 	bool more{};
@@ -230,13 +232,13 @@ export struct SendZcCqeInput {
 	std::size_t response_total{};
 };
 
-export struct SendZcCqeOutcome {
+struct SendZcCqeOutcome {
 	SendZcCqeAction action{SendZcCqeAction::none};
 	std::size_t bytes_sent{};
 	bool adaptive_disabled{};
 };
 
-export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
+[[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 	SendZcCqeState &state,
 	conflux::http::SendZcMetrics &metrics,
 	SendZcCqeInput input,
@@ -308,6 +310,8 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 																				SendZcCqeAction::complete_response;
 	return out;
 }
+
+} // namespace conflux::http
 
 export namespace conflux::http {
 

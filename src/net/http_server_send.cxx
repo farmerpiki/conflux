@@ -824,10 +824,10 @@ void Ring::handle_send_zc(
 	auto &conn = fd_table[ufd];
 	auto const is_mapped = conn.mapped_file != nullptr;
 	auto const total = is_mapped ? conn.mapped_total : conn.own_response.size();
-	auto const outcome = observe_send_zc_cqe(
+	auto const outcome = conflux::http::observe_send_zc_cqe(
 		conn.zc_state,
 		zc_counters_,
-		SendZcCqeInput{
+		conflux::http::SendZcCqeInput{
 			.result = res,
 			.notification = flags.any(conflux::uring::cqe_flags::notif),
 			.more = flags.any(conflux::uring::cqe_flags::more),
@@ -839,22 +839,22 @@ void Ring::handle_send_zc(
 		send_zc_enabled_);
 	conn.written += outcome.bytes_sent;
 	switch (outcome.action) {
-	case SendZcCqeAction::complete_response:
+	case conflux::http::SendZcCqeAction::complete_response:
 		if (is_mapped) {
 			finish_mapped_send(fd, conn);
 		} else {
 			finish_plain_send(fd, conn);
 		}
 		break;
-	case SendZcCqeAction::resubmit_response:
+	case conflux::http::SendZcCqeAction::resubmit_response:
 		if (is_mapped) {
 			queue_send_mapped(fd);
 		} else {
 			queue_send(fd);
 		}
 		break;
-	case SendZcCqeAction::close_after_error: fail_send(fd, conn); break;
-	case SendZcCqeAction::close_after_notification:
+	case conflux::http::SendZcCqeAction::close_after_error: fail_send(fd, conn); break;
+	case conflux::http::SendZcCqeAction::close_after_notification:
 		conn.own_response.clear();
 		conn.mapped_file.reset();
 		conn.closing = false; // queue_close early-returns when closing==true

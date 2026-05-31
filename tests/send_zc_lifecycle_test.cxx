@@ -4,6 +4,8 @@
 import conflux.types;
 import conflux.net.http_server;
 
+using namespace conflux::http;
+
 TEST_CASE(
 	"send_zc lifecycle: data CQE waits for notification before resubmit",
 	"[send_zc][http_server]") {
