@@ -24,8 +24,6 @@ export struct SyncWaitSocketTaskTimeout final : std::runtime_error {
 		: std::runtime_error{"conflux.socket_io: sync_wait_socket_task budget exhausted"} {}
 };
 
-export using BlockOnSocketTaskTimeout = SyncWaitSocketTaskTimeout;
-
 // Single-thread io_uring driver for SocketTaskRing.
 // Encoding: low-32 = slot, high-32 = gen.
 export template<typename T>
@@ -110,18 +108,6 @@ T sync_wait_socket_task(
 	}
 	if constexpr (!std::is_void_v<T>) {
 		return std::move(*slot->value);
-	}
-}
-
-export template<typename T>
-T block_on_socket_task(
-	SocketTaskRing &ring,
-	wroot::Task<T> task,
-	std::optional<std::chrono::milliseconds> budget = std::nullopt) {
-	if constexpr (std::is_void_v<T>) {
-		sync_wait_socket_task(ring, std::move(task), budget);
-	} else {
-		return sync_wait_socket_task(ring, std::move(task), budget);
 	}
 }
 

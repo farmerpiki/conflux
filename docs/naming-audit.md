@@ -95,7 +95,7 @@ Conflux task/executor machinery.
 |---|---|---|---|
 | `sync_wait` | `conflux.work` | keep | Already prefix-style and matches familiar async ecosystem terminology. |
 | `run_on_task` | `conflux.work` | `async_run_on` | Removed for public preview cleanup. |
-| `block_on_socket_task` | `conflux.socket_io.blocking` | `sync_wait_socket_task` | Preferred name landed; old name remains as a compatibility alias. |
+| `block_on_socket_task` | `conflux.socket_io.blocking` | `sync_wait_socket_task` | Removed for public preview cleanup. |
 | `dispatch_sync_routes` | `conflux.net.router_dispatch` | `conflux::http::detail::dispatch_immediate_routes` | Removed the old wrapper during global export cleanup. Internal helper; not executor-owned sync API, just immediate route dispatch on current ring thread. |
 | `Router::dispatch` | `conflux.net.router` | keep | Immediate in-process dispatch; ordinary method name is clear. |
 

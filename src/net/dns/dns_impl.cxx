@@ -21,7 +21,7 @@ import conflux.socket_io.blocking;
 
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
-using conflux::socket_io::BlockOnSocketTaskTimeout;
+using conflux::socket_io::SyncWaitSocketTaskTimeout;
 using conflux::socket_io::ConnectOptions;
 using conflux::socket_io::SocketRawRing;
 using conflux::socket_io::TcpStream;
@@ -1623,7 +1623,7 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 					} catch (...) { ignore_best_effort_dns_failure(); }
 				}
 				return result;
-			} catch (BlockOnSocketTaskTimeout const &) {
+			} catch (SyncWaitSocketTaskTimeout const &) {
 				return std::unexpected{
 					DnsError{DnsErrorKind::timeout, "resolve_blocking: pump timeout"}
                 };
