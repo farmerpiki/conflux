@@ -4,11 +4,11 @@ export import :problem;
 export import conflux.net.app;
 export import conflux.net.app.defer;
 export import conflux.net.http.server_types;
-export import conflux.net.http.response;
+import conflux.net.http.response;
 export import conflux.net.http.request;
 export import conflux.net.http.realtime;
 export import conflux.json;
-export import conflux.net.http.native_json;
+import conflux.net.http.native_json;
 import std;
 
 import conflux.net.config;
@@ -25,6 +25,8 @@ import conflux.net.metrics;
 #endif
 
 export namespace conflux::http {
+
+using Response = ::Response;
 
 template<class T>
 using Task = conflux::work::Task<T>;
