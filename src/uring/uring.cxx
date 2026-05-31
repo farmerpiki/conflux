@@ -6,8 +6,8 @@ module;
 export module conflux.uring;
 import std;
 import conflux.types;
-export import conflux_uring_fd;
-export import conflux_uring_sqe;
+export import conflux.uring.fd;
+export import conflux.uring.sqe;
 export namespace conflux::uring {
 
 // ── RingSize / build cap ──────────────────────────────────────────────────────

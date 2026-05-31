@@ -10,7 +10,7 @@ export module conflux.work.carrier.timer;
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux_uring_sqe;
+import conflux.uring.sqe;
 export namespace conflux::work::carrier {
 
 template<class Clock>

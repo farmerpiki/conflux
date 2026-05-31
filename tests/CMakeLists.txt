@@ -228,6 +228,22 @@ if(TARGET conflux)
         EXPECT "CompletionTable")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_uring_compile_fail_legacy_fd_module
+        SOURCE uring_compile_fail_legacy_fd_module.cxx
+        TEST api-surface/uring-hides-legacy-fd-module
+        LINK conflux_uring conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "conflux_uring_fd")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_uring_compile_fail_legacy_sqe_module
+        SOURCE uring_compile_fail_legacy_sqe_module.cxx
+        TEST api-surface/uring-hides-legacy-sqe-module
+        LINK conflux_uring conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "conflux_uring_sqe")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_static_async_compile_fail_global_handler
         SOURCE static_async_compile_fail_global_handler.cxx
         TEST api-surface/static-async-hides-global-handler

@@ -7,7 +7,7 @@ export module conflux.uring.completion;
 import std;
 import conflux.types;
 import conflux.small_function;
-export import conflux_uring_sqe;
+export import conflux.uring.sqe;
 
 export namespace conflux::uring {
 

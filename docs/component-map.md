@@ -99,7 +99,7 @@ time and are consumed through the separate runtime smoke lane.
 | `json_reflect` | `conflux::json_reflect` | `conflux.json.reflect` | extended | `docs/json-reflect.md` |
 | `json_reflect_provider` | `conflux::json_reflect_provider` | `conflux.json.reflect_provider` | extended | `docs/json-reflect.md` |
 | `work` | `conflux::work` | `conflux.work`, `conflux.work.root`, `conflux.work.carrier.*` | extended | `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md` |
-| `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.fd`, `conflux.uring.handle` | complete | `docs/io_uring_direct_file_flow_design.md` |
+| `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.fd`, `conflux.uring.sqe`, `conflux.uring.handle` | complete | `docs/io_uring_direct_file_flow_design.md` |
 | `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | complete | `tests/uring_flow_test.cxx` |
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | extended | `examples/advanced/file_io.cxx`, `tests/file_io_sync_test.cxx` |
 | `file_map` | `conflux::file_map` | `conflux.file_map` | extended | `tests/file_io_sync_test.cxx` |

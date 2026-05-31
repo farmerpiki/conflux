@@ -5,8 +5,8 @@ export module conflux.uring.handle;
 
 import std;
 import conflux.uring;
-export import conflux_uring_fd;
-import conflux_uring_sqe;
+export import conflux.uring.fd;
+import conflux.uring.sqe;
 
 export namespace conflux::uring {
 

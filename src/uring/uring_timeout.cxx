@@ -5,7 +5,7 @@ export module conflux.uring.timeout;
 
 import std;
 import conflux.types;
-import conflux_uring_sqe;
+import conflux.uring.sqe;
 import conflux.work;
 import conflux.uring.completion;
 

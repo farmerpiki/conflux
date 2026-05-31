@@ -51,6 +51,7 @@
       "conflux.uring",
       "conflux.uring.completion",
       "conflux.uring.fd",
+      "conflux.uring.sqe",
       "conflux.uring.flow",
       "conflux.uring.handle",
       "conflux.uring.timeout",

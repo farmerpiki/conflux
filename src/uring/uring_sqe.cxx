@@ -4,10 +4,10 @@ module;
 #include <linux/openat2.h>
 #include <sys/epoll.h>
 
-export module conflux_uring_sqe;
+export module conflux.uring.sqe;
 import std;
 import conflux.types;
-import conflux_uring_fd;
+import conflux.uring.fd;
 export namespace conflux::uring {
 
 // ── Flags<Tag> ────────────────────────────────────────────────────────────────

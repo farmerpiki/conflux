@@ -6,6 +6,7 @@ export import conflux.extended;
 export import conflux.uring;
 export import conflux.uring.completion;
 export import conflux.uring.fd;
+export import conflux.uring.sqe;
 export import conflux.uring.flow;
 export import conflux.uring.handle;
 #endif

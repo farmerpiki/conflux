@@ -1,4 +1,4 @@
-export module conflux_uring_fd;
+export module conflux.uring.fd;
 import std;
 export namespace conflux::uring {
 

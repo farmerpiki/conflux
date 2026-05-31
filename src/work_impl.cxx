@@ -9,7 +9,7 @@ module;
 module conflux.work;
 
 import std;
-import conflux_uring_sqe;
+import conflux.uring.sqe;
 
 namespace {
 

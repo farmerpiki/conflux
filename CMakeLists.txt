@@ -501,7 +501,6 @@ if(CONFLUX_NEEDS_RUNTIME)
 conflux_add_module_library(conflux_uring_primitives
     PUBLIC_MODULES
         ${CONFLUX_SRC_ROOT}/uring/uring_fd.cxx
-        ${CONFLUX_SRC_ROOT}/uring/uring_fd_compat.cxx
         ${CONFLUX_SRC_ROOT}/uring/uring_sqe.cxx
 )
 target_link_libraries(conflux_uring_primitives
