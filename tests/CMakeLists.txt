@@ -2446,10 +2446,18 @@ target_link_libraries(conflux_socket_task_ring_tests
 )
 
 if(CONFLUX_HAS_DB STREQUAL "true")
+    conflux_add_compile_fail_test(
+        TARGET conflux_db_compile_fail_legacy_module
+        SOURCE db_compile_fail_legacy_module.cxx
+        TEST api-surface/db-hides-legacy-module
+        LINK conflux_pg conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "conflux.db")
+
     add_executable(conflux_db_tests db_test.cxx)
     target_link_libraries(conflux_db_tests
         PRIVATE
-            conflux_db
+            conflux_pg
             conflux_work
             conflux_file_io
             conflux_options
@@ -2460,7 +2468,7 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_integration db_integration_test.cxx)
     target_link_libraries(conflux_db_integration
         PRIVATE
-            conflux_db
+            conflux_pg
             conflux_work
             conflux_file_io
             conflux_options

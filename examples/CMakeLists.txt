@@ -35,7 +35,7 @@ if(TARGET conflux)
         target_link_libraries(conflux_quickstart_json_reflect_crud PRIVATE conflux conflux_json_reflect conflux_options)
     endif()
 
-    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
+    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_pg)
         add_executable(conflux_quickstart_postgres ${_conflux_examples_root}/quickstart/postgres_json.cxx)
         target_link_libraries(conflux_quickstart_postgres
             PRIVATE conflux conflux_pg conflux_file_io conflux_work conflux_options)
@@ -129,7 +129,7 @@ if(TARGET conflux)
         target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
     endif()
 
-    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
+    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_pg)
         add_executable(conflux_db_basic ${_conflux_examples_root}/advanced/db_basic.cxx)
         target_link_libraries(conflux_db_basic
             PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)

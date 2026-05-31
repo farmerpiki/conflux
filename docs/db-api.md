@@ -18,9 +18,7 @@ target_link_libraries(mytarget PRIVATE conflux::pg)
 
 Requires libpq. Configure must find `libpq`, `CONFLUX_POSTGRES_PROVIDER` must be `AUTO` or `LIBPQ`, and `CONFLUX_BUILD_DB_POSTGRES` must resolve enabled or the DB component is unavailable. When compiled, targets that link the DB component receive `CONFLUX_HAS_DB=1`.
 
-Use `conflux.pg` / `conflux::pg` for public PostgreSQL code. The older
-`conflux.db` implementation spelling may remain internally while rename churn is
-evaluated, but it is not the advertised preview API.
+Use `conflux.pg` / `conflux::pg` for public PostgreSQL code.
 
 ---
 

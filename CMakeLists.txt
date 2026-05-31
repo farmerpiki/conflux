@@ -830,18 +830,6 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
     )
     target_compile_definitions(conflux_pg PUBLIC CONFLUX_HAS_DB=1)
 
-    add_library(conflux_db STATIC)
-    target_sources(conflux_db
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES
-            ${CONFLUX_SRC_ROOT}/db/db.cxx
-    )
-    target_link_libraries(conflux_db
-        PRIVATE conflux_options
-        PUBLIC  conflux_pg
-    )
-    target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
 endif()
 
 conflux_detect_stdsimd(_conflux_simd_backend)
@@ -1945,9 +1933,6 @@ endif()
 if(TARGET conflux_pg)
     target_link_libraries(conflux PUBLIC conflux_pg)
 endif()
-if(TARGET conflux_db)
-    target_link_libraries(conflux PUBLIC conflux_db)
-endif()
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
@@ -1967,7 +1952,7 @@ target_compile_definitions(conflux
 
 # Feature macros and external dependencies now propagate through the split
 # component targets (`conflux::net_tls`, `conflux::http_compression`,
-# `conflux::http_protocol`, `conflux::db`, ...). Keep the aggregate target
+# `conflux::http_protocol`, `conflux::pg`, ...). Keep the aggregate target
 # thin so optional packages are not pulled in just because the umbrella module
 # is built.
 

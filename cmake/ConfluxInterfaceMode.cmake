@@ -532,11 +532,11 @@ function(conflux_define_header_impl_targets)
             "^conflux\.templates($|[.:])")
     endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
-        conflux_define_header_impl_component(conflux_header_impl_db header_impl_db
-            "^conflux\.db($|[.:])")
-        if(TARGET conflux_header_impl_db)
-            conflux_link_header_impl_liburing(conflux_header_impl_db)
-            conflux_link_header_impl_db_deps(conflux_header_impl_db)
+        conflux_define_header_impl_component(conflux_header_impl_pg header_impl_pg
+            "^conflux\.pg($|[.:])")
+        if(TARGET conflux_header_impl_pg)
+            conflux_link_header_impl_liburing(conflux_header_impl_pg)
+            conflux_link_header_impl_db_deps(conflux_header_impl_pg)
         endif()
     endif()
     if(CONFLUX_WANT_SMTP)
@@ -662,7 +662,7 @@ function(conflux_link_header_impl_for_source_id target source_id)
         conflux_link_existing_header_impls_private(${target}
             conflux_header_impl_runtime
             conflux_header_impl_socket_io
-            conflux_header_impl_db)
+            conflux_header_impl_pg)
     endif()
 
     if(source_id MATCHES "http|hello|middleware|sse|websocket|static|forms|gzip|dual|quickstart|vhost|openapi|production_showcase|manual_json_members|policy_stack|offload")
@@ -841,11 +841,9 @@ function(conflux_add_header_component_smoke_targets)
         conflux_apply_header_generated_build_policy(conflux_header_smoke_pg)
         if(TARGET conflux_pg)
             target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_pg)
-        elseif(TARGET conflux_db)
-            target_link_libraries(conflux_header_smoke_pg PRIVATE conflux_db)
         else()
             message(FATAL_ERROR
-                "conflux: DB header smoke requires the conflux_pg or conflux_db component target")
+                "conflux: DB header smoke requires the conflux_pg component target")
         endif()
         conflux_apply_header_smoke_warnings(conflux_header_smoke_pg)
     endif()

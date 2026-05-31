@@ -1,8 +1,8 @@
 import std;
-import conflux.db;
+import conflux.pg;
 import bench_common;
 
-using namespace conflux::db;
+using namespace conflux::pg;
 namespace {
 
 std::atomic<std::uintptr_t> sink{};

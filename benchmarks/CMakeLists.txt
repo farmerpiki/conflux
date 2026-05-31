@@ -128,22 +128,22 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     if(TARGET bench_io_common)
         conflux_add_recordable_benchmark(conflux_db_coro_bench db_coro_bench.cxx)
         target_link_libraries(conflux_db_coro_bench
-            PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options)
+            PRIVATE bench_common conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
     conflux_add_recordable_benchmark(conflux_db_params_bench db_params_bench.cxx)
     target_link_libraries(conflux_db_params_bench
-        PRIVATE bench_common conflux_db conflux_options)
+        PRIVATE bench_common conflux_pg conflux_options)
 
     if(TARGET bench_io_common)
         conflux_add_recordable_benchmark(conflux_db_pipeline_bench db_pipeline_bench.cxx)
         target_link_libraries(conflux_db_pipeline_bench
-            PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options)
+            PRIVATE bench_common conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
     conflux_add_recordable_benchmark(conflux_db_protocol_synthetic_bench db_protocol_synthetic_bench.cxx)
     target_link_libraries(conflux_db_protocol_synthetic_bench
-        PRIVATE bench_common conflux_db conflux_options)
+        PRIVATE bench_common conflux_pg conflux_options)
 endif()
 
 if(TARGET conflux_json AND TARGET bench_io_common AND TARGET conflux_socket_io)

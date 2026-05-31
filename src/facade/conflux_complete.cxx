@@ -88,7 +88,3 @@ export import conflux.file_watch;
 #if CONFLUX_SURFACE_HAS_SMTP
 export import conflux.net.smtp;
 #endif
-
-#if CONFLUX_SURFACE_HAS_DB_COMPAT
-export import conflux.db;
-#endif

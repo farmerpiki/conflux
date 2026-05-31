@@ -80,8 +80,7 @@
       "conflux.net.http2",
       "conflux.net.http3",
       "conflux.file_watch",
-      "conflux.net.smtp",
-      "conflux.db"
+      "conflux.net.smtp"
     ]
   }
 }

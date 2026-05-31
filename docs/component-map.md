@@ -112,7 +112,6 @@ time and are consumed through the separate runtime smoke lane.
 | `dns_bridge` | `conflux::dns_bridge` | `conflux.dns_bridge` HTTP-client DNS bridge provider | complete | `examples/advanced/http_client_builder.cxx` |
 | `process` | `conflux::process` | `conflux.process` | extended | `examples/advanced/process_run.cxx`, `tests/process_test.cxx` |
 | `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | extended | `docs/db-api.md`, `examples/advanced/db_basic.cxx`, `examples/advanced/db_pool.cxx` |
-| `db` | `conflux::db` | `conflux.db` compatibility re-export of PostgreSQL API; not advertised for new public code | complete | `docs/db-api.md` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | complete | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | selected | `README.md` |
 

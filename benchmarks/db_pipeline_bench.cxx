@@ -4,10 +4,10 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.db;
+import conflux.pg;
 import bench_common;
 
-using namespace conflux::db;
+using namespace conflux::pg;
 using namespace std::string_view_literals;
 namespace {
 

@@ -60,7 +60,6 @@ set(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS
     "conflux_file_io|file_io"
     "conflux_socket_io|socket_io"
     "conflux_dns|dns"
-    "conflux_db|db"
     "conflux_pg|pg"
     "conflux|umbrella")
 

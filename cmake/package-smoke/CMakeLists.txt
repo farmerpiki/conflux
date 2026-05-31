@@ -767,21 +767,6 @@ int main() { return 0; }
 int main() { return 0; }
 ]])
         endif()
-    elseif(_component STREQUAL "db")
-        if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
-            if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-                conflux_add_component_smoke(db db [[
-import conflux.db;
-int main() { return 0; }
-]])
-            else()
-                conflux_add_component_smoke(db db [[
-#include <conflux/db.hpp>
-#include <conflux/pg/types.hxx>
-int main() { return 0; }
-]])
-            endif()
-        endif()
     elseif(_component STREQUAL "pg")
         if(CONFLUX_PACKAGE_SMOKE_ENABLE_DB)
             if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")

@@ -9,9 +9,9 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.db;
+import conflux.pg;
 
-using namespace conflux::db;
+using namespace conflux::pg;
 using conflux::uring::CompletionTable;
 using conflux::work::Cancelled;
 using conflux::work::root::Task;

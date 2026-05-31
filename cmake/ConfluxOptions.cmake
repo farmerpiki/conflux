@@ -98,7 +98,6 @@ function(conflux_apply_api_surface_definitions target scope)
     set(_conflux_surface_has_templates_watch "$<TARGET_EXISTS:conflux_template_watch>")
     set(_conflux_surface_has_process "$<TARGET_EXISTS:conflux_process>")
     set(_conflux_surface_has_db "$<TARGET_EXISTS:conflux_pg>")
-    set(_conflux_surface_has_db_compat "$<TARGET_EXISTS:conflux_db>")
     set(_conflux_surface_has_smtp "$<TARGET_EXISTS:conflux_net_smtp>")
 
     target_compile_definitions(${target} ${scope}
@@ -160,7 +159,6 @@ function(conflux_apply_api_surface_definitions target scope)
         $<BUILD_INTERFACE:CONFLUX_SURFACE_HAS_TEMPLATES_WATCH=${_conflux_surface_has_templates_watch}>
         $<BUILD_INTERFACE:CONFLUX_SURFACE_HAS_PROCESS=${_conflux_surface_has_process}>
         $<BUILD_INTERFACE:CONFLUX_SURFACE_HAS_DB=${_conflux_surface_has_db}>
-        $<BUILD_INTERFACE:CONFLUX_SURFACE_HAS_DB_COMPAT=${_conflux_surface_has_db_compat}>
         $<BUILD_INTERFACE:CONFLUX_SURFACE_HAS_SMTP=${_conflux_surface_has_smtp}>)
 endfunction()
 

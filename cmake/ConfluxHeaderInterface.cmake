@@ -165,17 +165,14 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
 endif()
 
 if(CONFLUX_HEADER_INSTALL_DB_COMPONENTS)
-    set(_conflux_db_links conflux_work)
+    set(_conflux_pg_links conflux_work)
     if(TARGET PkgConfig::LIBPQ)
-        list(APPEND _conflux_db_links PkgConfig::LIBPQ)
+        list(APPEND _conflux_pg_links PkgConfig::LIBPQ)
     endif()
-    conflux_header_public_component_by_export(db
-        IMPLS conflux_header_impl_db
-        LINKS ${_conflux_db_links})
-
     conflux_header_public_component_by_export(pg
-        LINKS conflux_db)
-    unset(_conflux_db_links)
+        IMPLS conflux_header_impl_pg
+        LINKS ${_conflux_pg_links})
+    unset(_conflux_pg_links)
 endif()
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
