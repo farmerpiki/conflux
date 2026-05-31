@@ -2918,6 +2918,12 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;docs;public-api"
     )
 
+    add_test(NAME build/global-module-exports
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-global-module-exports.py")
+    set_tests_properties(build/global-module-exports PROPERTIES
+        LABELS "build;public-api;lint"
+    )
+
     add_test(NAME build/package-config
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-config.sh"
                 "${CMAKE_SOURCE_DIR}")
