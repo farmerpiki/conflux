@@ -215,8 +215,7 @@ struct NativeJsonProvider {
 				}
 				return std::move(*decoded);
 			}
-			JsonReader reader{input, detail::map_dom_policy(opts).parse};
-			auto decoded = decode_full<Raw>(reader, decode_opts);
+			auto decoded = decode_full<Raw>(input, detail::map_dom_policy(opts).parse, decode_opts);
 			if (!decoded) {
 				return std::unexpected(detail::map_error(decoded.error()));
 			}
