@@ -3268,7 +3268,7 @@ template<class T>
 
 	std::int64_t exp_val = 0;
 	bool exp_overlong = false;
-	if (p < end && (*p == 'e' || *p == 'E')) {
+	if (p < end && (*p == 'e' || *p == 'E')) [[unlikely]] {
 		++p;
 		bool exp_neg = false;
 		if (p < end && (*p == '+' || *p == '-')) {
