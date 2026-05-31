@@ -89,6 +89,28 @@ function(conflux_configure_interface_mode)
         message(FATAL_ERROR "unknown CONFLUX_INTERFACE_MODE=${CONFLUX_INTERFACE_MODE}")
     endif()
 
+    set(_bridge_input_roots
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/module_header_bridge.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(CONFLUX_BUILD_EXAMPLES)
+        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/examples")
+    endif()
+    if(CONFLUX_BUILD_TESTS)
+        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    endif()
+    if(CONFLUX_BUILD_BENCHMARKS)
+        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks")
+    endif()
+    foreach(_bridge_input_root IN LISTS _bridge_input_roots)
+        if(IS_DIRECTORY "${_bridge_input_root}")
+            file(GLOB_RECURSE _bridge_inputs CONFIGURE_DEPENDS
+                "${_bridge_input_root}/*")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_bridge_inputs})
+        else()
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_bridge_input_root}")
+        endif()
+    endforeach()
+
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" ${_bridge_args}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
