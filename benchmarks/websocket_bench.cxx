@@ -82,7 +82,7 @@ void use_sink(
 	std::uint64_t v = s.size();
 	if (!s.empty()) {
 		v += static_cast<unsigned char>(s.front());
-		v += static_cast<unsigned char>(s.back()) << 8U;
+		v += static_cast<std::uint64_t>(static_cast<unsigned char>(s.back())) << 8U;
 	}
 	use_sink(v);
 }
@@ -216,6 +216,10 @@ struct Row {
 	std::uint64_t allocated_bytes{};
 	LatencyStats latency{};
 	HttpServerMetrics metrics{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
 
 void emit(
@@ -236,6 +240,7 @@ void emit(
 			"\"bytes_received\":{},\"errors\":{},\"allocations\":{},\"allocated_bytes\":{},"
 			"\"allocations_per_op\":{:.6f},\"allocated_bytes_per_op\":{:.2f},"
 			"\"p50_ns\":{},\"p90_ns\":{},\"p99_ns\":{},\"p999_ns\":{},\"max_ns\":{},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
 			"\"sq_dropped\":{},\"cq_overflow\":{},\"websocket_closed_for_pressure\":{},"
 			"\"response_backpressure_events\":{}}}",
 			r.config,
@@ -263,6 +268,10 @@ void emit(
 			r.latency.p99,
 			r.latency.p999,
 			r.latency.max,
+			r.sample_count,
+			r.batch,
+			r.timer_sample_ns,
+			r.timer_overhead_pct,
 			r.metrics.sq_dropped,
 			r.metrics.cq_overflow,
 			p.websocket_closed_for_pressure,
@@ -288,33 +297,43 @@ template<class Fn>
 	std::size_t operations_per_iteration,
 	std::size_t payload_size,
 	std::size_t warmup,
+	BenchArgs const &args,
 	Fn &&fn) {
 	for (std::size_t i = 0; i < warmup; ++i) {
 		fn();
 	}
+	BenchSamplePlan const plan = bench_sample_plan(outer_iterations, 0, args.samples, args.batch);
 	reset_allocation_counters();
 	g_count_allocations.store(true, std::memory_order_release);
-	auto const t0 = bench_now_ns();
 	std::uint64_t errors = 0;
-	for (std::size_t i = 0; i < outer_iterations; ++i) {
-		if (!fn()) {
-			++errors;
+	std::uint64_t total = 0;
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			if (!fn()) {
+				++errors;
+			}
 		}
+		auto const elapsed = bench_now_ns() - t0;
+		total += elapsed;
 	}
-	auto const total = bench_now_ns() - t0;
 	g_count_allocations.store(false, std::memory_order_release);
 	return Row{
 		.config = std::string{config},
 		.variant = std::move(variant),
 		.kind = "micro/user-space",
 		.mechanism = std::move(mechanism),
-		.iterations = outer_iterations,
-		.operations = outer_iterations * std::max<std::size_t>(1, operations_per_iteration),
+		.iterations = plan.iterations,
+		.operations = plan.iterations * std::max<std::size_t>(1, operations_per_iteration),
 		.payload_size = payload_size,
 		.total_ns = total,
 		.errors = errors,
 		.allocations = g_allocations.load(std::memory_order_relaxed),
 		.allocated_bytes = g_allocated_bytes.load(std::memory_order_relaxed),
+		.sample_count = plan.samples,
+		.batch = plan.batch,
+		.timer_sample_ns = plan.timer_sample_ns,
+		.timer_overhead_pct = bench_timer_overhead_percent(plan, total),
 	};
 }
 
@@ -886,6 +905,7 @@ void run_handshake_case(
 	std::string_view config,
 	std::size_t iterations,
 	std::size_t warmup,
+	BenchArgs const &args,
 	bool json) {
 	static constexpr std::string_view kKey = "dGhlIHNhbXBsZSBub25jZQ==";
 	emit(
@@ -897,6 +917,7 @@ void run_handshake_case(
 			1,
 			kKey.size(),
 			warmup,
+			args,
 			[] {
 				auto out = conflux::http::detail::ws_accept_key(kKey);
 				use_sink(out);
@@ -912,6 +933,7 @@ void run_handshake_case(
 			1,
 			kKey.size(),
 			warmup,
+			args,
 			[] {
 				bool const ok = conflux::http::detail::is_valid_client_key(kKey);
 				use_sink(ok ? 1 : 0);
@@ -924,6 +946,7 @@ void run_build_case(
 	std::string_view config,
 	std::size_t iterations,
 	std::size_t warmup,
+	BenchArgs const &args,
 	bool json) {
 	for (auto size:
 		 {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
@@ -938,6 +961,7 @@ void run_build_case(
 				1,
 				size,
 				warmup,
+				args,
 				[&] {
 					auto frame = conflux::http::detail::ws_build_frame(0x1U, as_bytes(payload));
 					use_sink(frame);
@@ -951,6 +975,7 @@ void run_header_case(
 	std::string_view config,
 	std::size_t iterations,
 	std::size_t warmup,
+	BenchArgs const &args,
 	bool json) {
 	struct HeaderCase {
 		std::string_view name;
@@ -976,6 +1001,7 @@ void run_header_case(
 				1,
 				c.wire.size(),
 				warmup,
+				args,
 				[&] {
 					conflux::http::detail::FrameHeader hdr{};
 					auto const st = conflux::http::detail::parse_frame_header(as_bytes(c.wire), hdr);
@@ -991,6 +1017,7 @@ void run_recv_case(
 	std::string_view config,
 	std::size_t iterations,
 	std::size_t warmup,
+	BenchArgs const &args,
 	bool json) {
 	for (auto size:
 		 {std::size_t{0}, std::size_t{8}, std::size_t{125}, std::size_t{126}, std::size_t{4096}, std::size_t{65536}}) {
@@ -1006,6 +1033,7 @@ void run_recv_case(
 				1,
 				size,
 				warmup,
+				args,
 				[&] {
 					WsConn ws{-1, std::string{frame}};
 					auto f = ws.recv();
@@ -1029,6 +1057,7 @@ void run_recv_case(
 				100,
 				payload.size(),
 				warmup,
+				args,
 				[&] {
 					WsConn ws{-1, std::string{wire}};
 					for (int i = 0; i < 100; ++i) {
@@ -1054,6 +1083,7 @@ void run_recv_case(
 				1,
 				payload.size(),
 				warmup,
+				args,
 				[&] {
 					WsConn ws{-1, std::string{wire}};
 					auto f = ws.recv();
@@ -1075,6 +1105,7 @@ void run_recv_case(
 				1,
 				66,
 				warmup,
+				args,
 				[&] {
 					WsConn ws{-1, std::string{close}};
 					auto f = ws.recv();
@@ -1231,13 +1262,13 @@ int main(
 		auto const warmup = args.warmup;
 		auto const config = args.config_name.empty() ? std::string{name} : args.config_name;
 		if (name == "handshake"sv) {
-			run_handshake_case(config, iterations, warmup, args.json_out);
+			run_handshake_case(config, iterations, warmup, args, args.json_out);
 		} else if (name == "build"sv) {
-			run_build_case(config, iterations, warmup, args.json_out);
+			run_build_case(config, iterations, warmup, args, args.json_out);
 		} else if (name == "header"sv) {
-			run_header_case(config, iterations, warmup, args.json_out);
+			run_header_case(config, iterations, warmup, args, args.json_out);
 		} else if (name == "recv"sv) {
-			run_recv_case(config, iterations, warmup, args.json_out);
+			run_recv_case(config, iterations, warmup, args, args.json_out);
 		} else if (name == "live"sv) {
 			iterations = explicit_iters && args.iterations != 0 ? args.iterations : 20;
 			emit(run_live_upgrade(config, iterations, warmup), args.json_out);
