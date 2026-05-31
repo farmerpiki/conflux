@@ -9,10 +9,13 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.net.app.openapi;
+
+export namespace conflux::http {
+
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
 // Returns a JSON string (not pretty-printed).
-export std::string openapi_spec(
+std::string openapi_spec(
 	conflux::http::Router const &router,
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
@@ -35,7 +38,7 @@ export std::string openapi_spec(
 // into the HttpServer. Routes added later are not reflected.
 // WARNING: the plain handler is unauthenticated — avoid on public listeners;
 // prefer openapi_handler_protected or a network-level ACL.
-export conflux::http::Router::Handler openapi_handler(
+conflux::http::Router::Handler openapi_handler(
 	conflux::http::Router const &router,
 	std::string_view title = "API",
 	std::string_view version = "1.0.0") {
@@ -46,7 +49,7 @@ export conflux::http::Router::Handler openapi_handler(
 }
 // Route handler wrapped with the supplied middleware chain (e.g. bearer_auth).
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
-export conflux::http::Router::Handler openapi_handler_protected(
+conflux::http::Router::Handler openapi_handler_protected(
 	conflux::http::Router const &router,
 	std::string_view title,
 	std::string_view version,
@@ -61,3 +64,5 @@ export conflux::http::Router::Handler openapi_handler_protected(
 	}
 	return current;
 }
+
+} // namespace conflux::http

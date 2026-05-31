@@ -149,7 +149,7 @@ int main() {
 	auto &openapi_router = http::router(app);
 	openapi_router.get(
 		"/openapi.json",
-		openapi_handler_protected(openapi_router, "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
+		conflux::http::openapi_handler_protected(openapi_router, "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
 
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);

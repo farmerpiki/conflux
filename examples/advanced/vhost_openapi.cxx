@@ -21,7 +21,7 @@ static conflux::http::Router make_api_router() {
 	api.get("/users/{id}", [](conflux::http::OwnedRequest const &req) {
 		return conflux::http::Response::json(std::format(R"({{"id":"{}","name":"example"}})", req.params["id"]));
 	});
-	api.get("/openapi.json", openapi_handler(api, "api.local.test", "0.1.0"));
+	api.get("/openapi.json", conflux::http::openapi_handler(api, "api.local.test", "0.1.0"));
 	return api;
 }
 

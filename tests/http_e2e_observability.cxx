@@ -1635,14 +1635,14 @@ TEST_CASE(
 	conflux::http::Router router;
 	router.get("/hello/{name}", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
 	router.post("/items", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-	auto doc = parse_openapi_spec(openapi_spec(router, "Test API", "0.1.0"));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router, "Test API", "0.1.0"));
 	check_json_string_at(doc, "/openapi", "3.0.0");
 }
 TEST_CASE(
 	"openapi: spec includes registered path with path parameter") {
 	conflux::http::Router router;
 	router.get("/hello/{name}", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-	auto doc = parse_openapi_spec(openapi_spec(router, "Test API", "0.1.0"));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router, "Test API", "0.1.0"));
 	REQUIRE(require_json_pointer(doc, "/paths/~1hello~1{name}/get").as_object().has_value());
 	check_json_string_at(doc, "/paths/~1hello~1{name}/get/parameters/0/name", "name");
 	check_json_string_at(doc, "/paths/~1hello~1{name}/get/parameters/0/in", "path");
@@ -1651,7 +1651,7 @@ TEST_CASE(
 	"openapi: spec includes title and version from arguments") {
 	conflux::http::Router router;
 	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-	auto doc = parse_openapi_spec(openapi_spec(router, "My Service", "2.3.4"));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router, "My Service", "2.3.4"));
 	check_json_string_at(doc, "/info/title", "My Service");
 	check_json_string_at(doc, "/info/version", "2.3.4");
 }
@@ -1659,20 +1659,20 @@ TEST_CASE(
 	"openapi: spec includes method in lowercase") {
 	conflux::http::Router router;
 	router.post("/items", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-	auto doc = parse_openapi_spec(openapi_spec(router));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router));
 	REQUIRE(require_json_pointer(doc, "/paths/~1items/post").as_object().has_value());
 }
 TEST_CASE(
 	"openapi: title with special characters is properly JSON-escaped") {
 	conflux::http::Router router;
 	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-	auto doc = parse_openapi_spec(openapi_spec(router, R"(My "API" & More)"));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router, R"(My "API" & More)"));
 	check_json_string_at(doc, "/info/title", R"(My "API" & More)");
 }
 TEST_CASE(
 	"openapi: empty router produces valid paths object") {
 	conflux::http::Router router;
-	auto doc = parse_openapi_spec(openapi_spec(router, "Empty", "0.0.1"));
+	auto doc = parse_openapi_spec(conflux::http::openapi_spec(router, "Empty", "0.0.1"));
 	auto paths = require_json_pointer(doc, "/paths").as_object();
 	REQUIRE(paths.has_value());
 	CHECK(paths->size() == 0);
@@ -1684,7 +1684,7 @@ TEST_CASE(
 	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 	std::vector<conflux::http::Router::Middleware> chain;
 	chain.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "apikey"; }));
-	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
+	router.get("/openapi.json", conflux::http::openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
 
 	Config const cfg{.port = 0, .rings = 1};
 	std::uint16_t port = test_servers().start(cfg, std::move(router));

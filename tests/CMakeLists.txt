@@ -844,6 +844,14 @@ if(TARGET conflux_net_http)
         EXPECT "openapi_handler")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_openapi_compile_fail_global_openapi_handler
+        SOURCE http_openapi_compile_fail_global_openapi_handler.cxx
+        TEST http-openapi/compile-fail-global-openapi-handler
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "openapi_handler")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_file_free
         SOURCE http_facade_compile_fail_file_free.cxx
         TEST http-facade/compile-fail-file-free
