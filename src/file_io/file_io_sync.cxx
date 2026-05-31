@@ -126,7 +126,6 @@ public:
 	UniqueFd take_fd() noexcept { return std::move(fd_); }
 	void disarm_staging() noexcept { staging_name_.clear(); }
 };
-export using FileIoSyncError = IoError;
 // ───────────────────────────────────────────────────────────────────────
 // Internals
 // ───────────────────────────────────────────────────────────────────────
@@ -141,7 +140,7 @@ inline std::string make_staging_name() noexcept {
 	auto _ = ::getrandom(&rnd, sizeof(rnd), 0);
 	return std::format(".conflux.tmp.{}.{}.{:08x}", pid, seq, rnd);
 }
-inline std::expected<void, FileIoSyncError> do_fsync(
+inline std::expected<void, IoError> do_fsync(
 	int fd,
 	TempDurability d) noexcept {
 	if (d < TempDurability::file) {
@@ -150,12 +149,12 @@ inline std::expected<void, FileIoSyncError> do_fsync(
 	int const rc = ::fdatasync(fd);
 	if (rc < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: fdatasync"}
+			IoError{errno, "file_io_sync: fdatasync"}
         };
 	}
 	return {};
 }
-inline std::expected<void, FileIoSyncError> do_dir_fsync(
+inline std::expected<void, IoError> do_dir_fsync(
 	int dir_fd,
 	TempDurability d) noexcept {
 	if (d < TempDurability::file_and_directory) {
@@ -164,7 +163,7 @@ inline std::expected<void, FileIoSyncError> do_dir_fsync(
 	int const rc = ::fsync(dir_fd);
 	if (rc < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: dir fsync"}
+			IoError{errno, "file_io_sync: dir fsync"}
         };
 	}
 	return {};
@@ -173,7 +172,7 @@ constexpr bool is_otmpfile_unsupported_errno(
 	int e) noexcept {
 	return e == EOPNOTSUPP || e == EISDIR || e == EINVAL || e == ENOSYS || e == EPERM;
 }
-inline std::expected<void, FileIoSyncError> link_unnamed_fd(
+inline std::expected<void, IoError> link_unnamed_fd(
 	int tmp_fd,
 	int parent_fd,
 	std::string_view staging_name) noexcept {
@@ -185,7 +184,7 @@ inline std::expected<void, FileIoSyncError> link_unnamed_fd(
 	int const e1 = errno;
 	if (e1 != EPERM && e1 != EINVAL && e1 != ENOENT) {
 		return std::unexpected{
-			FileIoSyncError{e1, "file_io_sync: linkat AT_EMPTY_PATH"}
+			IoError{e1, "file_io_sync: linkat AT_EMPTY_PATH"}
         };
 	}
 
@@ -196,7 +195,7 @@ inline std::expected<void, FileIoSyncError> link_unnamed_fd(
 		return {};
 	}
 	return std::unexpected{
-		FileIoSyncError{errno, "file_io_sync: linkat /proc/self/fd"}
+		IoError{errno, "file_io_sync: linkat /proc/self/fd"}
     };
 }
 inline int openat2_sync(
@@ -211,7 +210,7 @@ inline int openat2_sync(
 	how.resolve = resolve;
 	return static_cast<int>(::syscall(SYS_openat2, dir_fd, path, &how, sizeof(how)));
 }
-inline std::expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
+inline std::expected<UniqueFd, IoError> open_parent_dir_contained(
 	int root_fd,
 	std::string_view relative_dir) noexcept {
 	if (relative_dir.empty() || relative_dir == ".") {
@@ -223,7 +222,7 @@ inline std::expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 			RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
 		if (fd < 0) {
 			return std::unexpected{
-				FileIoSyncError{errno, "file_io_sync: open parent dir"}
+				IoError{errno, "file_io_sync: open parent dir"}
             };
 		}
 		return UniqueFd{fd};
@@ -237,27 +236,27 @@ inline std::expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
 	if (fd < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: open parent dir"}
+			IoError{errno, "file_io_sync: open parent dir"}
         };
 	}
 	return UniqueFd{fd};
 }
 
-inline std::expected<void, FileIoSyncError> validate_publish_basename(
+inline std::expected<void, IoError> validate_publish_basename(
 	std::string_view name) noexcept {
 	if (name.empty()) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: empty publish name"}
+			IoError{EINVAL, "file_io_sync: empty publish name"}
         };
 	}
 	if (name == "." || name == "..") {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: invalid publish name"}
+			IoError{EINVAL, "file_io_sync: invalid publish name"}
         };
 	}
 	if (name.contains('/') || name.contains('\0')) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: publish name must be a basename"}
+			IoError{EINVAL, "file_io_sync: publish name must be a basename"}
         };
 	}
 	return {};
@@ -268,28 +267,28 @@ struct PathParts {
 	std::string_view parent_dir;
 	std::string_view basename;
 };
-inline std::expected<PathParts, FileIoSyncError> split_contained_path(
+inline std::expected<PathParts, IoError> split_contained_path(
 	std::string_view path) noexcept {
 	if (path.empty()) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: empty path"}
+			IoError{EINVAL, "file_io_sync: empty path"}
         };
 	}
 	if (path.starts_with('/')) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: absolute path"}
+			IoError{EINVAL, "file_io_sync: absolute path"}
         };
 	}
 	if (path.contains('\0')) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: NUL in path"}
+			IoError{EINVAL, "file_io_sync: NUL in path"}
         };
 	}
 
 	// reject pure . or ..
 	if (path == "." || path == "..") {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: invalid path component"}
+			IoError{EINVAL, "file_io_sync: invalid path component"}
         };
 	}
 
@@ -301,7 +300,7 @@ inline std::expected<PathParts, FileIoSyncError> split_contained_path(
 		if (component == ".." || component.empty()) {
 			if (component == "..") {
 				return std::unexpected{
-					FileIoSyncError{EINVAL, "file_io_sync: .. in path"}
+					IoError{EINVAL, "file_io_sync: .. in path"}
                 };
 			}
 		}
@@ -321,7 +320,7 @@ inline std::expected<PathParts, FileIoSyncError> split_contained_path(
 // Low-level: blocking_openat_contained
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
+export std::expected<UniqueFd, IoError> blocking_openat_contained(
 	int root_fd,
 	std::string_view contained_relative_path,
 	int flags,
@@ -339,43 +338,43 @@ export std::expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
 		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
 	if (fd < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: open contained file"}
+			IoError{errno, "file_io_sync: open contained file"}
         };
 	}
 	return UniqueFd{fd};
 }
 
-export std::expected<UniqueFd, FileIoSyncError> blocking_open_file(
+export std::expected<UniqueFd, IoError> blocking_open_file(
 	std::string_view path,
 	int flags,
 	mode_t mode = 0) noexcept {
 	if (path.empty() || path.contains('\0')) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: invalid file path"}
+			IoError{EINVAL, "file_io_sync: invalid file path"}
         };
 	}
 	std::string native{path};
 	int const fd = ::open(native.c_str(), flags | O_CLOEXEC, mode);
 	if (fd < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: open file"}
+			IoError{errno, "file_io_sync: open file"}
         };
 	}
 	return UniqueFd{fd};
 }
 
-export std::expected<UniqueFd, FileIoSyncError> blocking_open_directory(
+export std::expected<UniqueFd, IoError> blocking_open_directory(
 	std::string_view path) noexcept {
 	if (path.empty() || path.contains('\0')) {
 		return std::unexpected{
-			FileIoSyncError{EINVAL, "file_io_sync: invalid directory path"}
+			IoError{EINVAL, "file_io_sync: invalid directory path"}
         };
 	}
 	std::string native{path};
 	int const fd = ::open(native.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (fd < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: open directory"}
+			IoError{errno, "file_io_sync: open directory"}
         };
 	}
 	return UniqueFd{fd};
@@ -385,7 +384,7 @@ export std::expected<UniqueFd, FileIoSyncError> blocking_open_directory(
 // Low-level: blocking_open_tmpfile
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
+export std::expected<TemporaryFileSync, IoError> blocking_open_tmpfile(
 	int parent_dir_fd,
 	TempFileOptions opts = {}) noexcept {
 	if (opts.prefer_otmpfile) {
@@ -395,7 +394,7 @@ export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
 		}
 		if (!is_otmpfile_unsupported_errno(errno)) {
 			return std::unexpected{
-				FileIoSyncError{errno, "file_io_sync: O_TMPFILE"}
+				IoError{errno, "file_io_sync: O_TMPFILE"}
             };
 		}
 	}
@@ -404,7 +403,7 @@ export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
 	int fd = ::openat(parent_dir_fd, staging.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, opts.mode);
 	if (fd < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: named temp create"}
+			IoError{errno, "file_io_sync: named temp create"}
         };
 	}
 	return TemporaryFileSync{UniqueFd{fd}, std::move(staging), parent_dir_fd};
@@ -413,7 +412,7 @@ export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
 // Low-level: blocking_write_all_fd
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<void, FileIoSyncError> blocking_write_all_fd(
+export std::expected<void, IoError> blocking_write_all_fd(
 	int fd,
 	std::span<std::byte const> bytes) noexcept {
 	std::size_t off = 0;
@@ -424,12 +423,12 @@ export std::expected<void, FileIoSyncError> blocking_write_all_fd(
 				continue;
 			}
 			return std::unexpected{
-				FileIoSyncError{errno, "file_io_sync: write"}
+				IoError{errno, "file_io_sync: write"}
             };
 		}
 		if (n == 0) {
 			return std::unexpected{
-				FileIoSyncError{EIO, "file_io_sync: zero-length write"}
+				IoError{EIO, "file_io_sync: zero-length write"}
             };
 		}
 		off += static_cast<std::size_t>(n);
@@ -440,7 +439,7 @@ export std::expected<void, FileIoSyncError> blocking_write_all_fd(
 // Low-level: blocking_publish_tmpfile
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
+export std::expected<void, IoError> blocking_publish_tmpfile(
 	TemporaryFileSync &&tmp,
 	int parent_dir_fd,
 	std::string_view final_name,
@@ -454,7 +453,7 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 		final_str = std::string{final_name};
 	} catch (std::bad_alloc const &) {
 		return std::unexpected{
-			FileIoSyncError{ENOMEM, "file_io_sync: publish name allocation"}
+			IoError{ENOMEM, "file_io_sync: publish name allocation"}
         };
 	}
 	if (auto r = do_fsync(tmp.fd(), durability); !r) {
@@ -485,7 +484,7 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 				::unlinkat(parent_dir_fd, staging.c_str(), 0);
 			}
 			return std::unexpected{
-				FileIoSyncError{errno, "file_io_sync: renameat"}
+				IoError{errno, "file_io_sync: renameat"}
             };
 		}
 	} else {
@@ -504,11 +503,11 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 			}
 			if (e == ENOSYS) {
 				return std::unexpected{
-					FileIoSyncError{ENOTSUP, "file_io_sync: RENAME_NOREPLACE unsupported"}
+					IoError{ENOTSUP, "file_io_sync: RENAME_NOREPLACE unsupported"}
                 };
 			}
 			return std::unexpected{
-				FileIoSyncError{e, "file_io_sync: renameat2 RENAME_NOREPLACE"}
+				IoError{e, "file_io_sync: renameat2 RENAME_NOREPLACE"}
             };
 		}
 	}
@@ -521,7 +520,7 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 // High-level: blocking_write_file_atomic_at
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<void, FileIoSyncError> blocking_write_file_atomic_at(
+export std::expected<void, IoError> blocking_write_file_atomic_at(
 	int root_fd,
 	std::string_view contained_relative_path,
 	std::span<std::byte const> bytes,
@@ -551,7 +550,7 @@ export std::expected<void, FileIoSyncError> blocking_write_file_atomic_at(
 	return blocking_publish_tmpfile(std::move(*tmp), parent->fd(), parts->basename, mode, durability);
 }
 
-export std::expected<void, FileIoSyncError> blocking_unlink_file_at(
+export std::expected<void, IoError> blocking_unlink_file_at(
 	int root_fd,
 	std::string_view contained_relative_path) noexcept {
 	auto parts = split_contained_path(contained_relative_path);
@@ -567,7 +566,7 @@ export std::expected<void, FileIoSyncError> blocking_unlink_file_at(
 	std::string basename{parts->basename};
 	if (::unlinkat(parent->fd(), basename.c_str(), 0) != 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: unlink contained file"}
+			IoError{errno, "file_io_sync: unlink contained file"}
         };
 	}
 	return {};
@@ -577,7 +576,7 @@ export std::expected<void, FileIoSyncError> blocking_unlink_file_at(
 // High-level: blocking_write_text_file_atomic_at
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<void, FileIoSyncError> blocking_write_text_file_atomic_at(
+export std::expected<void, IoError> blocking_write_text_file_atomic_at(
 	int root_fd,
 	std::string_view contained_relative_path,
 	std::string_view text,
@@ -594,13 +593,13 @@ export std::expected<void, FileIoSyncError> blocking_write_text_file_atomic_at(
 // blocking_fstat / blocking_stat_at — populate FileStat from kernel statx.
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<FileStat, FileIoSyncError> blocking_fstat(
+export std::expected<FileStat, IoError> blocking_fstat(
 	int fd) noexcept {
 	struct statx stx{};
 	int const rc = ::statx(fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS | STATX_MTIME | STATX_CTIME, &stx);
 	if (rc < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: statx"}
+			IoError{errno, "file_io_sync: statx"}
         };
 	}
 	return FileStat{
@@ -611,7 +610,7 @@ export std::expected<FileStat, FileIoSyncError> blocking_fstat(
 		.ino = stx.stx_ino,
 		.mode = stx.stx_mode};
 }
-export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
+export std::expected<FileStat, IoError> blocking_stat_at(
 	int dir_fd,
 	std::string_view path,
 	int flags = 0,
@@ -621,7 +620,7 @@ export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
 	int const rc = ::statx(dir_fd, p.c_str(), flags, mask, &stx);
 	if (rc < 0) {
 		return std::unexpected{
-			FileIoSyncError{errno, "file_io_sync: statx"}
+			IoError{errno, "file_io_sync: statx"}
         };
 	}
 	return FileStat{
@@ -636,7 +635,7 @@ export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
 // Low-level: blocking_read_all_fd
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
+export std::expected<std::string, IoError> blocking_read_all_fd(
 	int fd,
 	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 	auto st = blocking_fstat(fd);
@@ -645,7 +644,7 @@ export std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
 	}
 	if (st->size > max_bytes) {
 		return std::unexpected{
-			FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
+			IoError{EFBIG, "file_io_sync: file exceeds read limit"}
         };
 	}
 
@@ -665,13 +664,13 @@ export std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
 				continue;
 			}
 			return std::unexpected{
-				FileIoSyncError{errno, "file_io_sync: read"}
+				IoError{errno, "file_io_sync: read"}
             };
 		}
 		auto const count = static_cast<std::size_t>(n);
 		if (count > max_bytes - out.size()) {
 			return std::unexpected{
-				FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
+				IoError{EFBIG, "file_io_sync: file exceeds read limit"}
             };
 		}
 		out.append(buf.data(), count);
@@ -681,7 +680,7 @@ export std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
 // High-level: blocking_read_text_file / read_text_file_nothrow
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<std::string, FileIoSyncError> blocking_read_text_file(
+export std::expected<std::string, IoError> blocking_read_text_file(
 	std::string_view path,
 	std::size_t max_bytes = std::size_t{16} * 1024 * 1024) {
 	auto file = blocking_open_file(path, O_RDONLY);
@@ -710,7 +709,7 @@ export std::optional<std::string> read_text_file_nothrow(
 // High-level: blocking_read_file_at
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<std::string, FileIoSyncError> blocking_read_file_at(
+export std::expected<std::string, IoError> blocking_read_file_at(
 	int root_fd,
 	std::string_view contained_relative_path,
 	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
