@@ -3207,6 +3207,22 @@ template<class T>
 inline constexpr std::array<double, 23> kFpPow10{1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
 												 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
 
+[[nodiscard]] inline std::uint64_t fp_parse_short_digits(
+	char const *p,
+	std::size_t len) noexcept {
+	std::uint64_t value = static_cast<std::uint64_t>(p[0] - '0');
+	if (len >= 2U) {
+		value = value * 10U + static_cast<std::uint64_t>(p[1] - '0');
+	}
+	if (len >= 3U) {
+		value = value * 10U + static_cast<std::uint64_t>(p[2] - '0');
+	}
+	if (len >= 4U) {
+		value = value * 10U + static_cast<std::uint64_t>(p[3] - '0');
+	}
+	return value;
+}
+
 // Single-pass floating-point parse. Locates and validates the lexeme in one
 // scan, accumulating the mantissa as it goes. For values where Clinger's fast
 // path applies (mantissa <= 2^53, decimal exponent within +/-22), the result
@@ -3283,6 +3299,20 @@ template<class T>
 	// Clinger fast path (exact only when the target is double).
 	std::size_t const total_digits = int_len + frac_len;
 	std::int64_t const eff_exp = exp_val - static_cast<std::int64_t>(frac_len);
+	if (std::same_as<T, double> && !neg && frac_len == 0 && !exp_overlong && exp_val == 0 && int_len <= 4U) {
+		auto const mant = fp_parse_short_digits(int_start, int_len);
+		out = static_cast<T>(static_cast<double>(mant));
+		c.p = p;
+		return FpStatus::ok;
+	}
+	if (std::same_as<T, double> && !neg && frac_len == 6U && !exp_overlong && exp_val == 0 && int_len <= 4U) {
+		auto const mant = fp_parse_short_digits(int_start, int_len) * 1000000ULL
+						+ fp_parse_short_digits(frac_start, 3U) * 1000ULL
+						+ fp_parse_short_digits(frac_start + 3U, 3U);
+		out = static_cast<T>(static_cast<double>(mant) / 1e6);
+		c.p = p;
+		return FpStatus::ok;
+	}
 	if (std::same_as<T, double> && !exp_overlong && total_digits <= 17U && eff_exp >= -22 && eff_exp <= 22) {
 		std::uint64_t mant = 0;
 		for (char const *q = int_start; q != int_start + int_len; ++q) {
