@@ -1846,7 +1846,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
+		router.use(conflux::http::basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
 		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -1860,12 +1860,12 @@ TEST_CASE(
 	"[auth][security]") {
 	conflux::http::Router router;
 	unsigned calls = 0;
-	router.use(basic_auth_middleware(
+	router.use(conflux::http::basic_auth_middleware(
 		[&calls](std::string_view, std::string_view) {
 			++calls;
 			return false;
 		},
-		BasicAuthOptions{
+		conflux::http::BasicAuthOptions{
 			.realm = "Clamp",
 			.failed_attempts = 1,
 			.failed_window = std::chrono::seconds{60},
@@ -1896,12 +1896,12 @@ TEST_CASE(
 	static std::atomic<unsigned> calls{0};
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(basic_auth_middleware(
+		router.use(conflux::http::basic_auth_middleware(
 			[](std::string_view, std::string_view) {
 				++calls;
 				return false;
 			},
-			BasicAuthOptions{
+			conflux::http::BasicAuthOptions{
 				.realm = "Limited",
 				.failed_attempts = 1,
 				.failed_window = std::chrono::seconds{60},

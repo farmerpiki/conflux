@@ -640,7 +640,7 @@ int main(
 
 	// auth
 	Router auth_router;
-	auth_router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-bench-token"; }));
+	auth_router.use(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "valid-bench-token"; }));
 	auth_router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
 	auto auth = start_server(bench_config(), std::move(auth_router));
 

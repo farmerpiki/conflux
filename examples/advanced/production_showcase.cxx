@@ -213,7 +213,7 @@ int main() {
 	app.get("/events", [events] { return http::sse(events); });
 
 	std::vector<http::Router::Middleware> metrics_auth;
-	metrics_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
+	metrics_auth.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
 	app.get("/metrics", conflux::http::metrics_handler_protected(metrics, std::move(metrics_auth)));
 
 	auto server = std::move(app).prepare_server({.port = 9105});

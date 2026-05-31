@@ -1218,6 +1218,142 @@ endif()
 
 if(TARGET conflux_http_auth)
     conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_basic_auth_options
+        SOURCE http_auth_compile_fail_global_basic_auth_options.cxx
+        TEST http-auth/compile-fail-global-basic-auth-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "BasicAuthOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_basic_credentials
+        SOURCE http_auth_compile_fail_global_basic_credentials.cxx
+        TEST http-auth/compile-fail-global-basic-credentials
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "BasicCredentials")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_parse_basic_credentials
+        SOURCE http_auth_compile_fail_global_parse_basic_credentials.cxx
+        TEST http-auth/compile-fail-global-parse-basic-credentials
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "parse_basic_credentials")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_failure_limiter
+        SOURCE http_auth_compile_fail_global_auth_failure_limiter.cxx
+        TEST http-auth/compile-fail-global-auth-failure-limiter
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "AuthFailureLimiter")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_options
+        SOURCE http_auth_compile_fail_global_auth_throttle_options.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "AuthThrottleOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_outcome
+        SOURCE http_auth_compile_fail_global_auth_throttle_outcome.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-outcome
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "AuthThrottleOutcome")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_metrics
+        SOURCE http_auth_compile_fail_global_auth_throttle_metrics.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-metrics
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "AuthThrottleMetrics")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_middleware_options
+        SOURCE http_auth_compile_fail_global_auth_throttle_middleware_options.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-middleware-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "AuthThrottleMiddlewareOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_key
+        SOURCE http_auth_compile_fail_global_auth_throttle_key.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-key
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_remote_key
+        SOURCE http_auth_compile_fail_global_auth_throttle_remote_key.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-remote-key
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_remote_key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_form_key
+        SOURCE http_auth_compile_fail_global_auth_throttle_form_key.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-form-key
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_form_key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_query_key
+        SOURCE http_auth_compile_fail_global_auth_throttle_query_key.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-query-key
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_query_key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_bearer_key
+        SOURCE http_auth_compile_fail_global_auth_throttle_bearer_key.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-bearer-key
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_bearer_key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_too_many_requests
+        SOURCE http_auth_compile_fail_global_auth_throttle_too_many_requests.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-too-many-requests
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_too_many_requests")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_auth_throttle_middleware
+        SOURCE http_auth_compile_fail_global_auth_throttle_middleware.cxx
+        TEST http-auth/compile-fail-global-auth-throttle-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "auth_throttle_middleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_basic_auth_middleware
+        SOURCE http_auth_compile_fail_global_basic_auth_middleware.cxx
+        TEST http-auth/compile-fail-global-basic-auth-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "basic_auth_middleware")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_bearer_auth_middleware
+        SOURCE http_auth_compile_fail_global_bearer_auth_middleware.cxx
+        TEST http-auth/compile-fail-global-bearer-auth-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "bearer_auth_middleware")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_auth_compile_fail_global_cookie_signing_options
         SOURCE http_auth_compile_fail_global_cookie_signing_options.cxx
         TEST http-auth/compile-fail-global-cookie-signing-options

@@ -7,7 +7,9 @@ import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
 
-export struct BasicAuthOptions {
+export namespace conflux::http {
+
+struct BasicAuthOptions {
 	std::string realm{"Restricted"};
 
 	// Failed Basic-auth attempts allowed per remote address during the window.
@@ -19,12 +21,12 @@ export struct BasicAuthOptions {
 	std::size_t max_failed_clients{65536};
 };
 
-export struct BasicCredentials {
+struct BasicCredentials {
 	std::string username;
 	std::string password;
 };
 
-export std::optional<BasicCredentials> parse_basic_credentials(
+std::optional<BasicCredentials> parse_basic_credentials(
 	std::string_view authorization) {
 	auto credentials = conflux::http::credentials_for_auth_scheme(authorization, "Basic");
 	if (!credentials) {
@@ -170,9 +172,9 @@ void clear_basic_auth_failures(
 // Middleware factory: HTTP Basic Authentication guard.
 // validator(username, password) → true = allow, false = 401.
 
-export using AuthThrottleClock = std::chrono::steady_clock;
+using AuthThrottleClock = std::chrono::steady_clock;
 
-export struct AuthThrottleOptions {
+struct AuthThrottleOptions {
 	// Failed attempts allowed per subject during the window. 0 disables throttling.
 	unsigned max_failures{5};
 	std::chrono::seconds window{std::chrono::minutes{5}};
@@ -183,14 +185,14 @@ export struct AuthThrottleOptions {
 	std::size_t max_subjects{65536};
 };
 
-export struct AuthThrottleOutcome {
+struct AuthThrottleOutcome {
 	bool allowed{true};
 	std::chrono::seconds retry_after{0};
 	unsigned failures{0};
 	bool locked{false};
 };
 
-export struct AuthThrottleMetrics {
+struct AuthThrottleMetrics {
 	std::uint64_t allowed_attempts{};
 	std::uint64_t blocked_attempts{};
 	std::uint64_t failures_recorded{};
@@ -199,7 +201,7 @@ export struct AuthThrottleMetrics {
 	std::size_t tracked_subjects{};
 };
 
-export class AuthFailureLimiter {
+class AuthFailureLimiter {
 public:
 	AuthFailureLimiter();
 	explicit AuthFailureLimiter(AuthThrottleOptions opts);
@@ -218,7 +220,7 @@ private:
 	AuthThrottleOptions opts_{};
 };
 
-export struct AuthThrottleMiddlewareOptions {
+struct AuthThrottleMiddlewareOptions {
 	std::vector<unsigned> failure_statuses{401, 403};
 	bool clear_on_success{true};
 	unsigned success_status_min{200};
@@ -451,13 +453,13 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	return out;
 }
 
-export [[nodiscard]] std::string auth_throttle_key(
+[[nodiscard]] std::string auth_throttle_key(
 	std::string_view scope,
 	std::string_view subject) {
 	return std::format("{}:{}", scope, subject);
 }
 
-export [[nodiscard]] std::string auth_throttle_remote_key(
+[[nodiscard]] std::string auth_throttle_remote_key(
 	conflux::http::RequestView const &req,
 	std::string_view scope = "remote") {
 	auto subject = req.remote_addr.empty() ?
@@ -466,7 +468,7 @@ export [[nodiscard]] std::string auth_throttle_remote_key(
 	return auth_throttle_key(scope, subject);
 }
 
-export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
+[[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 	conflux::http::RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
@@ -477,7 +479,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 	return auth_throttle_key(scope, value);
 }
 
-export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
+[[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 	conflux::http::RequestView const &req,
 	std::string_view field,
 	std::string_view scope = "account") {
@@ -488,7 +490,7 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 	return auth_throttle_key(scope, value);
 }
 
-export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
+[[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	conflux::http::RequestView const &req,
 	std::string_view scope = "api-token") {
 	auto credentials = conflux::http::credentials_for_auth_scheme(req.headers["authorization"], "Bearer");
@@ -502,12 +504,12 @@ export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	return auth_throttle_key(scope, base64url_encode(digest));
 }
 
-export inline conflux::http::Response auth_throttle_too_many_requests(
+inline conflux::http::Response auth_throttle_too_many_requests(
 	AuthThrottleOutcome const &outcome) {
 	return auth_detail::too_many_auth_attempts(outcome.retry_after);
 }
 
-export template<typename KeySelector>
+template<typename KeySelector>
 conflux::http::Router::Middleware auth_throttle_middleware(
 	AuthFailureLimiter limiter,
 	KeySelector &&selector,
@@ -533,7 +535,7 @@ conflux::http::Router::Middleware auth_throttle_middleware(
 		return response;
 	};
 }
-export template<typename Validator>
+template<typename Validator>
 conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
@@ -561,7 +563,7 @@ conflux::http::Router::Middleware basic_auth_middleware(
 	};
 }
 
-export template<typename Validator>
+template<typename Validator>
 conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	std::string realm = "Restricted") {
@@ -570,7 +572,7 @@ conflux::http::Router::Middleware basic_auth_middleware(
 
 // Middleware factory: Bearer token Authentication guard.
 // validator(token) → true = allow, false = 401.
-export template<typename Validator>
+template<typename Validator>
 conflux::http::Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator))](
@@ -587,3 +589,5 @@ conflux::http::Router::Middleware bearer_auth_middleware(
 		return next(req);
 	};
 }
+
+} // namespace conflux::http

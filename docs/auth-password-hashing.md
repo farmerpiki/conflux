@@ -130,9 +130,9 @@ request-level throttling.
 Basic auth now has a failed-attempt limiter enabled by default:
 
 ```cpp
-router.use(basic_auth_middleware(
+router.use(conflux::http::basic_auth_middleware(
     [&](std::string_view user, std::string_view password) { return verify_user_password(user, password); },
-    BasicAuthOptions{
+    conflux::http::BasicAuthOptions{
         .realm = "Restricted",
         .failed_attempts = 10,
         .failed_window = chrono::minutes{5},
@@ -141,19 +141,19 @@ router.use(basic_auth_middleware(
 ```
 
 Set `failed_attempts = 0` only when another layer already enforces failed-login
-rate limiting. For login forms or API-token endpoints, use `AuthFailureLimiter`
+rate limiting. For login forms or API-token endpoints, use `conflux::http::AuthFailureLimiter`
 and the helpers documented in `docs/auth-rate-limit-hooks.md` to throttle by
 account, API-token digest, remote address, or a composed application key.
 
 ## Basic Auth integration
 
-`basic_auth_middleware` still accepts a validator callback because the framework
+`conflux::http::basic_auth_middleware` still accepts a validator callback because the framework
 must not own user storage. Use the password hash API inside that callback:
 
 ```cpp
 PasswordHashOptions current = current_password_hash_options();
 
-router.use(basic_auth_middleware([&](std::string_view user, std::string_view password) {
+router.use(conflux::http::basic_auth_middleware([&](std::string_view user, std::string_view password) {
     auto stored = lookup_password_hash(user);
     if (!stored) {
         return false;

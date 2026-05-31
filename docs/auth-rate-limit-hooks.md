@@ -7,7 +7,7 @@ subject key more specific than the generic IP-only `rate_limit_middleware`.
 
 ## What exists
 
-`AuthFailureLimiter` is a bounded, LRU-evicting failed-attempt limiter. It is not
+`conflux::http::AuthFailureLimiter` is a bounded, LRU-evicting failed-attempt limiter. It is not
 coupled to Basic auth or to a specific route shape.
 
 Use it for:
@@ -27,17 +27,17 @@ subjects.
 
 Helpers are provided for common policy hooks:
 
-- `auth_throttle_key(scope, subject)` builds stable scope-prefixed keys.
-- `auth_throttle_remote_key(req)` normalizes parseable peer IPs.
-- `auth_throttle_form_key(req, "username")` reads a parsed form field.
-- `auth_throttle_query_key(req, "user")` reads a parsed query field.
-- `auth_throttle_bearer_key(req)` hashes the bearer token before storing it.
+- `conflux::http::auth_throttle_key(scope, subject)` builds stable scope-prefixed keys.
+- `conflux::http::auth_throttle_remote_key(req)` normalizes parseable peer IPs.
+- `conflux::http::auth_throttle_form_key(req, "username")` reads a parsed form field.
+- `conflux::http::auth_throttle_query_key(req, "user")` reads a parsed query field.
+- `conflux::http::auth_throttle_bearer_key(req)` hashes the bearer token before storing it.
 
 The token helper deliberately stores a SHA-256 digest, not the raw bearer token.
 
 ## Middleware adapter
 
-`auth_throttle_middleware(limiter, selector, opts)` is a small adapter for normal
+`conflux::http::auth_throttle_middleware(limiter, selector, opts)` is a small adapter for normal
 route middleware. The selector returns a key (`std::string`, `std::string_view`,
 or `std::optional<std::string>`). Empty or missing keys pass through.
 
@@ -53,30 +53,30 @@ The adapter:
 Example:
 
 ```cpp
-AuthFailureLimiter login_limiter{AuthThrottleOptions{
+conflux::http::AuthFailureLimiter login_limiter{conflux::http::AuthThrottleOptions{
     .max_failures = 5,
     .window = std::chrono::minutes{10},
     .lockout = std::chrono::minutes{15},
 }};
 
-router.use(auth_throttle_middleware(
+router.use(conflux::http::auth_throttle_middleware(
     login_limiter,
     [](RequestView const& req) {
-        return auth_throttle_form_key(req, "username");
+        return conflux::http::auth_throttle_form_key(req, "username");
     }));
 ```
 
 For account+IP policies, compose the subject in the selector:
 
 ```cpp
-router.use(auth_throttle_middleware(
+router.use(conflux::http::auth_throttle_middleware(
     login_limiter,
     [](RequestView const& req) -> std::optional<std::string> {
-        auto account = auth_throttle_form_key(req, "username");
+        auto account = conflux::http::auth_throttle_form_key(req, "username");
         if (!account) {
             return std::nullopt;
         }
-        return auth_throttle_key("login", *account + ":" + auth_throttle_remote_key(req));
+        return conflux::http::auth_throttle_key("login", *account + ":" + conflux::http::auth_throttle_remote_key(req));
     }));
 ```
 
@@ -87,7 +87,7 @@ session storage. It provides low-level hooks and a safe default adapter so route
 code does not need to hand-roll per-account or per-token throttle state.
 
 The existing Basic-auth failed-attempt limiter remains in place for Basic-auth
-middleware. `AuthFailureLimiter` is the reusable primitive for login forms,
+middleware. `conflux::http::AuthFailureLimiter` is the reusable primitive for login forms,
 OAuth/API-token endpoints, or custom auth flows.
 
 `rate_limit_middleware` and route-local `App::RouteRef::rate_limit` shard their

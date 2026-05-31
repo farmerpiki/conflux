@@ -95,7 +95,7 @@ int main() {
 	});
 
 	app.group("/private", [](auto &g) {
-		g.use(basic_auth_middleware(
+		g.use(conflux::http::basic_auth_middleware(
 			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
 		(void)g.get("/profile", [](http::RequestView const &req) {
@@ -108,7 +108,7 @@ int main() {
 	});
 
 	app.group("/private", [](auto &g) {
-		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
+		g.use(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
 		(void)g.get("/token", [](http::RequestView const &req) {
 			return http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}});

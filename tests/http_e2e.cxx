@@ -680,7 +680,7 @@ void ensure_auth_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(basic_auth_middleware(
+		router.use(conflux::http::basic_auth_middleware(
 			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), std::move(router));
@@ -691,7 +691,7 @@ void ensure_bearer_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
+		router.use(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
 		router.get("/protected", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("secret"); });
 		g_bearer_port = start_mw_server(mw_config(), std::move(router));
 	});

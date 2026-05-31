@@ -87,7 +87,7 @@ void ensure_protected_metrics_server() {
 		static conflux::http::MetricsRegistry reg2;
 		router.use(conflux::http::metrics_middleware(reg2));
 		std::vector<conflux::http::Router::Middleware> chain;
-		chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "supersecret"; }));
+		chain.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "supersecret"; }));
 		router.get("/metrics", conflux::http::metrics_handler_protected(reg2, std::move(chain)));
 		g_protected_metrics_port = test_servers().start(cfg, std::move(router));
 	});
@@ -1683,7 +1683,7 @@ TEST_CASE(
 	conflux::http::Router router;
 	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
 	std::vector<conflux::http::Router::Middleware> chain;
-	chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "apikey"; }));
+	chain.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "apikey"; }));
 	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
 
 	Config const cfg{.port = 0, .rings = 1};

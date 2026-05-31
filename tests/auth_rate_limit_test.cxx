@@ -8,7 +8,7 @@ import conflux.net.auth;
 
 namespace {
 
-using Clock = AuthThrottleClock;
+using Clock = conflux::http::AuthThrottleClock;
 
 [[nodiscard]] Clock::time_point at(
 	int seconds) {
@@ -33,8 +33,8 @@ using Clock = AuthThrottleClock;
 TEST_CASE(
 	"auth throttle: failures lock a subject and expose retry/metrics",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{
-		AuthThrottleOptions{
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
 							.max_failures = 2,
 							.window = std::chrono::seconds{60},
 							.lockout = std::chrono::seconds{30},
@@ -70,8 +70,8 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: zero lockout blocks until the current window expires",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{
-		AuthThrottleOptions{
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
 							.max_failures = 1,
 							.window = std::chrono::seconds{10},
 							.lockout = std::chrono::seconds{0},
@@ -87,8 +87,8 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: success clears accumulated failures",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{
-		AuthThrottleOptions{
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
 							.max_failures = 2,
 							.window = std::chrono::seconds{60},
 							.lockout = std::chrono::seconds{60},
@@ -108,8 +108,8 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: subject store is bounded and evicts least-recently-used subjects",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{
-		AuthThrottleOptions{
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
 							.max_failures = 3,
 							.window = std::chrono::seconds{60},
 							.lockout = std::chrono::seconds{60},
@@ -133,29 +133,29 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	auto req = make_auth_request();
 
-	CHECK(auth_throttle_remote_key(req) == "remote:127.0.0.1");
-	REQUIRE(auth_throttle_form_key(req, "username").has_value());
-	CHECK(*auth_throttle_form_key(req, "username") == "account:alice");
-	REQUIRE(auth_throttle_query_key(req, "user").has_value());
-	CHECK(*auth_throttle_query_key(req, "user") == "account:bob");
-	REQUIRE(auth_throttle_bearer_key(req).has_value());
-	CHECK(auth_throttle_bearer_key(req)->starts_with("api-token:"));
-	CHECK_FALSE(auth_throttle_bearer_key(req)->contains("secret-token"));
+	CHECK(conflux::http::auth_throttle_remote_key(req) == "remote:127.0.0.1");
+	REQUIRE(conflux::http::auth_throttle_form_key(req, "username").has_value());
+	CHECK(*conflux::http::auth_throttle_form_key(req, "username") == "account:alice");
+	REQUIRE(conflux::http::auth_throttle_query_key(req, "user").has_value());
+	CHECK(*conflux::http::auth_throttle_query_key(req, "user") == "account:bob");
+	REQUIRE(conflux::http::auth_throttle_bearer_key(req).has_value());
+	CHECK(conflux::http::auth_throttle_bearer_key(req)->starts_with("api-token:"));
+	CHECK_FALSE(conflux::http::auth_throttle_bearer_key(req)->contains("secret-token"));
 }
 
 TEST_CASE(
 	"auth throttle middleware: hooks record downstream auth failures",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{
-		AuthThrottleOptions{
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
 							.max_failures = 1,
 							.window = std::chrono::seconds{60},
 							.lockout = std::chrono::seconds{60},
 							.max_subjects = 4,
 							}
     };
-	auto middleware = auth_throttle_middleware(limiter, [](conflux::http::RequestView const &req) {
-		return auth_throttle_form_key(req, "username");
+	auto middleware = conflux::http::auth_throttle_middleware(limiter, [](conflux::http::RequestView const &req) {
+		return conflux::http::auth_throttle_form_key(req, "username");
 	});
 	auto req = make_auth_request();
 	conflux::http::Router::Handler fail = [](conflux::http::RequestView const &) {

@@ -277,7 +277,7 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static std::optional<BasicAuth> parse_basic_auth(
 		conflux::http::RequestView const &req) {
-		auto credentials = parse_basic_credentials(req.header("authorization"));
+			auto credentials = conflux::http::parse_basic_credentials(req.header("authorization"));
 		if (!credentials) {
 			return std::nullopt;
 		}
