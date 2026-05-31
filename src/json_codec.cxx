@@ -3233,19 +3233,20 @@ template<class T>
 	bool const starts_zero = *p == '0';
 
 	std::uint64_t mant = 0;
-	std::size_t int_len = 0;
 	std::size_t total_digits = 0;
 	bool exact = true;
-	do {
-		if (total_digits < 17U) {
-			mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
-			++total_digits;
-		} else {
-			exact = false;
-		}
-		++int_len;
+	char const *const int_start = p;
+	char const *const int_accum_end = p + std::min<std::size_t>(17U, static_cast<std::size_t>(end - p));
+	while (p < int_accum_end && *p >= '0' && *p <= '9') {
+		mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
+		++total_digits;
 		++p;
-	} while (p < end && *p >= '0' && *p <= '9');
+	}
+	if (p < end && *p >= '0' && *p <= '9') {
+		exact = false;
+		p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	}
+	std::size_t const int_len = static_cast<std::size_t>(p - int_start);
 	if (starts_zero && int_len > 1) {
 		return FpStatus::bail;
 	}
@@ -3256,16 +3257,19 @@ template<class T>
 		if (p >= end || *p < '0' || *p > '9') {
 			return FpStatus::bail;
 		}
-		do {
-			if (total_digits < 17U) {
-				mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
-				++total_digits;
-			} else {
-				exact = false;
-			}
-			++frac_len;
+		char const *const frac_start = p;
+		char const *const frac_accum_end =
+			p + std::min<std::size_t>(17U - total_digits, static_cast<std::size_t>(end - p));
+		while (p < frac_accum_end && *p >= '0' && *p <= '9') {
+			mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
+			++total_digits;
 			++p;
-		} while (p < end && *p >= '0' && *p <= '9');
+		}
+		if (p < end && *p >= '0' && *p <= '9') {
+			exact = false;
+			p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+		}
+		frac_len = static_cast<std::size_t>(p - frac_start);
 	}
 
 	std::int64_t exp_val = 0;
