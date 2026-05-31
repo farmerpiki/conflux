@@ -44,8 +44,8 @@ mainly suffix order and a few unprefixed helpers.
 | `FileIoSyncError` | `conflux.file_io_sync` | `FileIoError` in a blocking module | `FileIoError` already aliases the same error in async file I/O; avoid ambiguity before target split settles. |
 | `blocking_open_tmpfile` | `conflux.file_io_sync` | `blocking_open_tmpfile` | Raw `open`/`openat`-style helper. |
 | `blocking_publish_tmpfile` | `conflux.file_io_sync` | `blocking_publish_tmpfile` | Raw link/rename/fsync-style helper. |
-| `write_all_fd` | `conflux.file_io_sync` | `blocking_write_all_fd` | Currently unprefixed despite direct `write` loop. |
-| `read_all_fd` | `conflux.file_io_sync` | `blocking_read_all_fd` | Currently unprefixed despite direct `read` loop. |
+| `write_all_fd` | `conflux.file_io_sync` | `blocking_write_all_fd` | Removed for public preview cleanup. |
+| `read_all_fd` | `conflux.file_io_sync` | `blocking_read_all_fd` | Removed for public preview cleanup. |
 | `blocking_write_file_atomic_at` | `conflux.file_io_sync` | `blocking_write_file_atomic_at` | File-backed convenience around raw blocking helpers. |
 | `blocking_write_text_file_atomic_at` | `conflux.file_io_sync` | `blocking_write_text_file_atomic_at` | Same batch as binary atomic write. |
 | `blocking_fstat` | `conflux.file_io_sync` | `blocking_fstat` | Thin statx/fstat-style helper. |
@@ -56,12 +56,10 @@ mainly suffix order and a few unprefixed helpers.
 | `blocking_parse_file_at` | `conflux.json.file` | `blocking_parse_file_at` | Keep separate from pure `json::parse*`; this one performs blocking file I/O. |
 | `blocking_parse_file` | `conflux.json.file` | `blocking_parse_file` | Same batch as `blocking_parse_file_at`. |
 
-Status: `file/blocking-name-aliases` adds these `blocking_*` function aliases
-for `conflux.file_io_sync`, `conflux.file_map`, and the file-backed
-`conflux.json.file` helpers while keeping the legacy spellings. Internal
-call sites and tests now prefer the `blocking_*` names except one compatibility
-coverage path for legacy sync spellings. Type/module renames remain deferred to
-the release alias-removal pass.
+Status: `file/blocking-name-aliases` added these `blocking_*` function names for
+`conflux.file_io_sync`, `conflux.file_map`, and the file-backed
+`conflux.json.file` helpers. The unprefixed fd helper aliases have been removed;
+type/module renames remain deferred to the release alias-removal pass.
 
 ## Coroutine/task APIs with suffix-style async names
 

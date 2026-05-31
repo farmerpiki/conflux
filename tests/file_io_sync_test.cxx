@@ -315,28 +315,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"file_io_sync: legacy sync spellings remain available",
-	"[file_io_sync][unit]") {
-	auto dir = TempDir::create();
-	std::string_view text = "legacy sync aliases";
-	auto tmp = conflux::file_io_sync::blocking_open_tmpfile(
-		dir.fd,
-		conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
-	REQUIRE(tmp.has_value());
-
-	auto wr = conflux::file_io_sync::write_all_fd(tmp->fd(), std::as_bytes(std::span{text.data(), text.size()}));
-	REQUIRE(wr.has_value());
-	auto pub = conflux::file_io_sync::blocking_publish_tmpfile(std::move(*tmp), dir.fd, std::string_view{"legacy.txt"});
-	REQUIRE(pub.has_value());
-
-	auto file = conflux::file_io_sync::blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
-	REQUIRE(file.has_value());
-	auto bytes = conflux::file_io_sync::read_all_fd(file->fd());
-	REQUIRE(bytes.has_value());
-	CHECK(*bytes == text);
-}
-
-TEST_CASE(
 	"file_io_sync: low-level publish validates final basename",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
@@ -352,10 +330,10 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"file_io_sync: blocking low-level aliases round-trip through contained file",
+	"file_io_sync: blocking low-level helpers round-trip through contained file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	std::string_view text = "blocking aliases";
+	std::string_view text = "blocking helpers";
 	auto tmp = conflux::file_io_sync::blocking_open_tmpfile(
 		dir.fd,
 		conflux::file_io_sync::TempFileOptions{.prefer_otmpfile = false});
@@ -394,7 +372,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"file_io_sync: blocking atomic write aliases round-trip text and bytes",
+	"file_io_sync: blocking atomic write helpers round-trip text and bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	auto text = conflux::file_io_sync::blocking_write_text_file_atomic_at(

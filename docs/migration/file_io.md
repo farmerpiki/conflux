@@ -29,9 +29,9 @@ _Populated as E1.2 PRs land._
 - `blocking_map_fd_readonly`
 - `blocking_map_file_readonly`
 
-The existing `*_sync` and unprefixed fd helper names remain available as
-pre-release compatibility aliases. New file I/O examples and tests should prefer
-the `blocking_*` names when the operation directly blocks the calling thread.
+The old unprefixed fd helper names were removed during public preview cleanup.
+New file I/O examples and tests should use the `blocking_*` names when the
+operation directly blocks the calling thread.
 
 `conflux.json.file` follows the same rule for file-backed parsing via
 `blocking_parse_file_at` and `blocking_parse_file`; pure JSON parsing APIs stay

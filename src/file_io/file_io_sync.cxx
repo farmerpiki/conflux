@@ -410,10 +410,10 @@ export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
 	return TemporaryFileSync{UniqueFd{fd}, std::move(staging), parent_dir_fd};
 }
 // ───────────────────────────────────────────────────────────────────────
-// Low-level: write_all_fd
+// Low-level: blocking_write_all_fd
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<void, FileIoSyncError> write_all_fd(
+export std::expected<void, FileIoSyncError> blocking_write_all_fd(
 	int fd,
 	std::span<std::byte const> bytes) noexcept {
 	std::size_t off = 0;
@@ -543,7 +543,7 @@ export std::expected<void, FileIoSyncError> blocking_write_file_atomic_at(
 		return std::unexpected{tmp.error()};
 	}
 
-	auto wr = write_all_fd(tmp->fd(), bytes);
+	auto wr = blocking_write_all_fd(tmp->fd(), bytes);
 	if (!wr) {
 		return std::unexpected{wr.error()};
 	}
@@ -633,10 +633,10 @@ export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
 		.mode = stx.stx_mode};
 }
 // ───────────────────────────────────────────────────────────────────────
-// Low-level: read_all_fd
+// Low-level: blocking_read_all_fd
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<std::string, FileIoSyncError> read_all_fd(
+export std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
 	int fd,
 	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 	auto st = blocking_fstat(fd);
@@ -688,7 +688,7 @@ export std::expected<std::string, FileIoSyncError> blocking_read_text_file(
 	if (!file) {
 		return std::unexpected{file.error()};
 	}
-	auto bytes = read_all_fd(file->fd(), max_bytes);
+	auto bytes = blocking_read_all_fd(file->fd(), max_bytes);
 	if (!bytes) {
 		return std::unexpected{bytes.error()};
 	}
@@ -723,19 +723,7 @@ export std::expected<std::string, FileIoSyncError> blocking_read_file_at(
 	if (!file) {
 		return std::unexpected{file.error()};
 	}
-	return read_all_fd(file->fd(), max_bytes);
-}
-
-export inline std::expected<void, FileIoSyncError> blocking_write_all_fd(
-	int fd,
-	std::span<std::byte const> bytes) noexcept {
-	return write_all_fd(fd, bytes);
-}
-
-export inline std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
-	int fd,
-	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-	return read_all_fd(fd, max_bytes);
+	return blocking_read_all_fd(file->fd(), max_bytes);
 }
 
 export inline std::optional<std::string> blocking_read_text_file_nothrow(
