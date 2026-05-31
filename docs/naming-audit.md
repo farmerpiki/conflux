@@ -75,7 +75,7 @@ coroutine behavior obvious.
 | `conflux::http::send_async` | `conflux.net.async_client` | `async_send` | Removed for public preview cleanup. |
 | `conflux.net.async_client` | module name | maybe `conflux.net.http.client_async` or keep | Module names do not have to follow function-prefix order; only rename if HTTP client modules are reorganized. |
 | `proxy_async` | `conflux.net.proxy` | `async_proxy` | Removed for public preview cleanup. |
-| `spawn_async_in`, `run_async_in`, `wait_async_in` | `conflux.process` | `async_spawn_in`, `async_run_in`, `async_wait_in` | Preferred names landed; old names remain compatibility aliases until examples/tests finish migrating. |
+| `spawn_async_in`, `run_async_in`, `wait_async_in` | `conflux.process` | `async_spawn_in`, `async_run_in`, `async_wait_in` | Removed for public preview cleanup. |
 | `tcp_connect`, `tcp_accept`, `tcp_accept_multishot`, `sleep_for` | `conflux.socket_io.coro` | `async_tcp_connect`, `async_tcp_accept`, `async_tcp_accept_multishot`, `async_sleep_for` | Removed for public preview cleanup. |
 | `TcpStream::{recv_borrowed, recv_owned, write_borrowed, write_copy, write_owned, write_all_* , shutdown, close}` | `conflux.socket_io.coro` | `async_recv_borrowed`, `async_recv_owned`, `async_write_*`, `async_shutdown`, `async_close` | Removed for public preview cleanup. |
 | `UdpSocket::{send_to_borrowed, send_to_copy, recv_from}` | `conflux.socket_io.coro` | `async_send_to_*`, `async_recv_from` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |

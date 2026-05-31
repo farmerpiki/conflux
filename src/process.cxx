@@ -504,14 +504,6 @@ export template<typename Target>
 	});
 }
 
-export template<typename Target>
-[[nodiscard]] auto spawn_async_in(
-	Target &target,
-	std::filesystem::path exe,
-	std::vector<std::string> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
-	return async_spawn_in(target, std::move(exe), std::move(args), std::move(opts));
-}
 // ---------------------------------------------------------------------------
 // run — spawn + drain stdout/stderr + wait
 // ---------------------------------------------------------------------------
@@ -618,26 +610,10 @@ export template<typename Target>
 }
 
 export template<typename Target>
-[[nodiscard]] auto run_async_in(
-	Target &target,
-	std::filesystem::path exe,
-	std::vector<std::string> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
-	return async_run_in(target, std::move(exe), std::move(args), std::move(opts));
-}
-
-export template<typename Target>
 [[nodiscard]] auto async_wait_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
 	return async_run_on(target, [proc = std::move(proc)]() mutable { return proc.wait(); });
-}
-
-export template<typename Target>
-[[nodiscard]] auto wait_async_in(
-	Target &target,
-	Process proc) -> conflux::work::root::Task<int> {
-	return async_wait_in(target, std::move(proc));
 }
 
 } // namespace conflux::process

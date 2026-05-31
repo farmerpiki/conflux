@@ -221,7 +221,7 @@ TEST_CASE(
 	CHECK(result->exit_code == 0);
 }
 TEST_CASE(
-	"process: run_in uses work pool",
+	"process: async_run_in uses work pool",
 	"[process]") {
 	WorkPool pool;
 	auto result = sync_wait(conflux::process::async_run_in(pool, "/bin/echo", {"hello from pool"}));
@@ -231,7 +231,7 @@ TEST_CASE(
 	CHECK(result->stderr_out.empty());
 }
 TEST_CASE(
-	"process: spawn_in and wait_in use work pool",
+	"process: async_spawn_in and async_wait_in use work pool",
 	"[process]") {
 	WorkPool pool;
 	auto proc = sync_wait(conflux::process::async_spawn_in(pool, "/bin/sleep", {"0"}));
