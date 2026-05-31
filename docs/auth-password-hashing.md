@@ -101,7 +101,7 @@ auto verified = password_verify(password, encoded, opts, *secrets);
 The secret must be stable across restarts and deployments that need to verify old
 rows. Store it separately from DB password hashes: env/secret manager/KMS-backed
 config, not in the user table. The default config has no production secret;
-helpers such as `password_hash_secrets_from_config`, `jwt_options_from_config`,
+helpers such as `password_hash_secrets_from_config`, `conflux::http::jwt_options_from_config`,
 and `cookie_signing_options_from_config` return explicit missing-secret errors
 until a source is configured. JWT, cookie, and session secrets use typed rotation
 config: one active source plus optional previous sources for verification-only

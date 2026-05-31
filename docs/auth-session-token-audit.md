@@ -15,7 +15,7 @@ There is no server-side session store in the framework yet. Applications that ne
 
 ## JWT policy
 
-`JwtOptions` now separates compatibility defaults from stricter session-token policy knobs:
+`conflux::http::JwtOptions` now separates compatibility defaults from stricter session-token policy knobs:
 
 - `verify_exp`: reject expired tokens when `exp` exists.
 - `verify_nbf`: reject not-yet-valid tokens when `nbf` exists.
@@ -29,7 +29,7 @@ There is no server-side session store in the framework yet. Applications that ne
 Recommended session/bearer-token policy:
 
 ```cpp
-JwtOptions opts;
+conflux::http::JwtOptions opts;
 opts.secrets = resolve_secret_rotation(cfg.auth_secrets.jwt, "jwt").value();
 opts.require_exp = true;
 opts.require_iat = true;
@@ -54,10 +54,10 @@ Tokens without `exp` are still accepted by default for compatibility tests and n
 JWTs are stateless, so revocation requires one of these application-level strategies:
 
 1. Keep short access-token lifetimes and rotate the signing secret when broad invalidation is acceptable.
-2. Include `jti` and use `JwtOptions::revoked_jti` for targeted deny-list checks.
+2. Include `jti` and use `conflux::http::JwtOptions::revoked_jti` for targeted deny-list checks.
 3. Use opaque server-side session ids for high-control sessions; sign only the cookie envelope.
 
-`jwt_middleware` now benefits from these policy knobs because it delegates to `jwt_decode(opts)`.
+`conflux::http::jwt_middleware` now benefits from these policy knobs because it delegates to `conflux::http::jwt_decode(opts)`.
 
 ## Secret rotation
 

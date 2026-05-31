@@ -47,7 +47,7 @@ TEST_CASE(
 	Config cfg{};
 
 	CHECK_FALSE(password_hash_secrets_from_config(cfg).has_value());
-	CHECK_FALSE(jwt_options_from_config(cfg).has_value());
+	CHECK_FALSE(conflux::http::jwt_options_from_config(cfg).has_value());
 	CHECK_FALSE(conflux::http::cookie_signing_options_from_config(cfg).has_value());
 }
 
@@ -75,14 +75,14 @@ session_min_secret_bytes = 16
 	REQUIRE(password_secrets.has_value());
 	CHECK(password_secrets->verifier_secret == "password-pepper-16-bytes");
 
-	auto jwt_opts = jwt_options_from_config(cfg, JwtOptions{.verify_exp = false});
+	auto jwt_opts = conflux::http::jwt_options_from_config(cfg, conflux::http::JwtOptions{.verify_exp = false});
 	REQUIRE(jwt_opts.has_value());
 	CHECK(jwt_opts->secrets.active == "jwt-active-secret-16-bytes");
 	REQUIRE(jwt_opts->secrets.previous.size() == 1);
 	CHECK(jwt_opts->secrets.previous[0] == "jwt-old-secret-16-bytes");
 
-	auto old_token = jwt_sign(R"({"sub":"rotated"})", "jwt-old-secret-16-bytes");
-	auto decoded_old = jwt_decode(old_token, *jwt_opts);
+	auto old_token = conflux::http::jwt_sign(R"({"sub":"rotated"})", "jwt-old-secret-16-bytes");
+	auto decoded_old = conflux::http::jwt_decode(old_token, *jwt_opts);
 	REQUIRE(decoded_old.has_value());
 	CHECK(decoded_old->sub == "rotated");
 

@@ -1354,6 +1354,54 @@ if(TARGET conflux_http_auth)
         EXPECT "bearer_auth_middleware")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_claims
+        SOURCE http_auth_compile_fail_global_jwt_claims.cxx
+        TEST http-auth/compile-fail-global-jwt-claims
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "JwtClaims")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_options
+        SOURCE http_auth_compile_fail_global_jwt_options.cxx
+        TEST http-auth/compile-fail-global-jwt-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "JwtOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_options_from_config
+        SOURCE http_auth_compile_fail_global_jwt_options_from_config.cxx
+        TEST http-auth/compile-fail-global-jwt-options-from-config
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "jwt_options_from_config")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_sign
+        SOURCE http_auth_compile_fail_global_jwt_sign.cxx
+        TEST http-auth/compile-fail-global-jwt-sign
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "jwt_sign")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_decode
+        SOURCE http_auth_compile_fail_global_jwt_decode.cxx
+        TEST http-auth/compile-fail-global-jwt-decode
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "jwt_decode")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_jwt_middleware
+        SOURCE http_auth_compile_fail_global_jwt_middleware.cxx
+        TEST http-auth/compile-fail-global-jwt-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "jwt_middleware")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_auth_compile_fail_global_cookie_signing_options
         SOURCE http_auth_compile_fail_global_cookie_signing_options.cxx
         TEST http-auth/compile-fail-global-cookie-signing-options

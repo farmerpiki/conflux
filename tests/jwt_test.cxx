@@ -17,13 +17,13 @@ TEST_CASE(
 	"[jwt]") {
 	std::string const secret = "test-secret-key-32bytes";
 	std::string const payload = R"({"sub":"user1","iss":"test"})";
-	auto token = jwt_sign(payload, secret);
+	auto token = conflux::http::jwt_sign(payload, secret);
 
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
-	auto result = jwt_decode(token, opts);
+	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->sub == "user1");
 	CHECK(result->iss == "test");
@@ -38,13 +38,13 @@ TEST_CASE(
 	std::string const secret = "my-secret-key-32bytes";
 	std::string const header = R"({"alg":"HS256","typ":"JWT","kid":"key-42"})";
 	std::string const payload = R"({"sub":"admin","iss":"ghost"})";
-	auto token = jwt_sign(header, payload, secret);
+	auto token = conflux::http::jwt_sign(header, payload, secret);
 
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
-	auto result = jwt_decode(token, opts);
+	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	CHECK(result->sub == "admin");
 	CHECK(result->iss == "ghost");
@@ -55,7 +55,7 @@ TEST_CASE(
 	std::string const secret = "secret-key-32bytes";
 	std::string const header = R"({"alg":"HS256","typ":"JWT","kid":"key-99"})";
 	std::string const payload = R"({"sub":"x"})";
-	auto token = jwt_sign(header, payload, secret);
+	auto token = conflux::http::jwt_sign(header, payload, secret);
 
 	auto dot1 = token.find('.');
 	REQUIRE(dot1 != std::string::npos);
@@ -67,12 +67,12 @@ TEST_CASE(
 	"jwt: wrong secret fails verification",
 	"[jwt]") {
 	std::string const payload = R"({"sub":"u"})";
-	auto token = jwt_sign(payload, "correct-secret-32bytes");
+	auto token = conflux::http::jwt_sign(payload, "correct-secret-32bytes");
 
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation("wrong-secret-32bytes");
 	opts.verify_exp = false;
-	auto result = jwt_decode(token, opts);
+	auto result = conflux::http::jwt_decode(token, opts);
 	CHECK(!result.has_value());
 }
 
@@ -91,32 +91,32 @@ TEST_CASE(
 	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
 
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.require_exp = true;
 	opts.require_iat = true;
 	opts.require_jti = true;
 	opts.max_token_lifetime = std::chrono::minutes{5};
 
-	auto missing_claims = jwt_decode(jwt_sign(R"({"sub":"u"})", secret), opts);
+	auto missing_claims = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u"})", secret), opts);
 	REQUIRE_FALSE(missing_claims.has_value());
 	CHECK(missing_claims.error() == "missing exp claim");
 
-	auto valid = jwt_decode(
-		jwt_sign(std::format(R"({{"sub":"u","jti":"active","iat":{},"exp":{}}})", now, now + 120), secret),
+	auto valid = conflux::http::jwt_decode(
+		conflux::http::jwt_sign(std::format(R"({{"sub":"u","jti":"active","iat":{},"exp":{}}})", now, now + 120), secret),
 		opts);
 	REQUIRE(valid.has_value());
 	CHECK(valid->jti == "active");
 
-	auto too_long = jwt_decode(
-		jwt_sign(std::format(R"({{"sub":"u","jti":"long","iat":{},"exp":{}}})", now, now + 600), secret),
+	auto too_long = conflux::http::jwt_decode(
+		conflux::http::jwt_sign(std::format(R"({{"sub":"u","jti":"long","iat":{},"exp":{}}})", now, now + 600), secret),
 		opts);
 	REQUIRE_FALSE(too_long.has_value());
 	CHECK(too_long.error() == "token lifetime too long");
 
 	opts.revoked_jti = [](std::string_view jti) { return jti == "revoked"; };
-	auto revoked = jwt_decode(
-		jwt_sign(std::format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
+	auto revoked = conflux::http::jwt_decode(
+		conflux::http::jwt_sign(std::format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
 		opts);
 	REQUIRE_FALSE(revoked.has_value());
 	CHECK(revoked.error() == "token revoked");
@@ -128,19 +128,19 @@ TEST_CASE(
 	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
 	auto token =
-		jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
+		conflux::http::jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
 
-	JwtOptions strict;
+	conflux::http::JwtOptions strict;
 	strict.secrets = single_secret_rotation(secret);
 	strict.require_exp = true;
 	strict.require_iat = true;
-	auto rejected = jwt_decode(token, strict);
+	auto rejected = conflux::http::jwt_decode(token, strict);
 	REQUIRE_FALSE(rejected.has_value());
 	CHECK(rejected.error() == "token expired");
 
-	JwtOptions skewed = strict;
+	conflux::http::JwtOptions skewed = strict;
 	skewed.clock_skew = std::chrono::seconds{60};
-	auto accepted = jwt_decode(token, skewed);
+	auto accepted = conflux::http::jwt_decode(token, skewed);
 	REQUIRE(accepted.has_value());
 	CHECK(accepted->sub == "u");
 }
@@ -149,20 +149,20 @@ TEST_CASE(
 	"jwt: negative registered time claims are rejected",
 	"[jwt][auth]") {
 	std::string const secret = "session-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
-	auto exp = jwt_decode(jwt_sign(R"({"sub":"u","exp":-1})", secret), opts);
+	auto exp = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","exp":-1})", secret), opts);
 	REQUIRE_FALSE(exp.has_value());
 	CHECK(exp.error() == "invalid exp claim");
 
-	auto nbf = jwt_decode(jwt_sign(R"({"sub":"u","nbf":-1})", secret), opts);
+	auto nbf = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","nbf":-1})", secret), opts);
 	REQUIRE_FALSE(nbf.has_value());
 	CHECK(nbf.error() == "invalid nbf claim");
 
-	auto iat = jwt_decode(jwt_sign(R"({"sub":"u","iat":-1})", secret), opts);
+	auto iat = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","iat":-1})", secret), opts);
 	REQUIRE_FALSE(iat.has_value());
 	CHECK(iat.error() == "invalid iat claim");
 }
@@ -171,23 +171,23 @@ TEST_CASE(
 	"jwt: adversarial malformed base64url segments are rejected",
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
 	SECTION("header") {
-		auto result = jwt_decode("###.eyJzdWIiOiJ1In0.ZmFrZQ", opts);
+		auto result = conflux::http::jwt_decode("###.eyJzdWIiOiJ1In0.ZmFrZQ", opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "invalid header encoding");
 	}
 	SECTION("payload") {
-		auto result = jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.###.ZmFrZQ", opts);
+		auto result = conflux::http::jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.###.ZmFrZQ", opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "invalid payload encoding");
 	}
 	SECTION("signature") {
-		auto result = jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.###", opts);
+		auto result = conflux::http::jwt_decode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.###", opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "invalid signature encoding");
 	}
@@ -197,26 +197,26 @@ TEST_CASE(
 	"jwt: adversarial algorithm confusion attempts are rejected",
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
 	SECTION("alg none with valid HMAC is still rejected") {
-		auto token = jwt_sign(R"({"alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(R"({"alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "unsupported algorithm (only HS256 supported)");
 	}
 	SECTION("RS256 header with valid HMAC is still rejected") {
-		auto token = jwt_sign(R"({"alg":"RS256","typ":"JWT"})", R"({"sub":"u"})", secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(R"({"alg":"RS256","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "unsupported algorithm (only HS256 supported)");
 	}
 	SECTION("duplicate alg header is rejected before choosing either value") {
-		auto token = jwt_sign(R"({"alg":"HS256","alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(R"({"alg":"HS256","alg":"none","typ":"JWT"})", R"({"sub":"u"})", secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "duplicate alg claim");
 	}
@@ -226,27 +226,27 @@ TEST_CASE(
 	"jwt: adversarial duplicate registered claims are rejected",
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
 	SECTION("duplicate subject") {
-		auto token = jwt_sign(R"({"sub":"victim","sub":"attacker"})", secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(R"({"sub":"victim","sub":"attacker"})", secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "duplicate sub claim");
 	}
 	SECTION("duplicate expiration") {
 		auto const now = jwt_test_now();
-		auto token = jwt_sign(std::format(R"({{"sub":"u","exp":{},"exp":1}})", now + 3600), secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(std::format(R"({{"sub":"u","exp":{},"exp":1}})", now + 3600), secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "duplicate exp claim");
 	}
 	SECTION("nested object keys with the same spelling are not treated as duplicate top-level claims") {
-		auto token = jwt_sign(R"({"sub":"u","nested":{"sub":"inner"}})", secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(R"({"sub":"u","nested":{"sub":"inner"}})", secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE(result.has_value());
 		CHECK(result->sub == "u");
 	}
@@ -256,18 +256,18 @@ TEST_CASE(
 	"jwt: registered claims use strict JSON decoding",
 	"[jwt][auth][security]") {
 	std::string const secret = "strict-json-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
-	auto decoded = jwt_decode(jwt_sign(R"({"sub":"user\u0031","iss":"issuer\u002dA"})", secret), opts);
+	auto decoded = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"user\u0031","iss":"issuer\u002dA"})", secret), opts);
 	REQUIRE(decoded.has_value());
 	CHECK(decoded->sub == "user1");
 	CHECK(decoded->iss == "issuer-A");
 
 	opts.audience = "api-v1";
-	auto audience = jwt_decode(jwt_sign(R"({"sub":"u","aud":["api\u002dv1"]})", secret), opts);
+	auto audience = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","aud":["api\u002dv1"]})", secret), opts);
 	REQUIRE(audience.has_value());
 }
 
@@ -275,12 +275,12 @@ TEST_CASE(
 	"jwt: unicode-escaped duplicate registered claim is rejected",
 	"[jwt][auth][security]") {
 	std::string const secret = "strict-json-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 
-	auto result = jwt_decode(jwt_sign(R"({"sub":"victim","\u0073ub":"attacker"})", secret), opts);
+	auto result = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"victim","\u0073ub":"attacker"})", secret), opts);
 	REQUIRE_FALSE(result.has_value());
 	CHECK(result.error() == "duplicate sub claim");
 }
@@ -289,7 +289,7 @@ TEST_CASE(
 	"jwt: adversarial missing and huge timestamp claims are rejected by strict policy",
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
@@ -298,30 +298,30 @@ TEST_CASE(
 	opts.max_token_lifetime = std::chrono::minutes{5};
 
 	SECTION("missing exp") {
-		auto result = jwt_decode(jwt_sign(std::format(R"({{"sub":"u","iat":{}}})", jwt_test_now()), secret), opts);
+		auto result = conflux::http::jwt_decode(conflux::http::jwt_sign(std::format(R"({{"sub":"u","iat":{}}})", jwt_test_now()), secret), opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "missing exp claim");
 	}
 	SECTION("missing iat") {
-		auto result = jwt_decode(jwt_sign(std::format(R"({{"sub":"u","exp":{}}})", jwt_test_now() + 60), secret), opts);
+		auto result = conflux::http::jwt_decode(conflux::http::jwt_sign(std::format(R"({{"sub":"u","exp":{}}})", jwt_test_now() + 60), secret), opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "missing iat claim");
 	}
 	SECTION("out-of-range exp") {
-		auto result = jwt_decode(jwt_sign(R"({"sub":"u","iat":1,"exp":999999999999999999999999999999})", secret), opts);
+		auto result = conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","iat":1,"exp":999999999999999999999999999999})", secret), opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "invalid exp claim");
 	}
 	SECTION("out-of-range iat") {
 		auto result =
-			jwt_decode(jwt_sign(R"({"sub":"u","iat":999999999999999999999999999999,"exp":9999999999})", secret), opts);
+			conflux::http::jwt_decode(conflux::http::jwt_sign(R"({"sub":"u","iat":999999999999999999999999999999,"exp":9999999999})", secret), opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "invalid iat claim");
 	}
 	SECTION("future lifetime exceeds cap") {
 		auto const now = jwt_test_now();
-		auto token = jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{}}})", now, now + 86400), secret);
-		auto result = jwt_decode(token, opts);
+		auto token = conflux::http::jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{}}})", now, now + 86400), secret);
+		auto result = conflux::http::jwt_decode(token, opts);
 		REQUIRE_FALSE(result.has_value());
 		CHECK(result.error() == "token lifetime too long");
 	}
@@ -332,15 +332,15 @@ TEST_CASE(
 	"[jwt][auth][security]") {
 	std::string const secret = "adversarial-jwt-secret-32bytes";
 	std::string const payload = std::format(R"({{"sub":"u","blob":"{}"}})", std::string(2048, 'x'));
-	auto token = jwt_sign(payload, secret);
+	auto token = conflux::http::jwt_sign(payload, secret);
 
-	JwtOptions opts;
+	conflux::http::JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 	opts.max_token_bytes = 512;
 
-	auto result = jwt_decode(token, opts);
+	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE_FALSE(result.has_value());
 	CHECK(result.error() == "token too large");
 }

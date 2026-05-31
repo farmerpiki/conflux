@@ -16,7 +16,9 @@ import conflux.json;
 // Public types
 // ---------------------------------------------------------------------------
 
-export struct JwtClaims {
+export namespace conflux::http {
+
+struct JwtClaims {
 	std::string sub{};
 	std::string iss{};
 	std::string jti{};
@@ -25,7 +27,7 @@ export struct JwtClaims {
 	std::int64_t iat{};
 	std::string raw{}; // full decoded payload JSON (for custom claims)
 };
-export struct JwtOptions {
+struct JwtOptions {
 	conflux::http::ResolvedSecretRotation secrets{}; // active HMAC-SHA256 secret plus previous rotation secrets
 	std::string issuer{}; // std::expected iss claim; "" = skip check
 	std::string audience{}; // std::expected aud claim; "" = skip check
@@ -39,6 +41,8 @@ export struct JwtOptions {
 	std::function<bool(std::string_view)> revoked_jti{}; // optional revocation lookup; true = reject token
 	std::size_t max_token_bytes{16U * 1024U}; // 0 = disabled; bounds bearer-token abuse before decoding
 };
+
+} // namespace conflux::http
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -179,10 +183,12 @@ namespace jwt_detail {
 // Public API
 // ---------------------------------------------------------------------------
 
-export std::string jwt_sign(std::string_view payload_json, std::string_view secret);
-export std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
+export namespace conflux::http {
 
-export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
+std::string jwt_sign(std::string_view payload_json, std::string_view secret);
+std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
+
+[[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	conflux::http::AuthSecretsConfig const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
@@ -194,7 +200,7 @@ export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_con
 	return base;
 }
 
-export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
+[[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	conflux::http::Config const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
@@ -202,7 +208,7 @@ export [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_con
 }
 
 // Decode and verify a JWT.  Returns JwtClaims on success, error string on failure.
-export std::expected<JwtClaims, std::string> jwt_decode(
+std::expected<JwtClaims, std::string> jwt_decode(
 	std::string_view token,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
@@ -341,7 +347,7 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 }
 // Sign a payload JSON std::string and return a complete JWT.
 // payload_json must be a valid JSON object std::string, e.g. R"({"sub":"user1","exp":9999999999})".
-export std::expected<std::string, std::string> jwt_sign(
+std::expected<std::string, std::string> jwt_sign(
 	std::string_view payload_json,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
@@ -349,7 +355,7 @@ export std::expected<std::string, std::string> jwt_sign(
 	}
 	return jwt_sign(payload_json, opts.secrets.active);
 }
-export std::string jwt_sign(
+std::string jwt_sign(
 	std::string_view payload_json,
 	std::string_view secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
@@ -363,7 +369,7 @@ export std::string jwt_sign(
 
 	return signing_input + '.' + sig_b64;
 }
-export std::expected<std::string, std::string> jwt_sign(
+std::expected<std::string, std::string> jwt_sign(
 	std::string_view header_json,
 	std::string_view payload_json,
 	JwtOptions const &opts) {
@@ -372,7 +378,7 @@ export std::expected<std::string, std::string> jwt_sign(
 	}
 	return jwt_sign(header_json, payload_json, opts.secrets.active);
 }
-export std::string jwt_sign(
+std::string jwt_sign(
 	std::string_view header_json,
 	std::string_view payload_json,
 	std::string_view secret) {
@@ -388,7 +394,7 @@ export std::string jwt_sign(
 // Middleware: verify the Bearer JWT in Authorization header.
 // On success: injects jwt_sub, jwt_iss, jwt_payload into a copy of the request params.
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
-export conflux::http::Router::Middleware jwt_middleware(
+conflux::http::Router::Middleware jwt_middleware(
 	JwtOptions opts) {
 	return [opts = std::move(
 				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
@@ -416,3 +422,5 @@ export conflux::http::Router::Middleware jwt_middleware(
 		return next(modified);
 	};
 }
+
+} // namespace conflux::http
