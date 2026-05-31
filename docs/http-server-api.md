@@ -591,8 +591,7 @@ auto report = server.drain(opts);
 behavior. `app.prepare_server(...)` returns a constructed `conflux::http::HttpServer` through
 the fallible setup path without binding/listening until `run()` is called; use it
 when a controller thread needs to call `port()`, `metrics()`, `drain()`, or
-`shutdown()`. `app.listen(...)` remains a compatibility alias for
-`prepare_server(...)`.
+`shutdown()`.
 
 | Situation | Default behavior | Config knob | Metric |
 |---|---|---|---|

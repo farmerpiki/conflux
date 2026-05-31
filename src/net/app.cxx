@@ -2718,10 +2718,6 @@ public:
 		AppRunOptions opts = {}) && {
 		return std::move(*this).try_server(opts);
 	}
-	[[nodiscard]] std::expected<std::unique_ptr<HttpServer>, std::string> listen(
-		AppRunOptions opts = {}) && {
-		return std::move(*this).prepare_server(opts);
-	}
 	[[nodiscard]] std::expected<RunStatus, std::string> try_run(
 		AppRunOptions opts = {}) && {
 		auto srv = std::move(*this).try_server(opts);

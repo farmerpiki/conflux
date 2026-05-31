@@ -54,8 +54,8 @@ export namespace conflux::http::detail {
 
 template<class T>
 [[nodiscard]] std::string schema_json_or_object() {
-	if constexpr (requires { schema_for<std::remove_cvref_t<T>>(); }) {
-		auto schema = schema_for<std::remove_cvref_t<T>>();
+	if constexpr (requires { conflux::json::schema_for<std::remove_cvref_t<T>>(); }) {
+		auto schema = conflux::json::schema_for<std::remove_cvref_t<T>>();
 		if (!schema) {
 			return R"({"type":"object"})";
 		}
