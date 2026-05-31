@@ -9,7 +9,9 @@ import conflux.socket_io;
 
 namespace wroot = conflux::work::root;
 
-export struct ProxyOptions {
+export namespace conflux::http {
+
+struct ProxyOptions {
 	std::string upstream_host;
 	std::uint16_t upstream_port{80};
 	std::string path_prefix{};
@@ -18,7 +20,9 @@ export struct ProxyOptions {
 	int timeout_sec{10};
 };
 
-export conflux::http::Response blocking_proxy(conflux::http::RequestView const &req, ProxyOptions const &opts);
+conflux::http::Response blocking_proxy(conflux::http::RequestView const &req, ProxyOptions const &opts);
 
-export wroot::Task<conflux::http::Response>
+wroot::Task<conflux::http::Response>
 async_proxy(conflux::http::RequestView const &req, ProxyOptions const &opts, SocketTaskRing &ring);
+
+} // namespace conflux::http

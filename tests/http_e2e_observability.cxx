@@ -440,7 +440,7 @@ TEST_CASE(
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = s_upstream->port(),
 			.preserve_host = true,
@@ -450,7 +450,7 @@ TEST_CASE(
 			"/echo",
 			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -472,7 +472,7 @@ TEST_CASE(
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = s_upstream->port(),
 			.preserve_host = true,
@@ -482,7 +482,7 @@ TEST_CASE(
 			"/echo",
 			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -505,7 +505,7 @@ TEST_CASE(
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = s_upstream->port(),
 		};
@@ -514,7 +514,7 @@ TEST_CASE(
 			"/echo",
 			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -543,7 +543,7 @@ TEST_CASE(
 		upstream.get("/api_v2/users", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("/api_v2/users"); });
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = s_upstream->port(),
 			.path_prefix = "/api",
@@ -553,21 +553,21 @@ TEST_CASE(
 			"/api",
 			[popts](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		front.add_context(
 			"GET",
 			"/api/users",
 			[popts](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		front.add_context(
 			"GET",
 			"/api_v2/users",
 			[popts](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});
@@ -595,7 +595,7 @@ TEST_CASE(
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = s_upstream->port(),
 		};
@@ -604,7 +604,7 @@ TEST_CASE(
 			"/xff",
 			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		s_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 	});

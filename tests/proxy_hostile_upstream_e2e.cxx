@@ -185,12 +185,12 @@ ScopedTestServer proxy_server_for(
 	HostileUpstream const &upstream,
 	int timeout_sec = 2) {
 	conflux::http::Router front;
-	auto popts = ProxyOptions{
+	auto popts = conflux::http::ProxyOptions{
 		.upstream_host = "127.0.0.1",
 		.upstream_port = upstream.port(),
 		.timeout_sec = timeout_sec,
 	};
-	front.get("/proxy", [popts = std::move(popts)](conflux::http::RequestView const &req) { return blocking_proxy(req, popts); });
+	front.get("/proxy", [popts = std::move(popts)](conflux::http::RequestView const &req) { return conflux::http::blocking_proxy(req, popts); });
 	return ScopedTestServer{mw_config(), std::move(front)};
 }
 

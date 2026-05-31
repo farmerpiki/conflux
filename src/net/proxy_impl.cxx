@@ -15,7 +15,7 @@ using http::HttpClient;
 using http::HttpClientOptions;
 using http::HttpTimeouts;
 
-namespace proxy_detail {
+namespace conflux::http::proxy_detail {
 
 [[nodiscard]] static bool path_prefix_matches_segment(
 	std::string_view path,
@@ -27,7 +27,7 @@ namespace proxy_detail {
 
 [[nodiscard]] static std::string build_upstream_url(
 	std::string_view path,
-	ProxyOptions const &opts) {
+	conflux::http::ProxyOptions const &opts) {
 	std::string up_path{path};
 	if (path_prefix_matches_segment(up_path, opts.path_prefix)) {
 		up_path.erase(0, opts.path_prefix.size());
@@ -40,7 +40,7 @@ namespace proxy_detail {
 }
 
 [[nodiscard]] static HttpClientOptions make_client_opts(
-	ProxyOptions const &opts) {
+	conflux::http::ProxyOptions const &opts) {
 	HttpTimeouts t{};
 	t.connect = std::chrono::milliseconds{opts.timeout_sec * 1000};
 	t.first_byte = std::chrono::milliseconds{opts.timeout_sec * 1000};
@@ -53,7 +53,7 @@ namespace proxy_detail {
 [[nodiscard]] static http::ClientRequest::Builder apply_headers(
 	http::ClientRequest::Builder builder,
 	conflux::http::RequestView const &req,
-	ProxyOptions const &opts) {
+	conflux::http::ProxyOptions const &opts) {
 	for (auto const &[name, value]: req.headers) {
 		if (conflux::http::ascii_iequals(name, "host")) {
 			continue;
@@ -94,7 +94,7 @@ namespace proxy_detail {
 
 [[nodiscard]] conflux::http::Response perform_proxy_request(
 	conflux::http::RequestView const &req,
-	ProxyOptions const &opts) {
+	conflux::http::ProxyOptions const &opts) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
 	HttpClient client{std::move(co)};
@@ -111,7 +111,7 @@ namespace proxy_detail {
 
 [[nodiscard]] wroot::Task<conflux::http::Response> perform_proxy_request_async(
 	conflux::http::RequestView const &req,
-	ProxyOptions const &opts,
+	conflux::http::ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
@@ -127,17 +127,21 @@ namespace proxy_detail {
 	co_return build_response(std::move(*result));
 }
 
-} // namespace proxy_detail
+} // namespace conflux::http::proxy_detail
+
+namespace conflux::http {
 
 conflux::http::Response blocking_proxy(
 	conflux::http::RequestView const &req,
-	ProxyOptions const &opts) {
+	conflux::http::ProxyOptions const &opts) {
 	return proxy_detail::perform_proxy_request(req, opts);
 }
 
 wroot::Task<conflux::http::Response> async_proxy(
 	conflux::http::RequestView const &req,
-	ProxyOptions const &opts,
+	conflux::http::ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	co_return co_await proxy_detail::perform_proxy_request_async(req, opts, ring);
 }
+
+} // namespace conflux::http

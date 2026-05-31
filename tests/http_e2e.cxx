@@ -440,7 +440,7 @@ void ensure_redirect_follow_servers() {
 		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
 
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_redirect_follow_source_port,
 		};
@@ -1262,7 +1262,7 @@ void ensure_proxy_server() {
 		g_proxy_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 
 		conflux::http::Router front;
-		auto popts = ProxyOptions{
+		auto popts = conflux::http::ProxyOptions{
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_proxy_upstream->port(),
 			.path_prefix = "/proxy",
@@ -1272,7 +1272,7 @@ void ensure_proxy_server() {
 			"/proxy/ping",
 			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
 				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await async_proxy(req, popts, ctx.ring);
+				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
 			});
 		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
 		g_proxy_port = g_proxy_front->port();
