@@ -26,23 +26,22 @@ struct Config {
 	std::size_t depth = 64;
 	std::string config_name = "depth_64";
 	bool json_out = false;
+	BenchArgs bench;
 };
 
 Config parse_args(
 	std::span<char *> args) {
 	Config cfg;
+	auto base = bench_parse_args(args);
+	cfg.iterations = base.iterations;
+	cfg.warmup = base.warmup;
+	cfg.config_name = std::move(base.config_name);
+	cfg.json_out = base.json_out;
+	cfg.bench = std::move(base);
 	for (std::size_t i = 1; i < args.size(); ++i) {
 		std::string_view const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = bench_parse_sz(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = bench_parse_sz(args[++i]);
-		} else if (a == "--depth" && i + 1 < args.size()) {
+		if (a == "--depth" && i + 1 < args.size()) {
 			cfg.depth = bench_parse_sz(args[++i]);
-		} else if (a == "--config-name" && i + 1 < args.size()) {
-			cfg.config_name = args[++i];
-		} else if (a == "--json") {
-			cfg.json_out = true;
 		}
 	}
 	cfg.depth = std::max<std::size_t>(1, cfg.depth);
@@ -71,57 +70,58 @@ void submit_nops(
 
 BenchStats bench_nop_submit_cqe(
 	io_uring &ring,
-	Config const &cfg,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
-		submit_nops(ring, cfg.depth);
-		bench_drain_raw_cqes(ring, cfg.depth);
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	return {cfg.config_name, "nop_submit_cqe"sv, ops, elapsed, static_cast<double>(elapsed) / static_cast<double>(ops)};
+	Config const &cfg) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
+	auto stats = bench_measure_batched(
+		[&] {
+			submit_nops(ring, cfg.depth);
+			bench_drain_raw_cqes(ring, cfg.depth);
+		},
+		plan);
+	stats.config = cfg.config_name;
+	stats.variant = "nop_submit_cqe"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 BenchStats bench_timeout_remove_miss(
 	io_uring &ring,
 	conflux::uring::CompletionTable &completions,
-	Config const &cfg,
-	bool warmup) {
-	std::size_t const batches = warmup ? cfg.warmup : cfg.iterations;
+	Config const &cfg) {
+	BenchSamplePlan const plan = bench_sample_plan(cfg.iterations, cfg.warmup, cfg.bench.samples, cfg.bench.batch);
 	std::uint64_t tag = 0xC0FFEEULL;
-	auto const t0 = bench_now_ns();
-	for (std::size_t batch = 0; batch < batches; ++batch) {
-		std::vector<root::Task<void>> tasks;
-		tasks.reserve(cfg.depth);
-		for (std::size_t i = 0; i < cfg.depth; ++i) {
-			tasks.push_back(
-				conflux::uring::async_timeout_remove(
-					&ring,
-					completions,
-					[](std::uint32_t slot, std::uint32_t gen) noexcept { return bench_pack_ud(slot, gen); },
-					tag++));
-		}
-		bench_dispatch_cqes(ring, completions, cfg.depth);
-		for (auto &task: tasks) {
-			auto outcome = root::blocking_join(std::move(task));
-			if (outcome.is_failure()) {
-				std::rethrow_exception(std::move(outcome).failure().error);
+	auto stats = bench_measure_batched(
+		[&] {
+			std::vector<root::Task<void>> tasks;
+			tasks.reserve(cfg.depth);
+			for (std::size_t i = 0; i < cfg.depth; ++i) {
+				tasks.push_back(
+					conflux::uring::async_timeout_remove(
+						&ring,
+						completions,
+						[](std::uint32_t slot, std::uint32_t gen) noexcept { return bench_pack_ud(slot, gen); },
+						tag++));
 			}
-			if (outcome.is_cancelled()) {
-				throw std::runtime_error{"timeout_remove miss cancelled"};
+			bench_dispatch_cqes(ring, completions, cfg.depth);
+			for (auto &task: tasks) {
+				auto outcome = root::blocking_join(std::move(task));
+				if (outcome.is_failure()) {
+					std::rethrow_exception(std::move(outcome).failure().error);
+				}
+				if (outcome.is_cancelled()) {
+					throw std::runtime_error{"timeout_remove miss cancelled"};
+				}
 			}
-		}
-	}
-	auto const elapsed = bench_now_ns() - t0;
-	std::size_t const ops = batches * cfg.depth;
-	return {
-		cfg.config_name,
-		"timeout_remove_miss"sv,
-		ops,
-		elapsed,
-		static_cast<double>(elapsed) / static_cast<double>(ops)};
+		},
+		plan);
+	stats.config = cfg.config_name;
+	stats.variant = "timeout_remove_miss"sv;
+	stats.iterations *= cfg.depth;
+	stats.ns_per_iter /= static_cast<double>(cfg.depth);
+	stats.batch *= cfg.depth;
+	return stats;
 }
 
 } // namespace
@@ -143,11 +143,9 @@ int main(
 
 	try {
 		conflux::uring::CompletionTable completions{cfg.depth * 2U};
-		(void)bench_nop_submit_cqe(ring, cfg, true);
-		(void)bench_timeout_remove_miss(ring, completions, cfg, true);
 		BenchStats stats[]{
-			bench_nop_submit_cqe(ring, cfg, false),
-			bench_timeout_remove_miss(ring, completions, cfg, false),
+			bench_nop_submit_cqe(ring, cfg),
+			bench_timeout_remove_miss(ring, completions, cfg),
 		};
 		for (std::size_t i = 0; i < std::size(stats); ++i) {
 			bench_print(stats[i], cfg.json_out, i == 0);
