@@ -4122,9 +4122,6 @@ template<class T>
 		++c.p;
 		for (std::size_t i = 0; i < N; ++i) {
 			c.skip_ws();
-			if (c.at_end()) {
-				return FpStatus::bail;
-			}
 			FpStatus st{};
 			if constexpr (std::floating_point<E>) {
 				st = fp_parse_floating<E>(c, out[i]);
