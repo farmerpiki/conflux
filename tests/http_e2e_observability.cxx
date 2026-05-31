@@ -818,7 +818,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(csrf_middleware({.protected_methods = {"POST"}}));
+		router.use(conflux::http::csrf_middleware({.protected_methods = {"POST"}}));
 		router.get("/page", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("<form>"); });
 		router.del("/resource", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("deleted"); });
 		port = start_mw_server(mw_config(), std::move(router));

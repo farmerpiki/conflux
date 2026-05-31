@@ -1216,6 +1216,24 @@ if(TARGET conflux_http_observability)
         EXPECT "format_pressure_metrics_prometheus")
 endif()
 
+if(TARGET conflux_http_auth)
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_csrf_options
+        SOURCE http_auth_compile_fail_global_csrf_options.cxx
+        TEST http-auth/compile-fail-global-csrf-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "CsrfOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_csrf_middleware
+        SOURCE http_auth_compile_fail_global_csrf_middleware.cxx
+        TEST http-auth/compile-fail-global-csrf-middleware
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "csrf_middleware")
+endif()
+
 if(TARGET conflux_http_policy)
     conflux_add_compile_fail_test(
         TARGET conflux_http_middleware_compile_fail_global_cors_options

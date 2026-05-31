@@ -74,7 +74,7 @@ int main() {
 	}));
 	app.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
 	app.use(cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
-	app.use(csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
+	app.use(conflux::http::csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(conflux::http::etag_middleware({.weak = true}));
 	app.use(conflux::http::response_cache_middleware({
 		.max_entries = 64,

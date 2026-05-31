@@ -12,6 +12,8 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 import conflux.utils;
+export namespace conflux::http {
+
 namespace csrf_detail {
 
 std::string generate_token() {
@@ -21,7 +23,7 @@ std::string generate_token() {
 }
 
 } // namespace csrf_detail
-export struct CsrfOptions {
+struct CsrfOptions {
 	// Name of the cookie that stores the CSRF token.
 	std::string cookie_name{"csrf_token"};
 	// conflux::http::OwnedRequest header the client must echo the token in.
@@ -37,7 +39,7 @@ export struct CsrfOptions {
 // Safe methods (GET, HEAD, OPTIONS) are passed through; the CSRF cookie is
 // set/refreshed on every response.  Protected methods are rejected with 403
 // when the submitted token does not match the cookie.
-export conflux::http::Router::Middleware csrf_middleware(
+Router::Middleware csrf_middleware(
 	CsrfOptions opts = {}) {
 	std::string lower_cookie = ascii_lower(opts.cookie_name);
 	std::string lower_header = ascii_lower(opts.header_name);
@@ -81,3 +83,5 @@ export conflux::http::Router::Middleware csrf_middleware(
 		return resp;
 	};
 }
+
+} // namespace conflux::http

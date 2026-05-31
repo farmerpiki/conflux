@@ -1063,7 +1063,7 @@ void ensure_csrf_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		conflux::http::Router router;
-		router.use(csrf_middleware());
+		router.use(conflux::http::csrf_middleware());
 		router.get("/page", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("<form>"); });
 		router.post("/submit", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 		g_csrf_port = start_mw_server(mw_config(), std::move(router));
