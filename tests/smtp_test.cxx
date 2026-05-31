@@ -122,7 +122,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	SmtpClient cli;
+	conflux::smtp::SmtpClient cli;
 	cli.set_timeout(5);
 	REQUIRE(cli.connect("127.0.0.1", port));
 	auto eh = cli.ehlo("localhost");
@@ -182,7 +182,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	SmtpClient cli;
+	conflux::smtp::SmtpClient cli;
 	cli.set_timeout(5);
 	REQUIRE(cli.connect("127.0.0.1", port));
 	REQUIRE(cli.ehlo("localhost").has_value());
@@ -214,7 +214,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	SmtpClient cli;
+	conflux::smtp::SmtpClient cli;
 	cli.set_timeout(5);
 	REQUIRE(cli.connect("127.0.0.1", port));
 	auto reply = cli.ehlo("localhost");
@@ -254,14 +254,14 @@ TEST_CASE(
 		::close(c);
 	});
 
-	SmtpClient cli;
+	conflux::smtp::SmtpClient cli;
 	cli.set_timeout(5);
 	REQUIRE(cli.connect("127.0.0.1", port));
 	auto eh = cli.ehlo("localhost");
 	REQUIRE(eh.has_value());
 	REQUIRE(eh->code == 250);
 
-	SmtpClient moved = std::move(cli);
+	conflux::smtp::SmtpClient moved = std::move(cli);
 	// Return value is false because TLS handshake to a plain socket fails;
 	// what matters is whether the STARTTLS command was sent (i.e. ehlo_caps_ survived the move).
 	(void)moved.starttls("localhost", false);

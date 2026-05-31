@@ -15,20 +15,25 @@ import conflux.net.tls;
 import conflux.utils;
 import conflux.net.dns;
 import conflux.work;
-export struct SmtpError : std::runtime_error {
+export namespace conflux::smtp {
+
+struct SmtpError : std::runtime_error {
 	explicit SmtpError(
 		std::string const &msg)
 		: std::runtime_error{msg} {}
 };
-export struct SmtpReply {
+struct SmtpReply {
 	int code{0};
 	std::string text{};
 };
-export struct SmtpEnvelope {
+struct SmtpEnvelope {
 	std::string from{};
 	std::vector<std::string> to{};
 	std::string data{};
 };
+
+} // namespace conflux::smtp
+
 namespace smtp_detail {
 
 inline int try_connect_addr(
@@ -156,7 +161,10 @@ inline std::string dot_stuff(
 }
 
 } // namespace smtp_detail
-export class SmtpClient {
+
+export namespace conflux::smtp {
+
+class SmtpClient {
 	int fd_{-1};
 	int timeout_sec_{30};
 	bool tls_active_{false};
@@ -474,3 +482,5 @@ private:
 		rx_buf_.clear();
 	}
 };
+
+} // namespace conflux::smtp
