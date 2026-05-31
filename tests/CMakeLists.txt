@@ -2099,6 +2099,24 @@ if(TARGET conflux_net_cancel)
         EXPECT "ActiveTaskCancelRelay")
 endif()
 
+if(TARGET conflux_net_io_buffer)
+    conflux_add_compile_fail_test(
+        TARGET conflux_net_io_buffer_compile_fail_global_io_buffer
+        SOURCE net_io_buffer_compile_fail_global_io_buffer.cxx
+        TEST net-io-buffer/compile-fail-global-io-buffer
+        LINK conflux_net_io_buffer conflux_options
+        LABELS compile-fail
+        EXPECT "IoBuffer")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_net_io_buffer_compile_fail_global_io_plan
+        SOURCE net_io_buffer_compile_fail_global_io_plan.cxx
+        TEST net-io-buffer/compile-fail-global-io-plan
+        LINK conflux_net_io_buffer conflux_options
+        LABELS compile-fail
+        EXPECT "IoPlan")
+endif()
+
 if(TARGET conflux_http2)
     conflux_add_compile_fail_test(
         TARGET conflux_http2_compile_fail_global_configure_alpn

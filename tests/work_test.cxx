@@ -385,7 +385,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: IoBuffer from_string keeps std::string alive",
 	"[work]") {
-	IoBuffer const buf = IoBuffer::from_string("hello");
+	conflux::net::IoBuffer const buf = conflux::net::IoBuffer::from_string("hello");
 	CHECK(buf.bytes.size() == 5);
 	CHECK(buf.bytes[0] == std::byte{'h'});
 }

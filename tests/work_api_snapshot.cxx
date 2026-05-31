@@ -675,9 +675,9 @@ static_assert(std::is_same_v<
 
 namespace snapshot_net_io_buffer {
 
-using _IoBuffer = ::IoBuffer;
-static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
-using _BufferList = ::BufferList;
-using _IoPlan = ::IoPlan;
+using _IoBuffer = conflux::net::IoBuffer;
+static_assert(std::is_constructible_v<conflux::net::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
+using _BufferList = conflux::net::BufferList;
+using _IoPlan = conflux::net::IoPlan;
 
 } // namespace snapshot_net_io_buffer

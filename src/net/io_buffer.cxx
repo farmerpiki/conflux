@@ -6,7 +6,10 @@ import std;
 import conflux.types;
 import conflux.small_function;
 import conflux.work.root;
-export struct IoBuffer {
+
+export namespace conflux::net {
+
+struct IoBuffer {
 	std::span<std::byte const> bytes{};
 	std::shared_ptr<void const> owner{};
 
@@ -33,10 +36,10 @@ private:
 		: bytes{view}
 		, owner{std::move(keep_alive)} {}
 };
-export struct BufferList {
+struct BufferList {
 	std::vector<std::span<std::byte const>> segments{};
 };
-export struct IoPlan {
+struct IoPlan {
 	enum class Kind : std::uint8_t {
 		callback,
 	};
@@ -48,3 +51,5 @@ export struct IoPlan {
 		return IoPlan{.kind = Kind::callback, .callback = std::move(fn)};
 	}
 };
+
+} // namespace conflux::net
