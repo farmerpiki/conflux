@@ -12,7 +12,7 @@ TEST_CASE(
 	"json boundary: native provider dumps documents without HTTP depending on Document directly",
 	"[json][boundary]") {
 	static_assert(jb::JsonDocumentProvider<jb::NativeJsonProvider>);
-	static_assert(jb::JsonDumpProvider<jb::NativeJsonProvider, ::Document>);
+	static_assert(jb::JsonDumpProvider<jb::NativeJsonProvider, cj::Document>);
 	static_assert(jb::JsonDecodeProvider<jb::NativeJsonProvider, std::int64_t>);
 
 	auto doc = cj::parse_copy(std::string_view{R"({"ok":true,"n":42})"});

@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 std::expected<void, JsonError> JsonStringToken::append_decoded_to(
 	std::string &out) const {
 	if (unquoted_) {
@@ -1550,8 +1552,6 @@ void JsonArena::reset() noexcept {
 	mbr_.release(); // actually frees the slab
 	storage_ = std::make_unique<DocumentStorage>(&mbr_, hash_index_resource_);
 }
-namespace conflux::json {
-
 // Explicit owning parse: copies input into the Document's owned buffer.
 // Number lexemes index directly into that buffer (zero-copy on read paths).
 std::expected<Document, JsonError> parse_copy(
@@ -1661,9 +1661,7 @@ std::expected<Document, JsonError> parse(
 	return parse_borrowed(input, opts, resource);
 }
 
-} // namespace conflux::json
-
-namespace conflux::json::detail {
+namespace detail {
 
 [[nodiscard]] JsonError dom_policy_error(
 	std::string_view message) {
@@ -1684,9 +1682,7 @@ namespace conflux::json::detail {
 		dom_policy_error(std::format("{} called with incompatible JsonDomPolicy storage model", api_name)));
 }
 
-} // namespace conflux::json::detail
-
-namespace conflux::json {
+} // namespace detail
 
 [[nodiscard]] std::expected<Document, JsonError> parse_dom(
 	std::string_view input,

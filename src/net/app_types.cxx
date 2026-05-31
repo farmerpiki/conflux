@@ -616,7 +616,7 @@ struct OwnedBodyBytes {
 
 #if CONFLUX_HAS_JSON
 struct JsonDocument {
-	using value_type = Document;
+	using value_type = json::Document;
 
 	value_type value;
 
@@ -626,7 +626,7 @@ struct JsonDocument {
 };
 
 struct JsonPatch {
-	using value_type = Document;
+	using value_type = json::Document;
 
 	value_type value;
 
@@ -636,7 +636,7 @@ struct JsonPatch {
 };
 
 struct MergePatch {
-	using value_type = Document;
+	using value_type = json::Document;
 
 	value_type value;
 

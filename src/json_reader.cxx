@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 std::size_t utf8_seq_len(
 	unsigned char lead) noexcept {
 	// NOLINTBEGIN(readability-magic-numbers)
@@ -1700,3 +1702,5 @@ std::expected<JsonByteRange, JsonError> JsonReader::skip_next_value() {
 	}
 	return JsonByteRange{start, pos_};
 }
+
+} // namespace conflux::json

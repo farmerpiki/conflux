@@ -181,14 +181,14 @@ TmplValue tmpl_object_items(
 }
 // NOLINTNEXTLINE(misc-no-recursion)
 TmplValue node_to_tmpl(
-	NodeRef node) {
+	json::NodeRef node) {
 	switch (node.kind()) {
-	case JsonKind::null   : return {};
-	case JsonKind::boolean: return TmplValue{*node.as_bool()};
-	case JsonKind::number:
+	case json::JsonKind::null   : return {};
+	case json::JsonKind::boolean: return TmplValue{*node.as_bool()};
+	case json::JsonKind::number:
 		{
 			auto num = *node.as_number();
-			if (num.form() == JsonNumberForm::integer) {
+			if (num.form() == json::JsonNumberForm::integer) {
 				if (!num.lexeme().empty() && num.lexeme()[0] == '-') {
 					if (auto v = num.to_i64(); v) {
 						return TmplValue{*v};
@@ -207,8 +207,8 @@ TmplValue node_to_tmpl(
 			}
 			return {};
 		}
-	case JsonKind::string: return TmplValue{std::string{*node.as_string()}};
-	case JsonKind::array:
+	case json::JsonKind::string: return TmplValue{std::string{*node.as_string()}};
+	case json::JsonKind::array:
 		{
 			auto arr = *node.as_array();
 			TmplValue::Array vec;
@@ -216,7 +216,7 @@ TmplValue node_to_tmpl(
 			std::ranges::transform(arr.elements(), std::back_inserter(vec), node_to_tmpl);
 			return TmplValue{std::move(vec)};
 		}
-	case JsonKind::object:
+	case json::JsonKind::object:
 		{
 			auto obj = *node.as_object();
 			TmplValue::Object pairs;

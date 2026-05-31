@@ -236,10 +236,10 @@ public:
 	blocking_reload_all_checked(std::span<TemplateRenderCheckCase const> cases, TemplateRenderCheckOptions opts = {});
 	[[nodiscard]] std::string render(std::string const &name, std::string const &json_ctx) const;
 	[[nodiscard]] std::string render(std::string const &name, TmplValue const &ctx) const;
-	[[nodiscard]] std::string render(std::string const &name, NodeRef ctx) const;
+	[[nodiscard]] std::string render(std::string const &name, json::NodeRef ctx) const;
 	[[nodiscard]] std::string render_string(std::string const &source, std::string const &json_ctx) const;
 	[[nodiscard]] std::string render_string(std::string const &source, TmplValue const &ctx) const;
-	[[nodiscard]] std::string render_string(std::string const &source, NodeRef ctx) const;
+	[[nodiscard]] std::string render_string(std::string const &source, json::NodeRef ctx) const;
 
 private:
 	struct Impl;
@@ -335,7 +335,7 @@ namespace conflux::templates {
 std::string trim(std::string_view sv);
 std::vector<std::string> split_args(std::string_view s);
 CompiledExpr compile_expr(std::string const &expr);
-TmplValue node_to_tmpl(NodeRef n);
+TmplValue node_to_tmpl(json::NodeRef n);
 TmplValue const *obj_find(TmplValue const &obj, std::string_view key);
 std::vector<std::pair<std::string, std::optional<TmplValue>>>
 save_scope(TmplValue const &ctx, std::span<std::string const> names);

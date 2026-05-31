@@ -50,10 +50,10 @@ struct JwtOptions {
 namespace {
 
 std::string jwt_json_error(
-	JsonError const &err,
+	conflux::json::JsonError const &err,
 	std::string_view segment) {
 	static constexpr std::string_view kDuplicatePrefix = "duplicate member: ";
-	if (err.code == JsonIssueCode::duplicate_member) {
+	if (err.code == conflux::json::JsonIssueCode::duplicate_member) {
 		if (err.member_name) {
 			return std::format("duplicate {} claim", *err.member_name);
 		}
@@ -64,7 +64,7 @@ std::string jwt_json_error(
 	}
 	return std::format("invalid {} JSON: {}", segment, err.message);
 }
-std::expected<Document, std::string> parse_jwt_json(
+std::expected<conflux::json::Document, std::string> parse_jwt_json(
 	std::string_view input,
 	std::string_view segment) {
 	auto parsed = conflux::json::parse(input);
@@ -74,10 +74,10 @@ std::expected<Document, std::string> parse_jwt_json(
 	if (!parsed->root().as_object()) {
 		return std::unexpected{std::format("{} must be a JSON object", segment)};
 	}
-	return std::expected<Document, std::string>{std::in_place, std::move(*parsed)};
+	return std::expected<conflux::json::Document, std::string>{std::in_place, std::move(*parsed)};
 }
 std::string jwt_string_claim(
-	ObjectView const &obj,
+	conflux::json::ObjectView const &obj,
 	std::string_view key) {
 	auto value = optional_string(obj, key);
 	if (!value || !*value) {
@@ -86,7 +86,7 @@ std::string jwt_string_claim(
 	return std::move(**value);
 }
 std::expected<std::optional<std::int64_t>, std::string> jwt_numeric_date_claim(
-	ObjectView const &obj,
+	conflux::json::ObjectView const &obj,
 	std::string_view key,
 	std::string_view error) {
 	auto value = obj.optional<std::int64_t>(key);
@@ -96,7 +96,7 @@ std::expected<std::optional<std::int64_t>, std::string> jwt_numeric_date_claim(
 	return *value;
 }
 bool json_array_contains_string(
-	ObjectView const &obj,
+	conflux::json::ObjectView const &obj,
 	std::string_view key,
 	std::string_view value) {
 	auto member = obj.find_member(key);

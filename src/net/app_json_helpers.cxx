@@ -115,8 +115,8 @@ template<class T>
 }
 
 [[nodiscard]] std::string_view json_issue_code_name(
-	JsonIssueCode code) noexcept {
-	using enum JsonIssueCode;
+	json::JsonIssueCode code) noexcept {
+	using enum json::JsonIssueCode;
 	switch (code) {
 	case invalid_patch                 : return "invalid_patch";
 	case patch_op_missing              : return "patch_op_missing";
@@ -160,7 +160,7 @@ template<class T>
 }
 
 [[nodiscard]] Response json_patch_problem(
-	JsonError const &err) {
+	json::JsonError const &err) {
 	std::string body = std::format(
 		R"({{"code":{},"stage":"json_patch","detail":{})",
 		json_string(json_issue_code_name(err.code)),

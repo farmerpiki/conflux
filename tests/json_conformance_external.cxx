@@ -13,6 +13,7 @@ import conflux.types;
 import conflux.json;
 
 namespace json = conflux::json;
+using namespace conflux::json;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -451,7 +452,7 @@ TEST_CASE(
 	// JSON: {"a": 1, "\u0061": 2} — "a" and "\u0061" both decode to "a".
 	auto doc = json::parse(R"({"a": 1, "\u0061": 2})");
 	CHECK_FALSE(doc.has_value());
-	CHECK(doc.error().code == JsonIssueCode::duplicate_member);
+	CHECK(doc.error().code == json::JsonIssueCode::duplicate_member);
 }
 TEST_CASE(
 	"UUU: hash_fallback_linear_on_escaped -- 9-member object with warm_member_index",
@@ -531,7 +532,7 @@ TEST_CASE(
 TEST_CASE(
 	"UUU: warm_member_indices -- all objects in document get hash index",
 	"[conformance][escaped-key][phase6]") {
-	// Document with nested objects each exceeding the hash threshold.
+	// json::Document with nested objects each exceeding the hash threshold.
 	auto doc = json::parse(R"({
 "outer0":0,"outer1":1,"outer2":2,"outer3":3,"outer4":4,
 "outer5":5,"outer6":6,"outer7":7,"outer8":8,
@@ -553,16 +554,16 @@ TEST_CASE(
 }
 // ---------------------------------------------------------------------------
 // NNN — Move-stability matrix (v15): every borrowed-handle type must remain
-// valid across move-construct and move-assign of the source Document.
+// valid across move-construct and move-assign of the source json::Document.
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"NNN: NodeRef survives Document move-construct",
+	"NNN: NodeRef survives json::Document move-construct",
 	"[conformance][move-stability]") {
 	auto doc1 = json::parse_copy(std::string{R"({"k": 42})"});
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
-	Document doc2 = std::move(*doc1);
+	json::Document doc2 = std::move(*doc1);
 	auto obj = root_before.as_object();
 	REQUIRE(obj.has_value());
 	auto k = obj->find_member("k");
@@ -570,52 +571,52 @@ TEST_CASE(
 	CHECK(*k->as_number()->to_i64() == 42LL);
 }
 TEST_CASE(
-	"NNN: NodeRef survives Document move-assign",
+	"NNN: NodeRef survives json::Document move-assign",
 	"[conformance][move-stability]") {
 	auto doc1 = json::parse_copy(std::string{R"({"k": 42})"});
 	REQUIRE(doc1.has_value());
 	auto root_before = doc1->root();
-	Document doc2;
+	json::Document doc2;
 	doc2 = std::move(*doc1);
 	auto obj = root_before.as_object();
 	REQUIRE(obj.has_value());
 	CHECK(*obj->find_member("k")->as_number()->to_i64() == 42LL);
 }
 TEST_CASE(
-	"NNN: ObjectView survives Document move",
+	"NNN: ObjectView survives json::Document move",
 	"[conformance][move-stability]") {
 	auto doc1 = json::parse_copy(std::string{R"({"a": 1, "b": 2, "c": 3})"});
 	REQUIRE(doc1.has_value());
 	auto obj_before = *doc1->root().as_object();
 	CHECK(obj_before.size() == 3UZ);
-	Document doc2 = std::move(*doc1);
+	json::Document doc2 = std::move(*doc1);
 	CHECK(obj_before.size() == 3UZ);
 	CHECK(*obj_before.find_member("b")->as_number()->to_i64() == 2LL);
 }
 TEST_CASE(
-	"NNN: ArrayView survives Document move",
+	"NNN: ArrayView survives json::Document move",
 	"[conformance][move-stability]") {
 	auto doc1 = json::parse_copy(std::string{R"([10, 20, 30])"});
 	REQUIRE(doc1.has_value());
 	auto arr_before = *doc1->root().as_array();
-	Document doc2 = std::move(*doc1);
+	json::Document doc2 = std::move(*doc1);
 	CHECK(arr_before.size() == 3UZ);
 	CHECK(*arr_before.element(1)->as_number()->to_i64() == 20LL);
 }
 TEST_CASE(
-	"NNN: JsonNumberView survives Document move",
+	"NNN: JsonNumberView survives json::Document move",
 	"[conformance][move-stability]") {
 	auto doc1 = json::parse_copy(std::string{R"(3.14)"});
 	REQUIRE(doc1.has_value());
 	auto num_before = *doc1->root().as_number();
-	Document doc2 = std::move(*doc1);
+	json::Document doc2 = std::move(*doc1);
 	auto v = num_before.to_f64();
 	REQUIRE(v.has_value());
 	CHECK(std::abs(*v - 3.14) < 1e-12);
 	CHECK(num_before.lexeme() == "3.14");
 }
 TEST_CASE(
-	"NNN: warm_member_index pointer stable across Document move",
+	"NNN: warm_member_index pointer stable across json::Document move",
 	"[conformance][move-stability]") {
 	// Build object large enough to use hash index (size >= kHashThreshold=8).
 	auto doc1 = json::parse_copy(std::string{R"({
@@ -626,7 +627,7 @@ TEST_CASE(
 	REQUIRE(doc1->warm_member_index(doc1->root()).has_value());
 	auto obj_before = *doc1->root().as_object();
 	CHECK(*obj_before.find_member("k5")->as_number()->to_i64() == 5LL);
-	Document doc2 = std::move(*doc1);
+	json::Document doc2 = std::move(*doc1);
 	// After move, the hash index pointer in the moved-from storage is now in
 	// doc2's storage; obj_before still holds the same DocumentStorage*, so
 	// hash lookups must continue to work.
@@ -666,11 +667,11 @@ TEST_CASE(
 	auto doc = json::parse("123456789012345678901234567890");
 	REQUIRE(doc.has_value());
 	auto num = *doc->root().as_number();
-	CHECK(num.form() == JsonNumberForm::integer);
+	CHECK(num.form() == json::JsonNumberForm::integer);
 	CHECK_FALSE(num.to_i64().has_value());
-	CHECK(num.to_i64().error().code == JsonIssueCode::number_out_of_range);
+	CHECK(num.to_i64().error().code == json::JsonIssueCode::number_out_of_range);
 	CHECK_FALSE(num.to_u64().has_value());
-	CHECK(num.to_u64().error().code == JsonIssueCode::number_out_of_range);
+	CHECK(num.to_u64().error().code == json::JsonIssueCode::number_out_of_range);
 	auto f = num.to_f64();
 	REQUIRE(f.has_value());
 	CHECK(*f > 1e29);
@@ -685,9 +686,9 @@ TEST_CASE(
 	auto doc = json::parse("1e10000");
 	REQUIRE(doc.has_value());
 	auto num = *doc->root().as_number();
-	CHECK(num.form() == JsonNumberForm::non_integer);
+	CHECK(num.form() == json::JsonNumberForm::non_integer);
 	CHECK_FALSE(num.to_f64().has_value());
-	CHECK(num.to_f64().error().code == JsonIssueCode::number_out_of_range);
+	CHECK(num.to_f64().error().code == json::JsonIssueCode::number_out_of_range);
 	auto out = doc->dump();
 	REQUIRE(out.has_value());
 	CHECK(*out == "1e10000");
@@ -889,11 +890,11 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 // v11 Phase 1.5 — Builder buffer migration.
 // Builder-emitted strings/names/number lexemes live in built_input, which
-// becomes Document::owned_input on finish(). Round-trip dump must match.
+// becomes json::Document::owned_input on finish(). Round-trip dump must match.
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase1.5: builder produces Document with strings/numbers in owned_input",
+	"phase1.5: builder produces json::Document with strings/numbers in owned_input",
 	"[conformance][phase15][builder]") {
 	auto b = value_builder();
 	auto obj = *std::move(b).begin_object();

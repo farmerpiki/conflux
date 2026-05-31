@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 DocumentStorage::~DocumentStorage() noexcept {
 	for (auto &n: nodes) {
 		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
@@ -102,3 +104,5 @@ void ObjHashTable::destroy(
 	t->~ObjHashTable();
 	mr->deallocate(t, bytes, alignof(ObjHashTable));
 }
+
+} // namespace conflux::json

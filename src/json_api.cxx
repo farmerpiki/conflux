@@ -19,49 +19,51 @@ extern "C" void *conflux_json_new_c_locale() noexcept;
 extern "C" double conflux_json_strtod_c_locale(char const *text, char **end, void *locale) noexcept;
 extern "C" std::ptrdiff_t conflux_json_getrandom(void *buffer, std::size_t length, unsigned int flags) noexcept;
 
+export namespace conflux::json {
+
 // ---------------------------------------------------------------------------
 // Forward declarations (exported types)
 // ---------------------------------------------------------------------------
 
-export class Document;
-export class NodeRef;
-export class ObjectView;
-export class ArrayView;
-export class JsonNumberView;
-export class ValueBuilder;
-export class ObjectBuilder;
-export class ArrayBuilder;
-export struct JsonError;
-export class JsonPath;
-export class ObjectMemberRange;
-export class ArrayElementRange;
-export struct ObjectMember;
-export struct WarmIndexOptions;
-export template<class T>
+class Document;
+class NodeRef;
+class ObjectView;
+class ArrayView;
+class JsonNumberView;
+class ValueBuilder;
+class ObjectBuilder;
+class ArrayBuilder;
+struct JsonError;
+class JsonPath;
+class ObjectMemberRange;
+class ArrayElementRange;
+struct ObjectMember;
+struct WarmIndexOptions;
+template<class T>
 class Nullable;
-export class JsonStringToken;
-export class JsonReader;
-export class JsonStreamReader;
-export struct JsonArenaOptions;
-export class ArenaDocument;
-export class JsonArena;
-export class NdjsonRange;
-export class JsonAccumulator;
+class JsonStringToken;
+class JsonReader;
+class JsonStreamReader;
+struct JsonArenaOptions;
+class ArenaDocument;
+class JsonArena;
+class NdjsonRange;
+class JsonAccumulator;
 
 [[nodiscard]] std::optional<std::string> decode_json_pointer_token(std::string_view token);
 
-export namespace conflux::json::dump_detail {
+namespace dump_detail {
 
 void dump_string(std::string_view sv, std::string &out, bool ascii_only);
 
-} // namespace conflux::json::dump_detail
+} // namespace dump_detail
 
 // ---------------------------------------------------------------------------
 // JsonKind / stage / issue code
 // ---------------------------------------------------------------------------
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class JsonKind {
+enum class JsonKind {
 	object,
 	array,
 	string,
@@ -70,7 +72,7 @@ export enum class JsonKind {
 	null,
 };
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class JsonStage {
+enum class JsonStage {
 	parse,
 	lookup,
 	decode,
@@ -79,7 +81,7 @@ export enum class JsonStage {
 	json_patch,
 };
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class JsonIssueCode {
+enum class JsonIssueCode {
 	syntax_error,
 	unexpected_eof,
 	trailing_garbage,
@@ -117,14 +119,14 @@ export enum class JsonIssueCode {
 	patch_too_many_operations,
 	patch_pointer_too_deep,
 };
-export struct JsonSourceLocation {
+struct JsonSourceLocation {
 	std::size_t offset{};
 	std::size_t line{1};
 	std::size_t column{1};
 };
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class DuplicateKeyPolicy : std::uint8_t {
+enum class DuplicateKeyPolicy : std::uint8_t {
 	reject, // RFC 8259 recommended; current default
 	last_wins, // keep last value; first occurrence's name position preserved
 	first_wins, // keep first value; duplicate parsed for syntax, then discarded
@@ -133,14 +135,14 @@ export enum class DuplicateKeyPolicy : std::uint8_t {
 // JsonPath
 // ---------------------------------------------------------------------------
 
-export struct JsonPathMember {
+struct JsonPathMember {
 	std::string name;
 };
-export struct JsonPathIndex {
+struct JsonPathIndex {
 	std::size_t index{};
 };
-export using JsonPathSegment = std::variant<JsonPathMember, JsonPathIndex>;
-export class JsonPath {
+using JsonPathSegment = std::variant<JsonPathMember, JsonPathIndex>;
+class JsonPath {
 	std::vector<JsonPathSegment> segs_;
 
 public:
@@ -181,25 +183,31 @@ public:
 
 	bool friend operator ==(JsonPath const &, JsonPath const &) = default;
 };
+
+} // namespace conflux::json
+
 template<>
-struct std::hash<JsonPath> {
+struct std::hash<conflux::json::JsonPath> {
 	std::size_t operator ()(
-		JsonPath const &p) const noexcept {
+		conflux::json::JsonPath const &p) const noexcept {
 		std::size_t h = 0;
 		for (auto const &seg: p) {
-			std::size_t const sh = holds_alternative<JsonPathMember>(seg) ?
-									   std::hash<std::string>{}(get<JsonPathMember>(seg).name) :
-									   std::hash<std::size_t>{}(get<JsonPathIndex>(seg).index);
+			std::size_t const sh = holds_alternative<conflux::json::JsonPathMember>(seg) ?
+									   std::hash<std::string>{}(get<conflux::json::JsonPathMember>(seg).name) :
+									   std::hash<std::size_t>{}(get<conflux::json::JsonPathIndex>(seg).index);
 			h ^= sh + 0x9e3779b9U + (h << 6U) + (h >> 2U);
 		}
 		return h;
 	}
 };
+
+export namespace conflux::json {
+
 // ---------------------------------------------------------------------------
 // JsonError
 // ---------------------------------------------------------------------------
 
-export struct JsonError {
+struct JsonError {
 	JsonStage stage{JsonStage::parse};
 	JsonIssueCode code{JsonIssueCode::syntax_error};
 	JsonPath path{};
@@ -247,9 +255,9 @@ export struct JsonError {
 // LimitOption / JsonParseOptions
 // ---------------------------------------------------------------------------
 
-export struct NoLimit {};
-export inline constexpr NoLimit no_limit{};
-export class LimitOption {
+struct NoLimit {};
+inline constexpr NoLimit no_limit{};
+class LimitOption {
 	enum class Tag : std::uint8_t {
 		default_,
 		unlimited,
@@ -293,11 +301,11 @@ public:
 	}
 };
 
-export enum class ParseMode : std::uint8_t {
+enum class ParseMode : std::uint8_t {
 	strict,
 	json5,
 };
-export struct JsonParseOptions {
+struct JsonParseOptions {
 	LimitOption max_depth;
 	LimitOption max_input_size;
 	LimitOption max_string_size;
@@ -306,7 +314,7 @@ export struct JsonParseOptions {
 	ParseMode mode{ParseMode::strict};
 };
 
-export struct JsonParseStorageStats {
+struct JsonParseStorageStats {
 	std::size_t input_bytes{};
 	std::size_t nodes_size{};
 	std::size_t nodes_capacity{};
@@ -325,15 +333,15 @@ export struct JsonParseStorageStats {
 };
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class UnknownMemberPolicy : std::uint8_t {
+enum class UnknownMemberPolicy : std::uint8_t {
 	reject,
 	ignore,
 };
-export struct JsonDecodeOptions {
+struct JsonDecodeOptions {
 	UnknownMemberPolicy unknown_members{UnknownMemberPolicy::reject};
 };
 
-export struct JsonDecodeScratch {
+struct JsonDecodeScratch {
 	std::pmr::memory_resource *resource{std::pmr::get_default_resource()};
 	std::array<char, 256> key_inline{};
 	std::pmr::vector<char> key_overflow{resource};
@@ -359,39 +367,39 @@ export struct JsonDecodeScratch {
 // view documents, PMR-backed owned/caller-resource documents, and reusable arena
 // documents. Future tokenizer/DOM work should keep these policy names stable and
 // replace implementations behind them.
-export enum class JsonDomInputOwnership : std::uint8_t {
+enum class JsonDomInputOwnership : std::uint8_t {
 	borrowed_view,
 	owned_copy,
 	owned_move,
 };
 
-export enum class JsonDomStorageModel : std::uint8_t {
+enum class JsonDomStorageModel : std::uint8_t {
 	standalone_document,
 	caller_pmr_document,
 	reusable_arena,
 };
 
-export enum class JsonDomStringModel : std::uint8_t {
+enum class JsonDomStringModel : std::uint8_t {
 	view_unescaped_copy_decoded,
 };
 
-export enum class JsonDomNumberModel : std::uint8_t {
+enum class JsonDomNumberModel : std::uint8_t {
 	preserve_lexeme_parse_on_access,
 };
 
-export enum class JsonDomUtf8Model : std::uint8_t {
+enum class JsonDomUtf8Model : std::uint8_t {
 	strict_validate_on_parse,
 };
 
-export enum class JsonDomErrorModel : std::uint8_t {
+enum class JsonDomErrorModel : std::uint8_t {
 	expected_json_error,
 };
 
-export enum class JsonDomObjectIndexModel : std::uint8_t {
+enum class JsonDomObjectIndexModel : std::uint8_t {
 	preserve_order_warm_hash_on_demand,
 };
 
-export struct JsonDomPolicy {
+struct JsonDomPolicy {
 	JsonDomInputOwnership input{JsonDomInputOwnership::borrowed_view};
 	JsonDomStorageModel storage{JsonDomStorageModel::standalone_document};
 	JsonDomStringModel strings{JsonDomStringModel::view_unescaped_copy_decoded};
@@ -442,7 +450,7 @@ export struct JsonDomPolicy {
 	}
 };
 
-export struct JsonByteRange {
+struct JsonByteRange {
 	std::size_t start;
 	std::size_t end;
 };
@@ -892,11 +900,11 @@ struct ClassifiedDouble {
 // ---------------------------------------------------------------------------
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class JsonNumberForm {
+enum class JsonNumberForm {
 	integer,
 	non_integer,
 };
-export class JsonNumberView {
+class JsonNumberView {
 	std::string_view lexeme_;
 	std::uint64_t raw_payload_; // bit-cast<i64/u64/double> selected by flags_
 	std::uint8_t flags_; // kLexIntForm | kValKindInt|Uint|F64
@@ -1161,7 +1169,7 @@ template<class Writer>
 // JsonStringToken
 // ---------------------------------------------------------------------------
 
-export class JsonStringToken {
+class JsonStringToken {
 	std::string_view raw_lexeme_{};
 	bool has_escapes_{false};
 	bool unquoted_{false};
@@ -1202,7 +1210,7 @@ public:
 // JsonReader
 // ---------------------------------------------------------------------------
 
-export class JsonReader {
+class JsonReader {
 public:
 	enum class Event : std::uint8_t {
 		begin_object,
@@ -2274,7 +2282,7 @@ public:
 	void reset() noexcept;
 	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();
 };
-export class JsonStreamReader {
+class JsonStreamReader {
 public:
 	using Event = JsonReader::Event;
 
@@ -2318,7 +2326,7 @@ public:
 // NodeRef
 // ---------------------------------------------------------------------------
 
-export class NodeRef {
+class NodeRef {
 	DocumentStorage const *storage_{};
 	std::size_t idx_{};
 
@@ -2368,7 +2376,7 @@ public:
 // ObjectMember (after NodeRef — NodeRef used by value)
 // ---------------------------------------------------------------------------
 
-export struct ObjectMember {
+struct ObjectMember {
 	std::string_view name;
 	NodeRef value;
 };
@@ -2495,7 +2503,7 @@ namespace detail {
 // ObjectView / ArrayView
 // ---------------------------------------------------------------------------
 
-export class ObjectView {
+class ObjectView {
 	DocumentStorage const *storage_{};
 	std::size_t mem_start_{};
 	std::size_t mem_count_{};
@@ -2527,7 +2535,7 @@ public:
 	optional(std::string_view name, JsonDecodeOptions const &opts = {}) const;
 	[[nodiscard]] ObjectMemberRange members() const noexcept;
 };
-export class ArrayView {
+class ArrayView {
 	DocumentStorage const *storage_{};
 	std::size_t child_start_{};
 	std::size_t child_count_{};
@@ -2552,7 +2560,7 @@ public:
 // Iteration ranges
 // ---------------------------------------------------------------------------
 
-export class ObjectMemberRange {
+class ObjectMemberRange {
 	DocumentStorage const *storage_{};
 	std::size_t start_{};
 	std::size_t count_{};
@@ -2600,7 +2608,7 @@ public:
 	[[nodiscard]] Iterator begin() const noexcept;
 	[[nodiscard]] Sentinel end() const noexcept;
 };
-export class ArrayElementRange {
+class ArrayElementRange {
 	DocumentStorage const *storage_{};
 	std::size_t start_{};
 	std::size_t count_{};
@@ -2649,10 +2657,14 @@ public:
 	[[nodiscard]] Sentinel end() const noexcept;
 };
 
+} // namespace conflux::json
+
 template<>
-inline constexpr bool std::ranges::enable_borrowed_range<ObjectMemberRange> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::json::ObjectMemberRange> = true;
 template<>
-inline constexpr bool std::ranges::enable_borrowed_range<ArrayElementRange> = true;
+inline constexpr bool std::ranges::enable_borrowed_range<conflux::json::ArrayElementRange> = true;
+
+export namespace conflux::json {
 
 static_assert(std::ranges::sized_range<ObjectMemberRange>);
 static_assert(std::ranges::sized_range<ArrayElementRange>);
@@ -2662,22 +2674,22 @@ static_assert(std::ranges::borrowed_range<ArrayElementRange>);
 // Comparison free functions + identity helpers
 // ---------------------------------------------------------------------------
 
-export bool is_same_node(NodeRef a, NodeRef b) noexcept;
+bool is_same_node(NodeRef a, NodeRef b) noexcept;
 // NOLINTNEXTLINE(misc-no-recursion)
-export bool is_value_equal(NodeRef a, NodeRef b);
+bool is_value_equal(NodeRef a, NodeRef b);
 // NOLINTNEXTLINE(misc-no-recursion)
-export bool is_value_equal_exact(NodeRef a, NodeRef b);
-export struct NodeIdentityHash {
+bool is_value_equal_exact(NodeRef a, NodeRef b);
+struct NodeIdentityHash {
 	std::size_t operator ()(NodeRef n) const noexcept;
 };
-export struct NodeIdentityEqual {
+struct NodeIdentityEqual {
 	bool operator ()(NodeRef a, NodeRef b) const noexcept;
 };
 // ---------------------------------------------------------------------------
 // Document
 // ---------------------------------------------------------------------------
 
-export struct JsonDumpOptions {
+struct JsonDumpOptions {
 	bool pretty{false};
 	unsigned indent{2};
 	bool sort_object_keys{false};
@@ -2685,12 +2697,12 @@ export struct JsonDumpOptions {
 	char indent_char{' '};
 	std::optional<std::size_t> truncate_depth{};
 };
-export struct WarmIndexOptions {
+struct WarmIndexOptions {
 	std::size_t max_objects{SIZE_MAX};
 	std::size_t max_extra_bytes{SIZE_MAX};
 };
 [[nodiscard]] std::expected<void, JsonError> warm_member_index_impl(DocumentStorage *storage, NodeRef node);
-export class Document {
+class Document {
 	std::unique_ptr<DocumentStorage> storage_;
 
 	friend class ValueBuilder;
@@ -2725,11 +2737,11 @@ public:
 Document make_document(std::unique_ptr<DocumentStorage> s) noexcept;
 // ─── Phase 5.2 — JsonArena / ArenaDocument ──────────────────────────────────
 
-export struct JsonArenaOptions {
+struct JsonArenaOptions {
 	std::size_t initial_slab{64 * 1024};
 	std::pmr::memory_resource *hash_index_resource{nullptr};
 };
-export class ArenaDocument {
+class ArenaDocument {
 	DocumentStorage const *storage_{};
 	std::uint32_t generation_{};
 	std::uint32_t const *arena_gen_{};
@@ -2765,7 +2777,7 @@ public:
 		return storage_->storage_stats();
 	}
 };
-export class JsonArena {
+class JsonArena {
 	std::size_t initial_slab_;
 	std::pmr::monotonic_buffer_resource mbr_;
 	std::pmr::memory_resource *hash_index_resource_;
@@ -2811,21 +2823,20 @@ public:
 // Field accessor helpers (Phase 1.1)
 // ---------------------------------------------------------------------------
 
-export [[nodiscard]] std::expected<std::string, JsonError> require_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::int64_t, JsonError> require_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::optional<std::string>, JsonError>
+[[nodiscard]] std::expected<std::string, JsonError> require_string(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<std::int64_t, JsonError> require_int(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<std::optional<std::string>, JsonError>
 optional_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::optional<std::int64_t>, JsonError>
+[[nodiscard]] std::expected<std::optional<std::int64_t>, JsonError>
 optional_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::optional<std::uint64_t>, JsonError>
+[[nodiscard]] std::expected<std::optional<std::uint64_t>, JsonError>
 optional_uint(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::optional<double>, JsonError>
+[[nodiscard]] std::expected<std::optional<double>, JsonError>
 optional_double(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] std::expected<std::optional<bool>, JsonError>
-optional_bool(ObjectView const &obj, std::string_view name);
+[[nodiscard]] std::expected<std::optional<bool>, JsonError> optional_bool(ObjectView const &obj, std::string_view name);
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -2937,10 +2948,12 @@ namespace detail::simd {
 
 } // namespace detail::simd
 
+} // namespace conflux::json
+
 extern "C" std::size_t conflux_json_scan_str_until_special_auto(
 	char const *p,
 	std::size_t n) noexcept {
-	return detail::simd::scan_str_until_special(p, n);
+	return conflux::json::detail::simd::scan_str_until_special(p, n);
 }
 
 // Phase 3 — parser implementation lives in src/json_parse.cxx. The primary

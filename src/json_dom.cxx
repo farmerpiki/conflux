@@ -7,6 +7,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 // ---------------------------------------------------------------------------
 // JsonPath::from_pointer (after JsonError definition)
 // ---------------------------------------------------------------------------
@@ -699,3 +701,5 @@ std::expected<void, JsonError> ArenaDocument::warm_member_index(
 	// builder used by Document without transferring ownership.
 	return warm_member_index_impl(const_cast<DocumentStorage *>(storage_), node);
 }
+
+} // namespace conflux::json

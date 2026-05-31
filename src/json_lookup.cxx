@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 // ---------------------------------------------------------------------------
 // Field accessor helpers
 // ---------------------------------------------------------------------------
@@ -310,3 +312,5 @@ namespace detail {
 
 	return {};
 }
+
+} // namespace conflux::json

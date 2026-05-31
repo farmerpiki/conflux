@@ -948,6 +948,14 @@ if(TARGET conflux_net_http)
         EXPECT "JsonMembers")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_global_document
+        SOURCE json_compile_fail_global_document.cxx
+        TEST json/compile-fail-global-document
+        LINK conflux_json conflux_options
+        LABELS json compile-fail
+        EXPECT "Document")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_router_alias
         SOURCE http_facade_compile_fail_router_alias.cxx
         TEST http-facade/compile-fail-router-alias

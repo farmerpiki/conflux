@@ -447,7 +447,7 @@ std::string Environment::render(
 }
 std::string Environment::render(
 	std::string const &name,
-	NodeRef ctx) const {
+	json::NodeRef ctx) const {
 	return render(name, node_to_tmpl(ctx));
 }
 std::string Environment::render_string(
@@ -466,7 +466,7 @@ std::string Environment::render_string(
 }
 std::string Environment::render_string(
 	std::string const &source,
-	NodeRef ctx) const {
+	json::NodeRef ctx) const {
 	return render_string(source, node_to_tmpl(ctx));
 }
 

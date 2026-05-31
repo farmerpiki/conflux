@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 void JsonStreamReader::refresh_reader_input() noexcept {
 	reader_.replace_input(std::string_view{buf_.data(), buf_.size()});
 }
@@ -311,3 +313,5 @@ void JsonAccumulator::reset() noexcept {
 std::size_t JsonAccumulator::buffered_bytes() const noexcept {
 	return buf_.size();
 }
+
+} // namespace conflux::json

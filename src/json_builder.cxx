@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 std::expected<void, JsonError> ObjectBuilder::check_can_insert() const {
 	if (frame_.committed) {
 		return std::unexpected(
@@ -437,7 +439,7 @@ std::expected<Document, JsonError> ValueBuilder::finish() && {
 	storage->input_view = storage->owned_input;
 	owned_.reset();
 	state_ = nullptr;
-	return ::make_document(std::move(storage));
+	return make_document(std::move(storage));
 }
 
 // ---------------------------------------------------------------------------
@@ -1566,8 +1568,6 @@ struct PatchOperation {
 
 } // namespace detail
 
-namespace conflux::json {
-
 std::expected<void, JsonError> validate_patch(
 	NodeRef patch,
 	JsonPatchOptions opts) {
@@ -1714,8 +1714,6 @@ std::expected<Document, JsonError> apply_patch(
 	JsonPatchOptions opts) {
 	return apply_patch(target.root(), patch.root(), opts);
 }
-
-} // namespace conflux::json
 
 // RFC 7396 JSON Merge Patch. The DOM stays immutable; this builds a new
 // owning Document while preserving target-member order for unchanged members and
@@ -2004,3 +2002,5 @@ std::expected<Document, JsonError> merge_patch(
 	Document const &patch) {
 	return merge_patch(target.root(), patch.root());
 }
+
+} // namespace conflux::json

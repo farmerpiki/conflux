@@ -15,6 +15,7 @@ import conflux.work;
 
 namespace http = conflux::http;
 using namespace conflux::http;
+using namespace conflux::json;
 using conflux::http::ConfigIssueCode;
 using conflux::http::DeferredResponse;
 using conflux::http::Response;
@@ -148,7 +149,7 @@ struct conflux::json::JsonMembers<FacadeTodoList> {
 	static constexpr std::string_view type_name() { return "FacadeTodoList"; }
 };
 
-Document require_json_text(
+conflux::json::Document require_json_text(
 	std::string text) {
 	INFO(text);
 	auto doc = conflux::json::parse_copy(text);
@@ -156,7 +157,7 @@ Document require_json_text(
 	return std::move(*doc);
 }
 
-Document require_json_body(
+conflux::json::Document require_json_body(
 	conflux::http::Response const &response,
 	int status,
 	std::string_view content_type = "application/problem+json") {
@@ -165,8 +166,8 @@ Document require_json_body(
 	return require_json_text(std::string{response.text_body()});
 }
 
-NodeRef require_json_pointer(
-	Document const &doc,
+conflux::json::NodeRef require_json_pointer(
+	conflux::json::Document const &doc,
 	std::string_view pointer) {
 	auto node = doc.root().at_pointer(pointer);
 	REQUIRE(node.has_value());
@@ -174,7 +175,7 @@ NodeRef require_json_pointer(
 }
 
 void check_json_string_at(
-	Document const &doc,
+	conflux::json::Document const &doc,
 	std::string_view pointer,
 	std::string_view expected) {
 	auto node = require_json_pointer(doc, pointer);
@@ -184,7 +185,7 @@ void check_json_string_at(
 }
 
 void check_json_u64_at(
-	Document const &doc,
+	conflux::json::Document const &doc,
 	std::string_view pointer,
 	std::uint64_t expected) {
 	auto node = require_json_pointer(doc, pointer);
@@ -194,7 +195,7 @@ void check_json_u64_at(
 }
 
 void check_json_contains_no_secret(
-	NodeRef node,
+	conflux::json::NodeRef node,
 	std::span<std::string_view const> secrets) {
 	if (auto value = node.as_string(); value.has_value()) {
 		for (auto secret: secrets) {

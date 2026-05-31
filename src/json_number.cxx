@@ -4,6 +4,8 @@ import std;
 import std.compat;
 import conflux.types;
 
+namespace conflux::json {
+
 std::expected<std::int64_t, JsonError> JsonNumberView::to_i64() const {
 	if ((flags_ & kLexIntForm) == 0) {
 		return std::unexpected(
@@ -133,3 +135,5 @@ bool validate_number_lexeme(
 	}
 	return i == lex.size();
 }
+
+} // namespace conflux::json
