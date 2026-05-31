@@ -306,7 +306,7 @@ TEST_CASE(
 	cfg.no_sqarray = true;
 	cfg.cqe_mixed = true;
 
-	auto const flags = conflux::uring::SetupFlags{build_uring_flags(cfg)};
+	auto const flags = conflux::uring::SetupFlags{conflux::http::detail::build_uring_flags(cfg)};
 	CHECK(flags.any(conflux::uring::setup_flags::single_issuer));
 	CHECK(flags.any(conflux::uring::setup_flags::defer_taskrun));
 	CHECK(flags.any(conflux::uring::setup_flags::taskrun_flag));
@@ -315,14 +315,14 @@ TEST_CASE(
 	CHECK(flags.any(conflux::uring::setup_flags::cqe_mixed));
 	CHECK_FALSE(flags.any(conflux::uring::setup_flags::coop_taskrun));
 
-	auto text = setup_flags_str(flags.raw());
+	auto text = conflux::http::detail::setup_flags_str(flags.raw());
 	CHECK(text.find("SINGLE_ISSUER") != std::string::npos);
 	CHECK(text.find("DEFER_TASKRUN") != std::string::npos);
 	CHECK(text.find("TASKRUN_FLAG") != std::string::npos);
 	CHECK(text.find("SUBMIT_ALL") != std::string::npos);
 	CHECK(text.find("NO_SQARRAY") != std::string::npos);
 	CHECK(text.find("CQE_MIXED") != std::string::npos);
-	CHECK(setup_flags_str(0) == "none");
+	CHECK(conflux::http::detail::setup_flags_str(0) == "none");
 }
 
 TEST_CASE(
@@ -335,7 +335,7 @@ TEST_CASE(
 			   | conflux::uring::setup_flags::defer_taskrun
 			   | conflux::uring::setup_flags::single_issuer;
 	std::vector<std::uint32_t> stripped;
-	while (auto const bit = next_uring_setup_flag_to_strip(flags.raw())) {
+	while (auto const bit = conflux::http::detail::next_uring_setup_flag_to_strip(flags.raw())) {
 		stripped.push_back(bit->raw());
 		flags &= ~*bit;
 	}
@@ -350,7 +350,7 @@ TEST_CASE(
 			IORING_SETUP_DEFER_TASKRUN,
 			IORING_SETUP_SINGLE_ISSUER,
 		});
-	CHECK_FALSE(next_uring_setup_flag_to_strip(0).has_value());
+	CHECK_FALSE(conflux::http::detail::next_uring_setup_flag_to_strip(0).has_value());
 }
 
 TEST_CASE(
@@ -390,11 +390,11 @@ TEST_CASE(
 	cfg.direct_accept = false;
 	cfg.cmd_sock_setsockopt = false;
 
-	auto text = flags_str(cfg);
+	auto text = conflux::http::detail::flags_str(cfg);
 	CHECK(text.find("AUTO_RECV_ARM") != std::string::npos);
 	CHECK(text.find("DIRECT_ACCEPT_OFF") != std::string::npos);
 	CHECK(text.find("CMD_SOCK_SOCKOPTS_OFF") != std::string::npos);
-	CHECK(flags_str(Config{}) != "none");
+	CHECK(conflux::http::detail::flags_str(Config{}) != "none");
 }
 
 TEST_CASE(
@@ -403,10 +403,10 @@ TEST_CASE(
 	Config cfg{};
 	cfg.attach_wq = true;
 
-	CHECK(wq_fd_for_ring(cfg, 0, 77) == 0U);
-	CHECK(wq_fd_for_ring(cfg, 1, 77) == 77U);
-	CHECK(wq_fd_for_ring(cfg, 2, -1) == 0U);
+	CHECK(conflux::http::detail::wq_fd_for_ring(cfg, 0, 77) == 0U);
+	CHECK(conflux::http::detail::wq_fd_for_ring(cfg, 1, 77) == 77U);
+	CHECK(conflux::http::detail::wq_fd_for_ring(cfg, 2, -1) == 0U);
 
 	cfg.attach_wq = false;
-	CHECK(wq_fd_for_ring(cfg, 1, 77) == 0U);
+	CHECK(conflux::http::detail::wq_fd_for_ring(cfg, 1, 77) == 0U);
 }

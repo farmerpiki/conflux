@@ -261,7 +261,7 @@ void Ring::init(
 			if (rc != -EINVAL) {
 				throw std::runtime_error{std::format("io_uring_queue_init_params: {}", strerror(-rc))};
 			}
-			auto const stripped = next_uring_setup_flag_to_strip(params.flags);
+			auto const stripped = conflux::http::detail::next_uring_setup_flag_to_strip(params.flags);
 			if (!stripped) {
 				throw std::runtime_error{"io_uring_queue_init_params: no supported flag combination"};
 			}

@@ -357,6 +357,30 @@ if(TARGET conflux_http_server_config)
             conflux_options
             Catch2::Catch2WithMain
     )
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_server_config_compile_fail_global_build_uring_flags
+        SOURCE http_server_config_compile_fail_global_build_uring_flags.cxx
+        TEST http-server-config/compile-fail-global-build-uring-flags
+        LINK conflux_http_server_config conflux_options
+        LABELS http compile-fail
+        EXPECT "build_uring_flags")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_server_config_compile_fail_global_flags_str
+        SOURCE http_server_config_compile_fail_global_flags_str.cxx
+        TEST http-server-config/compile-fail-global-flags-str
+        LINK conflux_http_server_config conflux_options
+        LABELS http compile-fail
+        EXPECT "flags_str")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_server_config_compile_fail_global_wq_fd_for_ring
+        SOURCE http_server_config_compile_fail_global_wq_fd_for_ring.cxx
+        TEST http-server-config/compile-fail-global-wq-fd-for-ring
+        LINK conflux_http_server_config conflux_options
+        LABELS http compile-fail
+        EXPECT "wq_fd_for_ring")
 endif()
 
 if(TARGET conflux_http_core)

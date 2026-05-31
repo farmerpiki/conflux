@@ -170,7 +170,7 @@ void HttpServer::initialize(
 	conflux::http::Config const &cfg) {
 	impl_->cfg = cfg;
 	impl_->rings = cfg.rings == 0 ? std::thread::hardware_concurrency() : cfg.rings;
-	impl_->uring_flags = build_uring_flags(cfg);
+	impl_->uring_flags = conflux::http::detail::build_uring_flags(cfg);
 
 #if CONFLUX_HAS_TLS
 	// TLS setup: create SSL_CTX if cert and key are provided.
@@ -386,7 +386,7 @@ void HttpServer::shutdown() {
 						impl_->wq_ring_fd_.wait(-2, std::memory_order_acquire);
 						parent = impl_->wq_ring_fd_.load(std::memory_order_acquire);
 					}
-					std::uint32_t const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
+					std::uint32_t const wq_fd = conflux::http::detail::wq_fd_for_ring(impl_->cfg, i, parent);
 					r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
 					r.use_recv_bundle =
 						!r.use_recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
@@ -427,10 +427,17 @@ void HttpServer::shutdown() {
 						auto const feat_s = caps_to_log_string(r.caps);
 						eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
 						eprintln(
-							std::format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
-						eprintln(std::format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
+							std::format(
+								"uring_setup_flags_requested={}",
+								conflux::http::detail::setup_flags_str(r.requested_setup_flags_)));
 						eprintln(
-							std::format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
+							std::format(
+								"uring_setup_flags_active={}",
+								conflux::http::detail::setup_flags_str(r.active_setup_flags_)));
+						eprintln(
+							std::format(
+								"uring_setup_flags_stripped={}",
+								conflux::http::detail::setup_flags_str(r.stripped_setup_flags_)));
 					}
 					if (i == 0 && impl_->cfg.startup_banner)
 						eprintln(
@@ -446,7 +453,7 @@ void HttpServer::shutdown() {
 								r.bound_port,
 								impl_->rings,
 								entries,
-								flags_str(impl_->cfg),
+								conflux::http::detail::flags_str(impl_->cfg),
 								r.listen_fixed,
 								r.accepted_sockets_direct));
 

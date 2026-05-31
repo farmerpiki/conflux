@@ -27,7 +27,9 @@ std::string format_flag_list(
 
 } // namespace
 
-export [[gnu::pure]] std::uint32_t build_uring_flags(
+export namespace conflux::http::detail {
+
+[[gnu::pure]] std::uint32_t build_uring_flags(
 	conflux::http::Config const &c) {
 	auto f = conflux::uring::SetupFlags{};
 	if (c.single_issuer) {
@@ -57,12 +59,12 @@ export [[gnu::pure]] std::uint32_t build_uring_flags(
 	return f.raw();
 }
 
-export [[nodiscard]] std::optional<conflux::uring::SetupFlags> next_uring_setup_flag_to_strip(
+[[nodiscard]] std::optional<conflux::uring::SetupFlags> next_uring_setup_flag_to_strip(
 	std::uint32_t flags) {
 	return conflux::uring::next_setup_flag_to_strip(conflux::uring::SetupFlags{flags});
 }
 
-export [[nodiscard]] std::uint32_t wq_fd_for_ring(
+[[nodiscard]] std::uint32_t wq_fd_for_ring(
 	conflux::http::Config const &c,
 	unsigned i,
 	int parent_ring_fd) {
@@ -72,12 +74,12 @@ export [[nodiscard]] std::uint32_t wq_fd_for_ring(
 	return static_cast<std::uint32_t>(parent_ring_fd);
 }
 
-export [[nodiscard]] std::string setup_flags_str(
+[[nodiscard]] std::string setup_flags_str(
 	std::uint32_t flags) {
 	return conflux::uring::setup_flags_str(conflux::uring::SetupFlags{flags});
 }
 
-export [[nodiscard]] std::string flags_str(
+[[nodiscard]] std::string flags_str(
 	conflux::http::Config const &c) {
 	return format_flag_list('|', [&](auto app) {
 		if (c.single_issuer) {
@@ -130,3 +132,5 @@ export [[nodiscard]] std::string flags_str(
 		}
 	});
 }
+
+} // namespace conflux::http::detail
