@@ -4077,7 +4077,15 @@ template<class T>
 		++c.depth;
 		++c.p;
 		for (std::size_t i = 0; i < N; ++i) {
-			c.skip_ws();
+			if (c.p >= c.end) {
+				return FpStatus::bail;
+			}
+			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+				c.skip_ws();
+				if (c.p >= c.end) {
+					return FpStatus::bail;
+				}
+			}
 			FpStatus st{};
 			if constexpr (std::floating_point<E>) {
 				st = fp_parse_floating<E>(c, out[i]);
@@ -4087,15 +4095,23 @@ template<class T>
 			if (st != FpStatus::ok) {
 				return FpStatus::bail;
 			}
-			c.skip_ws();
+			if (c.p >= c.end) {
+				return FpStatus::bail;
+			}
+			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+				c.skip_ws();
+				if (c.p >= c.end) {
+					return FpStatus::bail;
+				}
+			}
 			if (i + 1U < N) {
-				if (c.at_end() || *c.p != ',') {
+				if (*c.p != ',') {
 					return FpStatus::bail;
 				}
 				++c.p;
 			}
 		}
-		if (c.at_end() || *c.p != ']') {
+		if (c.p >= c.end || *c.p != ']') {
 			return FpStatus::bail;
 		}
 		++c.p;
