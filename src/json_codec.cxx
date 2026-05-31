@@ -1133,7 +1133,7 @@ struct JsonCodec<std::optional<T>> {
 		NodeRef n) {
 		if (n.is_null()) {
 			if constexpr (detail::is_nullable_type<T>::value) {
-				auto v = decode<T>(n);
+				auto v = conflux::json::decode<T>(n);
 				if (!v) {
 					return std::unexpected(std::move(v).error());
 				}
@@ -1149,7 +1149,7 @@ struct JsonCodec<std::optional<T>> {
 								   "nullable fields"});
 			}
 		}
-		auto v = decode<T>(n);
+		auto v = conflux::json::decode<T>(n);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -1172,7 +1172,7 @@ struct JsonCodec<Nullable<T>> {
 		if (n.is_null()) {
 			return Nullable<T>{};
 		}
-		auto v = decode<T>(n);
+		auto v = conflux::json::decode<T>(n);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -1201,7 +1201,7 @@ std::expected<Vec, JsonError> decode_array_elements(
 		if (!elem) {
 			return std::unexpected(std::move(elem).error());
 		}
-		auto v = decode<T>(*elem);
+		auto v = conflux::json::decode<T>(*elem);
 		if (!v) {
 			JsonPath prefix;
 			prefix.push_index(i);
@@ -1266,7 +1266,7 @@ struct JsonCodec<std::array<T, N>> {
 			if (!elem) {
 				return std::unexpected(std::move(elem).error());
 			}
-			auto v = decode<T>(*elem);
+			auto v = conflux::json::decode<T>(*elem);
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_index(i);
@@ -1317,7 +1317,7 @@ struct JsonCodec<std::pair<A, B>> {
 		if (!e0) {
 			return std::unexpected(std::move(e0).error());
 		}
-		auto first = decode<A>(*e0);
+		auto first = conflux::json::decode<A>(*e0);
 		if (!first) {
 			JsonPath prefix;
 			prefix.push_index(0);
@@ -1327,7 +1327,7 @@ struct JsonCodec<std::pair<A, B>> {
 		if (!e1) {
 			return std::unexpected(std::move(e1).error());
 		}
-		auto second = decode<B>(*e1);
+		auto second = conflux::json::decode<B>(*e1);
 		if (!second) {
 			JsonPath prefix;
 			prefix.push_index(1);
@@ -1386,7 +1386,7 @@ struct JsonCodec<std::tuple<Ts...>> {
 					 first_err = std::move(elem).error();
 					 return;
 				 }
-				 auto v = decode<std::tuple_element_t<I, std::tuple<Ts...>>>(*elem);
+				 auto v = conflux::json::decode<std::tuple_element_t<I, std::tuple<Ts...>>>(*elem);
 				 if (!v) {
 					 ok = false;
 					 JsonPath prefix;
@@ -1445,7 +1445,7 @@ struct JsonCodec<std::map<std::string, T, Compare, Alloc>> {
 		}
 		Map result;
 		for (auto const &[name, val]: obj->members()) {
-			auto v = decode<T>(val);
+			auto v = conflux::json::decode<T>(val);
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_member(name);
@@ -1485,7 +1485,7 @@ struct JsonCodec<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>> {
 		Map result;
 		result.reserve(obj->size());
 		for (auto const &[name, val]: obj->members()) {
-			auto v = decode<T>(val);
+			auto v = conflux::json::decode<T>(val);
 			if (!v) {
 				JsonPath prefix;
 				prefix.push_member(name);

@@ -1060,6 +1060,30 @@ if(TARGET conflux_net_http)
         EXPECT "Document")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_global_default_handler
+        SOURCE json_compile_fail_global_default_handler.cxx
+        TEST json/compile-fail-global-default-handler
+        LINK conflux_json conflux_options
+        LABELS json compile-fail
+        EXPECT "JsonDefaultHandler")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_global_make_object
+        SOURCE json_compile_fail_global_make_object.cxx
+        TEST json/compile-fail-global-make-object
+        LINK conflux_json conflux_options
+        LABELS json compile-fail
+        EXPECT "make_object")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_global_ndjson_range
+        SOURCE json_compile_fail_global_ndjson_range.cxx
+        TEST json/compile-fail-global-ndjson-range
+        LINK conflux_json conflux_options
+        LABELS json compile-fail
+        EXPECT "NdjsonRange")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_router_alias
         SOURCE http_facade_compile_fail_router_alias.cxx
         TEST http-facade/compile-fail-router-alias
