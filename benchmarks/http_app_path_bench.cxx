@@ -166,6 +166,10 @@ struct PathCase {
 
 struct PathBenchStats {
 	BenchStats timing{};
+	double best_ns_per_iter{};
+	double p10_ns_per_iter{};
+	double p50_ns_per_iter{};
+	double p99_ns_per_iter{};
 	bool has_allocations = false;
 	std::size_t allocations{};
 	std::size_t allocation_bytes{};
@@ -631,33 +635,54 @@ void apply_phase(
 
 [[nodiscard]] PathBenchStats bench_case(
 	PathCase const &c,
-	std::size_t warmup,
-	std::size_t iterations,
+	BenchSamplePlan const &plan,
 	bool count_allocations) {
-	for (std::size_t i = 0; i < warmup; ++i) {
-		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+		}
 	}
 
-	auto const t0 = bench_now_ns();
-	for (std::size_t i = 0; i < iterations; ++i) {
-		g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+	std::vector<std::uint64_t> samples;
+	samples.reserve(plan.samples);
+	std::uint64_t total_ns = 0;
+	for (std::size_t i = 0; i < plan.samples; ++i) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < plan.batch; ++j) {
+			g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
+		}
+		auto const elapsed = bench_now_ns() - t0;
+		total_ns += elapsed;
+		samples.push_back(elapsed);
 	}
-	auto const elapsed = bench_now_ns() - t0;
+	std::ranges::sort(samples);
+	auto sample_ns = [&](std::size_t idx) {
+		return static_cast<double>(samples[std::min(idx, samples.size() - 1U)]) / static_cast<double>(plan.batch);
+	};
+	double const best_ns = sample_ns(0);
+	double const p10_ns = sample_ns(plan.samples / 10U);
+	double const p50_ns = sample_ns(plan.samples / 2U);
+	double const p99_ns = sample_ns((plan.samples * 99U) / 100U);
 	PathBenchStats stats{
-		.timing = {
-				   .config = c.name,
-				   .variant = c.name,
-				   .iterations = iterations,
-				   .total_ns = elapsed,
-				   .ns_per_iter = static_cast<double>(elapsed) / static_cast<double>(iterations),
-				   .throughput = 1e9 / (static_cast<double>(elapsed) / static_cast<double>(iterations))}
-    };
+		.timing =
+			{.config = c.name,
+					 .variant = c.name,
+					 .iterations = plan.iterations,
+					 .total_ns = total_ns,
+					 .ns_per_iter = p50_ns,
+					 .throughput = 1e9 / p50_ns},
+		.best_ns_per_iter = best_ns,
+		.p10_ns_per_iter = p10_ns,
+		.p50_ns_per_iter = p50_ns,
+		.p99_ns_per_iter = p99_ns,
+	};
+	bench_apply_sample_plan(stats.timing, plan);
 
 	if (count_allocations) {
 		bench_alloc_detail::reset();
 		{
 			bench_alloc_detail::Scope const scope;
-			for (std::size_t i = 0; i < iterations; ++i) {
+			for (std::size_t i = 0; i < plan.iterations; ++i) {
 				g_sink.fetch_add(run_one(*c.state), std::memory_order_relaxed);
 			}
 		}
@@ -673,20 +698,55 @@ void print_path_stats(
 	PathBenchStats const &s,
 	bool json_out,
 	bool first) {
-	if (!s.has_allocations) {
-		bench_print(s.timing, json_out, first);
-		return;
-	}
-	if (json_out) {
-		std::println(
+	auto const print_json_common = [&] {
+		std::print(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
-			"\"allocations\":{},\"allocation_bytes\":{},\"allocs_per_iter\":{:.4f},\"allocation_bytes_per_iter\":{:.2f}"
-			"}}",
+			"\"best_ns_per_iter\":{:.2f},\"p10_ns_per_iter\":{:.2f},\"p50_ns_per_iter\":{:.2f},"
+			"\"p99_ns_per_iter\":{:.2f},\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},"
+			"\"timer_overhead_pct\":{:.4f}",
 			s.timing.config,
 			s.timing.variant,
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.best_ns_per_iter,
+			s.p10_ns_per_iter,
+			s.p50_ns_per_iter,
+			s.p99_ns_per_iter,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_sample_ns,
+			s.timing.timer_overhead_pct);
+	};
+	if (!s.has_allocations) {
+		if (json_out) {
+			print_json_common();
+			std::println("}}");
+			(void)first;
+			return;
+		}
+		std::println(
+			"[{}] {:<24} {:>10} iters  {:>9.2f} ns/iter  best {:>9.2f}  p10 {:>9.2f}  p99 {:>9.2f}  "
+			"{:>12.0f} ops/s  [{}×{} samples, timer≈{:.2f}%]",
+			s.timing.config,
+			s.timing.variant,
+			s.timing.iterations,
+			s.timing.ns_per_iter,
+			s.best_ns_per_iter,
+			s.p10_ns_per_iter,
+			s.p99_ns_per_iter,
+			s.timing.throughput,
+			s.timing.sample_count,
+			s.timing.batch,
+			s.timing.timer_overhead_pct);
+		return;
+	}
+	if (json_out) {
+		print_json_common();
+		std::println(
+			",\"allocations\":{},\"allocation_bytes\":{},\"allocs_per_iter\":{:.4f},\"allocation_bytes_per_iter\":{:."
+			"2f}"
+			"}}",
 			s.allocations,
 			s.allocation_bytes,
 			static_cast<double>(s.allocations) / static_cast<double>(s.timing.iterations),
@@ -694,7 +754,20 @@ void print_path_stats(
 		(void)first;
 		return;
 	}
-	bench_print(s.timing, false, first);
+	std::println(
+		"[{}] {:<24} {:>10} iters  {:>9.2f} ns/iter  best {:>9.2f}  p10 {:>9.2f}  p99 {:>9.2f}  "
+		"{:>12.0f} ops/s  [{}×{} samples, timer≈{:.2f}%]",
+		s.timing.config,
+		s.timing.variant,
+		s.timing.iterations,
+		s.timing.ns_per_iter,
+		s.best_ns_per_iter,
+		s.p10_ns_per_iter,
+		s.p99_ns_per_iter,
+		s.timing.throughput,
+		s.timing.sample_count,
+		s.timing.batch,
+		s.timing.timer_overhead_pct);
 	std::println(
 		"    allocations: {:.4f}/iter  bytes: {:.2f}/iter",
 		static_cast<double>(s.allocations) / static_cast<double>(s.timing.iterations),
@@ -711,7 +784,7 @@ void print_list() {
 void print_usage() {
 	std::println(
 		"Usage: conflux_http_app_path_bench [--case NAME|--all-cases] [--phase full|parse|route] [--count-allocs] "
-		"[--iterations N] [--warmup N] [--json] [--list]");
+		"[--iterations N] [--warmup N] [--samples N] [--batch N] [--json] [--list]");
 }
 
 [[nodiscard]] bool has_flag(
@@ -752,7 +825,8 @@ int main(
 		auto cases = selected_cases(args, phase);
 		for (auto const &c: cases) {
 			auto const iterations = cfg.iterations == 0 ? c.default_iterations : cfg.iterations;
-			auto const stats = bench_case(c, cfg.warmup, iterations, count_allocations);
+			auto const plan = bench_sample_plan(iterations, cfg.warmup, cfg.samples, cfg.batch);
+			auto const stats = bench_case(c, plan, count_allocations);
 			print_path_stats(stats, cfg.json_out, c.name == cases.front().name);
 		}
 		std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));
