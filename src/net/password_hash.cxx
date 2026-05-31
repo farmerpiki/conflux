@@ -26,12 +26,14 @@ import conflux.crypto;
 import conflux.utils;
 import conflux.net.config;
 
-export enum class PasswordHashAlgorithm {
+export namespace conflux::http {
+
+enum class PasswordHashAlgorithm {
 	argon2id,
 	pbkdf2_sha256,
 };
 
-export struct PasswordHashOptions {
+struct PasswordHashOptions {
 	PasswordHashAlgorithm algorithm{PasswordHashAlgorithm::argon2id};
 	std::uint32_t memory_kib{64U * 1024U};
 	std::uint32_t iterations{3U};
@@ -40,23 +42,25 @@ export struct PasswordHashOptions {
 	std::uint32_t hash_bytes{32U};
 };
 
-export struct PasswordHashSecrets {
+struct PasswordHashSecrets {
 	std::string verifier_secret{};
 };
 
-export struct PasswordHashResourceLimits {
+struct PasswordHashResourceLimits {
 	// 0 means use the library default: std::min(std::max(hardware_concurrency / 2, 1), 4).
 	std::uint32_t max_concurrent_hashes{0U};
 	// Requests beyond active hashes wait up to this many queued callers; 0 means fail fast.
 	std::uint32_t max_waiting_hashes{64U};
 };
 
-export struct PasswordVerifyResult {
+struct PasswordVerifyResult {
 	bool ok{false};
 	bool needs_rehash{false};
 };
 
-namespace password_hash_detail {
+} // namespace conflux::http
+
+namespace conflux::http::password_hash_detail {
 
 constexpr std::uint32_t kArgon2Version = 0x13U;
 constexpr std::uint32_t kPbkdf2DefaultIterations = 600'000U;
@@ -598,20 +602,22 @@ struct Argon2Api {
 
 } // namespace password_hash_detail
 
-export [[nodiscard]] bool password_hash_argon2id_available() noexcept {
+export namespace conflux::http {
+
+[[nodiscard]] bool password_hash_argon2id_available() noexcept {
 	return password_hash_detail::argon2_api().hash_raw != nullptr;
 }
 
-export [[nodiscard]] std::expected<void, std::string> password_hash_configure_resource_limits(
+[[nodiscard]] std::expected<void, std::string> password_hash_configure_resource_limits(
 	PasswordHashResourceLimits limits) {
 	return password_hash_detail::password_hash_gate().configure(limits);
 }
 
-export [[nodiscard]] PasswordHashResourceLimits password_hash_resource_limits() {
+[[nodiscard]] PasswordHashResourceLimits password_hash_resource_limits() {
 	return password_hash_detail::password_hash_gate().current();
 }
 
-export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
+[[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
 	std::uint32_t iterations = password_hash_detail::kPbkdf2DefaultIterations) noexcept {
 	PasswordHashOptions opts;
 	opts.algorithm = PasswordHashAlgorithm::pbkdf2_sha256;
@@ -623,7 +629,7 @@ export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
 	return opts;
 }
 
-export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
+[[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
 	conflux::http::AuthSecretsConfig const &cfg,
 	bool required = true) {
 	auto secret =
@@ -644,13 +650,13 @@ export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_ha
 	return out;
 }
 
-export [[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
+[[nodiscard]] std::expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
 	conflux::http::Config const &cfg,
 	bool required = true) {
 	return password_hash_secrets_from_config(cfg.auth_secrets, required);
 }
 
-export [[nodiscard]] std::expected<std::string, std::string> password_hash_with_salt(
+[[nodiscard]] std::expected<std::string, std::string> password_hash_with_salt(
 	std::string_view password,
 	std::string_view salt,
 	PasswordHashOptions const &opts = {},
@@ -692,7 +698,7 @@ export [[nodiscard]] std::expected<std::string, std::string> password_hash_with_
 		hash_b64);
 }
 
-export [[nodiscard]] std::expected<std::string, std::string> password_hash(
+[[nodiscard]] std::expected<std::string, std::string> password_hash(
 	std::string_view password,
 	PasswordHashOptions const &opts = {},
 	PasswordHashSecrets const &secrets = {}) {
@@ -705,7 +711,7 @@ export [[nodiscard]] std::expected<std::string, std::string> password_hash(
 	return password_hash_with_salt(password, salt_view, opts, secrets);
 }
 
-export [[nodiscard]] std::expected<PasswordVerifyResult, std::string> password_verify(
+[[nodiscard]] std::expected<PasswordVerifyResult, std::string> password_verify(
 	std::string_view password,
 	std::string_view encoded,
 	PasswordHashOptions const &current = {},
@@ -738,7 +744,7 @@ export [[nodiscard]] std::expected<PasswordVerifyResult, std::string> password_v
 	return result;
 }
 
-export [[nodiscard]] std::expected<bool, std::string> password_needs_rehash(
+[[nodiscard]] std::expected<bool, std::string> password_needs_rehash(
 	std::string_view encoded,
 	PasswordHashOptions const &current = {},
 	PasswordHashSecrets const &secrets = {}) {
@@ -748,3 +754,5 @@ export [[nodiscard]] std::expected<bool, std::string> password_needs_rehash(
 	}
 	return !password_hash_detail::parameters_match(*parsed, current, secrets);
 }
+
+} // namespace conflux::http

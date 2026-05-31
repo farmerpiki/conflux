@@ -46,7 +46,7 @@ TEST_CASE(
 	"[auth][config]") {
 	Config cfg{};
 
-	CHECK_FALSE(password_hash_secrets_from_config(cfg).has_value());
+	CHECK_FALSE(conflux::http::password_hash_secrets_from_config(cfg).has_value());
 	CHECK_FALSE(conflux::http::jwt_options_from_config(cfg).has_value());
 	CHECK_FALSE(conflux::http::cookie_signing_options_from_config(cfg).has_value());
 }
@@ -71,7 +71,7 @@ session_min_secret_bytes = 16
 
 	auto cfg = config_from_ini(ini.c_str());
 
-	auto password_secrets = password_hash_secrets_from_config(cfg);
+	auto password_secrets = conflux::http::password_hash_secrets_from_config(cfg);
 	REQUIRE(password_secrets.has_value());
 	CHECK(password_secrets->verifier_secret == "password-pepper-16-bytes");
 

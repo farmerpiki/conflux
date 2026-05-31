@@ -9,23 +9,23 @@ verify/rehash path, and centralizes expensive KDF admission control.
 ```cpp
 import conflux.net.password_hash;
 
-auto encoded = password_hash(password);              // Argon2id default
-auto verified = password_verify(password, encoded);  // ok + needs_rehash
+auto encoded = conflux::http::password_hash(password);              // Argon2id default
+auto verified = conflux::http::password_verify(password, encoded);  // ok + needs_rehash
 ```
 
 Primary APIs:
 
-- `password_hash(password, opts, secrets)` creates a new encoded hash with a random salt.
-- `password_hash_with_salt(password, salt, opts, secrets)` exists for tests,
+- `conflux::http::password_hash(password, opts, secrets)` creates a new encoded hash with a random salt.
+- `conflux::http::password_hash_with_salt(password, salt, opts, secrets)` exists for tests,
   fixtures, and controlled migrations.
-- `password_verify(password, encoded, current_opts, secrets)` verifies a stored
+- `conflux::http::password_verify(password, encoded, current_opts, secrets)` verifies a stored
   hash and reports whether it should be replaced with the current algorithm,
   parameters, or pepper policy.
-- `password_needs_rehash(encoded, current_opts, secrets)` checks only the encoded
+- `conflux::http::password_needs_rehash(encoded, current_opts, secrets)` checks only the encoded
   metadata.
-- `password_hash_argon2id_available()` reports whether the configured Argon2id
+- `conflux::http::password_hash_argon2id_available()` reports whether the configured Argon2id
   backend is usable.
-- `password_hash_configure_resource_limits(limits)` bounds simultaneous KDF work
+- `conflux::http::password_hash_configure_resource_limits(limits)` bounds simultaneous KDF work
   and queued hash callers.
 
 ## Format
@@ -41,8 +41,8 @@ $pbkdf2-sha256$v=1$i=600000,l=32,k=1$<salt-b64url>$<hash-b64url>
 ```
 
 `k=1` means the stored hash was post-processed with the verifier-only secret
-carried in `PasswordHashSecrets`, not in the stored password row and not in
-`PasswordHashOptions`. A `k=1` row fails closed if verification is attempted
+carried in `conflux::http::PasswordHashSecrets`, not in the stored password row and not in
+`conflux::http::PasswordHashOptions`. A `k=1` row fails closed if verification is attempted
 without that secret. Rows without `k=1` still verify with current options and
 then report `needs_rehash` when a verifier secret is now configured.
 
@@ -50,9 +50,9 @@ The metadata is deliberately part of the stored value so DB rows can be upgraded
 without a separate schema flag. On login:
 
 1. Load the stored hash.
-2. Resolve `PasswordHashSecrets` from typed auth config.
-3. Call `password_verify(password, stored, current_opts, secrets)`.
-4. If `ok && needs_rehash`, call `password_hash(password, current_opts, secrets)` and store
+2. Resolve `conflux::http::PasswordHashSecrets` from typed auth config.
+3. Call `conflux::http::password_verify(password, stored, current_opts, secrets)`.
+4. If `ok && needs_rehash`, call `conflux::http::password_hash(password, current_opts, secrets)` and store
    the replacement in the same transaction/session flow.
 
 ## Algorithm policy
@@ -76,7 +76,7 @@ want to run on systems where `libargon2` may or may not be installed. Missing
 Argon2id support fails closed; it never silently falls back to PBKDF2 for a new
 Argon2id hash.
 
-`pbkdf2_sha256_password_hash_options()` remains a compatibility/FIPS migration
+`conflux::http::pbkdf2_sha256_password_hash_options()` remains a compatibility/FIPS migration
 fallback and for test fixtures. The PBKDF2 path uses a no-allocation streaming
 SHA-256/HMAC implementation for the 600k-iteration inner loop. Do not use PBKDF2
 for new production password rows when Argon2id is available.
@@ -88,20 +88,20 @@ it separately from the algorithm parameters:
 
 ```cpp
 auto cfg = config_from_ini("/etc/conflux.ini");
-auto secrets = password_hash_secrets_from_config(cfg);
+auto secrets = conflux::http::password_hash_secrets_from_config(cfg);
 if (!secrets) {
     return unexpected{secrets.error()}; // explicit missing/short secret error
 }
 
-PasswordHashOptions opts;
-auto encoded = password_hash(password, opts, *secrets);
-auto verified = password_verify(password, encoded, opts, *secrets);
+conflux::http::PasswordHashOptions opts;
+auto encoded = conflux::http::password_hash(password, opts, *secrets);
+auto verified = conflux::http::password_verify(password, encoded, opts, *secrets);
 ```
 
 The secret must be stable across restarts and deployments that need to verify old
 rows. Store it separately from DB password hashes: env/secret manager/KMS-backed
 config, not in the user table. The default config has no production secret;
-helpers such as `password_hash_secrets_from_config`, `conflux::http::jwt_options_from_config`,
+helpers such as `conflux::http::password_hash_secrets_from_config`, `conflux::http::jwt_options_from_config`,
 and `cookie_signing_options_from_config` return explicit missing-secret errors
 until a source is configured. JWT, cookie, and session secrets use typed rotation
 config: one active source plus optional previous sources for verification-only
@@ -115,7 +115,7 @@ Password hashing is intentionally expensive. Configure KDF admission limits duri
 server startup:
 
 ```cpp
-auto ok = password_hash_configure_resource_limits({
+auto ok = conflux::http::password_hash_configure_resource_limits({
     .max_concurrent_hashes = 2,
     .max_waiting_hashes = 64,
 });
@@ -151,19 +151,19 @@ account, API-token digest, remote address, or a composed application key.
 must not own user storage. Use the password hash API inside that callback:
 
 ```cpp
-PasswordHashOptions current = current_password_hash_options();
+conflux::http::PasswordHashOptions current = current_password_hash_options();
 
 router.use(conflux::http::basic_auth_middleware([&](std::string_view user, std::string_view password) {
     auto stored = lookup_password_hash(user);
     if (!stored) {
         return false;
     }
-    auto verified = password_verify(password, *stored, current);
+    auto verified = conflux::http::password_verify(password, *stored, current);
     if (!verified || !verified->ok) {
         return false;
     }
     if (verified->needs_rehash) {
-        auto replacement = password_hash(password, current);
+        auto replacement = conflux::http::password_hash(password, current);
         if (replacement) {
             replace_password_hash(user, *replacement);
         }

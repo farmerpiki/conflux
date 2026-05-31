@@ -1402,6 +1402,118 @@ if(TARGET conflux_http_auth)
         EXPECT "jwt_middleware")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_algorithm
+        SOURCE http_auth_compile_fail_global_password_hash_algorithm.cxx
+        TEST http-auth/compile-fail-global-password-hash-algorithm
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "PasswordHashAlgorithm")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_options
+        SOURCE http_auth_compile_fail_global_password_hash_options.cxx
+        TEST http-auth/compile-fail-global-password-hash-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "PasswordHashOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_secrets
+        SOURCE http_auth_compile_fail_global_password_hash_secrets.cxx
+        TEST http-auth/compile-fail-global-password-hash-secrets
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "PasswordHashSecrets")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_resource_limits
+        SOURCE http_auth_compile_fail_global_password_hash_resource_limits.cxx
+        TEST http-auth/compile-fail-global-password-hash-resource-limits
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "PasswordHashResourceLimits")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_verify_result
+        SOURCE http_auth_compile_fail_global_password_verify_result.cxx
+        TEST http-auth/compile-fail-global-password-verify-result
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "PasswordVerifyResult")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_argon2id_available
+        SOURCE http_auth_compile_fail_global_password_hash_argon2id_available.cxx
+        TEST http-auth/compile-fail-global-password-hash-argon2id-available
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash_argon2id_available")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_configure_resource_limits
+        SOURCE http_auth_compile_fail_global_password_hash_configure_resource_limits.cxx
+        TEST http-auth/compile-fail-global-password-hash-configure-resource-limits
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash_configure_resource_limits")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_resource_limits_fn
+        SOURCE http_auth_compile_fail_global_password_hash_resource_limits_fn.cxx
+        TEST http-auth/compile-fail-global-password-hash-resource-limits-fn
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash_resource_limits")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_pbkdf2_sha256_password_hash_options
+        SOURCE http_auth_compile_fail_global_pbkdf2_sha256_password_hash_options.cxx
+        TEST http-auth/compile-fail-global-pbkdf2-sha256-password-hash-options
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "pbkdf2_sha256_password_hash_options")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_secrets_from_config
+        SOURCE http_auth_compile_fail_global_password_hash_secrets_from_config.cxx
+        TEST http-auth/compile-fail-global-password-hash-secrets-from-config
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash_secrets_from_config")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash_with_salt
+        SOURCE http_auth_compile_fail_global_password_hash_with_salt.cxx
+        TEST http-auth/compile-fail-global-password-hash-with-salt
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash_with_salt")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_hash
+        SOURCE http_auth_compile_fail_global_password_hash.cxx
+        TEST http-auth/compile-fail-global-password-hash
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_hash")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_verify
+        SOURCE http_auth_compile_fail_global_password_verify.cxx
+        TEST http-auth/compile-fail-global-password-verify
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_verify")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_auth_compile_fail_global_password_needs_rehash
+        SOURCE http_auth_compile_fail_global_password_needs_rehash.cxx
+        TEST http-auth/compile-fail-global-password-needs-rehash
+        LINK conflux_http_auth conflux_options
+        LABELS http compile-fail
+        EXPECT "password_needs_rehash")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_auth_compile_fail_global_cookie_signing_options
         SOURCE http_auth_compile_fail_global_cookie_signing_options.cxx
         TEST http-auth/compile-fail-global-cookie-signing-options
