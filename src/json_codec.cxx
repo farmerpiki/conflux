@@ -3236,15 +3236,21 @@ template<class T>
 	std::size_t total_digits = 0;
 	bool exact = true;
 	char const *const int_start = p;
-	char const *const int_accum_end = p + std::min<std::size_t>(17U, static_cast<std::size_t>(end - p));
-	while (p < int_accum_end && *p >= '0' && *p <= '9') {
-		mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
-		++total_digits;
+	if (p + 1 < end && p[1] == '.') {
+		mant = static_cast<std::uint64_t>(*p - '0');
+		total_digits = 1;
 		++p;
-	}
-	if (p < end && *p >= '0' && *p <= '9') {
-		exact = false;
-		p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+	} else {
+		char const *const int_accum_end = p + std::min<std::size_t>(17U, static_cast<std::size_t>(end - p));
+		while (p < int_accum_end && *p >= '0' && *p <= '9') {
+			mant = mant * 10U + static_cast<std::uint64_t>(*p - '0');
+			++total_digits;
+			++p;
+		}
+		if (p < end && *p >= '0' && *p <= '9') {
+			exact = false;
+			p += fp_scan_digits(p, static_cast<std::size_t>(end - p));
+		}
 	}
 	std::size_t const int_len = static_cast<std::size_t>(p - int_start);
 	if (starts_zero && int_len > 1) {
