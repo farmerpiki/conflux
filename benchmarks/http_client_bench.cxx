@@ -535,6 +535,10 @@ struct ClientStats {
 	double connect_ns_per_iter{};
 	double ttfb_ns_per_iter{};
 	double body_ns_per_iter{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 };
 
 [[nodiscard]] double per_iter(
@@ -551,7 +555,8 @@ void print_stats(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"kind\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{"
 			":.2f},\"request_bytes_per_iter\":{:.2f},\"response_bytes_per_iter\":{:.2f},\"response_body_bytes_per_"
 			"iter\":{:.2f},\"allocations_per_iter\":{:.4f},\"allocated_bytes_per_iter\":{:.2f},\"dns_ns_per_iter\":{:."
-			"2f},\"connect_ns_per_iter\":{:.2f},\"ttfb_ns_per_iter\":{:.2f},\"body_ns_per_iter\":{:.2f}}}",
+			"2f},\"connect_ns_per_iter\":{:.2f},\"ttfb_ns_per_iter\":{:.2f},\"body_ns_per_iter\":{:.2f},"
+			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
 			s.config,
 			s.variant,
 			s.kind,
@@ -566,7 +571,11 @@ void print_stats(
 			s.dns_ns_per_iter,
 			s.connect_ns_per_iter,
 			s.ttfb_ns_per_iter,
-			s.body_ns_per_iter);
+			s.body_ns_per_iter,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct);
 		return;
 	}
 	std::println(
@@ -584,7 +593,9 @@ struct BenchCase {
 	std::string kind;
 	std::string description;
 	std::size_t default_iterations{};
-	std::function<ClientStats(std::string_view config, std::size_t warmup, std::size_t iterations)> run;
+	std::function<
+		ClientStats(std::string_view config, std::size_t warmup, std::size_t iterations, BenchArgs const &args)>
+		run;
 };
 
 [[nodiscard]] conflux::http::HttpFields make_headers(
@@ -634,41 +645,51 @@ struct BenchCase {
 		.kind = "micro/client-wire-build",
 		.description = std::move(description),
 		.default_iterations = default_iterations,
-		.run = [req = std::move(req),
-				defaults = std::move(defaults),
-				variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
+		.run = [req = std::move(req), defaults = std::move(defaults), variant = variant_name](
+				   std::string_view config,
+				   std::size_t warmup,
+				   std::size_t iterations,
+				   BenchArgs const &args) mutable {
 			for (std::size_t i = 0; i < warmup; ++i) {
 				auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
 				g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
 			}
+			BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
 			std::uint64_t request_bytes{};
 			std::uint64_t response_bytes{};
 			std::uint64_t response_body_bytes{};
 			std::uint64_t total_ns{};
 			{
 				ScopedAllocationCounting counting;
-				auto const start = bench_now_ns();
-				for (std::size_t i = 0; i < iterations; ++i) {
-					auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
-					request_bytes += wire.size();
-					g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
+				for (std::size_t i = 0; i < plan.samples; ++i) {
+					auto const start = bench_now_ns();
+					for (std::size_t j = 0; j < plan.batch; ++j) {
+						auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
+						request_bytes += wire.size();
+						g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
+					}
+					total_ns += bench_now_ns() - start;
 				}
-				total_ns = bench_now_ns() - start;
 			}
 			return ClientStats{
 				.config = std::string{config},
 				.variant = variant,
 				.kind = "micro/client-wire-build",
-				.iterations = iterations,
+				.iterations = plan.iterations,
 				.total_ns = total_ns,
-				.ns_per_iter = per_iter(total_ns, iterations),
+				.ns_per_iter = per_iter(total_ns, plan.iterations),
 				.ops_per_second =
-					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
-				.request_bytes_per_iter = per_iter(request_bytes, iterations),
-				.response_bytes_per_iter = per_iter(response_bytes, iterations),
-				.response_body_bytes_per_iter = per_iter(response_body_bytes, iterations),
-				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), iterations),
-				.allocated_bytes_per_iter = per_iter(g_allocated_bytes.load(std::memory_order_relaxed), iterations)};
+					total_ns == 0 ? 0.0 : static_cast<double>(plan.iterations) * 1e9 / static_cast<double>(total_ns),
+				.request_bytes_per_iter = per_iter(request_bytes, plan.iterations),
+				.response_bytes_per_iter = per_iter(response_bytes, plan.iterations),
+				.response_body_bytes_per_iter = per_iter(response_body_bytes, plan.iterations),
+				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), plan.iterations),
+				.allocated_bytes_per_iter =
+					per_iter(g_allocated_bytes.load(std::memory_order_relaxed), plan.iterations),
+				.sample_count = plan.samples,
+				.batch = plan.batch,
+				.timer_sample_ns = plan.timer_sample_ns,
+				.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns)};
 		}};
 }
 
@@ -703,8 +724,11 @@ struct BenchCase {
 		.kind = "micro/client-response-head-parse",
 		.description = std::move(description),
 		.default_iterations = default_iterations,
-		.run = [head = std::move(response_head),
-				variant = variant_name](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
+		.run = [head = std::move(response_head), variant = variant_name](
+				   std::string_view config,
+				   std::size_t warmup,
+				   std::size_t iterations,
+				   BenchArgs const &args) mutable {
 			for (std::size_t i = 0; i < warmup; ++i) {
 				auto parsed = conflux::http::client_wire::parse_http1_response_head(head, 16 * 1024 * 1024);
 				if (!parsed) {
@@ -712,33 +736,43 @@ struct BenchCase {
 				}
 				g_sink.fetch_add(parsed->headers.size() + parsed->set_cookies.size(), std::memory_order_relaxed);
 			}
+			BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
 			std::uint64_t response_bytes{};
 			std::uint64_t total_ns{};
 			{
 				ScopedAllocationCounting counting;
-				auto const start = bench_now_ns();
-				for (std::size_t i = 0; i < iterations; ++i) {
-					auto parsed = conflux::http::client_wire::parse_http1_response_head(head, 16 * 1024 * 1024);
-					if (!parsed) {
-						throw std::runtime_error{parsed.error().message};
+				for (std::size_t i = 0; i < plan.samples; ++i) {
+					auto const start = bench_now_ns();
+					for (std::size_t j = 0; j < plan.batch; ++j) {
+						auto parsed = conflux::http::client_wire::parse_http1_response_head(head, 16 * 1024 * 1024);
+						if (!parsed) {
+							throw std::runtime_error{parsed.error().message};
+						}
+						response_bytes += head.size();
+						g_sink.fetch_add(
+							parsed->headers.size() + parsed->set_cookies.size(),
+							std::memory_order_relaxed);
 					}
-					response_bytes += head.size();
-					g_sink.fetch_add(parsed->headers.size() + parsed->set_cookies.size(), std::memory_order_relaxed);
+					total_ns += bench_now_ns() - start;
 				}
-				total_ns = bench_now_ns() - start;
 			}
 			return ClientStats{
 				.config = std::string{config},
 				.variant = variant,
 				.kind = "micro/client-response-head-parse",
-				.iterations = iterations,
+				.iterations = plan.iterations,
 				.total_ns = total_ns,
-				.ns_per_iter = per_iter(total_ns, iterations),
+				.ns_per_iter = per_iter(total_ns, plan.iterations),
 				.ops_per_second =
-					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
-				.response_bytes_per_iter = per_iter(response_bytes, iterations),
-				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), iterations),
-				.allocated_bytes_per_iter = per_iter(g_allocated_bytes.load(std::memory_order_relaxed), iterations)};
+					total_ns == 0 ? 0.0 : static_cast<double>(plan.iterations) * 1e9 / static_cast<double>(total_ns),
+				.response_bytes_per_iter = per_iter(response_bytes, plan.iterations),
+				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), plan.iterations),
+				.allocated_bytes_per_iter =
+					per_iter(g_allocated_bytes.load(std::memory_order_relaxed), plan.iterations),
+				.sample_count = plan.samples,
+				.batch = plan.batch,
+				.timer_sample_ns = plan.timer_sample_ns,
+				.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns)};
 		}};
 }
 
@@ -773,9 +807,13 @@ struct BenchCase {
 		.kind = "loopback/http-client-blocking",
 		.description = scenario.description,
 		.default_iterations = default_iterations,
-		.run = [scenario =
-					std::move(scenario)](std::string_view config, std::size_t warmup, std::size_t iterations) mutable {
-			auto const total_calls = warmup + iterations;
+		.run = [scenario = std::move(scenario)](
+				   std::string_view config,
+				   std::size_t warmup,
+				   std::size_t iterations,
+				   BenchArgs const &args) mutable {
+			BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
+			auto const total_calls = warmup + plan.iterations;
 			LoopbackHttpServer server{scenario, total_calls * connections_per_iteration(scenario)};
 			HttpClientOptions opts{};
 			opts.max_body_bytes = std::max<std::size_t>(16 * 1024 * 1024, scenario.response_body_size + 4096);
@@ -809,24 +847,26 @@ struct BenchCase {
 			std::uint64_t total_ns{};
 			{
 				ScopedAllocationCounting counting;
-				auto const start = bench_now_ns();
-				for (std::size_t i = 0; i < iterations; ++i) {
-					auto result = run_once();
-					if (!result) {
-						throw std::runtime_error{std::format("request failed: {}", result.error().message)};
+				for (std::size_t i = 0; i < plan.samples; ++i) {
+					auto const start = bench_now_ns();
+					for (std::size_t j = 0; j < plan.batch; ++j) {
+						auto result = run_once();
+						if (!result) {
+							throw std::runtime_error{std::format("request failed: {}", result.error().message)};
+						}
+						request_bytes += result->telemetry.bytes_sent;
+						response_bytes += result->telemetry.bytes_received;
+						response_body_bytes += result->body.size();
+						dns_ns += static_cast<std::uint64_t>(result->telemetry.dns.count());
+						connect_ns += static_cast<std::uint64_t>(result->telemetry.connect.count());
+						ttfb_ns += static_cast<std::uint64_t>(result->telemetry.ttfb.count());
+						body_ns += static_cast<std::uint64_t>(result->telemetry.body.count());
+						g_sink.fetch_add(
+							result->body.size() + static_cast<std::size_t>(result->head.status),
+							std::memory_order_relaxed);
 					}
-					request_bytes += result->telemetry.bytes_sent;
-					response_bytes += result->telemetry.bytes_received;
-					response_body_bytes += result->body.size();
-					dns_ns += static_cast<std::uint64_t>(result->telemetry.dns.count());
-					connect_ns += static_cast<std::uint64_t>(result->telemetry.connect.count());
-					ttfb_ns += static_cast<std::uint64_t>(result->telemetry.ttfb.count());
-					body_ns += static_cast<std::uint64_t>(result->telemetry.body.count());
-					g_sink.fetch_add(
-						result->body.size() + static_cast<std::size_t>(result->head.status),
-						std::memory_order_relaxed);
+					total_ns += bench_now_ns() - start;
 				}
-				total_ns = bench_now_ns() - start;
 			}
 			if (server.errors() != 0) {
 				throw std::runtime_error{std::format("loopback server observed {} errors", server.errors())};
@@ -835,20 +875,25 @@ struct BenchCase {
 				.config = std::string{config},
 				.variant = scenario.variant,
 				.kind = "loopback/http-client-blocking",
-				.iterations = iterations,
+				.iterations = plan.iterations,
 				.total_ns = total_ns,
-				.ns_per_iter = per_iter(total_ns, iterations),
+				.ns_per_iter = per_iter(total_ns, plan.iterations),
 				.ops_per_second =
-					total_ns == 0 ? 0.0 : static_cast<double>(iterations) * 1e9 / static_cast<double>(total_ns),
-				.request_bytes_per_iter = per_iter(request_bytes, iterations),
-				.response_bytes_per_iter = per_iter(response_bytes, iterations),
-				.response_body_bytes_per_iter = per_iter(response_body_bytes, iterations),
-				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), iterations),
-				.allocated_bytes_per_iter = per_iter(g_allocated_bytes.load(std::memory_order_relaxed), iterations),
-				.dns_ns_per_iter = per_iter(dns_ns, iterations),
-				.connect_ns_per_iter = per_iter(connect_ns, iterations),
-				.ttfb_ns_per_iter = per_iter(ttfb_ns, iterations),
-				.body_ns_per_iter = per_iter(body_ns, iterations)};
+					total_ns == 0 ? 0.0 : static_cast<double>(plan.iterations) * 1e9 / static_cast<double>(total_ns),
+				.request_bytes_per_iter = per_iter(request_bytes, plan.iterations),
+				.response_bytes_per_iter = per_iter(response_bytes, plan.iterations),
+				.response_body_bytes_per_iter = per_iter(response_body_bytes, plan.iterations),
+				.allocations_per_iter = per_iter(g_allocations.load(std::memory_order_relaxed), plan.iterations),
+				.allocated_bytes_per_iter =
+					per_iter(g_allocated_bytes.load(std::memory_order_relaxed), plan.iterations),
+				.dns_ns_per_iter = per_iter(dns_ns, plan.iterations),
+				.connect_ns_per_iter = per_iter(connect_ns, plan.iterations),
+				.ttfb_ns_per_iter = per_iter(ttfb_ns, plan.iterations),
+				.body_ns_per_iter = per_iter(body_ns, plan.iterations),
+				.sample_count = plan.samples,
+				.batch = plan.batch,
+				.timer_sample_ns = plan.timer_sample_ns,
+				.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns)};
 		}};
 }
 
@@ -1200,7 +1245,8 @@ int main(
 			auto stats = c.run(
 				parsed.config_name.empty() ? c.id : std::string_view{parsed.config_name},
 				parsed.warmup,
-				iterations);
+				iterations,
+				parsed);
 			print_stats(stats, parsed.json_out);
 		}
 		std::println(std::cerr, "sink={}", g_sink.load(std::memory_order_relaxed));
