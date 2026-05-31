@@ -971,8 +971,11 @@ export template<class T>
 std::expected<T, JsonError>
 decode_full(std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
 export template<class T>
-std::expected<void, JsonError>
-decode_full_into(T &out, std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
+std::expected<void, JsonError> decode_full_into(
+	T &out,
+	std::string_view input,
+	JsonParseOptions const &parse_opts = {},
+	JsonDecodeOptions const &decode_opts = {});
 export template<class T>
 std::expected<void, JsonError> write_json_direct(std::string &out, T const &value, JsonDumpOptions const &opts = {});
 export template<class T>
@@ -3073,11 +3076,11 @@ struct FpError {
 	std::string_view member_name{};
 };
 
-	struct FpCursor {
-		char const *p;
-		char const *end;
-		std::uint32_t depth{0};
-		FpError error{}; // valid only when a call returned FpStatus::error
+struct FpCursor {
+	char const *p;
+	char const *end;
+	std::uint32_t depth{0};
+	FpError error{}; // valid only when a call returned FpStatus::error
 
 	[[nodiscard]] bool at_end() const noexcept { return p >= end; }
 	[[nodiscard]] std::size_t remaining() const noexcept { return static_cast<std::size_t>(end - p); }
@@ -3157,8 +3160,8 @@ template<class T>
 	}
 	std::uint64_t limit{};
 	if constexpr (std::signed_integral<T>) {
-		limit = neg ? static_cast<std::uint64_t>(std::numeric_limits<T>::max()) + std::uint64_t{1}
-					: static_cast<std::uint64_t>(std::numeric_limits<T>::max());
+		limit = neg ? static_cast<std::uint64_t>(std::numeric_limits<T>::max()) + std::uint64_t{1} :
+					  static_cast<std::uint64_t>(std::numeric_limits<T>::max());
 	} else {
 		limit = static_cast<std::uint64_t>(std::numeric_limits<T>::max());
 	}
@@ -4185,7 +4188,8 @@ template<class T, std::size_t I = 0>
 	T &out,
 	FpCursor &c,
 	FpLimits const &lim) noexcept {
-	constexpr std::size_t N = std::tuple_size_v<std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>>;
+	constexpr std::size_t N =
+		std::tuple_size_v<std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>>;
 	if constexpr (I >= N) {
 		return FpStatus::bail;
 	} else {
