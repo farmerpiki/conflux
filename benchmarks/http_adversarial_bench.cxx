@@ -185,6 +185,10 @@ struct AdversarialStats {
 	std::size_t decoded_body_bytes{};
 	std::uint64_t total_ns{};
 	std::uint64_t cpu_ns{};
+	std::size_t sample_count{};
+	std::size_t batch{};
+	std::uint64_t timer_sample_ns{};
+	double timer_overhead_pct{};
 	double ns_per_iter{};
 	double cpu_ns_per_iter{};
 	double bytes_per_iter{};
@@ -562,50 +566,64 @@ struct AdversarialStats {
 
 [[nodiscard]] AdversarialStats bench_case(
 	AdversarialCase const &c,
-	std::size_t warmup,
+	BenchArgs const &args,
 	std::size_t iterations) {
-	for (std::size_t i = 0; i < warmup; ++i) {
-		auto const out = checked_eval(c);
+	BenchSamplePlan const plan = bench_sample_plan(iterations, args.warmup, args.samples, args.batch);
+	auto run_once = [&] {
+		auto out = checked_eval(c);
 		g_sink.fetch_add(out.parsed_headers + out.consumed_bytes + out.decoded_body_bytes, std::memory_order_relaxed);
+		return out;
+	};
+	for (std::size_t i = 0; i < plan.warmup_iterations; ++i) {
+		(void)run_once();
 	}
 
 	reset_allocation_counters();
 	g_count_allocations.store(true, std::memory_order_relaxed);
 	auto const cpu0 = cpu_times();
-	auto const t0 = bench_now_ns();
 	EvalResult last{};
-	for (std::size_t i = 0; i < iterations; ++i) {
-		last = checked_eval(c);
-		g_sink.fetch_add(
-			last.parsed_headers + last.consumed_bytes + last.decoded_body_bytes,
-			std::memory_order_relaxed);
+	std::vector<std::uint64_t> samples;
+	samples.reserve(plan.samples);
+	std::uint64_t total_ns = 0;
+	for (std::size_t sample = 0; sample < plan.samples; ++sample) {
+		auto const t0 = bench_now_ns();
+		for (std::size_t i = 0; i < plan.batch; ++i) {
+			last = run_once();
+		}
+		auto const elapsed = bench_now_ns() - t0;
+		total_ns += elapsed;
+		samples.push_back(elapsed);
 	}
-	auto const elapsed = bench_now_ns() - t0;
 	auto const cpu1 = cpu_times();
 	g_count_allocations.store(false, std::memory_order_relaxed);
+	std::ranges::sort(samples);
 	auto const total_allocs = g_allocations.load(std::memory_order_relaxed);
 	auto const total_bytes = g_allocated_bytes.load(std::memory_order_relaxed);
 	auto const cpu_ns = cpu_total(cpu1) - cpu_total(cpu0);
-	auto const iter_d = static_cast<double>(iterations);
+	auto const iter_d = static_cast<double>(plan.iterations);
 	return {
 		.config = c.name,
 		.variant = c.name,
 		.description = c.description,
 		.reject_reason = reject_reason_code(last.reason),
 		.parser_status = parse_status_name(last.parser_status),
-		.iterations = iterations,
+		.iterations = plan.iterations,
 		.request_bytes = c.raw.size(),
 		.consumed_bytes = last.consumed_bytes,
 		.parsed_headers = last.parsed_headers,
 		.decoded_body_bytes = last.decoded_body_bytes,
-		.total_ns = elapsed,
+		.total_ns = total_ns,
 		.cpu_ns = cpu_ns,
-		.ns_per_iter = static_cast<double>(elapsed) / iter_d,
+		.sample_count = plan.samples,
+		.batch = plan.batch,
+		.timer_sample_ns = plan.timer_sample_ns,
+		.timer_overhead_pct = bench_timer_overhead_percent(plan, total_ns),
+		.ns_per_iter = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch),
 		.cpu_ns_per_iter = static_cast<double>(cpu_ns) / iter_d,
 		.bytes_per_iter = static_cast<double>(c.raw.size()),
 		.allocations_per_iter = static_cast<double>(total_allocs) / iter_d,
 		.allocated_bytes_per_iter = static_cast<double>(total_bytes) / iter_d,
-		.throughput = iter_d * 1e9 / static_cast<double>(elapsed)};
+		.throughput = iter_d * 1e9 / static_cast<double>(total_ns)};
 }
 
 void print_stats(
@@ -616,7 +634,9 @@ void print_stats(
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"cpu_"
 			"ns\":{},\"cpu_ns_per_iter\":{:.2f},\"request_bytes\":{},\"consumed_bytes\":{},\"parsed_headers\":{},"
-			"\"decoded_body_bytes\":{},\"reject_reason\":\"{}\",\"parser_status\":\"{}\",\"allocations_per_iter\":{:."
+			"\"decoded_body_bytes\":{},\"reject_reason\":\"{}\",\"parser_status\":\"{}\",\"sample_count\":{},\"batch\":"
+			"{},"
+			"\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},\"allocations_per_iter\":{:."
 			"4f},\"allocated_bytes_per_iter\":{:.2f},\"label\":\"micro/user-space-adversarial\"}}",
 			s.config,
 			s.variant,
@@ -631,6 +651,10 @@ void print_stats(
 			s.decoded_body_bytes,
 			s.reject_reason,
 			s.parser_status,
+			s.sample_count,
+			s.batch,
+			s.timer_sample_ns,
+			s.timer_overhead_pct,
 			s.allocations_per_iter,
 			s.allocated_bytes_per_iter);
 		(void)first;
@@ -648,13 +672,16 @@ void print_stats(
 			"description");
 	}
 	std::println(
-		"{:<30} {:>10} {:>11.2f} {:>10.2f} {:>8} {:>10}  {}",
+		"{:<30} {:>10} {:>11.2f} {:>10.2f} {:>8} {:>10}  [{}×{} timer≈{:.2f}%] {}",
 		s.variant,
 		s.iterations,
 		s.ns_per_iter,
 		s.cpu_ns_per_iter,
 		s.parsed_headers,
 		s.reject_reason,
+		s.sample_count,
+		s.batch,
+		s.timer_overhead_pct,
 		s.description);
 }
 
@@ -729,7 +756,7 @@ int main(
 		bool first = true;
 		for (auto const &c: cases) {
 			auto const iterations = cfg.iterations == 0 ? c.default_iterations : cfg.iterations;
-			auto const stats = bench_case(c, cfg.warmup, iterations);
+			auto const stats = bench_case(c, cfg, iterations);
 			print_stats(stats, cfg.json_out, first);
 			first = false;
 		}
