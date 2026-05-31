@@ -4153,6 +4153,23 @@ template<class T, std::size_t I>
 	return FpStatus::ok;
 }
 
+template<class T, std::size_t I = 0>
+[[nodiscard]] inline FpStatus fp_decode_member_by_index(
+	std::size_t idx,
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	constexpr std::size_t N = std::tuple_size_v<std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>>;
+	if constexpr (I >= N) {
+		return FpStatus::bail;
+	} else {
+		if (idx == I) {
+			return fp_decode_member_at<T, I>(out, c, lim);
+		}
+		return fp_decode_member_by_index<T, I + 1U>(idx, out, c, lim);
+	}
+}
+
 template<class T>
 struct FpMemberMeta {
 	std::string_view name;
@@ -4313,7 +4330,14 @@ template<class T>
 		presence |= bit;
 
 		// --- value ---
-		if (FpStatus const st = meta[idx].decode(out, c, lim); st != FpStatus::ok) {
+		FpStatus const st = [&]() noexcept {
+			if constexpr (N <= 16U) {
+				return fp_decode_member_by_index<T>(idx, out, c, lim);
+			} else {
+				return meta[idx].decode(out, c, lim);
+			}
+		}();
+		if (st != FpStatus::ok) {
 			return st;
 		}
 	}
