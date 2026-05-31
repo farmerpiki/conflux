@@ -21,6 +21,8 @@ import conflux.work;
 
 namespace wroot = conflux::work::root;
 
+namespace conflux::socket_io {
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Buffer lifetime contract for Task methods:
@@ -1354,3 +1356,5 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	auto const millis = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
 	co_await async_sleep_for(ring, millis);
 }
+
+} // namespace conflux::socket_io

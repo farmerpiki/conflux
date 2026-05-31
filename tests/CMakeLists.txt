@@ -258,6 +258,30 @@ if(TARGET conflux)
         LINK conflux_file_io_sync conflux_options
         LABELS build api-surface compile-fail
         EXPECT "UniqueFd")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_socket_io_compile_fail_global_task_ring
+        SOURCE socket_io_compile_fail_global_task_ring.cxx
+        TEST api-surface/socket-io-hides-global-task-ring
+        LINK conflux_socket_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "SocketTaskRingOptions")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_socket_io_compile_fail_global_tcp_stream
+        SOURCE socket_io_compile_fail_global_tcp_stream.cxx
+        TEST api-surface/socket-io-hides-global-tcp-stream
+        LINK conflux_socket_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TcpStream")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_socket_io_compile_fail_global_blocking
+        SOURCE socket_io_compile_fail_global_blocking.cxx
+        TEST api-surface/socket-io-hides-global-blocking
+        LINK conflux_socket_io conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "SyncWaitSocketTaskTimeout")
 endif()
 
 add_executable(conflux_tests)

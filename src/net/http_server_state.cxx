@@ -55,6 +55,7 @@ import conflux.net.http3;
 import conflux.net.tls;
 #endif
 
+using namespace conflux::socket_io;
 enum class Op : std::uint8_t {
 	Accept,
 	Recv,

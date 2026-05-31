@@ -21,6 +21,11 @@ import conflux.socket_io.blocking;
 
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
+using conflux::socket_io::BlockOnSocketTaskTimeout;
+using conflux::socket_io::ConnectOptions;
+using conflux::socket_io::SocketRawRing;
+using conflux::socket_io::TcpStream;
+using conflux::socket_io::UdpSocket;
 
 namespace dns_local {
 

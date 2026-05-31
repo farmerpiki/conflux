@@ -13,8 +13,8 @@ int main() {
 		return 1;
 	}
 
-	SocketTaskRingOptions socket_opts{};
-	socket_opts.fd_mode = SocketFdMode::direct_if_available;
+	conflux::socket_io::SocketTaskRingOptions socket_opts{};
+	socket_opts.fd_mode = conflux::socket_io::SocketFdMode::direct_if_available;
 
 	if (!conflux::net::dns::is_valid_hostname("localhost")) {
 		return 1;

@@ -13,6 +13,7 @@ import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
 import conflux.net.dns;
+using namespace conflux::socket_io;
 
 using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;

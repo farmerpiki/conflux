@@ -8,6 +8,8 @@ module;
 module conflux.socket_io;
 import std;
 
+namespace conflux::socket_io {
+
 TcpListener::TcpListener(
 	TcpListenerOptions opts) {
 	bool const is_v6 =
@@ -82,3 +84,5 @@ TcpListener &TcpListener::operator =(
 	}
 	return *this;
 }
+
+} // namespace conflux::socket_io

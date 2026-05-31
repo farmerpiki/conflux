@@ -52,6 +52,7 @@ import conflux.net.http3;
 import conflux.net.tls;
 #endif
 import :state;
+using namespace conflux::socket_io;
 
 #if CONFLUX_HTTP_TRACE
 	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))

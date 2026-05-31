@@ -7,6 +7,7 @@ import conflux.tests.assert_probe_support;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+using namespace conflux::socket_io;
 
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"

@@ -15,6 +15,7 @@ import conflux.uring.completion;
 import conflux.socket_io;
 import conflux.net.http.client;
 import conflux.net.async_client;
+using namespace conflux::socket_io;
 
 namespace {
 

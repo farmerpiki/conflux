@@ -11,6 +11,8 @@ namespace wroot = conflux::work::root;
 
 export namespace conflux::http {
 
+using conflux::socket_io::SocketTaskRing;
+
 struct ProxyOptions {
 	std::string upstream_host;
 	std::uint16_t upstream_port{80};

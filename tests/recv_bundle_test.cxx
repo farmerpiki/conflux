@@ -7,6 +7,7 @@ import conflux.tests.assert_probe_support;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+using namespace conflux::socket_io;
 
 // Path injected by CMake for the death-test probe binary.
 #ifndef ASSERT_PROBE_BIN

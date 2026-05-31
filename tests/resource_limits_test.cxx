@@ -16,6 +16,7 @@ import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
 import conflux.file_io_sync;
+using namespace conflux::socket_io;
 namespace {
 
 struct RingGuard {

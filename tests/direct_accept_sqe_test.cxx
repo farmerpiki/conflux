@@ -11,6 +11,7 @@ import conflux.types;
 import conflux.uring;
 import conflux.uring.fd;
 import conflux.socket_io;
+using namespace conflux::socket_io;
 
 namespace {
 

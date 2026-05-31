@@ -18,6 +18,7 @@ import conflux.work;
 
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
+using conflux::socket_io::SocketTaskRing;
 
 // ─── address family / endpoint ──────────────────────────────────────────────
 

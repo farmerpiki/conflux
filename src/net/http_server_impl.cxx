@@ -53,8 +53,8 @@ import conflux.net.http3;
 import conflux.net.tls;
 #endif
 import :state;
-
 import :loop;
+using namespace conflux::socket_io;
 
 namespace conflux::http {
 

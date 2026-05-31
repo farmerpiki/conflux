@@ -10,6 +10,7 @@ import std;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+using namespace conflux::socket_io;
 namespace {
 
 conflux::uring::Ring make_ring() {

@@ -20,6 +20,9 @@ import conflux.types;
 import conflux.uring;
 import conflux.uring.completion;
 import conflux.uring.handle;
+
+namespace conflux::socket_io {
+
 // ─── handle types ────────────────────────────────────────────────────────────
 
 export using OwnedSocketHandle = IoHandle;
@@ -2098,3 +2101,5 @@ public:
 		return true;
 	}
 };
+
+} // namespace conflux::socket_io

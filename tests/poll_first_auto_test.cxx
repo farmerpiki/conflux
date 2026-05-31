@@ -6,6 +6,7 @@ import std;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+using namespace conflux::socket_io;
 
 static constexpr auto kSockNonempty = conflux::uring::cqe_flags::sock_nonempty;
 TEST_CASE(

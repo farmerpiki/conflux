@@ -16,6 +16,9 @@ import conflux.work;
 import conflux.work.race;
 
 namespace wroot = conflux::work::root;
+
+namespace conflux::socket_io {
+
 export struct SyncWaitSocketTaskTimeout final : std::runtime_error {
 	SyncWaitSocketTaskTimeout()
 		: std::runtime_error{"conflux.socket_io: sync_wait_socket_task budget exhausted"} {}
@@ -129,3 +132,5 @@ conflux::work::race::race_result<T> sync_wait_socket_race(
 	std::optional<std::chrono::milliseconds> budget = std::nullopt) {
 	return sync_wait_socket_task(ring, std::move(task), budget);
 }
+
+} // namespace conflux::socket_io
