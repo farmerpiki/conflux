@@ -4047,12 +4047,38 @@ template<class T>
 		}
 		for (;;) {
 			E &slot = out.emplace_back();
-			if (FpStatus const st = fp_decode_value<E>(slot, c, lim); st != FpStatus::ok) {
-				return st;
+			if constexpr ((std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E>) {
+				if (c.p >= c.end) {
+					return FpStatus::bail;
+				}
+				if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+					c.skip_ws();
+					if (c.p >= c.end) {
+						return FpStatus::bail;
+					}
+				}
+				FpStatus st{};
+				if constexpr (std::floating_point<E>) {
+					st = fp_parse_floating<E>(c, slot);
+				} else {
+					st = fp_parse_integer<E>(c, slot);
+				}
+				if (st != FpStatus::ok) {
+					return st;
+				}
+			} else {
+				if (FpStatus const st = fp_decode_value<E>(slot, c, lim); st != FpStatus::ok) {
+					return st;
+				}
 			}
-			c.skip_ws();
 			if (c.at_end()) {
 				return FpStatus::bail;
+			}
+			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+				c.skip_ws();
+				if (c.at_end()) {
+					return FpStatus::bail;
+				}
 			}
 			if (*c.p == ',') {
 				++c.p;
