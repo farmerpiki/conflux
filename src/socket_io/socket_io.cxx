@@ -25,10 +25,12 @@ namespace conflux::socket_io {
 
 // ─── handle types ────────────────────────────────────────────────────────────
 
+using conflux::uring::CompletionTable;
 using conflux::uring::DirectFd;
 using conflux::uring::IoHandle;
 using conflux::uring::OsFd;
 using conflux::uring::RingFd;
+using conflux::uring::UserDataFn;
 
 export using OwnedSocketHandle = conflux::uring::IoHandle;
 // ─── SocketRawRing ───────────────────────────────────────────────────────────

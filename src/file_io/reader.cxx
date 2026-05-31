@@ -33,10 +33,14 @@ namespace conflux::file_io {
 export using FileIoError = IoError;
 
 namespace root = conflux::work::root;
+using conflux::uring::CompletionFn;
+using conflux::uring::CompletionTable;
 using conflux::uring::FileHandle;
+using conflux::uring::IoResult;
 using conflux::uring::OsFd;
 using conflux::uring::release_fd_tag;
 using conflux::uring::RingFd;
+using conflux::uring::UserDataFn;
 using conflux::uring::visit_fd;
 namespace {
 

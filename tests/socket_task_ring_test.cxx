@@ -18,6 +18,8 @@ import conflux.socket_io;
 import conflux.socket_io.blocking;
 import conflux.socket_io.coro;
 using conflux::IoError;
+using conflux::uring::CompletionTable;
+using conflux::uring::IoResult;
 using namespace conflux::socket_io;
 
 namespace {

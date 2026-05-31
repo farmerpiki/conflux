@@ -57,8 +57,10 @@ import conflux.net.tls;
 #endif
 import :state;
 using namespace conflux::socket_io;
+using conflux::uring::CompletionTable;
 using conflux::uring::DirectFd;
 using conflux::uring::OsFd;
+using conflux::uring::UserDataFn;
 
 #if CONFLUX_HTTP_TRACE
 	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))

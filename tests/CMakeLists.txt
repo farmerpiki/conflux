@@ -212,6 +212,14 @@ if(TARGET conflux)
         EXPECT "IoHandle")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_uring_completion_compile_fail_global_table
+        SOURCE uring_completion_compile_fail_global_table.cxx
+        TEST api-surface/uring-completion-hides-global-table
+        LINK conflux_uring conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "CompletionTable")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_watch_compile_fail_global_watcher
         SOURCE file_watch_compile_fail_global_watcher.cxx
         TEST api-surface/file-watch-hides-global-watcher

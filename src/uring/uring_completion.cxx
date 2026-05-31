@@ -9,13 +9,15 @@ import conflux.types;
 import conflux.small_function;
 export import conflux_uring_sqe;
 
-export using UserDataFn = std::function<std::uint64_t(std::uint32_t slot, std::uint32_t gen)>;
-export struct IoResult {
+export namespace conflux::uring {
+
+using UserDataFn = std::function<std::uint64_t(std::uint32_t slot, std::uint32_t gen)>;
+struct IoResult {
 	std::int32_t res{};
 	conflux::uring::CqeFlags flags{};
 };
-export using CompletionFn = conflux::detail::small_move_only_function<void(IoResult)>;
-export class CompletionTable {
+using CompletionFn = conflux::detail::small_move_only_function<void(IoResult)>;
+class CompletionTable {
 	enum class SlotMode : std::uint8_t {
 		single,
 		multishot,
@@ -148,3 +150,5 @@ public:
 	}
 	[[nodiscard]] std::size_t pending() const noexcept { return slots_.size() - free_.size(); }
 };
+
+} // namespace conflux::uring

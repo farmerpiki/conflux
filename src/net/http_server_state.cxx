@@ -57,6 +57,7 @@ import conflux.net.tls;
 #endif
 
 using namespace conflux::socket_io;
+using conflux::uring::CompletionTable;
 using conflux::uring::DirectFd;
 using conflux::uring::OsFd;
 using conflux::work::WorkPool;

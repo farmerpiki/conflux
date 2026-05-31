@@ -10,6 +10,8 @@ import conflux.file_io.driver;
 import conflux.work;
 import std;
 import conflux.types;
+using conflux::uring::CompletionTable;
+
 namespace {
 
 struct TempFile {

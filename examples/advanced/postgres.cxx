@@ -13,6 +13,7 @@ import conflux.file_io;
 import conflux.pg;
 
 namespace pg = conflux::pg;
+using conflux::uring::CompletionTable;
 
 namespace {
 

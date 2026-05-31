@@ -17,6 +17,7 @@ using namespace conflux::socket_io;
 
 using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;
+using conflux::uring::CompletionTable;
 using conflux::work::join_all;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;

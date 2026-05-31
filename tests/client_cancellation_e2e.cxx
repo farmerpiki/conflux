@@ -21,6 +21,7 @@ namespace {
 
 namespace chttp = conflux::http;
 namespace root = conflux::work::root;
+using conflux::uring::CompletionTable;
 using conflux::uring::CqeFlags;
 
 constexpr std::uint64_t pack_ud(

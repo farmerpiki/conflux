@@ -24,7 +24,9 @@ import conflux.file_io.driver;
 import conflux.file_io_sync;
 
 namespace root = conflux::work::root;
+using conflux::uring::CompletionTable;
 using conflux::uring::FileHandle;
+using conflux::uring::IoResult;
 
 namespace {
 

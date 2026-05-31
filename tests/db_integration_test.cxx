@@ -12,6 +12,7 @@ import conflux.file_io;
 import conflux.db;
 
 using namespace conflux::db;
+using conflux::uring::CompletionTable;
 using conflux::work::Cancelled;
 using conflux::work::root::Task;
 using conflux::work::WorkPool;

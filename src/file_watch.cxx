@@ -15,6 +15,8 @@ import conflux.uring.completion;
 
 namespace conflux::file_watch {
 
+using conflux::uring::IoResult;
+
 export enum class FileEventKind : std::uint8_t {
 	created,
 	modified,

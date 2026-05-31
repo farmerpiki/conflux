@@ -11,6 +11,8 @@ import conflux.file_io;
 import conflux.pg;
 
 using namespace conflux::pg;
+using conflux::uring::CompletionTable;
+
 namespace {
 
 constexpr std::uint64_t pack_ud(

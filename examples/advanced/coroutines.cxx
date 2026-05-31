@@ -9,6 +9,8 @@ import std;
 import conflux.types;
 
 namespace root = conflux::work::root;
+using conflux::uring::CompletionTable;
+
 namespace {
 
 struct TempFile {

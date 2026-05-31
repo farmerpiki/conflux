@@ -19,6 +19,8 @@ import conflux.work;
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
 using conflux::socket_io::SocketTaskRing;
+using conflux::uring::CompletionTable;
+using conflux::uring::UserDataFn;
 using conflux::work::WorkPool;
 
 // ─── address family / endpoint ──────────────────────────────────────────────

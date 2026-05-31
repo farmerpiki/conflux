@@ -24,6 +24,7 @@ namespace wroot = conflux::work::root;
 namespace conflux::socket_io {
 
 using conflux::uring::DirectFd;
+using conflux::uring::IoResult;
 using conflux::uring::OsFd;
 using conflux::uring::RingFd;
 
