@@ -3073,13 +3073,11 @@ struct FpError {
 	std::string_view member_name{};
 };
 
-struct FpCursor {
-	char const *p;
-	char const *end;
-	JsonParseOptions const *opts;
-	JsonDecodeOptions const *dopts;
-	std::uint32_t depth{0};
-	FpError error{}; // valid only when a call returned FpStatus::error
+	struct FpCursor {
+		char const *p;
+		char const *end;
+		std::uint32_t depth{0};
+		FpError error{}; // valid only when a call returned FpStatus::error
 
 	[[nodiscard]] bool at_end() const noexcept { return p >= end; }
 	[[nodiscard]] std::size_t remaining() const noexcept { return static_cast<std::size_t>(end - p); }
@@ -4426,7 +4424,7 @@ template<class T>
 		}
 	}
 
-	FpCursor c{.p = input.data(), .end = input.data() + input.size(), .opts = &parse_opts, .dopts = &decode_opts};
+	FpCursor c{.p = input.data(), .end = input.data() + input.size()};
 	c.skip_ws();
 	FpStatus const st = fp_decode_value<T>(out, c, lim);
 	if (st != FpStatus::ok) {
