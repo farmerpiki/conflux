@@ -92,6 +92,11 @@ int main() {
 }
 ```
 
+More first-contact examples live under `examples/quickstart/`. They use the
+curated `import conflux;` facade, typed path/body helpers, and short
+ring-thread-safe handlers. Lower-level runtime, raw router, explicit offload,
+DB, and protocol experiments live under `examples/advanced/`.
+
 ## JSON only
 
 ```cpp

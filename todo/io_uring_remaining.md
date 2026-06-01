@@ -7,9 +7,9 @@ implementation.
 
 ## Open
 
-- [ ] Poll-first recv benchmark/evidence follow-up.
-- [ ] RECV_ZC: deferred until kernel support is mature enough to justify a narrow
+- Perf/evidence-gated: poll-first recv benchmark/evidence follow-up.
+- Deferred: RECV_ZC waits until kernel support is mature enough to justify a narrow
   implementation branch.
-- [ ] HTTP/static IOPOLL adoption: benchmark-gated; do not wire storage-only IOPOLL
+- Perf/evidence-gated: HTTP/static IOPOLL adoption; do not wire storage-only IOPOLL
   into HTTP static paths without same-machine evidence.
-- [ ] Ring layout/padding: profiling-gated only.
+- Profiling-gated: ring layout/padding only.

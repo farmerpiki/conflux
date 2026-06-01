@@ -166,6 +166,31 @@ body if cancellation was already requested before the queued job starts, and map
 `CancelledError` to a cancelled outcome. Running jobs remain cooperatively
 cancelled; cancellation never kills a worker thread.
 
+## Application Guidance
+
+Long-running jobs should expose progress through an application-owned channel or
+callback today. The root API provides cancellation, ownership, and terminal
+outcomes; it does not yet standardize a public progress/event channel. Keep the
+channel tied to the same owner as the work so cancellation, shutdown, and UI
+handoff do not outlive the backing state.
+
+Use `join_all` when all sibling tasks must complete. Use `work::race` for
+first-completer or first-success flows where losers should be cancelled through
+their controls. There is no separate public `when_any` or
+`when_all_fast_fail` facade in the current preview; adding one should preserve
+the same cancellation-reason and loser-ownership contracts as `work::race`.
+
+UI or main-thread applications should not block the UI thread with
+`blocking_join`. Run work on an explicit `WorkPool`, request cancellation from
+the UI owner when the view or operation closes, and post terminal results back
+through the UI framework's own dispatcher. Keep captured UI state weak or
+owner-checked so a late result after cancellation cannot mutate a destroyed
+view.
+
+For HTTP handlers, the same rule applies: ring-thread handlers should submit or
+await explicit work, then return a response on the documented handler path. Do
+not hide arbitrary long-running work behind synchronous handler bodies.
+
 ## Optional Allocation Diagnostics
 
 The CMake option `CONFLUX_WORK_ALLOC_STATS` enables relaxed counters for

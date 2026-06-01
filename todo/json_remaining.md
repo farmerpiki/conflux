@@ -7,11 +7,11 @@ boundary.
 
 ## Open
 
-- [ ] Full simdjson-style Stage-0 tokenizer only if benchmark gates justify the
+- Perf-gated: full simdjson-style Stage-0 tokenizer only if benchmark gates justify the
   architectural cost.
-- [ ] Replace `strtod_l` / `CLocaleHolder` only after libstdc++ `from_chars<double>`
+- Toolchain-gated: replace `strtod_l` / `CLocaleHolder` only after libstdc++ `from_chars<double>`
   handles overflow/underflow correctly on supported toolchains.
-- [ ] Compile-time JSON literal parsing: design return type and `decode<T>`
+- [x] Compile-time JSON literal parsing: design return type and `decode<T>`
   integration before implementation.
-- [ ] `debug-p2996-clang` preset only if a compatible reflection-capable Clang is
+- Toolchain-gated: `debug-p2996-clang` preset only if a compatible reflection-capable Clang is
   available on the maintainer host.

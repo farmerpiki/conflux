@@ -18,6 +18,6 @@ quality work.
 
 ## Deferred
 
-- [ ] Split `src/work/root.cxx` only after allocation/control-block profiling.
-- [ ] Further source splits must be branch-local and justified by a real boundary,
+- Profiling-gated: split `src/work/root.cxx` only after allocation/control-block profiling.
+- Deferred source hygiene: further source splits must be branch-local and justified by a real boundary,
   not line count.

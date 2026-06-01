@@ -48,6 +48,12 @@ struct ClientResponse {
 	// Phase 2: json() / json_borrowed() accessors.
 };
 using ClientResult = std::expected<ClientResponse, HttpError>;
+using ClientBodyChunkSink = std::function<bool(std::string_view)>;
+struct ClientStreamResponse {
+	ClientResponseHead head{};
+	HttpTelemetry telemetry{};
+};
+using ClientStreamResult = std::expected<ClientStreamResponse, HttpError>;
 struct HttpClientOptions {
 	HttpTimeouts default_timeouts{};
 	bool verify_peer{true};
@@ -463,6 +469,75 @@ bool recv_chunked(
 		}
 	}
 }
+[[nodiscard]] std::expected<void, HttpError> emit_body_chunk(
+	ClientBodyChunkSink const &sink,
+	std::string_view chunk) {
+	if (chunk.empty()) {
+		return {};
+	}
+	if (!sink) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::between_bytes,
+				.message = "response body sink is empty"});
+	}
+	if (!sink(chunk)) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::between_bytes,
+				.message = "response body sink rejected chunk"});
+	}
+	return {};
+}
+[[nodiscard]] std::expected<void, HttpError> stream_chunked_body(
+	Connection &conn,
+	std::string &encoded,
+	ClientBodyChunkSink const &sink,
+	int timeout_sec,
+	std::size_t cap,
+	std::size_t buf_cap,
+	std::uint64_t &bytes_received) {
+	conflux::http::ChunkedDecodeState chunked;
+	std::size_t delivered = 0;
+	for (;;) {
+		auto const rc = conflux::http::decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
+		if (chunked.body.size() > delivered) {
+			auto const delta = std::string_view{chunked.body}.substr(delivered);
+			if (auto emitted = emit_body_chunk(sink, delta); !emitted) {
+				return emitted;
+			}
+			delivered = chunked.body.size();
+		}
+		if (rc > 0) {
+			return {};
+		}
+		if (rc == -1) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.message = "failed to receive chunked body"});
+		}
+		if (rc == -2 || chunked.body.size() > cap || encoded.size() > buf_cap) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::body_too_large,
+					.message = std::format("chunked body exceeds limit {}", cap)});
+		}
+		auto const before = encoded.size();
+		if (!recv_some(conn, encoded, timeout_sec)) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.os_errno = errno,
+					.message = "failed to receive chunked body"});
+		}
+		bytes_received += encoded.size() - before;
+	}
+}
 [[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
@@ -794,6 +869,320 @@ ClientResult do_blocking_request(
 	response.telemetry = tel;
 	return response;
 }
+ClientStreamResult do_blocking_request_streaming(
+	conflux::http::ClientRequest const &req,
+	HttpClientOptions const &opts,
+	ClientBodyChunkSink const &sink) {
+	auto const &url = req.url();
+	bool const use_tls = (url.scheme == "https");
+	constexpr HttpTimeouts kDef{};
+	auto const &rt = req.timeouts();
+	auto const &cd = opts.default_timeouts;
+	HttpTimeouts const timeouts{
+		.resolve = rt.resolve != kDef.resolve ? rt.resolve : cd.resolve,
+		.connect = rt.connect != kDef.connect ? rt.connect : cd.connect,
+		.tls = rt.tls != kDef.tls ? rt.tls : cd.tls,
+		.write = rt.write != kDef.write ? rt.write : cd.write,
+		.first_byte = rt.first_byte != kDef.first_byte ? rt.first_byte : cd.first_byte,
+		.between_bytes = rt.between_bytes != kDef.between_bytes ? rt.between_bytes : cd.between_bytes,
+	};
+	HttpTelemetry tel{};
+
+	int const connect_sec = to_sec(timeouts.connect);
+	ConnectFailure conn_fail{};
+	std::string conn_fail_message{};
+	int conn_fail_errno{0};
+	int const fd = resolve_and_connect(
+		url.host,
+		url.port,
+		connect_sec,
+		timeouts.resolve,
+		tel,
+		conn_fail,
+		conn_fail_message,
+		conn_fail_errno,
+		opts.resolver);
+	if (fd < 0) {
+		bool const is_dns = conn_fail == ConnectFailure::dns;
+		return std::unexpected(
+			HttpError{
+				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
+				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
+				.os_errno = conn_fail_errno,
+				.message = conn_fail_message.empty() ?
+							   std::format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
+							   conn_fail_message});
+	}
+
+#if CONFLUX_HAS_TLS
+	std::optional<conflux::net_tls::TlsContext> tls_ctx;
+	std::optional<conflux::net_tls::TlsStream> tls_stream;
+#endif
+
+	if (use_tls) {
+#if CONFLUX_HAS_TLS
+		bool const verify = req.verify_peer() && opts.verify_peer;
+		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
+		int const tls_sec = to_sec(timeouts.tls);
+		try {
+			tls_ctx.emplace();
+		} catch (conflux::net_tls::TlsError const &e) {
+			::close(fd);
+			return std::unexpected(HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = e.what()});
+		}
+		tls_ctx->set_verify_peer(verify);
+		if (verify) {
+			if (!opts.ca_bundle_path.empty()) {
+				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr)
+					!= 1) {
+					::close(fd);
+					return std::unexpected(
+						HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "TLS CA bundle load failed"});
+				}
+			} else if (!tls_ctx->set_default_verify_paths()) {
+				::close(fd);
+				return std::unexpected(
+					HttpError{
+						.kind = HttpErrorKind::tls,
+						.phase = HttpPhase::tls,
+						.message = "TLS default verify paths load failed"});
+			}
+		}
+		try {
+			tls_stream.emplace(*tls_ctx, fd);
+		} catch (conflux::net_tls::TlsError const &e) {
+			::close(fd);
+			return std::unexpected(HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = e.what()});
+		}
+		if (!tls_stream->set_server_name(sni_sv)) {
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return std::unexpected(
+				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
+		}
+		if (verify && !tls_stream->set_verify_hostname(sni_sv)) {
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = "hostname verification setup failed"});
+		}
+		auto t_tls = std::chrono::steady_clock::now();
+		if (!tls_stream->handshake_connect(tls_sec)) {
+			long const vr = SSL_get_verify_result(tls_stream->native_handle());
+			int const alert = ERR_GET_REASON(ERR_get_error());
+			std::string verify_reason;
+			if (verify && vr != X509_V_OK) {
+				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
+					verify_reason = s;
+				}
+			}
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.tls_alert = alert,
+					.verify_reason = std::move(verify_reason),
+					.message = "TLS handshake failed"});
+		}
+		tel.tls = std::chrono::steady_clock::now() - t_tls;
+		tel.tls_verified = verify;
+		tel.negotiated_protocol = "https/1.1";
+		if (auto const *ssl = tls_stream->native_handle(); ssl != nullptr) {
+			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
+				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
+				tel.tls_version = SSL_CIPHER_get_version(cipher);
+			}
+		}
+#else
+		::close(fd);
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = "TLS not available (built without TLS)"});
+#endif
+	}
+
+	Connection conn;
+	conn.fd = fd;
+#if CONFLUX_HAS_TLS
+	conn.use_tls = use_tls;
+	conn.tls_ctx = std::move(tls_ctx);
+	conn.tls_stream = std::move(tls_stream);
+#endif
+
+	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	int const write_sec = to_sec(timeouts.write);
+	if (!send_all(conn, wire, write_sec)) {
+		close_conn(conn);
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::write,
+				.phase = HttpPhase::write,
+				.os_errno = errno,
+				.message = "failed to send request headers"});
+	}
+	tel.bytes_sent += wire.size();
+	if (!req.body().empty()) {
+		if (!send_all(conn, req.body(), write_sec)) {
+			close_conn(conn);
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::write,
+					.phase = HttpPhase::write,
+					.os_errno = errno,
+					.message = "failed to send request body"});
+		}
+		tel.bytes_sent += req.body().size();
+	}
+
+	int const first_byte_sec = to_sec(timeouts.first_byte);
+	int const between_sec = to_sec(timeouts.between_bytes);
+	std::size_t const max_hdr = opts.max_header_bytes;
+	std::size_t const max_body = opts.max_body_bytes;
+	std::size_t const max_buf = opts.max_buffered_bytes;
+
+	auto t_ttfb = std::chrono::steady_clock::now();
+	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
+	auto raw = std::move(received_head.bytes);
+	auto const header_end = raw.find("\r\n\r\n");
+	if (header_end == std::string::npos) {
+		close_conn(conn);
+		if (received_head.timed_out) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::timeout,
+					.phase = HttpPhase::first_byte,
+					.message = "timed out waiting for response headers"});
+		}
+		if (raw.size() >= max_hdr) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::header_too_large,
+					.message = std::format("response headers exceed {} bytes", max_hdr)});
+		}
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+	}
+	if (header_end > max_hdr) {
+		close_conn(conn);
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::header_too_large,
+				.message = std::format("response headers exceed {} bytes", max_hdr)});
+	}
+	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
+
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
+	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body);
+	if (!parsed_head) {
+		close_conn(conn);
+		return std::unexpected(std::move(parsed_head).error());
+	}
+	ClientStreamResponse response;
+	response.head.status = parsed_head->status;
+	response.head.status_text = std::move(parsed_head->status_text);
+	response.head.headers = std::move(parsed_head->headers);
+	response.head.set_cookies = std::move(parsed_head->set_cookies);
+
+	auto const content_length = parsed_head->content_length;
+	auto const has_content_length = parsed_head->has_content_length;
+	auto const chunked = parsed_head->chunked;
+	std::size_t const body_offset = header_end + 4;
+	tel.bytes_received += raw.size();
+	raw.erase(0, body_offset);
+	if (has_content_length && raw.size() > content_length) {
+		raw.resize(content_length);
+	}
+
+	auto t_body = std::chrono::steady_clock::now();
+	if (req.method() != "HEAD") {
+		if (chunked) {
+			if (auto streamed = stream_chunked_body(conn, raw, sink, between_sec, max_body, max_buf, tel.bytes_received);
+				!streamed) {
+				close_conn(conn);
+				return std::unexpected(std::move(streamed).error());
+			}
+		} else if (has_content_length) {
+			std::size_t delivered = 0;
+			if (!raw.empty()) {
+				if (auto emitted = emit_body_chunk(sink, raw); !emitted) {
+					close_conn(conn);
+					return std::unexpected(std::move(emitted).error());
+				}
+				delivered = raw.size();
+			}
+			std::string buffer;
+			while (delivered < content_length) {
+				auto const before = buffer.size();
+				if (!recv_some(conn, buffer, between_sec)) {
+					close_conn(conn);
+					return std::unexpected(
+						HttpError{
+							.kind = HttpErrorKind::read,
+							.phase = HttpPhase::between_bytes,
+							.os_errno = errno,
+							.message = "failed to receive body"});
+				}
+				auto const appended = buffer.size() - before;
+				auto const need = content_length - delivered;
+				auto const take = std::min(appended, need);
+				if (delivered + take > max_body) {
+					close_conn(conn);
+					return std::unexpected(
+						HttpError{.kind = HttpErrorKind::body_too_large, .message = std::format("body exceeds limit {}", max_body)});
+				}
+				if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(before, take)); !emitted) {
+					close_conn(conn);
+					return std::unexpected(std::move(emitted).error());
+				}
+				delivered += take;
+				tel.bytes_received += take;
+			}
+		} else {
+			if (!raw.empty()) {
+				if (raw.size() > max_body) {
+					close_conn(conn);
+					return std::unexpected(
+						HttpError{
+							.kind = HttpErrorKind::body_too_large,
+							.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
+				}
+				if (auto emitted = emit_body_chunk(sink, raw); !emitted) {
+					close_conn(conn);
+					return std::unexpected(std::move(emitted).error());
+				}
+			}
+			std::string buffer;
+			std::size_t delivered = raw.size();
+			while (recv_some(conn, buffer, between_sec)) {
+				auto const chunk = std::string_view{buffer}.substr(delivered - raw.size());
+				delivered += chunk.size();
+				if (delivered > max_body) {
+					close_conn(conn);
+					return std::unexpected(
+						HttpError{
+							.kind = HttpErrorKind::body_too_large,
+							.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
+				}
+				if (auto emitted = emit_body_chunk(sink, chunk); !emitted) {
+					close_conn(conn);
+					return std::unexpected(std::move(emitted).error());
+				}
+				tel.bytes_received += chunk.size();
+			}
+		}
+	}
+	tel.body = std::chrono::steady_clock::now() - t_body;
+	close_conn(conn);
+	response.telemetry = tel;
+	return response;
+}
 
 } // namespace client_detail
 // ─── HttpClient ───────────────────────────────────────────────────────────────
@@ -829,6 +1218,11 @@ public:
 			}
 			current = std::move(**next);
 		}
+	}
+	[[nodiscard]] ClientStreamResult blocking_send_streaming(
+		ClientRequest const &req,
+		ClientBodyChunkSink sink) const {
+		return client_detail::do_blocking_request_streaming(req, opts_, sink);
 	}
 };
 

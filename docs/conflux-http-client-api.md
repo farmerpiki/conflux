@@ -135,6 +135,29 @@ struct HttpError {
 
 `decompression` is reserved for Phase 2 — Phase 1 does not auto-decode `Content-Encoding`. `redirect_limit` is used when redirect following exhausts `max_redirects`.
 
+### Timeout and I/O classification
+
+Use `HttpError::phase` to decide where a failure happened, and use
+`HttpError::kind` to decide whether it was a deadline, OS I/O failure, protocol
+failure, or TLS failure.
+
+- Blocking client deadline expiry for response header wait returns
+  `HttpErrorKind::timeout` with `phase == HttpPhase::first_byte` and
+  `os_errno == 0`.
+- Blocking client write/read syscall failures return `HttpErrorKind::write` or
+  `HttpErrorKind::read` with the matching phase and `os_errno` from the failed
+  operation.
+- Async socket deadline/cancellation paths can surface as `HttpErrorKind::read`
+  or `HttpErrorKind::write` with the matching phase and `os_errno == 0` when the
+  underlying coroutine reports a deadline-style failure rather than an OS errno.
+- `os_errno == 0` means the failure is framework-classified, timeout/deadline,
+  cancellation, protocol, or TLS state. Do not treat it as errno success.
+
+For retry policy, prefer phase-based decisions: retry connect/first-byte
+timeouts only when the request is idempotent or explicitly replayable; retry
+between-byte read failures only when the application can discard the partial
+body and safely repeat the request.
+
 ### `HttpTelemetry`
 
 ```cpp
@@ -171,6 +194,15 @@ struct ClientResponse {
 };
 
 using ClientResult = std::expected<ClientResponse, HttpError>;
+
+using ClientBodyChunkSink = std::function<bool(std::string_view)>;
+
+struct ClientStreamResponse {
+    ClientResponseHead head;
+    HttpTelemetry      telemetry;
+};
+
+using ClientStreamResult = std::expected<ClientStreamResponse, HttpError>;
 ```
 
 Header rules on the response:
@@ -292,7 +324,10 @@ class HttpClient {
 public:
     explicit HttpClient(HttpClientOptions opts = {});
     HttpClientOptions const &options() const noexcept;
-    ClientResult blocking_send(ClientRequest req) const;
+    ClientResult blocking_send(ClientRequest const& req) const;
+    ClientStreamResult blocking_send_streaming(
+        ClientRequest const& req,
+        ClientBodyChunkSink sink) const;
 };
 ```
 
@@ -316,6 +351,37 @@ Method-specific:
 - `HEAD` skips body recv; final `body` is empty.
 
 Use `blocking_send(...)` for caller-thread socket/poll/TLS I/O.
+
+### `blocking_send_streaming` contract
+
+`blocking_send_streaming(req, sink)` uses the same blocking HTTP/1.1 transport
+but sends de-chunked body bytes to `sink(std::string_view)` as they arrive
+instead of storing them in `ClientResponse::body`.
+
+```cpp
+HttpClient client{};
+std::string rendered;
+
+auto response = client.blocking_send_streaming(
+    ClientRequest::get("http://127.0.0.1:8080/events").build(),
+    [&](std::string_view chunk) {
+        rendered.append(chunk);
+        return true;
+    });
+```
+
+The sink view is valid only for the callback duration. Return `true` to keep
+reading. Returning `false` stops the transfer and reports a `HttpErrorKind::read`
+failure with `phase == HttpPhase::between_bytes`.
+
+The method still enforces `max_header_bytes`, `max_body_bytes`, and
+`max_buffered_bytes`. For `Transfer-Encoding: chunked`, chunks passed to the sink
+are decoded body bytes, not wire chunk frames. For `HEAD`, the sink is not called.
+
+Automatic redirect following is intentionally not part of this streaming entry
+point yet; redirect bodies would otherwise be indistinguishable from the final
+response body at the sink. Callers that need redirects should resolve them before
+opening a streaming response.
 
 ### Error mapping
 
@@ -353,7 +419,10 @@ Anything that depends on Phase 2:
 
 ## Threading
 
-`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`). `blocking_send` is reentrant — call from any thread. There is no shared state between concurrent calls. The blocking transport waits on the caller thread for `poll`/socket/TLS I/O.
+`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`).
+`blocking_send` and `blocking_send_streaming` are reentrant — call from any
+thread. There is no shared state between concurrent calls. The blocking
+transport waits on the caller thread for `poll`/socket/TLS I/O.
 
 ## TLS contract
 

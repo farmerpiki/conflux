@@ -1465,6 +1465,22 @@ TEST_CASE(
 	CHECK(response->body == R"({"status":"ok"})");
 }
 TEST_CASE(
+	"http client: blocking_send_streaming streams response body chunks") {
+	ensure_server();
+	HttpClient client{};
+	std::string body;
+	auto response = client.blocking_send_streaming(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)),
+		[&](std::string_view chunk) {
+			body.append(chunk);
+			return true;
+		});
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
+	CHECK(body == R"({"status":"ok"})");
+}
+TEST_CASE(
 	"http client: convenience client sends headers and parses response headers") {
 	ensure_server();
 	HttpClient client{};

@@ -339,6 +339,11 @@ the typed helpers on `http::RequestView` or
 strings only on failure; successful numeric/bool parsing stays borrowed and
 `std::from_chars`-based.
 
+First-contact examples should prefer `http::Path`, `http::Query`,
+`http::Header`, `http::Json<T>`, `http::Result<T>`, and typed response helpers.
+Use dynamic parameter/header map lookup only when documenting the lower-level
+router surface or when the handler truly needs runtime-selected keys.
+
 ```cpp
 router.get("/items/{id}", [](http::RequestView const& req) -> http::Response {
     auto id = req.param_as<std::uint64_t>("id");

@@ -127,6 +127,38 @@ Use explicit owning parsing when the source buffer will not outlive the document
 auto doc = parse_copy(load_config());
 ```
 
+### Compile-time JSON literal direction
+
+Compile-time JSON literals are not exported in the current preview. The planned
+shape is a constexpr-validated, zero-runtime-parse literal wrapper rather than a
+second DOM type:
+
+```cpp
+constexpr auto spec = json_literal<R"({"enabled":true,"limit":4})">();
+static_assert(spec.valid());
+
+auto doc = spec.document();          // runtime Document view over static bytes
+auto cfg = spec.decode<Config>();    // same decode<T> contract and errors
+```
+
+The return type should be an immutable `JsonLiteral<N>` value that stores the
+source bytes, compile-time validation status, and compact structural metadata
+needed to build a normal `Document` view or drive typed decode. It should not
+own allocator state and should not expose a parallel node API. Runtime-facing
+code should still see `Document`, `JsonError`, and `decode<T>` semantics.
+
+`decode<T>` integration should reuse the existing typed decode machinery and
+`JsonDecodeOptions`. Literal decode may specialize supported scalar/aggregate
+paths when the metadata is available at compile time, but error reporting must
+still identify the JSON path and decode stage in the same terms as runtime
+decode. Types containing borrowed fields may borrow from the static literal
+bytes; owning decode should keep the existing `decode_owned<T>` lifetime rules.
+
+Implementation should start with strict JSON only, duplicate-key rejection, and
+the existing default parser limits. JSON5 literals, custom duplicate-key
+policies, and provider-boundary literal support should be separate follow-up
+work.
+
 ### Parser/DOM prototype facade
 
 `JsonDomPolicy` names the planned parser/DOM architecture without replacing the
