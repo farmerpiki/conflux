@@ -1408,6 +1408,35 @@ std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event(
 	return next_object_value_event_impl<ParseMode::json5>();
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+	#define CONFLUX_JSON_READER_SECTION(name) __attribute__((section(name)))
+#else
+	#define CONFLUX_JSON_READER_SECTION(name)
+#endif
+
+#define CONFLUX_JSON_READER_INSTANTIATE_MODE(mode_name, mode_value)                                      \
+	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".parse-value")         \
+	std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event_impl<mode_value>();        \
+	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".next")                \
+	std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl<mode_value>();      \
+	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".key-match")           \
+	std::expected<JsonReader::ObjectKeyMatch, JsonError> JsonReader::next_object_key_match_impl<         \
+		mode_value>(                                                                                     \
+		std::string_view expected_key,                                                                   \
+		JsonDecodeScratch &scratch,                                                                      \
+		bool expected_key_raw_json_safe);                                                                \
+	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".key-view")            \
+	std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_object_key_view_impl<     \
+		mode_value>(JsonDecodeScratch &scratch);                                                         \
+	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".object-value")        \
+	std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event_impl<mode_value>()
+
+CONFLUX_JSON_READER_INSTANTIATE_MODE("strict", ParseMode::strict);
+CONFLUX_JSON_READER_INSTANTIATE_MODE("json5", ParseMode::json5);
+
+#undef CONFLUX_JSON_READER_INSTANTIATE_MODE
+#undef CONFLUX_JSON_READER_SECTION
+
 std::expected<bool, JsonError> JsonReader::try_next_object_null_value() {
 	Checkpoint checkpoint_before_value = checkpoint();
 	auto prepared = prepare_object_value();
