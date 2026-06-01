@@ -1520,6 +1520,9 @@ std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event(
 #endif
 
 #define CONFLUX_JSON_READER_INSTANTIATE_MODE(mode_name, mode_value)                                      \
+	template void JsonReader::skip_ws_impl<mode_value>();                                                \
+	template std::expected<void, JsonError> JsonReader::skip_ws_checked_fast_impl<mode_value>();          \
+	template std::expected<std::size_t, JsonError> JsonReader::count_array_elements_raw_impl<mode_value>(); \
 	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".parse-value")         \
 	std::expected<JsonReader::Event, JsonError> JsonReader::parse_value_event_impl<mode_value>();        \
 	template CONFLUX_JSON_READER_SECTION(".text.conflux.json.reader." mode_name ".next")                \
