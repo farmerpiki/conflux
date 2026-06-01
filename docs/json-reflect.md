@@ -4,7 +4,7 @@
 **Provider module:** `conflux.json.reflect_provider`  
 **CMake targets:** `conflux_json_reflect`, `conflux_json_reflect_provider`  
 **CMake flag:** `CONFLUX_JSON_REFLECT` (opt-in)  
-**Requires:** GCC 16+ with `-freflection` (P2996 static reflection)
+**Requires:** GCC 16+ or reflection-capable Clang with `-freflection` (P2996 static reflection)
 
 Provides automatic `conflux::json::JsonCodec<T>` specialization for aggregate structs via C++26
 static reflection. It is provider-neutral at the HTTP/app boundary: callers that
@@ -21,11 +21,12 @@ find_package(conflux REQUIRED COMPONENTS json_reflect_provider)
 target_link_libraries(mytarget PRIVATE conflux::json_reflect_provider)
 ```
 
-The `debug-p2996-gcc` preset selects C++26 and enables `CONFLUX_JSON_REFLECT`.
-The build keeps `-freflection` scoped to CMake's generated `std` BMI and the
-JSON reflection targets so the full runtime graph does not inherit the flag.
-Reflection modules should use `import std;`; they should not include `<meta>`
-separately.
+The `debug-p2996-gcc` and `debug-p2996-clang` presets select C++26 and enable
+`CONFLUX_JSON_REFLECT`. The build keeps `-freflection` scoped to CMake's
+generated `std` BMI and the JSON reflection targets so the full runtime graph
+does not inherit the flag.
+Reflection modules should use `import std;`; Clang P2996 builds may include
+`<meta>` in the global module fragment for vendor reflection declarations.
 
 ---
 
@@ -179,8 +180,8 @@ or `conflux::json::JsonMembers<T>` specialization (`json-api.md`, Codec System s
 
 ## Limitations
 
-- GCC 16+ only. Clang does not implement the required P2996 surface as of
-  2026-05.
+- Reflection-capable GCC 16+ and local P2996 Clang builds are the only checked
+  toolchains.
 - Only direct data members are reflected; base class members are not included.
 - Reflected members are required unless the member type is `optional<T>`.
 - `json::name` and `json::skip` are the only supported annotations.

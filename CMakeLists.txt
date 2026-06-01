@@ -928,7 +928,7 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
             conflux_json_boundary
             conflux_json_native_provider)
         if(TARGET ${_conflux_json_reflect_dep})
-            target_compile_options(${_conflux_json_reflect_dep} PUBLIC -freflection)
+            target_compile_options(${_conflux_json_reflect_dep} PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
         endif()
     endforeach()
 
@@ -943,7 +943,7 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
         PUBLIC  conflux_json conflux_types
         PRIVATE conflux_options
     )
-    target_compile_options(conflux_json_reflect PUBLIC -freflection)
+    target_compile_options(conflux_json_reflect PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
 
     add_library(conflux_json_reflect_provider STATIC)
     target_sources(conflux_json_reflect_provider
@@ -955,8 +955,8 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
         PUBLIC  conflux_json_reflect conflux_json_native_provider conflux_json_boundary
         PRIVATE conflux_options
     )
-    target_compile_options(conflux_json_reflect_provider PUBLIC -freflection)
-    message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
+    target_compile_options(conflux_json_reflect_provider PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
+    message(STATUS "conflux: JSON P2996 reflection codec enabled (${CONFLUX_REFLECTION_COMPILE_OPTIONS})")
 endif()
 
 add_library(conflux_direct_slot_pool STATIC)

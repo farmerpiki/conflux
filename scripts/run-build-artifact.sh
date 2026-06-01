@@ -10,7 +10,7 @@ usage() {
 
 valid_profile() {
 	case "$1" in
-		debug-clang-libcxx|debug-clang-stdcxx|debug-gcc-stdcxx|debug-gcc16-stdcxx|debug-p2996-gcc|\
+		debug-clang-libcxx|debug-clang-stdcxx|debug-gcc-stdcxx|debug-gcc16-stdcxx|debug-p2996-gcc|debug-p2996-clang|\
 			release-clang-libcxx|release-clang-stdcxx|release-gcc-stdcxx|release-gcc16-stdcxx|release-p2996-gcc|\
 			perf-clang-libcxx|perf-gcc-stdcxx|\
 			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\

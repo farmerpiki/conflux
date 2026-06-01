@@ -26,8 +26,9 @@ preset:
 - `dev-all` and `dev-exp-all` are auto-compiler local development profiles for
   the full stable and full experimental surfaces.
 - `debug-*`, `tsan-*`, and `fuzz-*` are correctness and instrumentation lanes.
-- `release-*`, `release-*-p5`, and `release-p2996-gcc` are optimized build and
-  LTO/reflection smoke lanes, not the default consumer configure.
+- `release-*`, `release-*-p5`, `release-p2996-gcc`, and `debug-p2996-clang`
+  are optimized build or reflection smoke lanes, not the default consumer
+  configure.
 - `perf-*` presets build benchmark artifacts only.
 - `pgo-*` presets are profile-generation/profile-use lanes.
 - `release-header-artifacts` validates generated header consumers.

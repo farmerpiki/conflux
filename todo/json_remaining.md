@@ -13,5 +13,4 @@ boundary.
   handles overflow/underflow correctly on supported toolchains.
 - [x] Compile-time JSON literal parsing: design return type and `decode<T>`
   integration before implementation.
-- Toolchain-gated: `debug-p2996-clang` preset only if a compatible reflection-capable Clang is
-  available on the maintainer host.
+- [x] `debug-p2996-clang` preset for the local reflection-capable Clang lane.

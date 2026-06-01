@@ -1,4 +1,4 @@
-option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
+option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (requires a reflection-capable compiler)" OFF)
 set(CONFLUX_INTERFACE_MODE "MODULE_INTERFACE" CACHE STRING
     "Public consumer interface: MODULE_INTERFACE or HEADER_INTERFACE")
 set_property(CACHE CONFLUX_INTERFACE_MODE PROPERTY STRINGS MODULE_INTERFACE HEADER_INTERFACE)
@@ -223,6 +223,14 @@ else()
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CONFLUX_REFLECTION_COMPILE_OPTIONS "-freflection" CACHE STRING
+    "Compiler options required for P2996 reflection-enabled translation units")
+if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+        AND CONFLUX_REFLECTION_COMPILE_OPTIONS STREQUAL "-freflection")
+    set(CONFLUX_REFLECTION_COMPILE_OPTIONS "-freflection-latest" CACHE STRING
+        "Compiler options required for P2996 reflection-enabled translation units" FORCE)
+endif()
+
 if(NOT CONFLUX_USE_IMPORT_STD STREQUAL "AUTO"
         AND NOT CONFLUX_USE_IMPORT_STD STREQUAL "ON"
         AND NOT CONFLUX_USE_IMPORT_STD STREQUAL "OFF")
@@ -269,7 +277,7 @@ if(CONFLUX_IMPORT_STD_ENABLED)
                     OUTPUT_VARIABLE _conflux_std_module_source_abs)
                 set_source_files_properties(
                     "${_conflux_std_module_source_abs}"
-                    PROPERTIES COMPILE_OPTIONS -freflection)
+                    PROPERTIES COMPILE_OPTIONS "${CONFLUX_REFLECTION_COMPILE_OPTIONS}")
             endforeach()
         endif()
     endif()

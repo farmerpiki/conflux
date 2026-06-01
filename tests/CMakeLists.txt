@@ -2527,7 +2527,7 @@ if(TARGET conflux_json_file)
 endif()
 
 if(CONFLUX_JSON_REFLECT)
-    # Under -freflection (GCC 16 P2996), including Catch2 headers in any TU that
+    # Under P2996 -freflection, including Catch2 headers in any TU that
     # also imports modules compiled with -freflection causes pthreadtypes conflicts.
     # Use a standalone test module + thin main instead of Catch2.
     add_executable(conflux_json_reflect_tests)
@@ -2538,7 +2538,7 @@ if(CONFLUX_JSON_REFLECT)
             json_reflection_test.cxx)
     target_link_libraries(conflux_json_reflect_tests
         PRIVATE conflux_types conflux_json conflux_json_reflect conflux_json_reflect_provider conflux_options)
-    target_compile_options(conflux_json_reflect_tests PRIVATE -freflection)
+    target_compile_options(conflux_json_reflect_tests PRIVATE ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
     add_test(NAME conflux_json_reflect_tests COMMAND conflux_json_reflect_tests)
     set_tests_properties(conflux_json_reflect_tests PROPERTIES RUN_SERIAL TRUE)
 endif()

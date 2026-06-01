@@ -252,6 +252,27 @@
       }
     },
     {
+      "name": "debug-p2996-clang",
+      "displayName": "Debug · clang++ · P2996 reflection",
+      "inherits": "clang-stdcxx",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "clang-scan-deps",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -L$env{CLANG_P2996_ROOT}/lib -Wl,-rpath,$env{CLANG_P2996_ROOT}/lib",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++ -L$env{CLANG_P2996_ROOT}/lib -Wl,-rpath,$env{CLANG_P2996_ROOT}/lib",
+        "CMAKE_CXX_STDLIB_MODULES_JSON": "$env{CLANG_P2996_ROOT}/lib/libc++.modules.json",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_STANDARD": "26",
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_JSON_REFLECT": "ON",
+        "CONFLUX_POSTGRES_PROVIDER": "OFF"
+      }
+    },
+    {
       "name": "debug-gcc-stdcxx",
       "displayName": "Debug · g++ · libstdc++ (no sanitizers — GCC 15 ICE)",
       "inherits": "gcc-stdcxx",
@@ -609,6 +630,10 @@
     {
       "name": "debug-gcc16-stdcxx",
       "configurePreset": "debug-gcc16-stdcxx"
+    },
+    {
+      "name": "debug-p2996-clang",
+      "configurePreset": "debug-p2996-clang"
     },
     {
       "name": "debug-gcc-stdcxx",

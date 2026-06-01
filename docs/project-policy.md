@@ -114,6 +114,7 @@ to the concrete compiler versions captured in release evidence.
 | `debug-gcc-stdcxx`, `release-gcc-stdcxx` | GCC 15 through `g++` | libstdc++ | GCC 15 lane; release LTO is intentionally disabled for this lane |
 | `debug-gcc16-stdcxx`, `release-gcc16-stdcxx` | GCC 16 through `g++-16` | libstdc++ | GCC 16 / `import std` lane; GCC LTO coverage |
 | `debug-p2996-gcc`, `release-p2996-gcc` | GCC 16 through `g++-16` with `-freflection` | libstdc++ | experimental JSON reflection lane |
+| `debug-p2996-clang` | local P2996 Clang through `clang++` with reflection enabled | libc++ | experimental JSON reflection compatibility lane |
 
 A compiler is not considered supported merely because it accepts the language
 mode. It must configure through one of the presets, build the relevant target

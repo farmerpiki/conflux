@@ -1,4 +1,7 @@
 module;
+#if defined(__clang__)
+	#include <meta>
+#endif
 export module conflux.json.reflect;
 import std;
 import conflux.json;
@@ -51,16 +54,28 @@ using conflux::json::ValueBuilder;
 
 template<std::meta::info Mem>
 consteval bool reflect_has_skip() {
+#if defined(__clang__)
+	return !std::meta::annotations_of(Mem, ^^conflux::json::skip).empty();
+#else
 	return !std::meta::annotations_of_with_type(Mem, ^^conflux::json::skip).empty();
+#endif
 }
 template<std::meta::info Mem>
 consteval bool reflect_has_name() {
+#if defined(__clang__)
+	return !std::meta::annotations_of(Mem, ^^conflux::json::name_t).empty();
+#else
 	return !std::meta::annotations_of_with_type(Mem, ^^conflux::json::name_t).empty();
+#endif
 }
 template<std::meta::info Mem>
 consteval conflux::json::name_t reflect_get_name_ann() {
+#if defined(__clang__)
+	return std::meta::extract<conflux::json::name_t>(std::meta::annotations_of(Mem, ^^conflux::json::name_t)[0]);
+#else
 	return std::meta::extract<conflux::json::name_t>(
 		std::meta::annotations_of_with_type(Mem, ^^conflux::json::name_t)[0]);
+#endif
 }
 template<class T>
 consteval std::size_t reflect_member_count() {
@@ -79,6 +94,10 @@ consteval conflux::json::name_t reflect_field_name() {
 		return {std::define_static_string(sv), sv.size()};
 	}
 }
+template<conflux::json::name_t Name>
+inline constexpr std::string_view reflect_field_name_v{Name.p, Name.n};
+template<std::meta::info Mem>
+inline constexpr std::string_view reflect_field_name_view = reflect_field_name_v<reflect_field_name<Mem>()>;
 template<class T>
 struct is_opt_refl : std::false_type {};
 template<class T>
@@ -274,8 +293,7 @@ std::expected<void, JsonError> decode_reflect_member_by_static_index(
 template<class T, std::size_t I>
 [[nodiscard]] ReflectMemberLookupEntry<T> make_reflect_member_lookup_entry() {
 	constexpr auto mem = reflect_member_at<T, I>();
-	constexpr auto name_info = reflect_field_name<mem>();
-	std::string_view const field_name{name_info.p, name_info.n};
+	constexpr auto field_name = reflect_field_name_view<mem>;
 	return ReflectMemberLookupEntry<T>{
 		.name = field_name,
 		.hash = reflect_member_name_hash(field_name),
@@ -352,8 +370,8 @@ template<class T>
 					if constexpr (reflect_has_skip<mem>()) {
 						return;
 					}
-					constexpr auto name_info = reflect_field_name<mem>();
-					found = key == std::string_view{name_info.p, name_info.n};
+					constexpr auto field_name = reflect_field_name_view<mem>;
+					found = key == field_name;
 				}.template operator ()<Is>(),
 				...);
 		}(std::make_index_sequence<N>{});
@@ -662,8 +680,7 @@ template<ParseMode Mode, class T>
 						if constexpr (reflect_has_skip<mem>()) {
 							return;
 						}
-						constexpr auto name_info = reflect_field_name<mem>();
-						std::string_view const field_name{name_info.p, name_info.n};
+						constexpr auto field_name = reflect_field_name_view<mem>;
 						if (key != field_name) {
 							return;
 						}
@@ -758,8 +775,7 @@ template<ParseMode Mode, class T>
 					if constexpr (is_opt_refl<M>::value) {
 						result.[:mem:].reset();
 					} else {
-						constexpr auto name_info = reflect_field_name<mem>();
-						std::string_view const field_name{name_info.p, name_info.n};
+						constexpr auto field_name = reflect_field_name_view<mem>;
 						ok = false;
 						first_err = JsonError{
 							.stage = JsonStage::decode,
@@ -938,8 +954,7 @@ struct conflux::json::JsonCodec<T> {
 						return;
 					}
 
-					constexpr auto name_info = ::detail::reflect_field_name<mem>();
-					std::string_view const field_name{name_info.p, name_info.n};
+					constexpr auto field_name = ::detail::reflect_field_name_view<mem>;
 
 					using M = std::remove_cvref_t<decltype(result.[:mem:])>;
 					auto node = obj.find_member(field_name);
@@ -1037,8 +1052,7 @@ struct conflux::json::JsonCodec<T> {
 						return;
 					}
 
-					constexpr auto name_info = ::detail::reflect_field_name<mem>();
-					std::string_view const field_name{name_info.p, name_info.n};
+					constexpr auto field_name = ::detail::reflect_field_name_view<mem>;
 
 					using M = std::remove_cvref_t<decltype(value.[:mem:])>;
 					auto res = ::detail::encode_reflect_member<M>(obj, field_name, value.[:mem:]);
@@ -1120,8 +1134,7 @@ std::expected<void, JsonError> reflect_write_object(
 				if constexpr (reflect_has_skip<mem>()) {
 					return;
 				}
-				constexpr auto name_info = reflect_field_name<mem>();
-				std::string_view const field_name{name_info.p, name_info.n};
+				constexpr auto field_name = reflect_field_name_view<mem>;
 				if (!first) {
 					out += ',';
 				}
