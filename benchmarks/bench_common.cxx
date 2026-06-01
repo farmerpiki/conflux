@@ -165,10 +165,12 @@ export [[nodiscard]] inline BenchSamplePlan bench_sample_plan(
 	std::size_t default_warmup,
 	std::size_t default_batch = 1,
 	std::size_t desired_samples = 100) {
+	std::size_t const batch_scale = std::max(default_batch, std::size_t{1});
+	std::size_t const default_total_iterations = default_iterations * batch_scale;
+	std::size_t const default_total_warmup = default_warmup * batch_scale;
 	std::size_t const total_iterations =
-		args.iterations_explicit ? args.iterations : default_iterations * std::max(default_batch, std::size_t{1});
-	std::size_t const total_warmup =
-		args.warmup_explicit ? args.warmup : default_warmup * std::max(default_batch, std::size_t{1});
+		(args.iterations_explicit && args.iterations > 0) ? args.iterations : default_total_iterations;
+	std::size_t const total_warmup = args.warmup_explicit ? args.warmup : default_total_warmup;
 	return bench_sample_plan(total_iterations, total_warmup, args.samples, args.batch, desired_samples);
 }
 
