@@ -188,6 +188,102 @@ if(TARGET conflux)
         EXPECT "url_decode")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_http_status
+        SOURCE utils_compile_fail_global_http_status.cxx
+        TEST api-surface/utils-hides-global-http-status
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "kHttpOk")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_hex_char_to_int
+        SOURCE utils_compile_fail_global_hex_char_to_int.cxx
+        TEST api-surface/utils-hides-global-hex-char-to-int
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "hex_char_to_int")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_json_string_fallback
+        SOURCE utils_compile_fail_global_json_string_fallback.cxx
+        TEST api-surface/utils-hides-global-json-string-fallback
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "json_string_fallback")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_json_string_content_fallback
+        SOURCE utils_compile_fail_global_json_string_content_fallback.cxx
+        TEST api-surface/utils-hides-global-json-string-content-fallback
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "json_string_content_fallback")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_ip_addr
+        SOURCE utils_compile_fail_global_ip_addr.cxx
+        TEST api-surface/utils-hides-global-ip-addr
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "IpAddr")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_ip_cidr
+        SOURCE utils_compile_fail_global_ip_cidr.cxx
+        TEST api-surface/utils-hides-global-ip-cidr
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "IpCidr")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_parse_ip
+        SOURCE utils_compile_fail_global_parse_ip.cxx
+        TEST api-surface/utils-hides-global-parse-ip
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_ip")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_parse_cidr
+        SOURCE utils_compile_fail_global_parse_cidr.cxx
+        TEST api-surface/utils-hides-global-parse-cidr
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_cidr")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_line_view
+        SOURCE utils_compile_fail_global_line_view.cxx
+        TEST api-surface/utils-hides-global-line-view
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "LineView")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_line_range
+        SOURCE utils_compile_fail_global_line_range.cxx
+        TEST api-surface/utils-hides-global-line-range
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "LineRange")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_ascii_lower
+        SOURCE utils_compile_fail_global_ascii_lower.cxx
+        TEST api-surface/utils-hides-global-ascii-lower
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "ascii_lower")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_utils_compile_fail_global_trim
+        SOURCE utils_compile_fail_global_trim.cxx
+        TEST api-surface/utils-hides-global-trim
+        LINK conflux_utils conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "trim")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_smtp_compile_fail_global_client
         SOURCE smtp_compile_fail_global_client.cxx
         TEST api-surface/smtp-hides-global-client
