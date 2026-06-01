@@ -380,6 +380,46 @@ if(TARGET conflux)
         EXPECT "FileEventKind")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_template_compile_fail_global_environment
+        SOURCE template_compile_fail_global_environment.cxx
+        TEST api-surface/template-hides-global-environment
+        LINK conflux_template conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Environment")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_template_compile_fail_global_tmpl_value
+        SOURCE template_compile_fail_global_tmpl_value.cxx
+        TEST api-surface/template-hides-global-tmpl-value
+        LINK conflux_template conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TmplValue")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_template_compile_fail_global_build_report
+        SOURCE template_compile_fail_global_build_report.cxx
+        TEST api-surface/template-hides-global-build-report
+        LINK conflux_template conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TemplateBuildReport")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_template_watch_compile_fail_global_template_watcher
+        SOURCE template_watch_compile_fail_global_template_watcher.cxx
+        TEST api-surface/template-watch-hides-global-template-watcher
+        LINK conflux_template_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TemplateWatcher")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_template_watch_compile_fail_global_watch_options
+        SOURCE template_watch_compile_fail_global_watch_options.cxx
+        TEST api-surface/template-watch-hides-global-watch-options
+        LINK conflux_template_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TemplateWatchOptions")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_file_map_compile_fail_global_mapped_body
         SOURCE file_map_compile_fail_global_mapped_body.cxx
         TEST api-surface/file-map-hides-global-mapped-body
