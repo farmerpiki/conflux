@@ -4080,11 +4080,15 @@ template<class T>
 		}
 		++c.depth;
 		++c.p;
-		out.clear();
+		std::size_t string_reuse_index = 0;
+		if constexpr (!is_basic_string_of_char_v<E>) {
+			out.clear();
+		}
 		c.skip_ws();
 		if (!c.at_end() && *c.p == ']') {
 			++c.p;
 			--c.depth;
+			out.clear();
 			return FpStatus::ok;
 		}
 		if (out.capacity() == 0) {
@@ -4116,8 +4120,18 @@ template<class T>
 				}
 				out.push_back(slot);
 			} else {
-				E &slot = out.emplace_back();
-				if (FpStatus const st = fp_decode_value<E>(slot, c, lim); st != FpStatus::ok) {
+				E *slot{};
+				if constexpr (is_basic_string_of_char_v<E>) {
+					if (string_reuse_index < out.size()) {
+						slot = &out[string_reuse_index];
+					} else {
+						slot = &out.emplace_back();
+					}
+					++string_reuse_index;
+				} else {
+					slot = &out.emplace_back();
+				}
+				if (FpStatus const st = fp_decode_value<E>(*slot, c, lim); st != FpStatus::ok) {
 					return st;
 				}
 			}
@@ -4137,6 +4151,9 @@ template<class T>
 			if (*c.p == ']') {
 				++c.p;
 				--c.depth;
+				if constexpr (is_basic_string_of_char_v<E>) {
+					out.resize(string_reuse_index);
+				}
 				return FpStatus::ok;
 			}
 			return FpStatus::bail;
@@ -4344,8 +4361,7 @@ template<class T>
 		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string))
-			[[likely]] {
+			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string)) [[likely]] {
 			idx = static_cast<std::size_t>(predicted);
 			key_name = meta[idx].name;
 		} else {
@@ -4402,8 +4418,7 @@ template<class T>
 
 		// --- duplicates ---
 		std::uint64_t const bit = std::uint64_t{1} << idx;
-		if ((presence & bit) != 0U)
-			[[unlikely]] {
+		if ((presence & bit) != 0U) [[unlikely]] {
 			if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
 				c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = meta[idx].name};
 				return FpStatus::error;
