@@ -3326,6 +3326,15 @@ template<class T>
 	if (starts_zero && int_len > 1) {
 		return FpStatus::bail;
 	}
+	if (std::same_as<T, double>
+		&& (p >= end || (*p != '.' && *p != 'e' && *p != 'E'))
+		&& exact
+		&& total_digits <= 17U
+		&& mant <= (std::uint64_t{1} << 53U)) {
+		out = static_cast<T>(neg ? -static_cast<double>(mant) : static_cast<double>(mant));
+		c.p = p;
+		return FpStatus::ok;
+	}
 
 	std::size_t frac_len = 0;
 	if (p < end && *p == '.') {
