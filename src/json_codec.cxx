@@ -4205,7 +4205,7 @@ template<class T>
 // ---------------------------------------------------------------------------
 
 template<class T, std::size_t I>
-[[nodiscard]] FpStatus fp_decode_member_at(
+[[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_member_at(
 	T &out,
 	FpCursor &c,
 	FpLimits const &lim) noexcept {
