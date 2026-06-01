@@ -998,7 +998,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl
 	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
-	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
 
@@ -1030,7 +1030,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl
 				return std::unexpected(last_error_);
 			}
 			adv();
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			if constexpr (Mode == ParseMode::json5) {
@@ -1075,7 +1075,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl
 			return std::unexpected(last_error_);
 		}
 		adv();
-		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if constexpr (Mode == ParseMode::json5) {
@@ -1136,7 +1136,7 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl
 		set_error(e);
 		return std::unexpected(last_error_);
 	}
-	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
 	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
@@ -1357,7 +1357,7 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
 	}
-	if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 		return std::unexpected(std::move(ok).error());
 	}
 	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object || stack_.back().awaiting_value) [[unlikely]] {
@@ -1377,7 +1377,7 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 			return std::unexpected(last_error_);
 		}
 		adv();
-		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if constexpr (Mode == ParseMode::json5) {
@@ -1396,7 +1396,7 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 	}
 
 	auto finish_key = [&](std::string_view key_name) -> std::expected<std::optional<std::string_view>, JsonError> {
-		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
@@ -1494,7 +1494,7 @@ std::expected<std::optional<std::string_view>, JsonError> JsonReader::next_objec
 
 template<ParseMode Mode>
 std::expected<JsonReader::Event, JsonError> JsonReader::next_object_value_event_impl() {
-	auto prepared = prepare_object_value();
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1644,7 +1644,7 @@ std::expected<void, JsonError> JsonReader::skip_next_object_value() {
 
 template<ParseMode Mode>
 std::expected<JsonStringToken, JsonError> JsonReader::next_object_string_value_token_impl() {
-	auto prepared = prepare_object_value();
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1690,7 +1690,7 @@ std::expected<JsonStringToken, JsonError> JsonReader::next_object_string_value_t
 template<ParseMode Mode>
 std::expected<std::string_view, JsonError> JsonReader::next_object_string_value_view_impl(
 	JsonDecodeScratch &scratch) {
-	auto prepared = prepare_object_value();
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}

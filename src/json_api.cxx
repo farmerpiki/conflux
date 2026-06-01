@@ -1414,7 +1414,8 @@ private:
 	}
 	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme();
 	[[nodiscard]] std::expected<void, JsonError> parse_number_into_val();
-	[[nodiscard]] std::expected<void, JsonError> prepare_object_value() {
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> prepare_object_value_impl() {
 		if (has_error_) [[unlikely]] {
 			return std::unexpected(last_error_);
 		}
@@ -1426,11 +1427,17 @@ private:
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned at an object value"));
 		}
 		top.awaiting_value = false;
-		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		value_start_ = pos_;
 		return {};
+	}
+	[[nodiscard]] std::expected<void, JsonError> prepare_object_value() {
+		if (opts_.mode == ParseMode::strict) {
+			return prepare_object_value_impl<ParseMode::strict>();
+		}
+		return prepare_object_value_impl<ParseMode::json5>();
 	}
 	[[nodiscard]] std::expected<void, JsonError> skip_json5_identifier_key();
 	template<ParseMode Mode>
