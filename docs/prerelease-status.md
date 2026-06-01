@@ -26,10 +26,9 @@ components, package modes, and compiler versions covered by release evidence.
 
 ## Package Components
 
-Mock liburing header installs publish only `core`, `types`, `json`, and
-`file_io_sync` as internal compile evidence for generated header artifacts. They
-intentionally do not publish real-liburing runtime-facing components such
-as `work` or `http`.
+Liburing-free header installs publish only `core`, `types`, `json`, and
+`file_io_sync` as generated header artifact evidence. They intentionally do not
+publish runtime-facing components such as `work` or `http`.
 
 Real-liburing installs may publish runtime-facing components such as `work`
 and `http`; consumers must be able to find `liburing` through `pkg-config`.

@@ -74,7 +74,7 @@ scripts/run-package-config-smoke.sh \
   --components 'core;json;file_io_sync'
 ```
 
-Mock-liburing header-interface installs publish only liburing-free package
+Liburing-free header-interface installs publish only liburing-free package
 components: `core`, `types`, `json`, and `file_io_sync`. Runtime-facing package
 components, including `work`, `http`, async file/socket I/O, and HTTP
 server/client surfaces, require a real `liburing` package at producer configure

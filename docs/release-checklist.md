@@ -182,7 +182,7 @@ outside the tracked source tree.
 - Planning/release docs guards pass:
   `scripts/check-planning-state.py`, `scripts/check-release-docs.py`,
   `scripts/check-package-docs.py`, and `scripts/check-release-notes.py`.
-- Mock-liburing HEADER_INTERFACE installs are internal generated-header artifact
+- Liburing-free HEADER_INTERFACE installs are generated-header artifact
   evidence. They must request `core;types;json;file_io_sync` availability, with
   the smoke compile lane using `core;json;file_io_sync`, not runtime-facing/http components.
 - `CONFLUX_API_SURFACE=curated|extended|complete` smoke behavior is validated by the
