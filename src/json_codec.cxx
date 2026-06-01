@@ -3375,6 +3375,22 @@ struct FpStringView {
 	std::size_t size;
 };
 
+[[nodiscard]] inline std::size_t fp_scan_str_until_special(
+	char const *p,
+	std::size_t n) noexcept {
+	constexpr std::size_t kScalarLimit = 32U;
+	if (n <= kScalarLimit) {
+		for (std::size_t i = 0; i < n; ++i) {
+			unsigned char const ch = static_cast<unsigned char>(p[i]);
+			if (ch < 0x20U || ch == '"' || ch == '\\' || ch >= 0x80U) {
+				return i;
+			}
+		}
+		return n;
+	}
+	return detail::simd::scan_str_until_special(p, n);
+}
+
 [[nodiscard]] inline FpStatus fp_scan_plain_string(
 	FpCursor &c,
 	FpStringView &out,
@@ -3382,7 +3398,7 @@ struct FpStringView {
 	// Caller has consumed the opening quote.
 	char const *p = c.p;
 	std::size_t const n = c.remaining();
-	std::size_t const skip = detail::simd::scan_str_until_special(p, n);
+	std::size_t const skip = fp_scan_str_until_special(p, n);
 	if (skip >= n || p[skip] != '"' || skip > max_string) {
 		return FpStatus::bail;
 	}
@@ -3467,7 +3483,7 @@ template<class String>
 			&& *p != '"'
 			&& *p != '\\'
 			&& static_cast<unsigned char>(*p) < 0x80U) {
-			run = detail::simd::scan_str_until_special(p, n);
+			run = fp_scan_str_until_special(p, n);
 		}
 		if (run >= n) {
 			return FpStatus::bail;
