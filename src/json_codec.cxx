@@ -3217,7 +3217,7 @@ inline constexpr std::array<double, 23> kFpPow10{1e0,  1e1,  1e2,  1e3,  1e4,  1
 // lexeme.
 template<class T>
 	requires std::floating_point<T>
-[[nodiscard]] inline FpStatus fp_parse_floating(
+[[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_parse_floating(
 	FpCursor &c,
 	T &out) noexcept {
 	char const *p = c.p;
