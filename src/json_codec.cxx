@@ -4344,7 +4344,8 @@ template<class T>
 		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string)) {
+			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string))
+			[[likely]] {
 			idx = static_cast<std::size_t>(predicted);
 			key_name = meta[idx].name;
 		} else {
@@ -4401,7 +4402,8 @@ template<class T>
 
 		// --- duplicates ---
 		std::uint64_t const bit = std::uint64_t{1} << idx;
-		if ((presence & bit) != 0U) {
+		if ((presence & bit) != 0U)
+			[[unlikely]] {
 			if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
 				c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = meta[idx].name};
 				return FpStatus::error;
