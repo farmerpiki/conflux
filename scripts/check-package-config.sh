@@ -300,6 +300,10 @@ grep -q "pkg-config --exists liburing" scripts/check-package-smoke-runtime.sh \
     || fail "runtime package smoke must gate on real liburing"
 grep -q "pkg-config --exists libpq" scripts/check-package-smoke-db.sh \
     || fail "DB package smoke must gate on libpq"
+grep -q "pkg-config --exists liburing" scripts/check-package-smoke-db.sh \
+    || fail "DB package smoke must gate on real liburing"
+grep -q "core;json;pg" scripts/check-package-smoke-db.sh \
+    || fail "DB package smoke must request the exported pg component"
 grep -q -- "--enable-db-smoke" scripts/check-package-smoke-db.sh \
     || fail "DB package smoke must enable DB component checks"
 grep -q 'check-release-artifact.py' scripts/stage-release-artifacts.sh \

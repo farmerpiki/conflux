@@ -1191,7 +1191,7 @@ template<root::work_value T, class... Participants>
 			std::vector<race_aggregate_error_entry> entries{err.entries().begin(), err.entries().end()};
 			result.outcome = root::Outcome<T>{
 				root::Failure{std::make_exception_ptr(owned_race_aggregate_error{labels, std::move(entries)})}};
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): preserve the original race outcome if aggregate wrapping fails.
 	}
 	co_return owned_labeled_race_result<T>{std::move(result), std::move(labels)};
 }

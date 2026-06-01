@@ -6,6 +6,11 @@ if ! pkg-config --exists libpq; then
     exit 0
 fi
 
+if ! pkg-config --exists liburing; then
+    printf 'check-package-smoke-db: skipped; liburing was not found by pkg-config\n' >&2
+    exit 0
+fi
+
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "$source_root/scripts/run-install-tree-smoke.sh" \
@@ -13,7 +18,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-db/build" \
     --prefix "${TMPDIR:-/tmp}/conflux-package-smoke-db/prefix" \
     --smoke-build-dir "${TMPDIR:-/tmp}/conflux-package-smoke-db/smoke" \
-    --components 'core;json;db;pg' \
+    --components 'core;json;pg' \
     --feature-set complete \
     --interface-mode HEADER_INTERFACE \
     --enable-db-smoke \

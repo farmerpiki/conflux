@@ -108,7 +108,7 @@ struct RequestBufferDeleter {
 			ptr->clear();
 			std::scoped_lock lock{pool->mutex};
 			pool->buffers.push_back(std::move(*ptr));
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): buffer-pool return is best-effort during deleter cleanup.
 		delete ptr;
 	}
 };

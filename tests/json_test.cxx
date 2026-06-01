@@ -4318,7 +4318,9 @@ TEST_CASE(
 	REQUIRE(value.has_value());
 	REQUIRE(value->has_value());
 	CHECK(**value == JsonReader::Event::number_value);
-	CHECK(r.number_val().to_i64() == 1LL);
+	auto n = r.number_val().to_i64();
+	REQUIRE(n.has_value());
+	CHECK(*n == 1LL);
 }
 
 TEST_CASE(
