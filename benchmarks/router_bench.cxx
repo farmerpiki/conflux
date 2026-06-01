@@ -219,6 +219,32 @@ Case make_router_params_case() {
 		.default_iterations = 300000,
 		.run = [state] { return state->router.dispatch(state->req).text_body().size(); }};
 }
+Case make_router_dense_head_exact_case() {
+	struct State {
+		conflux::http::Router router;
+		conflux::http::OwnedRequest req;
+	};
+	auto state = std::make_shared<State>();
+	constexpr std::size_t route_count = 1024;
+	for (std::size_t i = 0; i < route_count; ++i) {
+		state->router.get(std::format("/dense/head/{:04}", i), [i](conflux::http::RequestView const &) {
+			return conflux::http::Response::text(std::format("route-{}", i));
+		});
+	}
+	state->req.method = "HEAD";
+	state->req.path = "/dense/head/0999";
+	state->req.version = "HTTP/1.1";
+	state->req.remote_addr = "127.0.0.1";
+	return Case{
+		.name = "micro/router_dispatch_dense_head_exact",
+		.description = "HEAD dispatch over a dense exact-route GET table",
+		.default_iterations = 500000,
+		.run = [state] {
+			auto resp = state->router.dispatch(state->req);
+			return static_cast<std::size_t>(resp.status) + static_cast<std::size_t>(resp.head_only)
+				 + resp.text_body().size();
+		}};
+}
 Case make_compress_case() {
 	struct State {
 		conflux::http::Router router;
@@ -506,6 +532,7 @@ std::vector<Case> build_cases() {
 	cases.push_back(make_typed_field_extract_case());
 	cases.push_back(make_router_exact_case());
 	cases.push_back(make_router_params_case());
+	cases.push_back(make_router_dense_head_exact_case());
 	cases.push_back(make_compress_case());
 	cases.push_back(make_compress_negotiation_miss_case());
 	cases.push_back(make_compress_below_threshold_case());

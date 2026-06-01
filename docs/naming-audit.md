@@ -40,7 +40,7 @@ mainly suffix order and a few unprefixed helpers.
 | Current name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
 | `conflux.file_io_sync` | `src/file_io/file_io_sync.cxx` | keep target for now; later consider `conflux.file_io.blocking` | Module/target rename is broad CMake/docs churn; defer until function aliases exist. |
-| `TemporaryFileSync` | `conflux.file_io_sync` | `BlockingTemporaryFile` or `TemporaryFile` in a blocking module | Type suffix mirrors module suffix; rename with file helper batch only. |
+| `TemporaryFileSync` | `conflux.file_io_sync` | `BlockingTemporaryFile` | Removed for public preview cleanup. |
 | file errors | `conflux.file_io.reader`, `conflux.file_io_sync` | `conflux::IoError` | The removed `FileIoError` and `FileIoSyncError` aliases pointed at the common `IoError` type. |
 | `blocking_open_tmpfile` | `conflux.file_io_sync` | `blocking_open_tmpfile` | Raw `open`/`openat`-style helper. |
 | `blocking_publish_tmpfile` | `conflux.file_io_sync` | `blocking_publish_tmpfile` | Raw link/rename/fsync-style helper. |

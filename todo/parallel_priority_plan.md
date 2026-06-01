@@ -10,23 +10,24 @@ historical planning notes.
 
 | Priority | Branch | Parallel safety | Checklist |
 |---|---|---|---|
-| P1 | `work/composable-race` | Touches root work/cancellation internals; keep one owner. | [ ] Land root-layer reason propagation. [ ] Add ready-callback exclusivity tests. [ ] Add callback lifetime/quiescence tests. [ ] Add progress-domain tests. [ ] Add capability-safe extraction tests. [ ] Add live N-way race only after those contracts are green. |
-| P2 | `simd/dispatch-independence-stage1` | Build/CMake plus named SIMD call sites; keep crypto ISA policy separate. | [ ] Validate invalid-selection rejection. [ ] Validate AUTO-to-DIRECT resolution. [ ] Validate direct object-shape checks. [ ] Validate runtime probe behavior. [ ] Validate scalar build. |
-| P2 | `uring/iopoll-static-evidence` | Storage primitive exists; HTTP/static adoption must stay isolated. | [ ] Prove HTTP static serving is storage-read-bound before any adoption. [ ] Keep IOPOLL storage-only. [ ] Preserve owner-ring continuation affinity if a consumer is added. |
-| DEFERRED | `http/streaming-upload-api` | Future server API; do not start during prerelease API cleanup. | [ ] Design bounded-memory request body streaming. [ ] Design multipart streaming. [ ] Design spill-to-file and backpressure semantics. |
+| DONE | `work/composable-race` | `src/work/race.cxx`, `tests/work_race_test.cxx`, `docs/conflux-work-race-api.md`. | [x] Root-layer reason propagation. [x] Ready-callback exclusivity tests. [x] Callback lifetime/cleanup tests. [x] Progress-domain docs/tests. [x] Capability-safe extraction tests. [x] Live N-way race. |
+| DONE | `simd/dispatch-independence-stage1` | `cmake/ConfluxOptions.cmake`, `cmake/ConfluxBuildChecks.cmake`, `scripts/check-simd-direct-shape.py`. | [x] Invalid-selection rejection. [x] AUTO-to-DIRECT resolution. [x] Direct object-shape checks. [x] Runtime probe behavior. [x] Scalar build configuration. |
+| DONE | `uring/iopoll-static-evidence` | `src/file_io/iopoll.cxx`, `tests/file_io_test.cxx`, `benchmarks/storage_read_bench.cxx`. | [x] Storage-read benchmark gate exists. [x] IOPOLL remains storage-only. [x] HTTP/static adoption remains blocked until evidence exists. |
 
 ## Component Cleanup
 
-- [ ] Public API alias cleanup: final release cleanup only.
-- [ ] Remaining `blocking_*` / `sync_*` / `async_*` renames: component-local
-  patches only, with compatibility aliases kept until final cleanup.
-- [ ] Router dense route-table HEAD benchmark coverage before more dispatch
+- [x] Public API alias cleanup: removed remaining preview compatibility spelling
+  with no alias.
+- [x] Remaining `blocking_*` / `sync_*` / `async_*` renames: completed the
+  remaining component-local file-sync type rename without a compatibility alias.
+- [x] Router dense route-table HEAD benchmark coverage before more dispatch
   changes.
-- [ ] Full compiler/test/example/package matrix before tagging.
+- Deferred release gate: full compiler/test/example/package matrix before tagging.
 
 ## Explicit Non-Branches
 
 - Performance proof repository and final public proof capture are out of scope.
+- Future/deferred items are out of scope for this pass.
 - Completed implementation proposals should stay deleted.
 - Broad source splits are not work items unless a live component TODO names the
   boundary and acceptance checks.

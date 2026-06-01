@@ -86,25 +86,25 @@ export struct TempFileOptions {
 	TempDurability durability = TempDurability::file_and_directory;
 };
 // ───────────────────────────────────────────────────────────────────────
-// TemporaryFileSync — owns an open temp fd (unnamed or named).
+// BlockingTemporaryFile owns an open temp fd (unnamed or named).
 // ───────────────────────────────────────────────────────────────────────
 
-export class TemporaryFileSync {
+export class BlockingTemporaryFile {
 	UniqueFd fd_{};
 	bool unnamed_{false};
 	std::string staging_name_{};
 	int parent_fd_{-1};
 
 public:
-	TemporaryFileSync() noexcept = default;
-	TemporaryFileSync(
+	BlockingTemporaryFile() noexcept = default;
+	BlockingTemporaryFile(
 		UniqueFd fd,
 		bool unnamed,
 		int parent_fd) noexcept
 		: fd_{std::move(fd)}
 		, unnamed_{unnamed}
 		, parent_fd_{parent_fd} {}
-	TemporaryFileSync(
+	BlockingTemporaryFile(
 		UniqueFd fd,
 		std::string staging_name,
 		int parent_fd) noexcept
@@ -112,9 +112,9 @@ public:
 		, unnamed_{false}
 		, staging_name_{std::move(staging_name)}
 		, parent_fd_{parent_fd} {}
-	TemporaryFileSync(TemporaryFileSync &&) noexcept = default;
-	TemporaryFileSync &operator =(TemporaryFileSync &&) noexcept = default;
-	~TemporaryFileSync() noexcept {
+	BlockingTemporaryFile(BlockingTemporaryFile &&) noexcept = default;
+	BlockingTemporaryFile &operator =(BlockingTemporaryFile &&) noexcept = default;
+	~BlockingTemporaryFile() noexcept {
 		if (!staging_name_.empty() && parent_fd_ >= 0) {
 			::unlinkat(parent_fd_, staging_name_.c_str(), 0);
 		}
@@ -384,13 +384,13 @@ export std::expected<UniqueFd, IoError> blocking_open_directory(
 // Low-level: blocking_open_tmpfile
 // ───────────────────────────────────────────────────────────────────────
 
-export std::expected<TemporaryFileSync, IoError> blocking_open_tmpfile(
+export std::expected<BlockingTemporaryFile, IoError> blocking_open_tmpfile(
 	int parent_dir_fd,
 	TempFileOptions opts = {}) noexcept {
 	if (opts.prefer_otmpfile) {
 		int fd = ::openat(parent_dir_fd, ".", O_TMPFILE | O_WRONLY | O_CLOEXEC, opts.mode);
 		if (fd >= 0) {
-			return TemporaryFileSync{UniqueFd{fd}, true, parent_dir_fd};
+			return BlockingTemporaryFile{UniqueFd{fd}, true, parent_dir_fd};
 		}
 		if (!is_otmpfile_unsupported_errno(errno)) {
 			return std::unexpected{
@@ -406,7 +406,7 @@ export std::expected<TemporaryFileSync, IoError> blocking_open_tmpfile(
 			IoError{errno, "file_io_sync: named temp create"}
         };
 	}
-	return TemporaryFileSync{UniqueFd{fd}, std::move(staging), parent_dir_fd};
+	return BlockingTemporaryFile{UniqueFd{fd}, std::move(staging), parent_dir_fd};
 }
 // ───────────────────────────────────────────────────────────────────────
 // Low-level: blocking_write_all_fd
@@ -440,7 +440,7 @@ export std::expected<void, IoError> blocking_write_all_fd(
 // ───────────────────────────────────────────────────────────────────────
 
 export std::expected<void, IoError> blocking_publish_tmpfile(
-	TemporaryFileSync &&tmp,
+	BlockingTemporaryFile &&tmp,
 	int parent_dir_fd,
 	std::string_view final_name,
 	TempPublishMode mode = TempPublishMode::replace_existing,
@@ -513,7 +513,7 @@ export std::expected<void, IoError> blocking_publish_tmpfile(
 	}
 
 	auto r = do_dir_fsync(parent_dir_fd, durability);
-	// fd cleanup happens via TemporaryFileSync destructor
+	// fd cleanup happens via BlockingTemporaryFile destructor
 	return r;
 }
 // ───────────────────────────────────────────────────────────────────────

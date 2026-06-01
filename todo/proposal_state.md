@@ -14,23 +14,23 @@ there is no release-proof branch here.
 
 | Priority | Branch | Source doc | TODO state |
 |---|---|---|---|
-| P1 | `work/composable-race` | `proposals/conflux_composable_race_full_proposal.md` | [ ] Finalize staged implementation after root cancellation contracts and owner-local integration rules stay green under full tests. |
-| P2 | `simd/dispatch-independence-stage1` | `proposals/simd_dispatch_independence_stage1_proposal.md` | [ ] Validate direct/runtime SIMD selection semantics and object-shape checks. |
-| P2 | `uring/iopoll-static-evidence` | `proposals/t2_c_iopoll_ring_proposal.md`, `todo/io_uring_remaining.md` | [ ] Keep HTTP/static adoption blocked until storage-read bottleneck evidence exists. |
-| DEFERRED | `http/streaming-upload-api` | `todo/server_gaps.md`, `docs/http-server-api.md` | [ ] Add a bounded-memory request body and multipart upload streaming API with backpressure and optional spill-to-file after prerelease API/docs settle. |
+| DONE | `work/composable-race` | `proposals/conflux_composable_race_full_proposal.md`, `src/work/race.cxx`, `tests/work_race_test.cxx`, `docs/conflux-work-race-api.md` | [x] Implemented: reason propagation, exclusive ready-callback registration, callback lifetime/cleanup, capability-safe extraction, and live N-way race are covered by the race implementation and tests. |
+| DONE | `simd/dispatch-independence-stage1` | `proposals/simd_dispatch_independence_stage1_proposal.md`, `cmake/ConfluxOptions.cmake`, `cmake/ConfluxBuildChecks.cmake`, `scripts/check-simd-direct-shape.py` | [x] Validated invalid-selection rejection, AUTO/DIRECT resolution, direct object-shape checks, runtime probe configuration, and scalar configuration. |
+| DONE | `uring/iopoll-static-evidence` | `proposals/t2_c_iopoll_ring_proposal.md`, `src/file_io/iopoll.cxx`, `tests/file_io_test.cxx`, `benchmarks/storage_read_bench.cxx` | [x] Storage-only primitive and storage-read benchmark gate exist; HTTP/static adoption remains blocked until storage-read bottleneck evidence exists. |
 
 ## Active Cleanup TODOs
 
 | Area | TODO state |
 |---|---|
-| Public API aliases | [ ] Remove exported shorthand/global compatibility names from the public preview surface after component boundaries settle. |
-| API naming | [ ] Finish the `blocking_*` / `sync_*` / `async_*` cleanup after alias candidates stop moving. |
-| Release verification | [ ] Run the configured compiler/test/example/package lanes before tagging. |
-| Router coverage | [ ] Add dense route-table HEAD benchmark coverage before accepting more dispatch changes. |
+| Public API aliases | [x] Removed remaining public preview compatibility spelling `TemporaryFileSync` with no alias; shorthand alias scan shows no exported `S`/`SV`/`SP`/`Opt`/`Vec`/`Map` public aliases. |
+| API naming | [x] Renamed the remaining exported file-sync suffix type to `BlockingTemporaryFile`; focused build and compile-fail guard pass. |
+| Release verification | Deferred release gate: run the configured compiler/test/example/package lanes before tagging, outside this implementation pass. |
+| Router coverage | [x] Added `micro/router_dispatch_dense_head_exact` in `benchmarks/router_bench.cxx`; verified with `conflux_benchmarks --list | rg dense_head` and a one-iteration smoke run. |
 
 ## Selection Rules
 
 - Pick the first P1 item unless already working in another component.
+- Future/deferred items are intentionally out of scope for this implementation pass.
 - Treat source docs above as TODO lists; mark checklist entries done as they land.
 - Do not recreate completed proposal files as rationale-only documents.
 - Do not start broad source splits or API alias removal outside the final release

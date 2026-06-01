@@ -636,6 +636,14 @@ if(TARGET conflux)
         EXPECT "FileIoSyncError")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_file_io_sync_compile_fail_legacy_tmpfile_alias
+        SOURCE file_io_sync_compile_fail_legacy_tmpfile_alias.cxx
+        TEST api-surface/file-io-sync-hides-legacy-tmpfile-alias
+        LINK conflux_file_io_sync conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "TemporaryFileSync")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_socket_io_compile_fail_global_task_ring
         SOURCE socket_io_compile_fail_global_task_ring.cxx
         TEST api-surface/socket-io-hides-global-task-ring

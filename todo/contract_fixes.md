@@ -7,9 +7,9 @@ Current component and package contracts live in `docs/component-map.md`,
 
 ## Open
 
-- [ ] Public API alias cleanup: remove exported shorthand aliases from public
-  signatures and first-contact docs in the final release cleanup lane.
-- [ ] API naming pass: align remaining public APIs with `blocking_*`, `sync_*`, and
-  `async_*` after the public surface is otherwise settled.
+- [x] Public API alias cleanup: removed the remaining file-sync compatibility
+  spelling with no alias; exported shorthand alias scan is clean.
+- [x] API naming pass: aligned the remaining file-sync exported temp-file type
+  with the blocking naming model before freezing preview docs.
 - [ ] Ring hot/cold layout: verify with profiling before adding more padding or
   layout churn.
