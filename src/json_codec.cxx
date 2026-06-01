@@ -4106,7 +4106,7 @@ template<class T>
 						return FpStatus::bail;
 					}
 				}
-				E slot{};
+				E &slot = out.emplace_back();
 				FpStatus st{};
 				if constexpr (std::floating_point<E>) {
 					st = fp_parse_floating<E>(c, slot);
@@ -4116,9 +4116,9 @@ template<class T>
 					st = fp_decode_value<E>(slot, c, lim);
 				}
 				if (st != FpStatus::ok) {
+					out.pop_back();
 					return st;
 				}
-				out.push_back(slot);
 			} else {
 				E *slot{};
 				if constexpr (is_basic_string_of_char_v<E>) {
