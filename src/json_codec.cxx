@@ -3960,14 +3960,14 @@ template<class E>
 	std::size_t remaining) noexcept {
 	constexpr std::size_t kMaxInitialReserveBytes = [] {
 		if constexpr (is_fixed_numeric_array_v<E>) {
-			return 8192U;
+			return 512U;
 		} else if constexpr (
 			(std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E> || std::same_as<E, bool>) {
 			return 64U;
 		} else if constexpr (is_basic_string_of_char_v<E>) {
-			return 1024U;
+			return 128U;
 		} else {
-			return 2048U;
+			return 512U;
 		}
 	}();
 	constexpr std::size_t kMaxInitialReserve =
