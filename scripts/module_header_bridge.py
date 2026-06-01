@@ -616,7 +616,6 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
     stream_tokens = find_std_stream_tokens(body_text, explicit_std_headers(before_decl))
     if stream_tokens:
         warnings.append("std stream tokens intentionally not inferred: " + ", ".join(stream_tokens))
-    out.extend(render_namespace_aliases(symbols, exported=False))
 
     if not saw_std and unit.uses_std:
         warnings.append("unit marked uses_std but no import std line was transformed")
@@ -844,32 +843,6 @@ def parse_export_symbols(lines: tuple[str, ...]) -> tuple[list[ExportSymbol], li
             seen.add(key)
     return unique, warnings
 
-def alias_targets_for_global_exports(symbols: list[ExportSymbol]) -> dict[str, list[str]]:
-    globals_ = [symbol.name for symbol in symbols if symbol.namespace is None]
-    if not globals_:
-        return {}
-    namespaces = sorted({symbol.namespace for symbol in symbols if symbol.namespace is not None})
-    targets: dict[str, list[str]] = {}
-    for namespace in namespaces:
-        if namespace is not None and namespace.startswith("conflux::") and not namespace.endswith("::detail"):
-            targets[namespace] = globals_
-    return targets
-
-
-def render_namespace_aliases(symbols: list[ExportSymbol], exported: bool) -> list[str]:
-    targets = alias_targets_for_global_exports(symbols)
-    if not targets:
-        return []
-    out: list[str] = ["\n// Compatibility aliases for declarations kept at global scope in the source module.\n"]
-    prefix = "export " if exported else ""
-    for namespace, names in targets.items():
-        out.append(f"{prefix}namespace {namespace} {{\n")
-        for name in names:
-            out.append(f"    using ::{name};\n")
-        out.append("}\n")
-    return out
-
-
 def wrapper_import_prelude(unit: ModuleUnit) -> list[str]:
     out: list[str] = []
     seen_std = False
@@ -928,14 +901,11 @@ def transform_to_module_wrapper(unit: ModuleUnit, header_relpath: Path) -> tuple
         by_namespace: dict[str | None, list[str]] = {}
         for symbol in symbols:
             by_namespace.setdefault(symbol.namespace, []).append(symbol.name)
-        for name in by_namespace.get(None, []):
-            out.append(f"export using ::{name};\n")
         for namespace, names in sorted((k, v) for k, v in by_namespace.items() if k is not None):
             out.append(f"export namespace {namespace} {{\n")
             for name in names:
                 out.append(f"    using ::{namespace}::{name};\n")
             out.append("}\n")
-        out.extend(render_namespace_aliases(symbols, exported=True))
     else:
         if unit.export_imports:
             out.append("// Aggregator module: exported imports are preserved by the wrapper prelude.\n")
