@@ -1893,7 +1893,8 @@ std::expected<std::size_t, JsonError> JsonReader::count_remaining_object_members
 	return value;
 }
 
-std::expected<void, JsonError> JsonReader::skip_remaining_value(
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::skip_remaining_value_impl(
 	Event event) {
 	if (event == Event::string_value
 		|| event == Event::number_value
@@ -1902,7 +1903,7 @@ std::expected<void, JsonError> JsonReader::skip_remaining_value(
 		return {};
 	}
 	if (event == Event::begin_array) {
-		if (auto skipped = skip_array_body_raw(0); !skipped) {
+		if (auto skipped = skip_array_body_raw_impl<Mode>(0); !skipped) {
 			set_error(skipped.error());
 			return std::unexpected(last_error_);
 		}
@@ -1910,7 +1911,7 @@ std::expected<void, JsonError> JsonReader::skip_remaining_value(
 		return {};
 	}
 	if (event == Event::begin_object) {
-		if (auto skipped = skip_object_body_raw(0); !skipped) {
+		if (auto skipped = skip_object_body_raw_impl<Mode>(0); !skipped) {
 			set_error(skipped.error());
 			return std::unexpected(last_error_);
 		}
@@ -1918,6 +1919,14 @@ std::expected<void, JsonError> JsonReader::skip_remaining_value(
 		return {};
 	}
 	return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "event is not a value"));
+}
+
+std::expected<void, JsonError> JsonReader::skip_remaining_value(
+	Event event) {
+	if (opts_.mode == ParseMode::strict) {
+		return skip_remaining_value_impl<ParseMode::strict>(event);
+	}
+	return skip_remaining_value_impl<ParseMode::json5>(event);
 }
 
 void JsonReader::reset() noexcept {

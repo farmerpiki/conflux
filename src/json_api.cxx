@@ -1461,8 +1461,6 @@ private:
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event_impl();
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
 	template<ParseMode Mode>
-	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next_impl();
-	template<ParseMode Mode>
 	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event_impl();
 	[[nodiscard]] Checkpoint checkpoint() const;
 	void restore(Checkpoint checkpoint);
@@ -1471,6 +1469,8 @@ private:
 public:
 	explicit JsonReader(std::string_view input, JsonParseOptions const &opts = {});
 	explicit JsonReader(std::span<std::byte const> input, JsonParseOptions const &opts = {});
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next_impl();
 	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next();
 	[[nodiscard]] JsonStringToken key_token() const noexcept;
 	[[nodiscard]] JsonStringToken string_token() const noexcept;
@@ -1529,6 +1529,8 @@ public:
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value_impl(Event event);
 	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value(Event event);
 	template<class T>
 		requires(std::integral<T> && !std::same_as<T, bool>)

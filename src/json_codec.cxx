@@ -1519,10 +1519,11 @@ struct JsonCodec<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>> {
 
 namespace detail {
 
+template<ParseMode Mode>
 [[nodiscard]] inline std::expected<void, JsonError> skip_remaining_reader(
 	JsonReader &r,
 	JsonReader::Event ev) {
-	return r.skip_remaining_value(ev);
+	return r.skip_remaining_value_impl<Mode>(ev);
 }
 
 template<class Vector>
@@ -1551,16 +1552,16 @@ template<class Map>
 	return {};
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<T, JsonError>
 decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<T, JsonError> decode_from_event(
 	JsonReader &r,
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts) {
 	JsonDecodeScratch scratch;
-	return decode_from_event<T>(r, ev, opts, &scratch);
+	return decode_from_event<Mode, T>(r, ev, opts, &scratch);
 }
 
 [[nodiscard]] inline std::expected<std::string_view, JsonError> key_view_from_token(
@@ -1726,10 +1727,9 @@ template<class String>
 	return {};
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<void, JsonError>
 decode_into(T &out, JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
-
 template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_members_from_event_into(
 	T &result,
@@ -1738,15 +1738,7 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch);
 
-template<class T>
-std::expected<void, JsonError> decode_members_from_event_into(
-	T &result,
-	JsonReader &r,
-	JsonReader::Event ev,
-	JsonDecodeOptions const &opts,
-	JsonDecodeScratch *scratch);
-
-template<class Map>
+template<ParseMode Mode, class Map>
 [[nodiscard]] std::expected<void, JsonError>
 decode_map_from_reader_into(Map &out, JsonReader &r, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
 
@@ -1797,7 +1789,7 @@ std::expected<void, JsonError> decode_next_object_value_into(
 				out.reset();
 				return std::unexpected(std::move(ev).error());
 			}
-			auto decoded = decode_from_event<Inner>(r, *ev, opts, scratch);
+			auto decoded = decode_from_event<Mode, Inner>(r, *ev, opts, scratch);
 			if (!decoded) {
 				out.reset();
 				return std::unexpected(std::move(decoded).error());
@@ -1830,7 +1822,7 @@ std::expected<void, JsonError> decode_next_object_value_into(
 				out = T{};
 				return std::unexpected(std::move(ev).error());
 			}
-			auto decoded = decode_from_event<Inner>(r, *ev, opts, scratch);
+			auto decoded = decode_from_event<Mode, Inner>(r, *ev, opts, scratch);
 			if (!decoded) {
 				out = T{};
 				return std::unexpected(std::move(decoded).error());
@@ -1856,20 +1848,20 @@ std::expected<void, JsonError> decode_next_object_value_into(
 		} else if constexpr (is_fixed_numeric_array_v<E>) {
 			return r.decode_fixed_numeric_array_vector_into<Mode>(out);
 		} else {
-			return decode_into<T>(out, r, JsonReader::Event::begin_array, opts, scratch);
+			return decode_into<Mode, T>(out, r, JsonReader::Event::begin_array, opts, scratch);
 		}
 	} else if constexpr (is_std_array_v<T> || is_pair_v<T> || is_tuple_of_v<T>) {
 		auto opened = r.next_object_array_value_impl<Mode>();
 		if (!opened) {
 			return std::unexpected(std::move(opened).error());
 		}
-		return decode_into<T>(out, r, JsonReader::Event::begin_array, opts, scratch);
+		return decode_into<Mode, T>(out, r, JsonReader::Event::begin_array, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		auto opened = r.next_object_object_value_impl<Mode>();
 		if (!opened) {
 			return std::unexpected(std::move(opened).error());
 		}
-		return decode_map_from_reader_into(out, r, opts, scratch);
+		return decode_map_from_reader_into<Mode>(out, r, opts, scratch);
 	} else if constexpr (has_members_spec<T>::value) {
 		auto opened = r.next_object_object_value_impl<Mode>();
 		if (!opened) {
@@ -1881,20 +1873,8 @@ std::expected<void, JsonError> decode_next_object_value_into(
 		if (!ev) {
 			return std::unexpected(std::move(ev).error());
 		}
-		return decode_into<T>(out, r, *ev, opts, scratch);
+		return decode_into<Mode, T>(out, r, *ev, opts, scratch);
 	}
-}
-
-template<class T>
-std::expected<void, JsonError> decode_next_object_value_into(
-	T &out,
-	JsonReader &r,
-	JsonDecodeOptions const &opts,
-	JsonDecodeScratch *scratch) {
-	if (r.parse_options().mode == ParseMode::strict) {
-		return decode_next_object_value_into<ParseMode::strict, T>(out, r, opts, scratch);
-	}
-	return decode_next_object_value_into<ParseMode::json5, T>(out, r, opts, scratch);
 }
 
 inline constexpr std::size_t kJsonMemberLinearLookupLimit = 4;
@@ -2083,7 +2063,7 @@ std::expected<void, JsonError> decode_known_member_value(
 	return decode_value();
 }
 
-template<class Map>
+template<ParseMode Mode, class Map>
 [[nodiscard]] std::expected<void, JsonError> decode_map_from_reader_into(
 	Map &out,
 	JsonReader &r,
@@ -2096,7 +2076,7 @@ template<class Map>
 	}
 	auto const duplicate_policy = r.parse_options().duplicate_key;
 	while (true) {
-		auto key_token = r.next_object_key_token();
+		auto key_token = r.next_object_key_token_impl<Mode>();
 		if (!key_token) {
 			return std::unexpected(std::move(key_token).error());
 		}
@@ -2114,7 +2094,7 @@ template<class Map>
 			return std::unexpected(duplicate_member_error(key));
 		}
 		if (duplicate && duplicate_policy == DuplicateKeyPolicy::first_wins) {
-			if (auto skipped = r.skip_next_object_value(); !skipped) {
+			if (auto skipped = r.skip_next_object_value_impl<Mode>(); !skipped) {
 				return std::unexpected(std::move(skipped).error());
 			}
 			continue;
@@ -2122,7 +2102,7 @@ template<class Map>
 		if (duplicate) {
 			if constexpr (std::default_initializable<Vt>) {
 				Vt val{};
-				auto decoded = decode_next_object_value_into<Vt>(val, r, opts, scratch);
+				auto decoded = decode_next_object_value_into<Mode, Vt>(val, r, opts, scratch);
 				if (!decoded) {
 					return std::unexpected(std::move(decoded).error());
 				}
@@ -2133,11 +2113,11 @@ template<class Map>
 					out.emplace(std::move(key), std::move(val));
 				}
 			} else {
-				auto ve = r.next_object_value_event();
+				auto ve = r.next_object_value_event_impl<Mode>();
 				if (!ve) {
 					return std::unexpected(std::move(ve).error());
 				}
-				auto val = decode_from_event<Vt>(r, *ve, opts, scratch);
+				auto val = decode_from_event<Mode, Vt>(r, *ve, opts, scratch);
 				if (!val) {
 					return std::unexpected(std::move(val).error());
 				}
@@ -2150,17 +2130,17 @@ template<class Map>
 						  m.try_emplace(std::move(k));
 					  }) {
 			auto [inserted_it, _] = out.try_emplace(std::move(key));
-			auto decoded = decode_next_object_value_into<Vt>(inserted_it->second, r, opts, scratch);
+			auto decoded = decode_next_object_value_into<Mode, Vt>(inserted_it->second, r, opts, scratch);
 			if (!decoded) {
 				out.erase(inserted_it);
 				return std::unexpected(std::move(decoded).error());
 			}
 		} else {
-			auto ve = r.next_object_value_event();
+			auto ve = r.next_object_value_event_impl<Mode>();
 			if (!ve) {
 				return std::unexpected(std::move(ve).error());
 			}
-			auto val = decode_from_event<Vt>(r, *ve, opts, scratch);
+			auto val = decode_from_event<Mode, Vt>(r, *ve, opts, scratch);
 			if (!val) {
 				return std::unexpected(std::move(val).error());
 			}
@@ -2169,12 +2149,12 @@ template<class Map>
 	}
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<T, JsonError> decode_with_reader(
 	JsonReader &r,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch = nullptr) {
-	auto ne = r.next();
+	auto ne = r.next_impl<Mode>();
 	if (!ne) {
 		return std::unexpected(std::move(ne).error());
 	}
@@ -2186,7 +2166,18 @@ std::expected<T, JsonError> decode_with_reader(
 				.message = "std::unexpected end of input"});
 	}
 	JsonDecodeScratch local_scratch;
-	return decode_from_event<T>(r, **ne, opts, scratch != nullptr ? scratch : &local_scratch);
+	return decode_from_event<Mode, T>(r, **ne, opts, scratch != nullptr ? scratch : &local_scratch);
+}
+
+template<class T>
+std::expected<T, JsonError> decode_with_reader(
+	JsonReader &r,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch = nullptr) {
+	if (r.parse_options().mode == ParseMode::strict) {
+		return decode_with_reader<ParseMode::strict, T>(r, opts, scratch);
+	}
+	return decode_with_reader<ParseMode::json5, T>(r, opts, scratch);
 }
 
 template<ParseMode Mode, class T>
@@ -2393,20 +2384,7 @@ std::expected<void, JsonError> decode_members_from_event_into(
 	return {};
 }
 
-template<class T>
-std::expected<void, JsonError> decode_members_from_event_into(
-	T &result,
-	JsonReader &r,
-	JsonReader::Event ev,
-	JsonDecodeOptions const &opts,
-	JsonDecodeScratch *scratch) {
-	if (r.parse_options().mode == ParseMode::strict) {
-		return decode_members_from_event_into<ParseMode::strict, T>(result, r, ev, opts, scratch);
-	}
-	return decode_members_from_event_into<ParseMode::json5, T>(result, r, ev, opts, scratch);
-}
-
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<T, JsonError> decode_from_event(
 	JsonReader &r,
 	JsonReader::Event ev,
@@ -2450,7 +2428,7 @@ std::expected<T, JsonError> decode_from_event(
 		if (ev == Ev::null_value) {
 			return T{};
 		}
-		auto v = decode_from_event<Inner>(r, ev, opts, scratch);
+		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -2460,7 +2438,7 @@ std::expected<T, JsonError> decode_from_event(
 			return T{};
 		}
 		using Inner = nullable_inner_t<T>;
-		auto v = decode_from_event<Inner>(r, ev, opts, scratch);
+		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
 		if (!v) {
 			return std::unexpected(std::move(v).error());
 		}
@@ -2476,24 +2454,24 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		T result;
 		if constexpr (std::floating_point<E>) {
-			if (auto decoded = r.decode_floating_array_into(result); !decoded) {
+			if (auto decoded = r.decode_floating_array_into<Mode>(result); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
 		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
-			if (auto decoded = r.decode_integral_array_into(result); !decoded) {
+			if (auto decoded = r.decode_integral_array_into<Mode>(result); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
 		} else if constexpr (is_basic_string_of_char_v<E>) {
 			JsonDecodeScratch local_scratch;
 			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
-			if (auto decoded = r.decode_string_array_into(result, decode_scratch); !decoded) {
+			if (auto decoded = r.decode_string_array_into<Mode>(result, decode_scratch); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
 		} else if constexpr (is_fixed_numeric_array_v<E>) {
-			if (auto decoded = r.decode_fixed_numeric_array_vector_into(result); !decoded) {
+			if (auto decoded = r.decode_fixed_numeric_array_vector_into<Mode>(result); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
@@ -2502,7 +2480,7 @@ std::expected<T, JsonError> decode_from_event(
 			return std::unexpected(std::move(reserved).error());
 		}
 		while (true) {
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2518,12 +2496,12 @@ std::expected<T, JsonError> decode_from_event(
 			}
 			if constexpr (std::default_initializable<E>) {
 				auto &slot = result.emplace_back();
-				auto decoded = decode_into<E>(slot, r, **ne, opts, scratch);
+				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
 				if (!decoded) {
 					return std::unexpected(std::move(decoded).error());
 				}
 			} else {
-				auto elem = decode_from_event<E>(r, **ne, opts, scratch);
+				auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
 				if (!elem) {
 					return std::unexpected(std::move(elem).error());
 				}
@@ -2542,13 +2520,13 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		T result;
 		if constexpr (is_fixed_numeric_array_v<T>) {
-			if (auto decoded = r.decode_fixed_numeric_array_into(result); !decoded) {
+			if (auto decoded = r.decode_fixed_numeric_array_into<Mode>(result); !decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 			return result;
 		}
 		for (std::size_t i = 0; i < N; ++i) {
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2566,14 +2544,14 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::invalid_value,
 						.message = std::format("std::expected array of length {}", N)});
 			}
-			auto elem = decode_from_event<E>(r, **ne, opts, scratch);
+			auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
 			if (!elem) {
 				return std::unexpected(std::move(elem).error());
 			}
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 			result[i] = std::move(*elem);
 		}
-		auto ne = r.next();
+		auto ne = r.next_impl<Mode>();
 		if (!ne) {
 			return std::unexpected(std::move(ne).error());
 		}
@@ -2597,7 +2575,7 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		T result;
 		{
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2608,14 +2586,14 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in pair"});
 			}
-			auto v = decode_from_event<FA>(r, **ne, opts, scratch);
+			auto v = decode_from_event<Mode, FA>(r, **ne, opts, scratch);
 			if (!v) {
 				return std::unexpected(std::move(v).error());
 			}
 			result.first = std::move(*v);
 		}
 		{
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2626,14 +2604,14 @@ std::expected<T, JsonError> decode_from_event(
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in pair"});
 			}
-			auto v = decode_from_event<FB>(r, **ne, opts, scratch);
+			auto v = decode_from_event<Mode, FB>(r, **ne, opts, scratch);
 			if (!v) {
 				return std::unexpected(std::move(v).error());
 			}
 			result.second = std::move(*v);
 		}
 		{
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2663,7 +2641,7 @@ std::expected<T, JsonError> decode_from_event(
 				 if (!ok) {
 					 return;
 				 }
-				 auto ne = r.next();
+				 auto ne = r.next_impl<Mode>();
 				 if (!ne) {
 					 ok = false;
 					 first_err = std::move(ne).error();
@@ -2686,7 +2664,7 @@ std::expected<T, JsonError> decode_from_event(
 					 return;
 				 }
 				 using E = std::tuple_element_t<Is, T>;
-				 auto v = decode_from_event<E>(r, **ne, opts, scratch);
+				 auto v = decode_from_event<Mode, E>(r, **ne, opts, scratch);
 				 if (!v) {
 					 ok = false;
 					 first_err = std::move(v).error();
@@ -2699,7 +2677,7 @@ std::expected<T, JsonError> decode_from_event(
 		if (!ok) {
 			return std::unexpected(std::move(first_err));
 		}
-		auto ne = r.next();
+		auto ne = r.next_impl<Mode>();
 		if (!ne) {
 			return std::unexpected(std::move(ne).error());
 		}
@@ -2720,20 +2698,20 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected object"});
 		}
 		T result;
-		if (auto decoded = decode_map_from_reader_into(result, r, opts, scratch); !decoded) {
+		if (auto decoded = decode_map_from_reader_into<Mode>(result, r, opts, scratch); !decoded) {
 			return std::unexpected(std::move(decoded).error());
 		}
 		return result;
 	} else if constexpr (std::same_as<T, Document>) {
 		std::size_t const start = r.value_start_pos();
-		if (auto ok = skip_remaining_reader(r, ev); !ok) {
+		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
 			return std::unexpected(std::move(ok).error());
 		}
 		std::string_view const slice = r.input().substr(start, r.pos() - start);
-		return conflux::json::parse(slice);
+		return conflux::json::parse(slice, r.parse_options());
 	} else if constexpr (has_members_spec<T>::value) {
 		T result{};
-		if (auto ok = decode_members_from_event_into<T>(result, r, ev, opts, scratch); !ok) {
+		if (auto ok = decode_members_from_event_into<Mode, T>(result, r, ev, opts, scratch); !ok) {
 			return std::unexpected(std::move(ok).error());
 		}
 		return result;
@@ -2743,11 +2721,11 @@ std::expected<T, JsonError> decode_from_event(
 		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
 		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
 		std::size_t const start = r.value_start_pos();
-		if (auto ok = skip_remaining_reader(r, ev); !ok) {
+		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
 			return std::unexpected(std::move(ok).error());
 		}
 		std::string_view const slice = r.input().substr(start, r.pos() - start);
-		auto doc = conflux::json::parse(slice);
+		auto doc = conflux::json::parse(slice, r.parse_options());
 		if (!doc) {
 			return std::unexpected(std::move(doc).error());
 		}
@@ -2757,7 +2735,7 @@ std::expected<T, JsonError> decode_from_event(
 	}
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_into(
 	T &out,
 	JsonReader &r,
@@ -2806,14 +2784,14 @@ std::expected<void, JsonError> decode_into(
 		}
 		if constexpr (std::default_initializable<Inner>) {
 			out.emplace();
-			auto ok = decode_into<Inner>(*out, r, ev, opts, scratch);
+			auto ok = decode_into<Mode, Inner>(*out, r, ev, opts, scratch);
 			if (!ok) {
 				out.reset();
 				return std::unexpected(std::move(ok).error());
 			}
 			return {};
 		} else {
-			auto decoded = decode_from_event<Inner>(r, ev, opts, scratch);
+			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
 			if (!decoded) {
 				out.reset();
 				return std::unexpected(std::move(decoded).error());
@@ -2829,7 +2807,7 @@ std::expected<void, JsonError> decode_into(
 		}
 		if constexpr (std::default_initializable<Inner>) {
 			Inner value{};
-			auto ok = decode_into<Inner>(value, r, ev, opts, scratch);
+			auto ok = decode_into<Mode, Inner>(value, r, ev, opts, scratch);
 			if (!ok) {
 				out = T{};
 				return std::unexpected(std::move(ok).error());
@@ -2837,7 +2815,7 @@ std::expected<void, JsonError> decode_into(
 			out = T{std::move(value)};
 			return {};
 		} else {
-			auto decoded = decode_from_event<Inner>(r, ev, opts, scratch);
+			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
 			if (!decoded) {
 				out = T{};
 				return std::unexpected(std::move(decoded).error());
@@ -2856,21 +2834,21 @@ std::expected<void, JsonError> decode_into(
 		}
 		out.clear();
 		if constexpr (std::floating_point<E>) {
-			return r.decode_floating_array_into(out);
+			return r.decode_floating_array_into<Mode>(out);
 		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
-			return r.decode_integral_array_into(out);
+			return r.decode_integral_array_into<Mode>(out);
 		} else if constexpr (is_basic_string_of_char_v<E>) {
 			JsonDecodeScratch local_scratch;
 			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
-			return r.decode_string_array_into(out, decode_scratch);
+			return r.decode_string_array_into<Mode>(out, decode_scratch);
 		} else if constexpr (is_fixed_numeric_array_v<E>) {
-			return r.decode_fixed_numeric_array_vector_into(out);
+			return r.decode_fixed_numeric_array_vector_into<Mode>(out);
 		}
 		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}
 		while (true) {
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2886,12 +2864,12 @@ std::expected<void, JsonError> decode_into(
 			}
 			if constexpr (std::default_initializable<E>) {
 				auto &slot = out.emplace_back();
-				auto decoded = decode_into<E>(slot, r, **ne, opts, scratch);
+				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
 				if (!decoded) {
 					return std::unexpected(std::move(decoded).error());
 				}
 			} else {
-				auto decoded = decode_from_event<E>(r, **ne, opts, scratch);
+				auto decoded = decode_from_event<Mode, E>(r, **ne, opts, scratch);
 				if (!decoded) {
 					return std::unexpected(std::move(decoded).error());
 				}
@@ -2909,10 +2887,10 @@ std::expected<void, JsonError> decode_into(
 					.message = "std::expected array"});
 		}
 		if constexpr (is_fixed_numeric_array_v<T>) {
-			return r.decode_fixed_numeric_array_into(out);
+			return r.decode_fixed_numeric_array_into<Mode>(out);
 		}
 		for (std::size_t i = 0; i < N; ++i) {
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2930,12 +2908,12 @@ std::expected<void, JsonError> decode_into(
 						.code = JsonIssueCode::invalid_value,
 						.message = std::format("std::expected array of length {}", N)});
 			}
-			auto decoded = decode_into<E>(out[i], r, **ne, opts, scratch);
+			auto decoded = decode_into<Mode, E>(out[i], r, **ne, opts, scratch);
 			if (!decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 		}
-		auto ne = r.next();
+		auto ne = r.next_impl<Mode>();
 		if (!ne) {
 			return std::unexpected(std::move(ne).error());
 		}
@@ -2958,7 +2936,7 @@ std::expected<void, JsonError> decode_into(
 					.message = "std::expected array"});
 		}
 		{
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2969,13 +2947,13 @@ std::expected<void, JsonError> decode_into(
 						.code = JsonIssueCode::invalid_value,
 						.message = "std::expected pair of length 2"});
 			}
-			auto decoded = decode_into<FA>(out.first, r, **ne, opts, scratch);
+			auto decoded = decode_into<Mode, FA>(out.first, r, **ne, opts, scratch);
 			if (!decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 		}
 		{
-			auto ne = r.next();
+			auto ne = r.next_impl<Mode>();
 			if (!ne) {
 				return std::unexpected(std::move(ne).error());
 			}
@@ -2986,12 +2964,12 @@ std::expected<void, JsonError> decode_into(
 						.code = JsonIssueCode::invalid_value,
 						.message = "std::expected pair of length 2"});
 			}
-			auto decoded = decode_into<FB>(out.second, r, **ne, opts, scratch);
+			auto decoded = decode_into<Mode, FB>(out.second, r, **ne, opts, scratch);
 			if (!decoded) {
 				return std::unexpected(std::move(decoded).error());
 			}
 		}
-		auto ne = r.next();
+		auto ne = r.next_impl<Mode>();
 		if (!ne) {
 			return std::unexpected(std::move(ne).error());
 		}
@@ -3019,7 +2997,7 @@ std::expected<void, JsonError> decode_into(
 				 if (!ok) {
 					 return;
 				 }
-				 auto ne = r.next();
+				 auto ne = r.next_impl<Mode>();
 				 if (!ne) {
 					 ok = false;
 					 first_err = std::move(ne).error();
@@ -3034,7 +3012,7 @@ std::expected<void, JsonError> decode_into(
 					 return;
 				 }
 				 using E = std::tuple_element_t<Is, T>;
-				 auto decoded = decode_into<E>(get<Is>(out), r, **ne, opts, scratch);
+				 auto decoded = decode_into<Mode, E>(get<Is>(out), r, **ne, opts, scratch);
 				 if (!decoded) {
 					 ok = false;
 					 first_err = std::move(decoded).error();
@@ -3045,7 +3023,7 @@ std::expected<void, JsonError> decode_into(
 		if (!ok) {
 			return std::unexpected(std::move(first_err));
 		}
-		auto ne = r.next();
+		auto ne = r.next_impl<Mode>();
 		if (!ne) {
 			return std::unexpected(std::move(ne).error());
 		}
@@ -3065,11 +3043,11 @@ std::expected<void, JsonError> decode_into(
 					.code = JsonIssueCode::wrong_kind,
 					.message = "std::expected object"});
 		}
-		return decode_map_from_reader_into(out, r, opts, scratch);
+		return decode_map_from_reader_into<Mode>(out, r, opts, scratch);
 	} else if constexpr (has_members_spec<T>::value) {
-		return decode_members_from_event_into<T>(out, r, ev, opts, scratch);
+		return decode_members_from_event_into<Mode, T>(out, r, ev, opts, scratch);
 	} else {
-		auto decoded = decode_from_event<T>(r, ev, opts, scratch);
+		auto decoded = decode_from_event<Mode, T>(r, ev, opts, scratch);
 		if (!decoded) {
 			return std::unexpected(std::move(decoded).error());
 		}
@@ -4602,7 +4580,8 @@ std::expected<T, JsonError> decode_full(
 	if (!value) {
 		return std::unexpected(std::move(value).error());
 	}
-	auto next = reader.next();
+	auto next = reader.parse_options().mode == ParseMode::strict ? reader.next_impl<ParseMode::strict>() :
+																   reader.next_impl<ParseMode::json5>();
 	if (!next) {
 		return std::unexpected(std::move(next).error());
 	}
@@ -4616,6 +4595,48 @@ std::expected<T, JsonError> decode_full(
 	}
 	return std::move(value);
 }
+
+namespace detail {
+
+template<ParseMode Mode, class T>
+std::expected<void, JsonError> decode_full_into_slow(
+	T &out,
+	std::string_view input,
+	JsonParseOptions const &parse_opts,
+	JsonDecodeOptions const &decode_opts) {
+	JsonReader reader{input, parse_opts};
+	auto ne = reader.next_impl<Mode>();
+	if (!ne) {
+		return std::unexpected(std::move(ne).error());
+	}
+	if (!*ne) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::unexpected_eof,
+				.message = "std::unexpected end of input"});
+	}
+	JsonDecodeScratch scratch;
+	if (auto decoded = decode_into<Mode, T>(out, reader, **ne, decode_opts, &scratch); !decoded) {
+		return decoded;
+	}
+	auto next = reader.next_impl<Mode>();
+	if (!next) {
+		return std::unexpected(std::move(next).error());
+	}
+	if (*next) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::trailing_garbage,
+				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
+				.message = "trailing JSON value after document root"});
+	}
+	return {};
+}
+
+} // namespace detail
+
 export template<class T>
 std::expected<void, JsonError> decode_full_into(
 	T &out,
@@ -4657,35 +4678,10 @@ std::expected<void, JsonError> decode_full_into(
 			}
 		}
 	}
-	JsonReader reader{input, parse_opts};
-	auto ne = reader.next();
-	if (!ne) {
-		return std::unexpected(std::move(ne).error());
+	if (parse_opts.mode == ParseMode::strict) {
+		return detail::decode_full_into_slow<ParseMode::strict, T>(out, input, parse_opts, decode_opts);
 	}
-	if (!*ne) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::decode,
-				.code = JsonIssueCode::unexpected_eof,
-				.message = "std::unexpected end of input"});
-	}
-	JsonDecodeScratch scratch;
-	if (auto decoded = detail::decode_into<T>(out, reader, **ne, decode_opts, &scratch); !decoded) {
-		return decoded;
-	}
-	auto next = reader.next();
-	if (!next) {
-		return std::unexpected(std::move(next).error());
-	}
-	if (*next) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::parse,
-				.code = JsonIssueCode::trailing_garbage,
-				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
-				.message = "trailing JSON value after document root"});
-	}
-	return {};
+	return detail::decode_full_into_slow<ParseMode::json5, T>(out, input, parse_opts, decode_opts);
 }
 export template<class T>
 std::expected<T, JsonError> decode_full(
