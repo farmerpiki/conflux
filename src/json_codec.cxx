@@ -3480,7 +3480,8 @@ struct FpStringView {
 [[nodiscard]] inline bool fp_match_plain_key(
 	FpCursor &c,
 	std::string_view expected,
-	std::size_t max_string) noexcept {
+	std::size_t max_string,
+	bool *consumed_colon = nullptr) noexcept {
 	if (expected.size() > max_string || c.remaining() <= expected.size()) {
 		return false;
 	}
@@ -3491,6 +3492,10 @@ struct FpStringView {
 		return false;
 	}
 	c.p += expected.size() + 1U;
+	if (consumed_colon != nullptr && !c.at_end() && *c.p == ':') {
+		++c.p;
+		*consumed_colon = true;
+	}
 	return true;
 }
 
@@ -4444,10 +4449,12 @@ template<class T>
 		std::size_t idx = N;
 		FpStringView key{};
 		std::string_view key_name{};
+		bool consumed_colon = false;
 		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string)) [[likely]] {
+			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string, &consumed_colon))
+			[[likely]] {
 			idx = static_cast<std::size_t>(predicted);
 			key_name = meta[idx].name;
 		} else {
@@ -4458,11 +4465,13 @@ template<class T>
 			key_name = std::string_view{key.data, key.size};
 		}
 
-		c.skip_ws();
-		if (c.at_end() || *c.p != ':') {
-			return FpStatus::bail;
+		if (!consumed_colon) {
+			c.skip_ws();
+			if (c.at_end() || *c.p != ':') {
+				return FpStatus::bail;
+			}
+			++c.p;
 		}
-		++c.p;
 
 		// --- match ---
 		if (idx == N) {
