@@ -215,11 +215,12 @@ struct NativeJsonProvider {
 				}
 				return std::move(*decoded);
 			}
-			auto decoded = decode_full<Raw>(input, detail::map_dom_policy(opts).parse, decode_opts);
+			Raw out{};
+			auto decoded = decode_full_into<Raw>(out, input, detail::map_dom_policy(opts).parse, decode_opts);
 			if (!decoded) {
 				return std::unexpected(detail::map_error(decoded.error()));
 			}
-			return std::move(*decoded);
+			return out;
 		}
 	}
 };
