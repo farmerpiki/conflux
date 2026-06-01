@@ -714,8 +714,6 @@ template<typename T>
 	return http_field_optional_as_impl<conflux::http::HttpFieldsView, T>(fields, source, name);
 }
 
-} // namespace conflux::http
-
 struct HttpRequestFieldAccessors {
 	template<typename Self>
 	[[nodiscard]] std::string_view param(
@@ -809,9 +807,7 @@ struct HttpRequestFieldAccessors {
 	}
 };
 
-export namespace conflux::http {
-
-struct OwnedRequest : ::HttpRequestFieldAccessors {
+struct OwnedRequest : HttpRequestFieldAccessors {
 	std::string method;
 	std::string path; // path only, no query std::string
 	std::string version;
@@ -826,7 +822,7 @@ struct OwnedRequest : ::HttpRequestFieldAccessors {
 	std::string body;
 	[[nodiscard]] OwnedRequest to_owned() const { return *this; }
 };
-struct RequestView : ::HttpRequestFieldAccessors {
+struct RequestView : HttpRequestFieldAccessors {
 	std::string_view method;
 	std::string_view path;
 	std::string_view version;
