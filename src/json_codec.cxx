@@ -4521,7 +4521,9 @@ template<class T>
 
 		// --- value ---
 		FpStatus const st = [&]() noexcept {
-			if constexpr (N <= 16U) {
+			if constexpr (N == 1U) {
+				return fp_decode_member_at<T, 0U>(out, c, lim);
+			} else if constexpr (N <= 16U) {
 				return fp_decode_member_by_index<T>(idx, out, c, lim);
 			} else {
 				return meta[idx].decode(out, c, lim);
