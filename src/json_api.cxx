@@ -1505,9 +1505,17 @@ public:
 		JsonDecodeScratch &scratch,
 		bool expected_key_raw_json_safe = false);
 	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<bool, JsonError> try_next_object_null_value_impl();
 	[[nodiscard]] std::expected<bool, JsonError> try_next_object_null_value();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> next_object_array_value_impl();
 	[[nodiscard]] std::expected<void, JsonError> next_object_array_value();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> next_object_object_value_impl();
 	[[nodiscard]] std::expected<void, JsonError> next_object_object_value();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value_impl();
 	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value();
 	template<ParseMode Mode>
 	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token_impl();
@@ -1516,6 +1524,8 @@ public:
 	[[nodiscard]] std::expected<std::string_view, JsonError>
 	next_object_string_value_view_impl(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<std::string_view, JsonError> next_object_string_value_view(JsonDecodeScratch &scratch);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value_impl(bool &out);
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
@@ -2199,11 +2209,11 @@ public:
 		return decode_fixed_numeric_array_vector_into<ParseMode::json5>(out);
 	}
 
-	template<class T>
+	template<ParseMode Mode, class T>
 		requires((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
-	[[nodiscard]] std::expected<void, JsonError> next_object_number_value(
+	[[nodiscard]] std::expected<void, JsonError> next_object_number_value_impl(
 		T &out) {
-		if (auto ready = prepare_object_value(); !ready) [[unlikely]] {
+		if (auto ready = prepare_object_value_impl<Mode>(); !ready) [[unlikely]] {
 			return std::unexpected(std::move(ready).error());
 		}
 		if (pos_ >= input_.size()) [[unlikely]] {
@@ -2246,6 +2256,15 @@ public:
 			out = *value;
 			return {};
 		}
+	}
+	template<class T>
+		requires((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+	[[nodiscard]] std::expected<void, JsonError> next_object_number_value(
+		T &out) {
+		if (opts_.mode == ParseMode::strict) {
+			return next_object_number_value_impl<ParseMode::strict>(out);
+		}
+		return next_object_number_value_impl<ParseMode::json5>(out);
 	}
 	void reset() noexcept;
 	[[nodiscard]] std::expected<JsonByteRange, JsonError> skip_next_value();

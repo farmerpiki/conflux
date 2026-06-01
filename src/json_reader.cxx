@@ -1545,9 +1545,10 @@ CONFLUX_JSON_READER_INSTANTIATE_MODE("json5", ParseMode::json5);
 #undef CONFLUX_JSON_READER_INSTANTIATE_MODE
 #undef CONFLUX_JSON_READER_SECTION
 
-std::expected<bool, JsonError> JsonReader::try_next_object_null_value() {
+template<ParseMode Mode>
+std::expected<bool, JsonError> JsonReader::try_next_object_null_value_impl() {
 	Checkpoint checkpoint_before_value = checkpoint();
-	auto prepared = prepare_object_value();
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1564,8 +1565,16 @@ std::expected<bool, JsonError> JsonReader::try_next_object_null_value() {
 	return false;
 }
 
-std::expected<void, JsonError> JsonReader::next_object_array_value() {
-	auto prepared = prepare_object_value();
+std::expected<bool, JsonError> JsonReader::try_next_object_null_value() {
+	if (opts_.mode == ParseMode::strict) {
+		return try_next_object_null_value_impl<ParseMode::strict>();
+	}
+	return try_next_object_null_value_impl<ParseMode::json5>();
+}
+
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::next_object_array_value_impl() {
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1597,8 +1606,16 @@ std::expected<void, JsonError> JsonReader::next_object_array_value() {
 	return {};
 }
 
-std::expected<void, JsonError> JsonReader::next_object_object_value() {
-	auto prepared = prepare_object_value();
+std::expected<void, JsonError> JsonReader::next_object_array_value() {
+	if (opts_.mode == ParseMode::strict) {
+		return next_object_array_value_impl<ParseMode::strict>();
+	}
+	return next_object_array_value_impl<ParseMode::json5>();
+}
+
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::next_object_object_value_impl() {
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1630,16 +1647,31 @@ std::expected<void, JsonError> JsonReader::next_object_object_value() {
 	return {};
 }
 
-std::expected<void, JsonError> JsonReader::skip_next_object_value() {
-	auto prepared = prepare_object_value();
+std::expected<void, JsonError> JsonReader::next_object_object_value() {
+	if (opts_.mode == ParseMode::strict) {
+		return next_object_object_value_impl<ParseMode::strict>();
+	}
+	return next_object_object_value_impl<ParseMode::json5>();
+}
+
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::skip_next_object_value_impl() {
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
-	if (auto skipped = skip_value_raw(0); !skipped) [[unlikely]] {
+	if (auto skipped = skip_value_raw_impl<Mode>(0); !skipped) [[unlikely]] {
 		set_error(skipped.error());
 		return std::unexpected(last_error_);
 	}
 	return {};
+}
+
+std::expected<void, JsonError> JsonReader::skip_next_object_value() {
+	if (opts_.mode == ParseMode::strict) {
+		return skip_next_object_value_impl<ParseMode::strict>();
+	}
+	return skip_next_object_value_impl<ParseMode::json5>();
 }
 
 template<ParseMode Mode>
@@ -1755,9 +1787,10 @@ std::expected<std::string_view, JsonError> JsonReader::next_object_string_value_
 	return next_object_string_value_view_impl<ParseMode::json5>(scratch);
 }
 
-std::expected<void, JsonError> JsonReader::next_object_bool_value(
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::next_object_bool_value_impl(
 	bool &out) {
-	auto prepared = prepare_object_value();
+	auto prepared = prepare_object_value_impl<Mode>();
 	if (!prepared) [[unlikely]] {
 		return std::unexpected(std::move(prepared).error());
 	}
@@ -1778,6 +1811,14 @@ std::expected<void, JsonError> JsonReader::next_object_bool_value(
 			.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
 			.message = "expected bool"
     });
+}
+
+std::expected<void, JsonError> JsonReader::next_object_bool_value(
+	bool &out) {
+	if (opts_.mode == ParseMode::strict) {
+		return next_object_bool_value_impl<ParseMode::strict>(out);
+	}
+	return next_object_bool_value_impl<ParseMode::json5>(out);
 }
 
 JsonStringToken JsonReader::key_token() const noexcept {
