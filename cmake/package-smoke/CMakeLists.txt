@@ -170,25 +170,6 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         endif()
     endforeach()
 
-    if(CONFLUX_PACKAGE_MOCK_LIBURING)
-        foreach(_mock_forbidden_header IN ITEMS
-                conflux.hxx
-                conflux.hpp
-                curated.hxx
-                curated.hpp
-                extended.hxx
-                extended.hpp
-                complete.hxx
-                complete.hpp
-                json/reflect.hxx
-                json/reflect_provider.hxx)
-            if(EXISTS "${_conflux_install_prefix}/include/conflux/${_mock_forbidden_header}")
-                message(FATAL_ERROR
-                    "mock-liburing package smoke found installed unsupported header: "
-                    "${_conflux_install_prefix}/include/conflux/${_mock_forbidden_header}")
-            endif()
-        endforeach()
-    endif()
 endif()
 
 set(_conflux_smoke_summary "${CMAKE_CURRENT_BINARY_DIR}/conflux-package-smoke-summary.txt")
@@ -205,9 +186,7 @@ file(WRITE "${_conflux_smoke_summary}"
     "interface_mode=${CONFLUX_INTERFACE_MODE}\n"
     "expected_api_surface=${CONFLUX_PACKAGE_SMOKE_API_SURFACE}\n"
     "use_import_std=${CONFLUX_USE_IMPORT_STD}\n"
-    "package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}\n"
     "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}\n"
-    "runtime_mock=${CONFLUX_RUNTIME_MOCK}\n"
     "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
     "cmake=${CMAKE_VERSION}\n"
 	"enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"

@@ -14,4 +14,4 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 	--forbid-components 'http;http1;http2;http3;http_protocol;work;dns;template;db;pg' \
 	--forbid-external-deps 'LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2' \
 	--generator Ninja \
-	-- -DCONFLUX_USE_MOCK_LIBURING=ON -DCONFLUX_POSTGRES_PROVIDER=OFF
+	-- -DCONFLUX_POSTGRES_PROVIDER=OFF

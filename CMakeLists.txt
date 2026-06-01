@@ -138,7 +138,6 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
     CONFLUX_ENABLE_RING_GROWTH=$<BOOL:${CONFLUX_EXPERIMENTAL_RING_GROWTH}>
     CONFLUX_ENABLE_IOPOLL_STORAGE_TEST=$<BOOL:${CONFLUX_EXPERIMENTAL_IOPOLL_STORAGE_TEST}>
-    CONFLUX_USE_MOCK_LIBURING=$<BOOL:${CONFLUX_USE_MOCK_LIBURING}>
     CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD=$<BOOL:${CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD}>
     CONFLUX_HAS_JSON_REFLECT=$<TARGET_EXISTS:conflux_json_reflect>
     CONFLUX_BUILD_VERSION="${PROJECT_VERSION}"
@@ -1620,6 +1619,9 @@ set(_conflux_http_server_private_partitions
     ${CONFLUX_SRC_ROOT}/net/http_server_loop.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_dispatch.cxx
 )
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(${CONFLUX_SRC_ROOT}/net/http_server_send.cxx PROPERTIES COMPILE_OPTIONS "-O0")
+endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
     list(APPEND _conflux_http_server_private_partitions
         ${CONFLUX_SRC_ROOT}/net/http_server_h2.cxx

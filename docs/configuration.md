@@ -4,7 +4,7 @@ Conflux exposes runtime configuration diagnostics without changing startup defau
 
 - `conflux::build_info()` returns version, compiler, stdlib, interface mode, feature set, and compiled optional features.
 - `conflux::build_info_summary()` returns a compact one-line summary for logs.
-- `conflux::runtime::detect_capabilities()` reports io_uring/runtime capabilities. Mock-liburing builds report `mock_backend` instead of probing hardware.
+- `conflux::runtime::detect_capabilities()` reports io_uring/runtime capabilities from the running host.
 - `conflux::runtime::capability_report(caps)` formats the capability snapshot for diagnostics.
 - `Config::summary_redacted()` and `Config::to_json_redacted()` expose effective config without printing secret material.
 - `conflux::http::HttpServer::startup_report()` combines build info, capabilities, fallback policy, and redacted config for owner-controlled startup logging.

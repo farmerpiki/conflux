@@ -592,16 +592,6 @@ export namespace conflux::runtime {
 
 [[nodiscard]] std::expected<RuntimeCapabilities, CapabilityIssue> detect_capabilities() {
 	RuntimeCapabilities caps{};
-#if CONFLUX_USE_MOCK_LIBURING
-	caps.mock_backend = true;
-	caps.issues.push_back(
-		CapabilityIssue{
-			.code = CapabilityIssueCode::mock_backend,
-			.feature = "io_uring",
-			.message = "mock liburing backend is active",
-			.hint = "configure without CONFLUX_USE_MOCK_LIBURING to probe the running kernel"});
-	return caps;
-#else
 	auto ring = conflux::uring::Ring::init(32, {});
 	if (!ring) {
 		CapabilityIssue issue{
@@ -635,14 +625,13 @@ export namespace conflux::runtime {
 		caps.memlock_hard = limit.rlim_max == RLIM_INFINITY ? UINT64_MAX : static_cast<std::uint64_t>(limit.rlim_max);
 	}
 	return caps;
-#endif
 }
 
 [[nodiscard]] std::string capability_report(
 	RuntimeCapabilities const &caps) {
 	auto yes_no = [](bool value) { return value ? "yes" : "no"; };
 	std::string out;
-	out += std::format("io_uring: {}\n", caps.mock_backend ? "mock" : yes_no(caps.io_uring));
+	out += std::format("io_uring: {}\n", yes_no(caps.io_uring));
 	out += std::format("provided_buffers: {}\n", yes_no(caps.provided_buffers));
 	out += std::format("incremental_buffers: {}\n", yes_no(caps.incremental_buffers));
 	out += std::format("send_zc: {}\n", yes_no(caps.send_zc));

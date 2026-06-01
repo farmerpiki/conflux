@@ -11,6 +11,11 @@ base="${TMPDIR:-/tmp}/conflux-package-smoke-mixed-module-header"
 feature_set="${CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET:-http-minimal}"
 components="${CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS:-core;json;http}"
 
+if [[ "$components" == *http* || "$components" == *work* ]] && ! pkg-config --exists liburing; then
+    printf 'mixed-module-header-smoke: skipped; liburing was not found by pkg-config\n'
+    exit 0
+fi
+
 compiler="${CXX:-c++}"
 if [[ "$components" == *http* ]] && command -v "$compiler" >/dev/null 2>&1; then
     compiler_banner="$($compiler --version 2>/dev/null | head -n 1 || true)"
@@ -63,5 +68,4 @@ rm -rf "$probe_dir" "$probe_log"
     --interface-mode MODULE_INTERFACE \
     --mixed-module-header-smoke \
     -- \
-    -DCONFLUX_USE_IMPORT_STD=OFF \
-    -DCONFLUX_USE_MOCK_LIBURING=ON
+    -DCONFLUX_USE_IMPORT_STD=OFF

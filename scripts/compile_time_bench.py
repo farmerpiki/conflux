@@ -68,7 +68,6 @@ def configure_args(source: pathlib.Path, build: pathlib.Path, ns: argparse.Names
         str(source),
         "-B",
         str(build),
-        "-DCONFLUX_USE_MOCK_LIBURING=ON" if ns.mock_liburing else "-DCONFLUX_USE_MOCK_LIBURING=OFF",
         f"-DCONFLUX_INTERFACE_MODE={ns.interface_mode}",
         "-DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON",
         f"-DCONFLUX_FEATURE_SET={ns.feature_set}",
@@ -129,7 +128,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     parser.add_argument("--target", action="append", help="Measure only this target; may be repeated")
     parser.add_argument("--no-clean", action="store_true", help="Reuse existing build directory")
-    parser.add_argument("--no-mock-liburing", dest="mock_liburing", action="store_false", default=True)
     parser.add_argument("--incremental", action="store_true", help="Also touch known case sources and measure rebuild cost")
     parser.add_argument("--keep-going", action="store_true", help="Record failed/absent optional targets instead of exiting")
     parser.add_argument("--pretty", action="store_true")
@@ -161,7 +159,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "config": {
             "feature_set": ns.feature_set,
             "interface_mode": ns.interface_mode,
-            "mock_liburing": ns.mock_liburing,
             "jobs": ns.jobs,
             "incremental": ns.incremental,
         },

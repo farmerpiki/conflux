@@ -164,10 +164,6 @@ if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::XXHASH' cmake
 fi
 grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
     || fail "package config must expose runtime liburing status"
-grep -q 'set(CONFLUX_PACKAGE_MOCK_LIBURING' cmake/conflux-config.cmake.in \
-    || fail "package config must expose mock-liburing producer status"
-grep -q 'set(CONFLUX_RUNTIME_MOCK' cmake/conflux-config.cmake.in \
-    || fail "package config must expose runtime mock status"
 grep -q 'foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)' cmake/conflux-config.cmake.in \
     || fail "package config must validate requested components"
 grep -q 'check_required_components(conflux)' cmake/conflux-config.cmake.in \
@@ -235,8 +231,6 @@ grep -q 'found unrequested visible target' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke must reject unrequested visible targets"
 grep -q 'runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}' cmake/package-smoke/CMakeLists.txt \
     || fail "package smoke summary must report runtime/liburing status"
-grep -q 'package_mock_liburing=${CONFLUX_PACKAGE_MOCK_LIBURING}' cmake/package-smoke/CMakeLists.txt \
-    || fail "package smoke summary must report producer mock-liburing status"
 grep -q 'cmake --build "\$build_dir"' scripts/run-package-config-smoke.sh \
     || fail "package smoke runner must build the downstream project"
 grep -q 'ctest --test-dir "\$build_dir" --output-on-failure' scripts/run-package-config-smoke.sh \

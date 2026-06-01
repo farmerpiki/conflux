@@ -46,8 +46,7 @@ cmake --build --preset release-clang-libcxx
 ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
-  --components 'core;json;http;work' \
-  -- -DCONFLUX_USE_MOCK_LIBURING=OFF
+  --components 'core;json;http;work'
 ```
 
 Generated-header artifact build and install:
@@ -56,7 +55,6 @@ Generated-header artifact build and install:
 cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
-  -DCONFLUX_USE_MOCK_LIBURING=ON \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -79,9 +77,8 @@ scripts/stage-release-artifacts.sh \
 ```
 
 Installed liburing-free package smoke from outside the source tree. This is the
-required generated-header artifact lane for mock-liburing installs; mock
-liburing is compile evidence for the build tree and does not publish
-real-liburing runtime-facing/http package components.
+required generated-header artifact lane for dependency-light installs and does
+not publish runtime-facing/http package components.
 
 ```sh
 cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
@@ -106,7 +103,6 @@ Optional DB-enabled build lane, only on hosts with libpq headers:
 cmake -S . -B /tmp/conflux-db -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
-  -DCONFLUX_USE_MOCK_LIBURING=ON \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -135,7 +131,6 @@ Test lane, when Catch2 is available from the system or an approved cache:
 ```sh
 cmake -S . -B /tmp/conflux-tests -G Ninja \
   -DCMAKE_CXX_COMPILER=g++ \
-  -DCONFLUX_USE_MOCK_LIBURING=ON \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=ON \
   -DCONFLUX_TEST_CATCH2_PROVIDER=SYSTEM \
@@ -198,9 +193,6 @@ outside the tracked source tree.
   include/declaration smoke scaffolding. Remove it before public preview; the
   released header interface must always ship implementation sources or stop
   advertising implementation-backed components.
-- `CONFLUX_USE_MOCK_LIBURING=ON` remains only as build-tree/generated-header
-  compile evidence. Remove it before public preview; released runtime-facing/http lanes
-  must use real liburing or be absent from the package.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
   `core;json;http;file_io_sync;work`.

@@ -9,8 +9,8 @@ repository.
   to the checked GCC 15, GCC 16, and Clang 21 lanes with CMake 4.2+ and Ninja.
   Optional reflection currently belongs to the GCC 16 P2996 lane; optional
   standard-SIMD targets are C++26-gated.
-- `CONFLUX_USE_MOCK_LIBURING=ON` is build evidence only. It does not prove that
-  the host can run runtime-facing components.
+- Runtime-facing components require a host that can configure and run against
+  real liburing.
 - DB examples and generated DB headers require `CONFLUX_POSTGRES_PROVIDER=LIBPQ`, libpq
   headers, and the `conflux_pg` target. When DB is disabled, DB examples and
   DB headers are skipped even if libpq is installed on the host.

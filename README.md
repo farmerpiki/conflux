@@ -152,7 +152,6 @@ setup.
 - Module and import-std support is toolchain-sensitive and supported only for
   the tested GCC 15, GCC 16, and Clang 21 lanes named in release evidence;
   optional reflection and standard-SIMD targets are C++26-gated.
-- `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
 - Runtime and benchmark evidence are release artifacts, not tracked source-tree
   payloads.
 - DB examples require DB support enabled and usable libpq headers.

@@ -9,8 +9,6 @@ function(conflux_configure_interface_mode)
         "Generated conflux header/module bridge manifest")
     set(CONFLUX_BRIDGE_CMAKE_FRAGMENT "${CONFLUX_GENERATED_ROOT}/ConfluxBridge.cmake" CACHE FILEPATH
         "Generated conflux bridge CMake helper fragment")
-    set(CONFLUX_MOCK_LIBURING_ROOT "${CONFLUX_GENERATED_ROOT}/mock_liburing" CACHE PATH
-        "Generated compile-only mock liburing root")
     set(CONFLUX_GENERATED_EXAMPLES_DIR "${CONFLUX_GENERATED_ROOT}/examples" CACHE PATH
         "Generated header-mode examples directory")
     set(CONFLUX_GENERATED_TESTS_DIR "${CONFLUX_GENERATED_ROOT}/tests" CACHE PATH
@@ -24,7 +22,6 @@ function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_EXAMPLES_DIR "${CONFLUX_GENERATED_EXAMPLES_DIR}" PARENT_SCOPE)
     set(CONFLUX_GENERATED_TESTS_DIR "${CONFLUX_GENERATED_TESTS_DIR}" PARENT_SCOPE)
     set(CONFLUX_GENERATED_BENCHMARKS_DIR "${CONFLUX_GENERATED_BENCHMARKS_DIR}" PARENT_SCOPE)
-    set(CONFLUX_MOCK_LIBURING_ROOT "${CONFLUX_MOCK_LIBURING_ROOT}" PARENT_SCOPE)
 
     if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
             AND CONFLUX_IMPORT_STD_ENABLED)
@@ -42,11 +39,6 @@ function(conflux_configure_interface_mode)
 
     if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args --warnings-as-errors)
-    endif()
-
-    if(CONFLUX_USE_MOCK_LIBURING)
-        list(APPEND _bridge_args
-            --mock-liburing-out "${CONFLUX_MOCK_LIBURING_ROOT}")
     endif()
 
     if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
@@ -133,14 +125,6 @@ function(conflux_configure_interface_mode)
     if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_MODULES)
         set(CONFLUX_BRIDGE_HEADER_IMPL_MODULES
             "${CONFLUX_BRIDGE_HEADER_IMPL_MODULES}" PARENT_SCOPE)
-    endif()
-
-    if(CONFLUX_USE_MOCK_LIBURING)
-        if(DEFINED ENV{PKG_CONFIG_PATH} AND NOT "$ENV{PKG_CONFIG_PATH}" STREQUAL "")
-            set(ENV{PKG_CONFIG_PATH} "${CONFLUX_MOCK_LIBURING_ROOT}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
-        else()
-            set(ENV{PKG_CONFIG_PATH} "${CONFLUX_MOCK_LIBURING_ROOT}/lib/pkgconfig")
-        endif()
     endif()
 
 endfunction()
@@ -248,10 +232,6 @@ function(conflux_apply_header_impl_common target)
     target_include_directories(${target} PRIVATE
         "${CONFLUX_GENERATED_INCLUDE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    if(CONFLUX_USE_MOCK_LIBURING)
-        target_include_directories(${target} PRIVATE
-            "${CONFLUX_MOCK_LIBURING_ROOT}/include")
-    endif()
     if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)
         target_compile_features(${target} PUBLIC cxx_std_26)
     else()
@@ -295,7 +275,7 @@ function(conflux_link_header_impl_hash_provider target)
 endfunction()
 
 function(conflux_link_header_impl_liburing target)
-    if(NOT CONFLUX_USE_MOCK_LIBURING AND TARGET PkgConfig::LIBURING)
+    if(TARGET PkgConfig::LIBURING)
         target_link_libraries(${target} PUBLIC PkgConfig::LIBURING)
     endif()
 endfunction()
@@ -517,6 +497,10 @@ function(conflux_define_header_impl_targets)
     if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
         conflux_define_header_impl_component(conflux_header_impl_http_core header_impl_http_core
             "^conflux\.(http($|:problem)|net\.(app($|[.:])|config($|[.:])|http\.types|http\.request|http\.server_types|http\.json|http1|http_parse_helpers|response($|[.:])|router($|[.:])))")
+        if(TARGET conflux_header_impl_http_core)
+            conflux_link_existing_header_impls(conflux_header_impl_http_core
+                conflux_header_impl_runtime)
+        endif()
     endif()
     if(CONFLUX_WANT_HTTP_SERVER)
         conflux_define_header_impl_component(conflux_header_impl_http_server header_impl_http_server
@@ -530,6 +514,8 @@ function(conflux_define_header_impl_targets)
         conflux_define_header_impl_component(conflux_header_impl_http_static header_impl_http_static
             "^conflux\.net\.(router_static|http\.static_async)($|[.:])")
         if(TARGET conflux_header_impl_http_static)
+            conflux_link_existing_header_impls(conflux_header_impl_http_static
+                conflux_header_impl_runtime)
             conflux_link_header_impl_liburing(conflux_header_impl_http_static)
         endif()
     endif()
@@ -604,10 +590,6 @@ function(conflux_add_header_interface_target)
         "$<BUILD_INTERFACE:${CONFLUX_GENERATED_INCLUDE_DIR}>"
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
-    if(CONFLUX_USE_MOCK_LIBURING)
-        target_include_directories(conflux_headers INTERFACE
-            "$<BUILD_INTERFACE:${CONFLUX_MOCK_LIBURING_ROOT}/include>")
-    endif()
     if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)
         target_compile_features(conflux_headers INTERFACE cxx_std_26)
     else()

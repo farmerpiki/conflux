@@ -44,7 +44,6 @@ for phrase in [
     "file_io_sync",
     "runtime",
     "http",
-    "mock liburing",
     "real-liburing",
     "DB-off",
     "MODULE_INTERFACE",

@@ -61,7 +61,7 @@ graphs from a source/API shape that will not be tagged.
 ## Known Unsupported Areas
 
 - non-Linux platforms
-- runtime-facing/http packages built only with mock liburing
+- runtime-facing/http packages without a real liburing dependency
 - CMake versions older than the release-evidenced baseline
 - arbitrary C++ module toolchains outside the checked GCC 15, GCC 16, and
   Clang 21 presets

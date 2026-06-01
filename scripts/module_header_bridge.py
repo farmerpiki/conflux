@@ -6,10 +6,6 @@ remain the authoring source, generated .hxx headers become the compatibility
 surface, and generated module wrappers include those headers from the global
 module fragment, then re-export the selected names.
 
-It can also emit a deliberately compile-only mock liburing tree. The mock exists
-to let header/module generation be compile-smoked on machines without liburing;
-it is not a runtime emulator and every operation fails/no-ops by construction.
-
 The generated output is intentionally conservative. It is meant to remove the
 large, error-prone first migration step, then leave a small review surface for
 modules that use complex exported namespace blocks or unusual declarations.
@@ -20,12 +16,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -915,242 +908,6 @@ def transform_to_module_wrapper(unit: ModuleUnit, header_relpath: Path) -> tuple
 
 
 
-LIBURING_IDENTIFIER_RE = re.compile(r"\b(?:io_uring|IORING|IOSQE|IOU|SPLICE_F|SOCKET_URING_OP)_[A-Za-z0-9_]+\b")
-LIBURING_TYPE_NAMES = {
-    "io_uring",
-    "io_uring_buf_ring",
-    "io_uring_cqe",
-    "io_uring_params",
-    "io_uring_probe",
-    "io_uring_probe_op",
-    "io_uring_sqe",
-}
-LIBURING_POINTER_RETURN_FUNCTIONS = {
-    "io_uring_get_sqe": "io_uring_sqe *",
-    "io_uring_setup_buf_ring": "io_uring_buf_ring *",
-    "io_uring_get_probe_ring": "io_uring_probe *",
-}
-LIBURING_UNSIGNED_RETURN_FUNCTIONS = {
-    "io_uring_buf_ring_mask",
-    "io_uring_peek_batch_cqe",
-    "io_uring_sq_ready",
-    "io_uring_sq_space_left",
-}
-LIBURING_SIZE_RETURN_FUNCTIONS = {
-    "io_uring_mlock_size",
-}
-LIBURING_SSIZE_RETURN_FUNCTIONS = {
-    "io_uring_memory_size_params",
-}
-LIBURING_UINT64_RETURN_FUNCTIONS = {
-    "io_uring_cqe_get_data64",
-}
-LIBURING_BOOLISH_RETURN_FUNCTIONS = {
-    "io_uring_cq_has_overflow",
-    "io_uring_opcode_supported",
-}
-LIBURING_VOID_FUNCTIONS = {
-    "io_uring_buf_ring_add",
-    "io_uring_buf_ring_advance",
-    "io_uring_cq_advance",
-    "io_uring_cqe_seen",
-    "io_uring_free_buf_ring",
-    "io_uring_free_probe",
-    "io_uring_initialize_sqe",
-    "io_uring_queue_exit",
-    "io_uring_sqe_set_data64",
-    "io_uring_sqe_set_flags",
-}
-LIBURING_BASE_IDENTIFIERS = {
-    "IORING_CQE_BUFFER_SHIFT",
-    "IORING_FILE_INDEX_ALLOC",
-    "IORING_FEAT_FAST_POLL",
-    "IORING_OP_RECV",
-    "IOU_PBUF_RING_INC",
-    "io_uring_get_sqe",
-    "io_uring_setup_buf_ring",
-    "io_uring_get_probe_ring",
-    "io_uring_cqe_get_data64",
-    "io_uring_opcode_supported",
-    "io_uring_queue_init",
-    "io_uring_queue_init_params",
-    "io_uring_queue_exit",
-    "io_uring_submit",
-    "io_uring_submit_and_wait",
-    "io_uring_submit_and_wait_timeout",
-    "io_uring_memory_size_params",
-    "io_uring_peek_cqe",
-    "io_uring_wait_cqe",
-    "io_uring_wait_cqe_timeout",
-    "io_uring_peek_batch_cqe",
-    "io_uring_cq_advance",
-    "io_uring_cqe_seen",
-    "io_uring_sqe_set_data64",
-    "io_uring_sqe_set_flags",
-}
-
-
-def collect_liburing_identifiers(src_root: Path) -> set[str]:
-    identifiers = set(LIBURING_BASE_IDENTIFIERS)
-    for suffix in ("*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx"):
-        for path in src_root.rglob(suffix):
-            try:
-                identifiers.update(LIBURING_IDENTIFIER_RE.findall(path.read_text(encoding="utf-8")))
-            except UnicodeDecodeError:
-                identifiers.update(LIBURING_IDENTIFIER_RE.findall(path.read_text(errors="ignore")))
-    return identifiers
-
-
-def liburing_constant_value(name: str) -> str:
-    special = {
-        "IORING_CQE_BUFFER_SHIFT": "16u",
-        "IORING_FILE_INDEX_ALLOC": "(~0u)",
-        "IORING_FEAT_NODROP": "(1u << 0)",
-        "IORING_FEAT_SUBMIT_STABLE": "(1u << 1)",
-        "IORING_FEAT_RECVSEND_BUNDLE": "(1u << 2)",
-        "IORING_FEAT_FAST_POLL": "(1u << 3)",
-        "SPLICE_F_FD_IN_FIXED": "(1u << 31)",
-        "IORING_FSYNC_DATASYNC": "1u",
-        "IOU_PBUF_RING_INC": "2",
-        "SOCKET_URING_OP_SETSOCKOPT": "0u",
-    }
-    if name in special:
-        return special[name]
-    if name.startswith("IOSQE_") or name.startswith("IORING_SETUP_") or name.startswith("IORING_CQE_F_"):
-        return "0u"
-    if name.startswith("IORING_OP_"):
-        return "0u"
-    if name.startswith("IORING_REGISTER_"):
-        return "0"
-    return "0u"
-
-
-def render_mock_liburing_header(identifiers: set[str]) -> str:
-    constants = sorted(x for x in identifiers if x.startswith(("IORING_", "IOSQE_", "IOU_", "SPLICE_F_", "SOCKET_URING_OP_")))
-    functions = sorted(
-        x for x in identifiers
-        if x.startswith("io_uring_") and x not in LIBURING_TYPE_NAMES
-    )
-    manually_defined = (
-        set(LIBURING_POINTER_RETURN_FUNCTIONS)
-        | LIBURING_UNSIGNED_RETURN_FUNCTIONS
-        | LIBURING_SIZE_RETURN_FUNCTIONS
-        | LIBURING_SSIZE_RETURN_FUNCTIONS
-        | LIBURING_UINT64_RETURN_FUNCTIONS
-        | LIBURING_BOOLISH_RETURN_FUNCTIONS
-        | LIBURING_VOID_FUNCTIONS
-        | {
-            "io_uring_peek_cqe",
-            "io_uring_wait_cqe",
-            "io_uring_wait_cqe_timeout",
-            "io_uring_submit_and_wait_timeout",
-        }
-    )
-
-    out: list[str] = [
-        "#pragma once\n",
-        f"{GENERATED_BANNER}\n",
-        "// Compile-only liburing shim for generated-header smoke tests.\n",
-        "// Do not use for runtime validation. Every operation is a no-op/failure.\n",
-        "\n",
-        "#ifndef CONFLUX_MOCK_LIBURING\n",
-        "#define CONFLUX_MOCK_LIBURING 1\n",
-        "#endif\n",
-        "\n",
-        "#if !defined(__cplusplus)\n",
-        "#error conflux mock liburing is intended for C++ compile-smoke builds only\n",
-        "#endif\n",
-        "\n",
-        "#include <cstddef>\n",
-        "#include <cstdint>\n",
-        "#include <cerrno>\n",
-        "#include <ctime>\n",
-        "#include <sys/socket.h>\n",
-        "#include <sys/stat.h>\n",
-        "#include <sys/uio.h>\n",
-        "#include <sys/types.h>\n",
-        "#include <sys/wait.h>\n",
-        "#include <fcntl.h>\n",
-        "#include <signal.h>\n",
-        "#include <linux/types.h>\n",
-        "#include <linux/time_types.h>\n",
-        "#include <linux/openat2.h>\n",
-        "#include <linux/futex.h>\n",
-        "\n",
-        "extern \"C\" {\n",
-        "\n",
-        "struct io_uring_sqe;\n",
-        "struct io_uring_cqe;\n",
-        "struct io_sqring_offsets { __u32 head, tail, ring_mask, ring_entries, flags, dropped, array, resv1; __u64 user_addr; };\n",
-        "struct io_cqring_offsets { __u32 head, tail, ring_mask, ring_entries, overflow, cqes, flags, resv1; __u64 user_addr; };\n",
-        "struct io_uring_sq { unsigned *khead; unsigned *ktail; unsigned *kring_mask; unsigned *kring_entries; unsigned *kflags; unsigned *kdropped; unsigned *array; io_uring_sqe *sqes; unsigned sqe_head; unsigned sqe_tail; unsigned ring_entries; unsigned ring_mask; unsigned ring_sz; void *ring_ptr; };\n",
-        "struct io_uring_cq { unsigned *khead; unsigned *ktail; unsigned *kring_mask; unsigned *kring_entries; unsigned *kflags; unsigned *koverflow; io_uring_cqe *cqes; unsigned ring_entries; unsigned ring_sz; void *ring_ptr; };\n",
-        "struct io_uring { io_uring_sq sq; io_uring_cq cq; unsigned flags; int ring_fd; unsigned features; };\n",
-        "struct io_uring_sqe { __u8 opcode; __u8 flags; __u16 ioprio; __s32 fd; __u64 off; __u64 addr; __u32 len; __u32 rw_flags; __u64 user_data; __u16 buf_index; __u16 buf_group; __u16 personality; __s32 splice_fd_in; __u32 file_index; __u32 uring_cmd_flags; __u32 waitid_flags; __u32 futex_flags; __u32 cmd_op; __u32 level; __u32 optname; __u32 optlen; __u64 optval; __u64 addr3; __u64 __pad2[1]; };\n",
-        "struct io_uring_cqe { __u64 user_data; __s32 res; __u32 flags; };\n",
-        "struct io_uring_params { __u32 sq_entries; __u32 cq_entries; __u32 flags; __u32 sq_thread_cpu; __u32 sq_thread_idle; __u32 features; __u32 wq_fd; __u32 resv[3]; io_sqring_offsets sq_off; io_cqring_offsets cq_off; };\n",
-        "struct io_uring_probe_op { __u8 op; __u8 resv; __u16 flags; __u32 resv2; };\n",
-        "struct io_uring_probe { __u8 last_op; __u8 ops_len; __u16 resv; __u32 resv2[3]; io_uring_probe_op ops[256]; };\n",
-        "struct io_uring_buf { __u64 addr; __u32 len; __u16 bid; __u16 resv; };\n",
-        "struct io_uring_buf_ring { io_uring_buf bufs[1]; };\n",
-        "\n",
-    ]
-    for name in constants:
-        out.extend([
-            f"#ifndef {name}\n",
-            f"#define {name} {liburing_constant_value(name)}\n",
-            "#endif\n",
-        ])
-    out.extend([
-        "\n",
-        "static inline int conflux_mock_liburing_fail() noexcept { return -ENOSYS; }\n",
-        "static inline io_uring_sqe *io_uring_get_sqe(io_uring *) noexcept { static io_uring_sqe sqe{}; return &sqe; }\n",
-        "static inline io_uring_buf_ring *io_uring_setup_buf_ring(io_uring *, unsigned, int, unsigned, int *err) noexcept { if (err) *err = ENOSYS; return nullptr; }\n",
-        "static inline io_uring_probe *io_uring_get_probe_ring(io_uring *) noexcept { static io_uring_probe probe{}; return &probe; }\n",
-        "static inline __u64 io_uring_cqe_get_data64(io_uring_cqe const *cqe) noexcept { return cqe ? cqe->user_data : 0; }\n",
-        "static inline int io_uring_opcode_supported(io_uring_probe const *, int) noexcept { return 0; }\n",
-        "static inline int io_uring_peek_cqe(io_uring *, io_uring_cqe **cqe) noexcept { if (cqe) *cqe = nullptr; return -EAGAIN; }\n",
-        "static inline int io_uring_wait_cqe(io_uring *, io_uring_cqe **cqe) noexcept { if (cqe) *cqe = nullptr; return -ENOSYS; }\n",
-        "static inline int io_uring_wait_cqe_timeout(io_uring *, io_uring_cqe **cqe, __kernel_timespec *) noexcept { if (cqe) *cqe = nullptr; return -ETIME; }\n",
-        "static inline int io_uring_submit_and_wait_timeout(io_uring *, io_uring_cqe **cqe, unsigned, __kernel_timespec *, sigset_t *) noexcept { if (cqe) *cqe = nullptr; return -ETIME; }\n",
-        "static inline void io_uring_sqe_set_data64(io_uring_sqe *sqe, __u64 data) noexcept { if (sqe) sqe->user_data = data; }\n",
-        "static inline void io_uring_sqe_set_flags(io_uring_sqe *sqe, unsigned flags) noexcept { if (sqe) sqe->flags = static_cast<__u8>(sqe->flags | flags); }\n",
-        "static inline void io_uring_initialize_sqe(io_uring_sqe *sqe) noexcept { if (sqe) *sqe = {}; }\n",
-        "static inline void io_uring_cqe_seen(io_uring *, io_uring_cqe *) noexcept {}\n",
-        "static inline void io_uring_cq_advance(io_uring *, unsigned) noexcept {}\n",
-        "static inline void io_uring_queue_exit(io_uring *) noexcept {}\n",
-        "static inline void io_uring_free_buf_ring(io_uring *, io_uring_buf_ring *, unsigned, int) noexcept {}\n",
-        "static inline void io_uring_free_probe(io_uring_probe *) noexcept {}\n",
-        "static inline int io_uring_buf_ring_mask(__u32 ring_entries) noexcept { return static_cast<int>(ring_entries - 1u); }\n",
-        "static inline unsigned io_uring_peek_batch_cqe(io_uring *, io_uring_cqe **, unsigned) noexcept { return 0u; }\n",
-        "static inline unsigned io_uring_sq_ready(io_uring const *) noexcept { return 0u; }\n",
-        "static inline unsigned io_uring_sq_space_left(io_uring const *) noexcept { return 1u; }\n",
-        "static inline ssize_t io_uring_mlock_size(unsigned, unsigned) noexcept { return 0; }\n",
-        "static inline ssize_t io_uring_memory_size_params(unsigned, io_uring_params *) noexcept { return -ENOSYS; }\n",
-        "static inline bool io_uring_cq_has_overflow(io_uring const *) noexcept { return false; }\n",
-        "static inline void io_uring_buf_ring_add(io_uring_buf_ring *, void *, unsigned int, unsigned short, int, int) noexcept {}\n",
-        "static inline void io_uring_buf_ring_advance(io_uring_buf_ring *, int) noexcept {}\n",
-    ])
-    for name in functions:
-        if name in manually_defined:
-            continue
-        if name.startswith("io_uring_prep_"):
-            out.append(f"static inline void {name}(...) noexcept {{}}\n")
-        else:
-            out.append(f"static inline int {name}(...) noexcept {{ return conflux_mock_liburing_fail(); }}\n")
-    out.extend(["\n", "} // extern \"C\"\n"])
-    return "".join(out)
-
-
-def render_mock_liburing_pc() -> str:
-    return """prefix=${pcfiledir}/../..\nincludedir=${prefix}/include\n\nName: liburing\nDescription: conflux compile-only mock liburing\nVersion: 9999.0.0-mock\nCflags: -I${includedir}\nLibs:\n"""
-
-
-def render_mock_liburing_cmake() -> str:
-    return """cmake_minimum_required(VERSION 3.28)\nproject(conflux_mock_liburing LANGUAGES CXX)\nadd_library(conflux_mock_liburing INTERFACE)\nadd_library(PkgConfig::LIBURING ALIAS conflux_mock_liburing)\ntarget_include_directories(conflux_mock_liburing INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)\ntarget_compile_definitions(conflux_mock_liburing INTERFACE CONFLUX_MOCK_LIBURING=1)\n"""
-
-
-
 def collect_config_macros(src_root: Path) -> list[str]:
     macros: set[str] = {
         "CONFLUX_ENABLE_RECV_BUNDLE",
@@ -1324,62 +1081,6 @@ def emit_private_include_headers(src_root: Path, include_out: Path, units: Itera
             changed += 1
         emitted.append({"source": str(source.relative_to(src_root)), "header": str(target), "include": target_rel.as_posix()})
     return changed, emitted
-
-def emit_mock_liburing_tree(src_root: Path, out_root: Path, write: bool) -> tuple[int, dict[str, str]]:
-    identifiers = collect_liburing_identifiers(src_root)
-    files = {
-        out_root / "include" / "liburing.h": render_mock_liburing_header(identifiers),
-        out_root / "lib" / "pkgconfig" / "liburing.pc": render_mock_liburing_pc(),
-        out_root / "CMakeLists.txt": render_mock_liburing_cmake(),
-    }
-    changed = 0
-    for path, content in files.items():
-        if write_if_changed(path, content, write):
-            changed += 1
-    return changed, {str(path): "generated" for path in files}
-
-
-def smoke_compile_mock_liburing(mock_root: Path, compiler: str, std: str) -> None:
-    if shutil.which(compiler) is None:
-        raise RuntimeError(f"compiler not found: {compiler}")
-    header = mock_root / "include" / "liburing.h"
-    header_text = header.read_text(encoding="utf-8")
-    constants = re.findall(r"#define\s+((?:IORING|IOSQE|IOU)_[A-Za-z0-9_]+)\s", header_text)
-    functions = re.findall(r"static inline [^\n]+\s+(io_uring_[A-Za-z0-9_]+)\(", header_text)
-    lines = [
-        "#include <liburing.h>",
-        "#include <cstdint>",
-        "int main() {",
-        "    (void)sizeof(io_uring);",
-        "    (void)sizeof(io_uring_sqe);",
-        "    (void)sizeof(io_uring_cqe);",
-        "    (void)sizeof(io_uring_params);",
-        "    (void)sizeof(io_uring_probe);",
-        "    unsigned long long acc = 0;",
-    ]
-    lines.extend(f"    acc += static_cast<unsigned long long>({name});" for name in constants)
-    lines.extend(f"    (void)&{name};" for name in functions)
-    lines.extend([
-        "    io_uring ring{};",
-        "    io_uring_params params{};",
-        "    params.flags = IORING_SETUP_SQPOLL;",
-        "    auto rc = io_uring_queue_init_params(8, &ring, &params);",
-        "    auto *sqe = io_uring_get_sqe(&ring);",
-        "    io_uring_sqe_set_data64(sqe, 42);",
-        "    io_uring_cqe *cqe = nullptr;",
-        "    (void)io_uring_submit_and_wait_timeout(&ring, &cqe, 1, nullptr, nullptr);",
-        "    (void)io_uring_cqe_get_data64(cqe);",
-        "    io_uring_queue_exit(&ring);",
-        "    return static_cast<int>((acc + static_cast<unsigned long long>(rc)) & 0);",
-        "}",
-    ])
-    source = "\n".join(lines) + "\n"
-    with tempfile.TemporaryDirectory(prefix="conflux_mock_liburing_") as tmp:
-        src = Path(tmp) / "smoke.cxx"
-        obj = Path(tmp) / "smoke.o"
-        src.write_text(source, encoding="utf-8")
-        cmd = [compiler, f"-std={std}", "-I", str(mock_root / "include"), "-c", str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
 
 def write_if_changed(path: Path, content: str, write: bool) -> bool:
     if path.exists() and path.read_text(encoding="utf-8") == content:
@@ -1763,9 +1464,6 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "function(conflux_bridge_add_header_interface target)",
         "    add_library(${target} INTERFACE)",
         "    target_include_directories(${target} INTERFACE \"${CONFLUX_GENERATED_INCLUDE_DIR}\" \"${CONFLUX_SRC_ROOT}\")",
-        "    if(CONFLUX_USE_MOCK_LIBURING)",
-        "        target_include_directories(${target} INTERFACE \"$<BUILD_INTERFACE:${CONFLUX_MOCK_LIBURING_ROOT}/include>\")",
-        "    endif()",
         "    target_compile_definitions(${target} INTERFACE",
         "        CONFLUX_HEADER_USE_IMPORT_STD=0",
         "        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0",
@@ -1779,9 +1477,6 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "        set(_conflux_header_impl_target ${target}_impl)",
         "        add_library(${_conflux_header_impl_target} STATIC ${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES})",
         "        target_include_directories(${_conflux_header_impl_target} PRIVATE \"${CONFLUX_GENERATED_INCLUDE_DIR}\" \"${CONFLUX_SRC_ROOT}\")",
-        "        if(CONFLUX_USE_MOCK_LIBURING)",
-        "            target_include_directories(${_conflux_header_impl_target} PRIVATE \"${CONFLUX_MOCK_LIBURING_ROOT}/include\")",
-        "        endif()",
         "        target_compile_definitions(${_conflux_header_impl_target} PRIVATE",
         "            CONFLUX_HEADER_USE_IMPORT_STD=0",
         "            CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0",
@@ -1869,7 +1564,6 @@ def generate(args: argparse.Namespace) -> int:
         "private_partitions": [],
         "config_header": str(include_out / CONFIG_HEADER_RELPATH),
         "features_header": str(include_out / FEATURES_HEADER_RELPATH),
-        "mock_liburing": None,
         "source_overlay": None,
         "consumer_overlays": {},
         "bridge": {
@@ -1986,19 +1680,6 @@ def generate(args: argparse.Namespace) -> int:
         if write_if_changed(cmake_path, render_cmake_fragment(manifest), args.write):
             changed += 1
 
-    if args.emit_mock_liburing or args.mock_liburing_out is not None:
-        mock_root = (args.mock_liburing_out or Path("third_party/mock_liburing")).resolve()
-        mock_changed, mock_files = emit_mock_liburing_tree(src_root, mock_root, args.write)
-        changed += mock_changed
-        manifest["mock_liburing"] = {
-            "root": str(mock_root),
-            "files": mock_files,
-            "compile_only": True,
-            "pkg_config_path": str(mock_root / "lib" / "pkgconfig"),
-        }
-        if args.smoke_compile_mock_liburing and args.write:
-            smoke_compile_mock_liburing(mock_root, args.cxx, args.cxx_std)
-
     if args.manifest_out:
         manifest_path = args.manifest_out.resolve()
         manifest_content = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -2035,11 +1716,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--benchmarks-src", type=Path, default=None, help="optional benchmarks tree to transform for header consumers")
     parser.add_argument("--benchmarks-out", type=Path, default=None, help="optional output root for transformed header-mode benchmarks")
     parser.add_argument("--cmake-fragment-out", type=Path, default=None, help="optional generated CMake helper fragment path")
-    parser.add_argument("--emit-mock-liburing", action="store_true", help="also emit a compile-only mock liburing tree")
-    parser.add_argument("--mock-liburing-out", type=Path, default=None, help="output root for mock liburing; implies --emit-mock-liburing")
-    parser.add_argument("--smoke-compile-mock-liburing", action="store_true", help="compile a tiny TU against emitted mock liburing after --write")
-    parser.add_argument("--cxx", default=os.environ.get("CXX", "c++"), help="compiler for --smoke-compile-mock-liburing")
-    parser.add_argument("--cxx-std", default="c++23", help="standard flag value for mock smoke compile, e.g. c++20/c++23/c++26")
     parser.add_argument("--warnings-as-errors", action="store_true", help="return non-zero when manifest warnings are produced")
     parser.add_argument("--write", action="store_true", help="write generated files; default is dry-run")
     args = parser.parse_args(argv)

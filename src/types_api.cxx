@@ -30,9 +30,6 @@ module;
 #ifndef CONFLUX_BUILD_API_SURFACE
 	#define CONFLUX_BUILD_API_SURFACE "curated"
 #endif
-#ifndef CONFLUX_USE_MOCK_LIBURING
-	#define CONFLUX_USE_MOCK_LIBURING 0
-#endif
 #ifndef CONFLUX_HAS_TLS
 	#define CONFLUX_HAS_TLS 0
 #endif
@@ -284,7 +281,6 @@ struct BuildInfo {
 	std::string_view feature_set;
 	std::string_view api_surface;
 
-	bool mock_liburing;
 	bool tls;
 	bool http2;
 	bool http3;
@@ -306,7 +302,6 @@ struct BuildInfo {
 		.interface_mode = CONFLUX_BUILD_INTERFACE_MODE,
 		.feature_set = CONFLUX_BUILD_FEATURE_SET,
 		.api_surface = CONFLUX_BUILD_API_SURFACE,
-		.mock_liburing = CONFLUX_USE_MOCK_LIBURING != 0,
 		.tls = CONFLUX_HAS_TLS != 0,
 		.http2 = CONFLUX_HAS_HTTP2 != 0,
 		.http3 = CONFLUX_HAS_HTTP3 != 0,
@@ -321,7 +316,7 @@ struct BuildInfo {
 	auto const info = build_info();
 	return std::format(
 		"conflux {} git={} compiler={} stdlib={} interface={} features={} api_surface={} "
-		"tls={} http2={} http3={} db={} mock_liburing={}",
+		"tls={} http2={} http3={} db={}",
 		info.version,
 		info.git_commit,
 		info.compiler,
@@ -332,8 +327,7 @@ struct BuildInfo {
 		info.tls ? "on" : "off",
 		info.http2 ? "on" : "off",
 		info.http3 ? "on" : "off",
-		info.db ? "on" : "off",
-		info.mock_liburing ? "on" : "off");
+		info.db ? "on" : "off");
 }
 
 } // namespace conflux
@@ -354,7 +348,6 @@ enum class CapabilityIssueCode {
 	blocked_by_seccomp,
 	insufficient_memlock,
 	incompatible_option,
-	mock_backend,
 	unknown,
 };
 
@@ -367,7 +360,6 @@ struct CapabilityIssue {
 
 struct RuntimeCapabilities {
 	bool io_uring{};
-	bool mock_backend{};
 	bool sqpoll{};
 	bool iopoll{};
 	bool single_issuer{};
@@ -403,7 +395,6 @@ std::string capability_issue_code_string(
 	case CapabilityIssueCode::blocked_by_seccomp  : return "capability.blocked_by_seccomp";
 	case CapabilityIssueCode::insufficient_memlock: return "capability.insufficient_memlock";
 	case CapabilityIssueCode::incompatible_option : return "capability.incompatible_option";
-	case CapabilityIssueCode::mock_backend        : return "capability.mock_backend";
 	case CapabilityIssueCode::unknown             : return "capability.unknown";
 	}
 	return "capability.unknown";

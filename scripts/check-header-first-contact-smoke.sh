@@ -6,9 +6,13 @@ cd "$root"
 
 build_root="${CONFLUX_HEADER_FIRST_CONTACT_SMOKE_BUILD_ROOT:-build/header-first-contact-smoke}"
 
+if ! pkg-config --exists liburing; then
+    printf 'header-first-contact-smoke: skipped; liburing was not found by pkg-config\n'
+    exit 0
+fi
+
 printf 'header-first-contact-smoke: configure http-api\n'
 cmake -S . -B "$build_root" \
-    -DCONFLUX_USE_MOCK_LIBURING=ON \
     -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
     -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON \
     -DCONFLUX_FEATURE_SET=http-api \

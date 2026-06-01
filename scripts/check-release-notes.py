@@ -29,7 +29,7 @@ for heading in [
     if heading not in text:
         fail(f"{NOTES.relative_to(ROOT)} missing heading {heading}")
 
-for phrase in ["mock-liburing", "real-liburing", "core", "json", "file_io_sync", "runtime", "http"]:
+for phrase in ["real-liburing", "core", "json", "file_io_sync", "runtime", "http"]:
     if phrase not in text:
         fail(f"release notes must mention {phrase}")
 

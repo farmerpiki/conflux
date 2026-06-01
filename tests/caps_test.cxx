@@ -85,14 +85,7 @@ TEST_CASE(
 	"[caps]") {
 	auto caps = conflux::runtime::detect_capabilities();
 	REQUIRE(caps.has_value());
-#if CONFLUX_USE_MOCK_LIBURING
-	CHECK(caps->mock_backend);
-	REQUIRE_FALSE(caps->issues.empty());
-	CHECK(caps->issues.front().code == conflux::runtime::CapabilityIssueCode::mock_backend);
-	CHECK(conflux::runtime::capability_issue_code_string(caps->issues.front().code) == "capability.mock_backend");
-#else
 	CHECK(caps->io_uring);
-#endif
 	auto report = conflux::runtime::capability_report(*caps);
 	CHECK(report.find("io_uring") != std::string::npos);
 }

@@ -264,8 +264,8 @@ Use:
 scripts/check-provider-policy-matrix.sh
 ```
 
-This lane configures and builds representative provider-policy scenarios without
-mock liburing: dependency-light `core`, JSON with system/default and internal
+This lane configures and builds representative provider-policy scenarios:
+dependency-light `core`, JSON with system/default and internal
 hash providers, web-server compression with automatic gzip selection and
 `CONFLUX_GZIP_PROVIDER=ALL`, stable HTTP server with HTTP/3 gated off, and HTTP
 auth with the Argon2 runtime provider. `CONFLUX_GZIP_PROVIDER=AUTO` benchmarks

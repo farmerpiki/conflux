@@ -192,7 +192,6 @@ if(TARGET conflux)
     )
 endif()
 
-set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
 set(_conflux_install_targets_for_runtime_scan
     ${CONFLUX_INSTALL_INTERFACE_TARGETS}
     ${CONFLUX_INSTALL_MODULE_TARGETS})

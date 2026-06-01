@@ -29,6 +29,12 @@ fi
 base="${TMPDIR:-/tmp}/conflux-public-module-import-smoke"
 feature_set="${CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_FEATURE_SET:-http-minimal}"
 components="${CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_COMPONENTS:-core;json;http}"
+
+if [[ "$components" == *http* || "$components" == *work* ]] && ! pkg-config --exists liburing; then
+    printf 'public-module-import-smoke: skipped; liburing was not found by pkg-config\n'
+    exit 0
+fi
+
 rm -rf "$base"
 mkdir -p "$base"
 trap 'rm -rf "$base"' EXIT
@@ -44,7 +50,6 @@ trap 'rm -rf "$base"' EXIT
     --interface-mode MODULE_INTERFACE \
     --public-module-import-smoke \
     -- \
-    -DCONFLUX_USE_IMPORT_STD=OFF \
-    -DCONFLUX_USE_MOCK_LIBURING=ON
+    -DCONFLUX_USE_IMPORT_STD=OFF
 
 printf 'public-module-import-smoke: ok (%s, %s)\n' "$feature_set" "$components"

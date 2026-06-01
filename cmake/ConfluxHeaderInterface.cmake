@@ -88,13 +88,8 @@ if(_conflux_header_impl_targets)
     list(APPEND CONFLUX_PACKAGE_ALL_COMPONENTS ${_conflux_header_impl_components})
     list(APPEND CONFLUX_PACKAGE_ALL_TARGETS ${_conflux_header_impl_namespaced_targets})
 endif()
-set(CONFLUX_INSTALL_MOCK_RUNTIME FALSE)
-if(CONFLUX_USE_MOCK_LIBURING)
-    message(STATUS
-        "conflux: mock liburing is enabled; runtime/http installed package components are disabled because they are compile-only in this build.")
-endif()
 set(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS FALSE)
-if(NOT CONFLUX_USE_MOCK_LIBURING AND TARGET PkgConfig::LIBURING)
+if(TARGET PkgConfig::LIBURING)
     set(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS TRUE)
 endif()
 
@@ -177,11 +172,9 @@ endif()
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
 conflux_register_header_public_hpp(config)
-if(NOT CONFLUX_USE_MOCK_LIBURING)
-    conflux_register_header_public_hpp(curated)
-    conflux_register_header_public_hpp(extended)
-    conflux_register_header_public_hpp(complete)
-endif()
+conflux_register_header_public_hpp(curated)
+conflux_register_header_public_hpp(extended)
+conflux_register_header_public_hpp(complete)
 conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
 
 conflux_add_header_component_smoke_targets()
@@ -222,15 +215,74 @@ function(conflux_install_generated_header_component name)
 endfunction()
 
 function(conflux_install_registered_public_headers)
-    if(NOT CONFLUX_USE_MOCK_LIBURING)
-        conflux_install_generated_header_file("conflux.hxx")
-    endif()
+    conflux_install_generated_header_file("conflux.hxx")
     conflux_install_generated_header_file("conflux/config.hxx")
     conflux_install_generated_header_file("conflux/features.hxx")
 
     foreach(_component IN LISTS CONFLUX_PACKAGE_COMPONENTS)
         conflux_install_generated_header_component("${_component}")
     endforeach()
+
+    if(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS)
+        foreach(_support_header IN ITEMS
+                conflux/crypto.hxx
+                conflux/file_io.hxx
+                conflux/file_io/buffers.hxx
+                conflux/file_io/driver.hxx
+                conflux/file_io/iopoll.hxx
+                conflux/file_io/pipe_pool.hxx
+                conflux/file_io/reader.hxx
+                conflux/file_map/types.hxx
+                conflux/net/app.hxx
+                conflux/net/app/defer.hxx
+                conflux/net/app/extractor_helpers.hxx
+                conflux/net/app/json_helpers.hxx
+                conflux/net/app/metadata_helpers.hxx
+                conflux/net/app/openapi.hxx
+                conflux/net/app/response.hxx
+                conflux/net/app/route_helpers.hxx
+                conflux/net/app/traits.hxx
+                conflux/net/app/types.hxx
+                conflux/net/auth.hxx
+                conflux/net/cancel.hxx
+                conflux/net/config.hxx
+                conflux/net/http/app_json.hxx
+                conflux/net/http/json.hxx
+                conflux/net/http/json_string.hxx
+                conflux/net/http/native_json.hxx
+                conflux/net/http/parse_helpers.hxx
+                conflux/net/http/realtime.hxx
+                conflux/net/http/request.hxx
+                conflux/net/http/response.hxx
+                conflux/net/http/response_json.hxx
+                conflux/net/http/server_types.hxx
+                conflux/net/http/static_files.hxx
+                conflux/net/http/types.hxx
+                conflux/net/http_server.hxx
+                conflux/net/metrics.hxx
+                conflux/net/observability.hxx
+                conflux/net/path.hxx
+                conflux/net/rate_limit.hxx
+                conflux/net/request_id.hxx
+                conflux/net/router.hxx
+                conflux/net/router_match.hxx
+                conflux/net/security.hxx
+                conflux/net/tls.hxx
+                conflux/net/tracing.hxx
+                conflux/net/vhost.hxx
+                conflux/small_function.hxx
+                conflux/socket_io.hxx
+                conflux/socket_io/coro.hxx
+                conflux/uring.hxx
+                conflux/uring/completion.hxx
+                conflux/uring/fd.hxx
+                conflux/uring/handle.hxx
+                conflux/uring/sqe.hxx
+                conflux/uring/timeout.hxx
+                conflux/utils.hxx)
+            conflux_install_generated_header_file("${_support_header}")
+        endforeach()
+    endif()
 
     get_property(_hpp_names GLOBAL PROPERTY CONFLUX_HEADER_PUBLIC_HPP_NAMES)
     foreach(_hpp_name IN LISTS _hpp_names)
@@ -242,12 +294,10 @@ function(conflux_install_registered_public_headers)
         conflux_install_generated_header_file("conflux/${_hpp_name}.hxx")
     endforeach()
 
-    if(NOT CONFLUX_USE_MOCK_LIBURING)
-        set(_conflux_hpp "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp")
-        if(EXISTS "${_conflux_hpp}")
-            install(FILES "${_conflux_hpp}"
-                DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
-        endif()
+    set(_conflux_hpp "${CONFLUX_PUBLIC_HPP_DIR}/conflux.hpp")
+    if(EXISTS "${_conflux_hpp}")
+        install(FILES "${_conflux_hpp}"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
     endif()
 
     install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"

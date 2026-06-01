@@ -1,11 +1,5 @@
 include(ConfluxProviderResolution)
 
-if(CONFLUX_USE_MOCK_LIBURING)
-    set(CONFLUX_BUILD_INFO_MOCK_LIBURING "true")
-else()
-    set(CONFLUX_BUILD_INFO_MOCK_LIBURING "false")
-endif()
-
 execute_process(
     COMMAND git rev-parse --short=12 HEAD
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

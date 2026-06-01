@@ -35,7 +35,6 @@ uses are best-effort compatibility.
 cmake -S . -B /tmp/conflux-header -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++ \
-  -DCONFLUX_USE_MOCK_LIBURING=ON \
   -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
   -DCONFLUX_BUILD_TESTS=OFF \
   -DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -97,8 +96,7 @@ flags unless the package metadata declares that CPU baseline.
   isolated components with `scripts/run-install-tree-smoke.sh --components
   '<component>' --feature-set <matching-feature-set>`; this is the guard that
   prevents broad aggregates from leaking into minimal installs.
-- mock-liburing install: `core`, `types`, `json`, `file_io_sync` only, as
-  internal compile evidence for generated header artifacts.
+- liburing-free install: `core`, `types`, `json`, `file_io_sync` only.
 - real-liburing install: `work` and `http` may be requested when producer
   configure found real `liburing` and consumers can find it through
   `pkg-config`.

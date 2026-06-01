@@ -8,8 +8,6 @@ set_property(CACHE CONFLUX_API_SURFACE PROPERTY STRINGS curated extended complet
 set(CONFLUX_USE_IMPORT_STD "AUTO" CACHE STRING
     "Use the standard-library module in MODULE_INTERFACE mode: AUTO, ON, or OFF")
 set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
-option(CONFLUX_USE_MOCK_LIBURING
-    "Use generated compile-only mock liburing when system liburing is unavailable; not a runtime backend" OFF)
 option(CONFLUX_ROUTER_LAZY_ROUTE_METADATA
     "Skip internal route-pattern param injection unless route observation requests it" ON)
 option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES

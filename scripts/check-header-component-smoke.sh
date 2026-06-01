@@ -14,7 +14,6 @@ run_smoke() {
 
     printf 'header-component-smoke: configure %s (%s)\n' "$name" "$feature_set"
     cmake -S . -B "$build_dir" \
-        -DCONFLUX_USE_MOCK_LIBURING=ON \
         -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
         -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON \
         -DCONFLUX_FEATURE_SET="$feature_set" \
@@ -71,6 +70,13 @@ compiler_supports_public_include_matrix() {
 
 run_smoke core core conflux_header_smoke_core
 run_smoke json json conflux_header_smoke_json
+
+if ! pkg-config --exists liburing; then
+    printf 'header-component-smoke: skipped runtime/http cases; liburing was not found by pkg-config\n'
+    printf 'header-component-smoke: ok\n'
+    exit 0
+fi
+
 run_smoke work work conflux_header_smoke_runtime
 run_smoke http-api http-api __all_header_smokes
 if compiler_supports_public_include_matrix; then
