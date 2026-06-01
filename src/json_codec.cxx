@@ -4450,7 +4450,10 @@ template<class T>
 		FpStringView key{};
 		std::string_view key_name{};
 		bool consumed_colon = false;
-		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
+		std::ptrdiff_t predicted = 0;
+		if constexpr (N != 1U) {
+			predicted = prev_idx == N ? std::ptrdiff_t{0} : static_cast<std::ptrdiff_t>(prev_idx) + stride;
+		}
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
 			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string, &consumed_colon))
@@ -4506,10 +4509,12 @@ template<class T>
 			continue;
 		}
 
-		if (prev_idx != N) {
-			stride = static_cast<std::ptrdiff_t>(idx) - static_cast<std::ptrdiff_t>(prev_idx);
+		if constexpr (N != 1U) {
+			if (prev_idx != N) {
+				stride = static_cast<std::ptrdiff_t>(idx) - static_cast<std::ptrdiff_t>(prev_idx);
+			}
+			prev_idx = idx;
 		}
-		prev_idx = idx;
 
 		// --- duplicates ---
 		std::uint64_t const bit = std::uint64_t{1} << idx;
