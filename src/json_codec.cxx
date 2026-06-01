@@ -4406,6 +4406,83 @@ template<class T>
 	++c.p;
 
 	std::uint64_t presence = 0;
+	if constexpr (N == 1U) {
+		bool first = true;
+		for (;;) {
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+			if (*c.p == '}') {
+				++c.p;
+				--c.depth;
+				break;
+			}
+			if (!first) {
+				if (*c.p != ',') {
+					return FpStatus::bail;
+				}
+				++c.p;
+				c.skip_ws();
+				if (c.at_end()) {
+					return FpStatus::bail;
+				}
+			}
+			first = false;
+			if (*c.p != '"') {
+				return FpStatus::bail;
+			}
+			++c.p;
+			bool known = false;
+			std::string_view key_name{};
+			FpStringView key{};
+			if (fp_match_plain_key(c, meta[0].name, lim.max_string)) [[likely]] {
+				known = true;
+				key_name = meta[0].name;
+			} else {
+				if (fp_scan_plain_string(c, key, lim.max_string) != FpStatus::ok) {
+					return FpStatus::bail;
+				}
+				key_name = std::string_view{key.data, key.size};
+			}
+			c.skip_ws();
+			if (c.at_end() || *c.p != ':') {
+				return FpStatus::bail;
+			}
+			++c.p;
+			if (!known) {
+				if (lim.unknown_members == UnknownMemberPolicy::reject) {
+					c.error = FpError{.code = JsonIssueCode::invalid_value, .member_name = key_name};
+					return FpStatus::error;
+				}
+				if (fp_skip_value(c, lim) != FpStatus::ok) {
+					return FpStatus::bail;
+				}
+				continue;
+			}
+			if (presence != 0U) [[unlikely]] {
+				if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
+					c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = meta[0].name};
+					return FpStatus::error;
+				}
+				if (lim.duplicate_key == DuplicateKeyPolicy::first_wins) {
+					if (fp_skip_value(c, lim) != FpStatus::ok) {
+						return FpStatus::bail;
+					}
+					continue;
+				}
+			}
+			presence = 1U;
+			if (FpStatus const st = fp_decode_member_at<T, 0>(out, c, lim); st != FpStatus::ok) {
+				return st;
+			}
+		}
+		if ((presence & fp_required_presence_mask_v<T>) != fp_required_presence_mask_v<T>) {
+			c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[0].name};
+			return FpStatus::error;
+		}
+		return FpStatus::ok;
+	}
 	// Adaptive prediction: documents usually present members in a fixed
 	// pattern (declaration order, reverse, strided). Predict next = prev +
 	// stride; on a miss fall back to the prefix-hash table and re-learn the
