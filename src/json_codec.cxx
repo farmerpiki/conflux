@@ -4606,6 +4606,28 @@ template<class T>
 
 } // namespace fastpath
 
+[[nodiscard]] [[gnu::cold, gnu::noinline]] inline std::expected<void, JsonError> decode_fast_path_error(
+	fastpath::FpError const &fast_error) {
+	std::string_view const name = fast_error.member_name;
+	if (fast_error.code == JsonIssueCode::duplicate_member) {
+		return std::unexpected(detail::duplicate_member_error(name));
+	}
+	if (fast_error.code == JsonIssueCode::missing_member) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::missing_member,
+				.member_name = std::string{name},
+				.message = std::format("missing member: {}", name)});
+	}
+	return std::unexpected(
+		JsonError{
+			.stage = JsonStage::decode,
+			.code = JsonIssueCode::invalid_value,
+			.member_name = std::string{name},
+			.message = std::format("unknown member: {}", name)});
+}
+
 } // namespace detail
 export template<class T>
 std::expected<T, JsonError> decode(
@@ -4688,30 +4710,12 @@ std::expected<void, JsonError> decode_full_into(
 	if constexpr (detail::fastpath::fp_supported_v<T>) {
 		if (parse_opts.mode == ParseMode::strict) {
 			detail::fastpath::FpError fast_error{};
-			switch (detail::fastpath::fp_decode_document<T>(out, fast_error, input, parse_opts, decode_opts)) {
-			case detail::fastpath::FpStatus::ok: return {};
-			case detail::fastpath::FpStatus::error:
-				{
-					std::string_view const name = fast_error.member_name;
-					if (fast_error.code == JsonIssueCode::duplicate_member) {
-						return std::unexpected(detail::duplicate_member_error(name));
-					}
-					if (fast_error.code == JsonIssueCode::missing_member) {
-						return std::unexpected(
-							JsonError{
-								.stage = JsonStage::decode,
-								.code = JsonIssueCode::missing_member,
-								.member_name = std::string{name},
-								.message = std::format("missing member: {}", name)});
-					}
-					return std::unexpected(
-						JsonError{
-							.stage = JsonStage::decode,
-							.code = JsonIssueCode::invalid_value,
-							.member_name = std::string{name},
-							.message = std::format("unknown member: {}", name)});
-				}
-			case detail::fastpath::FpStatus::bail: break;
+			auto const st = detail::fastpath::fp_decode_document<T>(out, fast_error, input, parse_opts, decode_opts);
+			if (st == detail::fastpath::FpStatus::ok) [[likely]] {
+				return {};
+			}
+			if (st == detail::fastpath::FpStatus::error) [[unlikely]] {
+				return detail::decode_fast_path_error(fast_error);
 			}
 		}
 	}
