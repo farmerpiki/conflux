@@ -149,15 +149,18 @@ template<work_value A, work_value B>
 Chain<std::tuple<A, B>> when_all_fast_fail(Chain<A>&&, Chain<B>&&) noexcept;
 ```
 
-**Known limitation:** currently identical to `when_all`. The name promises
-sibling-cancellation on first failure (cancel the still-pending sibling when
-the first arm fails), but the eager carrier already has both arms resolved
-before this combinator runs. Sibling-cancel semantics require an async carrier
-path (Phase 5c) that does not yet exist.
+`when_all_fast_fail` is an outcome-level fast-fail combinator over
+already-materialized `Chain` values. It evaluates/releases the left arm first;
+if the left arm failed or was cancelled, that terminal outcome is returned
+immediately and the right arm is not inspected. The right arm is inspected only
+after the left arm succeeds. Therefore dual failures return the first failure,
+not `AggregateError`.
 
-**Consumers MUST NOT** depend on sibling-cancellation behaviour. This combinator
-is safe to use; it simply does not yet deliver the promised fast-fail
-optimization. The TODO in `src/work/carrier_model_a.cxx` marks this gap.
+**Consumers MUST NOT** depend on sibling-cancellation behaviour. The current
+carrier chains are eager/completed before this combinator observes them, so this
+API is not a live async orchestration primitive and does not cancel a still-
+pending sibling. A future live-handle fast-fail combinator would need a separate
+owner/progress-domain contract.
 
 ### `race`
 
@@ -435,6 +438,13 @@ TaskHandleChainAwaiter<T> await_chain(root::TaskJoinHandle<T>&&) noexcept;
 `await_chain` — resumes with `Chain<T>` carrying the outcome. Errors are
 wrapped in the chain rather than thrown at the suspension point. Useful when
 the caller wants to inspect the outcome before deciding whether to propagate.
+
+The non-member `operator co_await` is exported from `conflux::work::carrier`,
+not from `conflux::work::root`. Plain `co_await task_join_handle` is therefore
+not found by ADL from `root::TaskJoinHandle` alone. Use
+`carrier::TaskHandleAwaiter<T>{std::move(handle)}`,
+`carrier::TaskHandleChainAwaiter<T>{std::move(handle)}`, `await_chain(...)`, or
+bring the operator into ordinary lookup before relying on bare `co_await`.
 
 **Both awaiters** install `try_set_on_ready` on the control block. If the
 handle was already terminal at `await_suspend` time, they resume immediately

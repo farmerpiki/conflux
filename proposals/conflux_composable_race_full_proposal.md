@@ -8,13 +8,20 @@ State note: historical proposal; core race primitive, cancellation contracts, ow
 
 ## Status
 
-Active proposal, final design pass. The generalized direction is accepted. Treat the patch as ready only after the contracts in this document land in order: reason propagation, exclusive registration, callback lifetime/quiescence, progress-domain binding, capability-safe extraction, explicit label lifetime policy, and explicit loser ownership.
+Historical implementation proposal. The core race primitive, reason propagation,
+exclusive ready-callback registration, callback lifetime/cleanup,
+progress-domain documentation, capability-safe extraction, and live N-way
+coverage have landed. Treat this document as rationale only; branch selection
+lives in `todo/proposal_state.md`.
 
-This version replaces the earlier timeout-only framing, earlier pump-first framing, and the previous composable-race draft. It incorporates a verification pass against the current `conflux.zip` snapshot from 2026-05-26.
+This version replaced the earlier timeout-only framing, earlier pump-first
+framing, and the previous composable-race draft. It incorporated a verification
+pass against the then-current `conflux.zip` snapshot from 2026-05-26.
 
-## Verification summary against current source
+## Original verification summary before implementation
 
-Current code already has most of the substrate, but not the exact primitive:
+At proposal time, the code already had most of the substrate, but not the exact
+primitive:
 
 - `root::Task<T>`, `TaskJoinHandle<T>`, `TaskSource<T>`, `TaskControl`, ready callbacks, cancellation hooks, and join helpers exist.
 - `TaskControl::request_cancel()` exists, but has no cancellation-reason parameter.
@@ -53,7 +60,8 @@ Adopt the generalized race direction, tightened around eight implementation-bloc
 7. **Explicit loser ownership:** for consumed live participants, every loser has exactly one terminal owner under every loser policy, including `leave_running` and `request_cancel`.
 8. **Non-duplicated winner policy:** Stage 1 has `first_completion` and `first_success`; the previous `first_value_or_all_failed` wording was effectively duplicate and is removed for now.
 
-The proposal remains worth implementing. It should be implemented in narrow stages, starting with root-layer reason propagation and registration/progress/lifetime tests before any subsystem adoption.
+The proposal was implemented in narrow stages. Remaining adapter ideas belong in
+a new TODO/proposal only when a concrete subsystem adoption is selected.
 
 ## Problem statement
 

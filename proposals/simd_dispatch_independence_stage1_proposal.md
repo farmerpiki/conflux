@@ -11,11 +11,12 @@ This is the tightened Stage 1 proposal after verification against the current tr
 
 ## Verdict
 
-Implement Stage 1 now.
+Stage 1 landed. Keep this proposal as historical rationale and as the validation
+checklist for the current `CONFLUX_SIMD_SELECTION=AUTO|DIRECT|RUNTIME` shape.
 
-The current code has useful SIMD plumbing, but backend availability and binding policy are still coupled at hot call sites. `CONFLUX_USE_STDSIMD` selects whether `std::simd` / `std::experimental::simd` implementation objects are available, while `CONFLUX_SIMD_SELECTION` controls direct versus runtime binding.
-
-Stage 1 should make that policy explicit without adding per-ISA object families, IFUNC resolvers, or a large public SIMD matrix.
+The implemented design separates backend availability (`CONFLUX_USE_STDSIMD`)
+from binding policy (`CONFLUX_SIMD_SELECTION`) without adding per-ISA object
+families, IFUNC resolvers, or a larger public SIMD matrix.
 
 ## TODO Goals
 
