@@ -267,7 +267,7 @@ GzipBackend resolve_gzip_backend() {
 	return configured_gzip_backend();
 }
 DynamicEncodingPreference benchmark_dynamic_encoding_preference(
-	GzipBackend gzip_backend) {
+	[[maybe_unused]] GzipBackend gzip_backend) {
 	if (!gzip_supported()) {
 		return DynamicEncodingPreference::zstd_first;
 	}
@@ -275,6 +275,9 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference(
 		return DynamicEncodingPreference::gzip_first;
 	}
 
+#if !CONFLUX_HAS_ZSTD
+	return DynamicEncodingPreference::gzip_first;
+#else
 	std::string const sample(4096, 'x');
 
 	auto const gzip_start = std::chrono::steady_clock::now();
@@ -286,7 +289,6 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference(
 	}
 	auto const gzip_elapsed = std::chrono::steady_clock::now() - gzip_start;
 
-#if CONFLUX_HAS_ZSTD
 	auto const zstd_start = std::chrono::steady_clock::now();
 	for (int i = 0; i < 32; ++i) {
 		auto compressed = zstd_compress(sample);
@@ -297,8 +299,6 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference(
 	auto const zstd_elapsed = std::chrono::steady_clock::now() - zstd_start;
 	return (gzip_elapsed <= zstd_elapsed) ? DynamicEncodingPreference::gzip_first :
 											DynamicEncodingPreference::zstd_first;
-#else
-	return DynamicEncodingPreference::gzip_first;
 #endif
 }
 DynamicEncodingPreference default_dynamic_encoding_preference(
