@@ -4104,7 +4104,7 @@ template<class T>
 [[nodiscard]] FpStatus fp_decode_struct(T &out, FpCursor &c, FpLimits const &lim) noexcept;
 
 template<class T>
-[[nodiscard]] inline FpStatus fp_decode_value(
+[[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_value(
 	T &out,
 	FpCursor &c,
 	FpLimits const &lim) noexcept {
