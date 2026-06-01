@@ -3370,6 +3370,23 @@ struct FpStringView {
 	return FpStatus::ok;
 }
 
+[[nodiscard]] inline bool fp_match_plain_key(
+	FpCursor &c,
+	std::string_view expected,
+	std::size_t max_string) noexcept {
+	if (expected.size() > max_string || c.remaining() <= expected.size()) {
+		return false;
+	}
+	if (std::memcmp(c.p, expected.data(), expected.size()) != 0) {
+		return false;
+	}
+	if (c.p[expected.size()] != '"') {
+		return false;
+	}
+	c.p += expected.size() + 1U;
+	return true;
+}
+
 [[nodiscard]] inline std::uint32_t fp_hex_digit(
 	char const ch) noexcept {
 	if (ch >= '0' && ch <= '9') {
@@ -4284,12 +4301,22 @@ template<class T>
 			return FpStatus::bail;
 		}
 		++c.p;
+		std::size_t idx = N;
 		FpStringView key{};
-		if (fp_scan_plain_string(c, key, lim.max_string) != FpStatus::ok) {
-			// Escaped or non-ASCII key: slow path handles decode + match.
-			return FpStatus::bail;
+		std::string_view key_name{};
+		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
+		if (predicted >= 0
+			&& predicted < static_cast<std::ptrdiff_t>(N)
+			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string)) {
+			idx = static_cast<std::size_t>(predicted);
+			key_name = meta[idx].name;
+		} else {
+			if (fp_scan_plain_string(c, key, lim.max_string) != FpStatus::ok) {
+				// Escaped or non-ASCII key: slow path handles decode + match.
+				return FpStatus::bail;
+			}
+			key_name = std::string_view{key.data, key.size};
 		}
-		std::string_view const key_name{key.data, key.size};
 
 		c.skip_ws();
 		if (c.at_end() || *c.p != ':') {
@@ -4298,15 +4325,7 @@ template<class T>
 		++c.p;
 
 		// --- match ---
-		std::size_t idx = N;
-		// Stride prediction: first key predicts member 0; afterwards predict
-		// prev_idx + learned stride.
-		std::ptrdiff_t const predicted = prev_idx == N ? 0 : static_cast<std::ptrdiff_t>(prev_idx) + stride;
-		if (predicted >= 0
-			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& key_name == meta[static_cast<std::size_t>(predicted)].name) {
-			idx = static_cast<std::size_t>(predicted);
-		} else {
+		if (idx == N) {
 			if constexpr (N > kJsonMemberLinearLookupLimit) {
 				if constexpr (fp_key_table_v<T>.valid) {
 					idx = fp_key_table_v<T>.find(key.data, key.size, c.end, fp_member_names_v<T>);
