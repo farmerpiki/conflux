@@ -4091,7 +4091,6 @@ template<class T>
 			out.reserve(fp_vector_initial_reserve<E>(c.remaining()));
 		}
 		for (;;) {
-			E &slot = out.emplace_back();
 			if constexpr ((std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E>) {
 				if (c.p >= c.end) {
 					return FpStatus::bail;
@@ -4102,6 +4101,7 @@ template<class T>
 						return FpStatus::bail;
 					}
 				}
+				E slot{};
 				FpStatus st{};
 				if constexpr (std::floating_point<E>) {
 					st = fp_parse_floating<E>(c, slot);
@@ -4111,7 +4111,9 @@ template<class T>
 				if (st != FpStatus::ok) {
 					return st;
 				}
+				out.push_back(slot);
 			} else {
+				E &slot = out.emplace_back();
 				if (FpStatus const st = fp_decode_value<E>(slot, c, lim); st != FpStatus::ok) {
 					return st;
 				}
