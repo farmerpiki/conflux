@@ -1301,8 +1301,14 @@ private:
 
 	void set_error(JsonError e) noexcept;
 	[[nodiscard]] JsonError mk_err(JsonIssueCode code, std::string msg) const;
+	template<ParseMode Mode>
+	void skip_ws_impl();
 	void skip_ws();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked_impl();
 	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked_fast_impl();
 	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked_fast();
 	void adv(std::size_t n = 1) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
@@ -1427,10 +1433,20 @@ private:
 		return {};
 	}
 	[[nodiscard]] std::expected<void, JsonError> skip_json5_identifier_key();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_value_raw_impl(std::size_t raw_depth);
 	[[nodiscard]] std::expected<void, JsonError> skip_value_raw(std::size_t raw_depth);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_array_body_raw_impl(std::size_t raw_depth);
 	[[nodiscard]] std::expected<void, JsonError> skip_array_body_raw(std::size_t raw_depth);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> skip_object_body_raw_impl(std::size_t raw_depth);
 	[[nodiscard]] std::expected<void, JsonError> skip_object_body_raw(std::size_t raw_depth);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_array_elements_raw_impl();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_array_elements_raw();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw_impl();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw();
 	[[nodiscard]] static std::size_t initial_array_reserve_hint(std::size_t element_size) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> push_frame(StateFrame frame);
@@ -1464,6 +1480,8 @@ public:
 		bool matched{false};
 		std::string_view key{};
 	};
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token_impl();
 	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token();
 	template<ParseMode Mode>
 	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
@@ -1484,7 +1502,12 @@ public:
 	[[nodiscard]] std::expected<void, JsonError> next_object_array_value();
 	[[nodiscard]] std::expected<void, JsonError> next_object_object_value();
 	[[nodiscard]] std::expected<void, JsonError> skip_next_object_value();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token_impl();
 	[[nodiscard]] std::expected<JsonStringToken, JsonError> next_object_string_value_token();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::string_view, JsonError>
+	next_object_string_value_view_impl(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<std::string_view, JsonError> next_object_string_value_view(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
