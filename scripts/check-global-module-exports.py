@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+EXTRA_MODULE_INPUTS = (ROOT / "cmake" / "conflux_features.cxx.in",)
 
 EXPORT_RE = re.compile(r"^\s*export\b")
 EXPORT_DECL_RE = re.compile(
@@ -112,6 +113,11 @@ def main() -> int:
     failures: list[str] = []
     for path in sorted(SRC.rglob("*.cxx")):
         failures.extend(check_file(path))
+    for path in sorted(SRC.rglob("*.cppm")):
+        failures.extend(check_file(path))
+    for path in EXTRA_MODULE_INPUTS:
+        if path.exists():
+            failures.extend(check_file(path))
     if failures:
         print("global module export guard failed:", file=sys.stderr)
         for failure in failures:
