@@ -1434,7 +1434,13 @@ private:
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_object_members_raw();
 	[[nodiscard]] static std::size_t initial_array_reserve_hint(std::size_t element_size) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> push_frame(StateFrame frame);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<Event, JsonError> parse_value_event_impl();
 	[[nodiscard]] std::expected<Event, JsonError> parse_value_event();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::optional<Event>, JsonError> next_impl();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<Event, JsonError> next_object_value_event_impl();
 	[[nodiscard]] Checkpoint checkpoint() const;
 	void restore(Checkpoint checkpoint);
 	void replace_input(std::string_view input) noexcept;
@@ -1459,8 +1465,16 @@ public:
 		std::string_view key{};
 	};
 	[[nodiscard]] std::expected<std::optional<JsonStringToken>, JsonError> next_object_key_token();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
+	next_object_key_view_impl(JsonDecodeScratch &scratch);
 	[[nodiscard]] std::expected<std::optional<std::string_view>, JsonError>
 	next_object_key_view(JsonDecodeScratch &scratch);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<ObjectKeyMatch, JsonError> next_object_key_match_impl(
+		std::string_view expected_key,
+		JsonDecodeScratch &scratch,
+		bool expected_key_raw_json_safe = false);
 	[[nodiscard]] std::expected<ObjectKeyMatch, JsonError> next_object_key_match(
 		std::string_view expected_key,
 		JsonDecodeScratch &scratch,
