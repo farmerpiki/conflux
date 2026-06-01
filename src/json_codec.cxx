@@ -4091,7 +4091,8 @@ template<class T>
 			out.reserve(fp_vector_initial_reserve<E>(c.remaining()));
 		}
 		for (;;) {
-			if constexpr ((std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E>) {
+			if constexpr (
+				(std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E> || is_fixed_numeric_array_v<E>) {
 				if (c.p >= c.end) {
 					return FpStatus::bail;
 				}
@@ -4105,8 +4106,10 @@ template<class T>
 				FpStatus st{};
 				if constexpr (std::floating_point<E>) {
 					st = fp_parse_floating<E>(c, slot);
-				} else {
+				} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
 					st = fp_parse_integer<E>(c, slot);
+				} else {
+					st = fp_decode_value<E>(slot, c, lim);
 				}
 				if (st != FpStatus::ok) {
 					return st;
