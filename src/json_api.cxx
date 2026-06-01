@@ -1590,307 +1590,186 @@ public:
 		}
 		return static_cast<T>(magnitude);
 	}
-	template<class Vector>
+	template<ParseMode Mode, class Vector, class DecodeOne>
+	[[nodiscard]] std::expected<void, JsonError> decode_numeric_array_into(
+		Vector &out,
+		char const *expected,
+		DecodeOne &&decode_one) {
+		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
+			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
+		}
+		auto reserve_remaining = [&]() -> std::expected<void, JsonError> {
+			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
+				auto checkpoint_state = checkpoint();
+				auto count = count_array_elements_raw_impl<Mode>();
+				if (!count) [[unlikely]] {
+					auto err = std::move(count).error();
+					restore(std::move(checkpoint_state));
+					return std::unexpected(std::move(err));
+				}
+				restore(std::move(checkpoint_state));
+				out.reserve(*count);
+			}
+			return {};
+		};
+		auto decode_current = [&]() -> std::expected<void, JsonError> {
+			char const c = input_[pos_];
+			if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
+				JsonError err{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+					.message = expected,
+				};
+				return std::unexpected(std::move(err));
+			}
+			auto converted = decode_one();
+			if (!converted) [[unlikely]] {
+				auto e = std::move(converted).error();
+				if (e.stage == JsonStage::parse) {
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				return std::unexpected(std::move(e));
+			}
+			out.emplace_back(*converted);
+			return {};
+		};
+		if constexpr (Mode == ParseMode::strict) {
+			if (stack_.back().first) {
+				auto skip_strict_ws = [&]() -> std::expected<void, JsonError> {
+					if (pos_ < input_.size()) {
+						char const ch = input_[pos_];
+						if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+							skip_ws_impl<Mode>();
+							if (has_error_) [[unlikely]] {
+								return std::unexpected(last_error_);
+							}
+						}
+					}
+					return {};
+				};
+				if (auto ok = reserve_remaining(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if (pos_ < input_.size() && input_[pos_] == ']') {
+					adv();
+					stack_.pop_back();
+					return {};
+				}
+				stack_.back().first = false;
+				while (true) {
+					if (pos_ >= input_.size()) [[unlikely]] {
+						auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+						set_error(e);
+						return std::unexpected(last_error_);
+					}
+					if (auto decoded = decode_current(); !decoded) [[unlikely]] {
+						return std::unexpected(std::move(decoded).error());
+					}
+					if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+						return std::unexpected(std::move(ok).error());
+					}
+					if (pos_ >= input_.size()) [[unlikely]] {
+						auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+						set_error(e);
+						return std::unexpected(last_error_);
+					}
+					char const sep = input_[pos_];
+					if (sep == ',') {
+						adv();
+						if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
+							return std::unexpected(std::move(ok).error());
+						}
+						continue;
+					}
+					if (sep == ']') {
+						adv();
+						stack_.pop_back();
+						return {};
+					}
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+			}
+		}
+		if (auto ok = reserve_remaining(); !ok) [[unlikely]] {
+			return std::unexpected(std::move(ok).error());
+		}
+		while (true) {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
+				return std::unexpected(std::move(ok).error());
+			}
+			auto &top = stack_.back();
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return {};
+			}
+			if (!top.first) {
+				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return std::unexpected(last_error_);
+				}
+				adv();
+				if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
+					return std::unexpected(std::move(ok).error());
+				}
+				if constexpr (Mode == ParseMode::json5) {
+					if (pos_ < input_.size() && input_[pos_] == ']') {
+						adv();
+						stack_.pop_back();
+						return {};
+					}
+				}
+			}
+			top.first = false;
+			if (pos_ >= input_.size()) [[unlikely]] {
+				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
+				set_error(e);
+				return std::unexpected(last_error_);
+			}
+			if (auto decoded = decode_current(); !decoded) [[unlikely]] {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+	}
+	template<ParseMode Mode, class Vector>
 	[[nodiscard]] std::expected<void, JsonError> decode_floating_array_into(
 		Vector &out) {
 		using T = typename Vector::value_type;
 		static_assert(std::floating_point<T>);
-		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
-			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
-		}
-		if (opts_.mode != ParseMode::json5 && stack_.back().first) {
-			auto skip_strict_ws = [&]() -> std::expected<void, JsonError> {
-				if (pos_ < input_.size()) {
-					char const ch = input_[pos_];
-					if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
-						skip_ws();
-						if (has_error_) [[unlikely]] {
-							return std::unexpected(last_error_);
-						}
-					}
-				}
-				return {};
-			};
-			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-				auto count = count_remaining_array_elements();
-				if (!count) [[unlikely]] {
-					return std::unexpected(std::move(count).error());
-				}
-				out.reserve(*count);
-			}
-			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-				return std::unexpected(std::move(ok).error());
-			}
-			if (pos_ < input_.size() && input_[pos_] == ']') {
-				adv();
-				stack_.pop_back();
-				return {};
-			}
-			stack_.back().first = false;
-			while (true) {
-				if (pos_ >= input_.size()) [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				char const c = input_[pos_];
-				if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
-					JsonError err{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::wrong_kind,
-						.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-						.message = "expected number",
-					};
-					return std::unexpected(std::move(err));
-				}
-				auto converted = decode_floating_value<T>();
-				if (!converted) [[unlikely]] {
-					auto e = std::move(converted).error();
-					if (e.stage == JsonStage::parse) {
-						set_error(e);
-						return std::unexpected(last_error_);
-					}
-					return std::unexpected(std::move(e));
-				}
-				out.emplace_back(*converted);
-				if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-					return std::unexpected(std::move(ok).error());
-				}
-				if (pos_ >= input_.size()) [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				char const sep = input_[pos_];
-				if (sep == ',') {
-					adv();
-					if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-						return std::unexpected(std::move(ok).error());
-					}
-					continue;
-				}
-				if (sep == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
-				}
-				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
-				set_error(e);
-				return std::unexpected(last_error_);
-			}
-		}
-		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			auto count = count_remaining_array_elements();
-			if (!count) [[unlikely]] {
-				return std::unexpected(std::move(count).error());
-			}
-			out.reserve(*count);
-		}
-		while (true) {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-				return std::unexpected(std::move(ok).error());
-			}
-			auto &top = stack_.back();
-			if (pos_ < input_.size() && input_[pos_] == ']') {
-				adv();
-				stack_.pop_back();
-				return {};
-			}
-			if (!top.first) {
-				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				adv();
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-					return std::unexpected(std::move(ok).error());
-				}
-				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
-				}
-			}
-			top.first = false;
-			if (pos_ >= input_.size()) [[unlikely]] {
-				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-				set_error(e);
-				return std::unexpected(last_error_);
-			}
-			char const c = input_[pos_];
-			if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
-				JsonError err{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-					.message = "expected number",
-				};
-				return std::unexpected(std::move(err));
-			}
-			auto converted = decode_floating_value<T>();
-			if (!converted) [[unlikely]] {
-				auto e = std::move(converted).error();
-				if (e.stage == JsonStage::parse) {
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				return std::unexpected(std::move(e));
-			}
-			out.emplace_back(*converted);
-		}
+		return decode_numeric_array_into<Mode>(out, "expected number", [&]() { return decode_floating_value<T>(); });
 	}
 	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_floating_array_into(
+		Vector &out) {
+		if (opts_.mode == ParseMode::strict) {
+			return decode_floating_array_into<ParseMode::strict>(out);
+		}
+		return decode_floating_array_into<ParseMode::json5>(out);
+	}
+	template<ParseMode Mode, class Vector>
 	[[nodiscard]] std::expected<void, JsonError> decode_integral_array_into(
 		Vector &out) {
 		using T = typename Vector::value_type;
 		static_assert(std::integral<T> && !std::same_as<T, bool>);
-		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
-			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
-		}
-		if (opts_.mode != ParseMode::json5 && stack_.back().first) {
-			auto skip_strict_ws = [&]() -> std::expected<void, JsonError> {
-				if (pos_ < input_.size()) {
-					char const ch = input_[pos_];
-					if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
-						skip_ws();
-						if (has_error_) [[unlikely]] {
-							return std::unexpected(last_error_);
-						}
-					}
-				}
-				return {};
-			};
-			if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-				auto count = count_remaining_array_elements();
-				if (!count) [[unlikely]] {
-					return std::unexpected(std::move(count).error());
-				}
-				out.reserve(*count);
-			}
-			if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-				return std::unexpected(std::move(ok).error());
-			}
-			if (pos_ < input_.size() && input_[pos_] == ']') {
-				adv();
-				stack_.pop_back();
-				return {};
-			}
-			stack_.back().first = false;
-			while (true) {
-				if (pos_ >= input_.size()) [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				char const c = input_[pos_];
-				if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
-					JsonError err{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::wrong_kind,
-						.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-						.message = "expected integer",
-					};
-					return std::unexpected(std::move(err));
-				}
-				auto converted = decode_integral_value<T>();
-				if (!converted) [[unlikely]] {
-					auto e = std::move(converted).error();
-					if (e.stage == JsonStage::parse) {
-						set_error(e);
-						return std::unexpected(last_error_);
-					}
-					return std::unexpected(std::move(e));
-				}
-				out.emplace_back(*converted);
-				if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-					return std::unexpected(std::move(ok).error());
-				}
-				if (pos_ >= input_.size()) [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				char const sep = input_[pos_];
-				if (sep == ',') {
-					adv();
-					if (auto ok = skip_strict_ws(); !ok) [[unlikely]] {
-						return std::unexpected(std::move(ok).error());
-					}
-					continue;
-				}
-				if (sep == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
-				}
-				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
-				set_error(e);
-				return std::unexpected(last_error_);
-			}
-		}
-		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			auto count = count_remaining_array_elements();
-			if (!count) [[unlikely]] {
-				return std::unexpected(std::move(count).error());
-			}
-			out.reserve(*count);
-		}
-		while (true) {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-				return std::unexpected(std::move(ok).error());
-			}
-			auto &top = stack_.back();
-			if (pos_ < input_.size() && input_[pos_] == ']') {
-				adv();
-				stack_.pop_back();
-				return {};
-			}
-			if (!top.first) {
-				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				adv();
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-					return std::unexpected(std::move(ok).error());
-				}
-				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
-				}
-			}
-			top.first = false;
-			if (pos_ >= input_.size()) [[unlikely]] {
-				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in array");
-				set_error(e);
-				return std::unexpected(last_error_);
-			}
-			char const c = input_[pos_];
-			if (c != '-' && (c < '0' || c > '9')) [[unlikely]] {
-				JsonError err{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-					.message = "expected integer",
-				};
-				return std::unexpected(std::move(err));
-			}
-			auto converted = decode_integral_value<T>();
-			if (!converted) [[unlikely]] {
-				auto e = std::move(converted).error();
-				if (e.stage == JsonStage::parse) {
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-				return std::unexpected(std::move(e));
-			}
-			out.emplace_back(*converted);
-		}
+		return decode_numeric_array_into<Mode>(out, "expected integer", [&]() { return decode_integral_value<T>(); });
 	}
 	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_integral_array_into(
+		Vector &out) {
+		if (opts_.mode == ParseMode::strict) {
+			return decode_integral_array_into<ParseMode::strict>(out);
+		}
+		return decode_integral_array_into<ParseMode::json5>(out);
+	}
+	template<ParseMode Mode, class Vector>
 	[[nodiscard]] std::expected<void, JsonError> decode_string_array_into(
 		Vector &out,
 		JsonDecodeScratch &scratch) {
@@ -1918,7 +1797,7 @@ public:
 			return token.decode_into(std::span<char>{scratch.string_overflow.data(), scratch.string_overflow.size()});
 		};
 		while (true) {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			auto &top = stack_.back();
@@ -1934,13 +1813,15 @@ public:
 					return std::unexpected(last_error_);
 				}
 				adv();
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+				if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 					return std::unexpected(std::move(ok).error());
 				}
-				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
+				if constexpr (Mode == ParseMode::json5) {
+					if (pos_ < input_.size() && input_[pos_] == ']') {
+						adv();
+						stack_.pop_back();
+						return {};
+					}
 				}
 			}
 			top.first = false;
@@ -1980,21 +1861,34 @@ public:
 					}
 					view = token_view(str_token_);
 				}
-			} else if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
-				adv();
-				if (auto parsed = parse_str_sq_into_token(opts_.max_string_size, str_token_); !parsed) [[unlikely]] {
-					set_error(parsed.error());
-					return std::unexpected(last_error_);
+			} else {
+				if constexpr (Mode == ParseMode::json5) {
+					if (input_[pos_] == '\'') {
+						adv();
+						if (auto parsed = parse_str_sq_into_token(opts_.max_string_size, str_token_); !parsed)
+							[[unlikely]] {
+							set_error(parsed.error());
+							return std::unexpected(last_error_);
+						}
+						view = token_view(str_token_);
+					} else [[unlikely]] {
+						JsonError err{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::wrong_kind,
+							.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+							.message = "expected string",
+						};
+						return std::unexpected(std::move(err));
+					}
+				} else {
+					JsonError err{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::wrong_kind,
+						.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+						.message = "expected string",
+					};
+					return std::unexpected(std::move(err));
 				}
-				view = token_view(str_token_);
-			} else [[unlikely]] {
-				JsonError err{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
-					.message = "expected string",
-				};
-				return std::unexpected(std::move(err));
 			}
 			if (!view) [[unlikely]] {
 				return std::unexpected(std::move(view).error());
@@ -2002,6 +1896,15 @@ public:
 			auto &slot = out.emplace_back();
 			slot.assign(view->data(), view->size());
 		}
+	}
+	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_string_array_into(
+		Vector &out,
+		JsonDecodeScratch &scratch) {
+		if (opts_.mode == ParseMode::strict) {
+			return decode_string_array_into<ParseMode::strict>(out, scratch);
+		}
+		return decode_string_array_into<ParseMode::json5>(out, scratch);
 	}
 	template<class T>
 	[[nodiscard]] std::expected<T, JsonError> decode_floating_value() {
@@ -2066,7 +1969,7 @@ public:
 		};
 		return std::unexpected(std::move(err));
 	}
-	template<class Array>
+	template<ParseMode Mode, class Array>
 	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_body_into(
 		Array &out,
 		bool pop_stack_on_close) {
@@ -2076,7 +1979,7 @@ public:
 		static_assert((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>);
 
 		auto close_array = [&]() -> std::expected<void, JsonError> {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			if (pos_ >= input_.size()) [[unlikely]] {
@@ -2091,17 +1994,19 @@ public:
 				}
 				return {};
 			}
-			if (opts_.mode == ParseMode::json5 && input_[pos_] == ',') {
-				adv();
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
-					return std::unexpected(std::move(ok).error());
-				}
-				if (pos_ < input_.size() && input_[pos_] == ']') {
+			if constexpr (Mode == ParseMode::json5) {
+				if (input_[pos_] == ',') {
 					adv();
-					if (pop_stack_on_close) {
-						stack_.pop_back();
+					if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
+						return std::unexpected(std::move(ok).error());
 					}
-					return {};
+					if (pos_ < input_.size() && input_[pos_] == ']') {
+						adv();
+						if (pop_stack_on_close) {
+							stack_.pop_back();
+						}
+						return {};
+					}
 				}
 			}
 			JsonError err{
@@ -2118,7 +2023,7 @@ public:
 		}
 
 		for (std::size_t i = 0; i < N; ++i) {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			if (pos_ >= input_.size()) [[unlikely]] {
@@ -2171,7 +2076,7 @@ public:
 			}
 
 			if (i + 1U < N) {
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+				if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 					return std::unexpected(std::move(ok).error());
 				}
 				if (pos_ >= input_.size() || input_[pos_] != ',') [[unlikely]] {
@@ -2185,10 +2090,10 @@ public:
 		return close_array();
 	}
 
-	template<class Array>
+	template<ParseMode Mode, class Array>
 	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_value_into(
 		Array &out) {
-		if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+		if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 			return std::unexpected(std::move(ok).error());
 		}
 		if (opts_.max_depth.exceeds(stack_.size() + 1U, kDefaultMaxDepth)) [[unlikely]] {
@@ -2206,19 +2111,28 @@ public:
 			return std::unexpected(std::move(err));
 		}
 		adv();
-		return decode_fixed_numeric_array_body_into(out, false);
+		return decode_fixed_numeric_array_body_into<Mode>(out, false);
 	}
 
-	template<class Array>
+	template<ParseMode Mode, class Array>
 	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_into(
 		Array &out) {
 		if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
-		return decode_fixed_numeric_array_body_into(out, true);
+		return decode_fixed_numeric_array_body_into<Mode>(out, true);
 	}
 
 	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_into(
+		Vector &out) {
+		if (opts_.mode == ParseMode::strict) {
+			return decode_fixed_numeric_array_into<ParseMode::strict>(out);
+		}
+		return decode_fixed_numeric_array_into<ParseMode::json5>(out);
+	}
+
+	template<ParseMode Mode, class Vector>
 	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_vector_into(
 		Vector &out) {
 		using Array = typename Vector::value_type;
@@ -2226,7 +2140,7 @@ public:
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
 		while (true) {
-			if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+			if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 				return std::unexpected(std::move(ok).error());
 			}
 			auto &top = stack_.back();
@@ -2242,18 +2156,20 @@ public:
 					return std::unexpected(last_error_);
 				}
 				adv();
-				if (auto ok = skip_ws_checked_fast(); !ok) [[unlikely]] {
+				if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
 					return std::unexpected(std::move(ok).error());
 				}
-				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
-					adv();
-					stack_.pop_back();
-					return {};
+				if constexpr (Mode == ParseMode::json5) {
+					if (pos_ < input_.size() && input_[pos_] == ']') {
+						adv();
+						stack_.pop_back();
+						return {};
+					}
 				}
 			}
 			top.first = false;
 			Array value{};
-			if (auto decoded = decode_fixed_numeric_array_value_into(value); !decoded) [[unlikely]] {
+			if (auto decoded = decode_fixed_numeric_array_value_into<Mode>(value); !decoded) [[unlikely]] {
 				return std::unexpected(std::move(decoded).error());
 			}
 			if constexpr (requires(Vector &v, std::size_t n) {
@@ -2266,6 +2182,14 @@ public:
 			}
 			out.emplace_back(std::move(value));
 		}
+	}
+	template<class Vector>
+	[[nodiscard]] std::expected<void, JsonError> decode_fixed_numeric_array_vector_into(
+		Vector &out) {
+		if (opts_.mode == ParseMode::strict) {
+			return decode_fixed_numeric_array_vector_into<ParseMode::strict>(out);
+		}
+		return decode_fixed_numeric_array_vector_into<ParseMode::json5>(out);
 	}
 
 	template<class T>
