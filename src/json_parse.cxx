@@ -99,6 +99,7 @@ struct Tokenizer {
 			.message = "unterminated block comment"
         };
 	}
+	template<ParseMode Mode>
 	void skip_ws() {
 		if (unterminated_block_comment) {
 			return;
@@ -117,7 +118,10 @@ struct Tokenizer {
 					break;
 				}
 			}
-			if (mode != ParseMode::json5 || pos + 1 >= src.size() || src[pos] != '/') {
+			if constexpr (Mode != ParseMode::json5) {
+				return;
+			}
+			if (pos + 1 >= src.size() || src[pos] != '/') {
 				return;
 			}
 			if (src[pos + 1] == '/') {
@@ -670,6 +674,7 @@ next_ws:;
 		return src.substr(start, pos - start);
 	}
 };
+template<ParseMode Mode>
 struct TreeBuilder {
 	Tokenizer tok;
 	DocumentStorage &store;
@@ -689,7 +694,7 @@ struct TreeBuilder {
 		return tok.mk_err(code, std::move(msg));
 	}
 	[[nodiscard]] std::expected<void, JsonError> skip_ws_checked() {
-		tok.skip_ws();
+		tok.template skip_ws<Mode>();
 		if (tok.unterminated_block_comment) [[unlikely]] {
 			return std::unexpected(tok.whitespace_error());
 		}
@@ -713,9 +718,11 @@ struct TreeBuilder {
 			tok.adv();
 			return parse_str_node();
 		}
-		if (c == '\'' && opts.mode == ParseMode::json5) {
-			tok.adv();
-			return parse_str_node_sq();
+		if constexpr (Mode == ParseMode::json5) {
+			if (c == '\'') {
+				tok.adv();
+				return parse_str_node_sq();
+			}
 		}
 		if (c == '[') {
 			return parse_array(depth);
@@ -780,16 +787,19 @@ struct TreeBuilder {
 			}
 			return {};
 		}
-		if (c == '\'' && opts.mode == ParseMode::json5) {
-			tok.adv();
-			auto len = tok.skip_str_body_no_store('\'');
-			if (!len) [[unlikely]] {
-				return std::unexpected(std::move(len).error());
+		if constexpr (Mode == ParseMode::json5) {
+			if (c == '\'') {
+				tok.adv();
+				auto len = tok.skip_str_body_no_store('\'');
+				if (!len) [[unlikely]] {
+					return std::unexpected(std::move(len).error());
+				}
+				if (opts.max_string_size.exceeds(*len, kDefaultMaxString)) [[unlikely]] {
+					return std::unexpected(
+						mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+				}
+				return {};
 			}
-			if (opts.max_string_size.exceeds(*len, kDefaultMaxString)) [[unlikely]] {
-				return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
-			}
-			return {};
 		}
 		if (c == '[') {
 			return skip_array(depth);
@@ -856,7 +866,7 @@ struct TreeBuilder {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'"));
 			}
 			tok.adv();
-			if (opts.mode == ParseMode::json5) {
+			if constexpr (Mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
 					return std::unexpected(std::move(ok).error());
 				}
@@ -892,19 +902,23 @@ struct TreeBuilder {
 				if (!key) [[unlikely]] {
 					return std::unexpected(std::move(key).error());
 				}
-			} else if (key_ch == '\'' && opts.mode == ParseMode::json5) {
-				tok.adv();
-				auto key = tok.skip_str_body_no_store('\'');
-				if (!key) [[unlikely]] {
-					return std::unexpected(std::move(key).error());
-				}
-			} else if (opts.mode == ParseMode::json5) {
-				auto key = tok.parse_unquoted_key();
-				if (!key) [[unlikely]] {
-					return std::unexpected(std::move(key).error());
-				}
 			} else [[unlikely]] {
-				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+				if constexpr (Mode == ParseMode::json5) {
+					if (key_ch == '\'') {
+						tok.adv();
+						auto key = tok.skip_str_body_no_store('\'');
+						if (!key) [[unlikely]] {
+							return std::unexpected(std::move(key).error());
+						}
+					} else {
+						auto key = tok.parse_unquoted_key();
+						if (!key) [[unlikely]] {
+							return std::unexpected(std::move(key).error());
+						}
+					}
+				} else {
+					return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+				}
 			}
 			if (auto ok = skip_ws_checked(); !ok) {
 				return std::unexpected(std::move(ok).error());
@@ -930,7 +944,7 @@ struct TreeBuilder {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
 			}
 			tok.adv();
-			if (opts.mode == ParseMode::json5) {
+			if constexpr (Mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
 					return std::unexpected(std::move(ok).error());
 				}
@@ -1010,7 +1024,7 @@ struct TreeBuilder {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or ']'"));
 			}
 			tok.adv();
-			if (opts.mode == ParseMode::json5) {
+			if constexpr (Mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
 					return std::unexpected(std::move(ok).error());
 				}
@@ -1114,14 +1128,18 @@ struct TreeBuilder {
 			if (key_ch == '"') {
 				tok.adv();
 				parsed_name = tok.parse_str_body();
-			} else if (key_ch == '\'' && opts.mode == ParseMode::json5) {
-				tok.adv();
-				parsed_name = tok.parse_str_body_sq();
-			} else if (opts.mode == ParseMode::json5) {
-				parsed_name = tok.parse_unquoted_key();
 			} else [[unlikely]] {
-				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+				if constexpr (Mode == ParseMode::json5) {
+					if (key_ch == '\'') {
+						tok.adv();
+						parsed_name = tok.parse_str_body_sq();
+					} else {
+						parsed_name = tok.parse_unquoted_key();
+					}
+				} else {
+					staging_members.resize(members_start);
+					return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+				}
 			}
 			if (!parsed_name) [[unlikely]] {
 				staging_members.resize(members_start);
@@ -1252,7 +1270,7 @@ struct TreeBuilder {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
 			}
 			tok.adv();
-			if (opts.mode == ParseMode::json5) {
+			if constexpr (Mode == ParseMode::json5) {
 				if (auto ok = skip_ws_checked(); !ok) {
 					staging_members.resize(members_start);
 					return std::unexpected(std::move(ok).error());
@@ -1343,7 +1361,8 @@ struct TreeBuilder {
 	}
 	return {};
 }
-[[nodiscard]] inline std::expected<void, JsonError> parse_inplace(
+template<ParseMode Mode>
+[[nodiscard]] inline std::expected<void, JsonError> parse_inplace_impl(
 	DocumentStorage &store,
 	JsonParseOptions const &opts) {
 	store.parse_stats = {};
@@ -1354,7 +1373,7 @@ struct TreeBuilder {
 	store.parse_stats.input_bytes = store.input_view.size();
 	store.parse_stats.string_arena_reserve_bytes = 0;
 
-	TreeBuilder tb{
+	TreeBuilder<Mode> tb{
 		.tok =
 			Tokenizer{
 					  .src = store.input_view,
@@ -1396,7 +1415,17 @@ struct TreeBuilder {
 	}
 	return {};
 }
-[[nodiscard]] inline std::expected<Document, JsonError> parse_with_storage(
+[[nodiscard]] inline std::expected<void, JsonError> parse_inplace(
+	DocumentStorage &store,
+	JsonParseOptions const &opts) {
+	if (opts.mode == ParseMode::strict) {
+		return parse_inplace_impl<ParseMode::strict>(store, opts);
+	}
+	return parse_inplace_impl<ParseMode::json5>(store, opts);
+}
+
+template<ParseMode Mode>
+[[nodiscard]] inline std::expected<Document, JsonError> parse_with_storage_impl(
 	DocumentStorage &storage_ref,
 	std::unique_ptr<DocumentStorage> storage,
 	JsonParseOptions const &opts) {
@@ -1415,7 +1444,7 @@ struct TreeBuilder {
 	storage_ref.parse_stats.input_bytes = storage_ref.input_view.size();
 	storage_ref.parse_stats.string_arena_reserve_bytes = 0;
 
-	TreeBuilder tb{
+	TreeBuilder<Mode> tb{
 		.tok =
 			Tokenizer{
 					  .src = storage_ref.input_view,
@@ -1459,6 +1488,16 @@ struct TreeBuilder {
 	}
 
 	return make_document(std::move(storage));
+}
+
+[[nodiscard]] inline std::expected<Document, JsonError> parse_with_storage(
+	DocumentStorage &storage_ref,
+	std::unique_ptr<DocumentStorage> storage,
+	JsonParseOptions const &opts) {
+	if (opts.mode == ParseMode::strict) {
+		return parse_with_storage_impl<ParseMode::strict>(storage_ref, std::move(storage), opts);
+	}
+	return parse_with_storage_impl<ParseMode::json5>(storage_ref, std::move(storage), opts);
 }
 
 void set_storage_input_view(
