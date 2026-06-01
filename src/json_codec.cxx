@@ -4249,6 +4249,17 @@ inline constexpr auto fp_member_meta_v = [] {
 }();
 
 template<class T>
+inline constexpr std::uint64_t fp_required_presence_mask_v = [] {
+	std::uint64_t mask = 0;
+	for (std::size_t i = 0; i < fp_member_meta_v<T>.size(); ++i) {
+		if (fp_member_meta_v<T>[i].required) {
+			mask |= std::uint64_t{1} << i;
+		}
+	}
+	return mask;
+}();
+
+template<class T>
 [[nodiscard]] FpStatus fp_decode_struct(
 	T &out,
 	FpCursor &c,
@@ -4392,11 +4403,12 @@ template<class T>
 		}
 	}
 
-	// --- required members present? ---
-	for (std::size_t i = 0; i < N; ++i) {
-		if (meta[i].required && (presence & (std::uint64_t{1} << i)) == 0U) {
-			c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[i].name};
-			return FpStatus::error;
+	if ((presence & fp_required_presence_mask_v<T>) != fp_required_presence_mask_v<T>) {
+		for (std::size_t i = 0; i < N; ++i) {
+			if (meta[i].required && (presence & (std::uint64_t{1} << i)) == 0U) {
+				c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[i].name};
+				return FpStatus::error;
+			}
 		}
 	}
 	return FpStatus::ok;
