@@ -172,12 +172,92 @@ if(TARGET conflux)
         EXPECT "base64_encode")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_base64_decode
+        SOURCE crypto_compile_fail_global_base64_decode.cxx
+        TEST api-surface/crypto-hides-global-base64-decode
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "base64_decode")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_base64url_encode
+        SOURCE crypto_compile_fail_global_base64url_encode.cxx
+        TEST api-surface/crypto-hides-global-base64url-encode
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "base64url_encode")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_base64url_decode
+        SOURCE crypto_compile_fail_global_base64url_decode.cxx
+        TEST api-surface/crypto-hides-global-base64url-decode
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "base64url_decode")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_hmac_sha256_key
+        SOURCE crypto_compile_fail_global_hmac_sha256_key.cxx
+        TEST api-surface/crypto-hides-global-hmac-sha256-key
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "HmacSha256Key")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_hmac_sha256_precomputed
+        SOURCE crypto_compile_fail_global_hmac_sha256_precomputed.cxx
+        TEST api-surface/crypto-hides-global-hmac-sha256-precomputed
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "hmac_sha256_precomputed")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_sha1
+        SOURCE crypto_compile_fail_global_sha1.cxx
+        TEST api-surface/crypto-hides-global-sha1
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "sha1")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_crypto_compile_fail_global_sha256
         SOURCE crypto_compile_fail_global_sha256.cxx
         TEST api-surface/crypto-hides-global-sha256
         LINK conflux_crypto conflux_options
         LABELS build api-surface compile-fail
         EXPECT "sha256")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_hmac_sha1
+        SOURCE crypto_compile_fail_global_hmac_sha1.cxx
+        TEST api-surface/crypto-hides-global-hmac-sha1
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "hmac_sha1")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_hmac_sha256
+        SOURCE crypto_compile_fail_global_hmac_sha256.cxx
+        TEST api-surface/crypto-hides-global-hmac-sha256
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "hmac_sha256")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_aes_gcm_encrypt
+        SOURCE crypto_compile_fail_global_aes_gcm_encrypt.cxx
+        TEST api-surface/crypto-hides-global-aes-gcm-encrypt
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "aes_gcm_encrypt")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_crypto_compile_fail_global_aes_gcm_decrypt
+        SOURCE crypto_compile_fail_global_aes_gcm_decrypt.cxx
+        TEST api-surface/crypto-hides-global-aes-gcm-decrypt
+        LINK conflux_crypto conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "aes_gcm_decrypt")
 
     conflux_add_compile_fail_test(
         TARGET conflux_utils_compile_fail_global_url_decode
