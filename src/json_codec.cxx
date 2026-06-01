@@ -3131,10 +3131,12 @@ struct FpCursor {
 	std::uint32_t depth{0};
 	FpError error{}; // valid only when a call returned FpStatus::error
 
-	[[nodiscard]] bool at_end() const noexcept { return p >= end; }
-	[[nodiscard]] std::size_t remaining() const noexcept { return static_cast<std::size_t>(end - p); }
+	[[nodiscard]] [[gnu::always_inline]] inline bool at_end() const noexcept { return p >= end; }
+	[[nodiscard]] [[gnu::always_inline]] inline std::size_t remaining() const noexcept {
+		return static_cast<std::size_t>(end - p);
+	}
 
-	void skip_ws() noexcept {
+	[[gnu::always_inline]] inline void skip_ws() noexcept {
 		// Fast single-branch check for the no-whitespace case.
 		if (p < end && static_cast<unsigned char>(*p) > 0x20U) {
 			return;
