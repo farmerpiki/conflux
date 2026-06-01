@@ -1609,6 +1609,22 @@ target_link_libraries(conflux_http_server_config
 )
 
 add_library(conflux_http_server STATIC)
+set(_conflux_http_server_private_partitions
+    ${CONFLUX_SRC_ROOT}/net/http_server_state.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_tls.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_send.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_ws.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_recv.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_cqe.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_diag.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_loop.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_dispatch.cxx
+)
+if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+    list(APPEND _conflux_http_server_private_partitions
+        ${CONFLUX_SRC_ROOT}/net/http_server_h2.cxx
+    )
+endif()
 target_sources(conflux_http_server
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
@@ -1617,17 +1633,7 @@ target_sources(conflux_http_server
 target_sources(conflux_http_server
     PRIVATE FILE_SET private_http_server_partitions TYPE CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-            ${CONFLUX_SRC_ROOT}/net/http_server_state.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_h2.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_tls.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_send.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_ws.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_recv.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_cqe.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_diag.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_loop.cxx
-            ${CONFLUX_SRC_ROOT}/net/http_server_dispatch.cxx
+        FILES ${_conflux_http_server_private_partitions}
 )
 target_sources(conflux_http_server
     PRIVATE
