@@ -957,7 +957,9 @@ root::Task<Result> Connection::query(
 					std::make_exception_ptr(PgError{"conflux.pg: query deadline exceeded", "57014"}))) {
 				[](std::shared_ptr<Connection> s2) -> root::Task<void> {
 					try {
-						co_await s2->cancel_inflight();
+						auto cancel = s2->cancel_inflight();
+						s2.reset();
+						co_await std::move(cancel);
 					} catch (...) {} // NOLINT(bugprone-empty-catch): secondary cancellation failure must not mask the
 									 // primary query error.
 				}(s)
