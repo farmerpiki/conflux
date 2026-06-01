@@ -240,7 +240,7 @@ template<class T>
 	DumpOptions const &opts = {})
 	requires NativeJsonSerializable<T>
 {
-	return dump_with<NativeJsonProvider>(value, opts);
+	return NativeJsonProvider::dump_json(value, opts);
 }
 
 template<class T>
@@ -249,7 +249,7 @@ template<class T>
 	DecodeOptions const &opts = {})
 	requires NativeJsonDecodable<std::remove_cvref_t<T>>
 {
-	return decode_with<NativeJsonProvider, std::remove_cvref_t<T>>(input, opts);
+	return NativeJsonProvider::template decode_json<std::remove_cvref_t<T>>(input, opts);
 }
 
 } // namespace conflux::json::boundary
