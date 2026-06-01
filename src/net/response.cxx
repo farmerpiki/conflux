@@ -13,6 +13,8 @@ export import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.http.realtime;
 
+namespace conflux::http {
+
 [[nodiscard]] std::string response_html_escape(
 	std::string_view s) {
 	std::string out;
@@ -29,6 +31,8 @@ import conflux.net.http.realtime;
 	}
 	return out;
 }
+
+} // namespace conflux::http
 
 export namespace conflux::http {
 

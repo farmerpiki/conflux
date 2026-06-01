@@ -330,6 +330,8 @@ export namespace conflux::crypto {
 // SHA padding helpers
 // ---------------------------------------------------------------------------
 
+namespace conflux::crypto {
+
 [[nodiscard]] std::vector<unsigned char> make_sha_padded(
 	std::span<unsigned char const> msg) {
 	std::size_t const with_marker = msg.size() + 1;
@@ -347,6 +349,8 @@ export namespace conflux::crypto {
 	}
 	return padded;
 }
+
+} // namespace conflux::crypto
 
 // ---------------------------------------------------------------------------
 // SHA-1 (FIPS 180-4)

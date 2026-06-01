@@ -6,6 +6,8 @@ import std;
 import conflux.types;
 import conflux.net.dns;
 
+namespace conflux::http::client_dns_bridge {
+
 namespace dns = conflux::net::dns;
 
 void set_error(
@@ -19,6 +21,8 @@ void set_error(
 	::memcpy(dst, message.data(), n);
 	dst[n] = '\0';
 }
+
+} // namespace conflux::http::client_dns_bridge
 
 export namespace conflux::http::client_dns_bridge {
 

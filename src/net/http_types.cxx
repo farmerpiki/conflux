@@ -6,6 +6,9 @@ export module conflux.net.http.types;
 import std;
 import conflux.types;
 import conflux.utils;
+
+namespace conflux::http {
+
 [[nodiscard]] constexpr unsigned char ascii_ci_fold(
 	unsigned char c) noexcept {
 	return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
@@ -17,6 +20,8 @@ import conflux.utils;
 			   return ascii_ci_fold(x) == ascii_ci_fold(y);
 		   });
 }
+
+} // namespace conflux::http
 
 export namespace conflux::http {
 

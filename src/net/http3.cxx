@@ -616,8 +616,9 @@ std::array<std::uint8_t, kCidLen> cid_to_key(
 }
 
 } // namespace http3_detail
-using namespace http3_detail;
 export namespace conflux::http::detail {
+
+using namespace http3_detail;
 
 class Http3Listener {
 public:

@@ -16,6 +16,9 @@ cmake -S . -B "$build_root" \
     -DCONFLUX_BUILD_BENCHMARKS=OFF \
     -DCONFLUX_BUILD_EXAMPLES=OFF
 
+printf 'header-first-contact-smoke: check public header hygiene\n'
+cmake --build "$build_root" --target conflux_header_smoke_public_hygiene
+
 printf 'header-first-contact-smoke: build curated API surface\n'
 cmake --build "$build_root" --target conflux_header_smoke_api_surface_curated
 
