@@ -817,6 +817,14 @@ concept codec_decodes_reader_event_with_options =
 		{ JsonCodec<T>::decode(reader, event, opts, scratch) } -> std::same_as<std::expected<T, JsonError>>;
 	};
 
+template<ParseMode Mode, class T>
+concept codec_decodes_reader_event_mode_with_options =
+	requires(JsonReader &reader, JsonReader::Event event, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch) {
+		{
+			JsonCodec<T>::template decode<Mode>(reader, event, opts, scratch)
+		} -> std::same_as<std::expected<T, JsonError>>;
+	};
+
 template<class T>
 concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
 	{ JsonCodec<T>::encode(builder, value) } -> std::same_as<std::expected<void, JsonError>>;
@@ -2748,6 +2756,8 @@ std::expected<T, JsonError> decode_from_event(
 			return std::unexpected(std::move(ok).error());
 		}
 		return result;
+	} else if constexpr (codec_decodes_reader_event_mode_with_options<Mode, T>) {
+		return JsonCodec<T>::template decode<Mode>(r, ev, opts, scratch);
 	} else if constexpr (codec_decodes_reader_event_with_options<T>) {
 		return JsonCodec<T>::decode(r, ev, opts, scratch);
 	} else if constexpr (has_codec_spec<T>::value) {

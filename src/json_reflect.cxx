@@ -30,6 +30,25 @@ concept ReflectJsonAggregate = std::is_aggregate_v<T>
 
 namespace detail {
 
+using conflux::json::DuplicateKeyPolicy;
+using conflux::json::has_json_codec;
+using conflux::json::JsonCodec;
+using conflux::json::JsonDecodeOptions;
+using conflux::json::JsonDecodeScratch;
+using conflux::json::JsonDumpOptions;
+using conflux::json::JsonError;
+using conflux::json::JsonIssueCode;
+using conflux::json::JsonPath;
+using conflux::json::JsonReader;
+using conflux::json::JsonSourceLocation;
+using conflux::json::JsonStage;
+using conflux::json::JsonStringToken;
+using conflux::json::NodeRef;
+using conflux::json::ObjectBuilder;
+using conflux::json::ParseMode;
+using conflux::json::UnknownMemberPolicy;
+using conflux::json::ValueBuilder;
+
 template<std::meta::info Mem>
 consteval bool reflect_has_skip() {
 	return !std::meta::annotations_of_with_type(Mem, ^^conflux::json::skip).empty();
@@ -88,6 +107,7 @@ inline void reflect_indent(
 	out.append(static_cast<std::size_t>(depth) * opts.indent, opts.indent_char);
 }
 
+template<ParseMode Mode>
 [[nodiscard]] inline std::expected<void, JsonError> skip_reader_event(
 	JsonReader &reader,
 	JsonReader::Event event) {
@@ -97,7 +117,7 @@ inline void reflect_indent(
 	}
 	int depth = 1;
 	while (depth > 0) {
-		auto next = reader.next();
+		auto next = reader.next_impl<Mode>();
 		if (!next) {
 			return std::unexpected(std::move(next).error());
 		}
@@ -117,11 +137,11 @@ inline void reflect_indent(
 	return {};
 }
 
-template<class Vector>
+template<ParseMode Mode, class Vector>
 [[nodiscard]] inline std::expected<void, JsonError> reflect_reserve_vector_from_remaining_array(
 	Vector &out,
 	JsonReader &reader) {
-	auto count = reader.count_remaining_array_elements();
+	auto count = reader.count_remaining_array_elements_impl<Mode>();
 	if (!count) {
 		return std::unexpected(std::move(count).error());
 	}
@@ -182,7 +202,7 @@ template<class String>
 	return {};
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 [[nodiscard]] std::expected<void, JsonError> decode_reflect_reader_aggregate_into(
 	T &result,
 	JsonReader &reader,
@@ -190,7 +210,7 @@ template<class T>
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch);
 
-template<class M>
+template<ParseMode Mode, class M>
 [[nodiscard]] std::expected<void, JsonError> decode_reflect_reader_member_into(
 	M &out,
 	JsonReader &reader,
@@ -231,11 +251,12 @@ struct ReflectMemberLookupEntry {
 	std::string_view name{};
 	std::uint64_t hash{};
 	std::size_t index{};
-	ReflectMemberDecodeFn<T> decode{};
+	ReflectMemberDecodeFn<T> decode_strict{};
+	ReflectMemberDecodeFn<T> decode_json5{};
 	bool occupied{};
 };
 
-template<class T, std::size_t I>
+template<ParseMode Mode, class T, std::size_t I>
 std::expected<void, JsonError> decode_reflect_member_by_static_index(
 	T &result,
 	JsonReader &reader,
@@ -243,7 +264,7 @@ std::expected<void, JsonError> decode_reflect_member_by_static_index(
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
 	constexpr auto mem = reflect_member_at<T, I>();
-	auto decoded = decode_reflect_reader_member_into(result.[:mem:], reader, event, opts, scratch);
+	auto decoded = decode_reflect_reader_member_into<Mode>(result.[:mem:], reader, event, opts, scratch);
 	if (!decoded) {
 		return std::unexpected(std::move(decoded).error());
 	}
@@ -259,7 +280,8 @@ template<class T, std::size_t I>
 		.name = field_name,
 		.hash = reflect_member_name_hash(field_name),
 		.index = I,
-		.decode = &decode_reflect_member_by_static_index<T, I>,
+		.decode_strict = &decode_reflect_member_by_static_index<ParseMode::strict, T, I>,
+		.decode_json5 = &decode_reflect_member_by_static_index<ParseMode::json5, T, I>,
 		.occupied = true};
 }
 
@@ -339,20 +361,20 @@ template<class T>
 	}
 }
 
-template<class M>
+template<ParseMode Mode, class M>
 [[nodiscard]] std::expected<M, JsonError> decode_reflect_reader_member(
 	JsonReader &reader,
 	JsonReader::Event event,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
 	M result{};
-	if (auto decoded = decode_reflect_reader_member_into(result, reader, event, opts, scratch); !decoded) {
+	if (auto decoded = decode_reflect_reader_member_into<Mode>(result, reader, event, opts, scratch); !decoded) {
 		return std::unexpected(std::move(decoded).error());
 	}
 	return result;
 }
 
-template<class M>
+template<ParseMode Mode, class M>
 [[nodiscard]] std::expected<void, JsonError> decode_reflect_reader_member_into(
 	M &out,
 	JsonReader &reader,
@@ -368,11 +390,11 @@ template<class M>
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
 		}
 		out.clear();
-		if (auto reserved = reflect_reserve_vector_from_remaining_array(out, reader); !reserved) {
+		if (auto reserved = reflect_reserve_vector_from_remaining_array<Mode>(out, reader); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}
 		while (true) {
-			auto next = reader.next();
+			auto next = reader.next_impl<Mode>();
 			if (!next) {
 				return std::unexpected(std::move(next).error());
 			}
@@ -388,12 +410,12 @@ template<class M>
 			}
 			if constexpr (std::default_initializable<Elem>) {
 				auto &slot = out.emplace_back();
-				auto elem = decode_reflect_reader_member_into(slot, reader, **next, opts, scratch);
+				auto elem = decode_reflect_reader_member_into<Mode>(slot, reader, **next, opts, scratch);
 				if (!elem) {
 					return std::unexpected(std::move(elem).error());
 				}
 			} else {
-				auto elem = decode_reflect_reader_member<Elem>(reader, **next, opts, scratch);
+				auto elem = decode_reflect_reader_member<Mode, Elem>(reader, **next, opts, scratch);
 				if (!elem) {
 					return std::unexpected(std::move(elem).error());
 				}
@@ -407,7 +429,7 @@ template<class M>
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
 		}
 		for (std::size_t i = 0; i < N; ++i) {
-			auto next = reader.next();
+			auto next = reader.next_impl<Mode>();
 			if (!next) {
 				return std::unexpected(std::move(next).error());
 			}
@@ -425,12 +447,12 @@ template<class M>
 						.code = JsonIssueCode::invalid_value,
 						.message = std::format("expected array of length {}", N)});
 			}
-			auto elem = decode_reflect_reader_member_into(out[i], reader, **next, opts, scratch);
+			auto elem = decode_reflect_reader_member_into<Mode>(out[i], reader, **next, opts, scratch);
 			if (!elem) {
 				return std::unexpected(std::move(elem).error());
 			}
 		}
-		auto next = reader.next();
+		auto next = reader.next_impl<Mode>();
 		if (!next) {
 			return std::unexpected(std::move(next).error());
 		}
@@ -443,7 +465,7 @@ template<class M>
 		}
 		return {};
 	} else if constexpr (conflux::json::ReflectJsonAggregate<Raw>) {
-		return decode_reflect_reader_aggregate_into(out, reader, event, opts, scratch);
+		return decode_reflect_reader_aggregate_into<Mode>(out, reader, event, opts, scratch);
 	} else if constexpr (std::same_as<Raw, bool>) {
 		if (event != Ev::bool_value) {
 			return std::unexpected(
@@ -465,14 +487,14 @@ template<class M>
 		}
 		if constexpr (std::default_initializable<Inner>) {
 			out.emplace();
-			auto decoded = decode_reflect_reader_member_into(*out, reader, event, opts, scratch);
+			auto decoded = decode_reflect_reader_member_into<Mode>(*out, reader, event, opts, scratch);
 			if (!decoded) {
 				out.reset();
 				return std::unexpected(std::move(decoded).error());
 			}
 			return {};
 		} else {
-			auto decoded = decode_reflect_reader_member<Inner>(reader, event, opts, scratch);
+			auto decoded = decode_reflect_reader_member<Mode, Inner>(reader, event, opts, scratch);
 			if (!decoded) {
 				out.reset();
 				return std::unexpected(std::move(decoded).error());
@@ -533,7 +555,7 @@ template<class M>
 	}
 }
 
-template<class T>
+template<ParseMode Mode, class T>
 [[nodiscard]] std::expected<void, JsonError> decode_reflect_reader_aggregate_into(
 	T &result,
 	JsonReader &reader,
@@ -554,7 +576,7 @@ template<class T>
 	JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
 
 	while (ok) {
-		auto next = reader.next();
+		auto next = reader.next_impl<Mode>();
 		if (!next) {
 			ok = false;
 			first_err = std::move(next).error();
@@ -595,7 +617,7 @@ template<class T>
 					ok = false;
 					first_err = reflect_duplicate_member_error(entry->name);
 				} else {
-					auto value = reader.next();
+					auto value = reader.next_impl<Mode>();
 					if (!value) {
 						ok = false;
 						first_err = std::move(value).error();
@@ -607,7 +629,7 @@ template<class T>
 							.message = "EOF in object value"};
 					} else if (
 						already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
-						if (auto skipped = skip_reader_event(reader, **value); !skipped) {
+						if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
 							ok = false;
 							first_err = std::move(skipped).error();
 						}
@@ -615,7 +637,13 @@ template<class T>
 						if (!already_found) {
 							found[entry->index] = true;
 						}
-						auto decoded = entry->decode(result, reader, **value, opts, &decode_scratch);
+						auto decoded = [&]() {
+							if constexpr (Mode == ParseMode::strict) {
+								return entry->decode_strict(result, reader, **value, opts, &decode_scratch);
+							} else {
+								return entry->decode_json5(result, reader, **value, opts, &decode_scratch);
+							}
+						}();
 						if (!decoded) {
 							ok = false;
 							first_err = std::move(decoded).error();
@@ -647,7 +675,7 @@ template<class T>
 							return;
 						}
 
-						auto value = reader.next();
+						auto value = reader.next_impl<Mode>();
 						if (!value) {
 							ok = false;
 							first_err = std::move(value).error();
@@ -662,7 +690,7 @@ template<class T>
 							return;
 						}
 						if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
-							if (auto skipped = skip_reader_event(reader, **value); !skipped) {
+							if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
 								ok = false;
 								first_err = std::move(skipped).error();
 							}
@@ -672,8 +700,8 @@ template<class T>
 							found[I] = true;
 						}
 
-						auto decoded =
-							decode_reflect_reader_member_into(result.[:mem:], reader, **value, opts, &decode_scratch);
+						auto decoded = decode_reflect_reader_member_into<Mode>(
+							result.[:mem:], reader, **value, opts, &decode_scratch);
 						if (!decoded) {
 							ok = false;
 							first_err = std::move(decoded).error();
@@ -693,7 +721,7 @@ template<class T>
 					.member_name = std::string{key},
 					.message = std::format("unknown member: {}", key)};
 			} else {
-				auto value = reader.next();
+				auto value = reader.next_impl<Mode>();
 				if (!value) {
 					ok = false;
 					first_err = std::move(value).error();
@@ -703,7 +731,7 @@ template<class T>
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::unexpected_eof,
 						.message = "EOF in object value"};
-				} else if (auto skipped = skip_reader_event(reader, **value); !skipped) {
+				} else if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
 					ok = false;
 					first_err = std::move(skipped).error();
 				}
@@ -808,7 +836,7 @@ template<class M>
 		}
 		return result;
 	} else if constexpr (has_json_codec<M>) {
-		return ::decode<M>(node, opts);
+		return conflux::json::decode<M>(node, opts);
 	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
 		auto r = conflux::json::JsonCodec<std::int64_t>::decode(node);
 		if (!r) {
@@ -897,7 +925,7 @@ struct conflux::json::JsonCodec<T> {
 		bool ok = true;
 		JsonError first_err;
 
-		constexpr auto N = detail::reflect_member_count<T>();
+		constexpr auto N = ::detail::reflect_member_count<T>();
 
 		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
 			(
@@ -905,18 +933,18 @@ struct conflux::json::JsonCodec<T> {
 					if (!ok) {
 						return;
 					}
-					constexpr auto mem = detail::reflect_member_at<T, I>();
-					if constexpr (detail::reflect_has_skip<mem>()) {
+					constexpr auto mem = ::detail::reflect_member_at<T, I>();
+					if constexpr (::detail::reflect_has_skip<mem>()) {
 						return;
 					}
 
-					constexpr auto name_info = detail::reflect_field_name<mem>();
+					constexpr auto name_info = ::detail::reflect_field_name<mem>();
 					std::string_view const field_name{name_info.p, name_info.n};
 
 					using M = std::remove_cvref_t<decltype(result.[:mem:])>;
 					auto node = obj.find_member(field_name);
 					if (!node) {
-						if constexpr (!detail::is_opt_refl<M>::value) {
+						if constexpr (!::detail::is_opt_refl<M>::value) {
 							ok = false;
 							first_err = JsonError{
 								.stage = JsonStage::decode,
@@ -926,7 +954,7 @@ struct conflux::json::JsonCodec<T> {
 						}
 						return;
 					}
-					auto decoded = detail::decode_reflect_member<M>(*node, opts);
+					auto decoded = ::detail::decode_reflect_member<M>(*node, opts);
 					if (!decoded) {
 						ok = false;
 						first_err = std::move(decoded).error();
@@ -945,7 +973,7 @@ struct conflux::json::JsonCodec<T> {
 		// behaves like manual conflux::json::JsonMembers<T> codecs at app/provider boundaries.
 		if (opts.unknown_members == UnknownMemberPolicy::reject) {
 			for (auto const &m: obj.members()) {
-				if (!detail::is_reflect_member_name<T>(m.name)) {
+				if (!::detail::is_reflect_member_name<T>(m.name)) {
 					ok = false;
 					first_err = JsonError{
 						.stage = JsonStage::decode,
@@ -962,17 +990,28 @@ struct conflux::json::JsonCodec<T> {
 		}
 		return result;
 	}
+	template<ParseMode Mode>
 	static std::expected<T, JsonError> decode(
 		JsonReader &reader,
 		JsonReader::Event event,
 		JsonDecodeOptions const &opts,
 		JsonDecodeScratch *scratch) {
 		T result{};
-		auto decoded = detail::decode_reflect_reader_aggregate_into(result, reader, event, opts, scratch);
+		auto decoded = ::detail::decode_reflect_reader_aggregate_into<Mode>(result, reader, event, opts, scratch);
 		if (!decoded) {
 			return std::unexpected(std::move(decoded).error());
 		}
 		return result;
+	}
+	static std::expected<T, JsonError> decode(
+		JsonReader &reader,
+		JsonReader::Event event,
+		JsonDecodeOptions const &opts,
+		JsonDecodeScratch *scratch) {
+		if (reader.parse_options().mode == ParseMode::strict) {
+			return decode<ParseMode::strict>(reader, event, opts, scratch);
+		}
+		return decode<ParseMode::json5>(reader, event, opts, scratch);
 	}
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
@@ -986,23 +1025,23 @@ struct conflux::json::JsonCodec<T> {
 		bool ok = true;
 		JsonError first_err;
 
-		constexpr auto N = detail::reflect_member_count<T>();
+		constexpr auto N = ::detail::reflect_member_count<T>();
 		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
 			(
 				[&]<std::size_t I>() {
 					if (!ok) {
 						return;
 					}
-					constexpr auto mem = detail::reflect_member_at<T, I>();
-					if constexpr (detail::reflect_has_skip<mem>()) {
+					constexpr auto mem = ::detail::reflect_member_at<T, I>();
+					if constexpr (::detail::reflect_has_skip<mem>()) {
 						return;
 					}
 
-					constexpr auto name_info = detail::reflect_field_name<mem>();
+					constexpr auto name_info = ::detail::reflect_field_name<mem>();
 					std::string_view const field_name{name_info.p, name_info.n};
 
 					using M = std::remove_cvref_t<decltype(value.[:mem:])>;
-					auto res = detail::encode_reflect_member<M>(obj, field_name, value.[:mem:]);
+					auto res = ::detail::encode_reflect_member<M>(obj, field_name, value.[:mem:]);
 					if (!res) {
 						ok = false;
 						first_err = std::move(res).error();

@@ -34,12 +34,16 @@ struct NativeReflectJsonProvider {
 		T const &value,
 		DumpOptions const &opts = {}) {
 		if constexpr (ReflectJsonAggregate<std::remove_cvref_t<T>>) {
-			auto body = dump_reflect_direct<std::remove_cvref_t<T>>(value, detail::map_dump_options(opts));
+			auto body = dump_reflect_direct<std::remove_cvref_t<T>>(
+				value,
+				JsonDumpOptions{
+					.pretty = opts.pretty,
+					.indent = opts.indent,
+					.sort_object_keys = opts.sort_object_keys,
+					.ascii_only = opts.ascii_only,
+				});
 			if (body) {
 				return std::move(*body);
-			}
-			if (!opts.sort_object_keys) {
-				return std::unexpected(detail::map_error(body.error()));
 			}
 		}
 		return NativeJsonProvider::dump_json(value, opts);

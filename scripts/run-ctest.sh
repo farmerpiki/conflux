@@ -7,7 +7,7 @@ usage() {
 
 valid_profile() {
 	case "$1" in
-		debug-clang-libcxx|debug-gcc-stdcxx|release-clang-libcxx|release-gcc-stdcxx|tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
+		debug-clang-libcxx|debug-gcc-stdcxx|release-clang-libcxx|release-gcc-stdcxx|release-p2996-gcc|tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
 			return 0
 			;;
 		*)

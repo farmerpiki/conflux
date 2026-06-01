@@ -231,7 +231,7 @@ void dump_str(
 	out += '"';
 }
 
-namespace conflux::json::dump_detail {
+namespace dump_detail {
 
 void dump_string(
 	std::string_view sv,
@@ -240,7 +240,7 @@ void dump_string(
 	dump_str(sv, out, ascii_only);
 }
 
-} // namespace conflux::json::dump_detail
+} // namespace dump_detail
 
 // NOLINTEND(readability-magic-numbers)
 
