@@ -3230,6 +3230,27 @@ template<class T>
 	if (p >= end || *p < '0' || *p > '9') {
 		return FpStatus::bail;
 	}
+	if (std::same_as<T, double> && *p == '0' && p + 2 < end && p[1] == '.') {
+		char const *q = p + 2;
+		std::uint64_t mant = 0;
+		std::size_t digits = 0;
+		while (q < end && *q >= '0' && *q <= '9' && digits < 17U) {
+			mant = mant * 10U + static_cast<std::uint64_t>(*q - '0');
+			++q;
+			++digits;
+		}
+		if (digits == 0U) {
+			return FpStatus::bail;
+		}
+		bool const too_many_digits = q < end && *q >= '0' && *q <= '9';
+		bool const has_exponent = q < end && (*q == 'e' || *q == 'E');
+		if (!too_many_digits && !has_exponent && mant <= (std::uint64_t{1} << 53U)) {
+			double v = static_cast<double>(mant) / kFpPow10[digits];
+			out = static_cast<T>(neg ? -v : v);
+			c.p = q;
+			return FpStatus::ok;
+		}
+	}
 	bool const starts_zero = *p == '0';
 
 	std::uint64_t mant = 0;
