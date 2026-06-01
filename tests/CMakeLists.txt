@@ -404,6 +404,30 @@ if(TARGET conflux)
         EXPECT "SpawnOptions")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_process
+        SOURCE process_compile_fail_global_process.cxx
+        TEST api-surface/process-hides-global-process
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "Process")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_run_result
+        SOURCE process_compile_fail_global_run_result.cxx
+        TEST api-surface/process-hides-global-run-result
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "RunResult")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_process_compile_fail_global_spawn
+        SOURCE process_compile_fail_global_spawn.cxx
+        TEST api-surface/process-hides-global-spawn
+        LINK conflux_process conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "spawn")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_uring_handle_compile_fail_global_io_handle
         SOURCE uring_handle_compile_fail_global_io_handle.cxx
         TEST api-surface/uring-handle-hides-global-io-handle
