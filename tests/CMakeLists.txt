@@ -484,6 +484,22 @@ if(TARGET conflux)
         EXPECT "FileEventKind")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_file_watch_compile_fail_global_event
+        SOURCE file_watch_compile_fail_global_event.cxx
+        TEST api-surface/file-watch-hides-global-event
+        LINK conflux_file_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "FileEvent")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_watch_compile_fail_global_watch_options
+        SOURCE file_watch_compile_fail_global_watch_options.cxx
+        TEST api-surface/file-watch-hides-global-watch-options
+        LINK conflux_file_watch conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "WatchOptions")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_template_compile_fail_global_environment
         SOURCE template_compile_fail_global_environment.cxx
         TEST api-surface/template-hides-global-environment
@@ -530,6 +546,38 @@ if(TARGET conflux)
         LINK conflux_file_map conflux_options
         LABELS build api-surface compile-fail
         EXPECT "MappedBody")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_map_compile_fail_global_mapped_file_lease
+        SOURCE file_map_compile_fail_global_mapped_file_lease.cxx
+        TEST api-surface/file-map-hides-global-mapped-file-lease
+        LINK conflux_file_map conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "MappedFileLease")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_map_compile_fail_global_make_mapped_file_lease
+        SOURCE file_map_compile_fail_global_make_mapped_file_lease.cxx
+        TEST api-surface/file-map-hides-global-make-mapped-file-lease
+        LINK conflux_file_map conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "make_mapped_file_lease")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_map_compile_fail_global_blocking_map_fd_readonly
+        SOURCE file_map_compile_fail_global_blocking_map_fd_readonly.cxx
+        TEST api-surface/file-map-hides-global-blocking-map-fd-readonly
+        LINK conflux_file_map conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "blocking_map_fd_readonly")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_file_map_compile_fail_global_blocking_map_file_readonly
+        SOURCE file_map_compile_fail_global_blocking_map_file_readonly.cxx
+        TEST api-surface/file-map-hides-global-blocking-map-file-readonly
+        LINK conflux_file_map conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "blocking_map_file_readonly")
 
     conflux_add_compile_fail_test(
         TARGET conflux_file_io_compile_fail_global_pipe_pool
