@@ -32,7 +32,9 @@ export [[nodiscard]] BenchUringFileConfig bench_parse_uring_file_args(
 	std::span<char *> args) {
 	BenchUringFileConfig cfg;
 	auto base = bench_parse_args(args);
-	cfg.iterations = base.iterations;
+	if (!base.iterations_explicit || base.iterations > 0) {
+		cfg.iterations = base.iterations;
+	}
 	cfg.warmup = base.warmup;
 	cfg.config_name = std::move(base.config_name);
 	cfg.json_out = base.json_out;

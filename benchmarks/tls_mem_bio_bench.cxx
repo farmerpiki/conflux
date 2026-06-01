@@ -44,7 +44,9 @@ struct Config {
 	std::span<char *> args) {
 	Config cfg;
 	auto base = bench_parse_args(args);
-	cfg.iterations = base.iterations;
+	if (!base.iterations_explicit || base.iterations > 0) {
+		cfg.iterations = base.iterations;
+	}
 	cfg.warmup = base.warmup;
 	cfg.samples = base.samples;
 	cfg.batch = base.batch;
