@@ -1526,11 +1526,11 @@ template<ParseMode Mode>
 	return r.skip_remaining_value_impl<Mode>(ev);
 }
 
-template<class Vector>
+template<ParseMode Mode, class Vector>
 [[nodiscard]] inline std::expected<void, JsonError> reserve_vector_from_remaining_array(
 	Vector &out,
 	JsonReader &reader) {
-	auto count = reader.count_remaining_array_elements();
+	auto count = reader.count_remaining_array_elements_impl<Mode>();
 	if (!count) {
 		return std::unexpected(std::move(count).error());
 	}
@@ -1538,12 +1538,12 @@ template<class Vector>
 	return {};
 }
 
-template<class Map>
+template<ParseMode Mode, class Map>
 [[nodiscard]] inline std::expected<void, JsonError> reserve_map_from_remaining_object(
 	Map &out,
 	JsonReader &reader) {
 	if constexpr (requires(Map &m, std::size_t n) { m.reserve(n); }) {
-		auto count = reader.count_remaining_object_members();
+		auto count = reader.count_remaining_object_members_impl<Mode>();
 		if (!count) {
 			return std::unexpected(std::move(count).error());
 		}
@@ -2071,7 +2071,7 @@ template<ParseMode Mode, class Map>
 	JsonDecodeScratch *scratch) {
 	using Vt = typename Map::mapped_type;
 	out.clear();
-	if (auto reserved = reserve_map_from_remaining_object(out, r); !reserved) {
+	if (auto reserved = reserve_map_from_remaining_object<Mode>(out, r); !reserved) {
 		return std::unexpected(std::move(reserved).error());
 	}
 	auto const duplicate_policy = r.parse_options().duplicate_key;
@@ -2178,6 +2178,39 @@ std::expected<T, JsonError> decode_with_reader(
 		return decode_with_reader<ParseMode::strict, T>(r, opts, scratch);
 	}
 	return decode_with_reader<ParseMode::json5, T>(r, opts, scratch);
+}
+
+template<ParseMode Mode, class T>
+std::expected<T, JsonError> decode_full_with_reader(
+	JsonReader &reader,
+	JsonDecodeOptions const &opts) {
+	auto value = decode_with_reader<Mode, T>(reader, opts);
+	if (!value) {
+		return std::unexpected(std::move(value).error());
+	}
+	auto next = reader.next_impl<Mode>();
+	if (!next) {
+		return std::unexpected(std::move(next).error());
+	}
+	if (*next) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::trailing_garbage,
+				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
+				.message = "trailing JSON value after document root"});
+	}
+	return std::move(value);
+}
+
+template<class T>
+std::expected<T, JsonError> decode_full_with_reader(
+	JsonReader &reader,
+	JsonDecodeOptions const &opts) {
+	if (reader.parse_options().mode == ParseMode::strict) {
+		return decode_full_with_reader<ParseMode::strict, T>(reader, opts);
+	}
+	return decode_full_with_reader<ParseMode::json5, T>(reader, opts);
 }
 
 template<ParseMode Mode, class T>
@@ -2476,7 +2509,7 @@ std::expected<T, JsonError> decode_from_event(
 			}
 			return result;
 		}
-		if (auto reserved = reserve_vector_from_remaining_array(result, r); !reserved) {
+		if (auto reserved = reserve_vector_from_remaining_array<Mode>(result, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}
 		while (true) {
@@ -2844,7 +2877,7 @@ std::expected<void, JsonError> decode_into(
 		} else if constexpr (is_fixed_numeric_array_v<E>) {
 			return r.decode_fixed_numeric_array_vector_into<Mode>(out);
 		}
-		if (auto reserved = reserve_vector_from_remaining_array(out, r); !reserved) {
+		if (auto reserved = reserve_vector_from_remaining_array<Mode>(out, r); !reserved) {
 			return std::unexpected(std::move(reserved).error());
 		}
 		while (true) {
@@ -4576,24 +4609,7 @@ export template<class T>
 std::expected<T, JsonError> decode_full(
 	JsonReader &reader,
 	JsonDecodeOptions const &opts) {
-	auto value = decode_next<T>(reader, opts);
-	if (!value) {
-		return std::unexpected(std::move(value).error());
-	}
-	auto next = reader.parse_options().mode == ParseMode::strict ? reader.next_impl<ParseMode::strict>() :
-																   reader.next_impl<ParseMode::json5>();
-	if (!next) {
-		return std::unexpected(std::move(next).error());
-	}
-	if (*next) {
-		return std::unexpected(
-			JsonError{
-				.stage = JsonStage::parse,
-				.code = JsonIssueCode::trailing_garbage,
-				.source = JsonSourceLocation{.offset = reader.value_start_pos()},
-				.message = "trailing JSON value after document root"});
-	}
-	return std::move(value);
+	return detail::decode_full_with_reader<T>(reader, opts);
 }
 
 namespace detail {
@@ -5971,17 +5987,20 @@ template<class Cb>
 }
 
 } // namespace detail
-export template<JsonHandler H>
+
+namespace detail {
+
+template<ParseMode Mode, JsonHandler H>
 [[nodiscard]] std::expected<void, JsonError> parse_sax(
 	std::string_view input,
 	H &handler,
-	JsonParseOptions const &opts = {}) {
+	JsonParseOptions const &opts) {
 	using Ev = JsonReader::Event;
 	JsonReader reader{input, opts};
 	JsonDecodeScratch scratch;
 
 	for (;;) {
-		auto ev_or = reader.next();
+		auto ev_or = reader.next_impl<Mode>();
 		if (!ev_or) {
 			return std::unexpected(std::move(ev_or).error());
 		}
@@ -6017,6 +6036,19 @@ export template<JsonHandler H>
 		}
 	}
 	return {};
+}
+
+} // namespace detail
+
+export template<JsonHandler H>
+[[nodiscard]] std::expected<void, JsonError> parse_sax(
+	std::string_view input,
+	H &handler,
+	JsonParseOptions const &opts = {}) {
+	if (opts.mode == ParseMode::strict) {
+		return detail::parse_sax<ParseMode::strict>(input, handler, opts);
+	}
+	return detail::parse_sax<ParseMode::json5>(input, handler, opts);
 }
 // ─── Phase 7 — Streaming & NDJSON ───────────────────────────────────────────
 

@@ -1861,12 +1861,37 @@ std::size_t JsonReader::value_start_pos() const noexcept {
 	return value_start_;
 }
 
-std::expected<std::size_t, JsonError> JsonReader::count_remaining_array_elements() {
+template<ParseMode Mode>
+std::expected<std::size_t, JsonError> JsonReader::count_remaining_array_elements_impl() {
 	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::array) {
 		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 	}
 	auto checkpoint_state = checkpoint();
-	auto count = count_array_elements_raw();
+	auto count = count_array_elements_raw_impl<Mode>();
+	if (!count) {
+		auto err = std::move(count).error();
+		restore(std::move(checkpoint_state));
+		return std::unexpected(std::move(err));
+	}
+	std::size_t const value = *count;
+	restore(std::move(checkpoint_state));
+	return value;
+}
+
+std::expected<std::size_t, JsonError> JsonReader::count_remaining_array_elements() {
+	if (opts_.mode == ParseMode::strict) {
+		return count_remaining_array_elements_impl<ParseMode::strict>();
+	}
+	return count_remaining_array_elements_impl<ParseMode::json5>();
+}
+
+template<ParseMode Mode>
+std::expected<std::size_t, JsonError> JsonReader::count_remaining_object_members_impl() {
+	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object) {
+		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an object"));
+	}
+	auto checkpoint_state = checkpoint();
+	auto count = count_object_members_raw_impl<Mode>();
 	if (!count) {
 		auto err = std::move(count).error();
 		restore(std::move(checkpoint_state));
@@ -1878,19 +1903,10 @@ std::expected<std::size_t, JsonError> JsonReader::count_remaining_array_elements
 }
 
 std::expected<std::size_t, JsonError> JsonReader::count_remaining_object_members() {
-	if (stack_.empty() || stack_.back().kind != StateFrame::Kind::object) {
-		return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an object"));
+	if (opts_.mode == ParseMode::strict) {
+		return count_remaining_object_members_impl<ParseMode::strict>();
 	}
-	auto checkpoint_state = checkpoint();
-	auto count = count_object_members_raw();
-	if (!count) {
-		auto err = std::move(count).error();
-		restore(std::move(checkpoint_state));
-		return std::unexpected(std::move(err));
-	}
-	std::size_t const value = *count;
-	restore(std::move(checkpoint_state));
-	return value;
+	return count_remaining_object_members_impl<ParseMode::json5>();
 }
 
 template<ParseMode Mode>

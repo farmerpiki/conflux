@@ -1527,7 +1527,11 @@ public:
 	template<ParseMode Mode>
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value_impl(bool &out);
 	[[nodiscard]] std::expected<void, JsonError> next_object_bool_value(bool &out);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements_impl();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_array_elements();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members_impl();
 	[[nodiscard]] std::expected<std::size_t, JsonError> count_remaining_object_members();
 	template<ParseMode Mode>
 	[[nodiscard]] std::expected<void, JsonError> skip_remaining_value_impl(Event event);
@@ -1798,7 +1802,7 @@ public:
 			return std::unexpected(mk_err(JsonIssueCode::wrong_kind, "reader is not positioned inside an array"));
 		}
 		if constexpr (requires(Vector &v, std::size_t n) { v.reserve(n); }) {
-			auto count = count_remaining_array_elements();
+			auto count = count_remaining_array_elements_impl<Mode>();
 			if (!count) [[unlikely]] {
 				return std::unexpected(std::move(count).error());
 			}
