@@ -148,8 +148,8 @@ setup.
   the tested GCC 15, GCC 16, and Clang 21 lanes named in release evidence;
   optional reflection and standard-SIMD targets are C++26-gated.
 - `CONFLUX_USE_MOCK_LIBURING=ON` proves buildability only, not runtime support.
-- Runtime proof is maintained as separate release evidence and finalized only
-  after the release-candidate source tree is frozen.
+- Runtime and benchmark evidence are release artifacts, not tracked source-tree
+  payloads.
 - DB examples require DB support enabled and usable libpq headers.
 - Preview APIs may still break before v1.
 

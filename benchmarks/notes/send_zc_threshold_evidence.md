@@ -85,7 +85,7 @@ SEND_ZC_NIC_HOST=<server-lan-ipv4> SEND_ZC_REPS=5 \
 The wrapper runs `conflux_send_zc_bench --nic-concurrent`, refuses loopback by
 default, and records paired `off`/`zc_auto` rows with both client request-rate
 fields and server SEND_ZC counters. The manifest marks the artifact as
-`non_loopback_nic_candidate` because final proof still requires route or NIC
+`non_loopback_nic_candidate` because a promoted performance claim still requires route or NIC
 counters from the host environment; same-host non-loopback routing alone is not
 enough to claim physical NIC zero-copy benefit.
 

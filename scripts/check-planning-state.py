@@ -57,8 +57,8 @@ for path in sorted((ROOT / "todo").glob("*.md")):
         continue
     text = path.read_text(encoding="utf-8")
     first = "\n".join(text.splitlines()[:25]).lower()
-    if not any(marker in first for marker in ("open", "done reference", "deferred", "archive pointer", "status:")):
-        fail(f"{path.relative_to(ROOT).as_posix()} lacks explicit open/done/deferred/archive status near top")
+    if not any(marker in first for marker in ("open", "deferred", "status:")):
+        fail(f"{path.relative_to(ROOT).as_posix()} lacks explicit open/deferred status near top")
 
 for path in sorted(ARCHIVE.rglob("*.md")):
     if path.name == "README.md":

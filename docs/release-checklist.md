@@ -19,7 +19,7 @@ bundle, or security-sensitive surface is added.
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
 | Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
-| Benchmarks | Same-machine benchmark artifact path, proof-repository run path/commit, raw-run summary, and graph output path | Required for claimed performance changes; use perf presets only. Final public capture is deferred until release-candidate source freeze. |
+| Benchmarks | Same-machine benchmark artifact path and raw-run summary | Required only for claimed performance changes; use perf presets only. Final public performance proof is out of scope for the prerelease documentation cleanup. |
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
 | Alias cleanup | Remaining aliases or confirmation none remain | Alias removal belongs to the final release-cleanup branch only. |
 
@@ -158,11 +158,11 @@ cmake --build /tmp/conflux-third-party --target conflux_third_party_conformance_
 ctest --test-dir /tmp/conflux-third-party -L third-party --output-on-failure
 ```
 
-## Final proof capture timing
+## Benchmark Artifact Timing
 
-Prepare scripts, templates, and local smoke evidence throughout prerelease work,
-but do not publish final runtime proof or benchmark graphs until the release
-candidate source tree is otherwise frozen. Final proof capture must happen after:
+Do not publish final runtime proof or benchmark graphs as part of this source
+tree cleanup. If a release note makes a performance claim later, collect the
+same-machine benchmark artifacts after:
 
 - public formatting and human-readable cleanup are complete;
 - public examples and first-contact docs use final preview spelling;
@@ -170,11 +170,11 @@ candidate source tree is otherwise frozen. Final proof capture must happen after
 - the advertised compiler and CMake baseline matches the actual release-evidenced
   floor rather than an aspirational or untested compatibility claim;
 - benchmark cases, graph scripts, and comparison targets are settled;
-- release notes contain placeholders for proof repository paths.
+- release notes contain placeholders for benchmark artifact paths.
 
-Store bulky logs, raw benchmark rows, perf data, and generated graphs in the
-separate proof repository. Keep this source tree to source, small manifests, and
-links to immutable proof runs.
+Keep this source tree to source, small manifests, and concise benchmark
+summaries. Bulky logs, raw benchmark rows, perf data, and generated graphs stay
+outside the tracked source tree.
 
 ## Component-specific checks
 

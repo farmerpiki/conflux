@@ -1,6 +1,6 @@
 # Proposal: Independent SIMD Direct Builds and Runtime Dispatch — Stage 1 Update
 
-Status: Active / under validation.
+Status: open TODO / under validation.
 Branch: `simd/dispatch-independence-stage1`
 
 This is the tightened Stage 1 proposal after verification against the current tree. It keeps the original goal, narrows the first implementation step, and fixes two wording issues:
@@ -16,14 +16,14 @@ The current code has useful SIMD plumbing, but backend availability and binding 
 
 Stage 1 should make that policy explicit without adding per-ISA object families, IFUNC resolvers, or a large public SIMD matrix.
 
-## Goals
+## TODO Goals
 
-- Add one normalized SIMD binding knob: `CONFLUX_SIMD_SELECTION=AUTO|DIRECT|RUNTIME`.
-- Preserve `CONFLUX_USE_STDSIMD=AUTO|STD26|STDX|ON|OFF` as the backend dialect selector.
-- In direct mode, remove `conflux_cpu_supports_avx2()` from stdsimd hot call sites.
-- In runtime mode, preserve the current guarded behavior.
-- Add object-shape tests proving direct hot objects do not retain AVX2 CPU-probe relocations.
-- Keep AES-GCM and other crypto ISA policy separate from generic SIMD cleanup.
+- [ ] Add one normalized SIMD binding knob: `CONFLUX_SIMD_SELECTION=AUTO|DIRECT|RUNTIME`.
+- [ ] Preserve `CONFLUX_USE_STDSIMD=AUTO|STD26|STDX|ON|OFF` as the backend dialect selector.
+- [ ] In direct mode, remove `conflux_cpu_supports_avx2()` from stdsimd hot call sites.
+- [ ] In runtime mode, preserve the current guarded behavior.
+- [ ] Add object-shape tests proving direct hot objects do not retain AVX2 CPU-probe relocations.
+- [ ] Keep AES-GCM and other crypto ISA policy separate from generic SIMD cleanup.
 
 ## Non-goals
 
@@ -158,11 +158,11 @@ Use OFF/scalar for baseline-safe builds without those SIMD objects.
 
 ## Acceptance criteria
 
-- Configure rejects invalid `CONFLUX_SIMD_SELECTION` values.
-- `AUTO` resolves to direct mode.
-- Direct mode compiles hot stdsimd call sites without `conflux_cpu_supports_avx2()` calls.
-- Runtime mode preserves existing runtime guard behavior, including real CPU-feature detection.
-- Scalar mode still builds without stdsimd objects.
-- Direct object-shape CTest exists.
-- Existing correctness tests pass in the required sandbox build mode.
-- No speedup claim is made without representative benchmarks.
+- [ ] Configure rejects invalid `CONFLUX_SIMD_SELECTION` values.
+- [ ] `AUTO` resolves to direct mode.
+- [ ] Direct mode compiles hot stdsimd call sites without `conflux_cpu_supports_avx2()` calls.
+- [ ] Runtime mode preserves existing runtime guard behavior, including real CPU-feature detection.
+- [ ] Scalar mode still builds without stdsimd objects.
+- [ ] Direct object-shape CTest exists.
+- [ ] Existing correctness tests pass in the required sandbox build mode.
+- [ ] No speedup claim is made without representative benchmarks.

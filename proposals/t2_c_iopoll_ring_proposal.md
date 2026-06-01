@@ -1,7 +1,7 @@
 # T2-C: Dedicated IOPOLL Ring for Storage I/O
 
 Date: 2026-05-10
-Status: PARTIALLY IMPLEMENTED — storage-only primitive landed; HTTP/static integration remains benchmark-gated
+Status: open TODO — storage-only primitive landed; HTTP/static integration remains benchmark-gated
 Branch: `uring/iopoll-static-evidence`
 State note: historical implementation rationale plus deferred evidence gate.
 Effort: primitive landed; remaining consumer work depends on storage/static benchmark evidence
@@ -286,15 +286,13 @@ on NVMe. Must pass --compare-bins non-regression.
 
 ## Remaining Implementation Order
 
-1. Add a storage/static benchmark that proves `O_DIRECT + read_nocache_fixed` is the bottleneck on target hardware.
-2. Design buffer ownership/release across file thread and socket ring thread for HTTP consumers.
-3. Design cancellation/late-completion rules (conn_gen token, fd lifetime).
-4. Add file-ring thread or explicit pump integration with coalesced owner-ring wakeup.
-5. Add cross-thread completion delivery back to owner ring.
-6. Add direct-read static path only after standalone storage benchmark wins.
-7. Test TLS static serving without kTLS.
-
-Already implemented: storage-only `IopollFileReader`, `IopollStorageRing`, setup flags, fixed-buffer table creation, pumping helpers, and primitive tests.
+- [ ] Add a storage/static benchmark that proves `O_DIRECT + read_nocache_fixed` is the bottleneck on target hardware.
+- [ ] Design buffer ownership/release across file thread and socket ring thread for HTTP consumers.
+- [ ] Design cancellation/late-completion rules (conn_gen token, fd lifetime).
+- [ ] Add file-ring thread or explicit pump integration with coalesced owner-ring wakeup.
+- [ ] Add cross-thread completion delivery back to owner ring.
+- [ ] Add direct-read static path only after standalone storage benchmark wins.
+- [ ] Test TLS static serving without kTLS.
 
 ## Priority
 

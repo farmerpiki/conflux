@@ -43,7 +43,3 @@
 
 - `docs/maintainer-internals.md`
 - `docs/planning-policy.md`
-
-## Archive
-
-- `docs/archive/proposals/README.md`

@@ -1,6 +1,6 @@
 # Proposal: Composable Race and Reasonful Cancellation Semantics
 
-Status: active proposal.
+Status: open TODO.
 Branch: `work/composable-race`
 
 **Final tightening pass 3:** incorporates request-cancel loser ownership, zero-allocation borrowed labels by default, a shaped `race_owned_labels` wrapper, in-flight ready-callback lifetime, and `leave_running` ownership semantics.
@@ -74,23 +74,23 @@ race layer:  choose first completer, request loser cancellation through controls
 owner layer: define what cancellation means, where it runs, how cleanup completes, how progress happens
 ```
 
-## Goals
+## TODO Goals
 
-- One composable race primitive usable by internal code and users.
-- Support N participants, not just two.
-- Support value candidates and non-value triggers.
-- Support task-vs-task and task-vs-ready-chain in Stage 1.
-- Support owner-bound operation/post races only with explicit owner/capability binding.
-- Support nested races inside larger tasks/chains.
-- Preserve winner index, optional label, latency, kind, reason, and outcome with an explicit borrowed-vs-owned label model.
-- Cancel losers through task controls only; no foreign mutation of ring/file/DB internals.
-- Make cancellation reason explicit and observable.
-- Make participant ownership explicit so races do not steal callbacks, miss callbacks, or orphan consumed loser handles.
-- Make progress requirements explicit so cancel-and-wait cannot hang silently.
-- Make rollback and cancellation paths safe when ready callbacks are already in flight.
-- Provide ergonomic timeout/shutdown/disconnect wrappers on top of the same primitive.
-- Keep performance available: small-N inline storage, owner-local timers, no forced OS timer per operation.
-- Provide a polished example: race DB vs network vs disk and collect winner stats.
+- [ ] One composable race primitive usable by internal code and users.
+- [ ] Support N participants, not just two.
+- [ ] Support value candidates and non-value triggers.
+- [ ] Support task-vs-task and task-vs-ready-chain in Stage 1.
+- [ ] Support owner-bound operation/post races only with explicit owner/capability binding.
+- [ ] Support nested races inside larger tasks/chains.
+- [ ] Preserve winner index, optional label, latency, kind, reason, and outcome with an explicit borrowed-vs-owned label model.
+- [ ] Cancel losers through task controls only; no foreign mutation of ring/file/DB internals.
+- [ ] Make cancellation reason explicit and observable.
+- [ ] Make participant ownership explicit so races do not steal callbacks, miss callbacks, or orphan consumed loser handles.
+- [ ] Make progress requirements explicit so cancel-and-wait cannot hang silently.
+- [ ] Make rollback and cancellation paths safe when ready callbacks are already in flight.
+- [ ] Provide ergonomic timeout/shutdown/disconnect wrappers on top of the same primitive.
+- [ ] Keep performance available: small-N inline storage, owner-local timers, no forced OS timer per operation.
+- [ ] Provide a polished example: race DB vs network vs disk and collect winner stats.
 
 ## Non-goals
 
@@ -1088,4 +1088,12 @@ user-visible examples: DB vs network vs disk first-responder benchmark
 
 This is smoother than operation-specific timeout parameters, more composable than a timeout subsystem, and safer than a generic pump that mutates foreign owners.
 
-The remaining risk is implementation discipline, not direction. The first accepted patch should be root-layer reason propagation plus tests for ready-callback exclusivity, callback lifetime/quiescence, progress-domain assumptions, and capability-safe joins. Only after those are locked should live N-way race be added.
+The remaining risk is implementation discipline, not direction. The active
+implementation checklist is:
+
+- [ ] Root-layer reason propagation.
+- [ ] Ready-callback exclusivity tests.
+- [ ] Callback lifetime/quiescence tests.
+- [ ] Progress-domain assumption tests.
+- [ ] Capability-safe join/extraction tests.
+- [ ] Live N-way race after the root contracts are locked.

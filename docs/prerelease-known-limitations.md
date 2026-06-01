@@ -3,7 +3,7 @@
 The first preview is scoped to package consumption and build evidence in this
 repository.
 
-- Runtime proof and benchmark proof live in separate evidence artifacts.
+- Runtime and benchmark evidence live in separate release artifacts.
 - Module and import-std support remains sensitive to the compiler, standard
   library, and CMake import-std support. The preview support matrix is limited
   to the checked GCC 15, GCC 16, and Clang 21 lanes with CMake 4.2+ and Ninja.

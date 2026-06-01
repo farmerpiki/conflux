@@ -3,16 +3,16 @@
 `todo/proposal_state.md` is the source of truth for branch selection. Use
 `todo/parallel_priority_plan.md` only after checking proposal state.
 
-Implemented proposals stay in the repository only as rationale. Superseded
-proposals keep a short state note and link to the replacement, or move under
-`docs/archive/`. Completed TODO checklists should be collapsed to a short state
-note or archived when they no longer affect a current decision.
+Completed proposals and TODO files should be removed instead of retained as
+rationale-only planning records. If rationale still matters, move it into the
+current design/API document that owns the behavior. Superseded proposal files
+should not remain in `proposals/` or `todo/`.
 
 New implementation proposals must include:
 
 - `Status:`
 - `Branch:`
-- acceptance checks
+- checklist-style acceptance checks
 - the expected follow-up lane
 
 First-contact docs must not route new users through TODO or proposal files.

@@ -50,14 +50,13 @@ release lanes; GCC 16 is the current reflection lane.
 
 ## Evidence
 
-Runtime and benchmark proof belongs in release evidence or the separate proof
-repository, not as bulk logs in this source tree. Use
-`docs/releases/evidence-template.md` for small manifests.
+Runtime and benchmark evidence belongs in release artifacts, not as bulk logs in
+this source tree. Use `docs/releases/evidence-template.md` for small manifests.
 
-Final public proof capture is intentionally deferred until release-candidate
+Final public benchmark capture is intentionally deferred until release-candidate
 source freeze. During normal prerelease churn, this page describes the evidence
-contract only; it is not a performance claim and should not point at stale graphs
-from a source/API shape that will not be tagged.
+contract only; it is not a performance claim and should not point at stale
+graphs from a source/API shape that will not be tagged.
 
 ## Known Unsupported Areas
 
