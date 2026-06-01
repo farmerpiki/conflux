@@ -12,6 +12,8 @@ DocumentStorage::~DocumentStorage() noexcept {
 			ObjHashTable::destroy(n.hash_idx_raw);
 		}
 	}
+	string_arena.clear();
+	string_arena.shrink_to_fit();
 }
 
 void DocumentStorage::reset() noexcept {

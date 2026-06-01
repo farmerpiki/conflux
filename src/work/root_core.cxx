@@ -1134,6 +1134,8 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{std::move(success)});
+			hook_fn_ = nullptr;
+			active_child_cancel_.reset();
 			terminal_state_.store(TerminalState::success, std::memory_order_release);
 		}
 		cv_.notify_all();
@@ -1149,6 +1151,8 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Failure{error}});
+			hook_fn_ = nullptr;
+			active_child_cancel_.reset();
 			terminal_state_.store(TerminalState::failure, std::memory_order_release);
 		}
 		cv_.notify_all();
@@ -1168,6 +1172,8 @@ public:
 		{
 			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Cancelled{reason}});
+			hook_fn_ = nullptr;
+			active_child_cancel_.reset();
 			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
 		}
 		cv_.notify_all();

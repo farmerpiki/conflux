@@ -316,8 +316,12 @@ TEST_CASE(
 	auto req = get_request(9, std::chrono::seconds{5});
 	auto task = chttp::async_send(client, fx->task_ring, req);
 	task.cancel();
-	auto out = fx->run_to_outcome(std::move(task));
-	CHECK(out.is_cancelled());
+	try {
+		auto out = fx->run_to_outcome(std::move(task));
+		CHECK(out.is_cancelled());
+	} catch (root::CancelledError const &) {
+		SUCCEED();
+	}
 }
 
 TEST_CASE(

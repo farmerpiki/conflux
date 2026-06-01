@@ -730,6 +730,11 @@ void Ring::handle_send(
 		return;
 	}
 	auto &conn = fd_table[ufd];
+	if (res == -EAGAIN || res == -EINTR) {
+		conn.send_queued = false;
+		defer_queue_send_if_current(fd, conn.gen);
+		return;
+	}
 
 #if CONFLUX_HAS_TLS
 	// TLS path: track progress through tls_send_buf.

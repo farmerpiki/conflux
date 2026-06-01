@@ -2215,22 +2215,30 @@ public:
 			});
 	}
 
+	template<FixedString Path, class Args, std::size_t I>
+	static void record_inline_path_extractor(
+		AppRouteMetadata &meta) {
+		using Arg = std::tuple_element_t<I, Args>;
+		if constexpr (detail::InlinePathArg<Arg>) {
+			constexpr auto path_index = detail::inline_path_arg_index<Args, I>();
+			auto const params = detail::collect_path_params(Path.view());
+			auto label = std::string{"Path<"};
+			if (path_index < params.size()) {
+				label += params[path_index];
+			}
+			label += '>';
+			meta.extractors[I] = std::move(label);
+			meta.path_index_extractor_types.emplace_back(
+				path_index,
+				std::string{detail::route_type_tag<Arg>()});
+		}
+	}
+
 	template<FixedString Path, class Args, std::size_t... Is>
 	static void record_inline_path_extractors(
 		AppRouteMetadata &meta,
 		std::index_sequence<Is...>) {
-		(
-			[&] {
-				using Arg = std::tuple_element_t<Is, Args>;
-				if constexpr (detail::InlinePathArg<Arg>) {
-					constexpr auto path_index = detail::inline_path_arg_index<Args, Is>();
-					meta.extractors[Is] = std::format("Path<{}>", detail::fixed_path_param_name<Path, path_index>());
-					meta.path_index_extractor_types.emplace_back(
-						path_index,
-						std::string{detail::route_type_tag<Arg>()});
-				}
-			}(),
-			...);
+		(record_inline_path_extractor<Path, Args, Is>(meta), ...);
 	}
 
 	template<class Fn, class Args, class Indices>

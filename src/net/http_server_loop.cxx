@@ -700,6 +700,7 @@ void Ring::close_listen_socket() noexcept {
 		(void)direct_fds_->install(static_cast<std::uint32_t>(fd), -1);
 		listen_fixed = false;
 	}
+	(void)::shutdown(fd, SHUT_RDWR);
 	::close(fd);
 	listen_fd = -1;
 }
@@ -1034,6 +1035,10 @@ void Ring::handle_shutdown() {
 		bool const response_ready = response_send_ready(conn);
 		bool const response_pending = conn.request_in_progress || conn.send_queued || response_ready;
 		if (response_pending && finish_send) {
+			if (drain != nullptr && conn.request_in_progress && !conn.send_queued && !response_ready
+				&& conn.request_bytes > 0) {
+				drain->requests_finished.fetch_add(1, std::memory_order_relaxed);
+			}
 			conn.close_after_send = true;
 			conn.close_after_send_deadline =
 				drain != nullptr ? drain->deadline : now + shutdown_close_after_send_timeout;

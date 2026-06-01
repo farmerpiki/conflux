@@ -240,108 +240,25 @@ wroot::Task<bool> async_recv_chunked(
 		encoded.append(reinterpret_cast<char const *>(tmp.data()), n);
 	}
 }
-struct HappyConnectState {
-	std::atomic<bool> won{false};
-	std::atomic<bool> fast_fail{false};
-	std::atomic<bool> cancelled{false};
-	std::atomic<int> pending{0};
-	std::mutex m;
-	std::vector<wroot::TaskControl> attempts;
-	void register_attempt(
-		wroot::TaskControl c) {
-		std::optional<wroot::TaskControl> cancel_now;
-		{
-			std::lock_guard lk{m};
-			if (cancelled.load(std::memory_order_acquire)) {
-				cancel_now = c;
-			} else {
-				attempts.push_back(std::move(c));
-			}
-		}
-		if (cancel_now) {
-			auto _ = cancel_now->request_cancel();
-		}
-	}
-	void cancel_all() noexcept {
-		std::vector<wroot::TaskControl> copy;
-		{
-			std::lock_guard lk{m};
-			cancelled.store(true, std::memory_order_release);
-			copy = attempts;
-		}
-		for (auto &c: copy) {
-			auto _ = c.request_cancel();
-		}
-	}
-};
-wroot::Task<void> happy_attempt(
-	SocketTaskRing &ring,
-	int fam,
-	sockaddr_storage ss,
-	socklen_t addr_len,
-	ConnectOptions copts,
-	std::shared_ptr<HappyConnectState> hs,
-	std::shared_ptr<wroot::TaskSource<TcpStream>> winner_src) {
-	try {
-		auto connect_task = async_tcp_connect(ring, fam, ss, addr_len, copts);
-		hs->register_attempt(connect_task.control());
-		auto s = co_await std::move(connect_task);
-		bool won = false;
-		if (hs->won.compare_exchange_strong(won, true, std::memory_order_acq_rel)) {
-			auto _ = winner_src->try_set_value(wroot::Success<TcpStream>{std::move(s)});
-		}
-	} catch (wroot::CancelledError const &) {
-	} catch (...) { hs->fast_fail.store(true, std::memory_order_release); }
-	int const left = hs->pending.fetch_sub(1, std::memory_order_acq_rel) - 1;
-	if (left == 0 && !hs->won.load(std::memory_order_acquire) && !hs->cancelled.load(std::memory_order_acquire)) {
-		auto _ = winner_src->try_set_exception(
-			std::make_exception_ptr(IoError{ECONNREFUSED, "connect: all endpoints failed"}));
-	}
-}
 wroot::Task<TcpStream> staggered_parallel_connect(
 	SocketTaskRing &ring,
 	std::vector<client_dns_bridge::Endpoint> const &endpoints,
 	ConnectOptions copts) {
-	constexpr std::chrono::milliseconds kStagger{250};
-	auto hs = std::make_shared<HappyConnectState>();
-	hs->pending.store(static_cast<int>(endpoints.size()), std::memory_order_relaxed);
-	auto [task, winner_src] =
-		wroot::make_shared_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
-	std::weak_ptr<wroot::TaskSource<TcpStream>> weak_src{winner_src};
-	auto _ = winner_src->install_cancel_hook([hs, weak_src](wroot::CancelReason) noexcept {
-		hs->cancel_all();
-		if (auto src = weak_src.lock()) {
-			auto _ = src->try_set_cancelled();
-		}
-	});
-	for (std::size_t i = 0; i < endpoints.size(); ++i) {
-		if (hs->cancelled.load(std::memory_order_acquire)) {
-			break;
-		}
-		auto const &ep = endpoints[i];
+	std::exception_ptr last_error;
+	for (auto const &ep: endpoints) {
 		sockaddr_storage ss{};
 		memcpy(&ss, ep.addr, ep.addr_len);
 		int const fam = (ep.family == 6) ? AF_INET6 : AF_INET;
-		happy_attempt(ring, fam, ss, static_cast<socklen_t>(ep.addr_len), copts, hs, winner_src).detach();
-		if (i + 1 < endpoints.size()) {
-			hs->fast_fail.store(false, std::memory_order_relaxed);
-			auto const t_stagger = std::chrono::steady_clock::now() + kStagger;
-			while (!hs->fast_fail.load(std::memory_order_acquire)
-				   && !hs->won.load(std::memory_order_acquire)
-				   && !hs->cancelled.load(std::memory_order_acquire)) {
-				auto const now = std::chrono::steady_clock::now();
-				if (now >= t_stagger) {
-					break;
-				}
-				auto const rem = std::chrono::ceil<std::chrono::milliseconds>(t_stagger - now);
-				co_await async_sleep_for(ring, std::min(std::chrono::milliseconds{10}, rem));
-			}
-			if (hs->won.load(std::memory_order_acquire) || hs->cancelled.load(std::memory_order_acquire)) {
-				break;
-			}
+		try {
+			co_return co_await async_tcp_connect(ring, fam, ss, static_cast<socklen_t>(ep.addr_len), copts);
+		} catch (wroot::CancelledError const &) { throw; } catch (...) {
+			last_error = std::current_exception();
 		}
 	}
-	co_return co_await std::move(task);
+	if (last_error) {
+		std::rethrow_exception(last_error);
+	}
+	throw IoError{ECONNREFUSED, "connect: all endpoints failed"};
 }
 wroot::Task<ClientResult> do_async_request(
 	SocketTaskRing &ring,
@@ -426,6 +343,7 @@ wroot::Task<ClientResult> do_async_request(
 		throw;
 	} catch (IoError const &e) {
 		cancel->clear_active();
+		cancel->throw_if_cancelled();
 		co_return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::connect,
@@ -770,6 +688,10 @@ wroot::Task<void> run_async_request_driver(
 		ClientRequest current = req;
 		HttpTelemetry total_tel{};
 		for (;;) {
+			if (cancel->is_cancelled()) {
+				auto _ = src->try_set_cancelled();
+				break;
+			}
 			auto result = co_await do_async_request(ring, current, opts, cancel);
 			if (!result) {
 				auto _ = src->try_set_value(wroot::Success<ClientResult>{std::move(result)});
@@ -803,12 +725,8 @@ namespace conflux::http {
 	namespace wroot = conflux::work::root;
 	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto cancel = std::make_shared<conflux::net::detail::ActiveTaskCancelRelay>();
-	std::weak_ptr<wroot::TaskSource<ClientResult>> weak_src{src};
-	auto _ = src->install_cancel_hook([cancel, weak_src](wroot::CancelReason) noexcept {
+	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept {
 		cancel->cancel();
-		if (auto src = weak_src.lock()) {
-			auto _ = src->try_set_cancelled();
-		}
 	});
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
 	std::move(driver).detach();

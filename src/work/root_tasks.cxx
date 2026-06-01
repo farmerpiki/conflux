@@ -206,6 +206,12 @@ public:
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
 	}
+	void set_spawn_location(
+		std::source_location loc) noexcept {
+		if (state_) {
+			state_->set_spawn_location(loc);
+		}
+	}
 	void cancel(
 		CancelReason reason = CancelReason::requested) noexcept {
 		if (state_js_ != join_state::empty) {
@@ -417,9 +423,7 @@ template<class Fn>
 	Fn &&fn,
 	std::source_location loc = std::source_location::current()) -> std::invoke_result_t<Fn> {
 	auto task = std::invoke(std::forward<Fn>(fn));
-	if (task.state_) {
-		task.state_->set_spawn_location(loc);
-	}
+	task.set_spawn_location(loc);
 	return task;
 }
 // spawn_strict: like spawn but returns JoinTask<T> (dtor → terminate).
