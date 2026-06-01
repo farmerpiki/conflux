@@ -4335,6 +4335,25 @@ template<class T, std::size_t I>
 }
 
 template<class T, std::size_t I = 0>
+[[nodiscard]] inline bool fp_match_member_key_by_index(
+	std::size_t idx,
+	FpCursor &c,
+	std::size_t max_string,
+	bool *consumed_colon) noexcept {
+	constexpr std::size_t N =
+		std::tuple_size_v<std::remove_cvref_t<decltype(conflux::json::JsonMembers<T>::members())>>;
+	if constexpr (I >= N) {
+		return false;
+	} else {
+		if (idx == I) {
+			auto const members = conflux::json::JsonMembers<T>::members();
+			return fp_match_plain_key(c, jm_member(get<I>(members)).name, max_string, consumed_colon);
+		}
+		return fp_match_member_key_by_index<T, I + 1U>(idx, c, max_string, consumed_colon);
+	}
+}
+
+template<class T, std::size_t I = 0>
 [[nodiscard]] inline FpStatus fp_decode_member_by_index(
 	std::size_t idx,
 	T &out,
@@ -4456,7 +4475,8 @@ template<class T>
 		}
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& fp_match_plain_key(c, meta[static_cast<std::size_t>(predicted)].name, lim.max_string, &consumed_colon))
+			&& fp_match_member_key_by_index<T>(
+				static_cast<std::size_t>(predicted), c, lim.max_string, &consumed_colon))
 			[[likely]] {
 			idx = static_cast<std::size_t>(predicted);
 			key_name = meta[idx].name;
