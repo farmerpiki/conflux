@@ -1139,6 +1139,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpLifecycleTests.cmake",
         "tests/HttpParseHelpersTests.cmake",
         "tests/HttpResponseTests.cmake",
+        "tests/HttpRouterDispatchTests.cmake",
         "tests/HttpRouterMatchTests.cmake",
         "tests/HttpServerHelpersTests.cmake",
         "tests/HttpStaticCoreTests.cmake",
@@ -1661,6 +1662,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpServerHelpersTests.cmake")': "tests CMake must include the HTTP server helpers test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpParseHelpersTests.cmake")': "tests CMake must include the HTTP parse helpers test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpStaticCoreTests.cmake")': "tests CMake must include the HTTP static core test fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterDispatchTests.cmake")': "tests CMake must include the HTTP router dispatch test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterMatchTests.cmake")': "tests CMake must include the HTTP router match test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
@@ -1753,6 +1755,11 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_http_static_core_compile_fail_global_static_request": "HTTP static core test fragment must keep static request compile-fail check",
             "conflux_http_static_core_compile_fail_global_static_cache_store": "HTTP static core test fragment must keep static cache store compile-fail check",
             "conflux_http_static_core_compile_fail_global_normalize_static_path": "HTTP static core test fragment must keep normalize static path compile-fail check",
+        },
+        "tests/HttpRouterDispatchTests.cmake": {
+            "conflux_http_router_dispatch_compile_fail_global_deferred_task_options": "HTTP router dispatch test fragment must keep deferred task options compile-fail check",
+            "conflux_http_router_dispatch_compile_fail_global_dispatch_sync_routes": "HTTP router dispatch test fragment must keep dispatch sync routes compile-fail check",
+            "conflux_http_router_dispatch_compile_fail_global_router_run_async_http_task": "HTTP router dispatch test fragment must keep router async task compile-fail check",
         },
         "tests/HttpRouterMatchTests.cmake": {
             "conflux_http_router_match_compile_fail_global_segment": "HTTP router match test fragment must keep segment compile-fail check",
