@@ -1047,7 +1047,7 @@ def check_cmake_extraction_contracts() -> None:
             "GCC 15 currently ICEs": "compiler workaround must keep its GCC ICE motivation",
             "GNU release builds have needed this fallback for the HTTP send": "HTTP server compiler workaround must keep its GNU release-build motivation",
         },
-        "tests/CMakeLists.txt": {
+        "tests/HttpFacadeTests.cmake": {
             'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
         },
         "benchmarks/CMakeLists.txt": {
@@ -1139,6 +1139,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpCompressionTests.cmake",
         "tests/HttpAuthTests.cmake",
         "tests/HttpCoreTests.cmake",
+        "tests/HttpFacadeTests.cmake",
         "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
         "tests/HttpObservabilityTests.cmake",
@@ -1670,6 +1671,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCompressionTests.cmake")': "tests CMake must include the HTTP compression test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpAuthTests.cmake")': "tests CMake must include the HTTP auth test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpFacadeTests.cmake")': "tests CMake must include the HTTP facade test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpJsonTests.cmake")': "tests CMake must include the HTTP JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpObservabilityTests.cmake")': "tests CMake must include the HTTP observability test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
@@ -1775,6 +1777,17 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_http_core_tests)": "HTTP core test fragment must define HTTP core tests",
             "conflux_http_core_compile_fail_global_request": "HTTP core test fragment must keep request compile-fail check",
             "conflux_http_core_compile_fail_global_http_fields_view": "HTTP core test fragment must keep fields view compile-fail check",
+        },
+        "tests/HttpFacadeTests.cmake": {
+            "add_executable(conflux_http_facade_tests http_facade_test.cxx)": "HTTP facade test fragment must define facade tests",
+            "add_executable(conflux_http_facade_import_smoke http_facade_import_smoke.cxx)": "HTTP facade test fragment must define import smoke",
+            "add_library(conflux_http_facade_api_snapshot OBJECT http_facade_api_snapshot.cxx)": "HTTP facade test fragment must define API snapshot",
+            "conflux_http_facade_compile_fail_raw_string": "HTTP facade test fragment must keep raw string compile-fail check",
+            "conflux_http_facade_compile_fail_global_config": "HTTP facade test fragment must keep config compile-fail check",
+            "conflux_http_facade_compile_fail_router_alias": "HTTP facade test fragment must keep router alias compile-fail check",
+            "conflux_http_router_compile_fail_global_router": "HTTP facade test fragment must keep router compile-fail checks",
+            "conflux_http_router_static_compile_fail_global_static_route_handler": "HTTP facade test fragment must keep router static compile-fail checks",
+            "conflux_http_static_compile_fail_global_static_options": "HTTP facade test fragment must keep static options compile-fail check",
         },
         "tests/HttpJsonTests.cmake": {
             "add_executable(conflux_http_json_tests http_json_test.cxx)": "HTTP JSON test fragment must define JSON tests",
