@@ -13,14 +13,12 @@ python3 - "$SOURCE_DIR/CMakePresets.json" <<'PY'
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 path = Path(sys.argv[1])
 source_dir = path.parent.resolve()
-build_dir_helper = source_dir / "scripts" / "cmake-preset-build-dir.py"
 data: dict[str, Any] = json.loads(path.read_text())
 configure = {p["name"]: p for p in data.get("configurePresets", [])}
 build = {p["name"]: p for p in data.get("buildPresets", [])}
@@ -49,6 +47,44 @@ def merged_cache(name: str, stack: tuple[str, ...] = ()) -> dict[str, str]:
             value = value.get("value", "")
         out[key] = str(value)
     return out
+
+def inherited_field(name: str, field: str, stack: tuple[str, ...] = ()) -> str:
+    if name in stack:
+        errors.append(f"configure preset inheritance cycle: {' -> '.join(stack + (name,))}")
+        return ""
+    preset = configure.get(name)
+    if preset is None:
+        errors.append(f"missing configure preset: {name}")
+        return ""
+
+    value = preset.get(field)
+    if value is not None:
+        if not isinstance(value, str):
+            errors.append(f"{name}: expected string {field}, got {type(value).__name__}")
+            return ""
+        return value
+
+    parents = preset.get("inherits", [])
+    if isinstance(parents, str):
+        parents = [parents]
+    for parent in parents:
+        value = inherited_field(parent, field, stack + (name,))
+        if value:
+            return value
+    return ""
+
+def expanded_binary_dir(name: str) -> str:
+    template = inherited_field(name, "binaryDir")
+    replacements = {
+        "${sourceDir}": str(source_dir),
+        "${sourceParentDir}": str(source_dir.parent),
+        "${sourceDirName}": source_dir.name,
+        "${presetName}": name,
+        "${fileDir}": str(source_dir),
+    }
+    for needle, value in replacements.items():
+        template = template.replace(needle, value)
+    return template
 
 def require_build_preset(name: str) -> None:
     bp = build.get(name)
@@ -124,17 +160,8 @@ check_pgo("pgo-use-gcc16-stdcxx", generate=False, clang=False)
 for name, preset in sorted(configure.items()):
     if preset.get("hidden"):
         continue
-    result = subprocess.run(
-        [sys.executable, str(build_dir_helper), str(source_dir), name],
-        check=False,
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        errors.append(f"{name}: {result.stderr.strip() or result.stdout.strip()}")
-        continue
     expected = f"/tmp/{source_dir.name}/{name}"
-    actual = result.stdout.strip()
+    actual = expanded_binary_dir(name)
     if actual != expected:
         errors.append(f"{name}: expected binaryDir {expected}, got {actual}")
 

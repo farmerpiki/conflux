@@ -1068,6 +1068,9 @@ def check_cmake_extraction_contracts() -> None:
         "tests/CMakeLists.txt": {
             "set_target_properties(conflux_http_facade_tests PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)": "HTTP facade GCC LTO fallback must not disable IPO for the whole test target",
         },
+        "scripts/check-optimized-presets.sh": {
+            "subprocess": "optimized preset guard must not shell out once per preset",
+        },
     }
     errors: list[str] = []
     for path, markers in checks.items():
@@ -1926,6 +1929,11 @@ def check_build_docs_guard_contracts() -> None:
         "scripts/check-cmake-preset-build-dir.py": {
             "cyclic preset includes must be rejected": "CMake preset build-dir helper guard must cover cyclic include rejection",
             "cyclic preset inheritance must be rejected": "CMake preset build-dir helper guard must cover cyclic inheritance rejection",
+        },
+        "scripts/check-optimized-presets.sh": {
+            "def inherited_field": "optimized preset guard must resolve inherited fields in-process",
+            "def expanded_binary_dir": "optimized preset guard must derive binary dirs without per-preset subprocesses",
+            "actual = expanded_binary_dir(name)": "optimized preset guard must validate binary dirs in-process",
         },
     }
     errors: list[str] = []
