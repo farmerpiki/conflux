@@ -306,30 +306,12 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 	return endpoints;
 }
 
-wroot::Task<ClientResult> do_async_request(
+wroot::Task<std::expected<TcpStream, HttpError>> connect_client_stream(
 	SocketTaskRing &ring,
-	ClientRequest const &req,
-	HttpClientOptions const &opts,
+	std::vector<client_dns_bridge::Endpoint> const &endpoints,
+	ConnectOptions copts,
+	Url const &url,
 	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
-	auto const &url = req.url();
-	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
-	HttpTelemetry tel{};
-	auto const t0 = std::chrono::steady_clock::now();
-	cancel->throw_if_cancelled();
-	auto endpoints = resolve_client_endpoints(url, opts, timeouts.resolve);
-	tel.dns = std::chrono::steady_clock::now() - t0;
-	cancel->throw_if_cancelled();
-	if (endpoints.empty()) {
-		co_return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::dns,
-				.phase = HttpPhase::resolve,
-				.message = std::format("failed to resolve '{}'", url.host)});
-	}
-	ConnectOptions copts{};
-	copts.timeout = timeouts.connect;
-	cancel->throw_if_cancelled();
-	auto const t1 = std::chrono::steady_clock::now();
 	TcpStream stream;
 	try {
 		auto connect_task = staggered_parallel_connect(ring, endpoints, copts);
@@ -357,6 +339,38 @@ wroot::Task<ClientResult> do_async_request(
 				.phase = HttpPhase::connect,
 				.message = std::format("connect to '{}:{}' failed", url.host, url.port)});
 	}
+	co_return stream;
+}
+
+wroot::Task<ClientResult> do_async_request(
+	SocketTaskRing &ring,
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
+	auto const &url = req.url();
+	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
+	HttpTelemetry tel{};
+	auto const t0 = std::chrono::steady_clock::now();
+	cancel->throw_if_cancelled();
+	auto endpoints = resolve_client_endpoints(url, opts, timeouts.resolve);
+	tel.dns = std::chrono::steady_clock::now() - t0;
+	cancel->throw_if_cancelled();
+	if (endpoints.empty()) {
+		co_return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::dns,
+				.phase = HttpPhase::resolve,
+				.message = std::format("failed to resolve '{}'", url.host)});
+	}
+	ConnectOptions copts{};
+	copts.timeout = timeouts.connect;
+	cancel->throw_if_cancelled();
+	auto const t1 = std::chrono::steady_clock::now();
+	auto connected = co_await connect_client_stream(ring, endpoints, copts, url, cancel);
+	if (!connected) {
+		co_return std::unexpected(std::move(connected).error());
+	}
+	auto stream = std::move(*connected);
 	cancel->throw_if_cancelled();
 	tel.connect = std::chrono::steady_clock::now() - t1;
 	bool const is_tls = (url.scheme == "https");
