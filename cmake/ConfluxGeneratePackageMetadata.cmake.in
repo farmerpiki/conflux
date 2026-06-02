@@ -1,3 +1,6 @@
+cmake_policy(PUSH)
+cmake_policy(SET CMP0057 NEW)
+
 set(_conflux_install_prefix "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 set(_conflux_package_dir
     "${_conflux_install_prefix}/@CMAKE_INSTALL_LIBDIR@/cmake/conflux")
@@ -276,3 +279,5 @@ foreach(_component IN LISTS _conflux_all_components)
     file(APPEND "${_external_file}"
         "set(_conflux_component_external_deps_${_component} \"${_conflux_external_${_component}}\")\n")
 endforeach()
+
+cmake_policy(POP)

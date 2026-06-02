@@ -1939,6 +1939,9 @@ def check_build_docs_guard_contracts() -> None:
 def check_package_metadata_generator_contract() -> None:
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
     required_markers = {
+        "cmake_policy(PUSH)": "package metadata generator must scope CMake policy changes",
+        "cmake_policy(SET CMP0057 NEW)": "package metadata generator must enable IN_LIST in install-script mode",
+        "cmake_policy(POP)": "package metadata generator must restore CMake policy state",
         "function(_conflux_validate_parallel_lists components targets label)": "package metadata generator must validate component/target list pairing",
         "component/target lists differ in length": "package metadata generator must reject mismatched component/target lists",
         "is listed more than once": "package metadata generator must reject duplicate component/target list entries",
