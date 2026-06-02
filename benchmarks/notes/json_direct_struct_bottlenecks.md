@@ -45,11 +45,12 @@ binary, not for publishing allocator-independent memory claims.
 ```sh
 cmake --preset perf-clang-libcxx
 cmake --build --preset perf-clang-libcxx --target conflux_json_direct_struct_bench
+PERF_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" perf-clang-libcxx)"
 
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'order/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'duplicate/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'numeric/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'strings/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'order/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'duplicate/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'numeric/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'strings/'
 ```
 
 For bottleneck attribution, run the same filters through `perf stat` and symbol
