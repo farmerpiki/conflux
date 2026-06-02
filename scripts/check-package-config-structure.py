@@ -1348,6 +1348,7 @@ def check_package_smoke_project_contract() -> None:
         "CONFLUX_API_SURFACE_LEVEL != CONFLUX_API_SURFACE_": "package smoke must compile-check installed API-surface macros",
         "expected_api_surface=${CONFLUX_PACKAGE_SMOKE_API_SURFACE}": "package smoke summary must report expected API surface",
         "conflux_apply_package_smoke_build_policy": "package smoke targets must apply fast-compile policy",
+        "conflux_link_package_smoke_base_targets": "package smoke targets must centralize common base target links",
         "CXX_SCAN_FOR_MODULES OFF": "header package smoke must disable module scanning for header targets",
         "found unrequested visible target": "package smoke must reject unrequested visible targets",
         "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}": "package smoke summary must report runtime/liburing status",
