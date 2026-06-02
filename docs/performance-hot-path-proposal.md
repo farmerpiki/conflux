@@ -168,24 +168,24 @@ corroboration is needed.
 BENCH=file_copy_coro
 TARGET=conflux_file_copy_coro_bench
 PRESET=release-clang-libcxx
+BASE_SRC=/tmp/conflux-src-base
+CAND_SRC=/tmp/conflux-src-cand
+BASE_BUILD_DIR="$(python3 "$BASE_SRC/scripts/cmake-preset-build-dir.py" "$BASE_SRC" "$PRESET")"
+CAND_BUILD_DIR="$(python3 "$CAND_SRC/scripts/cmake-preset-build-dir.py" "$CAND_SRC" "$PRESET")"
 
-cmake --preset "$PRESET" \
-  -S /tmp/conflux-src-base \
-  -B "/tmp/conflux-base/$PRESET"
-cmake --build "/tmp/conflux-base/$PRESET" --target "$TARGET"
+cmake --preset "$PRESET" -S "$BASE_SRC"
+cmake --build "$BASE_BUILD_DIR" --target "$TARGET"
 
-cmake --preset "$PRESET" \
-  -S /tmp/conflux-src-cand \
-  -B "/tmp/conflux-cand/$PRESET"
-cmake --build "/tmp/conflux-cand/$PRESET" --target "$TARGET"
+cmake --preset "$PRESET" -S "$CAND_SRC"
+cmake --build "$CAND_BUILD_DIR" --target "$TARGET"
 ```
 
 Compare each logical benchmark independently:
 
 ```sh
 BENCH_REPS=9 BENCH_PIN_CPUS=0-3 scripts/compare_bins_by_bench.sh --yes \
-  --dir "base-$PRESET:/tmp/conflux-base/$PRESET" \
-  --dir "cand-$PRESET:/tmp/conflux-cand/$PRESET" \
+  --dir "base-$PRESET:$BASE_BUILD_DIR" \
+  --dir "cand-$PRESET:$CAND_BUILD_DIR" \
   "$BENCH"
 ```
 
@@ -230,7 +230,7 @@ that compiler/preset pair, clean up its build roots before starting the next
 pair:
 
 ```sh
-rm -rf "/tmp/conflux-base/$PRESET" "/tmp/conflux-cand/$PRESET"
+rm -rf "$BASE_BUILD_DIR" "$CAND_BUILD_DIR"
 ```
 
 Acceptance rule:
