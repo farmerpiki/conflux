@@ -43,6 +43,10 @@ def shell_semicolon_flag_value(text: str, flag: str) -> set[str]:
     return {item for item in match.group(1).split(";") if item}
 
 
+def shell_flag_present(text: str, flag: str) -> bool:
+    return re.search(rf"(^|[ \t\\]){re.escape(flag)}([ \t\\\n]|$)", text) is not None
+
+
 def shell_pkg_config_exists_probes(text: str) -> set[str]:
     return set(re.findall(r"pkg-config\s+--exists\s+([A-Za-z0-9_.+-]+)", text))
 
@@ -1359,9 +1363,6 @@ def check_package_smoke_wrapper_contracts() -> None:
         "scripts/check-package-smoke-core-isolated.sh": {
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
         },
-        "scripts/check-package-smoke-db.sh": {
-            "--enable-db-smoke": "DB package smoke must enable DB component checks",
-        },
     }
     errors: list[str] = []
     for path, markers in checks.items():
@@ -1392,6 +1393,8 @@ def check_package_smoke_wrapper_contracts() -> None:
     for package in ["libpq", "liburing"]:
         if package not in db_pkg_config_probes:
             errors.append(f"DB package smoke must gate on {package}")
+    if not shell_flag_present(read("scripts/check-package-smoke-db.sh"), "--enable-db-smoke"):
+        errors.append("DB package smoke must enable DB component checks")
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
     core_forbidden = shell_semicolon_flag_value(core_isolated, "--forbid-components")
     expected_core_forbidden = {
