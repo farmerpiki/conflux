@@ -1632,9 +1632,8 @@ def check_install_and_dependency_contracts() -> None:
 def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
+            'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
-            "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
-            "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
         },
         "tests/BuildAndDocsChecks.cmake": {
             "function(conflux_add_python_check test_name script_path labels)": "build/docs CTest fragment must centralize simple Python checks",
@@ -1652,6 +1651,13 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_add_python_check(docs/release-docs": "missing release-docs CTest guard",
             "conflux_add_python_check(docs/package-docs": "missing package-docs CTest guard",
             "conflux_add_python_check(docs/release-notes": "missing release-notes CTest guard",
+        },
+        "tests/TestHelpers.cmake": {
+            "function(conflux_catch_extra_args out_var)": "test helper fragment must centralize Catch discovery arguments",
+            "function(conflux_add_compile_fail_test)": "test helper fragment must centralize compile-fail target registration",
+            "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
+            "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
+            "function(conflux_discover_db_integration_tests target)": "test helper fragment must centralize DB integration discovery",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
