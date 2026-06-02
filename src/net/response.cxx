@@ -13,13 +13,12 @@ export import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.http.realtime;
 
-namespace conflux::http {
+export namespace conflux::http::detail {
 
-[[nodiscard]] std::string response_html_escape(
-	std::string_view s) {
-	std::string out;
-	out.reserve(s.size());
-	for (char const c: s) {
+void append_html_escaped(
+	std::string &out,
+	std::string_view value) {
+	for (char const c: value) {
 		switch (c) {
 		case '&' : out += "&amp;"; break;
 		case '<' : out += "&lt;"; break;
@@ -29,8 +28,19 @@ namespace conflux::http {
 		default  : out += c; break;
 		}
 	}
+}
+
+[[nodiscard]] std::string html_escaped(
+	std::string_view value) {
+	std::string out;
+	out.reserve(value.size());
+	append_html_escaped(out, value);
 	return out;
 }
+
+} // namespace conflux::http::detail
+
+namespace conflux::http {
 
 [[nodiscard]] std::string response_html_error_body(
 	int status,
@@ -38,7 +48,7 @@ namespace conflux::http {
 	std::string_view detail = {}) {
 	auto body = std::format("<html><body><h1>{} {}</h1>", status, status_text);
 	if (!detail.empty()) {
-		body += std::format("<p>{}</p>", response_html_escape(detail));
+		body += std::format("<p>{}</p>", conflux::http::detail::html_escaped(detail));
 	}
 	body += "</body></html>";
 	return body;

@@ -3271,6 +3271,7 @@ TEST_CASE(
 		::close(wfd);
 	};
 	write_file("alpha.txt", "a");
+	write_file("a&b<q\".txt", "escaped");
 	write_file("beta.html", "b");
 
 	conflux::http::Router router;
@@ -3286,11 +3287,13 @@ TEST_CASE(
 	REQUIRE(body_start != std::string::npos);
 	auto body = resp.substr(body_start + 4);
 	REQUIRE(body.find("alpha.txt") != std::string::npos);
+	REQUIRE(body.find("a&amp;b&lt;q&quot;.txt") != std::string::npos);
 	REQUIRE(body.find("beta.html") != std::string::npos);
 	REQUIRE(body.find("<ul>") != std::string::npos);
 
 	srv.stop();
 	::unlink((std::string{tmpdir} + "/alpha.txt").c_str());
+	::unlink((std::string{tmpdir} + "/a&b<q\".txt").c_str());
 	::unlink((std::string{tmpdir} + "/beta.html").c_str());
 	::rmdir(tmpdir);
 }

@@ -71,21 +71,6 @@ struct StaticDir {
 	[[nodiscard]] explicit operator bool() const noexcept { return dir != nullptr; }
 };
 
-void append_static_html_escape(
-	std::string &out,
-	std::string_view s) {
-	for (char const c: s) {
-		switch (c) {
-		case '&' : out += "&amp;"; break;
-		case '<' : out += "&lt;"; break;
-		case '>' : out += "&gt;"; break;
-		case '"' : out += "&quot;"; break;
-		case '\'': out += "&#39;"; break;
-		default  : out += c; break;
-		}
-	}
-}
-
 template<typename T>
 void append_static_hex(
 	std::string &out,
@@ -474,9 +459,9 @@ void add_static_cached_headers(
 	std::string html;
 	html.reserve(128 + file_param.size() * 2);
 	html += "<html><head><title>Index of ";
-	append_static_html_escape(html, file_param);
+	conflux::http::detail::append_html_escaped(html, file_param);
 	html += "</title></head><body><h1>Index of ";
-	append_static_html_escape(html, file_param);
+	conflux::http::detail::append_html_escaped(html, file_param);
 	html += "</h1><ul>";
 	if (!file_param.empty() && file_param != "/") {
 		html += "<li><a href=\"../\">..</a></li>";
@@ -496,7 +481,7 @@ void add_static_cached_headers(
 		html += "<li><a href=\"";
 		conflux::http::append_url_percent_encoded(html, name);
 		html += "\">";
-		append_static_html_escape(html, name);
+		conflux::http::detail::append_html_escaped(html, name);
 		html += "</a></li>";
 	}
 	html += "</ul></body></html>";
