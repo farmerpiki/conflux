@@ -254,7 +254,8 @@ elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
     set(CONFLUX_IMPORT_STD_ENABLED ON)
 endif()
 
-function(conflux_apply_std_module_source_options)
+if(CONFLUX_IMPORT_STD_ENABLED)
+    set(CMAKE_CXX_MODULE_STD ON)
     if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "${CMAKE_CXX_STDLIB_MODULES_JSON}")
         set(_conflux_apply_reflection_options ON)
     else()
@@ -265,38 +266,32 @@ function(conflux_apply_std_module_source_options)
     else()
         set(_conflux_apply_clang_std_module_options OFF)
     endif()
-    if(NOT _conflux_apply_reflection_options AND NOT _conflux_apply_clang_std_module_options)
-        return()
-    endif()
 
-    cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
-    file(READ "${CMAKE_CXX_STDLIB_MODULES_JSON}" _conflux_std_modules_json)
-    string(JSON _conflux_std_modules_count LENGTH "${_conflux_std_modules_json}" modules)
-    if(_conflux_std_modules_count GREATER 0)
-        math(EXPR _conflux_std_modules_last "${_conflux_std_modules_count} - 1")
-        foreach(_conflux_std_module_index RANGE 0 ${_conflux_std_modules_last})
-            string(JSON _conflux_std_module_source
-                GET "${_conflux_std_modules_json}" modules ${_conflux_std_module_index} source-path)
-            cmake_path(ABSOLUTE_PATH _conflux_std_module_source
-                BASE_DIRECTORY "${_conflux_std_modules_dir}"
-                OUTPUT_VARIABLE _conflux_std_module_source_abs)
-            if(_conflux_apply_reflection_options)
-                set_source_files_properties(
-                    "${_conflux_std_module_source_abs}"
-                    PROPERTIES COMPILE_OPTIONS "${CONFLUX_REFLECTION_COMPILE_OPTIONS}")
-            endif()
-            if(_conflux_apply_clang_std_module_options)
-                set_property(
-                    SOURCE "${_conflux_std_module_source_abs}"
-                    APPEND PROPERTY COMPILE_OPTIONS -Wno-reserved-module-identifier)
-            endif()
-        endforeach()
+    if(_conflux_apply_reflection_options OR _conflux_apply_clang_std_module_options)
+        cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
+        file(READ "${CMAKE_CXX_STDLIB_MODULES_JSON}" _conflux_std_modules_json)
+        string(JSON _conflux_std_modules_count LENGTH "${_conflux_std_modules_json}" modules)
+        if(_conflux_std_modules_count GREATER 0)
+            math(EXPR _conflux_std_modules_last "${_conflux_std_modules_count} - 1")
+            foreach(_conflux_std_module_index RANGE 0 ${_conflux_std_modules_last})
+                string(JSON _conflux_std_module_source
+                    GET "${_conflux_std_modules_json}" modules ${_conflux_std_module_index} source-path)
+                cmake_path(ABSOLUTE_PATH _conflux_std_module_source
+                    BASE_DIRECTORY "${_conflux_std_modules_dir}"
+                    OUTPUT_VARIABLE _conflux_std_module_source_abs)
+                if(_conflux_apply_reflection_options)
+                    set_source_files_properties(
+                        "${_conflux_std_module_source_abs}"
+                        PROPERTIES COMPILE_OPTIONS "${CONFLUX_REFLECTION_COMPILE_OPTIONS}")
+                endif()
+                if(_conflux_apply_clang_std_module_options)
+                    set_property(
+                        SOURCE "${_conflux_std_module_source_abs}"
+                        APPEND PROPERTY COMPILE_OPTIONS -Wno-reserved-module-identifier)
+                endif()
+            endforeach()
+        endif()
     endif()
-endfunction()
-
-if(CONFLUX_IMPORT_STD_ENABLED)
-    set(CMAKE_CXX_MODULE_STD ON)
-    conflux_apply_std_module_source_options()
 else()
     set(CMAKE_CXX_MODULE_STD OFF)
 endif()

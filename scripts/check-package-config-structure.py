@@ -77,7 +77,11 @@ def check_no_legacy_mock_liburing_refs() -> None:
         Path("benchmarks"),
         Path("fuzz"),
     ]
-    pattern = re.compile(r"CONFLUX_(?:USE_MOCK_LIBURING|MOCK_LIBURING_ROOT)")
+    legacy_suffixes = (
+        "USE" + "_MOCK_LIBURING",
+        "MOCK" + "_LIBURING_ROOT",
+    )
+    pattern = re.compile(r"CONFLUX_(?:" + "|".join(re.escape(suffix) for suffix in legacy_suffixes) + r")")
     hits: list[str] = []
     for root in roots:
         paths = [root] if root.is_file() else root.rglob("*")
