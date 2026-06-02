@@ -374,6 +374,25 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 	co_return std::nullopt;
 }
 
+template<typename T>
+wroot::Task<std::expected<std::string, HttpError>> receive_http1_response_head(
+	T &stream,
+	std::size_t max_header_bytes,
+	TP first_byte_deadline) {
+	try {
+		co_return co_await async_recv_until(stream, "\r\n\r\n", max_header_bytes + 4096, first_byte_deadline);
+	} catch (wroot::CancelledError const &) {
+		throw;
+	} catch (IoError const &e) {
+		co_return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::first_byte,
+				.os_errno = e.code().value(),
+				.message = "timed out waiting for response headers"});
+	}
+}
+
 [[nodiscard]] std::vector<client_dns_bridge::Endpoint> resolve_client_endpoints(
 	Url const &url,
 	HttpClientOptions const &opts,
@@ -581,24 +600,23 @@ wroot::Task<ClientResult> do_async_request(
 	TP const first_byte_dl = timeouts.first_byte.count() > 0 ? t2 + timeouts.first_byte : TP::max();
 	cancel->throw_if_cancelled();
 	std::string raw;
-	try {
 #if CONFLUX_HAS_TLS
-		if (tls_stream) {
-			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			raw = co_await async_recv_until(tr, "\r\n\r\n", max_hdr + 4096, first_byte_dl);
-		} else
-#endif
-		{
-			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			raw = co_await async_recv_until(pr, "\r\n\r\n", max_hdr + 4096, first_byte_dl);
+	if (tls_stream) {
+		TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
+		auto received_head = co_await receive_http1_response_head(tr, max_hdr, first_byte_dl);
+		if (!received_head) {
+			co_return std::unexpected(std::move(received_head).error());
 		}
-	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
-		co_return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::read,
-				.phase = HttpPhase::first_byte,
-				.os_errno = e.code().value(),
-				.message = "timed out waiting for response headers"});
+		raw = std::move(*received_head);
+	} else
+#endif
+	{
+		PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
+		auto received_head = co_await receive_http1_response_head(pr, max_hdr, first_byte_dl);
+		if (!received_head) {
+			co_return std::unexpected(std::move(received_head).error());
+		}
+		raw = std::move(*received_head);
 	}
 	auto const header_end = raw.find("\r\n\r\n");
 	if (header_end == std::string::npos) {
