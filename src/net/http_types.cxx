@@ -751,6 +751,50 @@ public:
 	return std::nullopt;
 }
 
+enum class AcceptEncodingMerge : std::uint8_t {
+	first,
+	max,
+};
+
+struct AcceptEncodingQs {
+	float br{-1.0F};
+	float gzip{-1.0F};
+	float zstd{-1.0F};
+	float wildcard{-1.0F};
+};
+
+[[nodiscard]] constexpr float merged_accept_encoding_q(
+	float current,
+	float q,
+	AcceptEncodingMerge merge) noexcept {
+	if (current < 0.0F) {
+		return q;
+	}
+	if (merge == AcceptEncodingMerge::max) {
+		return std::max(current, q);
+	}
+	return current;
+}
+
+[[nodiscard]] inline AcceptEncodingQs parse_accept_encoding_qs(
+	std::string_view header,
+	AcceptEncodingMerge merge = AcceptEncodingMerge::max) noexcept {
+	AcceptEncodingQs qs{};
+	for (auto const item: header_items(header)) {
+		float const q = parse_http_q(item.params).value_or(1.0F);
+		if (item.name == "*") {
+			qs.wildcard = merged_accept_encoding_q(qs.wildcard, q, merge);
+		} else if (ascii_ci_equal(item.name, "br")) {
+			qs.br = merged_accept_encoding_q(qs.br, q, merge);
+		} else if (ascii_ci_equal(item.name, "gzip")) {
+			qs.gzip = merged_accept_encoding_q(qs.gzip, q, merge);
+		} else if (ascii_ci_equal(item.name, "zstd")) {
+			qs.zstd = merged_accept_encoding_q(qs.zstd, q, merge);
+		}
+	}
+	return qs;
+}
+
 template<class Fn>
 bool for_each_comma_token(
 	std::string_view header_value,

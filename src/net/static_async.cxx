@@ -101,23 +101,8 @@ struct StaticAcceptedEncodings {
 
 [[nodiscard]] StaticAcceptedEncodings parse_static_accept_encoding(
 	std::string_view ae) {
-	StaticAcceptedEncodings out{};
-	bool seen_br = false;
-	bool seen_gzip = false;
-	for (auto const item: conflux::http::header_items(ae)) {
-		float const q = conflux::http::parse_http_q(item.params).value_or(1.0F);
-		if (!seen_br && conflux::http::ascii_iequals(item.name, "br")) {
-			out.br = q != 0.0F;
-			seen_br = true;
-		} else if (!seen_gzip && conflux::http::ascii_iequals(item.name, "gzip")) {
-			out.gzip = q != 0.0F;
-			seen_gzip = true;
-		}
-		if (seen_br && seen_gzip) {
-			break;
-		}
-	}
-	return out;
+	auto const qs = conflux::http::parse_accept_encoding_qs(ae, conflux::http::AcceptEncodingMerge::first);
+	return StaticAcceptedEncodings{.br = qs.br > 0.0F, .gzip = qs.gzip > 0.0F};
 }
 
 [[nodiscard]] std::string static_file_etag(

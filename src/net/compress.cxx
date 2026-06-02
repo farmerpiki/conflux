@@ -149,26 +149,13 @@ struct DynamicEncodingQs {
 };
 DynamicEncodingQs header_encoding_q_values(
 	std::string_view hdr) {
-	float q_star = -1.0F;
-	DynamicEncodingQs qs{};
-
-	for (auto const item: conflux::http::header_items(hdr)) {
-		float const q = conflux::http::parse_http_q(item.params).value_or(1.0F);
-
-		if (item.name == "*") {
-			q_star = std::max(q_star, q);
-		} else if (conflux::http::ascii_iequals(item.name, "gzip")) {
-			qs.gzip = std::max(qs.gzip, q);
-		} else if (conflux::http::ascii_iequals(item.name, "zstd")) {
-			qs.zstd = std::max(qs.zstd, q);
-		}
-	}
-
+	auto const accepted = conflux::http::parse_accept_encoding_qs(hdr);
+	DynamicEncodingQs qs{.gzip = accepted.gzip, .zstd = accepted.zstd};
 	if (qs.gzip < 0.0F) {
-		qs.gzip = q_star;
+		qs.gzip = accepted.wildcard;
 	}
 	if (qs.zstd < 0.0F) {
-		qs.zstd = q_star;
+		qs.zstd = accepted.wildcard;
 	}
 	return qs;
 }

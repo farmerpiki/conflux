@@ -175,6 +175,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http types: Accept-Encoding q parser separates grammar from merge policy",
+	"[http_server_helpers]") {
+	auto max_qs = conflux::http::parse_accept_encoding_qs("gzip;q=0.2, GZip;q=0.8, br;q=0, *;q=0.1");
+	CHECK(max_qs.gzip == 0.8F);
+	CHECK(max_qs.br == 0.0F);
+	CHECK(max_qs.zstd == -1.0F);
+	CHECK(max_qs.wildcard == 0.1F);
+
+	auto first_qs =
+		conflux::http::parse_accept_encoding_qs("gzip;q=0.2, GZip;q=0.8", conflux::http::AcceptEncodingMerge::first);
+	CHECK(first_qs.gzip == 0.2F);
+}
+
+TEST_CASE(
 	"http_server_helpers: cookies parse repeated and valueless entries",
 	"[http_server_helpers]") {
 	conflux::http::HttpFieldsView cookies;
