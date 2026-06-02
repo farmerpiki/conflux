@@ -1800,29 +1800,31 @@ public:
 		return app_max_body_size;
 	}
 
-	template<class Arg>
-	[[nodiscard]] static auto make_handler_arg(
-		StateMap const &states,
-		conflux::http::RequestView const &req
-#if CONFLUX_HAS_JSON
-		,
-		AppJsonOptions const &json_options,
-		std::size_t max_body_size
-#endif
-	) {
-		using Clean = std::remove_cvref_t<Arg>;
+	template<class Clean>
+	[[nodiscard]] static auto make_request_arg(
+		conflux::http::RequestView const &req) {
 		if constexpr (detail::RequestViewArg<Clean>) {
 			return req;
-		} else if constexpr (detail::RequestArg<Clean>) {
+		} else {
 			return req.to_owned();
-		} else if constexpr (detail::StateArg<Clean>) {
-			using StateValue = typename detail::StateType<Clean>::type;
-			auto const it = states.find(std::type_index{typeid(StateValue)});
-			if (it == states.end()) {
-				throw ExtractorFailure{Response::internal_error("missing app state")};
-			}
-			return State<StateValue>{.value = static_cast<StateValue *>(it->second.get())};
-		} else if constexpr (detail::PathArg<Clean>) {
+		}
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_state_arg(
+		StateMap const &states) {
+		using StateValue = typename detail::StateType<Clean>::type;
+		auto const it = states.find(std::type_index{typeid(StateValue)});
+		if (it == states.end()) {
+			throw ExtractorFailure{Response::internal_error("missing app state")};
+		}
+		return State<StateValue>{.value = static_cast<StateValue *>(it->second.get())};
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_path_arg(
+		conflux::http::RequestView const &req) {
+		if constexpr (detail::PathArg<Clean>) {
 			using PathValue = typename detail::PathType<Clean>::type;
 			if constexpr (std::same_as<PathValue, std::string_view>) {
 				return Clean{.value = req.param(detail::PathType<Clean>::name.view())};
@@ -1838,7 +1840,7 @@ public:
 						req.template param_as<PathValue>(detail::PathType<Clean>::name.view()),
 						"Path")};
 			}
-		} else if constexpr (detail::PathAtArg<Clean>) {
+		} else {
 			using PathValue = typename detail::PathAtType<Clean>::type;
 			if constexpr (std::same_as<PathValue, std::string_view>) {
 				auto param = detail::path_param_at(req, detail::PathAtType<Clean>::index);
@@ -1849,7 +1851,27 @@ public:
 						detail::path_param_as_at<PathValue>(req, detail::PathAtType<Clean>::index),
 						"PathAt")};
 			}
-		} else if constexpr (detail::QueryArg<Clean>) {
+		}
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_context_arg(
+		conflux::http::RequestView const &req) {
+		if constexpr (detail::MultipartArg<Clean>) {
+			return Multipart{.form = req.form, .files = req.files};
+		} else if constexpr (detail::RequestIdArg<Clean>) {
+			return RequestId{.value = req.header("x-request-id")};
+		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
+			return ConnectionInfo{.remote_addr = req.remote_addr, .is_tls = req.is_tls};
+		} else {
+			return TraceContext{.traceparent = req.header("traceparent")};
+		}
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_field_arg(
+		conflux::http::RequestView const &req) {
+		if constexpr (detail::QueryArg<Clean>) {
 			using QueryValue = typename detail::QueryType<Clean>::type;
 			if constexpr (std::same_as<QueryValue, std::string_view>) {
 				if constexpr (detail::QueryType<Clean>::required) {
@@ -1945,11 +1967,23 @@ public:
 		} else if constexpr (detail::QueryParamsArg<Clean>) {
 			using QueryValue = typename detail::QueryParamsType<Clean>::type;
 			return Clean{.value = detail::extract_query_params<QueryValue>(req)};
-		} else if constexpr (detail::FormParamsArg<Clean>) {
+		} else {
 			using FormValue = typename detail::FormParamsType<Clean>::type;
 			return Clean{.value = detail::extract_form_params<FormValue>(req)};
 #endif
-		} else if constexpr (detail::BodyTextArg<Clean>) {
+		}
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_body_arg(
+		conflux::http::RequestView const &req
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
+		if constexpr (detail::BodyTextArg<Clean>) {
 			return BodyText{.value = req.body};
 		} else if constexpr (detail::BodyBytesArg<Clean>) {
 			return BodyBytes{.value = std::as_bytes(std::span{req.body.data(), req.body.size()})};
@@ -1980,7 +2014,7 @@ public:
 				throw ExtractorFailure{detail::json_decode_problem(parsed.error())};
 			}
 			return MergePatch{.value = std::move(*parsed)};
-		} else if constexpr (detail::JsonArg<Clean>) {
+		} else {
 			using BodyValue = typename detail::JsonType<Clean>::type;
 			validate_json_body_request(req, detail::content_type_is_json_request, max_body_size);
 			auto decode_opts = typed_json_decode_options(json_options);
@@ -1992,15 +2026,13 @@ public:
 			}
 			return Json<BodyValue>{std::move(*decoded)};
 #endif
-		} else if constexpr (detail::MultipartArg<Clean>) {
-			return Multipart{.form = req.form, .files = req.files};
-		} else if constexpr (detail::RequestIdArg<Clean>) {
-			return RequestId{.value = req.header("x-request-id")};
-		} else if constexpr (detail::ConnectionInfoArg<Clean>) {
-			return ConnectionInfo{.remote_addr = req.remote_addr, .is_tls = req.is_tls};
-		} else if constexpr (detail::TraceContextArg<Clean>) {
-			return TraceContext{.traceparent = req.header("traceparent")};
-		} else if constexpr (detail::BearerArg<Clean>) {
+		}
+	}
+
+	template<class Clean>
+	[[nodiscard]] static auto make_auth_arg(
+		conflux::http::RequestView const &req) {
+		if constexpr (detail::BearerArg<Clean>) {
 			auto token = credentials_for_auth_scheme(req.header("authorization"), "Bearer");
 			return Clean{.token = token.value_or(std::string_view{})};
 		} else if constexpr (detail::RequiredBearerArg<Clean>) {
@@ -2020,8 +2052,72 @@ public:
 				throw ExtractorFailure{Response::unauthorized("Basic")};
 			}
 			return RequiredBasicAuth{.credentials = std::move(*credentials)};
-		} else if constexpr (detail::OptionalBasicAuthArg<Clean>) {
+		} else {
 			return OptionalBasicAuth{.credentials = parse_basic_auth(req)};
+		}
+	}
+
+	template<class Arg>
+	[[nodiscard]] static auto make_handler_arg(
+		StateMap const &states,
+		conflux::http::RequestView const &req
+#if CONFLUX_HAS_JSON
+		,
+		AppJsonOptions const &json_options,
+		std::size_t max_body_size
+#endif
+	) {
+		using Clean = std::remove_cvref_t<Arg>;
+		if constexpr (detail::RequestViewArg<Clean> || detail::RequestArg<Clean>) {
+			return make_request_arg<Clean>(req);
+		} else if constexpr (detail::StateArg<Clean>) {
+			return make_state_arg<Clean>(states);
+		} else if constexpr (detail::PathArg<Clean> || detail::PathAtArg<Clean>) {
+			return make_path_arg<Clean>(req);
+		} else if constexpr (
+			detail::QueryArg<Clean>
+			|| detail::HeaderArg<Clean>
+			|| detail::CookieArg<Clean>
+			|| detail::FormArg<Clean>
+#if CONFLUX_HAS_JSON
+			|| detail::QueryParamsArg<Clean>
+			|| detail::FormParamsArg<Clean>
+#endif
+		) {
+			return make_field_arg<Clean>(req);
+		} else if constexpr (
+			detail::BodyTextArg<Clean>
+			|| detail::BodyBytesArg<Clean>
+			|| detail::OwnedBodyBytesArg<Clean>
+#if CONFLUX_HAS_JSON
+			|| detail::JsonDocumentArg<Clean>
+			|| detail::JsonPatchArg<Clean>
+			|| detail::MergePatchArg<Clean>
+			|| detail::JsonArg<Clean>
+#endif
+		) {
+			return make_body_arg<Clean>(
+				req
+#if CONFLUX_HAS_JSON
+				,
+				json_options,
+				max_body_size
+#endif
+			);
+		} else if constexpr (
+			detail::MultipartArg<Clean>
+			|| detail::RequestIdArg<Clean>
+			|| detail::ConnectionInfoArg<Clean>
+			|| detail::TraceContextArg<Clean>) {
+			return make_context_arg<Clean>(req);
+		} else if constexpr (
+			detail::BearerArg<Clean>
+			|| detail::RequiredBearerArg<Clean>
+			|| detail::OptionalBearerArg<Clean>
+			|| detail::BasicAuthArg<Clean>
+			|| detail::RequiredBasicAuthArg<Clean>
+			|| detail::OptionalBasicAuthArg<Clean>) {
+			return make_auth_arg<Clean>(req);
 		} else {
 			static_assert(
 				kDependentFalse<Arg>,
