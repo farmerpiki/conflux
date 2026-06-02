@@ -1633,6 +1633,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
@@ -1664,6 +1665,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
             "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
             "function(conflux_discover_db_integration_tests target)": "test helper fragment must centralize DB integration discovery",
+        },
+        "tests/CoreTests.cmake": {
+            "add_executable(conflux_crypto_tests crypto_test.cxx)": "core test fragment must define crypto tests",
+            "add_executable(conflux_utils_tests utils_test.cxx)": "core test fragment must define utils tests",
+            "add_executable(conflux_password_hash_tests password_hash_test.cxx)": "core test fragment must define password hash tests",
+            "add_executable(conflux_config_tests config_test.cxx)": "core test fragment must define config tests when available",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
