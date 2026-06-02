@@ -312,28 +312,32 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// percent_encode
+// url_percent_encode
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"utils: percent_encode unreserved passthrough",
+	"utils: url_percent_encode unreserved passthrough",
 	"[utils]") {
-	CHECK(percent_encode("abcXYZ019") == "abcXYZ019");
-	CHECK(percent_encode("-._~") == "-._~");
+	CHECK(url_percent_encode("abcXYZ019") == "abcXYZ019");
+	CHECK(url_percent_encode("-._~") == "-._~");
 }
 TEST_CASE(
-	"utils: percent_encode reserved chars",
+	"utils: url_percent_encode reserved chars",
 	"[utils]") {
-	CHECK(percent_encode(" ") == "%20");
-	CHECK(percent_encode("/") == "%2F");
-	CHECK(percent_encode("a b") == "a%20b");
-	CHECK(percent_encode("100%") == "100%25");
-	CHECK(percent_encode("hello world!") == "hello%20world%21");
+	CHECK(url_percent_encode(" ") == "%20");
+	CHECK(url_percent_encode("/") == "%2F");
+	CHECK(url_percent_encode("a b") == "a%20b");
+	CHECK(url_percent_encode("100%") == "100%25");
+	CHECK(url_percent_encode("hello world!") == "hello%20world%21");
 }
 TEST_CASE(
-	"utils: percent_encode empty",
+	"utils: url_percent_encode append and size forms",
 	"[utils]") {
-	CHECK(percent_encode("").empty());
+	static_assert(url_percent_encoded_size("a b") == 5);
+	std::string out{"prefix:"};
+	append_url_percent_encoded(out, "a b");
+	CHECK(out == "prefix:a%20b");
+	CHECK(url_percent_encode("").empty());
 }
 // ---------------------------------------------------------------------------
 // hex_encode / hex_decode

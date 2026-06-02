@@ -155,33 +155,6 @@ export template<typename... Ts>
 }
 
 // ---------------------------------------------------------------------------
-// RFC 3986 percent-encoding
-// ---------------------------------------------------------------------------
-
-export std::string percent_encode(
-	std::string_view in) {
-	std::string out;
-	out.reserve(in.size());
-	static constexpr char kHex[] = "0123456789ABCDEF";
-	for (char const ch: in) {
-		auto const c = static_cast<unsigned char>(ch);
-		if ((c >= 'A' && c <= 'Z')
-			|| (c >= 'a' && c <= 'z')
-			|| (c >= '0' && c <= '9')
-			|| c == '-'
-			|| c == '.'
-			|| c == '_'
-			|| c == '~') {
-			out.push_back(ch);
-		} else {
-			out.push_back('%');
-			out.push_back(kHex[c >> 4U]);
-			out.push_back(kHex[c & 0x0FU]);
-		}
-	}
-	return out;
-}
-// ---------------------------------------------------------------------------
 // JSON string fallback escaping
 // ---------------------------------------------------------------------------
 
