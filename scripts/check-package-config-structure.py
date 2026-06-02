@@ -1630,29 +1630,51 @@ def external_tokens_from_metadata() -> set[str]:
     return set(re.findall(r"\b[A-Z][A-Z0-9_]+\b", match.group("body")))
 
 
+def component_declarations_from_registry() -> list[tuple[str, str, str]]:
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
+    declarations = re.findall(r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)"', registry)
+    if not declarations:
+        fail("missing CONFLUX_COMPONENT_DECLARATIONS")
+    return declarations
+
+
 def component_exports_from_registry() -> set[str]:
-    registry = read("cmake/ConfluxComponentRegistry.cmake")
-    return set(re.findall(r'"[^"|]+\|([^"|]+)"', registry))
+    return {export for _, export, _ in component_declarations_from_registry()}
 
 
-def component_exports_from_registry_block(block_name: str) -> set[str]:
+def component_exports_from_registry_kind(kind: str) -> set[str]:
+    return {
+        export
+        for _, export, declaration_kind in component_declarations_from_registry()
+        if declaration_kind == kind
+    }
+
+
+def check_component_registry_contract() -> None:
     registry = read("cmake/ConfluxComponentRegistry.cmake")
-    match = re.search(
-        rf"set\({re.escape(block_name)}(?P<body>.*?)\)",
-        registry,
-        re.DOTALL,
-    )
-    if match is None:
-        fail(f"missing {block_name}")
-    return set(re.findall(r'"[^"|]+\|([^"|]+)"', match.group("body")))
+    required_markers = {
+        "set(CONFLUX_COMPONENT_DECLARATIONS": "component registry must keep a single authoritative declaration list",
+        "list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "public component declarations must be derived from the authoritative registry",
+        "list(APPEND CONFLUX_SUPPORT_COMPONENT_DECLARATIONS": "support component declarations must be derived from the authoritative registry",
+        'REQUESTABLE")': "component registry must name requestable components by kind",
+        'SUPPORT")': "component registry must name support components by kind",
+    }
+    errors = sorted(message for marker, message in required_markers.items() if marker not in registry)
+    declarations = component_declarations_from_registry()
+    exports = [export for _, export, _ in declarations]
+    duplicate_exports = sorted(name for name, count in Counter(exports).items() if count > 1)
+    if duplicate_exports:
+        errors.append("component registry duplicate exports: " + ";".join(duplicate_exports))
+    if errors:
+        fail("\n".join(errors))
 
 
 def public_component_exports_from_registry() -> set[str]:
-    return component_exports_from_registry_block("CONFLUX_PUBLIC_COMPONENT_DECLARATIONS")
+    return component_exports_from_registry_kind("REQUESTABLE")
 
 
 def support_component_exports_from_registry() -> set[str]:
-    return component_exports_from_registry_block("CONFLUX_SUPPORT_COMPONENT_DECLARATIONS")
+    return component_exports_from_registry_kind("SUPPORT")
 
 
 def generated_header_support_exports() -> set[str]:
@@ -2324,6 +2346,7 @@ def main() -> int:
     check_header_http_impls_do_not_pull_json()
     check_header_impl_lists_have_no_duplicates()
     check_header_source_ids_exist()
+    check_component_registry_contract()
     check_header_support_components_are_limited()
     check_header_public_components_use_registry_exports()
     check_header_interface_contracts()
