@@ -10,6 +10,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http.response;
+import conflux.net.http.json_string;
 import conflux.utils;
 
 namespace conflux::http {
@@ -17,11 +18,11 @@ namespace conflux::http {
 export [[nodiscard]] conflux::http::Response make_rejection_response(
 	conflux::http::HttpRejectReason reason) {
 	return conflux::http::Response::problem_json(
-		std::format(
-			R"({{"code":"{}","diagnostic_code":"{}","detail":"{}"}})",
-			conflux::http::reject_reason_code(reason),
-			conflux::http::reject_reason_diagnostic_code(reason),
-			conflux::http::reject_reason_detail(reason)),
+		conflux::http::detail::ProblemBodyBuilder{}
+			.member("code", conflux::http::reject_reason_code(reason))
+			.member("diagnostic_code", conflux::http::reject_reason_diagnostic_code(reason))
+			.member("detail", conflux::http::reject_reason_detail(reason))
+			.finish(),
 		conflux::http::reject_reason_status(reason));
 }
 

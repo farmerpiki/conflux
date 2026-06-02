@@ -140,45 +140,45 @@ template<class T>
 
 [[nodiscard]] Response json_decode_problem(
 	conflux::json::boundary::Error const &err) {
-	std::string body = std::format(
-		R"({{"code":"json.decode.type_mismatch","stage":{},"kind":{},"detail":{})",
-		json_string(json_error_stage_name(err.stage)),
-		json_string(json_error_code_name(err.code)),
-		json_string(err.message));
+	auto builder = ProblemBodyBuilder{}
+					   .member("code", "json.decode.type_mismatch")
+					   .member("stage", json_error_stage_name(err.stage))
+					   .member("kind", json_error_code_name(err.code))
+					   .member("detail", err.message);
 	if (err.member_name) {
-		body += std::format(R"(,"member":{})", json_string(*err.member_name));
+		builder.member("member", *err.member_name);
 	}
 	if (err.source) {
-		body += std::format(
-			R"(,"source":{{"offset":{},"line":{},"column":{}}})",
-			err.source->offset,
-			err.source->line,
-			err.source->column);
+		builder.raw_member(
+			"source",
+			std::format(
+				R"({{"offset":{},"line":{},"column":{}}})",
+				err.source->offset,
+				err.source->line,
+				err.source->column));
 	}
-	body += "}";
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
+	return Response::problem_json(std::move(builder).finish(), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response json_patch_problem(
 	json::JsonError const &err) {
-	std::string body = std::format(
-		R"({{"code":{},"stage":"json_patch","detail":{})",
-		json_string(json_issue_code_name(err.code)),
-		json_string(err.message));
+	auto builder = ProblemBodyBuilder{}
+					   .member("code", json_issue_code_name(err.code))
+					   .member("stage", "json_patch")
+					   .member("detail", err.message);
 	if (err.operation_index) {
-		body += std::format(R"(,"operation_index":{})", *err.operation_index);
+		builder.raw_member("operation_index", std::to_string(*err.operation_index));
 	}
 	if (err.operation) {
-		body += std::format(R"(,"operation":{})", json_string(*err.operation));
+		builder.member("operation", *err.operation);
 	}
 	if (err.pointer) {
-		body += std::format(R"(,"path":{})", json_string(*err.pointer));
+		builder.member("path", *err.pointer);
 	}
 	if (err.from_pointer) {
-		body += std::format(R"(,"from":{})", json_string(*err.from_pointer));
+		builder.member("from", *err.from_pointer);
 	}
-	body += "}";
-	return Response::problem_json(std::move(body), kHttpBadRequest, "Bad Request");
+	return Response::problem_json(std::move(builder).finish(), kHttpBadRequest, "Bad Request");
 }
 
 [[nodiscard]] Response unsupported_json_content_type_problem() {
