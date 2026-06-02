@@ -234,6 +234,10 @@ TEST_CASE(
 	conflux::http::HttpFieldsView headers{true};
 	CHECK(conflux::http::parse_expect_header(headers) == conflux::http::ExpectState::none);
 
+	CHECK(conflux::http::parse_expect_value("") == conflux::http::ExpectState::none);
+	CHECK(conflux::http::parse_expect_value("100-continue, 100-continue") == conflux::http::ExpectState::continue_100);
+	CHECK(conflux::http::parse_expect_value("100-continue, other-token") == conflux::http::ExpectState::unsupported);
+
 	headers.emplace_back("Expect", "100-continue");
 	CHECK(conflux::http::parse_expect_header(headers) == conflux::http::ExpectState::continue_100);
 	headers.emplace_back("Expect", "other-token");

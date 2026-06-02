@@ -84,14 +84,12 @@ void note_common_header(
 		return;
 	}
 	if (conflux::http::ascii_iequals(name, "expect")) {
-		for (auto const token: conflux::http::header_tokens(field_value)) {
-			if (token.empty()) {
-				continue;
-			}
-			if (!conflux::http::ascii_iequals(token, "100-continue")) {
-				summary.expect_unsupported = true;
-				break;
-			}
+		auto const expect_state = conflux::http::parse_expect_value(field_value);
+		if (expect_state == conflux::http::ExpectState::unsupported) {
+			summary.expect_unsupported = true;
+			return;
+		}
+		if (expect_state == conflux::http::ExpectState::continue_100) {
 			summary.expect_continue = true;
 		}
 	}

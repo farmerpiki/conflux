@@ -369,23 +369,33 @@ export enum class ExpectState : std::uint8_t {
 	unsupported,
 };
 
+export [[nodiscard]] ExpectState parse_expect_value(
+	std::string_view header_value) {
+	bool saw_continue = false;
+	for (auto const token: conflux::http::header_tokens(header_value)) {
+		if (token.empty()) {
+			continue;
+		}
+		if (!conflux::http::ascii_iequals(token, "100-continue")) {
+			return ExpectState::unsupported;
+		}
+		saw_continue = true;
+	}
+	return saw_continue ? ExpectState::continue_100 : ExpectState::none;
+}
+
 export [[nodiscard]] ExpectState parse_expect_header(
 	conflux::http::HttpFieldsView const &headers) {
 	bool saw_continue = false;
 	bool unsupported = false;
 	headers.for_each_value_until("expect", [&](std::string_view header_value) {
-		for (auto const token: conflux::http::header_tokens(header_value)) {
-			if (token.empty()) {
-				continue;
-			}
-			if (!conflux::http::ascii_iequals(token, "100-continue")) {
-				unsupported = true;
-				break;
-			}
-			saw_continue = true;
-		}
-		if (unsupported) {
+		auto const value_state = parse_expect_value(header_value);
+		if (value_state == ExpectState::unsupported) {
+			unsupported = true;
 			return false;
+		}
+		if (value_state == ExpectState::continue_100) {
+			saw_continue = true;
 		}
 		return true;
 	});
