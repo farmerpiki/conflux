@@ -1094,12 +1094,13 @@ std::expected<Url, UrlError> Url::parse(
 	std::string_view rhs) noexcept {
 	return ascii_ci_equal(lhs, rhs);
 }
-constexpr std::array<std::string_view, 8> kHopByHopHeaders{
+constexpr std::array<std::string_view, 9> kHopByHopHeaders{
 	"connection",
 	"keep-alive",
 	"proxy-authenticate",
 	"proxy-authorization",
 	"te",
+	"trailer",
 	"trailers",
 	"transfer-encoding",
 	"upgrade",
@@ -1109,6 +1110,14 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 	return std::ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) {
 		return ascii_iequals(name, candidate);
 	});
+}
+[[nodiscard]] bool is_request_controlled_header(
+	std::string_view name) noexcept {
+	return ascii_iequals(name, "host") || is_hop_by_hop_header(name);
+}
+[[nodiscard]] bool is_response_framing_header(
+	std::string_view name) noexcept {
+	return ascii_iequals(name, "content-length") || is_hop_by_hop_header(name);
 }
 [[nodiscard]] bool header_token_contains(
 	std::string_view header,

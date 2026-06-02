@@ -128,6 +128,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http core: controlled header classification is shared",
+	"[http.core]") {
+	CHECK(chttp::is_hop_by_hop_header("Connection"));
+	CHECK(chttp::is_hop_by_hop_header("Trailer"));
+	CHECK(chttp::is_hop_by_hop_header("Trailers"));
+	CHECK(chttp::is_request_controlled_header("Host"));
+	CHECK(chttp::is_request_controlled_header("Transfer-Encoding"));
+	CHECK_FALSE(chttp::is_request_controlled_header("Content-Type"));
+	CHECK(chttp::is_response_framing_header("Content-Length"));
+	CHECK(chttp::is_response_framing_header("Trailer"));
+	CHECK_FALSE(chttp::is_response_framing_header("ETag"));
+}
+
+TEST_CASE(
 	"http core: rejection reason helpers expose stable codes and statuses",
 	"[http.core]") {
 	CHECK(chttp::reject_reason_code(chttp::HttpRejectReason::duplicate_content_length) == "duplicate_content_length");

@@ -55,10 +55,7 @@ namespace conflux::http::proxy_detail {
 	conflux::http::RequestView const &req,
 	conflux::http::ProxyOptions const &opts) {
 	for (auto const &[name, value]: req.headers) {
-		if (conflux::http::ascii_iequals(name, "host")) {
-			continue;
-		}
-		if (conflux::http::is_hop_by_hop_header(name)) {
+		if (conflux::http::is_request_controlled_header(name)) {
 			continue;
 		}
 		builder.header(name, value);

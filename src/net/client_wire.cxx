@@ -19,7 +19,7 @@ using namespace conflux::http;
 
 [[nodiscard]] bool serializable_request_header(
 	std::string_view name) noexcept {
-	return !ascii_iequals(name, "host") && !is_hop_by_hop_header(name);
+	return !is_request_controlled_header(name);
 }
 
 void append_decimal(

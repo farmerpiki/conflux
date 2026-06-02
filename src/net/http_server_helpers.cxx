@@ -112,33 +112,6 @@ export std::string_view http_date_now() {
 	return true;
 }
 
-[[nodiscard]] static bool is_framing_header(
-	std::string_view name) noexcept {
-	auto lower_eq = [](std::string_view a, std::string_view b) {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		for (std::size_t i = 0; i < a.size(); ++i) {
-			auto ca = static_cast<unsigned char>(a[i]);
-			auto cb = static_cast<unsigned char>(b[i]);
-			if (ca >= 'A' && ca <= 'Z') {
-				ca += 32;
-			}
-			if (ca != cb) {
-				return false;
-			}
-		}
-		return true;
-	};
-	return lower_eq(name, "content-length")
-		|| lower_eq(name, "transfer-encoding")
-		|| lower_eq(name, "connection")
-		|| lower_eq(name, "upgrade")
-		|| lower_eq(name, "keep-alive")
-		|| lower_eq(name, "te")
-		|| lower_eq(name, "trailer");
-}
-
 [[nodiscard]] static bool must_not_have_body(
 	int status) noexcept {
 	return (status >= 100 && status < 200) || status == 204 || status == 304;
@@ -254,7 +227,7 @@ export std::string format_response(
 		out += "\r\n";
 	}
 	for (auto const &[k, v]: r.headers) {
-		if (is_framing_header(k)) {
+		if (conflux::http::is_response_framing_header(k)) {
 			continue;
 		}
 		if (!is_valid_header_name(k) || !is_valid_header_value(v)) {
