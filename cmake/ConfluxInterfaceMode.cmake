@@ -23,6 +23,27 @@ function(conflux_append_optional_bridge_inputs args_out roots_out)
     set(${roots_out} "${_roots}" PARENT_SCOPE)
 endfunction()
 
+function(conflux_append_bridge_configure_dependencies input_root)
+    if(IS_DIRECTORY "${input_root}")
+        file(GLOB_RECURSE _bridge_inputs CONFIGURE_DEPENDS
+            "${input_root}/*.c"
+            "${input_root}/*.cxx"
+            "${input_root}/*.cppm"
+            "${input_root}/*.h"
+            "${input_root}/*.hpp"
+            "${input_root}/*.hxx"
+            "${input_root}/*.inc"
+            "${input_root}/*.inl")
+        if(_bridge_inputs)
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                ${_bridge_inputs})
+        endif()
+    else()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${input_root}")
+    endif()
+endfunction()
+
 function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_ROOT "${CMAKE_CURRENT_BINARY_DIR}/generated/bridge" CACHE PATH
         "Generated module/header bridge root")
@@ -79,13 +100,7 @@ function(conflux_configure_interface_mode)
 
     conflux_append_optional_bridge_inputs(_bridge_args _bridge_input_roots)
     foreach(_bridge_input_root IN LISTS _bridge_input_roots)
-        if(IS_DIRECTORY "${_bridge_input_root}")
-            file(GLOB_RECURSE _bridge_inputs CONFIGURE_DEPENDS
-                "${_bridge_input_root}/*")
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_bridge_inputs})
-        else()
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_bridge_input_root}")
-        endif()
+        conflux_append_bridge_configure_dependencies("${_bridge_input_root}")
     endforeach()
 
     execute_process(
