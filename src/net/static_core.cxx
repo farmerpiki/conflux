@@ -155,8 +155,14 @@ struct StaticCacheStore {
 			entries.erase(it);
 		}
 		while (total_bytes + entry.body.size() > max_total_bytes && !entries.empty()) {
-			auto victim = std::ranges::min_element(entries, {}, [](auto const &kv) { return kv.second.tick; });
-			total_bytes -= victim->second.body.size();
+			auto victim = entries.begin();
+			for (auto it = std::next(entries.begin()); it != entries.end(); ++it) {
+				if (it->second.tick < victim->second.tick) {
+					victim = it;
+				}
+			}
+			auto const victim_size = victim->second.body.size();
+			total_bytes -= victim_size;
 			entries.erase(victim);
 		}
 		entry.tick = ++tick;

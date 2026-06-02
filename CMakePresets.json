@@ -212,6 +212,15 @@
       }
     },
     {
+      "name": "debug-header-clang-libcxx-import-std",
+      "displayName": "Debug · generated headers · clang++ · libc++ · import std",
+      "inherits": "debug-header-clang-libcxx",
+      "cacheVariables": {
+        "CONFLUX_HEADER_USE_IMPORT_STD": "ON",
+        "CONFLUX_HEADER_USE_IMPORT_STD_COMPAT": "ON"
+      }
+    },
+    {
       "name": "debug-clang-stdcxx",
       "displayName": "Debug · clang++ · libstdc++",
       "inherits": "clang-stdcxx",
@@ -624,6 +633,10 @@
     {
       "name": "debug-header-clang-libcxx",
       "configurePreset": "debug-header-clang-libcxx"
+    },
+    {
+      "name": "debug-header-clang-libcxx-import-std",
+      "configurePreset": "debug-header-clang-libcxx-import-std"
     },
     {
       "name": "debug-gcc16-stdcxx",

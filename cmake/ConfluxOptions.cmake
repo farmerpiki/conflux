@@ -14,6 +14,12 @@ option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
     "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
 option(CONFLUX_HEADER_FAST_COMPILE
     "Compile generated header-mode implementation and smoke targets without optimization or module scanning" ON)
+option(CONFLUX_HEADER_USE_IMPORT_STD
+    "Use import std inside generated header-mode compatibility headers" OFF)
+option(CONFLUX_HEADER_USE_IMPORT_STD_COMPAT
+    "Use import std.compat inside generated header-mode compatibility headers" OFF)
+option(CONFLUX_HEADER_USE_MODULE_IMPORTS
+    "Use module imports instead of includes for generated header-mode component dependencies" OFF)
 option(CONFLUX_HEADER_LINK_EXAMPLES
     "Link generated header-mode example targets against generated implementation archives" OFF)
 option(CONFLUX_HEADER_LINK_SMOKE
@@ -211,7 +217,11 @@ function(conflux_any_target_links_item out needle)
     set(${out} FALSE PARENT_SCOPE)
 endfunction()
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
-	set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+    if(CONFLUX_HEADER_USE_IMPORT_STD OR CONFLUX_HEADER_USE_IMPORT_STD_COMPAT OR CONFLUX_HEADER_USE_MODULE_IMPORTS)
+        set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+    else()
+        set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+    endif()
 endif()
 
 if(CONFLUX_JSON_REFLECT)
@@ -241,6 +251,16 @@ set(_conflux_import_std_supported OFF)
 if(${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
     set(_conflux_import_std_supported ON)
 endif()
+if(_conflux_import_std_supported
+        AND CMAKE_CXX_STDLIB_MODULES_JSON
+        AND NOT EXISTS "${CMAKE_CXX_STDLIB_MODULES_JSON}")
+    if(CONFLUX_USE_IMPORT_STD STREQUAL "ON")
+        message(FATAL_ERROR
+            "CONFLUX_USE_IMPORT_STD=ON requires CMake's C++ standard library module metadata, "
+            "but CMAKE_CXX_STDLIB_MODULES_JSON does not exist: ${CMAKE_CXX_STDLIB_MODULES_JSON}")
+    endif()
+    set(_conflux_import_std_supported OFF)
+endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     if(CONFLUX_USE_IMPORT_STD STREQUAL "ON" AND NOT _conflux_import_std_supported)
@@ -257,11 +277,24 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     elseif(CONFLUX_USE_IMPORT_STD STREQUAL "ON")
         set(CONFLUX_IMPORT_STD_ENABLED ON)
     endif()
+elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
+        AND (CONFLUX_HEADER_USE_IMPORT_STD OR CONFLUX_HEADER_USE_IMPORT_STD_COMPAT))
+    if(NOT _conflux_import_std_supported)
+        set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
+        if(_conflux_import_std_levels STREQUAL "")
+            set(_conflux_import_std_levels "<none>")
+        endif()
+        message(FATAL_ERROR
+            "CONFLUX_HEADER_USE_IMPORT_STD=ON or CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=ON "
+            "requires CMake-discoverable C++${CMAKE_CXX_STANDARD} import std support. "
+            "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}.")
+    endif()
+    set(CONFLUX_IMPORT_STD_ENABLED ON)
 endif()
 
 if(CONFLUX_IMPORT_STD_ENABLED)
     set(CMAKE_CXX_MODULE_STD ON)
-    if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON)
+    if(CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "${CMAKE_CXX_STDLIB_MODULES_JSON}")
         cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
         file(READ "${CMAKE_CXX_STDLIB_MODULES_JSON}" _conflux_std_modules_json)
         string(JSON _conflux_std_modules_count LENGTH "${_conflux_std_modules_json}" modules)
@@ -276,6 +309,24 @@ if(CONFLUX_IMPORT_STD_ENABLED)
                 set_source_files_properties(
                     "${_conflux_std_module_source_abs}"
                     PROPERTIES COMPILE_OPTIONS "${CONFLUX_REFLECTION_COMPILE_OPTIONS}")
+            endforeach()
+        endif()
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "${CMAKE_CXX_STDLIB_MODULES_JSON}")
+        cmake_path(GET CMAKE_CXX_STDLIB_MODULES_JSON PARENT_PATH _conflux_std_modules_dir)
+        file(READ "${CMAKE_CXX_STDLIB_MODULES_JSON}" _conflux_std_modules_json)
+        string(JSON _conflux_std_modules_count LENGTH "${_conflux_std_modules_json}" modules)
+        if(_conflux_std_modules_count GREATER 0)
+            math(EXPR _conflux_std_modules_last "${_conflux_std_modules_count} - 1")
+            foreach(_conflux_std_module_index RANGE 0 ${_conflux_std_modules_last})
+                string(JSON _conflux_std_module_source
+                    GET "${_conflux_std_modules_json}" modules ${_conflux_std_module_index} source-path)
+                cmake_path(ABSOLUTE_PATH _conflux_std_module_source
+                    BASE_DIRECTORY "${_conflux_std_modules_dir}"
+                    OUTPUT_VARIABLE _conflux_std_module_source_abs)
+                set_property(
+                    SOURCE "${_conflux_std_module_source_abs}"
+                    APPEND PROPERTY COMPILE_OPTIONS -Wno-reserved-module-identifier)
             endforeach()
         endif()
     endif()

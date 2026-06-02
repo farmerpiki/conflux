@@ -2,6 +2,10 @@
 // Counter / Gauge / Histogram unit tests
 // ---------------------------------------------------------------------------
 
+#if defined(CONFLUX_INTERFACE_HEADER)
+	#include <future>
+#endif
+
 TEST_CASE(
 	"metrics: Counter inc and get") {
 	conflux::http::Counter c;

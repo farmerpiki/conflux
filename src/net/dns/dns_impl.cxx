@@ -803,7 +803,9 @@ struct EndpointBatch {
 							   timeout,
 							   edns) :
 						   make_empty_batch_task();
-	auto [v4, v6] = co_await join_all(std::move(v4_task), std::move(v6_task));
+	auto batches = co_await join_all(std::move(v4_task), std::move(v6_task));
+	auto v4 = std::move(std::get<0>(batches));
+	auto v6 = std::move(std::get<1>(batches));
 	if (v4.eps.empty() && v6.eps.empty()) {
 		// Both families have no results. Propagate the dominant failure.
 		auto const w = (static_cast<std::uint8_t>(v4.fail_reason) >= static_cast<std::uint8_t>(v6.fail_reason)) ?

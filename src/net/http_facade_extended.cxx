@@ -22,6 +22,7 @@ using WorkPoolQueueMode = conflux::work::WorkPoolQueueMode;
 using WorkPoolQueueStats = conflux::work::WorkPoolQueueStats;
 using Router = std::remove_reference_t<decltype(router(std::declval<App &>()))>;
 
+#if !defined(CONFLUX_INTERFACE_HEADER)
 template<class F>
 concept ViewMiddleware = requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, Next const &next) {
 	{ std::invoke(fn, req, next) } -> std::same_as<Response>;
@@ -43,6 +44,7 @@ concept AsyncMiddleware = requires(
 
 template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddleware<F>;
+#endif
 
 [[nodiscard]] Response blocking_file_response(
 	std::filesystem::path const &path,

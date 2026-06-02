@@ -116,9 +116,14 @@ function(conflux_configure_interface_mode)
     if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
         set(CONFLUX_SRC_ROOT "${CONFLUX_GENERATED_SOURCE_DIR}" PARENT_SCOPE)
     endif()
-    if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
+    if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES
+            AND NOT (CONFLUX_HEADER_USE_IMPORT_STD
+                OR CONFLUX_HEADER_USE_IMPORT_STD_COMPAT
+                OR CONFLUX_HEADER_USE_MODULE_IMPORTS))
         set_source_files_properties(${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES}
             PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    endif()
+    if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
         set(CONFLUX_BRIDGE_HEADER_IMPL_SOURCES
             "${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES}" PARENT_SCOPE)
     endif()
@@ -216,10 +221,13 @@ endfunction()
 
 function(conflux_apply_header_generated_build_policy target)
     # Generated header-mode implementation and consumer smoke targets are
-    # build-system artifacts. Keep them out of module scanning and, by
-    # default, avoid release optimization passes over the generated header
-    # graph while validating compile/link correctness.
-    set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    # build-system artifacts. They only need dependency scanning when this
+    # header mode deliberately imports modules.
+    if(CONFLUX_HEADER_USE_IMPORT_STD OR CONFLUX_HEADER_USE_IMPORT_STD_COMPAT OR CONFLUX_HEADER_USE_MODULE_IMPORTS)
+        set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    else()
+        set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    endif()
     if(CONFLUX_HEADER_FAST_COMPILE)
         target_compile_options(${target} PRIVATE
             $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0>
@@ -238,9 +246,9 @@ function(conflux_apply_header_impl_common target)
         target_compile_features(${target} PUBLIC cxx_std_23)
     endif()
     target_compile_definitions(${target} PRIVATE
-        CONFLUX_HEADER_USE_IMPORT_STD=0
-        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
-        CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+        CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>
+        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>
+        CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>
         CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
         CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
         CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
@@ -597,9 +605,9 @@ function(conflux_add_header_interface_target)
     endif()
     target_compile_definitions(conflux_headers INTERFACE
         CONFLUX_INTERFACE_HEADER=1
-        CONFLUX_HEADER_USE_IMPORT_STD=0
-        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0
-        CONFLUX_HEADER_USE_MODULE_IMPORTS=0
+        CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>
+        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>
+        CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>
         CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
         CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
         CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>

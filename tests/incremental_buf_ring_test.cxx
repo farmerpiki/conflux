@@ -177,7 +177,7 @@ TEST_CASE(
 	"incremental: ScopeExit recycles on exception",
 	"[incremental]") {
 	Rig rig{8, 64};
-	std::uint32_t rc_flags = inc_flags(0, false);
+	conflux::uring::CqeFlags rc_flags = inc_flags(0, false);
 	bool scope_ran = false;
 	try {
 		auto slice = buffer_slice_from_incremental_cqe(rig.ring, 32, rc_flags);

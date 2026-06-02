@@ -200,7 +200,6 @@ export class BufferRing {
 	}
 
 public:
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 	BufferRing(
 		io_uring *uring,
 		BufferRingOptions opts,
@@ -291,7 +290,6 @@ public:
 			bundle_preserved_pos_ = 0;
 		}
 	}
-#endif
 	~BufferRing() = default;
 	BufferRing(BufferRing const &) = delete;
 	BufferRing &operator =(BufferRing const &) = delete;
@@ -1201,7 +1199,6 @@ export bool submit_accept_multishot_borrowed(
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 export bool submit_accept_multishot_borrowed(
 	SocketRawRing &ring,
 	RingFd auto listen,
@@ -1240,7 +1237,6 @@ export bool submit_accept_multishot_borrowed(
 	bool direct) noexcept {
 	return submit_accept_multishot_borrowed(ring, listen, addr, addrlen, user_data, caps, 0, direct);
 }
-#endif
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
 export enum class RecvArmPolicy : std::uint8_t {
@@ -1736,7 +1732,6 @@ export bool submit_socket(
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 export bool submit_socket_direct(
 	SocketRawRing &ring,
 	int domain,
@@ -1763,7 +1758,6 @@ export bool submit_socket_direct(
 	}
 	return submit_socket_direct(ring, domain, type, protocol, user_data);
 }
-#endif
 // ─── raw submission: connect ─────────────────────────────────────────────────
 // addr must remain valid until CQE. Caller owns lifetime.
 
@@ -1977,7 +1971,6 @@ public:
 	[[nodiscard]] int raw_fd() const noexcept { return fd_.raw_fd(); }
 	[[nodiscard]] int accept_flags() const noexcept { return accept_flags_; }
 	[[nodiscard]] RingFd auto handle() const noexcept { return fd_.get(); }
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 	[[nodiscard]] bool arm_accept_multishot_borrowed(
 		SocketRawRing &ring,
 		sockaddr *addr,
@@ -2012,7 +2005,6 @@ public:
 			accept_flags_,
 			accept_direct);
 	}
-#endif
 };
 // ─── raw submission: standalone shutdown ──────────────────────────────────────
 
@@ -2060,9 +2052,7 @@ export class SocketTaskRing; // forward declare before RingOpFn alias
 export using RingOpFn = std::function<void(SocketTaskRing &)>;
 export struct SocketTaskRingOptions {
 	SocketFdMode fd_mode{SocketFdMode::os_fd}; // P1 safe default; direct_* is explicit opt-in until P1-04
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_SURFACE_HAS_URING
 	conflux::uring::IoUringCaps const *caps{};
-#endif
 	// Must enqueue fn on ring-owner std::thread and return true, or return false.
 	// Must NOT std::invoke fn inline from an arbitrary cancelling std::thread.
 	// If null: ring is treated as single-threaded; submit_on_owner asserts caller==owner

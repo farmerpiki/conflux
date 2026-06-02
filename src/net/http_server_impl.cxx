@@ -286,7 +286,13 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 void HttpServer::request_shutdown() noexcept {
 	std::uint64_t const v = 1;
 	for (int const efd: impl_->shutdown_efds) {
-		(void)::write(efd, &v, sizeof(v));
+		auto const n = ::write(efd, &v, sizeof(v));
+		if (n != static_cast<ssize_t>(sizeof(v))) {
+			auto const ec = errno;
+			try {
+				conflux::utils::eprintln(std::format("http_server.request_shutdown write fd={} errno={}", efd, ec));
+			} catch (...) {}
+		}
 	}
 }
 

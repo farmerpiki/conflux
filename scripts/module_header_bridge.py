@@ -38,6 +38,7 @@ STD_TOKEN_RE = re.compile(r"\bstd::([A-Za-z_][A-Za-z0-9_]*)\b")
 BARE_STD_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_:])(?P<name>size_t|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|byte)\b")
 BARE_NULLPTR_T_RE = re.compile(r"(?<![A-Za-z0-9_:])nullptr_t\b")
 LOCAL_INCLUDE_RE = re.compile(r'^(?P<indent>\s*)#\s*include\s+"(?P<path>[^"]+)"')
+ANGLE_INCLUDE_RE = re.compile(r"^\s*#\s*include\s*<(?P<header>[^>]+)>")
 CONFLUX_MACRO_RE = re.compile(r"\bCONFLUX_[A-Z0-9_]+\b")
 DIRECT_IF_MACRO_RE = re.compile(r"^\s*#\s*(?:if|elif)\s+(CONFLUX_[A-Z0-9_]+)\b")
 PROBABLE_FUNCTION_LINE_RE = re.compile(r"^(?P<indent>\s*)(?P<export>export\s+)?(?P<prefix>(?:\[\[[^\]]+\]\]\s*)*)(?P<body>[^#/{;]*\b[A-Za-z_~][A-Za-z0-9_:~]*\s*\([^;]*)(?P<tail>.*)$")
@@ -143,7 +144,11 @@ STD_HEADER_BY_TOKEN: dict[str, set[str]] = {
     "source_location": {"source_location"},
     "spanstream": {"spanstream"},
     "shared_ptr": {"memory"},
+    "shared_lock": {"shared_mutex"},
+    "shared_mutex": {"shared_mutex"},
     "sort": {"algorithm"},
+    "stop_source": {"stop_token"},
+    "stop_token": {"stop_token"},
     "strlen": {"cstring"},
     "string": {"string"},
     "string_view": {"string_view"},
@@ -227,6 +232,12 @@ STD_SAFETY_NET_HEADERS = {
     "variant",
     "vector",
 }
+
+KNOWN_STD_HEADERS = (
+    STD_SAFETY_NET_HEADERS
+    | set(STREAM_TOKEN_HEADER.values())
+    | {header for headers in STD_HEADER_BY_TOKEN.values() for header in headers}
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -364,6 +375,17 @@ def explicit_std_headers(lines: Iterable[str]) -> set[str]:
         if end != -1:
             headers.add(stripped[len("#include <"):end])
     return headers
+
+
+def angle_include_header(line: str) -> str | None:
+    match = ANGLE_INCLUDE_RE.match(line)
+    if match is None:
+        return None
+    return match.group("header")
+
+
+def is_known_std_header(header: str) -> bool:
+    return header in KNOWN_STD_HEADERS
 
 
 def rebase_local_include_line(line: str) -> str:
@@ -565,8 +587,21 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
     before_decl = list(unit.lines[: unit.declaration_index])
     after_decl = list(unit.lines[unit.declaration_index + 1 :])
     body_text = "".join(after_decl)
-    std_headers = infer_standard_headers(body_text, uses_std_compat=False)
-    compat_headers = infer_standard_headers(body_text, uses_std_compat=True)
+    before_std_headers: set[str] = set()
+    before_compat_headers: set[str] = set()
+    before_non_std_lines: list[str] = []
+    for line in before_decl:
+        if line.strip() == "module;":
+            continue
+        header = angle_include_header(line)
+        if header is not None and is_known_std_header(header):
+            before_std_headers.add(header)
+            continue
+        before_non_std_lines.append(rebase_local_include_line(line))
+    if re.search(r"\bassert\s*\(", body_text) and "#include <cassert>\n" not in before_non_std_lines:
+        before_non_std_lines.append("#include <cassert>\n")
+    std_headers = sorted(set(infer_standard_headers(body_text, uses_std_compat=False)) | before_std_headers)
+    compat_headers = sorted(set(infer_standard_headers(body_text, uses_std_compat=True)) | before_compat_headers)
 
     out: list[str] = [
         "#pragma once\n",
@@ -574,17 +609,24 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
         f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
         "\n",
     ]
-    # Preserve GMF includes/extern declarations from the source, except the bare
-    # module; marker. They are real header dependencies in compatibility mode.
-    for line in before_decl:
-        if line.strip() == "module;":
-            continue
-        out.append(rebase_local_include_line(line))
-    if before_decl:
-        out.append("\n")
-
     saw_std = False
     saw_std_compat = False
+    if std_headers:
+        out.extend(std_guard_block(std_headers, compat=False))
+        saw_std = True
+    if compat_headers:
+        out.extend(std_guard_block(compat_headers, compat=True))
+        saw_std_compat = True
+    if std_headers or compat_headers:
+        out.append("\n")
+
+    # Preserve non-standard GMF includes/extern declarations from the source,
+    # except the bare module; marker. They are real header dependencies in
+    # compatibility mode.
+    out.extend(before_non_std_lines)
+    if before_non_std_lines:
+        out.append("\n")
+
     for index, line in enumerate(after_decl):
         match = IMPORT_RE.match(line)
         if match is not None:
@@ -1052,13 +1094,31 @@ def collect_local_includes_from_text(text: str) -> list[str]:
     return out
 
 
-def emit_private_include_headers(src_root: Path, include_out: Path, units: Iterable[ModuleUnit], write: bool) -> tuple[int, list[dict[str, str]]]:
+def emit_private_include_headers(
+    src_root: Path,
+    include_out: Path,
+    units: Iterable[ModuleUnit],
+    write: bool,
+    consumer_roots: Iterable[Path] = (),
+) -> tuple[int, list[dict[str, str]]]:
     queue: list[tuple[Path, str]] = []
     for unit in units:
         for line in unit.lines:
             match = LOCAL_INCLUDE_RE.match(line)
             if match is not None:
                 queue.append((unit.path, match.group("path")))
+    for root in consumer_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for include_name in collect_local_includes_from_text(text):
+                queue.append((path, include_name))
 
     changed = 0
     emitted: list[dict[str, str]] = []
@@ -1079,7 +1139,11 @@ def emit_private_include_headers(src_root: Path, include_out: Path, units: Itera
         content = f"{GENERATED_BANNER}\n" + transformed
         if write_if_changed(target, content, write):
             changed += 1
-        emitted.append({"source": str(source.relative_to(src_root)), "header": str(target), "include": target_rel.as_posix()})
+        try:
+            source_label = str(source.relative_to(src_root))
+        except ValueError:
+            source_label = str(source)
+        emitted.append({"source": source_label, "header": str(target), "include": target_rel.as_posix()})
     return changed, emitted
 
 def write_if_changed(path: Path, content: str, write: bool) -> bool:
@@ -1446,7 +1510,10 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
     lines.extend([
         ")",
         "",
-        "if(CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)",
+        "if(CONFLUX_BRIDGE_HEADER_IMPL_SOURCES",
+        "        AND NOT (CONFLUX_HEADER_USE_IMPORT_STD",
+        "            OR CONFLUX_HEADER_USE_IMPORT_STD_COMPAT",
+        "            OR CONFLUX_HEADER_USE_MODULE_IMPORTS))",
         "    set_source_files_properties(${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES}",
         "        PROPERTIES CXX_SCAN_FOR_MODULES OFF)",
         "endif()",
@@ -1465,9 +1532,9 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "    add_library(${target} INTERFACE)",
         "    target_include_directories(${target} INTERFACE \"${CONFLUX_GENERATED_INCLUDE_DIR}\" \"${CONFLUX_SRC_ROOT}\")",
         "    target_compile_definitions(${target} INTERFACE",
-        "        CONFLUX_HEADER_USE_IMPORT_STD=0",
-        "        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0",
-        "        CONFLUX_HEADER_USE_MODULE_IMPORTS=0)",
+        "        CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>",
+        "        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>",
+        "        CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>)",
         "    if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)",
         "        target_compile_features(${target} INTERFACE cxx_std_26)",
         "    else()",
@@ -1478,9 +1545,9 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "        add_library(${_conflux_header_impl_target} STATIC ${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES})",
         "        target_include_directories(${_conflux_header_impl_target} PRIVATE \"${CONFLUX_GENERATED_INCLUDE_DIR}\" \"${CONFLUX_SRC_ROOT}\")",
         "        target_compile_definitions(${_conflux_header_impl_target} PRIVATE",
-        "            CONFLUX_HEADER_USE_IMPORT_STD=0",
-        "            CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0",
-        "            CONFLUX_HEADER_USE_MODULE_IMPORTS=0)",
+        "            CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>",
+        "            CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>",
+        "            CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>)",
         "        if(CMAKE_CXX_STANDARD GREATER_EQUAL 26)",
         "            target_compile_features(${_conflux_header_impl_target} PUBLIC cxx_std_26)",
         "        else()",
@@ -1496,9 +1563,9 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "        CONFLUX_MODULE_USE_IMPORT_STD_COMPAT=0",
         "        CONFLUX_MODULE_USE_IMPORTS=0",
         "        CONFLUX_MODULE_REEXPORT_IMPORTS=0",
-        "        CONFLUX_HEADER_USE_IMPORT_STD=0",
-        "        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=0",
-        "        CONFLUX_HEADER_USE_MODULE_IMPORTS=0)",
+        "        CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>",
+        "        CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>",
+        "        CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>)",
         "endfunction()",
         "",
     ])
@@ -1582,7 +1649,17 @@ def generate(args: argparse.Namespace) -> int:
         changed += 1
     if write_if_changed(include_out / FEATURES_HEADER_RELPATH, render_features_header(), args.write):
         changed += 1
-    private_changed, private_includes = emit_private_include_headers(src_root, include_out, exported_units, args.write)
+    consumer_private_roots = [
+        root.resolve()
+        for root in (args.examples_src, args.tests_src, args.benchmarks_src)
+        if root is not None
+    ]
+    private_changed, private_includes = emit_private_include_headers(
+        src_root,
+        include_out,
+        exported_units,
+        args.write,
+        consumer_private_roots)
     changed += private_changed
     manifest["private_includes"] = private_includes
 

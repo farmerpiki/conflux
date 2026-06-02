@@ -58,16 +58,28 @@ struct SecretSource {
 	std::string value{};
 };
 struct SecretRotationConfig {
-	SecretSource active{};
-	std::vector<SecretSource> previous{};
-	std::size_t min_secret_bytes{16};
+	SecretSource active;
+	std::vector<SecretSource> previous;
+	std::size_t min_secret_bytes;
+
+	SecretRotationConfig()
+		: active{}
+		, previous{}
+		, min_secret_bytes{16} {}
 };
 struct AuthSecretsConfig {
-	SecretSource password_verifier_secret{};
-	std::size_t password_verifier_min_secret_bytes{16};
-	SecretRotationConfig jwt{};
-	SecretRotationConfig cookie{};
-	SecretRotationConfig session{};
+	SecretSource password_verifier_secret;
+	std::size_t password_verifier_min_secret_bytes;
+	SecretRotationConfig jwt;
+	SecretRotationConfig cookie;
+	SecretRotationConfig session;
+
+	AuthSecretsConfig()
+		: password_verifier_secret{}
+		, password_verifier_min_secret_bytes{16}
+		, jwt{}
+		, cookie{}
+		, session{} {}
 };
 struct ResolvedSecretRotation {
 	std::string active{};
