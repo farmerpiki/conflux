@@ -362,6 +362,47 @@ struct StaticSelectedSidecar {
 	return "application/octet-stream";
 }
 
+void add_static_cached_headers(
+	conflux::http::Response &resp,
+	http_detail::StaticCacheEntry const &entry,
+	std::string_view cache_control) {
+	resp.headers["ETag"] = entry.etag;
+	resp.headers["Last-Modified"] = entry.last_modified;
+	resp.headers["Accept-Ranges"] = "bytes";
+	if (!entry.content_encoding.empty()) {
+		resp.headers["Content-Encoding"] = entry.content_encoding;
+	}
+	if (!cache_control.empty()) {
+		resp.headers["Cache-Control"] = cache_control;
+	}
+}
+
+[[nodiscard]] conflux::http::Response make_static_cached_response(
+	http_detail::StaticCacheEntry const &entry,
+	std::string_view cache_control) {
+	auto resp = conflux::http::Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+	add_static_cached_headers(resp, entry, cache_control);
+	resp.set_text_body(entry.body);
+	return resp;
+}
+
+[[nodiscard]] conflux::http::Response make_static_cached_range_response(
+	http_detail::StaticCacheEntry const &entry,
+	std::string_view cache_control,
+	std::size_t range_start,
+	std::size_t range_end,
+	std::size_t file_size) {
+	auto const send_sz = range_end - range_start + 1;
+	auto resp = conflux::http::Response{
+		.status = kHttpPartialContent,
+		.status_text = "Partial Content",
+		.content_type = entry.mime};
+	add_static_cached_headers(resp, entry, cache_control);
+	resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
+	resp.set_text_body(entry.body.substr(range_start, send_sz));
+	return resp;
+}
+
 [[nodiscard]] conflux::http::Response static_forbidden() {
 	return conflux::http::Response::html(
 		"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -783,57 +824,18 @@ conflux::http::Response handle_static_get(
 		if (static_options.file_cache.enabled && file_size <= static_options.file_cache.small_file_max_bytes) {
 			auto make_cached_response = [&](http_detail::StaticCacheEntry const &entry) {
 				if (is_range_request) {
-					auto send_sz = range_end - range_start + 1;
-					auto resp = conflux::http::Response{
-						.status = kHttpPartialContent,
-						.status_text = "Partial Content",
-						.content_type = entry.mime};
-					resp.headers["ETag"] = entry.etag;
-					resp.headers["Last-Modified"] = entry.last_modified;
-					resp.headers["Accept-Ranges"] = "bytes";
-					resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
-					if (!entry.content_encoding.empty()) {
-						resp.headers["Content-Encoding"] = entry.content_encoding;
-					}
-					if (!static_options.cache_control.empty()) {
-						resp.headers["Cache-Control"] = static_options.cache_control;
-					}
-					resp.set_text_body(entry.body.substr(range_start, send_sz));
-					return resp;
+					return make_static_cached_range_response(
+						entry,
+						static_options.cache_control,
+						range_start,
+						range_end,
+						file_size);
 				}
-				auto resp = conflux::http::Response{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
-				resp.headers["ETag"] = entry.etag;
-				resp.headers["Last-Modified"] = entry.last_modified;
-				resp.headers["Accept-Ranges"] = "bytes";
-				if (!entry.content_encoding.empty()) {
-					resp.headers["Content-Encoding"] = entry.content_encoding;
-				}
-				if (!static_options.cache_control.empty()) {
-					resp.headers["Cache-Control"] = static_options.cache_control;
-				}
-				resp.set_text_body(entry.body);
-				return resp;
+				return make_static_cached_response(entry, static_options.cache_control);
 			};
 			if (auto cached =
 					static_cache
 						.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
-							if (!is_range_request) {
-								auto resp = conflux::http::Response{
-									.status = kHttpOk,
-									.status_text = "OK",
-									.content_type = entry.mime};
-								resp.headers["ETag"] = entry.etag;
-								resp.headers["Last-Modified"] = entry.last_modified;
-								resp.headers["Accept-Ranges"] = "bytes";
-								if (!entry.content_encoding.empty()) {
-									resp.headers["Content-Encoding"] = entry.content_encoding;
-								}
-								if (!static_options.cache_control.empty()) {
-									resp.headers["Cache-Control"] = static_options.cache_control;
-								}
-								resp.set_text_body(entry.body);
-								return resp;
-							}
 							return make_cached_response(entry);
 						})) {
 				return std::move(*cached);
