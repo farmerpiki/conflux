@@ -47,6 +47,10 @@ def shell_pkg_config_exists_probes(text: str) -> set[str]:
     return set(re.findall(r"pkg-config\s+--exists\s+([A-Za-z0-9_.+-]+)", text))
 
 
+def shell_cmake_definitions(text: str) -> dict[str, str]:
+    return dict(re.findall(r"-D([A-Za-z0-9_]+)=([^ \t\n\\]+)", text))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1353,7 +1357,6 @@ def check_package_smoke_wrapper_default_components() -> None:
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
         "scripts/check-package-smoke-core-isolated.sh": {
-            "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
         },
         "scripts/check-package-smoke-db.sh": {
@@ -1364,6 +1367,11 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    core_cmake_definitions = shell_cmake_definitions(
+        read("scripts/check-package-smoke-core-isolated.sh"),
+    )
+    if core_cmake_definitions.get("CONFLUX_JSON_HASH_PROVIDER") != "XXHASH":
+        errors.append("core-isolated package smoke must force the external JSON hash provider")
     liburing_free_forbidden = shell_semicolon_flag_value(
         read("scripts/check-package-smoke-liburing-free.sh"),
         "--forbid-external-deps",
