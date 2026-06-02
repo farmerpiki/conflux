@@ -1261,10 +1261,24 @@ public:
 	}
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
+		validate_app_state(report);
+		validate_runtime_config(report);
+		validate_route_patterns_and_uniqueness(report);
+		validate_route_extractors_and_body_policy(report);
+		validate_static_mounts(report);
+		return report;
+	}
+
+	void validate_app_state(
+		ValidationReport &report) const {
 		for (auto const &issue: state_issues_) {
 			report.issues.push_back(
 				ValidationIssue{.code = "app.validation", .message = issue, .method = "APP", .path = "state"});
 		}
+	}
+
+	void validate_runtime_config(
+		ValidationReport &report) const {
 		report.config_issues = conflux::http::validate_config(cfg_);
 		if (auto caps = conflux::runtime::detect_capabilities()) {
 			report.capability_issues = conflux::http::validate_config_capabilities(cfg_, *caps);
@@ -1277,6 +1291,10 @@ public:
 				cfg_.feature_fallback == conflux::runtime::FeatureFallback::fail_fast;
 		}
 		validate_tls_config(report);
+	}
+
+	void validate_route_patterns_and_uniqueness(
+		ValidationReport &report) const {
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen;
 		std::map<std::pair<std::string, std::string>, AppRouteMetadata const *> seen_shapes;
 		for (auto const &route: route_metadata_) {
@@ -1319,6 +1337,10 @@ public:
 						.related_source_line = shape_it->second->source_line});
 			}
 		}
+	}
+
+	void validate_route_extractors_and_body_policy(
+		ValidationReport &report) const {
 		for (auto const &route: route_metadata_) {
 			for (auto const &state_type: route.required_states) {
 				if (!states_->contains(state_type)) {
@@ -1425,6 +1447,10 @@ public:
 				validate_openapi_completeness(route, report);
 			}
 		}
+	}
+
+	void validate_static_mounts(
+		ValidationReport &report) const {
 		for (auto const &mount: static_mounts_) {
 			std::error_code ec;
 			auto const status = std::filesystem::status(mount.root_dir, ec);
@@ -1448,7 +1474,6 @@ public:
 						.source_line = mount.source_line});
 			}
 		}
-		return report;
 	}
 
 	[[nodiscard]] bool route_has_body_limit(
@@ -2228,9 +2253,7 @@ public:
 			}
 			label += '>';
 			meta.extractors[I] = std::move(label);
-			meta.path_index_extractor_types.emplace_back(
-				path_index,
-				std::string{detail::route_type_tag<Arg>()});
+			meta.path_index_extractor_types.emplace_back(path_index, std::string{detail::route_type_tag<Arg>()});
 		}
 	}
 
