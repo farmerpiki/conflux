@@ -179,6 +179,54 @@ struct StaticAcceptedEncodings {
 		"Forbidden");
 }
 
+[[nodiscard]] std::optional<conflux::http::Response> render_static_directory_listing(
+	int root_fd,
+	std::string const &rel_path,
+	std::string_view file_param) {
+	conflux::file_io_sync::UniqueFd dfd{
+		rel_path.empty() ? contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
+						   contained_static_open(root_fd, rel_path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
+	if (!dfd) {
+		return std::nullopt;
+	}
+	StaticDir dir{::fdopendir(dfd.fd())};
+	if (!dir) {
+		return std::nullopt;
+	}
+	(void)dfd.release();
+
+	std::string html;
+	html.reserve(128 + file_param.size() * 2);
+	html += "<html><head><title>Index of ";
+	append_static_html_escape(html, file_param);
+	html += "</title></head><body><h1>Index of ";
+	append_static_html_escape(html, file_param);
+	html += "</h1><ul>";
+	if (!file_param.empty() && file_param != "/") {
+		html += "<li><a href=\"../\">..</a></li>";
+	}
+	struct ::dirent *ent{};
+	std::vector<std::string> names;
+	while ((ent = ::readdir(dir.get())) != nullptr) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay): POSIX exposes d_name as an array field.
+		std::string_view const name{ent->d_name};
+		if (name == "." || name == "..") {
+			continue;
+		}
+		names.emplace_back(name);
+	}
+	std::ranges::sort(names);
+	for (auto const &name: names) {
+		html += "<li><a href=\"";
+		conflux::http::append_url_percent_encoded(html, name);
+		html += "\">";
+		append_static_html_escape(html, name);
+		html += "</a></li>";
+	}
+	html += "</ul></body></html>";
+	return conflux::http::Response::html(std::move(html));
+}
+
 } // namespace
 
 namespace conflux::http {
@@ -420,48 +468,11 @@ conflux::http::Response handle_static_get(
 				file_param += "/index.html";
 				rel_str = index_rel;
 			} else if (static_options.directory_listing) {
-				conflux::file_io_sync::UniqueFd dfd{
-					rel_str.empty() ?
-						contained_static_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
-						contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
-				if (!dfd) {
+				auto listing = render_static_directory_listing(root_fd, rel_str, file_param);
+				if (!listing) {
 					return static_forbidden();
 				}
-				StaticDir dir{::fdopendir(dfd.fd())};
-				if (!dir) {
-					return static_forbidden();
-				}
-				(void)dfd.release();
-				std::string html;
-				html.reserve(128 + file_param.size() * 2);
-				html += "<html><head><title>Index of ";
-				append_static_html_escape(html, file_param);
-				html += "</title></head><body><h1>Index of ";
-				append_static_html_escape(html, file_param);
-				html += "</h1><ul>";
-				if (!file_param.empty() && file_param != "/") {
-					html += "<li><a href=\"../\">..</a></li>";
-				}
-				struct ::dirent *ent{};
-				std::vector<std::string> names;
-				while ((ent = ::readdir(dir.get())) != nullptr) {
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-					std::string_view const n{ent->d_name};
-					if (n == "." || n == "..") {
-						continue;
-					}
-					names.emplace_back(n);
-				}
-				std::ranges::sort(names);
-				for (auto const &name: names) {
-					html += "<li><a href=\"";
-					append_url_percent_encoded(html, name);
-					html += "\">";
-					append_static_html_escape(html, name);
-					html += "</a></li>";
-				}
-				html += "</ul></body></html>";
-				return conflux::http::Response::html(std::move(html));
+				return std::move(*listing);
 			} else {
 				return static_forbidden();
 			}
