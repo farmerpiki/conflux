@@ -469,8 +469,8 @@ struct BenchClient {
 	void set_recv_timeout(
 		std::chrono::microseconds timeout) const {
 		timeval tv{};
-		tv.tv_sec = static_cast<time_t>(timeout.count() / 1'000'000);
-		tv.tv_usec = static_cast<suseconds_t>(timeout.count() % 1'000'000);
+		tv.tv_sec = timeout.count() / 1'000'000;
+		tv.tv_usec = timeout.count() % 1'000'000;
 		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 	}
 

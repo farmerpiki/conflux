@@ -682,12 +682,12 @@ TEST_CASE(
 	"json: builder lambda sugar builds nested documents",
 	"[json][builder]") {
 	auto doc = conflux::json::object([](auto &obj) {
-		obj("id", 42);
-		obj("name", "alice");
-		obj.array("tags", [](auto &arr) {
-			arr("x");
-			arr("y");
-		});
+		REQUIRE(obj("id", 42).has_value());
+		REQUIRE(obj("name", "alice").has_value());
+		REQUIRE(obj.array("tags", [](auto &arr) {
+			REQUIRE(arr("x").has_value());
+			REQUIRE(arr("y").has_value());
+		}).has_value());
 	});
 	REQUIRE(doc.has_value());
 

@@ -258,8 +258,7 @@ BenchStats bench_synthetic_io_loop(
 			ops += device.completed;
 		},
 		plan);
-	auto const expected =
-		static_cast<std::uint64_t>(plan.iterations + plan.warmup_iterations) * static_cast<std::uint64_t>(lc.bytes);
+	auto const expected = (plan.iterations + plan.warmup_iterations) * static_cast<std::uint64_t>(lc.bytes);
 	if (sink != expected) {
 		std::println(std::cerr, "bad {} sink: {} != {}", variant, sink, expected);
 		std::exit(1);

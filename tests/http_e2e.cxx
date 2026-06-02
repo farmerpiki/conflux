@@ -104,7 +104,9 @@ std::uint16_t g_redirect_follow_target_port = 0;
 std::uint16_t g_redirect_follow_async_port = 0;
 
 chttp::Task<void> short_async_test_delay() {
-	auto [gate, source] = conflux::work::root::make_task_source<int>();
+	auto task_source = conflux::work::root::make_task_source<int>();
+	auto gate = std::move(std::get<0>(task_source));
+	auto source = std::move(std::get<1>(task_source));
 	std::thread([source = std::move(source)] mutable {
 		std::this_thread::sleep_for(std::chrono::milliseconds{10});
 		auto _ = source.try_set_value(conflux::work::root::Success<int>{0});
@@ -305,7 +307,9 @@ void ensure_server() {
 			"/api/multipart-file-async",
 			[](conflux::http::RequestView req,
 			   chttp::RequestContext const &) -> conflux::work::root::Task<conflux::http::Response> {
-				auto [gate, source] = conflux::work::root::make_task_source<int>();
+				auto task_source = conflux::work::root::make_task_source<int>();
+				auto gate = std::move(std::get<0>(task_source));
+				auto source = std::move(std::get<1>(task_source));
 				std::thread([source = std::move(source)] mutable {
 					std::this_thread::sleep_for(std::chrono::milliseconds{10});
 					(void)source.try_set_value(conflux::work::root::Success<int>{0});
@@ -2266,7 +2270,9 @@ TEST_CASE(
 		[](chttp::RequestView req,
 		   chttp::RequestContext const &ctx,
 		   chttp::AsyncNext const &next) -> chttp::Task<chttp::Response> {
-			auto [gate, source] = conflux::work::root::make_task_source<int>();
+			auto task_source = conflux::work::root::make_task_source<int>();
+			auto gate = std::move(std::get<0>(task_source));
+			auto source = std::move(std::get<1>(task_source));
 			std::thread([source = std::move(source)] mutable {
 				std::this_thread::sleep_for(std::chrono::milliseconds{10});
 				(void)source.try_set_value(conflux::work::root::Success<int>{0});

@@ -81,7 +81,11 @@ int main() {
 	std::println("opened: {}", std::string_view{reinterpret_cast<char const *>(opened->data()), opened->size()});
 
 	auto tampered = *sealed;
-	tampered[0] = static_cast<unsigned char>(tampered[0] ^ 0x01U);
+	if (tampered.empty()) {
+		std::println(std::cerr, "seal produced no bytes");
+		return 1;
+	}
+	tampered.front() = static_cast<unsigned char>(tampered.front() ^ 0x01U);
 	auto rejected = conflux::crypto::aes_gcm_decrypt(
 		bytes(key),
 		bytes(iv),

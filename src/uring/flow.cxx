@@ -129,8 +129,10 @@ struct OwnedPathStorage {
 	}
 	[[nodiscard]] bool set_heap(
 		std::string_view path) noexcept {
-		auto storage = std::unique_ptr<char[]>{new (std::nothrow) char[path.size() + 1]};
-		if (!storage) {
+		std::unique_ptr<char[]> storage;
+		try {
+			storage = std::make_unique_for_overwrite<char[]>(path.size() + 1);
+		} catch (std::bad_alloc const &) {
 			return false;
 		}
 		std::memcpy(storage.get(), path.data(), path.size());

@@ -45,20 +45,21 @@ void *operator new[](
 	std::size_t size) {
 	return ::operator new(size);
 }
-void operator delete(
+// Keep delete hooks out of call sites so GCC sees the replacement new/free pair correctly.
+[[gnu::noinline]] void operator delete(
 	void *p) noexcept {
 	std::free(p);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *p) noexcept {
 	::operator delete(p);
 }
-void operator delete(
+[[gnu::noinline]] void operator delete(
 	void *p,
 	std::size_t) noexcept {
 	::operator delete(p);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *p,
 	std::size_t) noexcept {
 	::operator delete(p);
@@ -1769,7 +1770,9 @@ struct CorpusFileSpec {
 	if (!f) {
 		return std::nullopt;
 	}
-	return std::string{std::istreambuf_iterator<char>{f}, {}};
+	std::ostringstream out;
+	out << f.rdbuf();
+	return out.str();
 }
 void bench_parse_required_named(
 	std::string_view name,

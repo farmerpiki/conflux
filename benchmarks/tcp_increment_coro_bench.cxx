@@ -540,16 +540,16 @@ conflux::work::root::Task<void> str_parallel_inner(
 	std::size_t iters,
 	std::uint64_t start) {
 	auto ss = loopback_addr(port);
-	auto [s1, s2, s3, s4] = co_await conflux::work::join_all(
+	auto streams = co_await conflux::work::join_all(
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
 		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)));
 	co_await conflux::work::join_all(
-		str_coro_loop(s1, iters, start),
-		str_coro_loop(s2, iters, start),
-		str_coro_loop(s3, iters, start),
-		str_coro_loop(s4, iters, start));
+		str_coro_loop(std::get<0>(streams), iters, start),
+		str_coro_loop(std::get<1>(streams), iters, start),
+		str_coro_loop(std::get<2>(streams), iters, start),
+		str_coro_loop(std::get<3>(streams), iters, start));
 }
 std::uint64_t run_str_parallel(
 	conflux::socket_io::SocketTaskRing &ring,

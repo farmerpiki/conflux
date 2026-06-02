@@ -962,7 +962,7 @@ int main(
 						my_conns,
 						stop,
 						measure,
-						0x1234abcdull + static_cast<std::uint64_t>(t) * 0x10001ull);
+						std::uint64_t{0x1234abcd} + static_cast<std::uint64_t>(t) * std::uint64_t{0x10001});
 				});
 			}
 
@@ -1021,7 +1021,7 @@ int main(
 				telemetry.errors += r.errors;
 				telemetry.timeouts += r.timeouts;
 			}
-			auto const total_requests = static_cast<std::uint64_t>(all_latencies.size());
+			auto const total_requests = all_latencies.size();
 			auto lat = compute_percentiles(all_latencies);
 			emit_result(
 				config_name,

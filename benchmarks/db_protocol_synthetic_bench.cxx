@@ -241,7 +241,7 @@ void consume_wire_text(
 				}
 				acc += v;
 			} else {
-				acc += static_cast<std::uint64_t>(sv.size());
+				acc += sv.size();
 			}
 			p += field_len;
 		}

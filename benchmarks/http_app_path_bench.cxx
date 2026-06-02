@@ -95,41 +95,42 @@ void *operator new[](
 	return ::operator new(size, alignment);
 }
 
-void operator delete(
+// Keep delete hooks out of call sites so GCC sees the replacement new/free pair correctly.
+[[gnu::noinline]] void operator delete(
 	void *ptr) noexcept {
 	std::free(ptr);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *ptr) noexcept {
 	std::free(ptr);
 }
-void operator delete(
+[[gnu::noinline]] void operator delete(
 	void *ptr,
 	std::size_t) noexcept {
 	std::free(ptr);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *ptr,
 	std::size_t) noexcept {
 	std::free(ptr);
 }
-void operator delete(
+[[gnu::noinline]] void operator delete(
 	void *ptr,
 	std::align_val_t) noexcept {
 	std::free(ptr);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *ptr,
 	std::align_val_t) noexcept {
 	std::free(ptr);
 }
-void operator delete(
+[[gnu::noinline]] void operator delete(
 	void *ptr,
 	std::size_t,
 	std::align_val_t) noexcept {
 	std::free(ptr);
 }
-void operator delete[](
+[[gnu::noinline]] void operator delete[](
 	void *ptr,
 	std::size_t,
 	std::align_val_t) noexcept {

@@ -1021,6 +1021,11 @@ if(TARGET conflux_net_http)
     add_executable(conflux_http_facade_tests http_facade_test.cxx)
     target_link_libraries(conflux_http_facade_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+        # GCC 16 ICEs during LTO for this test TU; keep the fallback to the source that triggers it.
+        set_target_properties(conflux_http_facade_tests PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS -fno-lto)
+    endif()
 
     add_executable(conflux_http_facade_import_smoke http_facade_import_smoke.cxx)
     target_link_libraries(conflux_http_facade_import_smoke
