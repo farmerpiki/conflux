@@ -1143,6 +1143,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpRouterMatchTests.cmake",
         "tests/HttpServerHelpersTests.cmake",
         "tests/HttpStaticCoreTests.cmake",
+        "tests/HttpVhostTests.cmake",
         "tests/IoTests.cmake",
         "tests/JsonTests.cmake",
         "tests/MainTests.cmake",
@@ -1664,6 +1665,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpStaticCoreTests.cmake")': "tests CMake must include the HTTP static core test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterDispatchTests.cmake")': "tests CMake must include the HTTP router dispatch test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterMatchTests.cmake")': "tests CMake must include the HTTP router match test fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpVhostTests.cmake")': "tests CMake must include the HTTP vhost test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
@@ -1764,6 +1766,9 @@ def check_build_docs_guard_contracts() -> None:
         "tests/HttpRouterMatchTests.cmake": {
             "conflux_http_router_match_compile_fail_global_segment": "HTTP router match test fragment must keep segment compile-fail check",
             "conflux_http_router_match_compile_fail_global_parse_pattern": "HTTP router match test fragment must keep parse pattern compile-fail check",
+        },
+        "tests/HttpVhostTests.cmake": {
+            "conflux_http_vhost_compile_fail_global_vhost_router": "HTTP vhost test fragment must keep vhost router compile-fail check",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
