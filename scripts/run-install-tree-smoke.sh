@@ -132,6 +132,12 @@ fi
 if [[ -n "$api_surface" && "$api_surface" != "curated" && "$api_surface" != "extended" && "$api_surface" != "complete" ]]; then
     fail "invalid API surface: $api_surface"
 fi
+IFS=';' read -r -a requested_components <<< "$components"
+for component in "${requested_components[@]}"; do
+    if [[ "$component" == _* || "$component" == headers || "$component" == header_impl || "$component" == header_impl_* ]]; then
+        fail "--components must request public components, not support component: $component"
+    fi
+done
 source_root="$(realpath -m "$source_root")"
 
 base_dir="${TMPDIR:-/tmp}/conflux-install-tree-smoke"

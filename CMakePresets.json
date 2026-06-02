@@ -398,6 +398,26 @@
       }
     },
     {
+      "name": "release-http-api-install-smoke",
+      "displayName": "Release smoke · HTTP API install tree",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-http-api",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_POSTGRES_PROVIDER": "OFF",
+        "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+        "CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET": "http-api",
+        "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_POSTGRES_PROVIDER=OFF",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "core;http"
+      }
+    },
+    {
       "name": "release-header-artifacts-install-smoke",
       "displayName": "Release smoke · header artifact install tree",
       "inherits": "release-header-artifacts",
@@ -679,6 +699,10 @@
       "configurePreset": "release-json-install-smoke"
     },
     {
+      "name": "release-http-api-install-smoke",
+      "configurePreset": "release-http-api-install-smoke"
+    },
+    {
       "name": "release-header-artifacts-install-smoke",
       "configurePreset": "release-header-artifacts-install-smoke"
     },
@@ -772,6 +796,21 @@
     {
       "name": "release-json-install-smoke",
       "configurePreset": "release-json-install-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "build/install-tree-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "release-http-api-install-smoke",
+      "configurePreset": "release-http-api-install-smoke",
       "output": {
         "outputOnFailure": true
       },

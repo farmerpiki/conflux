@@ -47,6 +47,7 @@ REPO_ROOT="${SOURCE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || script_r
 cd "$REPO_ROOT"
 
 PRESET="${DB_PIPELINE_PRESET:-release-gcc-stdcxx}"
+python3 scripts/cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET" >/dev/null
 BATCHES="${DB_PIPELINE_BATCHES:-60}"
 BATCH_N="${DB_PIPELINE_BATCH_N:-100}"
 WARMUP_BATCHES="${DB_PIPELINE_WARMUP_BATCHES:-10}"

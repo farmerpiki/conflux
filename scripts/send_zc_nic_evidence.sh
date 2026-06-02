@@ -122,6 +122,7 @@ if [[ "$ALLOW_LOOPBACK" == 0 ]] && is_loopback_ipv4 "$HOST"; then
 fi
 
 PRESET="${SEND_ZC_PRESET:-perf-clang-libcxx}"
+python3 scripts/cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET" >/dev/null
 THRESHOLDS="${SEND_ZC_THRESHOLDS:-4096 16384 65536}"
 REPS="${SEND_ZC_REPS:-5}"
 CONNECTIONS="${SEND_ZC_CONNECTIONS:-64}"

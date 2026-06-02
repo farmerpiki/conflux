@@ -3,8 +3,9 @@
 set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PRESET_ROOT="/tmp/$(basename "${ROOT_DIR}")"
-CLANG_TIDY_BUILD_DIR="${PRESET_ROOT}/debug-clang-libcxx"
+python3 "${ROOT_DIR}/scripts/cmake-preset-build-dir.py" "${ROOT_DIR}" debug-gcc-stdcxx >/dev/null
+python3 "${ROOT_DIR}/scripts/cmake-preset-build-dir.py" "${ROOT_DIR}" debug-clang-libcxx >/dev/null
+CLANG_TIDY_BUILD_DIR="$(python3 "${ROOT_DIR}/scripts/cmake-preset-build-dir.py" "${ROOT_DIR}" debug-clang-libcxx)"
 REPORT_ROOT="${ROOT_DIR}/build/hygiene"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${REPORT_ROOT}/${TIMESTAMP}"

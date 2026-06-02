@@ -64,9 +64,12 @@ function(conflux_configure_interface_mode)
     elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args
             --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
-            --source-mode header
-            --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
-            --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+            --source-mode header)
+        if(CONFLUX_BUILD_EXAMPLES)
+            list(APPEND _bridge_args
+                --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+                --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+        endif()
         if(CONFLUX_BUILD_TESTS)
             list(APPEND _bridge_args
                 --tests-src "${CMAKE_CURRENT_SOURCE_DIR}/tests"
@@ -132,33 +135,6 @@ function(conflux_configure_interface_mode)
             "${CONFLUX_BRIDGE_HEADER_IMPL_MODULES}" PARENT_SCOPE)
     endif()
 
-endfunction()
-
-function(conflux_bridge_link_header_dependencies target scope)
-    foreach(_target IN ITEMS
-            PkgConfig::LIBURING
-            PkgConfig::XXHASH
-            OpenSSL::SSL
-            OpenSSL::Crypto
-            ZLIB::ZLIB
-            PkgConfig::BROTLI
-            PkgConfig::ZSTD
-            PkgConfig::LIBDEFLATE
-            PkgConfig::ZLIB_NG
-            PkgConfig::LIBISAL
-            PkgConfig::NGHTTP2
-            PkgConfig::NGTCP2
-            PkgConfig::NGTCP2_CRYPTO_OSSL
-            PkgConfig::NGHTTP3
-            PkgConfig::LIBPQ
-            PkgConfig::ARGON2)
-        if(TARGET ${_target})
-            target_link_libraries(${target} ${scope} ${_target})
-        endif()
-    endforeach()
-    if(UNIX)
-        target_link_libraries(${target} ${scope} ${CMAKE_DL_LIBS})
-    endif()
 endfunction()
 
 function(conflux_source_id_to_target_suffix out source_id)
@@ -648,46 +624,17 @@ function(conflux_link_header_http_impls target)
         conflux_header_impl_http_static)
 endfunction()
 
-function(conflux_link_header_impl_for_source_id target source_id)
-    if(NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES)
-        return()
-    endif()
-
-    conflux_link_existing_header_impls_private(${target} conflux_header_impl_core)
-
-    if(source_id MATCHES "json")
-        conflux_link_existing_header_impls_private(${target} conflux_header_impl_json)
-    endif()
-    if(source_id MATCHES "work|runtime|explicit_offload")
-        conflux_link_existing_header_impls_private(${target} conflux_header_impl_runtime)
-    endif()
-    if(source_id MATCHES "process")
-        conflux_link_existing_header_impls_private(${target} conflux_header_impl_process)
-    endif()
-    if(source_id MATCHES "crypto")
-        conflux_link_existing_header_impls_private(${target} conflux_header_impl_crypto)
-    endif()
-    if(source_id MATCHES "template|production_showcase")
-        conflux_link_existing_header_impls_private(${target} conflux_header_impl_templates)
-    endif()
-    if(source_id MATCHES "postgres|db_")
-        conflux_link_existing_header_impls_private(${target}
-            conflux_header_impl_runtime
-            conflux_header_impl_socket_io
-            conflux_header_impl_pg)
-    endif()
-
-    if(source_id MATCHES "http|hello|middleware|sse|websocket|static|forms|gzip|dual|quickstart|vhost|openapi|production_showcase|manual_json_members|policy_stack|offload")
-        conflux_link_header_http_impls(${target})
-    endif()
-    if(source_id MATCHES "http_client|dual|proxy")
-        conflux_link_existing_header_impls_private(${target}
-            conflux_header_impl_http_client
-            conflux_header_impl_http_proxy)
-    endif()
-endfunction()
-
 function(conflux_add_header_example_from_id target source_id)
+    set(options HTTP_IMPLS)
+    set(one_value_args)
+    set(multi_value_args IMPLS)
+    cmake_parse_arguments(CONFLUX_HEADER_EXAMPLE
+        "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    if(CONFLUX_HEADER_EXAMPLE_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "conflux_add_header_example_from_id(${target}) got unexpected arguments: "
+            "${CONFLUX_HEADER_EXAMPLE_UNPARSED_ARGUMENTS}")
+    endif()
     if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND CONFLUX_HEADER_LINK_EXAMPLES)
         conflux_add_executable_from_id(${target} "${source_id}")
     else()
@@ -695,7 +642,14 @@ function(conflux_add_header_example_from_id target source_id)
     endif()
     target_link_libraries(${target} PRIVATE conflux_headers)
     if(CONFLUX_HEADER_LINK_EXAMPLES)
-        conflux_link_header_impl_for_source_id(${target} "${source_id}")
+        conflux_link_existing_header_impls_private(${target} conflux_header_impl_core)
+        if(CONFLUX_HEADER_EXAMPLE_HTTP_IMPLS)
+            conflux_link_header_http_impls(${target})
+        endif()
+        if(CONFLUX_HEADER_EXAMPLE_IMPLS)
+            conflux_link_existing_header_impls_private(${target}
+                ${CONFLUX_HEADER_EXAMPLE_IMPLS})
+        endif()
     endif()
     set_property(GLOBAL APPEND PROPERTY CONFLUX_HEADER_EXAMPLE_TARGETS ${target})
 endfunction()
@@ -1012,80 +966,124 @@ function(conflux_add_header_examples_from_source_ids)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER)
-        conflux_add_header_example_from_id(conflux_quickstart_hello examples/quickstart/hello)
-        conflux_add_header_example_from_id(conflux_quickstart_middleware examples/quickstart/middleware)
-        conflux_add_header_example_from_id(conflux_quickstart_sse examples/quickstart/sse)
-        conflux_add_header_example_from_id(conflux_quickstart_static_files examples/quickstart/static_files)
-        conflux_add_header_example_from_id(conflux_quickstart_websocket examples/quickstart/websocket)
-        conflux_add_header_example_from_id(conflux_quickstart_openapi examples/quickstart/openapi)
-        conflux_add_header_example_from_id(conflux_hello examples/hello)
-        conflux_add_header_example_from_id(conflux_middleware examples/middleware)
-        conflux_add_header_example_from_id(conflux_sse examples/sse)
-        conflux_add_header_example_from_id(conflux_static examples/static)
-        conflux_add_header_example_from_id(conflux_forms examples/forms)
-        conflux_add_header_example_from_id(conflux_gzip examples/gzip)
-        conflux_add_header_example_from_id(conflux_dual examples/advanced/dual)
-        conflux_add_header_example_from_id(conflux_http_observability_example examples/advanced/http_observability)
-        conflux_add_header_example_from_id(conflux_production_showcase_example examples/advanced/production_showcase)
-        conflux_add_header_example_from_id(conflux_http_policy_stack_example examples/advanced/http_policy_stack)
-        conflux_add_header_example_from_id(conflux_vhost_openapi_example examples/advanced/vhost_openapi)
+        conflux_add_header_example_from_id(conflux_quickstart_hello examples/quickstart/hello HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_quickstart_middleware examples/quickstart/middleware HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_quickstart_sse examples/quickstart/sse HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_quickstart_static_files examples/quickstart/static_files HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_quickstart_websocket examples/quickstart/websocket HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_quickstart_openapi examples/quickstart/openapi
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_hello examples/hello
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_middleware examples/middleware
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_sse examples/sse HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_static examples/static
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_forms examples/forms HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_gzip examples/gzip
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_dual examples/advanced/dual
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_http_client conflux_header_impl_http_proxy)
+        conflux_add_header_example_from_id(conflux_http_observability_example examples/advanced/http_observability HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_production_showcase_example examples/advanced/production_showcase
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_templates)
+        conflux_add_header_example_from_id(conflux_http_policy_stack_example examples/advanced/http_policy_stack HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_vhost_openapi_example examples/advanced/vhost_openapi HTTP_IMPLS)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_CLIENT)
-        conflux_add_header_example_from_id(conflux_http_client examples/http_client)
-        conflux_add_header_example_from_id(conflux_http_client_builder_example examples/advanced/http_client_builder)
+        conflux_add_header_example_from_id(conflux_http_client examples/http_client
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_http_client conflux_header_impl_http_proxy)
+        conflux_add_header_example_from_id(conflux_http_client_builder_example examples/advanced/http_client_builder
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_http_client conflux_header_impl_http_proxy)
     endif()
     if(CONFLUX_WANT_PROCESS)
-        conflux_add_header_example_from_id(conflux_process_run_example examples/advanced/process_run)
+        conflux_add_header_example_from_id(conflux_process_run_example examples/advanced/process_run
+            IMPLS conflux_header_impl_process)
     endif()
     if(CONFLUX_WANT_CRYPTO)
-        conflux_add_header_example_from_id(conflux_crypto_sealing_example examples/advanced/crypto_sealing)
+        conflux_add_header_example_from_id(conflux_crypto_sealing_example examples/advanced/crypto_sealing
+            IMPLS conflux_header_impl_crypto)
     endif()
     if(CONFLUX_WANT_RUNTIME)
-        conflux_add_header_example_from_id(conflux_work_join_all_example examples/advanced/work_join_all)
+        conflux_add_header_example_from_id(conflux_work_join_all_example examples/advanced/work_join_all
+            IMPLS conflux_header_impl_runtime)
     endif()
     if(CONFLUX_WANT_JSON)
-        conflux_add_header_example_from_id(conflux_json_example examples/advanced/json)
-        conflux_add_header_example_from_id(conflux_json_config_example examples/advanced/json_config)
-        conflux_add_header_example_from_id(conflux_json_stream_ingest_example examples/advanced/json_stream_ingest)
-        conflux_add_header_example_from_id(conflux_json_diagnostics_example examples/advanced/json_diagnostics)
-        conflux_add_header_example_from_id(conflux_json_transform_example examples/advanced/json_transform)
+        conflux_add_header_example_from_id(conflux_json_example examples/advanced/json
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_json_config_example examples/advanced/json_config
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_json_stream_ingest_example examples/advanced/json_stream_ingest
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_json_diagnostics_example examples/advanced/json_diagnostics
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_json_transform_example examples/advanced/json_transform
+            IMPLS conflux_header_impl_json)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_JSON)
-        conflux_add_header_example_from_id(conflux_quickstart_json_crud examples/quickstart/json_crud)
-        conflux_add_header_example_from_id(conflux_http_explicit_offload_example examples/advanced/explicit_offload)
-        conflux_add_header_example_from_id(conflux_http_client_json_example examples/advanced/http_client_json)
-        conflux_add_header_example_from_id(conflux_api_typed_json_example examples/advanced/manual_json_members)
+        conflux_add_header_example_from_id(conflux_quickstart_json_crud examples/quickstart/json_crud
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
+        conflux_add_header_example_from_id(conflux_http_explicit_offload_example examples/advanced/explicit_offload
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_runtime)
+        conflux_add_header_example_from_id(conflux_http_client_json_example examples/advanced/http_client_json
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_http_client conflux_header_impl_http_proxy)
+        conflux_add_header_example_from_id(conflux_api_typed_json_example examples/advanced/manual_json_members
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
     endif()
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_CORE AND CONFLUX_HAS_JSON)
-        conflux_add_header_example_from_id(conflux_custom_json_provider_example examples/advanced/custom_json_provider)
+        conflux_add_header_example_from_id(conflux_custom_json_provider_example examples/advanced/custom_json_provider
+            IMPLS conflux_header_impl_json)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_JSON_REFLECT)
-        conflux_add_header_example_from_id(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud)
+        conflux_add_header_example_from_id(conflux_quickstart_json_reflect_crud examples/quickstart/json_reflect_crud
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json)
     endif()
 
     if(CONFLUX_WANT_TEMPLATES)
-        conflux_add_header_example_from_id(conflux_template_pages_example examples/advanced/template_pages)
+        conflux_add_header_example_from_id(conflux_template_pages_example examples/advanced/template_pages
+            IMPLS conflux_header_impl_templates)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_HAS_HTTP3)
-        conflux_add_header_example_from_id(conflux_h3_probe examples/advanced/h3_probe)
-        conflux_add_header_example_from_id(conflux_h3_server examples/advanced/h3_server)
+        conflux_add_header_example_from_id(conflux_h3_probe examples/advanced/h3_probe HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_h3_server examples/advanced/h3_server HTTP_IMPLS)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
-        conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json)
+        conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
     endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
-        conflux_add_header_example_from_id(conflux_db_basic examples/advanced/db_basic)
-        conflux_add_header_example_from_id(conflux_db_pool examples/advanced/db_pool)
-        conflux_add_header_example_from_id(conflux_advanced_postgres examples/advanced/postgres)
+        conflux_add_header_example_from_id(conflux_db_basic examples/advanced/db_basic
+            IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
+        conflux_add_header_example_from_id(conflux_db_pool examples/advanced/db_pool
+            IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
+        conflux_add_header_example_from_id(conflux_advanced_postgres examples/advanced/postgres
+            IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
     endif()
 
     if(CONFLUX_JSON_REFLECT)
-        conflux_add_header_example_from_id(conflux_json_reflect_example examples/advanced/json_reflect)
+        conflux_add_header_example_from_id(conflux_json_reflect_example examples/advanced/json_reflect
+            IMPLS conflux_header_impl_json)
     endif()
 
     add_custom_target(conflux_header_examples)

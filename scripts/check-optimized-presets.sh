@@ -13,11 +13,14 @@ python3 - "$SOURCE_DIR/CMakePresets.json" <<'PY'
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 path = Path(sys.argv[1])
+source_dir = path.parent.resolve()
+build_dir_helper = source_dir / "scripts" / "cmake-preset-build-dir.py"
 data: dict[str, Any] = json.loads(path.read_text())
 configure = {p["name"]: p for p in data.get("configurePresets", [])}
 build = {p["name"]: p for p in data.get("buildPresets", [])}
@@ -117,6 +120,23 @@ check_pgo("pgo-gen-gcc-stdcxx", generate=True, clang=False)
 check_pgo("pgo-use-gcc-stdcxx", generate=False, clang=False)
 check_pgo("pgo-gen-gcc16-stdcxx", generate=True, clang=False)
 check_pgo("pgo-use-gcc16-stdcxx", generate=False, clang=False)
+
+for name, preset in sorted(configure.items()):
+    if preset.get("hidden"):
+        continue
+    result = subprocess.run(
+        [sys.executable, str(build_dir_helper), str(source_dir), name],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        errors.append(f"{name}: {result.stderr.strip() or result.stdout.strip()}")
+        continue
+    expected = f"/tmp/{source_dir.name}/{name}"
+    actual = result.stdout.strip()
+    if actual != expected:
+        errors.append(f"{name}: expected binaryDir {expected}, got {actual}")
 
 for name in sorted(n for n in configure if n.startswith(("release-", "pgo-"))):
     if name not in seen and name.endswith(("-libcxx", "-stdcxx")):

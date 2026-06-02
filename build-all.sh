@@ -13,8 +13,12 @@ PRESETS=(
 PASS=()
 FAIL=()
 
-PRESET_ROOT="/tmp/$(basename "${PWD}")"
-ln -svf "${PRESET_ROOT}/debug-clang-libcxx" "${PWD}/build"
+for preset in "${PRESETS[@]}"; do
+    python3 scripts/cmake-preset-build-dir.py "${PWD}" "$preset" >/dev/null
+done
+
+DEBUG_CLANG_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "${PWD}" debug-clang-libcxx)"
+ln -svf "${DEBUG_CLANG_BUILD_DIR}" "${PWD}/build"
 
 for preset in "${PRESETS[@]}"; do
     echo "━━━ $preset ━━━"

@@ -16,5 +16,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --components core \
     --feature-set json \
     --interface-mode HEADER_INTERFACE \
+    --forbid-components 'http;http1;http2;http3;http_protocol;template;pg;db' \
+    --forbid-external-deps 'LIBURING;LIBPQ;OPENSSL;XXHASH;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2' \
     --generator Ninja \
     -- -DCONFLUX_POSTGRES_PROVIDER=OFF -DCONFLUX_JSON_HASH_PROVIDER=XXHASH

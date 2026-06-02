@@ -2,27 +2,14 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] /tmp/<repo>/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
+	printf 'usage: %s [NAME=VALUE ...] <configured-preset-build-root>/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] ./build/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
-	printf '       %s [NAME=VALUE ...] /tmp/%s/<preset>/conflux_<example> [args...]\n' "$0" "$(basename "$PWD")" >&2
+	printf '       %s [NAME=VALUE ...] <configured-preset-build-root>/<preset>/conflux_<example> [args...]\n' "$0" >&2
 	printf '       defaults: PG_TEST_CONNINFO=postgresql:///postgres?user=postgres, PG_CONNINFO=postgresql:///conflux_bench?user=postgres\n' >&2
 }
 
 valid_profile() {
-	case "$1" in
-		debug-clang-libcxx|debug-clang-stdcxx|debug-gcc-stdcxx|debug-gcc16-stdcxx|debug-p2996-gcc|debug-p2996-clang|\
-			release-clang-libcxx|release-clang-stdcxx|release-gcc-stdcxx|release-gcc16-stdcxx|release-p2996-gcc|\
-			perf-clang-libcxx|perf-gcc-stdcxx|\
-			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\
-			pgo-gen-clang-libcxx|pgo-use-clang-libcxx|pgo-gen-gcc-stdcxx|pgo-use-gcc-stdcxx|\
-			pgo-gen-gcc16-stdcxx|pgo-use-gcc16-stdcxx|\
-			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
+	python3 scripts/cmake-preset-build-dir.py "$PWD" "$1" >/dev/null 2>&1
 }
 
 valid_root_example() {
@@ -76,17 +63,14 @@ fi
 artifact=$1
 shift
 
-repo_name=$(basename "$PWD")
-preset_root="/tmp/$repo_name"
 build_root="$PWD/build"
 artifact_abs=$artifact
 if [[ $artifact != /* ]]; then
 	artifact_abs="$PWD/${artifact#./}"
 fi
 case "$artifact" in
-	"$preset_root"/*/tests/*|"$preset_root"/*/benchmarks/*|"$preset_root"/*/examples/*|"$preset_root"/*/fuzz/*) ;;
-	/tmp/*/*/tests/*|/tmp/*/*/benchmarks/*|/tmp/*/*/examples/*|/tmp/*/*/fuzz/*) ;;
-	"$preset_root"/*/conflux_*)
+	*/tests/*|*/benchmarks/*|*/examples/*|*/fuzz/*) ;;
+	*/conflux_*)
 		if ! valid_root_example "$(basename "$artifact")"; then
 			printf 'refusing to run non-example root build artifact: %s\n' "$artifact" >&2
 			exit 126
@@ -111,15 +95,30 @@ esac
 
 if [[ $artifact_abs == "$build_root"/* ]]; then
 	profile=${artifact_abs#"$build_root"/}
-elif [[ $artifact == /tmp/*/*/* ]]; then
-	profile=${artifact#/tmp/}
-	profile=${profile#*/}
+elif [[ $artifact_abs == */tests/* ]]; then
+	profile=${artifact_abs%/tests/*}
+	profile=${profile##*/}
+elif [[ $artifact_abs == */benchmarks/* ]]; then
+	profile=${artifact_abs%/benchmarks/*}
+	profile=${profile##*/}
+elif [[ $artifact_abs == */examples/* ]]; then
+	profile=${artifact_abs%/examples/*}
+	profile=${profile##*/}
+elif [[ $artifact_abs == */fuzz/* ]]; then
+	profile=${artifact_abs%/fuzz/*}
+	profile=${profile##*/}
 else
-	profile=${artifact#"$preset_root"/}
+	profile=$(basename "$(dirname "$artifact_abs")")
 fi
 profile=${profile%%/*}
 if ! valid_profile "$profile"; then
 	printf 'refusing artifact from unsupported build profile: %s\n' "$profile" >&2
+	exit 126
+fi
+
+expected_dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$profile")"
+if [[ $artifact_abs != "$build_root/$profile/"* && $artifact_abs != "$expected_dir/"* ]]; then
+	printf 'refusing artifact outside configured build dir for %s: %s\n' "$profile" "$artifact" >&2
 	exit 126
 fi
 

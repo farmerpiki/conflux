@@ -44,6 +44,9 @@ reject_contains() {
 
 for path in \
     CMakeLists.txt \
+    cmake/ConfluxImportStdGate.cmake \
+    cmake/ConfluxOptions.cmake \
+    cmake/package-smoke/CMakeLists.txt \
     src/net/cancel.cxx \
     src/net/cancel_impl.cxx \
     src/socket_io/socket_io_coro.cxx \
@@ -88,6 +91,24 @@ reject_contains src/socket_io/socket_io_coro.cxx '^[[:space:]]*import[[:space:]]
     'direct std module imports; use explicit standard headers here so GCC does not deserialize std through this public socket coroutine CMI'
 require_contains src/socket_io/socket_io_coro_impl.cxx '^module[[:space:]]+conflux\.socket_io\.coro;' \
     'the conflux.socket_io.coro implementation-unit declaration'
+
+require_contains CMakeLists.txt 'include\(cmake/ConfluxImportStdGate\.cmake\)' \
+    'the shared import-std CMake experiment gate'
+require_contains cmake/package-smoke/CMakeLists.txt 'include\("\$\{CMAKE_CURRENT_LIST_DIR\}/\.\./ConfluxImportStdGate\.cmake"\)' \
+    'the shared import-std CMake experiment gate'
+require_contains cmake/ConfluxOptions.cmake 'CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "\$\{CMAKE_CXX_STDLIB_MODULES_JSON\}"' \
+    'reflection/import-std handling for standard-library module sources'
+require_contains cmake/ConfluxOptions.cmake 'PROPERTIES COMPILE_OPTIONS "\$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}"' \
+    'reflection compile options on standard-library module sources'
+require_contains CMakeLists.txt 'target_compile_options\(conflux_json_reflect PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
+    'reflection compile options on the JSON reflection target'
+require_contains CMakeLists.txt 'target_compile_options\(conflux_json_reflect_provider PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
+    'reflection compile options on the JSON reflection provider target'
+if grep -R -E '451f2fe2|d0edc3af|a9e1cf81|0e5b6991|CMAKE_EXPERIMENTAL_CXX_IMPORT_STD' \
+        "$SOURCE_DIR/CMakeLists.txt" "$SOURCE_DIR/cmake" \
+        | grep -v 'cmake/ConfluxImportStdGate.cmake' >/dev/null; then
+    fail 'CMake import-std experiment UUIDs must only live in cmake/ConfluxImportStdGate.cmake'
+fi
 
 if ! python3 - "$SOURCE_DIR/CMakeLists.txt" <<'PY'
 from __future__ import annotations

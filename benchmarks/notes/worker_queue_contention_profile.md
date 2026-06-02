@@ -65,7 +65,7 @@ Manual equivalent:
 
 ```sh
 cmake --preset perf-clang-libcxx -DCONFLUX_WORK_QUEUE_STATS=ON
-cmake --build --preset perf-clang-libcxx --target conflux_workpool_queue_mode_compare_bench -j1
+cmake --build --preset perf-clang-libcxx --target conflux_workpool_queue_mode_compare_bench
 /tmp/conflux/perf-clang-libcxx/benchmarks/conflux_workpool_queue_mode_compare_bench \
   --threads 16 --iterations 5000 --warmup 500 --work 2048 --json
 ```

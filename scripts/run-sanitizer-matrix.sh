@@ -34,6 +34,10 @@ while (($# > 0)); do
     case "$1" in
         --only)
             shift
+            if (($# == 0)) || [[ -z "$1" ]]; then
+                printf '%s\n' '--only requires a non-empty comma-separated preset list.' >&2
+                exit 2
+            fi
             IFS=',' read -ra ONLY <<< "$1"
             shift
             ;;
@@ -60,6 +64,16 @@ if [[ -z "${SOURCE_DIR:-}" ]]; then
     SOURCE_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || script_repo_root)"
 fi
 SOURCE_DIR="$(realpath "$SOURCE_DIR")"
+
+for preset in "${MATRIX[@]}"; do
+    python3 "$SOURCE_DIR/scripts/cmake-preset-build-dir.py" "$SOURCE_DIR" "$preset" >/dev/null
+done
+for preset in "${ONLY[@]+"${ONLY[@]}"}"; do
+    if [[ " ${MATRIX[*]} " != *" $preset "* ]]; then
+        printf 'unknown sanitizer matrix preset: %s\n' "$preset" >&2
+        exit 2
+    fi
+done
 
 : "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
 : "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
@@ -147,7 +161,7 @@ for preset in "${MATRIX[@]}"; do
 
     printf '\n━━━ %s ━━━\n' "$preset"
 
-    build_dir="/tmp/$(basename "$SOURCE_DIR")/$preset"
+    build_dir="$(python3 "$SOURCE_DIR/scripts/cmake-preset-build-dir.py" "$SOURCE_DIR" "$preset")"
     status=PASS
 
     if ! cmake --preset "$preset" -S "$SOURCE_DIR" 2>&1; then

@@ -76,6 +76,14 @@ o2_lto_build_dir() { printf 'o2-lto-%s\n' "$1"; }
 pgo_gen_preset() { printf 'pgo-gen-%s\n' "$1"; }
 pgo_use_preset() { printf 'pgo-use-%s\n' "$1"; }
 
+validate_profile_presets() {
+  local src="$1" profile="$2"
+  python3 "$repo_root/scripts/cmake-preset-build-dir.py" "$src" "$(release_preset "$profile")" >/dev/null
+  if profile_has_pgo "$profile"; then
+    python3 "$repo_root/scripts/cmake-preset-build-dir.py" "$src" "$(pgo_use_preset "$profile")" >/dev/null
+  fi
+}
+
 bench_bin_name() {
   case "$1" in
     json) printf '%s\n' conflux_json_bench ;;
@@ -233,6 +241,14 @@ perf_capture() {
 }
 
 cd "$repo_root"
+
+for spec in "${trees[@]}"; do
+  src="${spec#*:}"
+  [[ -d "$src" ]] || { echo "worktree not found: $src" >&2; exit 1; }
+  for profile in "${profiles[@]}"; do
+    validate_profile_presets "$src" "$profile"
+  done
+done
 
 declare -A calibration_ids=()
 for profile in "${profiles[@]}"; do

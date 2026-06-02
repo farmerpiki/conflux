@@ -291,7 +291,7 @@ void HttpServer::request_shutdown() noexcept {
 			auto const ec = errno;
 			try {
 				conflux::utils::eprintln(std::format("http_server.request_shutdown write fd={} errno={}", efd, ec));
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): noexcept shutdown must not fail if diagnostic emission fails.
 		}
 	}
 }

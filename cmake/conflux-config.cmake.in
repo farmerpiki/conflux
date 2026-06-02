@@ -6,6 +6,7 @@ set(conflux_VERSION "@PROJECT_VERSION@")
 set(CONFLUX_INTERFACE_MODE "@CONFLUX_INTERFACE_MODE@")
 set(CONFLUX_USE_IMPORT_STD "@CONFLUX_IMPORT_STD_ENABLED@")
 set(CONFLUX_RUNTIME_REQUIRES_LIBURING "@CONFLUX_INSTALL_NEEDS_LIBURING@")
+set(CONFLUX_PACKAGE_HAS_METRICS "@CONFLUX_HAS_METRICS@")
 
 include("${CMAKE_CURRENT_LIST_DIR}/conflux-component-targets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/conflux-component-deps.cmake")
@@ -210,9 +211,27 @@ if("http" IN_LIST conflux_VISIBLE_COMPONENTS)
     _conflux_append_surface_definition(
         _conflux_installed_surface_definitions HTTP_FACADE 1)
 endif()
+if("net_config" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions HTTP_CONFIG 1)
+endif()
+if("http_observability" IN_LIST conflux_VISIBLE_COMPONENTS
+        AND CONFLUX_PACKAGE_HAS_METRICS STREQUAL "true")
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions HTTP_METRICS 1)
+endif()
+if("http_auth" IN_LIST conflux_VISIBLE_COMPONENTS
+        AND "OPENSSL" IN_LIST conflux_RESOLVED_EXTERNAL_DEPS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions TLS_JWT 1)
+endif()
 if("template" IN_LIST conflux_VISIBLE_COMPONENTS)
     _conflux_append_surface_definition(
         _conflux_installed_surface_definitions TEMPLATES 1)
+endif()
+if("template_watch" IN_LIST conflux_VISIBLE_COMPONENTS)
+    _conflux_append_surface_definition(
+        _conflux_installed_surface_definitions TEMPLATES_WATCH 1)
 endif()
 if("pg" IN_LIST conflux_VISIBLE_COMPONENTS)
     _conflux_append_surface_definition(

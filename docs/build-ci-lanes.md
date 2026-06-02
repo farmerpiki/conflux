@@ -144,21 +144,21 @@ PGO workflow:
 rm -rf /tmp/conflux-pgo/clang
 mkdir -p /tmp/conflux-pgo/clang
 cmake --preset pgo-gen-clang-libcxx
-cmake --build --preset pgo-gen-clang-libcxx -j "$(nproc)"
+cmake --build --preset pgo-gen-clang-libcxx
 ctest --test-dir /tmp/conflux/pgo-gen-clang-libcxx --output-on-failure
 llvm-profdata merge -output=/tmp/conflux-pgo/clang/merged.profdata \
     /tmp/conflux-pgo/clang/*.profraw
 cmake --preset pgo-use-clang-libcxx
-cmake --build --preset pgo-use-clang-libcxx -j "$(nproc)"
+cmake --build --preset pgo-use-clang-libcxx
 
 # GCC: generated profile data lives in the profile directory directly.
 rm -rf /tmp/conflux-pgo/gcc16
 mkdir -p /tmp/conflux-pgo/gcc16
 cmake --preset pgo-gen-gcc16-stdcxx
-cmake --build --preset pgo-gen-gcc16-stdcxx -j "$(nproc)"
+cmake --build --preset pgo-gen-gcc16-stdcxx
 ctest --test-dir /tmp/conflux/pgo-gen-gcc16-stdcxx --output-on-failure
 cmake --preset pgo-use-gcc16-stdcxx
-cmake --build --preset pgo-use-gcc16-stdcxx -j "$(nproc)"
+cmake --build --preset pgo-use-gcc16-stdcxx
 ```
 
 ## Measured benchmark recording

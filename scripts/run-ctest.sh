@@ -2,18 +2,11 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,/tmp/<source-dir>}/<supported-preset> [ctest args...]\n' "$0" >&2
+	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,<configured-preset-build-root>}/<supported-preset> [ctest args...]\n' "$0" >&2
 }
 
 valid_profile() {
-	case "$1" in
-		debug-clang-libcxx|debug-gcc-stdcxx|debug-p2996-clang|release-clang-libcxx|release-gcc-stdcxx|release-p2996-gcc|tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
+	python3 scripts/cmake-preset-build-dir.py "$PWD" "$1" >/dev/null 2>&1
 }
 
 env_args=()
@@ -44,7 +37,7 @@ shift 2
 
 case "$test_dir" in
 	./build/*|build/*) ;;
-	/tmp/"$(basename "$PWD")"/*) ;;
+	/*) ;;
 	*)
 		printf 'refusing non-build test dir: %s\n' "$test_dir" >&2
 		exit 126
@@ -61,13 +54,18 @@ if [[ "$test_dir" == build/* ]]; then
 	fi
 else
 	profile=${test_dir##*/}
-	if [[ "$test_dir" != "/tmp/$(basename "$PWD")/$profile" ]]; then
+	if ! valid_profile "$profile"; then
+		printf 'refusing unsupported build profile: %s\n' "$profile" >&2
+		exit 126
+	fi
+	expected_dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$profile")"
+	if [[ "$test_dir" != "$expected_dir" ]]; then
 		printf 'refusing nested test dir: %s\n' "$test_dir" >&2
 		exit 126
 	fi
 fi
 
-if ! valid_profile "$profile"; then
+if [[ "$test_dir" == build/* ]] && ! valid_profile "$profile"; then
 	printf 'refusing unsupported build profile: %s\n' "$profile" >&2
 	exit 126
 fi

@@ -1,23 +1,7 @@
 cmake_minimum_required(VERSION 3.30)
 
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.3.0")
-    # Covers 4.3.0 up to future stable releases.
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.3")
-    # Covers 4.0.3 up to 4.2.x.
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.0")
-    # Covers 4.0.0, 4.0.1, and 4.0.2.
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "a9e1cf81-9932-4810-974b-6eccaf14e457")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.31.8")
-    # Covers late 3.31 patches backported with 4.1 features.
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30.0")
-    # Covers initial experimental introduction up to 3.31.7.
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
-else()
-    message(WARNING "Your CMake version does not support experimental 'import std'.")
-endif()
+include(cmake/ConfluxImportStdGate.cmake)
+conflux_enable_import_std_experiment(WARN_UNSUPPORTED)
 
 project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
@@ -26,36 +10,17 @@ include(cmake/ConfluxOptions.cmake)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ConfluxPresets)
 conflux_apply_preset()
-
-# Provider AUTO is preset-owned. Keep cache entries as the user-facing request
-# and resolve local values before any dependency discovery happens.
-set(CONFLUX_JSON_HASH_PROVIDER "${CONFLUX_EFFECTIVE_JSON_HASH_PROVIDER}")
-set(CONFLUX_GZIP_PROVIDER "${CONFLUX_EFFECTIVE_GZIP_PROVIDER}")
-set(CONFLUX_BROTLI_PROVIDER "${CONFLUX_EFFECTIVE_BROTLI_PROVIDER}")
-set(CONFLUX_ZSTD_PROVIDER "${CONFLUX_EFFECTIVE_ZSTD_PROVIDER}")
-set(CONFLUX_TLS_PROVIDER "${CONFLUX_EFFECTIVE_TLS_PROVIDER}")
-set(CONFLUX_HTTP2_PROVIDER "${CONFLUX_EFFECTIVE_HTTP2_PROVIDER}")
-set(CONFLUX_HTTP3_PROVIDER "${CONFLUX_EFFECTIVE_HTTP3_PROVIDER}")
-set(CONFLUX_POSTGRES_PROVIDER "${CONFLUX_EFFECTIVE_POSTGRES_PROVIDER}")
-set(CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER "${CONFLUX_EFFECTIVE_PASSWORD_HASH_ARGON2_PROVIDER}")
+include(ConfluxProviderSelection)
 
 include(CompilerOptions)
+include(ConfluxCompilerWorkarounds)
+include(ConfluxModuleLibrary)
 include(ConfluxSimd)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-set(Python3_FIND_IMPLEMENTATIONS CPython)
-set(Python3_FIND_STRATEGY LOCATION)
-if(NOT Python3_EXECUTABLE)
-    find_program(_CONFLUX_DEFAULT_PYTHON3
-        NAMES python3
-        PATHS /usr/bin /usr/local/bin /bin
-        NO_DEFAULT_PATH)
-    if(_CONFLUX_DEFAULT_PYTHON3)
-        set(Python3_EXECUTABLE "${_CONFLUX_DEFAULT_PYTHON3}" CACHE FILEPATH
-            "Python 3 interpreter used by Conflux configure-time scripts")
-    endif()
-endif()
+include(ConfluxPython)
 include(ConfluxInterfaceMode)
+include(ConfluxUringProbes)
 conflux_configure_interface_mode()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
@@ -67,135 +32,8 @@ include(Dependencies)
 
 include(ConfluxFeatures)
 conflux_detect_aesni(CONFLUX_HAS_AESNI)
-
-set(_CONFLUX_DISCARD_TEST_CODE "
-int f();
-int main() {
-    auto _ = f();
-    return 0;
-}")
-set(CMAKE_REQUIRED_FLAGS "-Werror -Wpedantic")
-check_cxx_source_compiles("${_CONFLUX_DISCARD_TEST_CODE}" CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD)
-unset(CMAKE_REQUIRED_FLAGS)
-
-# ---------------------------------------------------------------------------
-# Library
-# ---------------------------------------------------------------------------
-
-function(conflux_add_module_library target)
-    set(options)
-    set(one_value_args)
-    set(multi_value_args PUBLIC_MODULES PRIVATE_SOURCES)
-    cmake_parse_arguments(CONFLUX_MODULE_LIBRARY
-        "${options}"
-        "${one_value_args}"
-        "${multi_value_args}"
-        ${ARGN})
-    if(CONFLUX_MODULE_LIBRARY_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR
-            "conflux_add_module_library(${target}) got unexpected arguments: "
-            "${CONFLUX_MODULE_LIBRARY_UNPARSED_ARGUMENTS}")
-    endif()
-    if(NOT CONFLUX_MODULE_LIBRARY_PUBLIC_MODULES)
-        message(FATAL_ERROR
-            "conflux_add_module_library(${target}) requires PUBLIC_MODULES")
-    endif()
-    add_library(${target} STATIC)
-    target_sources(${target}
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES ${CONFLUX_MODULE_LIBRARY_PUBLIC_MODULES}
-    )
-    if(CONFLUX_MODULE_LIBRARY_PRIVATE_SOURCES)
-        target_sources(${target}
-            PRIVATE ${CONFLUX_MODULE_LIBRARY_PRIVATE_SOURCES}
-        )
-    endif()
-endfunction()
-
-add_library(conflux_options INTERFACE)
-conflux_apply_compiler_options(conflux_options)
-target_include_directories(conflux_options INTERFACE
-    "$<BUILD_INTERFACE:${CONFLUX_SRC_ROOT}>"
-    "$<BUILD_INTERFACE:${CONFLUX_GENERATED_INCLUDE_DIR}>"
-    "$<INSTALL_INTERFACE:include>"
-    "$<INSTALL_INTERFACE:include/conflux/modules>"
-)
-target_compile_definitions(conflux_options INTERFACE
-    CONFLUX_HEADER_USE_IMPORT_STD=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD}>
-    CONFLUX_HEADER_USE_IMPORT_STD_COMPAT=$<BOOL:${CONFLUX_HEADER_USE_IMPORT_STD_COMPAT}>
-    CONFLUX_HEADER_USE_MODULE_IMPORTS=$<BOOL:${CONFLUX_HEADER_USE_MODULE_IMPORTS}>
-    CONFLUX_MODULE_USE_IMPORT_STD=$<BOOL:${CONFLUX_IMPORT_STD_ENABLED}>
-    CONFLUX_MODULE_USE_IMPORT_STD_COMPAT=0
-    CONFLUX_MODULE_USE_IMPORTS=0
-    CONFLUX_MODULE_REEXPORT_IMPORTS=0
-    CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
-    CONFLUX_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
-    CONFLUX_SIMD_SELECTION_DIRECT=$<BOOL:${_conflux_simd_selection_direct}>
-    CONFLUX_SIMD_SELECTION_RUNTIME=$<BOOL:${_conflux_simd_selection_runtime}>
-    CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
-    CONFLUX_ENABLE_RECV_INCREMENTAL_BUF=$<BOOL:${CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF}>
-    CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
-    CONFLUX_ENABLE_RING_GROWTH=$<BOOL:${CONFLUX_EXPERIMENTAL_RING_GROWTH}>
-    CONFLUX_ENABLE_IOPOLL_STORAGE_TEST=$<BOOL:${CONFLUX_EXPERIMENTAL_IOPOLL_STORAGE_TEST}>
-    CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD=$<BOOL:${CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD}>
-    CONFLUX_HAS_JSON_REFLECT=$<TARGET_EXISTS:conflux_json_reflect>
-    CONFLUX_BUILD_VERSION="${PROJECT_VERSION}"
-    CONFLUX_BUILD_GIT_COMMIT="${CONFLUX_GIT_COMMIT}"
-    CONFLUX_BUILD_COMPILER="${CMAKE_CXX_COMPILER_ID}"
-    CONFLUX_BUILD_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
-    CONFLUX_BUILD_STDLIB="${CONFLUX_STDLIB_NAME}"
-    CONFLUX_BUILD_STDLIB_VERSION="${CONFLUX_STDLIB_VERSION}"
-    CONFLUX_BUILD_TYPE_VALUE="${CMAKE_BUILD_TYPE}"
-    CONFLUX_BUILD_INTERFACE_MODE="${CONFLUX_INTERFACE_MODE}"
-    CONFLUX_BUILD_FEATURE_SET="${CONFLUX_FEATURE_SET}"
-    CONFLUX_BUILD_API_SURFACE="${CONFLUX_API_SURFACE}"
-    CONFLUX_BUILD_SIMD_SELECTION="${_conflux_simd_selection}"
-    CONFLUX_BUILD_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
-)
-conflux_apply_api_surface_definitions(conflux_options INTERFACE)
-if(CONFLUX_ENABLE_EXPERIMENTAL)
-    message(STATUS "conflux: experimental features enabled")
-else()
-    message(STATUS "conflux: experimental features disabled")
-endif()
-message(STATUS "conflux: SIMD selection resolved to ${_conflux_simd_selection}")
-if(_conflux_cpu_feature_probes_runtime)
-    message(STATUS "conflux: CPU feature probes use runtime detection")
-else()
-    message(STATUS "conflux: CPU feature probes assume selected compiled ISA is available")
-endif()
-if(CONFLUX_ENABLE_RECV_BUNDLE)
-    message(STATUS "conflux: recv bundle enabled")
-else()
-    message(STATUS "conflux: recv bundle disabled")
-endif()
-if(CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF)
-    message(STATUS "conflux: experimental incremental buf ring enabled")
-else()
-    message(STATUS "conflux: experimental incremental buf ring disabled")
-endif()
-if(CONFLUX_EXPERIMENTAL_SEND_ZC)
-    message(STATUS "conflux: experimental SEND_ZC enabled")
-else()
-    message(STATUS "conflux: experimental SEND_ZC disabled")
-endif()
-if(CONFLUX_EXPERIMENTAL_RING_GROWTH)
-    message(STATUS "conflux: experimental ring growth enabled")
-else()
-    message(STATUS "conflux: experimental ring growth disabled")
-endif()
-if(CONFLUX_EXPERIMENTAL_IOPOLL_STORAGE_TEST)
-    message(STATUS "conflux: experimental IOPOLL storage test enabled")
-else()
-    message(STATUS "conflux: experimental IOPOLL storage test disabled")
-endif()
-if(CONFLUX_ENABLE_HTTP_TRACE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(conflux_options INTERFACE CONFLUX_HTTP_TRACE=1)
-    message(STATUS "conflux: HTTP trace instrumentation enabled for Debug")
-elseif(CONFLUX_ENABLE_HTTP_TRACE)
-    message(STATUS "conflux: HTTP trace requested but ignored outside Debug builds")
-endif()
+include(ConfluxCompilerProbes)
+include(ConfluxOptionsTarget)
 
 conflux_add_module_library(conflux_types
     PUBLIC_MODULES
@@ -235,9 +73,7 @@ if(CONFLUX_HAS_AESNI)
     message(STATUS "conflux: AES-NI + PCLMUL + SSSE3 path enabled")
     target_compile_definitions(conflux_crypto PRIVATE CONFLUX_CRYPTO_USE_AESNI=1)
     target_sources(conflux_crypto PRIVATE ${CONFLUX_SRC_ROOT}/crypto_aesni.cxx)
-    set_source_files_properties(${CONFLUX_SRC_ROOT}/crypto_aesni.cxx PROPERTIES
-        COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1"
-    )
+    conflux_apply_aesni_source_options("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx")
 endif()
 endif()
 
@@ -293,146 +129,7 @@ target_link_libraries(conflux_json_native_provider
 )
 endif()
 
-if(CONFLUX_WANT_FILE_WATCH AND NOT CONFLUX_WANT_FILE_IO)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_WATCH requires CONFLUX_BUILD_FILE_IO")
-endif()
-if(CONFLUX_WANT_TEMPLATES AND NOT TARGET conflux_json)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_JSON")
-endif()
-if(CONFLUX_WANT_JSON_FILE AND NOT TARGET conflux_json)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_JSON")
-endif()
-if(CONFLUX_WANT_JSON_FILE AND NOT CONFLUX_WANT_FILE_IO_SYNC)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_FILE_IO_SYNC")
-endif()
-if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_TEMPLATES)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_TEMPLATES")
-endif()
-if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_FILE_WATCH)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_FILE_WATCH")
-endif()
-if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT CONFLUX_WANT_HTTP_CORE)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_HTTP_CORE")
-endif()
-if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json_boundary)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires conflux_json_boundary")
-endif()
-
-set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED FALSE)
-if(CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_WANT_HTTP_PROXY
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST)
-    set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED TRUE)
-endif()
-
-set(CONFLUX_HTTP_CLIENT_STACK_REQUESTED FALSE)
-if(CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERVER)
-    set(CONFLUX_HTTP_CLIENT_STACK_REQUESTED TRUE)
-endif()
-
-set(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED FALSE)
-if(CONFLUX_WANT_HTTP_STATIC OR CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
-    set(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED TRUE)
-endif()
-
-set(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED FALSE)
-if(CONFLUX_WANT_HTTP_REALTIME OR CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
-    set(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED TRUE)
-endif()
-
-if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_STATIC requires CONFLUX_BUILD_RUNTIME")
-endif()
-
-if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_REALTIME/HTTP router components require CONFLUX_BUILD_HTTP_CORE")
-endif()
-if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED AND NOT CONFLUX_WANT_CRYPTO)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_REALTIME/HTTP router components require CONFLUX_BUILD_CRYPTO")
-endif()
-
-if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
-    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_HTTP_CORE")
-endif()
-if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
-    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_RUNTIME")
-endif()
-if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_FILE_IO)
-    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_FILE_IO")
-endif()
-if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_SOCKET_IO)
-    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_SOCKET_IO")
-endif()
-if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_CRYPTO)
-    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_CRYPTO")
-endif()
-
-if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
-    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_HTTP_CORE")
-endif()
-if(CONFLUX_WANT_HTTP_CORE AND NOT CONFLUX_WANT_CRYPTO)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_CORE requires CONFLUX_BUILD_CRYPTO")
-endif()
-if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
-    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_RUNTIME")
-endif()
-if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_SOCKET_IO)
-    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_SOCKET_IO")
-endif()
-if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_DNS)
-    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_DNS")
-endif()
-if(CONFLUX_HAS_TLS STREQUAL "true" AND (CONFLUX_HTTP_CLIENT_STACK_REQUESTED OR CONFLUX_WANT_SMTP)
-        AND NOT CONFLUX_WANT_FILE_IO)
-    message(FATAL_ERROR "conflux: TLS HTTP client/proxy/SMTP components require CONFLUX_BUILD_FILE_IO")
-endif()
-if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_RUNTIME)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_RUNTIME")
-endif()
-if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_DNS)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_DNS")
-endif()
-if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_CRYPTO)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_CRYPTO")
-endif()
-if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_SOCKET_IO)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_SOCKET_IO")
-endif()
-if(CONFLUX_WANT_SMTP
-        AND CONFLUX_HAS_TLS STREQUAL "false"
-        AND CONFLUX_BUILD_SMTP STREQUAL "AUTO")
-    set(CONFLUX_WANT_SMTP FALSE)
-    set(CONFLUX_WANT_SMTP FALSE CACHE INTERNAL "Resolved conflux component flag" FORCE)
-    message(STATUS "conflux: SMTP disabled (TLS unavailable)")
-elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_TLS_PROVIDER=AUTO/OPENSSL and OpenSSL")
-endif()
-
-# conflux.file_io_sync is syscall-only core infrastructure used by config and
-# secret loading. Keep it available without enabling the broader async file_io
-# stack.
-if(NOT CONFLUX_WANT_FILE_IO_SYNC)
-    set(CONFLUX_WANT_FILE_IO_SYNC TRUE)
-    set(CONFLUX_WANT_FILE_IO_SYNC TRUE CACHE INTERNAL "Resolved conflux component flag" FORCE)
-endif()
-
-if(CONFLUX_WANT_FILE_MAP AND NOT CONFLUX_WANT_FILE_IO_SYNC)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_MAP requires CONFLUX_BUILD_FILE_IO_SYNC")
-endif()
-if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_IO_SYNC)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_IO_SYNC")
-endif()
-if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_MAP)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_MAP")
-endif()
-if(CONFLUX_WANT_TEMPLATES AND NOT CONFLUX_WANT_FILE_IO_SYNC)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_FILE_IO_SYNC")
-endif()
-if(CONFLUX_WANT_PROCESS AND NOT CONFLUX_WANT_RUNTIME)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_PROCESS requires CONFLUX_BUILD_RUNTIME")
-endif()
+include(ConfluxComponentValidation)
 
 if(CONFLUX_WANT_FILE_IO_SYNC)
 conflux_add_module_library(conflux_file_io_sync
@@ -533,104 +230,7 @@ target_link_libraries(conflux_uring_timeout
     PUBLIC  PkgConfig::LIBURING
 )
 
-# Probes placed after include(Dependencies) so PkgConfig::LIBURING is available.
-include(CheckCXXSourceCompiles)
-include(CheckCXXSourceRuns)
-set(CMAKE_REQUIRED_LIBRARIES PkgConfig::LIBURING)
-check_cxx_source_compiles("
-#include <liburing.h>
-int main() {
-    auto* fn = &io_uring_resize_rings;
-    (void)fn;
-    return 0;
-}
-" CONFLUX_HAVE_IO_URING_RESIZE_RINGS)
-check_cxx_source_compiles("
-#include <liburing.h>
-int main() {
-    auto* fn = &io_uring_clone_buffers_offset;
-    (void)fn;
-    return 0;
-}
-" CONFLUX_HAVE_IO_URING_CLONE_BUFFERS_OFFSET)
-check_cxx_source_runs("
-#include <liburing.h>
-int main() {
-    io_uring ring{};
-    if (io_uring_queue_init(8, &ring, 0) < 0) {
-        return 1;
-    }
-    int err = 0;
-    io_uring_buf_ring* br = io_uring_setup_buf_ring(&ring, 8, 0, IOU_PBUF_RING_INC, &err);
-    if (br == nullptr) {
-        io_uring_queue_exit(&ring);
-        return 1;
-    }
-    io_uring_free_buf_ring(&ring, br, 8, 0);
-    io_uring_queue_exit(&ring);
-    return 0;
-}
-" CONFLUX_RUNTIME_HAS_IOU_PBUF_RING_INC)
-if(CONFLUX_HAVE_IO_URING_RESIZE_RINGS)
-    check_cxx_source_runs("
-#include <liburing.h>
-int main() {
-    io_uring ring{};
-    io_uring_params init{};
-    init.flags = IORING_SETUP_DEFER_TASKRUN;
-    if (io_uring_queue_init_params(8, &ring, &init) < 0) {
-        return 1;
-    }
-    io_uring_params resize{};
-    resize.flags = IORING_SETUP_CQSIZE;
-    resize.sq_entries = 8;
-    resize.cq_entries = 16;
-    int rc = io_uring_resize_rings(&ring, &resize);
-    io_uring_queue_exit(&ring);
-    return rc < 0 ? 1 : 0;
-}
-" CONFLUX_RUNTIME_HAS_IO_URING_RESIZE_RINGS)
-else()
-    set(CONFLUX_RUNTIME_HAS_IO_URING_RESIZE_RINGS FALSE)
-endif()
-if(CONFLUX_HAVE_IO_URING_CLONE_BUFFERS_OFFSET)
-    check_cxx_source_runs("
-#include <liburing.h>
-#include <sys/uio.h>
-int main() {
-    io_uring src{};
-    io_uring dst{};
-    char storage[4096]{};
-    iovec vec{storage, sizeof(storage)};
-    if (io_uring_queue_init(8, &src, 0) < 0) {
-        return 1;
-    }
-    if (io_uring_queue_init(8, &dst, 0) < 0) {
-        io_uring_queue_exit(&src);
-        return 1;
-    }
-    if (io_uring_register_buffers(&src, &vec, 1) < 0) {
-        io_uring_queue_exit(&dst);
-        io_uring_queue_exit(&src);
-        return 1;
-    }
-    int rc = io_uring_clone_buffers_offset(&dst, &src, 0, 0, 1, 0);
-    io_uring_unregister_buffers(&src);
-    io_uring_queue_exit(&dst);
-    io_uring_queue_exit(&src);
-    return rc < 0 ? 1 : 0;
-}
-" CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS)
-else()
-    set(CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS FALSE)
-endif()
-unset(CMAKE_REQUIRED_LIBRARIES)
-target_compile_definitions(conflux_uring
-    PUBLIC CONFLUX_HAVE_IO_URING_RESIZE_RINGS=$<BOOL:${CONFLUX_HAVE_IO_URING_RESIZE_RINGS}>
-    PUBLIC CONFLUX_RUNTIME_HAS_IOU_PBUF_RING_INC=$<BOOL:${CONFLUX_RUNTIME_HAS_IOU_PBUF_RING_INC}>
-    PUBLIC CONFLUX_RUNTIME_HAS_IO_URING_RESIZE_RINGS=$<BOOL:${CONFLUX_RUNTIME_HAS_IO_URING_RESIZE_RINGS}>
-    PUBLIC CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS=$<BOOL:${CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS}>
-)
+conflux_configure_uring_probes(conflux_uring)
 
 conflux_add_module_library(conflux_work
     PUBLIC_MODULES
@@ -729,12 +329,7 @@ conflux_add_module_library(conflux_template
         ${CONFLUX_SRC_ROOT}/template_parse.cxx
         ${CONFLUX_SRC_ROOT}/template_render.cxx
 )
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # GCC 15 currently ICEs in the ealias pass on this C++ module implementation
-    # unit at release optimization levels. Function-level optimize attributes are
-    # ignored for modules, so keep the workaround scoped to this source file.
-    set_source_files_properties(${CONFLUX_SRC_ROOT}/template_impl.cxx PROPERTIES COMPILE_OPTIONS "-O0")
-endif()
+conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")
 target_link_libraries(conflux_template
     PRIVATE conflux_options
     PUBLIC  conflux_json
@@ -847,7 +442,6 @@ target_link_libraries(conflux_utils
     PRIVATE conflux_cpu_features
     PUBLIC  conflux_types
 )
-target_link_libraries(conflux_core INTERFACE conflux_utils)
 if(NOT _conflux_simd_backend STREQUAL "OFF")
     target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
     target_link_libraries(conflux_utils PRIVATE conflux_simd_runtime)
@@ -1619,9 +1213,7 @@ set(_conflux_http_server_private_partitions
     ${CONFLUX_SRC_ROOT}/net/http_server_loop.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_dispatch.cxx
 )
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set_source_files_properties(${CONFLUX_SRC_ROOT}/net/http_server_send.cxx PROPERTIES COMPILE_OPTIONS "-O0")
-endif()
+conflux_apply_http_server_compiler_workarounds("${CONFLUX_SRC_ROOT}/net/http_server_send.cxx")
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
     list(APPEND _conflux_http_server_private_partitions
         ${CONFLUX_SRC_ROOT}/net/http_server_h2.cxx

@@ -244,7 +244,9 @@ if(NOT CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_ZSTD_PROVIDER_UPPER STREQUAL "OF
 endif()
 
 # ---- Prometheus metrics (no external dep) ----------------------------------
-if(CONFLUX_ENABLE_METRICS)
+if(NOT (CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER))
+    set(CONFLUX_HAS_METRICS "false")
+elseif(CONFLUX_ENABLE_METRICS)
     set(CONFLUX_HAS_METRICS "true")
     message(STATUS "conflux: metrics enabled")
 else()

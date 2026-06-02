@@ -11,7 +11,7 @@ import conflux.work.carrier.model_b;
 
 // Compile-time instantiation cost probe.
 // Instantiates a 10-stage mixed-type chain for each enabled model.
-// Build with -j1 and measure elapsed time; do not run.
+// Build the target and measure elapsed time; do not run.
 
 #if CONFLUX_WORK_CARRIER_MODEL_A
 namespace carrier = conflux::work::carrier;

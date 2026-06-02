@@ -13,6 +13,98 @@ function(_conflux_fail message)
     message(FATAL_ERROR "conflux package metadata: ${message}")
 endfunction()
 
+function(_conflux_validate_parallel_lists components targets label)
+    list(LENGTH ${components} _component_count)
+    list(LENGTH ${targets} _target_count)
+    if(NOT _component_count EQUAL _target_count)
+        _conflux_fail(
+            "${label} component/target lists differ in length: ${_component_count} components, ${_target_count} targets")
+    endif()
+
+    set(_seen_components)
+    foreach(_component IN LISTS ${components})
+        if(NOT _component MATCHES "^_?[A-Za-z][A-Za-z0-9_]*$")
+            _conflux_fail(
+                "${label} component '${_component}' cannot be used in generated CMake variable names")
+        endif()
+        if(_component IN_LIST _seen_components)
+            _conflux_fail("${label} component '${_component}' is listed more than once")
+        endif()
+        list(APPEND _seen_components "${_component}")
+    endforeach()
+
+    set(_seen_targets)
+    foreach(_target IN LISTS ${targets})
+        if(NOT _target MATCHES "^conflux::[_A-Za-z][A-Za-z0-9_]*$")
+            _conflux_fail(
+                "${label} target '${_target}' is not a valid conflux namespaced target")
+        endif()
+        if(_target IN_LIST _seen_targets)
+            _conflux_fail("${label} target '${_target}' is listed more than once")
+        endif()
+        list(APPEND _seen_targets "${_target}")
+    endforeach()
+
+    if(_component_count GREATER 0)
+        math(EXPR _last_index "${_component_count} - 1")
+        foreach(_index RANGE 0 ${_last_index})
+            list(GET ${components} ${_index} _component)
+            list(GET ${targets} ${_index} _target)
+            if(_component STREQUAL "conflux")
+                set(_expected_target "conflux::conflux")
+            else()
+                set(_expected_target "conflux::${_component}")
+            endif()
+            if(NOT _target STREQUAL _expected_target)
+                _conflux_fail(
+                    "${label} component '${_component}' must pair with target '${_expected_target}', got '${_target}'")
+            endif()
+        endforeach()
+    endif()
+endfunction()
+
+function(_conflux_validate_component_partitions)
+    set(_expected_all_components ${_conflux_requestable_components})
+    list(APPEND _expected_all_components ${_conflux_support_components})
+    if(_expected_all_components)
+        list(SORT _expected_all_components)
+    endif()
+
+    set(_actual_all_components ${_conflux_all_components})
+    if(_actual_all_components)
+        list(SORT _actual_all_components)
+    endif()
+
+    if(NOT _expected_all_components STREQUAL _actual_all_components)
+        _conflux_fail(
+            "all component list must match requestable plus support components")
+    endif()
+
+    set(_expected_all_targets ${_conflux_requestable_targets})
+    list(APPEND _expected_all_targets ${_conflux_support_targets})
+    if(_expected_all_targets)
+        list(SORT _expected_all_targets)
+    endif()
+
+    set(_actual_all_targets ${_conflux_all_targets})
+    if(_actual_all_targets)
+        list(SORT _actual_all_targets)
+    endif()
+
+    if(NOT _expected_all_targets STREQUAL _actual_all_targets)
+        _conflux_fail(
+            "all target list must match requestable plus support targets")
+    endif()
+endfunction()
+
+_conflux_validate_parallel_lists(
+    _conflux_requestable_components _conflux_requestable_targets requestable)
+_conflux_validate_parallel_lists(
+    _conflux_support_components _conflux_support_targets support)
+_conflux_validate_parallel_lists(
+    _conflux_all_components _conflux_all_targets all)
+_conflux_validate_component_partitions()
+
 function(_conflux_component_export_file out_var component)
     if(component STREQUAL "conflux")
         set(_export_component umbrella)

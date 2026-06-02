@@ -219,12 +219,17 @@ if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            set(_conflux_bench_std26_disable_lto TRUE)
             list(APPEND _conflux_bench_std26_options_sse2 "-fno-lto")
             list(APPEND _conflux_bench_std26_options_avx2 "-fno-lto")
+        else()
+            set(_conflux_bench_std26_disable_lto FALSE)
         endif()
 
         add_library(conflux_bench_simd_std26_sse2 OBJECT ../src/simd_std26.cxx)
-        set_target_properties(conflux_bench_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        if(_conflux_bench_std26_disable_lto)
+            set_target_properties(conflux_bench_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        endif()
         target_compile_features(conflux_bench_simd_std26_sse2 PRIVATE cxx_std_26)
         target_compile_options(conflux_bench_simd_std26_sse2 PRIVATE ${_conflux_bench_std26_options_sse2})
         target_compile_definitions(conflux_bench_simd_std26_sse2 PRIVATE
@@ -234,7 +239,9 @@ if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
             CONFLUX_WS_UNMASK_STDSIMD=conflux_ws_unmask_std26_sse2)
 
         add_library(conflux_bench_simd_std26_avx2 OBJECT ../src/simd_std26.cxx)
-        set_target_properties(conflux_bench_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        if(_conflux_bench_std26_disable_lto)
+            set_target_properties(conflux_bench_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        endif()
         target_compile_features(conflux_bench_simd_std26_avx2 PRIVATE cxx_std_26)
         target_compile_options(conflux_bench_simd_std26_avx2 PRIVATE ${_conflux_bench_std26_options_avx2})
         target_compile_definitions(conflux_bench_simd_std26_avx2 PRIVATE
@@ -301,12 +308,17 @@ if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            set(_conflux_bench_json_std26_disable_lto TRUE)
             list(APPEND _conflux_bench_json_std26_options_sse2 "-fno-lto")
             list(APPEND _conflux_bench_json_std26_options_avx2 "-fno-lto")
+        else()
+            set(_conflux_bench_json_std26_disable_lto FALSE)
         endif()
 
         add_library(conflux_bench_json_simd_std26_sse2 OBJECT ../src/json_simd_std26.cxx)
-        set_target_properties(conflux_bench_json_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        if(_conflux_bench_json_std26_disable_lto)
+            set_target_properties(conflux_bench_json_simd_std26_sse2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        endif()
         target_compile_features(conflux_bench_json_simd_std26_sse2 PRIVATE cxx_std_26)
         target_compile_options(conflux_bench_json_simd_std26_sse2 PRIVATE ${_conflux_bench_json_std26_options_sse2})
         target_compile_definitions(conflux_bench_json_simd_std26_sse2 PRIVATE
@@ -314,7 +326,9 @@ if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
             CONFLUX_JSON_SCAN_DUMP_SAFE_RUN_STDSIMD=conflux_json_scan_dump_safe_run_std26_sse2)
 
         add_library(conflux_bench_json_simd_std26_avx2 OBJECT ../src/json_simd_std26.cxx)
-        set_target_properties(conflux_bench_json_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        if(_conflux_bench_json_std26_disable_lto)
+            set_target_properties(conflux_bench_json_simd_std26_avx2 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+        endif()
         target_compile_features(conflux_bench_json_simd_std26_avx2 PRIVATE cxx_std_26)
         target_compile_options(conflux_bench_json_simd_std26_avx2 PRIVATE ${_conflux_bench_json_std26_options_avx2})
         target_compile_definitions(conflux_bench_json_simd_std26_avx2 PRIVATE
@@ -330,7 +344,6 @@ if(_conflux_cpu_feature_probes_runtime AND TARGET conflux_crypto)
     endif()
     if(CONFLUX_HAS_AESNI AND TARGET conflux_crypto)
         target_compile_definitions(conflux_cpu_dispatch_impl_bench PRIVATE CONFLUX_BENCH_HAS_AESNI=1)
-        target_link_libraries(conflux_cpu_dispatch_impl_bench PRIVATE conflux_crypto)
     endif()
 endif()
 

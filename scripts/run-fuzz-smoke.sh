@@ -37,7 +37,7 @@ if [[ -z "${SOURCE_DIR:-}" ]]; then
 fi
 SOURCE_DIR="$(realpath "$SOURCE_DIR")"
 
-build_dir="/tmp/$(basename "$SOURCE_DIR")/$PRESET"
+build_dir="$(python3 "$SOURCE_DIR/scripts/cmake-preset-build-dir.py" "$SOURCE_DIR" "$PRESET")"
 
 cache_value() {
     local key="$1"

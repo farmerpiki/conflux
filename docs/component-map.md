@@ -165,4 +165,6 @@ link interfaces may need them. They are not intended as public starting points:
 |---|---|---|
 | `_options` | private `_options` export | propagated compile options/definitions |
 | `_direct_slot_pool` | private `conflux.net.detail.direct_slot_pool` export | HTTP/runtime direct-slot helper |
+| `_uring_primitives` | private `conflux.uring.fd` / `conflux.uring.sqe` export | raw io_uring fd/SQE leaf modules used by runtime link interfaces |
 | `_simd_runtime` | private `_simd_runtime` export | private selected SIMD backend symbols for static-library link interfaces |
+| `_cpu_features` | private `_cpu_features` export | CPU feature probe symbols used by SIMD/crypto helpers |

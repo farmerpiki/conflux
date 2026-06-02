@@ -80,6 +80,7 @@ REPO_ROOT="${SOURCE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || script_r
 cd "$REPO_ROOT"
 
 PRESET="${SEND_ZC_PRESET:-perf-clang-libcxx}"
+python3 scripts/cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET" >/dev/null
 THRESHOLDS="${SEND_ZC_THRESHOLDS:-4096 16384 65536}"
 ITERATIONS="${SEND_ZC_ITERATIONS:-1000}"
 WARMUP="${SEND_ZC_WARMUP:-$(( ITERATIONS / 5 ))}"

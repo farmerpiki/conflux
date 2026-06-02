@@ -79,6 +79,7 @@ if [[ -z "$PATH_UNDER_TEST" ]]; then
 fi
 
 PRESET="${STORAGE_READ_PRESET:-perf-clang-libcxx}"
+python3 scripts/cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET" >/dev/null
 REPS="${STORAGE_READ_REPS:-6}"
 MODES="${STORAGE_READ_MODES:-all}"
 MATRIX="${STORAGE_READ_MATRIX:-depth_1_4k:1:4096,depth_8_16k:8:16384,depth_32_64k:32:65536,depth_128_1m:128:1048576}"

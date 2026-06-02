@@ -45,6 +45,7 @@ pgo_iterations="${JSON_PERF_PGO_ITERATIONS:-}"
 allow_gcc15_lto_failure="${JSON_PERF_ALLOW_GCC15_LTO_FAILURE:-1}"
 trees=()
 declare -A pgo_training_iterations=()
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 while (($#)); do
   case "$1" in
@@ -75,6 +76,11 @@ if ((${#trees[@]} == 0)); then
 fi
 
 ((${#trees[@]} > 0)) || { echo "no worktrees provided or discovered" >&2; exit 2; }
+
+validate_profile_preset() {
+  local src="$1" profile="$2"
+  python3 "$repo_root/scripts/cmake-preset-build-dir.py" "$src" "$profile" >/dev/null
+}
 
 pgo_config_args() {
   local label="$1" profile="$2" dir
@@ -325,6 +331,12 @@ for spec in "${trees[@]}"; do
   label="${spec%%:*}"
   src="${spec#*:}"
   [[ -d "$src" ]] || { echo "worktree not found for $label: $src" >&2; exit 1; }
+  for profile in "${profiles[@]}"; do
+    validate_profile_preset "$src" "$profile"
+    if [[ "$build_pgo_use" == 1 && "$profile" == pgo-gen-* ]]; then
+      validate_profile_preset "$src" "pgo-use-${profile#pgo-gen-}"
+    fi
+  done
 
   for profile in "${profiles[@]}"; do
     build="$src/build/$profile"

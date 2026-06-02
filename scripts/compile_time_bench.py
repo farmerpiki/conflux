@@ -35,7 +35,7 @@ DEFAULT_CASES: tuple[Case, ...] = (
     Case("include_public_matrix", "conflux_header_smoke_public_includes", binary=False),
     Case("hello_world", "conflux_quickstart_hello", "examples/quickstart/hello.cxx"),
     Case("json_crud", "conflux_quickstart_json_crud", "examples/quickstart/json_crud.cxx"),
-    Case("full_http_showcase", "conflux_production_showcase", "examples/production_showcase/main.cxx"),
+    Case("full_http_showcase", "conflux_production_showcase_example", "examples/advanced/production_showcase.cxx"),
 )
 
 
@@ -77,8 +77,8 @@ def configure_args(source: pathlib.Path, build: pathlib.Path, ns: argparse.Names
     ]
 
 
-def build_args(build: pathlib.Path, target: str, jobs: int) -> list[str]:
-    return ["cmake", "--build", str(build), "--target", target, f"-j{jobs}"]
+def build_args(build: pathlib.Path, target: str) -> list[str]:
+    return ["cmake", "--build", str(build), "--target", target]
 
 
 def find_binary(build: pathlib.Path, target: str) -> pathlib.Path | None:
@@ -125,7 +125,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--build", type=pathlib.Path, default=pathlib.Path("build/compile-time-bench"))
     parser.add_argument("--feature-set", default="http-minimal")
     parser.add_argument("--interface-mode", choices=("HEADER_INTERFACE", "MODULE_INTERFACE"), default="HEADER_INTERFACE")
-    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     parser.add_argument("--target", action="append", help="Measure only this target; may be repeated")
     parser.add_argument("--no-clean", action="store_true", help="Reuse existing build directory")
     parser.add_argument("--incremental", action="store_true", help="Also touch known case sources and measure rebuild cost")
@@ -159,7 +158,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "config": {
             "feature_set": ns.feature_set,
             "interface_mode": ns.interface_mode,
-            "jobs": ns.jobs,
             "incremental": ns.incremental,
         },
         "commands": {},
@@ -179,7 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     overall_rc = 0
     for case in cases:
         row: dict = {"name": case.name, "target": case.target}
-        cmd = build_args(build, case.target, ns.jobs)
+        cmd = build_args(build, case.target)
         row["command"] = cmd_line(cmd)
         rc, out, sec = run(cmd)
         row["clean_build"] = {"ok": rc == 0, "seconds": sec, "returncode": rc}

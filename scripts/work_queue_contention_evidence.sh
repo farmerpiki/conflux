@@ -61,6 +61,7 @@ REPO_ROOT="${SOURCE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || script_r
 cd "$REPO_ROOT"
 
 PRESET="${WORK_QUEUE_PRESET:-perf-clang-libcxx}"
+python3 scripts/cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET" >/dev/null
 THREADS="${WORK_QUEUE_THREADS:-$(nproc)}"
 ITERATIONS="${WORK_QUEUE_ITERATIONS:-5000}"
 WARMUP="${WORK_QUEUE_WARMUP:-$(( ITERATIONS / 5 ))}"

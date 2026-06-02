@@ -21,6 +21,11 @@ int main() {
     set(CMAKE_REQUIRED_FLAGS "${_conflux_saved_required_flags}")
 endfunction()
 
+function(conflux_apply_aesni_source_options source)
+    set_source_files_properties("${source}" PROPERTIES
+        COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1")
+endfunction()
+
 function(conflux_detect_stdsimd out_var)
     if(NOT CONFLUX_USE_STDSIMD MATCHES "^(AUTO|STD26|STDX|ON|OFF)$")
         message(FATAL_ERROR
@@ -115,6 +120,8 @@ function(conflux_add_stdsimd_targets backend)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            # GCC 16 currently fails the std::simd C++26 object under LTO.
+            # Keep the fallback scoped to the affected object target/source.
             list(APPEND _conflux_simd_std26_options "-fno-lto")
             set_target_properties(conflux_simd_std26 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
         endif()
@@ -138,6 +145,8 @@ function(conflux_add_stdsimd_targets backend)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
                 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+            # GCC 16 currently fails the std::simd JSON scanner objects under
+            # LTO; leave other SIMD backends and non-GNU lanes untouched.
             list(APPEND _conflux_json_simd_std26_options "-fno-lto")
             set_target_properties(conflux_json_simd_std26 PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
             if(_conflux_json_stdsimd_ifunc)

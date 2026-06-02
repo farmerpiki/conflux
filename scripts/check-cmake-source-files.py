@@ -7,7 +7,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CMAKE_FILES = [ROOT / "CMakeLists.txt", *sorted((ROOT / "cmake").rglob("*.cmake"))]
+CMAKE_FILES = [
+    ROOT / "CMakeLists.txt",
+    ROOT / "benchmarks" / "CMakeLists.txt",
+    ROOT / "cmake" / "package-smoke" / "CMakeLists.txt",
+    ROOT / "examples" / "CMakeLists.txt",
+    ROOT / "fuzz" / "CMakeLists.txt",
+    ROOT / "tests" / "CMakeLists.txt",
+    *sorted((ROOT / "cmake").rglob("*.cmake")),
+    *sorted((ROOT / "tests").rglob("*.cmake")),
+]
 SOURCE_PREFIXES = (
     "src/",
     "tests/",
@@ -42,7 +51,13 @@ SOURCE_EXTENSIONS = (
     ".sql",
     ".txt",
 )
-TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_./+-]+\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cmake(?:\.in)?|cxx\.in|h\.in|json|md|py|sh|sql|txt))(?![A-Za-z0-9_./-])")
+EXTENSION_PATTERN = "|".join(
+    re.escape(extension.removeprefix("."))
+    for extension in sorted(SOURCE_EXTENSIONS, key=len, reverse=True)
+)
+TOKEN_RE = re.compile(
+    rf"(?<![A-Za-z0-9_./-])([A-Za-z0-9_./+-]+\.(?:{EXTENSION_PATTERN}))(?![A-Za-z0-9_./-])",
+)
 
 
 def strip_comments(text: str) -> str:

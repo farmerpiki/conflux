@@ -1,0 +1,1691 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+
+def fail(message: str) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def read(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def cmake_function_body(text: str, signature: str) -> str:
+    try:
+        return text.split(signature, 1)[1].split("endfunction()", 1)[0]
+    except IndexError:
+        fail(f"missing CMake function body: {signature}")
+
+
+def shell_semicolon_list_var(text: str, name: str) -> set[str]:
+    match = re.search(rf"^{re.escape(name)}=\"([^\"]*)\"", text, re.MULTILINE)
+    if match is None:
+        fail(f"missing shell semicolon-list variable: {name}")
+    return {item for item in match.group(1).split(";") if item}
+
+
+def shell_policy_variables(text: str) -> set[str]:
+    return set(re.findall(r"^(forbid_[A-Za-z0-9_]+)=\"[^\"]*\"", text, re.MULTILINE))
+
+
+def append_set_delta_errors(
+    errors: list[str],
+    expected: set[str],
+    actual: set[str],
+    missing_message: str,
+    extra_message: str,
+) -> None:
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing:
+        errors.append(missing_message + ";".join(missing))
+    if extra:
+        errors.append(extra_message + ";".join(extra))
+
+
+def check_marker_order(text: str, markers: list[str], diagnostic: str) -> None:
+    positions = [text.find(marker) for marker in markers]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        fail(diagnostic)
+
+
+def check_no_legacy_mock_liburing_refs() -> None:
+    roots = [
+        Path("CMakeLists.txt"),
+        Path("CMakePresets.json"),
+        Path("build-all.sh"),
+        Path("cmake"),
+        Path("scripts"),
+        Path("docs"),
+        Path("tests"),
+        Path("examples"),
+        Path("benchmarks"),
+        Path("fuzz"),
+    ]
+    pattern = re.compile(r"CONFLUX_(?:USE_MOCK_LIBURING|MOCK_LIBURING_ROOT)")
+    hits: list[str] = []
+    for root in roots:
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if pattern.search(line):
+                    hits.append(f"{path}:{line_no}: {line.strip()}")
+    if hits:
+        fail("\n".join(hits))
+
+
+def check_no_explicit_build_parallelism() -> None:
+    roots = [
+        Path("build-all.sh"),
+        Path("scripts"),
+        Path("docs"),
+        Path("benchmarks"),
+    ]
+    command_pattern = re.compile(r"cmake\s+--build\b.*(?:\s-j(?:\s|[0-9]|$)|\s--parallel(?:\s|=|$))")
+    helper_pattern = re.compile(r"f?['\"]-j\{?jobs\}?['\"]")
+    prose_pattern = re.compile(r"\bBuild with -j[0-9]*\b")
+    hits: list[str] = []
+    for root in roots:
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if not path.is_file() or "benchmarks/corpus" in path.as_posix():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if command_pattern.search(line) or helper_pattern.search(line) or prose_pattern.search(line):
+                    hits.append(f"{path}:{line_no}: explicit build parallelism is not allowed: {line.strip()}")
+    if hits:
+        fail("\n".join(hits))
+
+
+def check_provider_policy_scenarios_are_isolated() -> None:
+    text = read("scripts/check-provider-policy-matrix.sh")
+    required_flags = {
+        "-DCONFLUX_BUILD_TESTS=OFF",
+        "-DCONFLUX_BUILD_EXAMPLES=OFF",
+        "-DCONFLUX_BUILD_BENCHMARKS=OFF",
+        "-DCONFLUX_FETCH_TEST_DEPS=OFF",
+    }
+    errors: list[str] = []
+    scenario_pattern = re.compile(
+        r'(?P<var>[A-Za-z0-9_]+_dir)="\$\((?P<body>run_configure(?:_no_system_pc|_no_argon2_pc)?\b.*?)\)"',
+        re.DOTALL,
+    )
+    scenarios = list(scenario_pattern.finditer(text))
+    if not scenarios:
+        errors.append("provider-policy matrix must contain isolated configure scenarios")
+    for match in scenarios:
+        body = match.group("body")
+        missing = sorted(flag for flag in required_flags if flag not in body)
+        if missing:
+            errors.append(f"{match.group('var')} missing provider-policy isolation flags: {';'.join(missing)}")
+
+    try:
+        module_probe = text.split('cmake -S "$root" -B "$module_probe_dir"', 1)[1].split('>"$module_probe_log"', 1)[0]
+    except IndexError:
+        errors.append("provider-policy module-interface probe is missing")
+    else:
+        missing = sorted(flag for flag in required_flags if flag not in module_probe)
+        if missing:
+            errors.append(f"module-interface provider-policy probe missing isolation flags: {';'.join(missing)}")
+
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_run_build_artifact_root_examples_are_declared() -> None:
+    runner = read("scripts/run-build-artifact.sh")
+    declared = declared_cmake_targets(["examples/CMakeLists.txt"])
+    try:
+        body = runner.split("valid_root_example() {", 1)[1].split("env_args=()", 1)[0]
+    except IndexError:
+        fail("missing run-build-artifact root example allowlist")
+    allowed = re.findall(r"\b(conflux_[A-Za-z0-9_]+)\b", body)
+    errors: list[str] = []
+    if not allowed:
+        errors.append("run-build-artifact root example allowlist must be non-empty")
+    duplicates = sorted(name for name, count in Counter(allowed).items() if count > 1)
+    if duplicates:
+        errors.append(f"run-build-artifact root example allowlist contains duplicates: {';'.join(duplicates)}")
+    stale = sorted(name for name in allowed if name not in declared)
+    if stale:
+        errors.append(f"run-build-artifact root example allowlist contains undeclared example targets: {';'.join(stale)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_compile_time_bench_defaults() -> None:
+    bench = read("scripts/compile_time_bench.py")
+    declared_targets = declared_cmake_targets([
+        "CMakeLists.txt",
+        "examples/CMakeLists.txt",
+        "cmake/ConfluxInterfaceMode.cmake",
+    ])
+    cases = re.findall(
+        r'Case\("(?P<name>[^"]+)",\s*"(?P<target>[^"]+)"(?:,\s*"(?P<source>[^"]+)")?',
+        bench,
+    )
+    errors: list[str] = []
+    if not cases:
+        errors.append("compile-time benchmark default cases must be non-empty")
+    names = [case[0] for case in cases]
+    targets = [case[1] for case in cases]
+    duplicate_names = sorted(name for name, count in Counter(names).items() if count > 1)
+    if duplicate_names:
+        errors.append(f"compile-time benchmark duplicate case names: {';'.join(duplicate_names)}")
+    duplicate_targets = sorted(target for target, count in Counter(targets).items() if count > 1)
+    if duplicate_targets:
+        errors.append(f"compile-time benchmark duplicate default targets: {';'.join(duplicate_targets)}")
+    missing_targets = sorted(target for target in targets if target not in declared_targets)
+    if missing_targets:
+        errors.append(f"compile-time benchmark default targets are not declared by CMake: {';'.join(missing_targets)}")
+    missing_sources = sorted(source for _, _, source in cases if source and not Path(source).is_file())
+    if missing_sources:
+        errors.append(f"compile-time benchmark incremental sources are missing: {';'.join(missing_sources)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_header_bridge_optional_inputs() -> None:
+    text = read("cmake/ConfluxInterfaceMode.cmake")
+    checks = {
+        "--examples-src": "CONFLUX_BUILD_EXAMPLES",
+        "--tests-src": "CONFLUX_BUILD_TESTS",
+        "--benchmarks-src": "CONFLUX_BUILD_BENCHMARKS",
+    }
+    lines = text.splitlines()
+    failures: list[str] = []
+    for index, line in enumerate(lines):
+        for needle, flag in checks.items():
+            if needle not in line:
+                continue
+            window = "\n".join(lines[max(0, index - 4):index + 1])
+            if f"if({flag})" not in window:
+                failures.append(f"{needle} is not guarded by if({flag}) near line {index + 1}")
+    if failures:
+        fail("\n".join(failures))
+
+
+def check_header_http_impls_do_not_pull_json() -> None:
+    text = read("cmake/ConfluxInterfaceMode.cmake")
+    if "function(conflux_bridge_link_header_dependencies" in text:
+        fail("header bridge must not keep an unused all-provider dependency linker")
+    if "function(conflux_link_header_impl_for_source_id" in text:
+        fail("linked header examples must declare implementation deps explicitly")
+    if "cmake_parse_arguments(CONFLUX_HEADER_EXAMPLE" not in text:
+        fail("header example registration must parse explicit implementation deps")
+    http_impl_body = cmake_function_body(
+        text,
+        "function(conflux_link_header_http_impls target)",
+    )
+    if "conflux_header_impl_json" in http_impl_body:
+        fail("generic header HTTP impl closure must not pull conflux_header_impl_json")
+    if (
+        "conflux_header_impl_http_core" in http_impl_body
+        and "router($|[.:])" in text
+        and "conflux_header_impl_http_static" not in http_impl_body
+    ):
+        fail("generic header HTTP impl closure must keep conflux_header_impl_http_static while router_impl owns serve_static")
+
+    json_example_sources = {
+        "examples/advanced/explicit_offload",
+        "examples/advanced/http_client_json",
+        "examples/advanced/manual_json_members",
+        "examples/advanced/production_showcase",
+        "examples/hello",
+        "examples/middleware",
+        "examples/quickstart/json_crud",
+        "examples/quickstart/json_reflect_crud",
+        "examples/quickstart/openapi",
+        "examples/quickstart/postgres_json",
+        "examples/static",
+        "examples/gzip",
+    }
+    add_examples_body = cmake_function_body(
+        text,
+        "function(conflux_add_header_examples_from_source_ids)",
+    )
+    dual_match = re.search(
+        r"conflux_add_header_example_from_id\(\s*"
+        r"conflux_dual\s+examples/advanced/dual(?P<body>.*?)\)",
+        add_examples_body,
+        re.DOTALL,
+    )
+    if dual_match is None:
+        fail("header examples must register the dual example")
+    dual_tokens = set(dual_match.group("body").split())
+    missing_dual_impls = {
+        "conflux_header_impl_http_client",
+        "conflux_header_impl_http_proxy",
+    } - dual_tokens
+    if missing_dual_impls:
+        fail(
+            "dual header example must declare HTTP client implementation deps explicitly: "
+            + ";".join(sorted(missing_dual_impls)),
+        )
+    call_pattern = re.compile(
+        r"conflux_add_header_example_from_id\((.*?)\)",
+        re.DOTALL,
+    )
+    missing: list[str] = []
+    for match in call_pattern.finditer(add_examples_body):
+        call = match.group(1)
+        tokens = call.split()
+        if len(tokens) < 2:
+            continue
+        source_id = tokens[1]
+        if source_id in json_example_sources and "conflux_header_impl_json" not in tokens:
+            missing.append(source_id)
+    if missing:
+        fail(
+            "header JSON examples must declare conflux_header_impl_json explicitly: "
+            + ";".join(sorted(missing)),
+        )
+
+
+def check_header_impl_lists_have_no_duplicates() -> None:
+    files = [
+        Path("cmake/ConfluxHeaderInterface.cmake"),
+        Path("cmake/ConfluxInterfaceMode.cmake"),
+    ]
+    call_pattern = re.compile(
+        r"\b(conflux_header_public_component(?:_by_export)?|conflux_add_header_example_from_id)\((.*?)\)",
+        re.DOTALL,
+    )
+    keywords = {
+        "COMPILE_DEFINITIONS",
+        "HPP_TOP_LEVEL",
+        "HTTP_IMPLS",
+        "IMPLS",
+        "LINKS",
+        "MODULE_PREFIXES",
+        "NO_PACKAGE",
+    }
+    failures: list[str] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for match in call_pattern.finditer(text):
+            tokens = match.group(2).split()
+            impls: list[str] = []
+            in_impls = False
+            for token in tokens:
+                if token == "IMPLS":
+                    in_impls = True
+                    continue
+                if token in keywords:
+                    in_impls = False
+                    continue
+                if in_impls:
+                    impls.append(token)
+            duplicates = sorted(name for name, count in Counter(impls).items() if count > 1)
+            if duplicates:
+                line_no = text.count("\n", 0, match.start()) + 1
+                failures.append(
+                    f"{path}:{line_no}: duplicate header implementation entries: "
+                    + ";".join(duplicates),
+                )
+    if failures:
+        fail("\n".join(failures))
+
+
+def check_header_source_ids_exist() -> None:
+    text = read("cmake/ConfluxInterfaceMode.cmake")
+    source_ids: set[str] = set()
+    call_patterns = [
+        r"\bconflux_add_header_example_from_id\(\s+\S+\s+"
+        r"((?:examples|tests|benchmarks|src)/[^\s\)]+)",
+        r"\bconflux_add_header_compile_fail_test\(\s+\S+\s+"
+        r"((?:examples|tests|benchmarks|src)/[^\s\)]+)",
+    ]
+    for pattern in call_patterns:
+        source_ids.update(re.findall(pattern, text))
+
+    list_pattern = re.compile(
+        r"\b(?:set|list\(APPEND)\s*\(\s*"
+        r"(?:_conflux_header_test_source_ids|_conflux_header_benchmark_source_ids)"
+        r"(?P<body>.*?)\)",
+        re.DOTALL,
+    )
+    for match in list_pattern.finditer(text):
+        source_ids.update(
+            re.findall(r"\b(?:examples|tests|benchmarks|src)/[A-Za-z0-9_/-]+", match.group("body")),
+        )
+
+    missing = [
+        source_id
+        for source_id in sorted(source_ids)
+        if not Path(f"{source_id}.cxx").is_file()
+    ]
+    if missing:
+        fail("header bridge source ids are missing backing .cxx files: " + ";".join(missing))
+
+
+def check_header_support_components_are_limited() -> None:
+    text = read("cmake/ConfluxHeaderInterface.cmake")
+    body = cmake_function_body(
+        text,
+        "function(conflux_header_support_component target export_name)",
+    )
+    allowed_exports = support_component_exports_from_registry() | generated_header_support_exports()
+    allowed = {
+        ("conflux_headers", "headers"),
+        ("conflux_header_impl", "header_impl"),
+    }
+    calls = set()
+    for match in re.finditer(r"\bconflux_header_support_component\((.*?)\)", text, re.DOTALL):
+        if match.start() < text.find(body) + len(body):
+            continue
+        tokens = match.group(1).split()
+        if len(tokens) != 2:
+            line_no = text.count("\n", 0, match.start()) + 1
+            fail(f"cmake/ConfluxHeaderInterface.cmake:{line_no}: malformed header support component registration")
+        if tokens[1] not in allowed_exports:
+            line_no = text.count("\n", 0, match.start()) + 1
+            fail(f"cmake/ConfluxHeaderInterface.cmake:{line_no}: header support component `{tokens[1]}` is neither a support registry export nor a generated-header support export")
+        calls.add((tokens[0], tokens[1]))
+    unknown = sorted(calls - allowed)
+    missing = sorted(allowed - calls)
+    errors: list[str] = []
+    if unknown:
+        errors.append(
+            "header support components must stay limited to generated-header support targets: "
+            + ";".join(f"{target}|{export}" for target, export in unknown),
+        )
+    if missing:
+        errors.append(
+            "missing generated-header support component registrations: "
+            + ";".join(f"{target}|{export}" for target, export in missing),
+        )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_header_public_components_use_registry_exports() -> None:
+    text = read("cmake/ConfluxHeaderInterface.cmake")
+    public_exports = public_component_exports_from_registry()
+    by_export_body = cmake_function_body(
+        text,
+        "macro(conflux_header_public_component_by_export export_name)",
+    )
+    body_start = text.find(by_export_body)
+    body_end = body_start + len(by_export_body)
+    failures: list[str] = []
+    for match in re.finditer(r"\bconflux_header_public_component\(", text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if text[line_start:match.start()].strip() in {"macro("}:
+            continue
+        if body_start <= match.start() < body_end:
+            continue
+        line_no = text.count("\n", 0, match.start()) + 1
+        failures.append(
+            f"cmake/ConfluxHeaderInterface.cmake:{line_no}: package header components must use conflux_header_public_component_by_export",
+        )
+    call_pattern = re.compile(r"\bconflux_header_public_component_by_export\((.*?)\)", re.DOTALL)
+    for match in call_pattern.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if text[line_start:match.start()].strip() in {"macro("}:
+            continue
+        tokens = match.group(1).split()
+        line_no = text.count("\n", 0, match.start()) + 1
+        if not tokens:
+            failures.append(
+                f"cmake/ConfluxHeaderInterface.cmake:{line_no}: empty header public component registration",
+            )
+            continue
+        export_name = tokens[0]
+        if export_name not in public_exports:
+            failures.append(
+                f"cmake/ConfluxHeaderInterface.cmake:{line_no}: header public component `{export_name}` is not a public registry export",
+            )
+    if failures:
+        fail("\n".join(failures))
+
+
+def check_cmake_preset_names_unique() -> None:
+    data = json.loads(read("CMakePresets.json"))
+    errors: list[str] = []
+    for group in ("configurePresets", "buildPresets", "testPresets"):
+        names: list[str] = []
+        for index, preset in enumerate(data.get(group, []), start=1):
+            name = preset.get("name")
+            if not isinstance(name, str) or not name:
+                errors.append(f"{group}[{index}] has missing or non-string name")
+                continue
+            names.append(name)
+        duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
+        if duplicates:
+            errors.append(f"duplicate {group} names: {';'.join(duplicates)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_cmake_preset_references() -> None:
+    data = json.loads(read("CMakePresets.json"))
+    configure = {
+        preset["name"]
+        for preset in data.get("configurePresets", [])
+        if isinstance(preset.get("name"), str)
+    }
+    errors: list[str] = []
+    for group in ("buildPresets", "testPresets"):
+        for preset in data.get(group, []):
+            name = preset.get("name")
+            configure_preset = preset.get("configurePreset")
+            if not isinstance(name, str) or not name:
+                continue
+            if not isinstance(configure_preset, str) or not configure_preset:
+                errors.append(f"{group} preset {name} must set configurePreset")
+                continue
+            if configure_preset not in configure:
+                errors.append(
+                    f"{group} preset {name} references missing configurePreset: {configure_preset}",
+                )
+            if group == "buildPresets" and name != configure_preset:
+                errors.append(
+                    f"build preset {name} must match configurePreset {configure_preset}",
+                )
+    if errors:
+        fail("\n".join(errors))
+
+
+def cmake_test_cmake_paths() -> list[Path]:
+    return [
+        Path("tests/CMakeLists.txt"),
+        *sorted(Path("tests").glob("*.cmake")),
+        Path("cmake/ConfluxOptions.cmake"),
+        Path("cmake/ConfluxInterfaceMode.cmake"),
+        Path("cmake/package-smoke/CMakeLists.txt"),
+        Path("fuzz/CMakeLists.txt"),
+    ]
+
+
+def cmake_test_names() -> set[str]:
+    paths = cmake_test_cmake_paths()
+    names: set[str] = set()
+    pattern = re.compile(r"add_test\s*\(\s*NAME\s+([^\s\)]+)", re.MULTILINE)
+    for path in paths:
+        if not path.exists():
+            continue
+        for match in pattern.finditer(path.read_text(encoding="utf-8")):
+            name = match.group(1).strip("'\"")
+            if "$" not in name:
+                names.add(name)
+    return names
+
+
+def cmake_test_labels() -> set[str]:
+    labels: set[str] = set()
+    quoted_pattern = re.compile(r'LABELS\s+"([^"]+)"')
+    word_pattern = re.compile(r"LABELS\s+([A-Za-z0-9_;-]+)")
+    for path in cmake_test_cmake_paths():
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in quoted_pattern.finditer(text):
+            labels.update(label for label in match.group(1).split(";") if "$" not in label)
+        for match in word_pattern.finditer(text):
+            labels.update(label for label in match.group(1).split(";") if "$" not in label)
+    return labels
+
+
+def check_test_preset_filters() -> None:
+    data = json.loads(read("CMakePresets.json"))
+    tests = cmake_test_names()
+    labels = cmake_test_labels()
+    errors: list[str] = []
+    for preset in data.get("testPresets", []):
+        name = preset.get("name")
+        include = preset.get("filter", {}).get("include", {})
+        test_name = include.get("name")
+        if test_name is not None:
+            if not isinstance(test_name, str) or not test_name:
+                errors.append(f"test preset {name} has a malformed exact name filter")
+            elif test_name not in tests:
+                errors.append(f"test preset {name} filters unknown CTest name: {test_name}")
+        label = include.get("label")
+        if label is None:
+            continue
+        if not isinstance(label, str) or not label:
+            errors.append(f"test preset {name} has a malformed label filter")
+            continue
+        if label not in labels:
+            errors.append(f"test preset {name} filters unknown CTest label: {label}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_install_smoke_presets() -> None:
+    data = json.loads(read("CMakePresets.json"))
+    configure = {preset["name"]: preset for preset in data.get("configurePresets", [])}
+    build = {preset["name"]: preset for preset in data.get("buildPresets", [])}
+    test = {preset["name"]: preset for preset in data.get("testPresets", [])}
+    public_components = public_component_exports_from_registry()
+    required = [
+        "release-core-install-smoke",
+        "release-json-install-smoke",
+        "release-http-api-install-smoke",
+        "release-header-artifacts-install-smoke",
+    ]
+    errors: list[str] = []
+    for name in required:
+        if name not in configure:
+            errors.append(f"missing configure preset: {name}")
+        else:
+            components = configure[name].get("cacheVariables", {}).get("CONFLUX_PACKAGE_SMOKE_COMPONENTS")
+            if not isinstance(components, str) or not components:
+                errors.append(f"install-smoke preset {name} must set non-empty CONFLUX_PACKAGE_SMOKE_COMPONENTS")
+            else:
+                unknown = sorted(component for component in components.split(";") if component not in public_components)
+                if unknown:
+                    errors.append(
+                        f"install-smoke preset {name} requests non-public package smoke components: {';'.join(unknown)}",
+                    )
+        if build.get(name, {}).get("configurePreset") != name:
+            errors.append(f"missing build preset mapped to configure preset: {name}")
+        test_preset = test.get(name)
+        if test_preset is None:
+            errors.append(f"missing test preset: {name}")
+            continue
+        if test_preset.get("configurePreset") != name:
+            errors.append(f"test preset {name} must point at configure preset {name}")
+        include = test_preset.get("filter", {}).get("include", {})
+        if include.get("name") != "build/install-tree-smoke":
+            errors.append(f"test preset {name} must filter to build/install-tree-smoke")
+        if test_preset.get("execution", {}).get("noTestsAction") != "error":
+            errors.append(f"test preset {name} must set noTestsAction=error")
+    if errors:
+        fail("\n".join(errors))
+
+
+def shell_array_values(text: str, name: str) -> list[str]:
+    match = re.search(rf"^{re.escape(name)}=\((?P<body>.*?)^\)", text, re.MULTILINE | re.DOTALL)
+    if match is None:
+        fail(f"missing shell array: {name}")
+    values: list[str] = []
+    for line in match.group("body").splitlines():
+        item = line.strip()
+        if not item or item.startswith("#"):
+            continue
+        values.append(item.strip("'\""))
+    return values
+
+
+def shell_default_array_values(text: str, name: str, env_name: str) -> list[str]:
+    match = re.search(
+        rf"^{re.escape(name)}=\(\$\{{{re.escape(env_name)}:-(?P<body>[^}}]*)\}}\)",
+        text,
+        re.MULTILINE,
+    )
+    if match is None:
+        fail(f"missing shell default array: {name}")
+    return [item for item in match.group("body").split() if item]
+
+
+def shell_string_assignment(text: str, name: str) -> str:
+    match = re.search(rf"^{re.escape(name)}=([^\n]+)$", text, re.MULTILINE)
+    if match is None:
+        fail(f"missing shell string assignment: {name}")
+    return match.group(1).strip().strip("'\"")
+
+
+def shell_default_string_words(text: str, name: str, env_name: str) -> list[str]:
+    match = re.search(
+        rf'^{re.escape(name)}="\$\{{{re.escape(env_name)}:-(?P<body>[^}}]*)\}}"',
+        text,
+        re.MULTILINE,
+    )
+    if match is None:
+        fail(f"missing shell default string: {name}")
+    return [item for item in match.group("body").split() if item]
+
+
+def declared_cmake_targets(paths: list[str]) -> set[str]:
+    text = "\n".join(read(path) for path in paths)
+    targets = set(
+        re.findall(
+            r"\b(?:add_executable|add_library|add_custom_target|conflux_add_recordable_benchmark)"
+            r"\((conflux_[A-Za-z0-9_]+)\b",
+            text,
+        ),
+    )
+    return {target for target in targets if "$" not in target}
+
+
+def configure_preset_names() -> set[str]:
+    data = json.loads(read("CMakePresets.json"))
+    return {
+        preset["name"]
+        for preset in data.get("configurePresets", [])
+        if isinstance(preset.get("name"), str)
+    }
+
+
+def check_matrix_script_presets() -> None:
+    configure = configure_preset_names()
+    matrix_scripts = {
+        "scripts/run-sanitizer-matrix.sh": "sanitizer",
+        "scripts/run-perf-matrix.sh": "perf",
+    }
+    errors: list[str] = []
+    for path, label in matrix_scripts.items():
+        presets = shell_array_values(read(path), "MATRIX")
+        if not presets:
+            errors.append(f"{path}: {label} matrix preset list must be non-empty")
+            continue
+        duplicates = sorted(name for name, count in Counter(presets).items() if count > 1)
+        if duplicates:
+            errors.append(f"{path}: duplicate {label} matrix presets: {';'.join(duplicates)}")
+        unknown = sorted(name for name in presets if name not in configure)
+        if unknown:
+            errors.append(f"{path}: {label} matrix presets missing from CMakePresets.json: {';'.join(unknown)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_build_all_presets() -> None:
+    configure = configure_preset_names()
+    presets = shell_array_values(read("build-all.sh"), "PRESETS")
+    errors: list[str] = []
+    if not presets:
+        errors.append("build-all.sh: PRESETS must be non-empty")
+    duplicates = sorted(name for name, count in Counter(presets).items() if count > 1)
+    if duplicates:
+        errors.append(f"build-all.sh: duplicate presets: {';'.join(duplicates)}")
+    unknown = sorted(name for name in presets if name not in configure)
+    if unknown:
+        errors.append(f"build-all.sh: presets missing from CMakePresets.json: {';'.join(unknown)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_script_default_presets() -> None:
+    configure = configure_preset_names()
+    default_sets = {
+        "scripts/perf_patch_sweep.sh": shell_default_array_values(
+            read("scripts/perf_patch_sweep.sh"),
+            "presets",
+            "PERF_PATCH_PRESETS",
+        ),
+        "scripts/json_perf_build_profiles.sh": shell_default_array_values(
+            read("scripts/json_perf_build_profiles.sh"),
+            "profiles",
+            "JSON_PERF_PROFILES",
+        ),
+        "scripts/bench_record.sh": shell_default_string_words(
+            read("scripts/bench_record.sh"),
+            "BENCH_PRESETS",
+            "BENCH_PRESET",
+        ),
+    }
+
+    run_conditions = shell_default_array_values(
+        read("scripts/json_perf_run_conditions.sh"),
+        "profiles",
+        "JSON_PERF_PROFILES",
+    )
+    default_sets["scripts/json_perf_run_conditions.sh"] = [
+        f"release-{profile}" for profile in run_conditions
+    ] + [
+        f"pgo-use-{profile}" for profile in run_conditions
+    ]
+
+    fuzz_preset = shell_string_assignment(read("scripts/run-fuzz-smoke.sh"), "PRESET")
+    default_sets["scripts/run-fuzz-smoke.sh"] = [fuzz_preset]
+
+    errors: list[str] = []
+    for path, presets in default_sets.items():
+        if not presets:
+            errors.append(f"{path}: default preset list must be non-empty")
+            continue
+        duplicates = sorted(name for name, count in Counter(presets).items() if count > 1)
+        if duplicates:
+            errors.append(f"{path}: duplicate default presets: {';'.join(duplicates)}")
+        unknown = sorted(name for name in presets if name not in configure)
+        if unknown:
+            errors.append(f"{path}: default presets missing from CMakePresets.json: {';'.join(unknown)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_preset_build_dir_usage_contracts() -> None:
+    checks = {
+        "scripts/check-changed-cxx.sh": {
+            'cmake-preset-build-dir.py" "${ROOT_DIR}" debug-clang-libcxx': "changed-C++ hygiene script must resolve clang-tidy build dir from CMake presets",
+            'cmake-preset-build-dir.py" "${ROOT_DIR}" debug-gcc-stdcxx': "changed-C++ hygiene script must validate debug-gcc preset",
+        },
+        "scripts/run-ctest.sh": {
+            'python3 scripts/cmake-preset-build-dir.py "$PWD" "$1"': "run-ctest must validate build profiles through CMake presets",
+            'expected_dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$profile")"': "run-ctest must compare absolute test dirs to preset-derived build dirs",
+            "refusing unsupported build profile": "run-ctest must reject unsupported build profiles",
+        },
+        "scripts/run-sanitizer-matrix.sh": {
+            'cmake-preset-build-dir.py" "$SOURCE_DIR" "$preset"': "sanitizer matrix must validate matrix presets through CMake presets",
+            "unknown sanitizer matrix preset": "sanitizer matrix must reject --only presets outside the matrix policy",
+            "no sanitizer presets selected by --only filter": "sanitizer matrix must reject empty --only selections",
+        },
+        "scripts/run-perf-matrix.sh": {
+            'cmake-preset-build-dir.py" "$SOURCE_DIR" "$preset"': "perf matrix must validate matrix presets through CMake presets",
+            "unknown perf matrix preset": "perf matrix must reject --only presets outside the matrix policy",
+            "no perf presets selected by --only filter": "perf matrix must reject empty --only selections",
+        },
+        "build-all.sh": {
+            'DEBUG_CLANG_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "${PWD}" debug-clang-libcxx)"': "build-all must use resolved debug-clang build dir for LSP symlink",
+        },
+        "scripts/perf_patch_sweep.sh": {
+            'cmake-preset-build-dir.py "$repo_root" "$1"': "perf patch sweep must resolve build dirs from CMake presets",
+        },
+        "scripts/stage-release-artifacts.sh": {
+            'cmake-preset-build-dir.py" "$root" "$preset"': "release artifact staging must resolve default build dir from CMake presets",
+        },
+        "scripts/bench_record.sh": {
+            'select(startswith("debug-"))': "benchmark recorder debug cleanup must derive debug presets from CMakePresets.json",
+            'cmake-preset-build-dir.py" "$REPO_ROOT" "$preset"': "benchmark recorder debug cleanup must resolve build dirs from CMake presets",
+            'validate_bench_preset "$preset"': "benchmark recorder must validate configured benchmark presets",
+        },
+        "scripts/json_perf_build_profiles.sh": {
+            'validate_profile_preset "$src" "$profile"': "JSON perf profile builder must validate configured presets",
+            'validate_profile_preset "$src" "pgo-use-${profile#pgo-gen-}"': "JSON perf profile builder must validate derived PGO-use presets",
+        },
+        "scripts/json_perf_run_conditions.sh": {
+            'validate_profile_presets "$src" "$profile"': "JSON perf run conditions must validate derived profile presets",
+            'cmake-preset-build-dir.py" "$src" "$(release_preset "$profile")"': "JSON perf run conditions must validate release presets",
+            'cmake-preset-build-dir.py" "$src" "$(pgo_use_preset "$profile")"': "JSON perf run conditions must validate PGO-use presets",
+        },
+        "scripts/send_zc_threshold_evidence.sh": {
+            'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "SEND_ZC threshold evidence must validate configured preset",
+        },
+        "scripts/send_zc_nic_evidence.sh": {
+            'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "SEND_ZC NIC evidence must validate configured preset",
+        },
+        "scripts/storage_read_evidence.sh": {
+            'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "storage-read evidence must validate configured preset",
+        },
+        "scripts/work_queue_contention_evidence.sh": {
+            'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "work-queue evidence must validate configured preset",
+        },
+        "scripts/db_pipeline_live_evidence.sh": {
+            'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "DB pipeline evidence must validate configured preset",
+        },
+    }
+    forbidden = {
+        "scripts/check-changed-cxx.sh": {
+            'PRESET_ROOT="/tmp/': "changed-C++ hygiene script must not hardcode /tmp preset roots",
+        },
+        "scripts/run-sanitizer-matrix.sh": {
+            "/tmp/$(basename": "matrix scripts must not reconstruct preset build dirs",
+            "PRESET_ROOT": "matrix scripts must not reconstruct preset roots",
+            "supported_profiles=": "matrix scripts must not keep generic profile allowlists",
+        },
+        "scripts/run-perf-matrix.sh": {
+            "/tmp/$(basename": "matrix scripts must not reconstruct preset build dirs",
+            "PRESET_ROOT": "matrix scripts must not reconstruct preset roots",
+            "supported_profiles=": "matrix scripts must not keep generic profile allowlists",
+        },
+        "scripts/run-ctest.sh": {
+            "supported_profiles=": "run-ctest must not keep a hand-maintained supported profile list",
+        },
+        "build-all.sh": {
+            'PRESET_ROOT="$(dirname "${PRESET_ROOT}")"': "build-all must not reconstruct preset build dirs from dirname",
+        },
+        "scripts/perf_patch_sweep.sh": {
+            "printf '/tmp/gcc-16/%s": "perf patch sweep must not hardcode /tmp/gcc-16 build dirs",
+        },
+        "scripts/stage-release-artifacts.sh": {
+            'build_dir="/tmp/$(basename "$root")/$preset"': "release artifact staging must not hardcode /tmp/<repo>/<preset>",
+        },
+        "scripts/bench_record.sh": {
+            'PROJECT_TMP="/tmp/$(basename "$REPO_ROOT")"': "benchmark recorder debug cleanup must not hardcode /tmp/<repo>",
+        },
+    }
+    errors: list[str] = []
+    for path, markers in checks.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker not in text)
+    for path, markers in forbidden.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker in text)
+    if errors:
+        fail("\n".join(sorted(errors)))
+
+
+def check_cmake_extraction_contracts() -> None:
+    checks = {
+        "CMakeLists.txt": {
+            "include(ConfluxProviderSelection)": "missing provider selection CMake module include",
+            "include(ConfluxPython)": "missing Python configuration CMake module include",
+            "include(ConfluxUringProbes)": "missing io_uring probe CMake module include",
+            "conflux_configure_uring_probes(conflux_uring)": "root CMake must configure io_uring probes at the conflux_uring target",
+            "include(ConfluxCompilerProbes)": "missing compiler probes CMake module include",
+            'conflux_apply_aesni_source_options("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx")': "crypto AES-NI source options must stay source-file scoped through the SIMD helper",
+            "include(ConfluxOptionsTarget)": "missing options target CMake module include",
+            "include(ConfluxCompilerWorkarounds)": "missing compiler workaround CMake module include",
+            "include(ConfluxModuleLibrary)": "missing module-library helper CMake module include",
+            "include(ConfluxComponentValidation)": "missing component validation CMake module include",
+            'conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")': "template compiler workaround must stay source-file scoped",
+            'conflux_apply_http_server_compiler_workarounds("${CONFLUX_SRC_ROOT}/net/http_server_send.cxx")': "HTTP server compiler workaround must stay source-file scoped",
+        },
+        "cmake/ConfluxProviderSelection.cmake": {
+            'set(CONFLUX_JSON_HASH_PROVIDER "${CONFLUX_EFFECTIVE_JSON_HASH_PROVIDER}")': "provider selection module must bridge effective provider requests",
+        },
+        "cmake/ConfluxPython.cmake": {
+            "set(Python3_FIND_IMPLEMENTATIONS CPython)": "Python configuration module must prefer CPython",
+        },
+        "cmake/ConfluxUringProbes.cmake": {
+            "function(conflux_configure_uring_probes target)": "io_uring probe module must define conflux_configure_uring_probes",
+        },
+        "cmake/ConfluxCompilerProbes.cmake": {
+            "CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD": "compiler probes module must detect warning-clean underscore discard",
+        },
+        "cmake/ConfluxSimd.cmake": {
+            "function(conflux_apply_aesni_source_options source)": "AES-NI source options must live with SIMD/ISA helpers",
+        },
+        "cmake/ConfluxOptionsTarget.cmake": {
+            "add_library(conflux_options INTERFACE)": "options target module must define conflux_options",
+        },
+        "cmake/ConfluxModuleLibrary.cmake": {
+            "function(conflux_add_module_library target)": "module-library helper must define conflux_add_module_library",
+        },
+        "cmake/ConfluxHeaderInterface.cmake": {
+            "include(ConfluxComponentValidation)": "header interface must run component validation before defining header targets",
+            "function(conflux_header_support_component target export_name)": "header support component metadata must use the shared header helper",
+            "conflux_header_support_component(conflux_headers headers)": "headers support component must use the shared header helper",
+            "function(conflux_validate_header_impl_metadata)": "header implementation metadata lists must be validated before package metadata assembly",
+            "header implementation metadata lists are out of sync": "header implementation metadata validation must reject out-of-sync lists",
+            "header implementation target '${_target}' is listed more than once": "header implementation metadata validation must reject duplicate targets",
+            "header implementation component '${_component}' is listed more than once": "header implementation metadata validation must reject duplicate components",
+            "header implementation component": "header implementation metadata validation must reject mismatched component/target pairs",
+            "must use the header_impl_ package namespace": "header implementation metadata validation must enforce generated impl component namespace",
+            "must pair with target 'conflux_${_component}'": "header implementation metadata validation must pair impl components with matching targets",
+        },
+        "cmake/ConfluxComponentValidation.cmake": {
+            "function(conflux_require_component_flag request_var dependency_var diagnostic)": "component validation module must centralize simple component prerequisite checks",
+            "CONFLUX_HTTP_ROUTER_STACK_REQUESTED": "component validation module must derive HTTP stack request flags",
+            "CONFLUX_BUILD_FILE_IO_SYNC": "component validation module must validate file_io_sync requirements",
+        },
+        "cmake/ConfluxCompilerWorkarounds.cmake": {
+            'set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "-O0")': "template compiler workaround must stay source-file scoped",
+            "GCC 15 currently ICEs": "compiler workaround must keep its GCC ICE motivation",
+            "GNU release builds have needed this fallback for the HTTP send": "HTTP server compiler workaround must keep its GNU release-build motivation",
+        },
+        "tests/CMakeLists.txt": {
+            'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
+        },
+        "benchmarks/CMakeLists.txt": {
+            "_conflux_bench_std26_disable_lto": "std::simd benchmark LTO fallback must be compiler-scoped",
+            "_conflux_bench_json_std26_disable_lto": "JSON std::simd benchmark LTO fallback must be compiler-scoped",
+        },
+    }
+    forbidden = {
+        "CMakeLists.txt": {
+            "check_cxx_source_runs(": "io_uring runtime probes must live in ConfluxUringProbes.cmake",
+            'set_source_files_properties("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx': "crypto AES-NI source options must not live directly in root CMake",
+            "add_library(conflux_options INTERFACE)": "conflux_options target definition must live in ConfluxOptionsTarget.cmake",
+            "function(conflux_add_module_library target)": "module-library helper must live in ConfluxModuleLibrary.cmake",
+            "set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED": "HTTP stack request derivation must live in ConfluxComponentValidation.cmake",
+            'set_source_files_properties("${CONFLUX_SRC_ROOT}/template_impl.cxx': "template compiler workaround must live in ConfluxCompilerWorkarounds.cmake",
+            'set_source_files_properties("${CONFLUX_SRC_ROOT}/net/http_server_send.cxx': "HTTP server compiler workaround must live in ConfluxCompilerWorkarounds.cmake",
+        },
+        "tests/CMakeLists.txt": {
+            "set_target_properties(conflux_http_facade_tests PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)": "HTTP facade GCC LTO fallback must not disable IPO for the whole test target",
+        },
+    }
+    errors: list[str] = []
+    for path, markers in checks.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker not in text)
+    for path, patterns in forbidden.items():
+        text = read(path)
+        errors.extend(message for marker, message in patterns.items() if marker in text)
+    if errors:
+        fail("\n".join(sorted(errors)))
+
+
+def perf_patch_sweep_default_targets() -> list[str]:
+    body = read("scripts/perf_patch_sweep.sh")
+    try:
+        function_body = body.split("targets_for_patch() {", 1)[1].split("benches_for_patch() {", 1)[0]
+    except IndexError:
+        fail("missing perf patch target defaults")
+    targets: list[str] = []
+    for line in function_body.splitlines():
+        line = line.strip()
+        if not line.startswith("printf '%s\\n' "):
+            continue
+        targets.extend(re.findall(r"\bconflux_[A-Za-z0-9_]+\b", line))
+    return targets
+
+
+def literal_build_targets_from_script(path: str) -> list[str]:
+    text = read(path)
+    targets: list[str] = []
+    for line in text.splitlines():
+        if "cmake --build" not in line or "--target" not in line:
+            continue
+        tail = line.split("--target", 1)[1]
+        for token in re.findall(r"\bconflux_[A-Za-z0-9_]+\b", tail):
+            targets.append(token)
+    return targets
+
+
+def shell_case_mapping(text: str, function_name: str) -> dict[str, str]:
+    try:
+        body = text.split(f"{function_name}() {{", 1)[1].split("\n}", 1)[0]
+    except IndexError:
+        fail(f"missing shell function: {function_name}")
+    mapping: dict[str, str] = {}
+    for match in re.finditer(
+        r"^\s*([A-Za-z0-9_]+)\)\s+printf '%s\\n'\s+([A-Za-z0-9_]+)\s+;;",
+        body,
+        re.MULTILINE,
+    ):
+        mapping[match.group(1)] = match.group(2)
+    if not mapping:
+        fail(f"missing shell case mapping in {function_name}")
+    return mapping
+
+
+def check_script_default_benchmark_targets() -> None:
+    declared = declared_cmake_targets([
+        "CMakeLists.txt",
+        "benchmarks/CMakeLists.txt",
+        "tests/CMakeLists.txt",
+        "cmake/ConfluxInterfaceMode.cmake",
+    ])
+    default_sets = {
+        "scripts/json_perf_build_profiles.sh": shell_default_array_values(
+            read("scripts/json_perf_build_profiles.sh"),
+            "targets",
+            "JSON_PERF_TARGETS",
+        ),
+        "scripts/json_perf_run_conditions.sh": shell_default_array_values(
+            read("scripts/json_perf_run_conditions.sh"),
+            "targets",
+            "JSON_PERF_TARGETS",
+        ),
+        "scripts/run-perf-matrix.sh": [shell_string_assignment(
+            read("scripts/run-perf-matrix.sh"),
+            "TARGET",
+        )],
+        "scripts/bench_record.sh": (
+            literal_build_targets_from_script("scripts/bench_record.sh")
+        ),
+        "scripts/perf_patch_sweep.sh": perf_patch_sweep_default_targets(),
+        "scripts/db_pipeline_live_evidence.sh": (
+            literal_build_targets_from_script("scripts/db_pipeline_live_evidence.sh")
+        ),
+        "scripts/work_queue_contention_evidence.sh": (
+            literal_build_targets_from_script("scripts/work_queue_contention_evidence.sh")
+        ),
+        "scripts/storage_read_evidence.sh": (
+            literal_build_targets_from_script("scripts/storage_read_evidence.sh")
+        ),
+        "scripts/send_zc_nic_evidence.sh": (
+            literal_build_targets_from_script("scripts/send_zc_nic_evidence.sh")
+        ),
+        "scripts/send_zc_threshold_evidence.sh": (
+            literal_build_targets_from_script("scripts/send_zc_threshold_evidence.sh")
+        ),
+    }
+
+    errors: list[str] = []
+    for path, targets in default_sets.items():
+        if not targets:
+            errors.append(f"{path}: default benchmark target list must be non-empty")
+            continue
+        duplicates = sorted(target for target, count in Counter(targets).items() if count > 1)
+        if duplicates:
+            errors.append(f"{path}: duplicate default benchmark targets: {';'.join(duplicates)}")
+        missing = sorted(target for target in targets if target not in declared)
+        if missing:
+            errors.append(f"{path}: default benchmark targets are not declared by CMake: {';'.join(missing)}")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_json_perf_benchmark_maps() -> None:
+    build_profiles = read("scripts/json_perf_build_profiles.sh")
+    run_conditions = read("scripts/json_perf_run_conditions.sh")
+    target_to_bench = shell_case_mapping(build_profiles, "bench_name_for_target")
+    bench_to_target = shell_case_mapping(run_conditions, "bench_bin_name")
+    errors: list[str] = []
+
+    inverted = {bench: target for target, bench in target_to_bench.items()}
+    append_set_delta_errors(
+        errors,
+        set(inverted),
+        set(bench_to_target),
+        "JSON perf benches missing from run-condition binary map: ",
+        "JSON perf benches missing from build-profile target map: ",
+    )
+    for bench in sorted(set(inverted) & set(bench_to_target)):
+        if bench_to_target[bench] != inverted[bench]:
+            errors.append(
+                f"JSON perf benchmark map mismatch for {bench}: "
+                f"{inverted[bench]} != {bench_to_target[bench]}",
+            )
+
+    default_targets = shell_default_array_values(
+        build_profiles,
+        "targets",
+        "JSON_PERF_TARGETS",
+    )
+    default_benches = shell_default_array_values(
+        run_conditions,
+        "benches",
+        "JSON_PERF_BENCHES",
+    )
+    expected_default_benches = [target_to_bench[target] for target in default_targets]
+    if default_benches != expected_default_benches:
+        errors.append(
+            "JSON perf default benches must match JSON perf default targets: "
+            + ";".join(default_benches)
+            + " != "
+            + ";".join(expected_default_benches),
+        )
+    if errors:
+        fail("\n".join(errors))
+
+
+def package_smoke_wrapper_default_components() -> dict[str, str]:
+    checks = {
+        "scripts/check-package-smoke-core-isolated.sh": r"--components\s+core\b",
+        "scripts/check-package-smoke-liburing-free.sh": r"--components\s+'([^']+)'",
+        "scripts/check-package-smoke-runtime.sh": r"--components\s+'([^']+)'",
+        "scripts/check-package-smoke-db.sh": r"--components\s+'([^']+)'",
+        "scripts/check-package-smoke-mixed-module-header.sh": (
+            r'components="\$\{CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS:-([^}]+)\}"'
+        ),
+        "scripts/check-public-module-import-smoke.sh": (
+            r'components="\$\{CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_COMPONENTS:-([^}]+)\}"'
+        ),
+    }
+    defaults: dict[str, str] = {}
+    for path, pattern in checks.items():
+        match = re.search(pattern, read(path))
+        if match is None:
+            fail(f"missing wrapper default package smoke components in {path}")
+        defaults[path] = match.group(1) if match.groups() else "core"
+    return defaults
+
+
+def check_package_smoke_wrapper_default_components() -> None:
+    public_components = public_component_exports_from_registry()
+    errors: list[str] = []
+    for path, components in package_smoke_wrapper_default_components().items():
+        requested = [component for component in components.split(";") if component]
+        if not requested:
+            errors.append(f"{path}: wrapper default package smoke components must be non-empty")
+            continue
+        unknown = sorted(component for component in requested if component not in public_components)
+        if unknown:
+            errors.append(
+                f"{path}: wrapper default package smoke components must be public registry exports: "
+                + ";".join(unknown),
+            )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_package_smoke_wrapper_contracts() -> None:
+    checks = {
+        "scripts/check-package-smoke-liburing-free.sh": {
+            "core;json;file_io_sync": "liburing-free package smoke must request only liburing-free components",
+            "LIBURING;LIBPQ;OPENSSL": "liburing-free package smoke must explicitly forbid runtime/db/tls external deps",
+        },
+        "scripts/check-package-smoke-core-isolated.sh": {
+            "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
+            "--components core": "core-isolated package smoke must request only core",
+            "http;http1;http2;http3;http_protocol;template;pg;db": "core-isolated package smoke must forbid runtime/db/template components",
+            "LIBURING;LIBPQ;OPENSSL;XXHASH": "core-isolated package smoke must forbid external dependencies despite provider noise",
+        },
+        "scripts/check-package-smoke-runtime.sh": {
+            "core;json;http;file_io_sync;work": "runtime package smoke must request work/http components",
+            "pkg-config --exists liburing": "runtime package smoke must gate on real liburing",
+        },
+        "scripts/check-package-smoke-db.sh": {
+            "pkg-config --exists libpq": "DB package smoke must gate on libpq",
+            "pkg-config --exists liburing": "DB package smoke must gate on real liburing",
+            "core;json;pg": "DB package smoke must request the exported pg component",
+            "--enable-db-smoke": "DB package smoke must enable DB component checks",
+        },
+    }
+    errors: list[str] = []
+    for path, markers in checks.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker not in text)
+    if errors:
+        fail("\n".join(sorted(errors)))
+
+
+def check_package_smoke_project_contract() -> None:
+    text = read("cmake/package-smoke/CMakeLists.txt")
+    required_markers = {
+        "find_package(conflux REQUIRED COMPONENTS": "package smoke project must consume find_package(conflux COMPONENTS ...)",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS must name at least one component": "package smoke project must reject empty component lists",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS must request public components": "package smoke project must reject support components in requested component lists",
+        "add_executable(conflux_package_smoke \"${_conflux_package_smoke_source}\")": "package smoke project must compile a generated downstream executable",
+        "target_link_libraries(conflux_package_smoke PRIVATE": "package smoke project must link installed namespaced targets",
+        "add_test(NAME package-smoke/run": "package smoke project must run the downstream executable",
+        "CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS": "package smoke must distinguish declaration-only and linked API lanes",
+        "conflux::json::parse": "package smoke must exercise installed JSON implementation symbols when available",
+        "conflux::build_info_summary": "package smoke must exercise installed core implementation symbols when available",
+        "read_text_file_nothrow": "package smoke must exercise installed file_io_sync implementation symbols when available",
+        "CONFLUX_HAS_JSON": "package smoke must assert installed JSON feature macros",
+        "set(CMAKE_CXX_SCAN_FOR_MODULES OFF)": "header package smoke must disable module scanning by default",
+        "set(CMAKE_CXX_SCAN_FOR_MODULES ON)": "module package smoke must enable module scanning",
+        "import conflux.types;": "module package smoke source must import an installed conflux module",
+        "#include <conflux/types.hpp>": "header package smoke source must include only the installed core header",
+        "available_components=${conflux_AVAILABLE_COMPONENTS}": "package smoke summary must report available components",
+        "visible_components=${conflux_VISIBLE_COMPONENTS}": "package smoke summary must report visible components",
+        "visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}": "package smoke summary must report visible support targets",
+        "resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}": "package smoke summary must report resolved external deps",
+        "CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS": "package smoke must support negative external dependency assertions",
+        "CONFLUX_PACKAGE_SMOKE_FAST_COMPILE": "package smoke must expose a fast-compile option",
+        "CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD": "package smoke must make import-std experimental support opt-in",
+        "CONFLUX_PACKAGE_SMOKE_API_SURFACE": "package smoke must expose an expected API-surface assertion",
+        "CONFLUX_API_SURFACE_LEVEL != CONFLUX_API_SURFACE_": "package smoke must compile-check installed API-surface macros",
+        "expected_api_surface=${CONFLUX_PACKAGE_SMOKE_API_SURFACE}": "package smoke summary must report expected API surface",
+        "conflux_apply_package_smoke_build_policy": "package smoke targets must apply fast-compile policy",
+        "CXX_SCAN_FOR_MODULES OFF": "header package smoke must disable module scanning for header targets",
+        "found unrequested visible target": "package smoke must reject unrequested visible targets",
+        "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}": "package smoke summary must report runtime/liburing status",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    if missing:
+        fail("\n".join(missing))
+
+
+def check_package_smoke_runner_contract() -> None:
+    text = read("scripts/run-package-config-smoke.sh")
+    required_markers = {
+        "--forbid-external-deps": "package smoke runner must expose negative external dependency assertions",
+        "--api-surface": "package smoke runner must expose API-surface assertions",
+        "--enable-import-std": "package smoke runner must expose import-std opt-in",
+        "cmake --build \"$build_dir\"": "package smoke runner must build the downstream project",
+        "ctest --test-dir \"$build_dir\" --output-on-failure": "package smoke runner must run downstream CTest",
+        "conflux-package-smoke-summary.txt": "package smoke runner must print the downstream summary",
+        "normalize_cmake_list": "package smoke runner must normalize semicolon list arguments",
+        "--components must not be empty": "package smoke runner must reject empty component lists",
+        "--components must request public components": "package smoke runner must reject support components in requested component lists",
+        "header_impl_*": "package smoke runner must reject generated header implementation support components",
+        "forbid_all_external_deps=": "package smoke runner must centralize default forbidden external dependency tokens",
+        "forbid_runtime_db_template_components=": "package smoke runner must centralize default forbidden runtime/db/template component policy",
+        "--enable-db": "package smoke runner must expose a DB-enabled smoke option",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    if missing:
+        fail("\n".join(missing))
+
+
+def check_install_tree_smoke_runner_contract() -> None:
+    text = read("scripts/run-install-tree-smoke.sh")
+    required_markers = {
+        "cmake --build \"$build_dir\" --target install": "install-tree smoke runner must build and install conflux",
+        "--interface-mode": "install-tree smoke runner must forward interface mode",
+        "--api-surface": "install-tree smoke runner must forward API surface",
+        "--enable-import-std-smoke": "install-tree smoke runner must forward import-std smoke opt-in",
+        "--generator": "install-tree smoke runner must forward generator",
+        "extra_cmake_args": "install-tree smoke runner must forward extra configure args",
+        "run-package-config-smoke.sh": "install-tree smoke runner must consume the installed prefix",
+        "--components must request public components": "install-tree smoke runner must reject support components in requested component lists",
+        "header_impl_*": "install-tree smoke runner must reject generated header implementation support components",
+        "--enable-db-smoke": "install-tree smoke runner must forward DB-enabled package smoke",
+        "--forbid-components": "install-tree smoke runner must forward forbidden component assertions",
+        "--forbid-external-deps": "install-tree smoke runner must forward forbidden external dependency assertions",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    if missing:
+        fail("\n".join(missing))
+
+
+def check_install_tree_ctest_helpers() -> None:
+    options = read("cmake/ConfluxOptions.cmake")
+    tests = read("tests/CMakeLists.txt")
+    header = read("cmake/ConfluxHeaderInterface.cmake")
+    required_markers = {
+        "function(conflux_add_package_config_install_tree_test source_dir build_dir)": "package-config install-tree CTest must use the shared filtered argument helper",
+        "function(conflux_add_install_tree_smoke_test source_dir)": "install-tree smoke CTest must use the shared filtered argument helper",
+        "_conflux_install_tree_smoke_args": "install-tree smoke helper must build its command from a filtered argument list",
+        "function(conflux_escape_package_smoke_components out_var)": "package smoke CTest helpers must share component-list escaping",
+        'string(REPLACE ";" "\\\\;" _conflux_escaped_components': "package smoke CTest helpers must preserve component lists as one command argument",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in options)
+    if 'conflux_add_install_tree_smoke_test("${CMAKE_SOURCE_DIR}")' not in tests:
+        missing.append("install-tree smoke CTest must use the shared filtered argument helper")
+    if 'conflux_add_install_tree_smoke_test("${CMAKE_CURRENT_SOURCE_DIR}")' not in header:
+        missing.append("header install-tree smoke CTest must use the shared filtered argument helper")
+    if "conflux_add_package_config_install_tree_test(" not in tests:
+        missing.append("package-config install-tree CTest must use the shared filtered argument helper")
+    if "conflux_add_package_config_install_tree_test(" not in header:
+        missing.append("header package-config install-tree CTest must use the shared filtered argument helper")
+    if "mixed-module-header-smoke>" in tests or "mixed-module-header-smoke>" in header:
+        missing.append("install-tree smoke CTest must not use generator expressions that emit empty arguments")
+    if missing:
+        fail("\n".join(missing))
+
+
+def check_provider_selection_order() -> None:
+    check_marker_order(
+        read("CMakeLists.txt"),
+        [
+            "conflux_apply_preset()",
+            "include(ConfluxProviderSelection)",
+            "include(Dependencies)",
+        ],
+        "provider selection must run after presets and before dependency discovery",
+    )
+
+
+def check_python_setup_order() -> None:
+    check_marker_order(
+        read("CMakeLists.txt"),
+        [
+            "include(ConfluxPython)",
+            "include(ConfluxInterfaceMode)",
+            "conflux_configure_interface_mode()",
+        ],
+        "Python setup must run before interface-mode configuration",
+    )
+
+
+def check_compiler_probe_order() -> None:
+    check_marker_order(
+        read("CMakeLists.txt"),
+        [
+            "include(ConfluxCompilerProbes)",
+            "include(ConfluxOptionsTarget)",
+        ],
+        "compiler probes must run before conflux_options publishes probe results",
+    )
+
+
+def check_options_target_order() -> None:
+    check_marker_order(
+        read("CMakeLists.txt"),
+        [
+            "include(ConfluxOptionsTarget)",
+            "conflux_add_module_library(conflux_types",
+        ],
+        "conflux_options target setup must run before component targets",
+    )
+
+
+def check_duplicate_ctest_names() -> None:
+    names: dict[str, str] = {}
+    duplicates: list[str] = []
+    pattern = re.compile(r"add_test\s*\(\s*NAME\s+([^\s\)]+)", re.MULTILINE)
+    for path in cmake_test_cmake_paths():
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in pattern.finditer(text):
+            name = match.group(1).strip("'\"")
+            if "$" in name:
+                continue
+            line_no = text.count("\n", 0, match.start()) + 1
+            location = f"{path}:{line_no}"
+            if name in names:
+                duplicates.append(f"{name}: {names[name]} and {location}")
+            else:
+                names[name] = location
+    if duplicates:
+        fail("duplicate CTest names:\n" + "\n".join(duplicates))
+
+
+def external_tokens_from_metadata() -> set[str]:
+    metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
+    metadata_body = cmake_function_body(
+        metadata,
+        "function(_conflux_external_token_for_item out_var item)",
+    )
+    return set(re.findall(r"set\(_token ([A-Z0-9_]+)\)", metadata_body))
+
+
+def component_exports_from_registry() -> set[str]:
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
+    return set(re.findall(r'"[^"|]+\|([^"|]+)"', registry))
+
+
+def component_exports_from_registry_block(block_name: str) -> set[str]:
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
+    match = re.search(
+        rf"set\({re.escape(block_name)}(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if match is None:
+        fail(f"missing {block_name}")
+    return set(re.findall(r'"[^"|]+\|([^"|]+)"', match.group("body")))
+
+
+def public_component_exports_from_registry() -> set[str]:
+    return component_exports_from_registry_block("CONFLUX_PUBLIC_COMPONENT_DECLARATIONS")
+
+
+def support_component_exports_from_registry() -> set[str]:
+    return component_exports_from_registry_block("CONFLUX_SUPPORT_COMPONENT_DECLARATIONS")
+
+
+def generated_header_support_exports() -> set[str]:
+    return {"headers", "header_impl"}
+
+
+def check_external_dependency_tokens() -> None:
+    config = read("cmake/conflux-config.cmake.in")
+    metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
+    config_body = cmake_function_body(
+        config,
+        "function(_conflux_find_external_dep token)",
+    )
+    metadata_body = cmake_function_body(
+        metadata,
+        "function(_conflux_external_token_for_item out_var item)",
+    )
+
+    config_tokens = set(re.findall(r'token STREQUAL "([A-Z0-9_]+)"', config_body))
+    metadata_tokens = set(re.findall(r"set\(_token ([A-Z0-9_]+)\)", metadata_body))
+    errors: list[str] = []
+    append_set_delta_errors(
+        errors,
+        metadata_tokens,
+        config_tokens,
+        "tokens missing from cmake/conflux-config.cmake.in: ",
+        "tokens missing from cmake/ConfluxGeneratePackageMetadata.cmake.in: ",
+    )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_package_config_uses_generated_component_metadata() -> None:
+    config = read("cmake/conflux-config.cmake.in")
+    required_markers = {
+        "conflux-component-targets.cmake": "package config must include generated component target metadata",
+        "conflux-component-deps.cmake": "package config must include generated component dependency metadata",
+        "conflux-component-external-deps.cmake": "package config must include generated external dependency metadata",
+        "confluxTargets-${_export_component}.cmake": "package config must include requested split exported targets",
+        "set(conflux_AVAILABLE_COMPONENTS": "package config must expose available components",
+        "set(conflux_AVAILABLE_SUPPORT_TARGETS": "package config must expose available support targets",
+        "set(conflux_VISIBLE_COMPONENTS": "package config must expose visible components",
+        "set(conflux_VISIBLE_SUPPORT_TARGETS": "package config must expose visible support targets",
+        "set(conflux_RESOLVED_EXTERNAL_DEPS": "package config must expose resolved external deps",
+        "_conflux_import_component": "package config must compute requested component dependency closure",
+        "_conflux_find_external_dep": "package config must resolve closure-scoped external deps",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in config)
+    if missing:
+        fail("\n".join(missing))
+    if re.search(r"^set\(_conflux_component_deps_", config, re.MULTILINE):
+        fail("package config must not contain a hand-written component dependency table")
+    if re.search(r"^set\(_conflux_component_order", config, re.MULTILINE):
+        fail("package config must not contain a hand-written component import order")
+    if re.search(r"@CONFLUX_INSTALL_NEEDS_.*pkg_check_modules|if\(@CONFLUX_INSTALL_NEEDS_", config):
+        fail("package config must not resolve optional deps from install-wide booleans")
+
+
+def check_package_metadata_generator_contract() -> None:
+    metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
+    required_markers = {
+        "function(_conflux_validate_parallel_lists components targets label)": "package metadata generator must validate component/target list pairing",
+        "component/target lists differ in length": "package metadata generator must reject mismatched component/target lists",
+        "is listed more than once": "package metadata generator must reject duplicate component/target list entries",
+        "cannot be used in generated CMake variable names": "package metadata generator must reject unsafe generated CMake variable suffixes",
+        "is not a valid conflux namespaced target": "package metadata generator must reject invalid namespaced target entries",
+        "must pair with target": "package metadata generator must reject mismatched component/target pairs",
+        "function(_conflux_validate_component_partitions)": "package metadata generator must validate component partitions",
+        "all component list must match requestable plus support components": "package metadata generator must reject component partition drift",
+        "all target list must match requestable plus support targets": "package metadata generator must reject target partition drift",
+    }
+    missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
+    if missing:
+        fail("\n".join(missing))
+
+
+def check_package_smoke_external_tokens() -> None:
+    tokens = external_tokens_from_metadata()
+    runner = read("scripts/run-package-config-smoke.sh")
+    scripts = "\n".join(
+        runner if path == "scripts/run-package-config-smoke.sh" else read(path)
+        for path in [
+            "scripts/run-package-config-smoke.sh",
+            "scripts/check-package-smoke-liburing-free.sh",
+            "scripts/check-package-smoke-core-isolated.sh",
+        ]
+    )
+    missing = sorted(token for token in tokens if token not in scripts)
+    if missing:
+        fail(f"external tokens missing from package smoke isolation scripts: {';'.join(missing)}")
+
+    for variable, value in re.findall(r"^(forbid_[A-Za-z0-9_]*external_deps)=\"([^\"]*)\"", runner, re.MULTILINE):
+        policy_tokens = {token for token in value.split(";") if token}
+        unknown = sorted(policy_tokens - tokens)
+        if unknown:
+            fail(f"{variable} contains unknown external tokens: {';'.join(unknown)}")
+
+    all_policy = shell_semicolon_list_var(runner, "forbid_all_external_deps")
+    errors: list[str] = []
+    append_set_delta_errors(
+        errors,
+        tokens,
+        all_policy,
+        "external tokens missing from package smoke all-forbidden policy: ",
+        "unknown external tokens in package smoke all-forbidden policy: ",
+    )
+
+    core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
+    match = re.search(r"--forbid-external-deps\s+'([^']+)'", core_isolated)
+    if match is None:
+        fail("core-isolated package smoke must pass --forbid-external-deps")
+    core_forbidden = {token for token in match.group(1).split(";") if token}
+    append_set_delta_errors(
+        errors,
+        tokens,
+        core_forbidden,
+        "external tokens missing from core-isolated forbidden list: ",
+        "unknown external tokens in core-isolated forbidden list: ",
+    )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_core_isolated_forbidden_components() -> None:
+    runner = read("scripts/run-package-config-smoke.sh")
+    core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
+    allowed_components = component_exports_from_registry() | {"db"}
+    for variable, value in re.findall(r"^(forbid_[A-Za-z0-9_]*components)=\"([^\"]*)\"", runner, re.MULTILINE):
+        policy_components = {component for component in value.split(";") if component}
+        unknown = sorted(policy_components - allowed_components)
+        if unknown:
+            fail(f"{variable} contains unknown package components: {';'.join(unknown)}")
+
+    isolated_match = re.search(r"--forbid-components\s+'([^']+)'", core_isolated)
+    if isolated_match is None:
+        fail("core-isolated package smoke must pass --forbid-components")
+    runner_forbidden = shell_semicolon_list_var(runner, "forbid_runtime_db_template_components")
+    isolated_forbidden = {component for component in isolated_match.group(1).split(";") if component}
+    errors: list[str] = []
+    append_set_delta_errors(
+        errors,
+        runner_forbidden,
+        isolated_forbidden,
+        "core-isolated forbidden components missing default core isolation entries: ",
+        "core-isolated forbidden components not present in default core isolation entries: ",
+    )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_package_smoke_policy_cases_use_variables() -> None:
+    runner = read("scripts/run-package-config-smoke.sh")
+    case_body = runner.split('if [[ "$components" != *";"* ]]; then', 1)[1].split("fi", 1)[0]
+    inline_assignments = re.findall(
+        r'^\s*(forbidden_(?:components|external_deps))="[^"$]*;[^"$]*\$\{',
+        case_body,
+        re.MULTILINE,
+    )
+    if inline_assignments:
+        fail(
+            "package smoke single-component cases must use named policy variables for: "
+            + ";".join(sorted(set(inline_assignments))),
+        )
+    referenced_policies = set(re.findall(r"\$\{(forbid_[A-Za-z0-9_]+)\}", case_body))
+    unused_policies = sorted(shell_policy_variables(runner) - referenced_policies)
+    if unused_policies:
+        fail("package smoke policy variables are not used in single-component cases: " + ";".join(unused_policies))
+
+
+def check_duplicate_target_link_libraries() -> None:
+    paths = [
+        Path("CMakeLists.txt"),
+        *sorted(Path("cmake").glob("*.cmake")),
+        Path("cmake/package-smoke/CMakeLists.txt"),
+        Path("benchmarks/CMakeLists.txt"),
+        Path("examples/CMakeLists.txt"),
+        Path("fuzz/CMakeLists.txt"),
+        Path("tests/CMakeLists.txt"),
+        *sorted(Path("tests").glob("*.cmake")),
+    ]
+    duplicates: list[str] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        edges: list[tuple[str, str, str]] = []
+        for match in re.finditer(r"target_link_libraries\((.*?)\)", text, re.DOTALL):
+            tokens = match.group(1).split()
+            if not tokens:
+                continue
+            target = tokens[0]
+            if "$" in target:
+                continue
+            scope = "PRIVATE"
+            for token in tokens[1:]:
+                if token in {"PRIVATE", "PUBLIC", "INTERFACE"}:
+                    scope = token
+                elif token.startswith("$") or token.startswith("${"):
+                    continue
+                else:
+                    edges.append((target, scope, token))
+
+        duplicates.extend(
+            f"{path}: {target} links {item} as {scope} {count} times"
+            for (target, scope, item), count in sorted(Counter(edges).items())
+            if count > 1
+        )
+    if duplicates:
+        fail("\n".join(duplicates))
+
+
+def check_installed_surface_aliases() -> None:
+    options = read("cmake/ConfluxOptions.cmake")
+    config = read("cmake/conflux-config.cmake.in")
+    build_macros = set(re.findall(r"CONFLUX_SURFACE_HAS_([A-Z0-9_]+)=", options))
+    installed_aliases = set(
+        re.findall(r"_conflux_installed_surface_definitions ([A-Z0-9_]+) 1", config),
+    )
+    allowed_install_only = {"DB_COMPAT"}
+    missing = sorted(installed_aliases - build_macros - allowed_install_only)
+    if missing:
+        fail(
+            "installed surface aliases missing from build-tree surface macros: "
+            + ";".join(missing),
+        )
+
+
+def check_metrics_status_is_graph_gated() -> None:
+    provider = read("cmake/ConfluxProviderResolution.cmake")
+    if "if(NOT (CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER))" not in provider:
+        fail("metrics provider status must be gated by the active HTTP graph")
+    if "HTTP observability not in feature set" in provider:
+        fail("metrics provider status must stay quiet for feature graphs without HTTP observability")
+
+
+def check_release_artifact_staging_contract() -> None:
+    staging = read("scripts/stage-release-artifacts.sh")
+    guard = read("scripts/check-release-artifact.py")
+    required = {
+        "check-release-artifact.py": "release artifact staging must self-check staged output",
+        'cmake --preset "$preset"': "release artifact staging must prefer the preset build",
+        "--feature-set": "release artifact staging must expose an explicit feature-set",
+        'CONFLUX_FEATURE_SET="$feature_set"': "release artifact staging explicit build path must pass the selected feature-set",
+        "module-header-bridge-manifest.json": "release artifact staging must include the bridge manifest",
+    }
+    missing = sorted(message for marker, message in required.items() if marker not in staging)
+    if "python_version" not in guard:
+        missing.append("release artifact guard must validate bridge python metadata")
+    if missing:
+        fail("\n".join(missing))
+
+
+def main() -> int:
+    if len(sys.argv) > 2:
+        print("usage: check-package-config-structure.py [repo-root]", file=sys.stderr)
+        return 2
+    if len(sys.argv) == 2:
+        Path(sys.argv[1]).resolve(strict=True)
+        os.chdir(sys.argv[1])
+
+    check_no_legacy_mock_liburing_refs()
+    check_no_explicit_build_parallelism()
+    check_provider_policy_scenarios_are_isolated()
+    check_run_build_artifact_root_examples_are_declared()
+    check_compile_time_bench_defaults()
+    check_header_bridge_optional_inputs()
+    check_header_http_impls_do_not_pull_json()
+    check_header_impl_lists_have_no_duplicates()
+    check_header_source_ids_exist()
+    check_header_support_components_are_limited()
+    check_header_public_components_use_registry_exports()
+    check_cmake_preset_names_unique()
+    check_cmake_preset_references()
+    check_test_preset_filters()
+    check_install_smoke_presets()
+    check_matrix_script_presets()
+    check_build_all_presets()
+    check_script_default_presets()
+    check_preset_build_dir_usage_contracts()
+    check_cmake_extraction_contracts()
+    check_script_default_benchmark_targets()
+    check_json_perf_benchmark_maps()
+    check_provider_selection_order()
+    check_python_setup_order()
+    check_compiler_probe_order()
+    check_options_target_order()
+    check_duplicate_ctest_names()
+    check_external_dependency_tokens()
+    check_package_config_uses_generated_component_metadata()
+    check_package_metadata_generator_contract()
+    check_package_smoke_external_tokens()
+    check_core_isolated_forbidden_components()
+    check_package_smoke_wrapper_default_components()
+    check_package_smoke_wrapper_contracts()
+    check_package_smoke_project_contract()
+    check_package_smoke_runner_contract()
+    check_install_tree_smoke_runner_contract()
+    check_install_tree_ctest_helpers()
+    check_package_smoke_policy_cases_use_variables()
+    check_duplicate_target_link_libraries()
+    check_installed_surface_aliases()
+    check_metrics_status_is_graph_gated()
+    check_release_artifact_staging_contract()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

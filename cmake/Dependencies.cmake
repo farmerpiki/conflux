@@ -363,8 +363,8 @@ if(CONFLUX_BUILD_TESTS)
             FetchContent_Declare(
                 JSONTestSuite
                 GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git
-                GIT_TAG        master
-                GIT_SHALLOW    TRUE
+                GIT_TAG        1ef36fa01286573e846ac449e8683f8833c5b26a
+                GIT_SHALLOW    FALSE
             )
             FetchContent_MakeAvailable(JSONTestSuite)
             set(JSONTESTSUITE_DIR "${jsontestsuite_SOURCE_DIR}/test_parsing" CACHE PATH

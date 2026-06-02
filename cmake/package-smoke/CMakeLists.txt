@@ -3,17 +3,8 @@ cmake_minimum_required(VERSION 3.30)
 option(CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD
     "Enable CMake's experimental import-std support for package smoke projects that consume import-std install trees" OFF)
 if(CONFLUX_PACKAGE_SMOKE_ENABLE_IMPORT_STD)
-    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.3.0")
-        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
-    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.3")
-        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0.0")
-        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "a9e1cf81-9932-4810-974b-6eccaf14e457")
-    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.31.8")
-        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-    elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30.0")
-        set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
-    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/../ConfluxImportStdGate.cmake")
+    conflux_enable_import_std_experiment()
 endif()
 
 project(conflux_package_smoke LANGUAGES CXX)
@@ -53,9 +44,19 @@ enable_testing()
 
 set(_conflux_smoke_components ${CONFLUX_PACKAGE_SMOKE_COMPONENTS})
 list(REMOVE_DUPLICATES _conflux_smoke_components)
+if(NOT _conflux_smoke_components)
+    message(FATAL_ERROR
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS must name at least one component")
+endif()
 
 set(_conflux_find_components ${_conflux_smoke_components})
 list(REMOVE_DUPLICATES _conflux_find_components)
+foreach(_component IN LISTS _conflux_find_components)
+    if(_component MATCHES "^_" OR _component MATCHES "^header_impl(_|$)" OR _component STREQUAL "headers")
+        message(FATAL_ERROR
+            "CONFLUX_PACKAGE_SMOKE_COMPONENTS must request public components, not support component '${_component}'")
+    endif()
+endforeach()
 
 find_package(conflux REQUIRED COMPONENTS ${_conflux_find_components})
 
@@ -551,7 +552,11 @@ function(conflux_add_component_smoke name component source)
     endif()
     set(_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke_${name}.cxx")
     file(WRITE "${_source}" "${source}")
-    add_executable("conflux_package_smoke_${name}" "${_source}")
+    if(_conflux_package_smoke_linked_apis)
+        add_executable("conflux_package_smoke_${name}" "${_source}")
+    else()
+        add_library("conflux_package_smoke_${name}" OBJECT "${_source}")
+    endif()
     target_compile_features("conflux_package_smoke_${name}" PRIVATE cxx_std_23)
     conflux_apply_package_smoke_build_policy("conflux_package_smoke_${name}")
     if(TARGET conflux::headers)
@@ -564,7 +569,9 @@ function(conflux_add_component_smoke name component source)
         target_link_libraries("conflux_package_smoke_${name}" PRIVATE conflux::types)
     endif()
     target_link_libraries("conflux_package_smoke_${name}" PRIVATE "conflux::${component}")
-    add_test(NAME "package-smoke/${name}" COMMAND "conflux_package_smoke_${name}")
+    if(_conflux_package_smoke_linked_apis)
+        add_test(NAME "package-smoke/${name}" COMMAND "conflux_package_smoke_${name}")
+    endif()
 endfunction()
 
 foreach(_component IN LISTS _conflux_smoke_components)
@@ -607,6 +614,9 @@ int main() { return 0; }
 #if !CONFLUX_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
 #endif
+#if !CONFLUX_SURFACE_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_SURFACE_HAS_JSON=1"
+#endif
 import conflux.features;
 import conflux.json;
 static_assert(conflux::HAS_JSON);
@@ -619,6 +629,9 @@ int main() {
 				conflux_add_component_smoke(json json [[
 #if !CONFLUX_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_HAS_JSON=1"
+#endif
+#if !CONFLUX_SURFACE_HAS_JSON
+#error "conflux::json package target must publish CONFLUX_SURFACE_HAS_JSON=1"
 #endif
 import conflux.features;
 import conflux.json;
@@ -660,7 +673,11 @@ int main() { return 0; }
 		endif()
     elseif(_component STREQUAL "http")
         if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-            conflux_add_component_smoke(http http [[
+            if(_conflux_package_smoke_linked_apis)
+                conflux_add_component_smoke(http http [[
+#if !CONFLUX_SURFACE_HAS_HTTP_FACADE
+#error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
+#endif
 import conflux.http;
 int main() {
     auto app = conflux::http::app();
@@ -668,15 +685,37 @@ int main() {
     return app.routes().empty() ? 1 : 0;
 }
 ]])
+            else()
+                conflux_add_component_smoke(http http [[
+#if !CONFLUX_SURFACE_HAS_HTTP_FACADE
+#error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
+#endif
+import conflux.http;
+int main() { return 0; }
+]])
+            endif()
         else()
-            conflux_add_component_smoke(http http [[
+            if(_conflux_package_smoke_linked_apis)
+                conflux_add_component_smoke(http http [[
 #include <conflux/http.hpp>
+#if !CONFLUX_SURFACE_HAS_HTTP_FACADE
+#error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
+#endif
 int main() {
     auto app = conflux::http::app();
     app.get("/health", [] { return conflux::http::text("ok"); }).name("health.check");
     return app.routes().empty() ? 1 : 0;
 }
 ]])
+            else()
+                conflux_add_component_smoke(http http [[
+#include <conflux/http.hpp>
+#if !CONFLUX_SURFACE_HAS_HTTP_FACADE
+#error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
+#endif
+int main() { return 0; }
+]])
+            endif()
         endif()
 	elseif(_component STREQUAL "file_io_sync")
 		if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")

@@ -159,6 +159,22 @@ script_repo_root() {
 REPO_ROOT="${SOURCE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || script_repo_root)}"
 cd "$REPO_ROOT"
 
+validate_bench_preset() {
+  python3 "$REPO_ROOT/scripts/cmake-preset-build-dir.py" "$REPO_ROOT" "$1" >/dev/null
+}
+
+if $COMPARE_MODE; then
+  for preset in "${COMPARE_PRESETS[@]}"; do
+    validate_bench_preset "$preset"
+  done
+elif ! $COMPARE_BINS_MODE; then
+  read -r -a _bench_preset_list <<< "$BENCH_PRESETS"
+  for preset in "${_bench_preset_list[@]}"; do
+    validate_bench_preset "$preset"
+  done
+  unset _bench_preset_list
+fi
+
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 safe_run_name="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_.-' '_')"
 BENCH_ARTIFACT_DIR="${BENCH_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/bench-artifacts/${RUN_STAMP}-${safe_run_name}}"
@@ -277,14 +293,13 @@ write_manifest
 # ---------------------------------------------------------------------------
 # Pre-bench cleanup: remove debug trees to free tmpfs RAM before any builds
 # ---------------------------------------------------------------------------
-PROJECT_TMP="/tmp/$(basename "$REPO_ROOT")"
-if [[ -d "$PROJECT_TMP" ]]; then
-  for tree in "$PROJECT_TMP"/debug-*; do
-    [[ -d "$tree" ]] || continue
-    echo "removing debug tree: $tree"
-    rm -rf "$tree"
-  done
-fi
+mapfile -t DEBUG_PRESETS < <(jq -r '.configurePresets[]?.name | select(startswith("debug-"))' CMakePresets.json)
+for preset in "${DEBUG_PRESETS[@]}"; do
+  tree="$(python3 "$REPO_ROOT/scripts/cmake-preset-build-dir.py" "$REPO_ROOT" "$preset")"
+  [[ "$tree" == /tmp/* && -d "$tree" ]] || continue
+  echo "removing debug tree: $tree"
+  rm -rf "$tree"
+done
 
 # ---------------------------------------------------------------------------
 # Bench launcher — wraps with taskset if BENCH_PIN_CPUS is set

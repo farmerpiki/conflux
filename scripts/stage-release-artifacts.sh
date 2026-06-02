@@ -73,7 +73,7 @@ prepare_dir() {
 }
 
 if [[ "$build_dir_set" -eq 0 && "$root" == "$(pwd)" ]]; then
-    build_dir="/tmp/$(basename "$root")/$preset"
+    build_dir="$(python3 "$root/scripts/cmake-preset-build-dir.py" "$root" "$preset")"
 fi
 
 build_dir="$(mkdir -p "$(dirname "$build_dir")" && cd "$(dirname "$build_dir")" && pwd)/$(basename "$build_dir")"

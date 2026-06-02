@@ -183,7 +183,7 @@ benches_for_patch() {
 }
 
 build_dir_for_preset() {
-  printf '/tmp/gcc-16/%s\n' "$1"
+  python3 scripts/cmake-preset-build-dir.py "$repo_root" "$1"
 }
 
 build_targets() {
