@@ -49,6 +49,8 @@ conflux_attach_stdsimd_targets("${_conflux_simd_backend}")
 include(cmake/components/FileTargets.cmake)
 include(cmake/components/TemplateTargets.cmake)
 include(cmake/components/RuntimeTargets.cmake)
+include(cmake/components/DnsTargets.cmake)
+include(cmake/components/DbTargets.cmake)
 
 include(ConfluxComponentValidation)
 
@@ -77,49 +79,6 @@ if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
         PUBLIC  conflux_http_core
         PUBLIC  conflux_json_boundary
     )
-endif()
-
-if(CONFLUX_WANT_DNS)
-conflux_add_module_library(conflux_dns
-    PUBLIC_MODULES
-        ${CONFLUX_SRC_ROOT}/net/dns/dns.cxx
-    PRIVATE_SOURCES
-        ${CONFLUX_SRC_ROOT}/net/dns/dns_impl.cxx
-)
-target_link_libraries(conflux_dns
-    PRIVATE conflux_options
-    PUBLIC  conflux_work
-    PRIVATE conflux_utils
-    PUBLIC  conflux_file_io
-    PUBLIC  conflux_socket_io
-)
-
-endif() # CONFLUX_WANT_DNS
-
-if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
-    add_library(conflux_pg STATIC)
-    target_sources(conflux_pg
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES
-            ${CONFLUX_SRC_ROOT}/db/types.cxx
-            ${CONFLUX_SRC_ROOT}/db/params.cxx
-            ${CONFLUX_SRC_ROOT}/db/result.cxx
-            ${CONFLUX_SRC_ROOT}/db/connection.cxx
-            ${CONFLUX_SRC_ROOT}/db/pool.cxx
-            ${CONFLUX_SRC_ROOT}/db/pg.cxx
-    )
-    target_link_libraries(conflux_pg
-        PRIVATE conflux_options
-        PUBLIC  conflux_work
-        PUBLIC  conflux_uring
-        PUBLIC  conflux_uring_timeout
-        PUBLIC  conflux_file_io_sync
-        PUBLIC  conflux_file_io
-        PUBLIC  PkgConfig::LIBPQ
-    )
-    target_compile_definitions(conflux_pg PUBLIC CONFLUX_HAS_DB=1)
-
 endif()
 
 add_library(conflux_net_config STATIC)
