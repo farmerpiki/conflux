@@ -572,68 +572,13 @@ bool recv_chunked(
 	return std::nullopt;
 }
 
-struct BlockingResponseHeadRead {
-	std::string raw;
-	std::size_t header_end{};
-	client_wire::ParsedResponseHead parsed;
-};
-
-[[nodiscard]] std::expected<BlockingResponseHeadRead, HttpError> receive_blocking_http1_response_head(
-	Connection &conn,
-	int first_byte_timeout_sec,
-	std::size_t max_header_bytes,
-	std::size_t max_body_bytes,
+[[nodiscard]] std::expected<Connection, HttpError> open_blocking_connection(
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	HttpTimeouts const &timeouts,
 	HttpTelemetry &tel) {
-	auto t_ttfb = std::chrono::steady_clock::now();
-	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_timeout_sec, max_header_bytes + 4096);
-	auto raw = std::move(received_head.bytes);
-	auto const header_end = raw.find("\r\n\r\n");
-	if (header_end == std::string::npos) {
-		if (received_head.timed_out) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::timeout,
-					.phase = HttpPhase::first_byte,
-					.message = "timed out waiting for response headers"});
-		}
-		if (raw.size() >= max_header_bytes) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::header_too_large,
-					.message = std::format("response headers exceed {} bytes", max_header_bytes)});
-		}
-		return std::unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
-	}
-	if (header_end > max_header_bytes) {
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::header_too_large,
-				.message = std::format("response headers exceed {} bytes", max_header_bytes)});
-	}
-	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
-	auto const headers_str = std::string_view{raw}.substr(0, header_end);
-	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body_bytes);
-	if (!parsed_head) {
-		return std::unexpected(std::move(parsed_head).error());
-	}
-	return BlockingResponseHeadRead{
-		.raw = std::move(raw),
-		.header_end = header_end,
-		.parsed = std::move(*parsed_head),
-	};
-}
-
-// Core blocking transport — returns ClientResult.
-ClientResult do_blocking_request(
-	conflux::http::ClientRequest const &req,
-	HttpClientOptions const &opts) {
 	auto const &url = req.url();
 	bool const use_tls = (url.scheme == "https");
-	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
-	HttpTelemetry tel{};
-
-	// DNS + connect.
 	int const connect_sec = to_sec(timeouts.connect);
 	ConnectFailure conn_fail{};
 	std::string conn_fail_message{};
@@ -736,7 +681,6 @@ ClientResult do_blocking_request(
 
 		auto t_tls = std::chrono::steady_clock::now();
 		if (!tls_stream->handshake_connect(tls_sec)) {
-			// Capture TLS error details.
 			long const vr = SSL_get_verify_result(tls_stream->native_handle());
 			int const alert = ERR_GET_REASON(ERR_get_error());
 			std::string verify_reason;
@@ -758,9 +702,8 @@ ClientResult do_blocking_request(
 		}
 		tel.tls = std::chrono::steady_clock::now() - t_tls;
 		tel.tls_verified = verify;
-		tel.negotiated_protocol = "https/1.1"; // Phase 2: ALPN negotiation
+		tel.negotiated_protocol = "https/1.1";
 
-		// Capture cipher/version for telemetry.
 		if (auto const *ssl = tls_stream->native_handle(); ssl != nullptr) {
 			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
 				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
@@ -777,7 +720,6 @@ ClientResult do_blocking_request(
 #endif
 	}
 
-	// Helper wrappers.
 	Connection conn;
 	conn.fd = fd;
 #if CONFLUX_HAS_TLS
@@ -785,6 +727,73 @@ ClientResult do_blocking_request(
 	conn.tls_ctx = std::move(tls_ctx);
 	conn.tls_stream = std::move(tls_stream);
 #endif
+	return conn;
+}
+
+struct BlockingResponseHeadRead {
+	std::string raw;
+	std::size_t header_end{};
+	client_wire::ParsedResponseHead parsed;
+};
+
+[[nodiscard]] std::expected<BlockingResponseHeadRead, HttpError> receive_blocking_http1_response_head(
+	Connection &conn,
+	int first_byte_timeout_sec,
+	std::size_t max_header_bytes,
+	std::size_t max_body_bytes,
+	HttpTelemetry &tel) {
+	auto t_ttfb = std::chrono::steady_clock::now();
+	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_timeout_sec, max_header_bytes + 4096);
+	auto raw = std::move(received_head.bytes);
+	auto const header_end = raw.find("\r\n\r\n");
+	if (header_end == std::string::npos) {
+		if (received_head.timed_out) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::timeout,
+					.phase = HttpPhase::first_byte,
+					.message = "timed out waiting for response headers"});
+		}
+		if (raw.size() >= max_header_bytes) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::header_too_large,
+					.message = std::format("response headers exceed {} bytes", max_header_bytes)});
+		}
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+	}
+	if (header_end > max_header_bytes) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::header_too_large,
+				.message = std::format("response headers exceed {} bytes", max_header_bytes)});
+	}
+	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
+	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body_bytes);
+	if (!parsed_head) {
+		return std::unexpected(std::move(parsed_head).error());
+	}
+	return BlockingResponseHeadRead{
+		.raw = std::move(raw),
+		.header_end = header_end,
+		.parsed = std::move(*parsed_head),
+	};
+}
+
+// Core blocking transport — returns ClientResult.
+ClientResult do_blocking_request(
+	conflux::http::ClientRequest const &req,
+	HttpClientOptions const &opts) {
+	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
+	HttpTelemetry tel{};
+
+	auto opened_conn = open_blocking_connection(req, opts, timeouts, tel);
+	if (!opened_conn) {
+		return std::unexpected(std::move(opened_conn).error());
+	}
+	auto conn = std::move(*opened_conn);
 
 	int const write_sec = to_sec(timeouts.write);
 	if (auto write_error = send_blocking_http1_request(conn, req, opts, write_sec, tel)) {
@@ -890,138 +899,14 @@ ClientStreamResult do_blocking_request_streaming(
 	conflux::http::ClientRequest const &req,
 	HttpClientOptions const &opts,
 	ClientBodyChunkSink const &sink) {
-	auto const &url = req.url();
-	bool const use_tls = (url.scheme == "https");
 	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
 	HttpTelemetry tel{};
 
-	int const connect_sec = to_sec(timeouts.connect);
-	ConnectFailure conn_fail{};
-	std::string conn_fail_message{};
-	int conn_fail_errno{0};
-	int const fd = resolve_and_connect(
-		url.host,
-		url.port,
-		connect_sec,
-		timeouts.resolve,
-		tel,
-		conn_fail,
-		conn_fail_message,
-		conn_fail_errno,
-		opts.resolver);
-	if (fd < 0) {
-		bool const is_dns = conn_fail == ConnectFailure::dns;
-		return std::unexpected(
-			HttpError{
-				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
-				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
-				.os_errno = conn_fail_errno,
-				.message = conn_fail_message.empty() ?
-							   std::format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
-							   conn_fail_message});
+	auto opened_conn = open_blocking_connection(req, opts, timeouts, tel);
+	if (!opened_conn) {
+		return std::unexpected(std::move(opened_conn).error());
 	}
-
-#if CONFLUX_HAS_TLS
-	std::optional<conflux::net_tls::TlsContext> tls_ctx;
-	std::optional<conflux::net_tls::TlsStream> tls_stream;
-#endif
-
-	if (use_tls) {
-#if CONFLUX_HAS_TLS
-		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
-		int const tls_sec = to_sec(timeouts.tls);
-		try {
-			tls_ctx.emplace();
-		} catch (conflux::net_tls::TlsError const &e) {
-			::close(fd);
-			return std::unexpected(HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = e.what()});
-		}
-		tls_ctx->set_verify_peer(verify);
-		if (verify) {
-			if (!opts.ca_bundle_path.empty()) {
-				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr)
-					!= 1) {
-					::close(fd);
-					return std::unexpected(
-						HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "TLS CA bundle load failed"});
-				}
-			} else if (!tls_ctx->set_default_verify_paths()) {
-				::close(fd);
-				return std::unexpected(
-					HttpError{
-						.kind = HttpErrorKind::tls,
-						.phase = HttpPhase::tls,
-						.message = "TLS default verify paths load failed"});
-			}
-		}
-		try {
-			tls_stream.emplace(*tls_ctx, fd);
-		} catch (conflux::net_tls::TlsError const &e) {
-			::close(fd);
-			return std::unexpected(HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = e.what()});
-		}
-		if (!tls_stream->set_server_name(sni_sv)) {
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
-		}
-		if (verify && !tls_stream->set_verify_hostname(sni_sv)) {
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = "hostname verification setup failed"});
-		}
-		auto t_tls = std::chrono::steady_clock::now();
-		if (!tls_stream->handshake_connect(tls_sec)) {
-			long const vr = SSL_get_verify_result(tls_stream->native_handle());
-			int const alert = ERR_GET_REASON(ERR_get_error());
-			std::string verify_reason;
-			if (verify && vr != X509_V_OK) {
-				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
-					verify_reason = s;
-				}
-			}
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.tls_alert = alert,
-					.verify_reason = std::move(verify_reason),
-					.message = "TLS handshake failed"});
-		}
-		tel.tls = std::chrono::steady_clock::now() - t_tls;
-		tel.tls_verified = verify;
-		tel.negotiated_protocol = "https/1.1";
-		if (auto const *ssl = tls_stream->native_handle(); ssl != nullptr) {
-			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
-				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
-				tel.tls_version = SSL_CIPHER_get_version(cipher);
-			}
-		}
-#else
-		::close(fd);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::tls,
-				.phase = HttpPhase::tls,
-				.message = "TLS not available (built without TLS)"});
-#endif
-	}
-
-	Connection conn;
-	conn.fd = fd;
-#if CONFLUX_HAS_TLS
-	conn.use_tls = use_tls;
-	conn.tls_ctx = std::move(tls_ctx);
-	conn.tls_stream = std::move(tls_stream);
-#endif
+	auto conn = std::move(*opened_conn);
 
 	int const write_sec = to_sec(timeouts.write);
 	if (auto write_error = send_blocking_http1_request(conn, req, opts, write_sec, tel)) {
@@ -1062,7 +947,8 @@ ClientStreamResult do_blocking_request_streaming(
 	auto t_body = std::chrono::steady_clock::now();
 	if (req.method() != "HEAD") {
 		if (chunked) {
-			if (auto streamed = stream_chunked_body(conn, raw, sink, between_sec, max_body, max_buf, tel.bytes_received);
+			if (auto streamed =
+					stream_chunked_body(conn, raw, sink, between_sec, max_body, max_buf, tel.bytes_received);
 				!streamed) {
 				close_conn(conn);
 				return std::unexpected(std::move(streamed).error());
@@ -1094,7 +980,9 @@ ClientStreamResult do_blocking_request_streaming(
 				if (delivered + take > max_body) {
 					close_conn(conn);
 					return std::unexpected(
-						HttpError{.kind = HttpErrorKind::body_too_large, .message = std::format("body exceeds limit {}", max_body)});
+						HttpError{
+							.kind = HttpErrorKind::body_too_large,
+							.message = std::format("body exceeds limit {}", max_body)});
 				}
 				if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(before, take)); !emitted) {
 					close_conn(conn);
