@@ -257,8 +257,7 @@ struct StaticSelectedSidecar {
 	std::string_view suffix,
 	std::string_view content_encoding) {
 	auto sidecar_rel = rel_path + std::string{suffix};
-	conflux::file_io_sync::UniqueFd sidecar_fd{
-		contained_static_open(root_fd, sidecar_rel.c_str(), O_PATH | O_CLOEXEC)};
+	conflux::file_io_sync::UniqueFd sidecar_fd{contained_static_open(root_fd, sidecar_rel.c_str(), O_PATH | O_CLOEXEC)};
 	if (!sidecar_fd) {
 		return std::nullopt;
 	}
@@ -377,6 +376,39 @@ void add_static_cached_headers(
 	}
 }
 
+void add_static_file_headers(
+	conflux::http::Response &resp,
+	std::string_view etag,
+	std::string_view last_modified,
+	std::string_view content_encoding,
+	std::string_view cache_control) {
+	resp.headers["ETag"] = etag;
+	resp.headers["Last-Modified"] = last_modified;
+	resp.headers["Accept-Ranges"] = "bytes";
+	if (!content_encoding.empty()) {
+		resp.headers["Content-Encoding"] = content_encoding;
+	}
+	if (!cache_control.empty()) {
+		resp.headers["Cache-Control"] = cache_control;
+	}
+}
+
+[[nodiscard]] conflux::http::Response make_static_file_response(
+	int status,
+	std::string_view status_text,
+	std::string_view mime,
+	std::string_view etag,
+	std::string_view last_modified,
+	std::string_view content_encoding,
+	std::string_view cache_control) {
+	auto resp = conflux::http::Response{
+		.status = status,
+		.status_text = std::string{status_text},
+		.content_type = std::string{mime}};
+	add_static_file_headers(resp, etag, last_modified, content_encoding, cache_control);
+	return resp;
+}
+
 [[nodiscard]] conflux::http::Response make_static_cached_response(
 	http_detail::StaticCacheEntry const &entry,
 	std::string_view cache_control) {
@@ -400,6 +432,16 @@ void add_static_cached_headers(
 	add_static_cached_headers(resp, entry, cache_control);
 	resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 	resp.set_text_body(entry.body.substr(range_start, send_sz));
+	return resp;
+}
+
+[[nodiscard]] conflux::http::Response make_static_range_not_satisfiable_response(
+	std::size_t file_size) {
+	auto resp = conflux::http::Response{
+		.status = kHttpRangeNotSatisfiable,
+		.status_text = "Range Not Satisfiable",
+		.content_type = "text/plain; charset=utf-8"};
+	resp.headers["Content-Range"] = static_unsatisfied_content_range(file_size);
 	return resp;
 }
 
@@ -439,7 +481,8 @@ void add_static_cached_headers(
 	struct ::dirent *ent{};
 	std::vector<std::string> names;
 	while ((ent = ::readdir(dir.get())) != nullptr) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay): POSIX exposes d_name as an array field.
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay): POSIX exposes d_name as an
+		// array field.
 		std::string_view const name{ent->d_name};
 		if (name == "." || name == "..") {
 			continue;
@@ -705,8 +748,7 @@ conflux::http::Response handle_static_get(
 
 		std::string content_encoding;
 		if (static_options.precompressed) {
-			if (auto sidecar =
-					select_static_precompressed_sidecar(root_fd, full_path, rel_str, r.accept_encoding)) {
+			if (auto sidecar = select_static_precompressed_sidecar(root_fd, full_path, rel_str, r.accept_encoding)) {
 				full_path = std::move(sidecar->full_path);
 				st = sidecar->stat;
 				content_encoding = sidecar->content_encoding;
@@ -731,26 +773,16 @@ conflux::http::Response handle_static_get(
 
 		auto file_size = static_cast<std::size_t>(st.st_size);
 
-		auto base_response = [&](int status, std::string_view status_text) {
-			conflux::http::Response resp{
-				.status = status,
-				.status_text = std::string{status_text},
-				.content_type = std::string{mime}};
-			resp.headers["ETag"] = etag;
-			resp.headers["Last-Modified"] = last_modified;
-			resp.headers["Accept-Ranges"] = "bytes";
-			if (!content_encoding.empty()) {
-				resp.headers["Content-Encoding"] = content_encoding;
-			}
-			if (!static_options.cache_control.empty()) {
-				resp.headers["Cache-Control"] = static_options.cache_control;
-			}
-			return resp;
-		};
-
 		// HEAD: return headers only (no body, but correct Content-Length).
 		if (r.method == "HEAD") {
-			auto resp = base_response(kHttpOk, "OK");
+			auto resp = make_static_file_response(
+				kHttpOk,
+				"OK",
+				mime,
+				etag,
+				last_modified,
+				content_encoding,
+				static_options.cache_control);
 			resp.head_only = true;
 			resp.content_length_hint = file_size;
 			return resp;
@@ -758,7 +790,14 @@ conflux::http::Response handle_static_get(
 
 		// Zero-size file: skip mmap, return empty body directly.
 		if (file_size == 0) {
-			return base_response(kHttpOk, "OK");
+			return make_static_file_response(
+				kHttpOk,
+				"OK",
+				mime,
+				etag,
+				last_modified,
+				content_encoding,
+				static_options.cache_control);
 		}
 
 		std::size_t range_start = 0;
@@ -767,12 +806,7 @@ conflux::http::Response handle_static_get(
 		if (content_encoding.empty()) {
 			auto const range = parse_static_range_request(r.range, file_size);
 			if (range.unsatisfiable) {
-				auto resp = conflux::http::Response{};
-				resp.status = kHttpRangeNotSatisfiable;
-				resp.status_text = "Range Not Satisfiable";
-				resp.content_type = "text/plain; charset=utf-8";
-				resp.headers["Content-Range"] = static_unsatisfied_content_range(file_size);
-				return resp;
+				return make_static_range_not_satisfiable_response(file_size);
 			}
 			if (range.range_request) {
 				range_start = range.start;
@@ -793,11 +827,11 @@ conflux::http::Response handle_static_get(
 				}
 				return make_static_cached_response(entry, static_options.cache_control);
 			};
-			if (auto cached =
-					static_cache
-						.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
-							return make_cached_response(entry);
-						})) {
+			if (auto cached = static_cache.with_cached(
+					full_path,
+					content_encoding,
+					st,
+					[&](http_detail::StaticCacheEntry const &entry) { return make_cached_response(entry); })) {
 				return std::move(*cached);
 			}
 			conflux::file_io_sync::UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
@@ -849,8 +883,14 @@ conflux::http::Response handle_static_get(
 		// fall back to the synchronous mmap path below.
 		if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr && content_encoding.empty()) {
 			auto dr = std::make_shared<conflux::http::DeferredResponse>();
-			auto base =
-				is_range_request ? base_response(kHttpPartialContent, "Partial Content") : base_response(kHttpOk, "OK");
+			auto base = make_static_file_response(
+				is_range_request ? kHttpPartialContent : kHttpOk,
+				is_range_request ? "Partial Content" : "OK",
+				mime,
+				etag,
+				last_modified,
+				content_encoding,
+				static_options.cache_control);
 			if (is_range_request) {
 				base.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 			}
@@ -880,7 +920,14 @@ conflux::http::Response handle_static_get(
 
 		if (is_range_request) {
 			auto send_sz = range_end - range_start + 1;
-			auto resp = base_response(kHttpPartialContent, "Partial Content");
+			auto resp = make_static_file_response(
+				kHttpPartialContent,
+				"Partial Content",
+				mime,
+				etag,
+				last_modified,
+				content_encoding,
+				static_options.cache_control);
 			resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 			resp.set_mapped_file(
 				std::make_shared<conflux::file_map::MappedBody>(
@@ -888,7 +935,14 @@ conflux::http::Response handle_static_get(
 			return resp;
 		}
 
-		auto resp = base_response(kHttpOk, "OK");
+		auto resp = make_static_file_response(
+			kHttpOk,
+			"OK",
+			mime,
+			etag,
+			last_modified,
+			content_encoding,
+			static_options.cache_control);
 		resp.set_mapped_file(
 			std::make_shared<conflux::file_map::MappedBody>(
 				conflux::file_map::MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
