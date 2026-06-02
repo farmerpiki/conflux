@@ -24,6 +24,28 @@ class Scope {
 	bool cancelled_ = false;
 	root::CancelReason cancel_reason_ = root::CancelReason::requested;
 
+	template<typename Control>
+	void track_control(
+		Control ctrl,
+		std::vector<Control> &ctrls) {
+		root::CancelReason reason = root::CancelReason::requested;
+		{
+			std::unique_lock lock{mu_};
+			if (!cancelled_) {
+#ifdef CONFLUX_WORK_CHECKED_BUILD
+				assert(
+					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
+#endif
+				ctrls.push_back(std::move(ctrl));
+				return;
+			}
+			reason = cancel_reason_;
+			lock.unlock();
+		}
+		auto _ = ctrl.request_cancel(reason);
+	}
+
 public:
 	Scope() noexcept = default;
 	~Scope() = default;
@@ -38,60 +60,15 @@ public:
 	// storing the handle.
 	void track(
 		root::TaskControl ctrl) {
-		root::CancelReason reason = root::CancelReason::requested;
-		{
-			std::unique_lock lock{mu_};
-			if (!cancelled_) {
-#ifdef CONFLUX_WORK_CHECKED_BUILD
-				assert(
-					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
-#endif
-				task_ctrls_.push_back(std::move(ctrl));
-				return;
-			}
-			reason = cancel_reason_;
-			lock.unlock();
-		}
-		auto _ = ctrl.request_cancel(reason);
+		track_control(std::move(ctrl), task_ctrls_);
 	}
 	void track(
 		root::PostedControl ctrl) {
-		root::CancelReason reason = root::CancelReason::requested;
-		{
-			std::unique_lock lock{mu_};
-			if (!cancelled_) {
-#ifdef CONFLUX_WORK_CHECKED_BUILD
-				assert(
-					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
-#endif
-				posted_ctrls_.push_back(std::move(ctrl));
-				return;
-			}
-			reason = cancel_reason_;
-			lock.unlock();
-		}
-		auto _ = ctrl.request_cancel(reason);
+		track_control(std::move(ctrl), posted_ctrls_);
 	}
 	void track(
 		root::OperationControl ctrl) {
-		root::CancelReason reason = root::CancelReason::requested;
-		{
-			std::unique_lock lock{mu_};
-			if (!cancelled_) {
-#ifdef CONFLUX_WORK_CHECKED_BUILD
-				assert(
-					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
-#endif
-				op_ctrls_.push_back(std::move(ctrl));
-				return;
-			}
-			reason = cancel_reason_;
-			lock.unlock();
-		}
-		auto _ = ctrl.request_cancel(reason);
+		track_control(std::move(ctrl), op_ctrls_);
 	}
 	void cancel(
 		root::CancelReason reason) noexcept {
