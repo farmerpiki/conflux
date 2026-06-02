@@ -100,8 +100,10 @@ require_contains cmake/package-smoke/CMakeLists.txt 'include\("\$\{CMAKE_CURRENT
     'the shared import-std CMake experiment gate'
 require_contains cmake/ConfluxOptions.cmake 'CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "\$\{CMAKE_CXX_STDLIB_MODULES_JSON\}"' \
     'reflection/import-std handling for standard-library module sources'
-require_contains cmake/ConfluxOptions.cmake 'PROPERTIES COMPILE_OPTIONS "\$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}"' \
+require_contains cmake/ConfluxImportStdGate.cmake 'PROPERTIES COMPILE_OPTIONS "\$\{_conflux_std_modules_REFLECTION_OPTIONS\}"' \
     'reflection compile options on standard-library module sources'
+require_contains cmake/ConfluxOptions.cmake 'REFLECTION_OPTIONS "\$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}"' \
+    'reflection compile options passed to standard-library module source configuration'
 require_contains cmake/components/JsonTargets.cmake 'target_compile_options\(conflux_json_reflect PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
     'reflection compile options on the JSON reflection target'
 require_contains cmake/components/JsonTargets.cmake 'target_compile_options\(conflux_json_reflect_provider PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \

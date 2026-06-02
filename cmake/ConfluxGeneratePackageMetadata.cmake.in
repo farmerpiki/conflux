@@ -53,11 +53,7 @@ function(_conflux_validate_parallel_lists components targets label)
         foreach(_index RANGE 0 ${_last_index})
             list(GET ${components} ${_index} _component)
             list(GET ${targets} ${_index} _target)
-            if(_component STREQUAL "conflux")
-                set(_expected_target "conflux::conflux")
-            else()
-                set(_expected_target "conflux::${_component}")
-            endif()
+            set(_expected_target "conflux::${_component}")
             if(NOT _target STREQUAL _expected_target)
                 _conflux_fail(
                     "${label} component '${_component}' must pair with target '${_expected_target}', got '${_target}'")
@@ -109,13 +105,8 @@ _conflux_validate_parallel_lists(
 _conflux_validate_component_partitions()
 
 function(_conflux_component_export_file out_var component)
-    if(component STREQUAL "conflux")
-        set(_export_component umbrella)
-    else()
-        set(_export_component "${component}")
-    endif()
     set(${out_var}
-        "${_conflux_package_dir}/confluxTargets-${_export_component}.cmake"
+        "${_conflux_package_dir}/confluxTargets-${component}.cmake"
         PARENT_SCOPE)
 endfunction()
 

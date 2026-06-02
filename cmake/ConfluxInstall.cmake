@@ -107,10 +107,6 @@ endforeach()
 
 if(TARGET conflux AND NOT TARGET conflux::conflux)
     add_library(conflux::conflux ALIAS conflux)
-    list(APPEND CONFLUX_PACKAGE_COMPONENTS conflux)
-    list(APPEND CONFLUX_PACKAGE_TARGETS conflux::conflux)
-    list(APPEND CONFLUX_PACKAGE_ALL_COMPONENTS conflux)
-    list(APPEND CONFLUX_PACKAGE_ALL_TARGETS conflux::conflux)
 endif()
 
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)

@@ -76,6 +76,10 @@ endif()
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
 	set(CMAKE_CXX_MODULE_STD ${CONFLUX_USE_IMPORT_STD})
 	set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+    if(CONFLUX_USE_IMPORT_STD)
+        conflux_configure_std_module_sources(
+            SUPPRESS_CLANG_RESERVED_MODULE_IDENTIFIER_WARNING)
+    endif()
 endif()
 
 set(_conflux_package_smoke_api_surface_check "")
@@ -97,25 +101,20 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE" AND NOT TARGET conflux::he
 endif()
 
 foreach(_component IN LISTS _conflux_find_components)
-    if(_component STREQUAL "conflux")
-        set(_target conflux::conflux)
-    else()
-        set(_target "conflux::${_component}")
-    endif()
-
+    set(_target "conflux::${_component}")
     if(NOT TARGET ${_target})
         message(FATAL_ERROR
             "conflux package smoke expected target '${_target}' for component '${_component}'")
     endif()
 endforeach()
 
-foreach(_component IN LISTS conflux_AVAILABLE_COMPONENTS)
-    if(_component STREQUAL "conflux")
-        set(_target conflux::conflux)
-    else()
-        set(_target "conflux::${_component}")
-    endif()
+if(umbrella IN_LIST _conflux_find_components AND NOT TARGET conflux::conflux)
+    message(FATAL_ERROR
+        "conflux package smoke expected canonical aggregate target 'conflux::conflux' for component 'umbrella'")
+endif()
 
+foreach(_component IN LISTS conflux_AVAILABLE_COMPONENTS)
+    set(_target "conflux::${_component}")
     if(TARGET ${_target} AND NOT _component IN_LIST conflux_VISIBLE_COMPONENTS)
         message(FATAL_ERROR
             "conflux package smoke found unrequested visible target '${_target}'")
@@ -131,11 +130,7 @@ foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS)
         message(FATAL_ERROR
             "conflux package smoke found forbidden visible component '${_component}'")
     endif()
-    if(_component STREQUAL "conflux")
-        set(_target conflux::conflux)
-    else()
-        set(_target "conflux::${_component}")
-    endif()
+    set(_target "conflux::${_component}")
     if(TARGET ${_target})
         message(FATAL_ERROR
             "conflux package smoke found forbidden imported target '${_target}'")
