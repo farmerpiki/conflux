@@ -915,6 +915,10 @@ def check_preset_build_dir_usage_contracts() -> None:
             'cmake-preset-build-dir.py "$PWD" pgo-gen-clang-libcxx': "build CI lane doc must derive Clang PGO test dir from CMake presets",
             'cmake-preset-build-dir.py "$PWD" pgo-gen-gcc16-stdcxx': "build CI lane doc must derive GCC PGO test dir from CMake presets",
         },
+        "docs/performance-hot-path-proposal.md": {
+            'BASE_BUILD_DIR="$(python3 "$BASE_SRC/scripts/cmake-preset-build-dir.py" "$BASE_SRC" "$PRESET")"': "performance hot-path proposal must derive baseline build dir from CMake presets",
+            'CAND_BUILD_DIR="$(python3 "$CAND_SRC/scripts/cmake-preset-build-dir.py" "$CAND_SRC" "$PRESET")"': "performance hot-path proposal must derive candidate build dir from CMake presets",
+        },
     }
     forbidden = {
         "scripts/check-changed-cxx.sh": {
@@ -958,6 +962,10 @@ def check_preset_build_dir_usage_contracts() -> None:
             "ctest --test-dir /tmp/conflux/fuzz-clang-stdcxx": "build CI lane doc must not hardcode fuzz preset build dir",
             "ctest --test-dir /tmp/conflux/pgo-gen-clang-libcxx": "build CI lane doc must not hardcode Clang PGO preset build dir",
             "ctest --test-dir /tmp/conflux/pgo-gen-gcc16-stdcxx": "build CI lane doc must not hardcode GCC PGO preset build dir",
+        },
+        "docs/performance-hot-path-proposal.md": {
+            "/tmp/conflux-base/$PRESET": "performance hot-path proposal must not hardcode baseline preset build dir",
+            "/tmp/conflux-cand/$PRESET": "performance hot-path proposal must not hardcode candidate preset build dir",
         },
     }
     errors: list[str] = []
