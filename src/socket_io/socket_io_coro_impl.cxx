@@ -108,6 +108,7 @@ void submit_cancel_for_ud(
 		complete_cancel_fallback(weak_src, reason);
 	}
 }
+
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState {
@@ -120,6 +121,45 @@ struct TcpStreamState {
 		: ring{r}
 		, handle{std::move(h)} {}
 };
+
+template<class Submit>
+[[nodiscard]] wroot::Task<std::size_t> submit_cancellable_size_io(
+	TcpStreamState &st,
+	std::shared_ptr<void> keeper,
+	char const *error_context,
+	Submit &&submit) {
+	auto task_src = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task = std::move(task_src.first);
+	auto shared_src = std::move(task_src.second);
+	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
+	auto [slot, gen] = st.ring->completions().reserve(
+		[shared_src, cancel_reason, keeper = std::move(keeper), error_context](IoResult r) mutable {
+			try {
+				if (r.res == -ECANCELED) {
+					auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
+					return;
+				}
+				if (r.res < 0) {
+					auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, error_context}));
+					return;
+				}
+				auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+		});
+	std::uint64_t const ud = st.ring->encode(slot, gen);
+	if (!std::invoke(std::forward<Submit>(submit), ud)) {
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
+		return task;
+	}
+	auto ring_ptr = st.ring;
+	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto _ = shared_src->install_cancel_hook(
+		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
+			cancel_reason->store(reason, std::memory_order_release);
+			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
+		});
+	return task;
+}
 // ─── TcpStream ───────────────────────────────────────────────────────────────
 
 [[nodiscard]] TcpStreamState &tcp_state(
@@ -143,38 +183,14 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_1 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = std::move(task_src_1.first);
-	auto shared_src = std::move(task_src_1.second);
-	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
 	OsFd const h = st.handle.get();
-	auto [slot, gen] =
-		st.ring->completions().reserve([shared_src, cancel_reason, keeper = std::move(keeper)](IoResult r) mutable {
-			try {
-				if (r.res == -ECANCELED) {
-					auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
-					return;
-				}
-				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: send"}));
-					return;
-				}
-				auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+	return submit_cancellable_size_io(
+		st,
+		std::move(keeper),
+		"tcp: send",
+		[ring = st.ring, h, data, len](std::uint64_t ud) {
+			return submit_send_borrowed(ring->raw(), h, data, len, ud);
 		});
-	std::uint64_t const ud = st.ring->encode(slot, gen);
-	if (!submit_send_borrowed(st.ring->raw(), h, data, len, ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
-		return task;
-	}
-	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook(
-		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
-		});
-	return task;
 }
 
 [[nodiscard]] bool TcpStream::valid() const noexcept {
@@ -191,37 +207,14 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_2 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = std::move(task_src_2.first);
-	auto shared_src = std::move(task_src_2.second);
-	auto cancel_reason = std::make_shared<std::atomic<wroot::CancelReason>>(wroot::CancelReason::requested);
 	OsFd const h = st.handle.get();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src, cancel_reason](IoResult r) mutable {
-		try {
-			if (r.res == -ECANCELED) {
-				auto _ = shared_src->try_set_cancelled(cancel_reason->load(std::memory_order_acquire));
-				return;
-			}
-			if (r.res < 0) {
-				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: recv"}));
-				return;
-			}
-			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-	});
-	std::uint64_t const ud = st.ring->encode(slot, gen);
-	if (!submit_async_recv_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
-		return task;
-	}
-	auto ring_ptr = st.ring;
-	auto weak_src2 = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook(
-		[ring_ptr, ud, weak_src2 = std::move(weak_src2), cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src2, reason);
+	return submit_cancellable_size_io(
+		st,
+		{},
+		"tcp: recv",
+		[ring = st.ring, h, data = dst.data(), size = dst.size()](std::uint64_t ud) {
+			return submit_async_recv_borrowed(ring->raw(), h, data, size, ud);
 		});
-	return task;
 }
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::read_borrowed(
