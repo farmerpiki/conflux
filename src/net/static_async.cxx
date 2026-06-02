@@ -172,6 +172,76 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
+[[nodiscard]] std::string_view static_mime_type(
+	std::string_view file_param) noexcept {
+	auto const ext_pos = file_param.rfind('.');
+	if (ext_pos == std::string_view::npos) {
+		return "application/octet-stream";
+	}
+	auto const ext = file_param.substr(ext_pos);
+	if (ext == ".html" || ext == ".htm") {
+		return "text/html; charset=utf-8";
+	}
+	if (ext == ".css") {
+		return "text/css; charset=utf-8";
+	}
+	if (ext == ".js" || ext == ".mjs") {
+		return "application/javascript; charset=utf-8";
+	}
+	if (ext == ".json") {
+		return "application/json";
+	}
+	if (ext == ".xml") {
+		return "application/xml";
+	}
+	if (ext == ".txt") {
+		return "text/plain; charset=utf-8";
+	}
+	if (ext == ".svg") {
+		return "image/svg+xml";
+	}
+	if (ext == ".png") {
+		return "image/png";
+	}
+	if (ext == ".jpg" || ext == ".jpeg") {
+		return "image/jpeg";
+	}
+	if (ext == ".gif") {
+		return "image/gif";
+	}
+	if (ext == ".webp") {
+		return "image/webp";
+	}
+	if (ext == ".ico") {
+		return "image/x-icon";
+	}
+	if (ext == ".woff") {
+		return "font/woff";
+	}
+	if (ext == ".woff2") {
+		return "font/woff2";
+	}
+	if (ext == ".ttf") {
+		return "font/ttf";
+	}
+	if (ext == ".otf") {
+		return "font/otf";
+	}
+	if (ext == ".pdf") {
+		return "application/pdf";
+	}
+	if (ext == ".gz") {
+		return "application/gzip";
+	}
+	if (ext == ".zip") {
+		return "application/zip";
+	}
+	if (ext == ".wasm") {
+		return "application/wasm";
+	}
+	return "application/octet-stream";
+}
+
 [[nodiscard]] conflux::http::Response static_forbidden() {
 	return conflux::http::Response::html(
 		"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -558,53 +628,8 @@ conflux::http::Response handle_static_get(
 			}
 		}
 
-		// MIME type from extension (use original file_param, not .gz/.br path).
-		auto ext_pos = file_param.rfind('.');
-		std::string_view mime = "application/octet-stream";
-		if (ext_pos != std::string::npos) {
-			auto ext = std::string_view{file_param}.substr(ext_pos);
-			if (ext == ".html" || ext == ".htm") {
-				mime = "text/html; charset=utf-8";
-			} else if (ext == ".css") {
-				mime = "text/css; charset=utf-8";
-			} else if (ext == ".js" || ext == ".mjs") {
-				mime = "application/javascript; charset=utf-8";
-			} else if (ext == ".json") {
-				mime = "application/json";
-			} else if (ext == ".xml") {
-				mime = "application/xml";
-			} else if (ext == ".txt") {
-				mime = "text/plain; charset=utf-8";
-			} else if (ext == ".svg") {
-				mime = "image/svg+xml";
-			} else if (ext == ".png") {
-				mime = "image/png";
-			} else if (ext == ".jpg" || ext == ".jpeg") {
-				mime = "image/jpeg";
-			} else if (ext == ".gif") {
-				mime = "image/gif";
-			} else if (ext == ".webp") {
-				mime = "image/webp";
-			} else if (ext == ".ico") {
-				mime = "image/x-icon";
-			} else if (ext == ".woff") {
-				mime = "font/woff";
-			} else if (ext == ".woff2") {
-				mime = "font/woff2";
-			} else if (ext == ".ttf") {
-				mime = "font/ttf";
-			} else if (ext == ".otf") {
-				mime = "font/otf";
-			} else if (ext == ".pdf") {
-				mime = "application/pdf";
-			} else if (ext == ".gz") {
-				mime = "application/gzip";
-			} else if (ext == ".zip") {
-				mime = "application/zip";
-			} else if (ext == ".wasm") {
-				mime = "application/wasm";
-			}
-		}
+		// Use original file_param, not a selected .gz/.br sidecar path.
+		auto const mime = static_mime_type(file_param);
 
 		auto file_size = static_cast<std::size_t>(st.st_size);
 
