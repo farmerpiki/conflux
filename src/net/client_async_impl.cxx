@@ -39,6 +39,11 @@ using TP = std::chrono::steady_clock::time_point;
 
 constexpr std::size_t kClientMaxChunkCount = 100000;
 
+[[nodiscard]] std::span<std::uint8_t const> byte_view(
+	std::string_view text) noexcept {
+	return {reinterpret_cast<std::uint8_t const *>(text.data()), text.size()};
+}
+
 #if CONFLUX_HAS_TLS
 [[nodiscard]] std::string tls_error_string() {
 	std::string out;
@@ -261,6 +266,17 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 	throw IoError{ECONNREFUSED, "connect: all endpoints failed"};
 }
 
+template<typename T>
+wroot::Task<void> write_http1_request(
+	T &stream,
+	std::string_view wire,
+	std::string_view body) {
+	co_await stream.write(byte_view(wire));
+	if (!body.empty()) {
+		co_await stream.write(byte_view(body));
+	}
+}
+
 [[nodiscard]] std::vector<client_dns_bridge::Endpoint> resolve_client_endpoints(
 	Url const &url,
 	HttpClientOptions const &opts,
@@ -445,26 +461,12 @@ wroot::Task<ClientResult> do_async_request(
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
 			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			co_await tr.write(
-				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
-			if (!req.body().empty()) {
-				co_await tr.write(
-					std::span<std::uint8_t const>{
-						reinterpret_cast<std::uint8_t const *>(req.body().data()),
-						req.body().size()});
-			}
+			co_await write_http1_request(tr, wire, req.body());
 		} else
 #endif
 		{
 			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			co_await pr.write(
-				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
-			if (!req.body().empty()) {
-				co_await pr.write(
-					std::span<std::uint8_t const>{
-						reinterpret_cast<std::uint8_t const *>(req.body().data()),
-						req.body().size()});
-			}
+			co_await write_http1_request(pr, wire, req.body());
 		}
 	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
 		co_return std::unexpected(
