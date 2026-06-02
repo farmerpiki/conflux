@@ -4,6 +4,8 @@ function(conflux_require_component_flag request_var dependency_var diagnostic)
     endif()
 endfunction()
 
+set(CONFLUX_EFFECTIVE_FILE_IO_SYNC TRUE)
+
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     set(_conflux_json_component_available "${CONFLUX_WANT_JSON}")
 else()
@@ -19,7 +21,7 @@ conflux_require_component_flag(CONFLUX_WANT_TEMPLATES _conflux_json_component_av
     "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_JSON")
 conflux_require_component_flag(CONFLUX_WANT_JSON_FILE _conflux_json_component_available
     "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_JSON")
-conflux_require_component_flag(CONFLUX_WANT_JSON_FILE CONFLUX_WANT_FILE_IO_SYNC
+conflux_require_component_flag(CONFLUX_WANT_JSON_FILE CONFLUX_EFFECTIVE_FILE_IO_SYNC
     "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_FILE_IO_SYNC")
 conflux_require_component_flag(CONFLUX_WANT_TEMPLATES_WATCH CONFLUX_WANT_TEMPLATES
     "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_TEMPLATES")
@@ -118,21 +120,13 @@ elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_TLS_PROVIDER=AUTO/OPENSSL and OpenSSL")
 endif()
 
-# conflux.file_io_sync is syscall-only core infrastructure used by config and
-# secret loading. Keep it available without enabling the broader async file_io
-# stack.
-if(NOT CONFLUX_WANT_FILE_IO_SYNC)
-    set(CONFLUX_WANT_FILE_IO_SYNC TRUE)
-    set(CONFLUX_WANT_FILE_IO_SYNC TRUE CACHE INTERNAL "Resolved conflux component flag" FORCE)
-endif()
-
-conflux_require_component_flag(CONFLUX_WANT_FILE_MAP CONFLUX_WANT_FILE_IO_SYNC
+conflux_require_component_flag(CONFLUX_WANT_FILE_MAP CONFLUX_EFFECTIVE_FILE_IO_SYNC
     "conflux: CONFLUX_BUILD_FILE_MAP requires CONFLUX_BUILD_FILE_IO_SYNC")
-conflux_require_component_flag(CONFLUX_WANT_FILE_IO CONFLUX_WANT_FILE_IO_SYNC
+conflux_require_component_flag(CONFLUX_WANT_FILE_IO CONFLUX_EFFECTIVE_FILE_IO_SYNC
     "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_IO_SYNC")
 conflux_require_component_flag(CONFLUX_WANT_FILE_IO CONFLUX_WANT_FILE_MAP
     "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_MAP")
-conflux_require_component_flag(CONFLUX_WANT_TEMPLATES CONFLUX_WANT_FILE_IO_SYNC
+conflux_require_component_flag(CONFLUX_WANT_TEMPLATES CONFLUX_EFFECTIVE_FILE_IO_SYNC
     "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_FILE_IO_SYNC")
 conflux_require_component_flag(CONFLUX_WANT_PROCESS CONFLUX_WANT_RUNTIME
     "conflux: CONFLUX_BUILD_PROCESS requires CONFLUX_BUILD_RUNTIME")

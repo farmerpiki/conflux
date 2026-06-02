@@ -1,4 +1,4 @@
-if(CONFLUX_WANT_FILE_IO_SYNC)
+if(CONFLUX_EFFECTIVE_FILE_IO_SYNC)
 conflux_add_module_library(conflux_file_io_sync
     PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/file_io/file_io_sync.cxx
 )
@@ -7,7 +7,7 @@ target_link_libraries(conflux_file_io_sync
     PRIVATE conflux_options
     PUBLIC  conflux_types
 )
-endif() # CONFLUX_WANT_FILE_IO_SYNC
+endif() # CONFLUX_EFFECTIVE_FILE_IO_SYNC
 
 if(CONFLUX_WANT_FILE_MAP)
 conflux_add_module_library(conflux_file_map

@@ -424,7 +424,7 @@ function(conflux_define_header_impl_targets)
         endif()
     endif()
 
-    if(CONFLUX_WANT_FILE_IO_SYNC)
+    if(CONFLUX_EFFECTIVE_FILE_IO_SYNC)
         conflux_define_header_impl_component(conflux_header_impl_file_io_sync header_impl_file_io_sync
             "^conflux\.file_io_sync$")
     endif()

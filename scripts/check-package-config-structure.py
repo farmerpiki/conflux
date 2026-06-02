@@ -2304,6 +2304,39 @@ def check_installed_surface_aliases() -> None:
         )
 
 
+def check_file_io_sync_effective_flag_contract() -> None:
+    validation = read("cmake/ConfluxComponentValidation.cmake")
+    file_targets = read("cmake/components/FileTargets.cmake")
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    options = read("cmake/ConfluxOptions.cmake")
+    presets = read("cmake/ConfluxPresets.cmake")
+    errors: list[str] = []
+    check_marker_order(
+        read("CMakeLists.txt"),
+        [
+            "include(cmake/components/JsonTargets.cmake)",
+            "include(ConfluxComponentValidation)",
+            "include(cmake/components/FileTargets.cmake)",
+        ],
+        "component validation must derive effective file_io_sync before file targets",
+    )
+    if "set(CONFLUX_EFFECTIVE_FILE_IO_SYNC TRUE)" not in validation:
+        errors.append("component validation must derive the effective file_io_sync flag")
+    if re.search(r"set\(\s*CONFLUX_WANT_FILE_IO_SYNC\s+TRUE", validation):
+        errors.append("component validation must not mutate the requested file_io_sync flag")
+    if "CONFLUX_WANT_FILE_IO_SYNC  CONFLUX_BUILD_FILE_IO_SYNC" not in presets:
+        errors.append("presets must keep resolving the requested file_io_sync option")
+    for path, text, marker in [
+        ("cmake/components/FileTargets.cmake", file_targets, "if(CONFLUX_EFFECTIVE_FILE_IO_SYNC)"),
+        ("cmake/ConfluxInterfaceMode.cmake", interface_mode, "if(CONFLUX_EFFECTIVE_FILE_IO_SYNC)"),
+        ("cmake/ConfluxOptions.cmake", options, "$<BOOL:${CONFLUX_EFFECTIVE_FILE_IO_SYNC}>"),
+    ]:
+        if marker not in text:
+            errors.append(f"{path} must publish file_io_sync from the effective flag")
+    if errors:
+        fail("\n".join(errors))
+
+
 def check_metrics_status_is_graph_gated() -> None:
     provider = read("cmake/ConfluxProviderResolution.cmake")
     if "if(NOT (CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER))" not in provider:
@@ -2381,6 +2414,7 @@ def main() -> int:
     check_install_tree_ctest_helpers()
     check_package_smoke_policy_cases_use_variables()
     check_duplicate_target_link_libraries()
+    check_file_io_sync_effective_flag_contract()
     check_installed_surface_aliases()
     check_metrics_status_is_graph_gated()
     check_release_artifact_staging_contract()
