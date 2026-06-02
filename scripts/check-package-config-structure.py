@@ -1131,6 +1131,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/CMakeLists.txt",
         "tests/CoreTests.cmake",
         "tests/DbTests.cmake",
+        "tests/DnsSurfaceTests.cmake",
         "tests/E2ETests.cmake",
         "tests/ExternalTests.cmake",
         "tests/HttpCoreTests.cmake",
@@ -1655,6 +1656,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/NetworkSurfaceTests.cmake")': "tests CMake must include the network surface compile-fail fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/DnsSurfaceTests.cmake")': "tests CMake must include the DNS surface compile-fail fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/IoTests.cmake")': "tests CMake must include the io/dns test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/DbTests.cmake")': "tests CMake must include the DB test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/E2ETests.cmake")': "tests CMake must include the e2e test target fragment",
@@ -1748,6 +1750,11 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_net_io_buffer_compile_fail_global_io_buffer": "network surface fragment must keep io buffer compile-fail check",
             "conflux_http2_compile_fail_global_configure_alpn": "network surface fragment must keep HTTP/2 compile-fail check",
             "conflux_http3_compile_fail_global_listener": "network surface fragment must keep HTTP/3 compile-fail check",
+        },
+        "tests/DnsSurfaceTests.cmake": {
+            "conflux_dns_compile_fail_global_address_family": "DNS surface fragment must keep address family compile-fail check",
+            "conflux_dns_compile_fail_global_message": "DNS surface fragment must keep message compile-fail check",
+            "conflux_dns_compile_fail_global_current_resolver_scope": "DNS surface fragment must keep current resolver scope compile-fail check",
         },
         "tests/IoTests.cmake": {
             "add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)": "io test fragment must define CQ overflow tests",
