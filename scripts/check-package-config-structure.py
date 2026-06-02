@@ -1129,6 +1129,7 @@ def check_script_default_benchmark_targets() -> None:
         "CMakeLists.txt",
         "benchmarks/CMakeLists.txt",
         "tests/CMakeLists.txt",
+        "tests/ApiSurfaceCompileFailTests.cmake",
         "tests/ApiSurfaceImportTests.cmake",
         "tests/CoreTests.cmake",
         "tests/DbTests.cmake",
@@ -1661,6 +1662,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/ApiSurfaceCompileFailTests.cmake")': "tests CMake must include the API surface compile-fail fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ApiSurfaceImportTests.cmake")': "tests CMake must include the API surface import smoke fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/MainTests.cmake")': "tests CMake must include the main test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
@@ -1721,6 +1723,17 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_api_surface_core_import_smoke": "API surface import fragment must define core import smoke",
             "conflux_api_surface_${_surface}_import_smoke": "API surface import fragment must define aggregate import smokes",
             "api-surface/import-${_surface}": "API surface import fragment must register aggregate import CTests",
+        },
+        "tests/ApiSurfaceCompileFailTests.cmake": {
+            "conflux_api_surface_curated_compile_fail_workpool": "API surface compile-fail fragment must keep curated surface checks",
+            "conflux_api_surface_extended_compile_fail_iouring": "API surface compile-fail fragment must keep extended surface checks",
+            "conflux_crypto_compile_fail_global_base64_encode": "API surface compile-fail fragment must keep crypto checks",
+            "conflux_utils_compile_fail_global_url_decode": "API surface compile-fail fragment must keep utils checks",
+            "conflux_process_compile_fail_global_spawn": "API surface compile-fail fragment must keep process checks",
+            "conflux_template_compile_fail_global_environment": "API surface compile-fail fragment must keep template checks",
+            "conflux_file_io_compile_fail_global_pipe_pool": "API surface compile-fail fragment must keep file-io checks",
+            "conflux_work_compile_fail_global_work_pool": "API surface compile-fail fragment must keep work checks",
+            "conflux_types_compile_fail_global_io_error": "API surface compile-fail fragment must keep type checks",
         },
         "tests/MainTests.cmake": {
             "add_executable(conflux_tests)": "main test fragment must define the main test target",
