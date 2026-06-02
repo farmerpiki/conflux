@@ -1637,6 +1637,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/IoTests.cmake")': "tests CMake must include the io/dns test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/E2ETests.cmake")': "tests CMake must include the e2e test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")': "tests CMake must include the test discovery registration fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
         },
@@ -1696,6 +1697,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_file_io_tests file_io_test.cxx)": "io test fragment must define file io tests",
             "add_executable(conflux_dns_codec_tests dns_codec_test.cxx)": "io test fragment must define DNS codec tests",
             "add_executable(conflux_socket_task_ring_tests socket_task_ring_test.cxx)": "io test fragment must define socket task ring tests",
+        },
+        "tests/E2ETests.cmake": {
+            "add_executable(conflux_client_cancellation_e2e client_cancellation_e2e.cxx)": "e2e test fragment must define client cancellation tests",
+            "add_executable(conflux_file_io_http_e2e)": "e2e test fragment must define file io HTTP tests",
+            "add_executable(conflux_http_full_drain_contract_e2e)": "e2e test fragment must define full-drain contract tests",
+            "add_executable(conflux_http_overflow_stress_tests)": "e2e test fragment must define overflow stress tests",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
