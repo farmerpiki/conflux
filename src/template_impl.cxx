@@ -11,6 +11,7 @@ namespace conflux::templates {
 
 using conflux::utils::append_json_string_fallback;
 using conflux::utils::eprintln;
+using conflux::utils::trim;
 
 // ---------------------------------------------------------------------------
 // Diagnostics
@@ -234,16 +235,6 @@ TmplValue node_to_tmpl(
 // String utilities
 // ---------------------------------------------------------------------------
 
-std::string trim(
-	std::string_view s) {
-	while (!s.empty() && (std::isspace(static_cast<unsigned char>(s.front())) != 0)) {
-		s.remove_prefix(1);
-	}
-	while (!s.empty() && (std::isspace(static_cast<unsigned char>(s.back())) != 0)) {
-		s.remove_suffix(1);
-	}
-	return std::string(s);
-}
 static std::string str_replace_all(
 	std::string_view src,
 	std::string_view old_s,
@@ -307,14 +298,14 @@ std::vector<std::string> split_args(
 			continue;
 		}
 		if (c == ',' && depth == 0) {
-			args.push_back(trim(current));
+			args.push_back(std::string{trim(current)});
 			current.clear();
 			continue;
 		}
 		current += c;
 	}
 	if (!current.empty()) {
-		args.push_back(trim(current));
+		args.push_back(std::string{trim(current)});
 	}
 	return args;
 }
@@ -440,8 +431,8 @@ static bool split_top_level_for_each(
 	return true;
 }
 static CompiledExprPtr compile_expr_ptr(
-	std::string const &expr) {
-	return std::make_shared<CompiledExpr>(compile_expr(expr));
+	std::string_view expr) {
+	return std::make_shared<CompiledExpr>(compile_expr(std::string{expr}));
 }
 static std::vector<CompiledExprPtr> compile_expr_ptr_list(
 	std::vector<std::string> const &exprs) {
@@ -451,13 +442,13 @@ static std::vector<CompiledExprPtr> compile_expr_ptr_list(
 	return out;
 }
 static std::optional<CompiledLiteral> compile_literal(
-	std::string const &expr) {
+	std::string_view expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
 		return std::nullopt;
 	}
 	if (is_quoted_string(b)) {
-		return CompiledLiteral{.kind = CompiledLiteralKind::string, .string = b.substr(1, b.size() - 2)};
+		return CompiledLiteral{.kind = CompiledLiteralKind::string, .string = std::string{b.substr(1, b.size() - 2)}};
 	}
 	if (b == "true" || b == "True") {
 		return CompiledLiteral{.kind = CompiledLiteralKind::boolean, .boolean = true};
@@ -472,12 +463,12 @@ static std::optional<CompiledLiteral> compile_literal(
 		try {
 			std::size_t parsed = 0;
 			if (b.find('.') != std::string::npos) {
-				auto value = std::stod(b, &parsed);
+				auto value = std::stod(std::string{b}, &parsed);
 				if (parsed == b.size()) {
 					return CompiledLiteral{.kind = CompiledLiteralKind::floating, .floating = value};
 				}
 			} else {
-				auto value = std::stoll(b, &parsed);
+				auto value = std::stoll(std::string{b}, &parsed);
 				if (parsed == b.size()) {
 					return CompiledLiteral{
 						.kind = CompiledLiteralKind::integer,
@@ -489,7 +480,7 @@ static std::optional<CompiledLiteral> compile_literal(
 	return std::nullopt;
 }
 static std::optional<CompiledPathSegment> compile_path_method(
-	std::string const &name,
+	std::string_view name,
 	std::string_view remaining) {
 	if (remaining.empty() || remaining.front() != '(') {
 		return std::nullopt;
@@ -501,19 +492,19 @@ static std::optional<CompiledPathSegment> compile_path_method(
 	auto raw_args = split_args(std::string{remaining.substr(1, close - 1)});
 	return CompiledPathSegment{
 		.kind = CompiledPathSegmentKind::method,
-		.name = name,
+		.name = std::string{name},
 		.args = compile_expr_ptr_list(raw_args),
 	};
 }
 static std::optional<CompiledBaseExpr> compile_path_base(
-	std::string const &expr) {
+	std::string_view expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
 		return std::nullopt;
 	}
 	CompiledBaseExpr out;
 	out.kind = CompiledBaseKind::path;
-	out.source = b;
+	out.source = std::string{b};
 	std::string_view remaining{b};
 	while (!remaining.empty()) {
 		auto bracket = remaining.find('[');
@@ -555,7 +546,7 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 		remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : std::string_view{};
 		bool const is_method_call = !remaining.empty() && remaining.front() == '(';
 		if (!key.empty() && !is_method_call) {
-			out.path.push_back(CompiledPathSegment{.kind = CompiledPathSegmentKind::field, .name = std::move(key)});
+			out.path.push_back(CompiledPathSegment{.kind = CompiledPathSegmentKind::field, .name = std::string{key}});
 		}
 		if (is_method_call) {
 			auto method = compile_path_method(key, remaining);
@@ -577,7 +568,7 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 	return out;
 }
 static std::optional<CompiledBaseExpr> compile_base_expr(
-	std::string const &expr) {
+	std::string_view expr) {
 	auto b = trim(expr);
 	if (b.empty()) {
 		return std::nullopt;
@@ -585,7 +576,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (auto literal = compile_literal(b); literal) {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::literal;
-		out.source = b;
+		out.source = std::string{b};
 		out.literal = std::move(*literal);
 		return out;
 	}
@@ -593,7 +584,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 		auto inner = trim(std::string_view{b}.substr(1, b.size() - 2));
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::array;
-		out.source = b;
+		out.source = std::string{b};
 		if (!inner.empty()) {
 			out.operands = compile_expr_ptr_list(split_args(inner));
 		}
@@ -602,7 +593,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (outer_pair_wraps(b, '(', ')')) {
 		auto inner = trim(std::string_view{b}.substr(1, b.size() - 2));
 		CompiledBaseExpr out;
-		out.source = b;
+		out.source = std::string{b};
 		if (inner.empty()) {
 			out.kind = CompiledBaseKind::tuple;
 			return out;
@@ -621,7 +612,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 		auto inner = trim(std::string_view{b}.substr(1, b.size() - 2));
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::object;
-		out.source = b;
+		out.source = std::string{b};
 		if (!inner.empty()) {
 			auto pairs = split_args(inner);
 			out.object_items.reserve(pairs.size());
@@ -635,7 +626,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 				if (is_quoted_string(key)) {
 					key = key.substr(1, key.size() - 2);
 				}
-				out.object_items.push_back(CompiledObjectItem{std::move(key), compile_expr_ptr(val)});
+				out.object_items.push_back(CompiledObjectItem{std::string{key}, compile_expr_ptr(val)});
 			}
 		}
 		return out;
@@ -643,7 +634,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (auto p = find_top_level_token(b, " or "); p != std::string_view::npos) {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::binary_or;
-		out.source = b;
+		out.source = std::string{b};
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(0, p))));
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(p + 4))));
 		return out;
@@ -651,7 +642,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (auto p = find_top_level_token(b, " and "); p != std::string_view::npos) {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::binary_and;
-		out.source = b;
+		out.source = std::string{b};
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(0, p))));
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(p + 5))));
 		return out;
@@ -659,7 +650,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (b.size() > 4 && b.substr(0, 4) == "not ") {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::unary_not;
-		out.source = b;
+		out.source = std::string{b};
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(4))));
 		return out;
 	}
@@ -676,7 +667,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 		if (auto p = find_top_level_token(b, op); p != std::string_view::npos) {
 			CompiledBaseExpr out;
 			out.kind = CompiledBaseKind::compare;
-			out.source = b;
+			out.source = std::string{b};
 			out.compare_op = code;
 			out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(0, p))));
 			out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(p + op.size()))));
@@ -686,7 +677,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	if (auto p = find_top_level_char(b, '~'); p != std::string_view::npos) {
 		CompiledBaseExpr out;
 		out.kind = CompiledBaseKind::concat;
-		out.source = b;
+		out.source = std::string{b};
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(0, p))));
 		out.operands.push_back(compile_expr_ptr(trim(std::string_view{b}.substr(p + 1))));
 		return out;
@@ -694,7 +685,7 @@ static std::optional<CompiledBaseExpr> compile_base_expr(
 	return compile_path_base(b);
 }
 static std::optional<CompiledMacroCall> compile_macro_call(
-	std::string const &expr) {
+	std::string_view expr) {
 	auto e = trim(expr);
 	auto paren = e.find('(');
 	if (paren == std::string::npos || e.empty() || e.back() != ')') {
@@ -705,7 +696,7 @@ static std::optional<CompiledMacroCall> compile_macro_call(
 		return std::nullopt;
 	}
 	CompiledMacroCall call;
-	call.name = std::move(name);
+	call.name = std::string{name};
 	auto raw_args = split_args(e.substr(paren + 1, e.size() - paren - 2));
 	call.args.reserve(raw_args.size());
 	for (auto &arg: raw_args) {
@@ -714,12 +705,16 @@ static std::optional<CompiledMacroCall> compile_macro_call(
 			++eq;
 		}
 		if (eq > 0 && eq < arg.size() && arg[eq] == '=' && (eq + 1 >= arg.size() || arg[eq + 1] != '=')) {
-			auto expr_part = trim(arg.substr(eq + 1));
+			auto expr_part = trim(std::string_view{arg}.substr(eq + 1));
 			call.args.push_back(
-				CompiledMacroArg{trim(arg.substr(0, eq)), expr_part, compile_expr_ptr(expr_part), true});
+				CompiledMacroArg{
+					std::string{trim(std::string_view{arg}.substr(0, eq))},
+					std::string{expr_part},
+					compile_expr_ptr(expr_part),
+					true});
 		} else {
 			auto expr_part = trim(arg);
-			call.args.push_back(CompiledMacroArg{{}, expr_part, compile_expr_ptr(expr_part), false});
+			call.args.push_back(CompiledMacroArg{{}, std::string{expr_part}, compile_expr_ptr(expr_part), false});
 		}
 	}
 	return call;
@@ -727,13 +722,13 @@ static std::optional<CompiledMacroCall> compile_macro_call(
 CompiledExpr compile_expr(
 	std::string const &expr) {
 	CompiledExpr compiled;
-	compiled.source = trim(expr);
+	compiled.source = std::string{trim(expr)};
 	if (compiled.source.empty()) {
 		return compiled;
 	}
 	std::vector<std::string> pipe_parts;
 	split_top_level_for_each(compiled.source, '|', [&](std::string_view part) {
-		pipe_parts.push_back(trim(part));
+		pipe_parts.push_back(std::string{trim(part)});
 		return true;
 	});
 	compiled.base = pipe_parts.empty() ? std::string{} : std::move(pipe_parts[0]);
@@ -746,7 +741,7 @@ CompiledExpr compile_expr(
 		CompiledFilter compiled_filter;
 		auto paren = filter.find('(');
 		if (paren != std::string::npos) {
-			compiled_filter.name = trim(filter.substr(0, paren));
+			compiled_filter.name = std::string{trim(filter.substr(0, paren))};
 			auto close = filter.rfind(')');
 			if (close != std::string::npos) {
 				compiled_filter.args = split_args(filter.substr(paren + 1, close - paren - 1));
@@ -1121,9 +1116,9 @@ TmplValue Environment::Impl::eval_expr(
 		if (std::isdigit(static_cast<unsigned char>(b[0])) || (b[0] == '-' && b.size() > 1)) {
 			try {
 				if (b.find('.') != std::string::npos) {
-					return TmplValue{std::stod(b)};
+					return TmplValue{std::stod(std::string{b})};
 				}
-				return TmplValue{static_cast<std::int64_t>(std::stoll(b))};
+				return TmplValue{static_cast<std::int64_t>(std::stoll(std::string{b}))};
 			} catch (std::exception const &ex) {
 				eprintln(std::format("template eval_literal: failed to parse number '{}': {}", b, ex.what()));
 			}
@@ -1170,12 +1165,12 @@ TmplValue Environment::Impl::eval_expr(
 			for (auto &p: pairs) {
 				auto colon = p.find(':');
 				if (colon != std::string::npos) {
-					auto key = trim(p.substr(0, colon));
-					auto val = trim(p.substr(colon + 1));
+					auto key = trim(std::string_view{p}.substr(0, colon));
+					auto val = trim(std::string_view{p}.substr(colon + 1));
 					if ((key.front() == '"' && key.back() == '"') || (key.front() == '\'' && key.back() == '\'')) {
 						key = key.substr(1, key.size() - 2);
 					}
-					obj.set(key, eval_expr(val, context));
+					obj.set(std::string{key}, eval_expr(std::string{val}, context));
 				}
 			}
 			return obj;
@@ -1184,27 +1179,27 @@ TmplValue Environment::Impl::eval_expr(
 		{
 			auto const i = find_top_level_token(b, " or ");
 			if (i != std::string_view::npos) {
-				auto left = eval_expr(b.substr(0, i), context);
+				auto left = eval_expr(std::string{b.substr(0, i)}, context);
 				if (is_truthy(left)) {
 					return left;
 				}
-				return eval_expr(b.substr(i + 4), context);
+				return eval_expr(std::string{b.substr(i + 4)}, context);
 			}
 		}
 
 		{
 			auto const i = find_top_level_token(b, " and ");
 			if (i != std::string_view::npos) {
-				auto left = eval_expr(b.substr(0, i), context);
+				auto left = eval_expr(std::string{b.substr(0, i)}, context);
 				if (!is_truthy(left)) {
 					return left;
 				}
-				return eval_expr(b.substr(i + 5), context);
+				return eval_expr(std::string{b.substr(i + 5)}, context);
 			}
 		}
 
 		if (b.size() > 4 && b.substr(0, 4) == "not ") {
-			auto inner_val = eval_expr(b.substr(4), context);
+			auto inner_val = eval_expr(std::string{b.substr(4)}, context);
 			return TmplValue{!is_truthy(inner_val)};
 		}
 
@@ -1221,8 +1216,8 @@ TmplValue Environment::Impl::eval_expr(
 			for (auto &[op, code]: ops) {
 				auto p = find_top_level_token(b, op);
 				if (p != std::string_view::npos) {
-					auto left = eval_expr(b.substr(0, p), context);
-					auto right = eval_expr(b.substr(p + op.size()), context);
+					auto left = eval_expr(std::string{b.substr(0, p)}, context);
+					auto right = eval_expr(std::string{b.substr(p + op.size())}, context);
 					switch (code) {
 					case 0: return TmplValue{left == right};
 					case 1: return TmplValue{left != right};
@@ -1299,8 +1294,8 @@ TmplValue Environment::Impl::eval_expr(
 					continue;
 				}
 				if (depth == 0 && c == '~') {
-					auto left = eval_expr(b.substr(0, i), context);
-					auto right = eval_expr(b.substr(i + 1), context);
+					auto left = eval_expr(std::string{b.substr(0, i)}, context);
+					auto right = eval_expr(std::string{b.substr(i + 1)}, context);
 					return TmplValue{value_to_string(left) + value_to_string(right)};
 				}
 			}
@@ -1315,7 +1310,7 @@ TmplValue Environment::Impl::eval_expr(
 				cur = &owned;
 				use_owned = true;
 			};
-			std::string remaining = b;
+			std::string remaining{b};
 
 			while (!remaining.empty()) {
 				auto bracket = remaining.find('[');
@@ -1329,7 +1324,7 @@ TmplValue Environment::Impl::eval_expr(
 					if (close == std::string::npos) {
 						return {};
 					}
-					auto idx_str = trim(remaining.substr(1, close - 1));
+					auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
 					if (auto colon = idx_str.find(':'); colon != std::string::npos) {
 						if (cur->is_string()) {
 							auto s = std::string(cur->as<std::string_view>());
@@ -1338,7 +1333,7 @@ TmplValue Environment::Impl::eval_expr(
 							std::int64_t start = 0;
 							std::int64_t end = static_cast<std::int64_t>(s.size());
 							if (!start_s.empty()) {
-								auto sv = eval_expr(start_s, context);
+								auto sv = eval_expr(std::string{start_s}, context);
 								if (sv.is_int()) {
 									start = sv.as<std::int64_t>();
 									if (start < 0) {
@@ -1347,7 +1342,7 @@ TmplValue Environment::Impl::eval_expr(
 								}
 							}
 							if (!end_s.empty()) {
-								auto ev = eval_expr(end_s, context);
+								auto ev = eval_expr(std::string{end_s}, context);
 								if (ev.is_int()) {
 									end = ev.as<std::int64_t>();
 									if (end < 0) {
@@ -1370,7 +1365,7 @@ TmplValue Environment::Impl::eval_expr(
 						}
 						continue;
 					}
-					auto idx_val = eval_expr(idx_str, context);
+					auto idx_val = eval_expr(std::string{idx_str}, context);
 					if (cur->is_array() && idx_val.is_int()) {
 						auto idx = idx_val.as<std::int64_t>();
 						auto const &arr = cur->as_array();

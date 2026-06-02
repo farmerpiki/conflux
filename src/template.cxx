@@ -332,7 +332,6 @@ struct TemplateRenderCheckCase {
 
 namespace conflux::templates {
 
-std::string trim(std::string_view sv);
 std::vector<std::string> split_args(std::string_view s);
 CompiledExpr compile_expr(std::string const &expr);
 TmplValue node_to_tmpl(json::NodeRef n);

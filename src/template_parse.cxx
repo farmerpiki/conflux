@@ -9,6 +9,8 @@ import conflux.file_io_sync;
 
 namespace conflux::templates {
 
+using conflux::utils::trim;
+
 static std::vector<CompiledExpr> compile_expr_list(
 	std::vector<std::string> const &exprs) {
 	std::vector<CompiledExpr> out;
@@ -57,7 +59,7 @@ static std::vector<Token> tokenize(
 				tokens.push_back({TokenType::Text, source.substr(next)});
 				break;
 			}
-			tokens.push_back({TokenType::Expr, trim(source.substr(next + 2, end - next - 2))});
+			tokens.push_back({TokenType::Expr, std::string{trim(source.substr(next + 2, end - next - 2))}});
 			pos = end + 2;
 		} else if (next == next_tag) {
 			auto end = source.find("%}", next + 2);
@@ -80,7 +82,7 @@ static std::vector<Token> tokenize(
 					t.pop_back();
 				}
 			}
-			tokens.push_back({TokenType::Tag, trim(content)});
+			tokens.push_back({TokenType::Tag, std::string{trim(content)}});
 			pos = end + 2;
 			if (trim_right) {
 				while (pos < source.size()
@@ -126,7 +128,7 @@ static std::string extract_string_arg(
 		}
 	}
 	auto sp = tag.find(' ');
-	return sp != std::string::npos ? trim(tag.substr(sp + 1)) : "";
+	return sp != std::string::npos ? std::string{trim(tag.substr(sp + 1))} : "";
 }
 // ---------------------------------------------------------------------------
 // Parser
@@ -193,7 +195,7 @@ Template Environment::Impl::parse(
 				nodes.push_back(std::make_shared<Node>(Node{ExtendsNode{tmpl.extends_name}}));
 				state.advance();
 			} else if (starts_with(tag, "block ")) {
-				auto block_name = trim(tag.substr(6));
+				auto block_name = std::string{trim(tag.substr(6))};
 				state.advance();
 				auto body = parse_nodes({"endblock"}, depth + 1);
 				state.advance();
@@ -207,14 +209,14 @@ Template Environment::Impl::parse(
 				if (in_pos == std::string::npos) {
 					throw std::runtime_error{"template parse error: missing 'in' in for tag"};
 				}
-				auto var_part = trim(tag.substr(4, in_pos - 4));
-				auto iter_expr = trim(tag.substr(in_pos + 4));
+				auto var_part = std::string{trim(tag.substr(4, in_pos - 4))};
+				auto iter_expr = std::string{trim(tag.substr(in_pos + 4))};
 				std::vector<std::string> vars;
 				std::string_view vp{var_part};
 				while (!vp.empty()) {
 					auto cp = vp.find(',');
 					auto vtok = (cp == std::string_view::npos) ? vp : vp.substr(0, cp);
-					vars.push_back(trim(std::string{vtok}));
+					vars.push_back(std::string{trim(vtok)});
 					if (cp == std::string_view::npos) {
 						break;
 					}
@@ -232,7 +234,7 @@ Template Environment::Impl::parse(
                 }));
 			} else if (starts_with(tag, "if ")) {
 				IfNode if_node;
-				auto cond = trim(tag.substr(3));
+				auto cond = std::string{trim(tag.substr(3))};
 				state.advance();
 				auto body = parse_nodes({"elif", "else", "endif"}, depth + 1);
 				if_node.branches.push_back({cond, compile_expr(cond), body});
@@ -244,7 +246,7 @@ Template Environment::Impl::parse(
 						break;
 					}
 					if (starts_with(t, "elif ")) {
-						auto c = trim(t.substr(5));
+						auto c = std::string{trim(t.substr(5))};
 						state.advance();
 						auto b = parse_nodes({"elif", "else", "endif"}, depth + 1);
 						if_node.branches.push_back({c, compile_expr(c), b});
@@ -264,8 +266,8 @@ Template Environment::Impl::parse(
 				if (eq == std::string::npos) {
 					throw std::runtime_error{std::format("template parse error: set tag missing '=': {}", tag)};
 				}
-				auto var = trim(tag.substr(4, eq - 4));
-				auto expr = trim(tag.substr(eq + 1));
+				auto var = std::string{trim(tag.substr(4, eq - 4))};
+				auto expr = std::string{trim(tag.substr(eq + 1))};
 				nodes.push_back(
 					std::make_shared<Node>(Node{
 						SetNode{var, expr, compile_expr(expr)}
@@ -281,23 +283,23 @@ Template Environment::Impl::parse(
 				std::vector<std::string> params;
 				std::vector<std::string> defaults;
 				if (paren != std::string::npos) {
-					mname = trim(tag.substr(6, paren - 6));
+					mname = std::string{trim(tag.substr(6, paren - 6))};
 					auto close = tag.find(')', paren);
 					if (close != std::string::npos) {
 						auto raw = split_args(tag.substr(paren + 1, close - paren - 1));
 						for (auto &p: raw) {
 							auto eq = p.find('=');
 							if (eq != std::string::npos) {
-								params.push_back(trim(p.substr(0, eq)));
-								defaults.push_back(trim(p.substr(eq + 1)));
+								params.push_back(std::string{trim(p.substr(0, eq))});
+								defaults.push_back(std::string{trim(p.substr(eq + 1))});
 							} else {
-								params.push_back(trim(p));
+								params.push_back(std::string{trim(p)});
 								defaults.push_back("");
 							}
 						}
 					}
 				} else {
-					mname = trim(tag.substr(6));
+					mname = std::string{trim(tag.substr(6))};
 				}
 				state.advance();
 				auto body = parse_nodes({"endmacro"}, depth + 1);
@@ -307,26 +309,26 @@ Template Environment::Impl::parse(
 						MacroNode{mname, params, defaults, compile_expr_list(defaults), body}
                 }));
 			} else if (starts_with(tag, "from ")) {
-				auto rest = trim(tag.substr(5));
+				auto rest = std::string{trim(tag.substr(5))};
 				std::string file;
 				if (!rest.empty() && (rest.front() == '"' || rest.front() == '\'')) {
 					char const qc = rest.front();
 					auto end = rest.find(qc, 1);
 					if (end != std::string::npos) {
 						file = rest.substr(1, end - 1);
-						rest = trim(rest.substr(end + 1));
+						rest = std::string{trim(rest.substr(end + 1))};
 					}
 				}
 				if (starts_with(rest, "import ")) {
-					rest = trim(rest.substr(7));
+					rest = std::string{trim(rest.substr(7))};
 				}
 				std::string nm, alias;
 				auto as_pos = rest.find(" as ");
 				if (as_pos != std::string::npos) {
-					nm = trim(rest.substr(0, as_pos));
-					alias = trim(rest.substr(as_pos + 4));
+					nm = std::string{trim(rest.substr(0, as_pos))};
+					alias = std::string{trim(rest.substr(as_pos + 4))};
 				} else {
-					nm = trim(rest);
+					nm = std::string{trim(rest)};
 					alias = nm;
 				}
 				nodes.push_back(
