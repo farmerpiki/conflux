@@ -266,17 +266,7 @@ wroot::Task<ClientResult> do_async_request(
 	HttpClientOptions const &opts,
 	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
 	auto const &url = req.url();
-	constexpr HttpTimeouts kDef{};
-	auto const &rt = req.timeouts();
-	auto const &cd = opts.default_timeouts;
-	HttpTimeouts const timeouts{
-		.resolve = rt.resolve != kDef.resolve ? rt.resolve : cd.resolve,
-		.connect = rt.connect != kDef.connect ? rt.connect : cd.connect,
-		.tls = rt.tls != kDef.tls ? rt.tls : cd.tls,
-		.write = rt.write != kDef.write ? rt.write : cd.write,
-		.first_byte = rt.first_byte != kDef.first_byte ? rt.first_byte : cd.first_byte,
-		.between_bytes = rt.between_bytes != kDef.between_bytes ? rt.between_bytes : cd.between_bytes,
-	};
+	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
 	HttpTelemetry tel{};
 	std::vector<client_dns_bridge::Endpoint> endpoints;
 	auto const t0 = std::chrono::steady_clock::now();

@@ -834,6 +834,25 @@ struct HttpTimeouts {
 	std::chrono::milliseconds first_byte{30000};
 	std::chrono::milliseconds between_bytes{30000};
 };
+
+namespace detail {
+
+[[nodiscard]] constexpr HttpTimeouts effective_http_timeouts(
+	HttpTimeouts request,
+	HttpTimeouts defaults) noexcept {
+	constexpr HttpTimeouts built_in{};
+	return HttpTimeouts{
+		.resolve = request.resolve != built_in.resolve ? request.resolve : defaults.resolve,
+		.connect = request.connect != built_in.connect ? request.connect : defaults.connect,
+		.tls = request.tls != built_in.tls ? request.tls : defaults.tls,
+		.write = request.write != built_in.write ? request.write : defaults.write,
+		.first_byte = request.first_byte != built_in.first_byte ? request.first_byte : defaults.first_byte,
+		.between_bytes =
+			request.between_bytes != built_in.between_bytes ? request.between_bytes : defaults.between_bytes,
+	};
+}
+
+} // namespace detail
 // ─── telemetry ───────────────────────────────────────────────────────────────
 
 struct HttpTelemetry {
