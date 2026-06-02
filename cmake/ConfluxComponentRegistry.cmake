@@ -17,18 +17,18 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_template|template|REQUESTABLE|ADVANCED"
     "conflux_file_watch|file_watch|REQUESTABLE|ADVANCED"
     "conflux_template_watch|template_watch|REQUESTABLE|ADVANCED"
-    "conflux_http_parse_helpers|http_parse_helpers|REQUESTABLE|ADVANCED"
+    "conflux_http_parse_helpers|http_parse_helpers|EXPLICIT|ADVANCED"
     "conflux_http_core|http_core|REQUESTABLE|ADVANCED"
     "conflux_http_router|http_router|REQUESTABLE|ADVANCED"
-    "conflux_http_router_dispatch|router_dispatch|REQUESTABLE|ADVANCED"
-    "conflux_http_router_match|router_match|REQUESTABLE|ADVANCED"
-    "conflux_http_router_static|router_static|REQUESTABLE|ADVANCED"
+    "conflux_http_router_dispatch|router_dispatch|EXPLICIT|ADVANCED"
+    "conflux_http_router_match|router_match|EXPLICIT|ADVANCED"
+    "conflux_http_router_static|router_static|EXPLICIT|ADVANCED"
     "conflux_http_static|http_static|REQUESTABLE|ADVANCED"
-    "conflux_http_static_core|http_static_core|REQUESTABLE|ADVANCED"
-    "conflux_http_static_async|http_static_async|REQUESTABLE|ADVANCED"
+    "conflux_http_static_core|http_static_core|EXPLICIT|ADVANCED"
+    "conflux_http_static_async|http_static_async|EXPLICIT|ADVANCED"
     "conflux_http_realtime|http_realtime|REQUESTABLE|ADVANCED"
     "conflux_http_response|http_response|REQUESTABLE|ADVANCED"
-    "conflux_http_server_helpers|http_server_helpers|REQUESTABLE|ADVANCED"
+    "conflux_http_server_helpers|http_server_helpers|EXPLICIT|ADVANCED"
     "conflux_http_server_config|http_server_config|REQUESTABLE|ADVANCED"
     "conflux_http_policy|http_policy|REQUESTABLE|ADVANCED"
     "conflux_http_auth|http_auth|REQUESTABLE|ADVANCED"
@@ -69,6 +69,7 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_cpu_features|_cpu_features|SUPPORT|INTERNAL_SUPPORT")
 
 set(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS)
+set(CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS)
 set(CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS)
 set(CONFLUX_SUPPORT_COMPONENT_DECLARATIONS)
 foreach(_entry IN LISTS CONFLUX_COMPONENT_DECLARATIONS)
@@ -79,6 +80,9 @@ foreach(_entry IN LISTS CONFLUX_COMPONENT_DECLARATIONS)
     list(GET _parts 3 _tier)
     if(_kind STREQUAL "REQUESTABLE")
         list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS
+            "${_target}|${_export_name}")
+    elseif(_kind STREQUAL "EXPLICIT")
+        list(APPEND CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS
             "${_target}|${_export_name}")
     elseif(_kind STREQUAL "EXPERIMENTAL")
         list(APPEND CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS

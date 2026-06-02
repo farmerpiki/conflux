@@ -11,7 +11,7 @@ COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
 COMPONENT_RE = re.compile(
-    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPERIMENTAL|SUPPORT)\|'
+    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPLICIT|EXPERIMENTAL|SUPPORT)\|'
     r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"'
 )
 DOC_COMPONENT_RE = re.compile(
@@ -102,7 +102,9 @@ def documented_support_components() -> set[str]:
 def main() -> int:
     failures: list[str] = []
     cmake_components = public_components()
-    cmake_documented_components = documented_components_for(("REQUESTABLE", "EXPERIMENTAL"))
+    cmake_documented_components = documented_components_for(
+        ("REQUESTABLE", "EXPLICIT", "EXPERIMENTAL")
+    )
     cmake_support_components = support_components()
     doc_components = documented_components()
     doc_rows = documented_public_rows()
