@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.30)
 
 include(cmake/ConfluxImportStdGate.cmake)
-conflux_enable_import_std_experiment(WARN_UNSUPPORTED)
+conflux_pre_project_import_std_requested(_conflux_import_std_requested)
+if(_conflux_import_std_requested)
+    conflux_enable_import_std_experiment(WARN_UNSUPPORTED)
+endif()
+unset(_conflux_import_std_requested)
 
 project(conflux VERSION 0.1.0 LANGUAGES CXX)
 

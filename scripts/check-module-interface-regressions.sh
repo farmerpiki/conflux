@@ -94,6 +94,8 @@ require_contains src/socket_io/socket_io_coro_impl.cxx '^module[[:space:]]+confl
 
 require_contains CMakeLists.txt 'include\(cmake/ConfluxImportStdGate\.cmake\)' \
     'the shared import-std CMake experiment gate'
+require_contains CMakeLists.txt 'conflux_pre_project_import_std_requested\(_conflux_import_std_requested\)' \
+    'the pre-project import-std experiment opt-in must stay conditional'
 require_contains cmake/package-smoke/CMakeLists.txt 'include\("\$\{CMAKE_CURRENT_LIST_DIR\}/\.\./ConfluxImportStdGate\.cmake"\)' \
     'the shared import-std CMake experiment gate'
 require_contains cmake/ConfluxOptions.cmake 'CONFLUX_JSON_REFLECT AND CMAKE_CXX_STDLIB_MODULES_JSON AND EXISTS "\$\{CMAKE_CXX_STDLIB_MODULES_JSON\}"' \
