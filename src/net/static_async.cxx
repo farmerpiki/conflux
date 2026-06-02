@@ -475,6 +475,83 @@ void add_static_file_headers(
 	return resp;
 }
 
+[[nodiscard]] std::optional<conflux::http::Response> try_serve_static_cached_file(
+	conflux::http::StaticOptions const &static_options,
+	http_detail::StaticCacheStore &static_cache,
+	std::string_view full_path,
+	std::string_view content_encoding,
+	struct ::stat const &st,
+	int root_fd,
+	std::string const &rel_str,
+	std::string_view file_param,
+	std::string_view mime,
+	std::string_view etag,
+	std::string_view last_modified,
+	std::size_t range_start,
+	std::size_t range_end,
+	std::size_t file_size,
+	bool is_range_request) {
+	if (!static_options.file_cache.enabled || file_size > static_options.file_cache.small_file_max_bytes) {
+		return std::nullopt;
+	}
+	auto make_cached_response = [&](http_detail::StaticCacheEntry const &entry) {
+		if (is_range_request) {
+			return make_static_cached_range_response(
+				entry,
+				static_options.cache_control,
+				range_start,
+				range_end,
+				file_size);
+		}
+		return make_static_cached_response(entry, static_options.cache_control);
+	};
+	if (auto cached =
+			static_cache.with_cached(full_path, content_encoding, st, [&](http_detail::StaticCacheEntry const &entry) {
+				return make_cached_response(entry);
+			})) {
+		return std::move(*cached);
+	}
+	conflux::file_io_sync::UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
+	if (!fd) {
+		return conflux::http::Response::not_found(file_param);
+	}
+	std::string body(file_size, '\0');
+	std::size_t off = 0;
+	while (off < body.size()) {
+		ssize_t const n = ::read(fd.fd(), body.data() + off, body.size() - off);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return conflux::http::Response::internal_error();
+		}
+		if (n == 0) {
+			break;
+		}
+		off += static_cast<std::size_t>(n);
+	}
+	if (off != body.size()) {
+		body.resize(off);
+	}
+	http_detail::StaticCacheEntry entry{
+		.body = std::move(body),
+		.mime = std::string{mime},
+		.etag = std::string{etag},
+		.last_modified = std::string{last_modified},
+		.content_encoding = std::string{content_encoding},
+		.size = st.st_size,
+		.mtime = st.st_mtime,
+		.dev = st.st_dev,
+		.ino = st.st_ino};
+	auto resp = make_cached_response(entry);
+	static_cache.put(
+		std::string{full_path},
+		std::string{content_encoding},
+		std::move(entry),
+		static_options.file_cache.max_total_bytes);
+	return resp;
+}
+
 [[nodiscard]] conflux::http::Response static_forbidden() {
 	return conflux::http::Response::html(
 		"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -845,64 +922,23 @@ conflux::http::Response handle_static_get(
 			}
 		}
 
-		if (static_options.file_cache.enabled && file_size <= static_options.file_cache.small_file_max_bytes) {
-			auto make_cached_response = [&](http_detail::StaticCacheEntry const &entry) {
-				if (is_range_request) {
-					return make_static_cached_range_response(
-						entry,
-						static_options.cache_control,
-						range_start,
-						range_end,
-						file_size);
-				}
-				return make_static_cached_response(entry, static_options.cache_control);
-			};
-			if (auto cached = static_cache.with_cached(
-					full_path,
-					content_encoding,
-					st,
-					[&](http_detail::StaticCacheEntry const &entry) { return make_cached_response(entry); })) {
-				return std::move(*cached);
-			}
-			conflux::file_io_sync::UniqueFd fd{contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC)};
-			if (!fd) {
-				return conflux::http::Response::not_found(file_param);
-			}
-			std::string body(file_size, '\0');
-			std::size_t off = 0;
-			while (off < body.size()) {
-				ssize_t const n = ::read(fd.fd(), body.data() + off, body.size() - off);
-				if (n < 0) {
-					if (errno == EINTR) {
-						continue;
-					}
-					return conflux::http::Response::internal_error();
-				}
-				if (n == 0) {
-					break;
-				}
-				off += static_cast<std::size_t>(n);
-			}
-			if (off != body.size()) {
-				body.resize(off);
-			}
-			http_detail::StaticCacheEntry entry{
-				.body = std::move(body),
-				.mime = std::string{mime},
-				.etag = etag,
-				.last_modified = last_modified,
-				.content_encoding = content_encoding,
-				.size = st.st_size,
-				.mtime = st.st_mtime,
-				.dev = st.st_dev,
-				.ino = st.st_ino};
-			auto resp = make_cached_response(entry);
-			static_cache.put(
-				std::string{full_path},
-				std::string{content_encoding},
-				std::move(entry),
-				static_options.file_cache.max_total_bytes);
-			return resp;
+		if (auto cached = try_serve_static_cached_file(
+				static_options,
+				static_cache,
+				full_path,
+				content_encoding,
+				st,
+				root_fd,
+				rel_str,
+				file_param,
+				mime,
+				etag,
+				last_modified,
+				range_start,
+				range_end,
+				file_size,
+				is_range_request)) {
+			return std::move(*cached);
 		}
 
 		// Async uring path: when a conflux::file_io::FileReader is installed for this
