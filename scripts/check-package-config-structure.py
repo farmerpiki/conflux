@@ -1084,6 +1084,10 @@ def check_cmake_extraction_contracts() -> None:
             "CONFLUX_HTTP_ROUTER_STACK_REQUESTED": "component validation module must derive HTTP stack request flags",
             "CONFLUX_BUILD_FILE_IO_SYNC": "component validation module must validate file_io_sync requirements",
         },
+        "cmake/ConfluxOptions.cmake": {
+            "MODULE_INTERFACE preview support is limited to the checked": "module-interface configure must fail early on unsupported preview toolchains",
+            "GCC 15, GCC 16, and Clang 21": "module-interface toolchain guard must name the preview evidence lanes",
+        },
         "cmake/ConfluxCompilerWorkarounds.cmake": {
             'set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "-O0")': "template compiler workaround must stay source-file scoped",
             "GCC 15 currently ICEs": "compiler workaround must keep its GCC ICE motivation",

@@ -32,6 +32,26 @@ if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 	message(FATAL_ERROR
 		"CONFLUX_INTERFACE_MODE must be MODULE_INTERFACE or HEADER_INTERFACE; got '${CONFLUX_INTERFACE_MODE}'")
 endif()
+if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    set(_conflux_supported_module_toolchain OFF)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "17")
+        set(_conflux_supported_module_toolchain ON)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "21"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "22")
+        set(_conflux_supported_module_toolchain ON)
+    endif()
+    if(NOT _conflux_supported_module_toolchain)
+        message(FATAL_ERROR
+            "conflux: MODULE_INTERFACE preview support is limited to the checked "
+            "GCC 15, GCC 16, and Clang 21 lanes; got "
+            "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}. "
+            "Use HEADER_INTERFACE for best-effort generated headers, or configure "
+            "one of the checked module presets.")
+    endif()
+endif()
 set(_conflux_api_surface_input "${CONFLUX_API_SURFACE}")
 string(TOLOWER "${CONFLUX_API_SURFACE}" CONFLUX_API_SURFACE)
 if(NOT CONFLUX_API_SURFACE MATCHES "^(curated|extended|complete)$")
