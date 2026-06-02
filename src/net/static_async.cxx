@@ -445,6 +445,36 @@ void add_static_file_headers(
 	return resp;
 }
 
+[[nodiscard]] conflux::http::Response make_static_mapped_response(
+	conflux::file_map::MappedFileLease lease,
+	std::string_view mime,
+	std::string_view etag,
+	std::string_view last_modified,
+	std::string_view content_encoding,
+	std::string_view cache_control,
+	std::size_t range_start,
+	std::size_t range_end,
+	std::size_t file_size,
+	bool is_range_request) {
+	auto const send_off = is_range_request ? range_start : std::size_t{0};
+	auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
+	auto resp = make_static_file_response(
+		is_range_request ? kHttpPartialContent : kHttpOk,
+		is_range_request ? "Partial Content" : "OK",
+		mime,
+		etag,
+		last_modified,
+		content_encoding,
+		cache_control);
+	if (is_range_request) {
+		resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
+	}
+	resp.set_mapped_file(
+		std::make_shared<conflux::file_map::MappedBody>(
+			conflux::file_map::MappedBody{.lease = std::move(lease), .offset = send_off, .size = send_sz}));
+	return resp;
+}
+
 [[nodiscard]] conflux::http::Response static_forbidden() {
 	return conflux::http::Response::html(
 		"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -919,34 +949,30 @@ conflux::http::Response handle_static_get(
 		}
 
 		if (is_range_request) {
-			auto send_sz = range_end - range_start + 1;
-			auto resp = make_static_file_response(
-				kHttpPartialContent,
-				"Partial Content",
+			return make_static_mapped_response(
+				std::move(*lease),
 				mime,
 				etag,
 				last_modified,
 				content_encoding,
-				static_options.cache_control);
-			resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
-			resp.set_mapped_file(
-				std::make_shared<conflux::file_map::MappedBody>(
-					conflux::file_map::MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
-			return resp;
+				static_options.cache_control,
+				range_start,
+				range_end,
+				file_size,
+				true);
 		}
 
-		auto resp = make_static_file_response(
-			kHttpOk,
-			"OK",
+		return make_static_mapped_response(
+			std::move(*lease),
 			mime,
 			etag,
 			last_modified,
 			content_encoding,
-			static_options.cache_control);
-		resp.set_mapped_file(
-			std::make_shared<conflux::file_map::MappedBody>(
-				conflux::file_map::MappedBody{.lease = std::move(*lease), .offset = 0, .size = file_size}));
-		return resp;
+			static_options.cache_control,
+			range_start,
+			range_end,
+			file_size,
+			false);
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
