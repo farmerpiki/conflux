@@ -80,7 +80,15 @@ components, including `work`, `http`, async file/socket I/O, and HTTP
 server/client surfaces, require a real `liburing` package at producer configure
 time and are consumed through the separate runtime smoke lane.
 
-## Public component map
+## First-contact package components
+
+These are the package components intended for normal docs and first-contact
+examples. The full reference tables below also list explicit-only, complete,
+experimental, and low-level escape-hatch components.
+
+Recommended starting components: `json`, `json_file`, `http`, and `umbrella`.
+
+## Public component reference
 
 | Component | CMake target | Primary imports | API surface | Contract docs / examples |
 |---|---|---|---|---|
