@@ -1531,6 +1531,20 @@ void prepare_borrowed_input(
 	set_storage_input_view(storage, input);
 }
 
+template<typename PrepareInput>
+[[nodiscard]] inline std::expected<Document, JsonError> parse_document_storage(
+	std::size_t input_size,
+	std::unique_ptr<DocumentStorage> storage,
+	JsonParseOptions const &opts,
+	PrepareInput &&prepare_input) {
+	if (auto ok = check_input_limits(input_size, opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
+	prepare_input(*storage);
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, std::move(storage), opts);
+}
+
 std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	std::string_view input,
 	JsonParseOptions const &opts) {
@@ -1596,15 +1610,13 @@ void JsonArena::reset() noexcept {
 std::expected<Document, JsonError> parse_copy(
 	std::string_view input,
 	JsonParseOptions const &opts) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
-
-	auto storage = std::make_unique<DocumentStorage>();
-	prepare_copied_input(*storage, input);
-
-	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, std::move(storage), opts);
+	return parse_document_storage(
+		input.size(),
+		std::make_unique<DocumentStorage>(),
+		opts,
+		[input](DocumentStorage &storage) {
+			prepare_copied_input(storage, input);
+		});
 }
 // Move-in owning overload: avoids the input copy. Keep this a concrete
 // std::string rvalue overload so unrelated string-like temporaries continue to
@@ -1612,30 +1624,27 @@ std::expected<Document, JsonError> parse_copy(
 std::expected<Document, JsonError> parse_copy(
 	std::string &&input,
 	JsonParseOptions const &opts) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
-
-	auto storage = std::make_unique<DocumentStorage>();
-	prepare_moved_input(*storage, std::move(input));
-
-	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, std::move(storage), opts);
+	auto const input_size = input.size();
+	return parse_document_storage(
+		input_size,
+		std::make_unique<DocumentStorage>(),
+		opts,
+		[input = std::move(input)](DocumentStorage &storage) mutable {
+			prepare_moved_input(storage, std::move(input));
+		});
 }
 // Borrow-only overload: caller guarantees the bytes outlive the Document.
 // Rvalue overload is deleted to prevent obvious lifetime mistakes.
 std::expected<Document, JsonError> parse_borrowed(
 	std::string_view input,
 	JsonParseOptions const &opts) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
-
-	auto storage = std::make_unique<DocumentStorage>();
-	prepare_borrowed_input(*storage, input);
-
-	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, std::move(storage), opts);
+	return parse_document_storage(
+		input.size(),
+		std::make_unique<DocumentStorage>(),
+		opts,
+		[input](DocumentStorage &storage) {
+			prepare_borrowed_input(storage, input);
+		});
 }
 std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,
@@ -1661,25 +1670,25 @@ std::expected<Document, JsonError> parse_copy(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
-	auto storage = std::make_unique<DocumentStorage>(resource);
-	prepare_copied_input(*storage, input);
-	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, std::move(storage), opts);
+	return parse_document_storage(
+		input.size(),
+		std::make_unique<DocumentStorage>(resource),
+		opts,
+		[input](DocumentStorage &storage) {
+			prepare_copied_input(storage, input);
+		});
 }
 std::expected<Document, JsonError> parse_borrowed(
 	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
-	if (auto ok = check_input_limits(input.size(), opts); !ok) {
-		return std::unexpected(std::move(ok).error());
-	}
-	auto storage = std::make_unique<DocumentStorage>(resource);
-	prepare_borrowed_input(*storage, input);
-	auto &storage_ref = *storage;
-	return parse_with_storage(storage_ref, std::move(storage), opts);
+	return parse_document_storage(
+		input.size(),
+		std::make_unique<DocumentStorage>(resource),
+		opts,
+		[input](DocumentStorage &storage) {
+			prepare_borrowed_input(storage, input);
+		});
 }
 std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,
