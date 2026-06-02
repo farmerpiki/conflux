@@ -283,6 +283,83 @@ namespace {
 
 constexpr int kExecFailed = 127;
 
+[[noreturn]] void child_exit_with_errno(
+	int exec_err_fd,
+	int err) noexcept {
+	[[maybe_unused]] auto wr = ::write(exec_err_fd, reinterpret_cast<char const *>(&err), sizeof(int));
+	::_exit(kExecFailed);
+}
+
+void apply_child_fd_map(
+	std::vector<std::pair<int, int>> const &fd_map,
+	int dup3_flags,
+	int exec_err_fd) noexcept {
+	for (auto const &[src, dst]: fd_map) {
+		if (src == dst) {
+			if (::fcntl(dst, F_SETFD, (dup3_flags & O_CLOEXEC) != 0 ? FD_CLOEXEC : 0) < 0) {
+				child_exit_with_errno(exec_err_fd, errno);
+			}
+			continue;
+		}
+		if (::dup3(src, dst, dup3_flags) < 0) {
+			child_exit_with_errno(exec_err_fd, errno);
+		}
+	}
+}
+
+void close_parent_stdio_fds(
+	int parent_in,
+	int parent_out,
+	int parent_err) noexcept {
+	if (parent_in >= 0) {
+		::close(parent_in);
+	}
+	if (parent_out >= 0) {
+		::close(parent_out);
+	}
+	if (parent_err >= 0) {
+		::close(parent_err);
+	}
+}
+
+std::expected<Process, std::error_code> finish_parent_spawn(
+	pid_t pid,
+	PipeFds &in_pipe,
+	PipeFds &out_pipe,
+	PipeFds &err_pipe,
+	PipeFds &exec_err_pipe,
+	int parent_in,
+	int parent_out,
+	int parent_err) {
+	if (in_pipe[0] >= 0) {
+		::close(in_pipe[0]);
+	}
+	if (out_pipe[1] >= 0) {
+		::close(out_pipe[1]);
+	}
+	if (err_pipe[1] >= 0) {
+		::close(err_pipe[1]);
+	}
+	::close(exec_err_pipe[1]);
+
+	int child_errno = 0;
+	ssize_t n = 0;
+	do {
+		n = ::read(exec_err_pipe[0], reinterpret_cast<char *>(&child_errno), sizeof(int));
+	} while (n < 0 && errno == EINTR);
+	::close(exec_err_pipe[0]);
+
+	if (n == static_cast<ssize_t>(sizeof(int))) {
+		::waitpid(pid, nullptr, 0);
+		close_parent_stdio_fds(parent_in, parent_out, parent_err);
+		return std::unexpected{
+			std::error_code{child_errno, std::system_category()}
+        };
+	}
+
+	return Process{pid, parent_in, parent_out, parent_err};
+}
+
 } // namespace
 // ---------------------------------------------------------------------------
 // spawn_clone — core implementation
@@ -377,9 +454,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 		// Working directory.
 		if (!opts.working_dir.empty()) {
 			if (::chdir(opts.working_dir.c_str()) < 0) {
-				int err = errno;
-				[[maybe_unused]] auto wr = ::write(exec_err_pipe[1], reinterpret_cast<char const *>(&err), sizeof(int));
-				::_exit(kExecFailed);
+				child_exit_with_errno(exec_err_pipe[1], errno);
 			}
 		}
 
@@ -388,28 +463,11 @@ export std::expected<Process, std::error_code> spawn_clone(
 		if (!child_setup_fd(child_in, STDIN_FILENO, opts.dup3_flags)
 			|| !child_setup_fd(child_out, STDOUT_FILENO, opts.dup3_flags)
 			|| !child_setup_fd(child_err, STDERR_FILENO, opts.dup3_flags)) {
-			int err = errno;
-			[[maybe_unused]] auto wr = ::write(exec_err_pipe[1], reinterpret_cast<char const *>(&err), sizeof(int));
-			::_exit(kExecFailed);
+			child_exit_with_errno(exec_err_pipe[1], errno);
 		}
 
 		// fd_map: explicit fd mappings.
-		for (auto const &[src, dst]: opts.fd_map) {
-			if (src == dst) {
-				if (::fcntl(dst, F_SETFD, (opts.dup3_flags & O_CLOEXEC) != 0 ? FD_CLOEXEC : 0) < 0) {
-					int err = errno;
-					[[maybe_unused]] auto wr =
-						::write(exec_err_pipe[1], reinterpret_cast<char const *>(&err), sizeof(int));
-					::_exit(kExecFailed);
-				}
-				continue;
-			}
-			if (::dup3(src, dst, opts.dup3_flags) < 0) {
-				int err = errno;
-				[[maybe_unused]] auto wr = ::write(exec_err_pipe[1], reinterpret_cast<char const *>(&err), sizeof(int));
-				::_exit(kExecFailed);
-			}
-		}
+		apply_child_fd_map(opts.fd_map, opts.dup3_flags, exec_err_pipe[1]);
 
 		// Close all inherited fds >= 3, preserving exec_err_pipe[1] so exec failure can be reported.
 		// exec_err_pipe[1] has O_CLOEXEC — it is closed automatically on successful exec.
@@ -432,51 +490,11 @@ export std::expected<Process, std::error_code> spawn_clone(
 		::execvpe(exe.c_str(), argv_ptrs.data(), envp_ptrs.data());
 
 		// exec failed — report errno.
-		int err = errno;
-		[[maybe_unused]] auto wr = ::write(exec_err_pipe[1], reinterpret_cast<char const *>(&err), sizeof(int));
-		::_exit(kExecFailed);
+		child_exit_with_errno(exec_err_pipe[1], errno);
 	}
 
 	// ---- PARENT ----
-
-	// Close child-side pipe ends.
-	if (in_pipe[0] >= 0) {
-		::close(in_pipe[0]);
-	}
-	if (out_pipe[1] >= 0) {
-		::close(out_pipe[1]);
-	}
-	if (err_pipe[1] >= 0) {
-		::close(err_pipe[1]);
-	}
-	::close(exec_err_pipe[1]);
-
-	// Check if exec succeeded.
-	int child_errno = 0;
-	ssize_t n = 0;
-	do {
-		n = ::read(exec_err_pipe[0], reinterpret_cast<char *>(&child_errno), sizeof(int));
-	} while (n < 0 && errno == EINTR);
-	::close(exec_err_pipe[0]);
-
-	if (n == static_cast<ssize_t>(sizeof(int))) {
-		// exec failed — reap the child and return the error.
-		::waitpid(pid, nullptr, 0);
-		if (parent_in >= 0) {
-			::close(parent_in);
-		}
-		if (parent_out >= 0) {
-			::close(parent_out);
-		}
-		if (parent_err >= 0) {
-			::close(parent_err);
-		}
-		return std::unexpected{
-			std::error_code{child_errno, std::system_category()}
-        };
-	}
-
-	return Process{pid, parent_in, parent_out, parent_err};
+	return finish_parent_spawn(pid, in_pipe, out_pipe, err_pipe, exec_err_pipe, parent_in, parent_out, parent_err);
 }
 // ---------------------------------------------------------------------------
 // spawn — convenience wrapper with default clone flags
