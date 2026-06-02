@@ -43,6 +43,10 @@ def shell_semicolon_flag_value(text: str, flag: str) -> set[str]:
     return {item for item in match.group(1).split(";") if item}
 
 
+def shell_pkg_config_exists_probes(text: str) -> set[str]:
+    return set(re.findall(r"pkg-config\s+--exists\s+([A-Za-z0-9_.+-]+)", text))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1352,12 +1356,7 @@ def check_package_smoke_wrapper_contracts() -> None:
             "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
         },
-        "scripts/check-package-smoke-runtime.sh": {
-            "pkg-config --exists liburing": "runtime package smoke must gate on real liburing",
-        },
         "scripts/check-package-smoke-db.sh": {
-            "pkg-config --exists libpq": "DB package smoke must gate on libpq",
-            "pkg-config --exists liburing": "DB package smoke must gate on real liburing",
             "--enable-db-smoke": "DB package smoke must enable DB component checks",
         },
     }
@@ -1374,6 +1373,17 @@ def check_package_smoke_wrapper_contracts() -> None:
             errors.append(
                 f"liburing-free package smoke must explicitly forbid {token}",
             )
+    runtime_pkg_config_probes = shell_pkg_config_exists_probes(
+        read("scripts/check-package-smoke-runtime.sh"),
+    )
+    if "liburing" not in runtime_pkg_config_probes:
+        errors.append("runtime package smoke must gate on real liburing")
+    db_pkg_config_probes = shell_pkg_config_exists_probes(
+        read("scripts/check-package-smoke-db.sh"),
+    )
+    for package in ["libpq", "liburing"]:
+        if package not in db_pkg_config_probes:
+            errors.append(f"DB package smoke must gate on {package}")
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
     core_forbidden = shell_semicolon_flag_value(core_isolated, "--forbid-components")
     expected_core_forbidden = {
