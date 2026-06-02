@@ -23,7 +23,7 @@ endif()
 
 if(CONFLUX_HAS_TLS STREQUAL "true"
         AND (CONFLUX_HTTP_ROUTER_STACK_REQUESTED OR CONFLUX_HTTP_CLIENT_STACK_REQUESTED
-             OR CONFLUX_WANT_SMTP))
+             OR CONFLUX_EFFECTIVE_SMTP))
 add_library(conflux_net_tls STATIC)
 target_sources(conflux_net_tls
     PUBLIC FILE_SET CXX_MODULES
@@ -109,7 +109,7 @@ else()
 endif()
 endif() # CONFLUX_HTTP_CLIENT_STACK_REQUESTED
 
-if(CONFLUX_WANT_SMTP OR (CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_TLS STREQUAL "true"))
+if(CONFLUX_EFFECTIVE_SMTP OR (CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_TLS STREQUAL "true"))
 add_library(conflux_net_smtp STATIC)
 target_sources(conflux_net_smtp
     PUBLIC FILE_SET CXX_MODULES
@@ -125,4 +125,4 @@ target_link_libraries(conflux_net_smtp
     PUBLIC  conflux_work
     PUBLIC  conflux_net_tls
 )
-endif() # CONFLUX_WANT_SMTP || TLS HTTP server
+endif() # CONFLUX_EFFECTIVE_SMTP || TLS HTTP server

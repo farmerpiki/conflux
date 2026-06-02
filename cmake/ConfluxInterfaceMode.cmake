@@ -521,7 +521,7 @@ function(conflux_define_header_impl_targets)
             conflux_link_header_impl_db_deps(conflux_header_impl_pg)
         endif()
     endif()
-    if(CONFLUX_WANT_SMTP)
+    if(CONFLUX_EFFECTIVE_SMTP)
         conflux_define_header_impl_component(conflux_header_impl_smtp header_impl_smtp
             "^conflux\.net\.smtp($|[.:])")
         if(TARGET conflux_header_impl_smtp)

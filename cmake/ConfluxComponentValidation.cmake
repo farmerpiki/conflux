@@ -5,6 +5,7 @@ function(conflux_require_component_flag request_var dependency_var diagnostic)
 endfunction()
 
 set(CONFLUX_EFFECTIVE_FILE_IO_SYNC TRUE)
+set(CONFLUX_EFFECTIVE_SMTP "${CONFLUX_WANT_SMTP}")
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
     set(_conflux_json_component_available "${CONFLUX_WANT_JSON}")
@@ -98,27 +99,25 @@ conflux_require_component_flag(CONFLUX_HTTP_CLIENT_STACK_REQUESTED CONFLUX_WANT_
     "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_SOCKET_IO")
 conflux_require_component_flag(CONFLUX_HTTP_CLIENT_STACK_REQUESTED CONFLUX_WANT_DNS
     "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_DNS")
-if(CONFLUX_HAS_TLS STREQUAL "true" AND (CONFLUX_HTTP_CLIENT_STACK_REQUESTED OR CONFLUX_WANT_SMTP)
-        AND NOT CONFLUX_WANT_FILE_IO)
-    message(FATAL_ERROR "conflux: TLS HTTP client/proxy/SMTP components require CONFLUX_BUILD_FILE_IO")
-endif()
-conflux_require_component_flag(CONFLUX_WANT_SMTP CONFLUX_WANT_RUNTIME
-    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_RUNTIME")
-conflux_require_component_flag(CONFLUX_WANT_SMTP CONFLUX_WANT_DNS
-    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_DNS")
-conflux_require_component_flag(CONFLUX_WANT_SMTP CONFLUX_WANT_CRYPTO
-    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_CRYPTO")
-conflux_require_component_flag(CONFLUX_WANT_SMTP CONFLUX_WANT_SOCKET_IO
-    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_SOCKET_IO")
 if(CONFLUX_WANT_SMTP
         AND CONFLUX_HAS_TLS STREQUAL "false"
         AND CONFLUX_BUILD_SMTP STREQUAL "AUTO")
-    set(CONFLUX_WANT_SMTP FALSE)
-    set(CONFLUX_WANT_SMTP FALSE CACHE INTERNAL "Resolved conflux component flag" FORCE)
-    message(STATUS "conflux: SMTP disabled (TLS unavailable)")
+    set(CONFLUX_EFFECTIVE_SMTP FALSE)
 elseif(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_TLS_PROVIDER=AUTO/OPENSSL and OpenSSL")
 endif()
+if(CONFLUX_HAS_TLS STREQUAL "true" AND (CONFLUX_HTTP_CLIENT_STACK_REQUESTED OR CONFLUX_EFFECTIVE_SMTP)
+        AND NOT CONFLUX_WANT_FILE_IO)
+    message(FATAL_ERROR "conflux: TLS HTTP client/proxy/SMTP components require CONFLUX_BUILD_FILE_IO")
+endif()
+conflux_require_component_flag(CONFLUX_EFFECTIVE_SMTP CONFLUX_WANT_RUNTIME
+    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_RUNTIME")
+conflux_require_component_flag(CONFLUX_EFFECTIVE_SMTP CONFLUX_WANT_DNS
+    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_DNS")
+conflux_require_component_flag(CONFLUX_EFFECTIVE_SMTP CONFLUX_WANT_CRYPTO
+    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_CRYPTO")
+conflux_require_component_flag(CONFLUX_EFFECTIVE_SMTP CONFLUX_WANT_SOCKET_IO
+    "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_SOCKET_IO")
 
 conflux_require_component_flag(CONFLUX_WANT_FILE_MAP CONFLUX_EFFECTIVE_FILE_IO_SYNC
     "conflux: CONFLUX_BUILD_FILE_MAP requires CONFLUX_BUILD_FILE_IO_SYNC")

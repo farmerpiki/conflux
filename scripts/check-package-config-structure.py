@@ -2337,6 +2337,34 @@ def check_file_io_sync_effective_flag_contract() -> None:
         fail("\n".join(errors))
 
 
+def check_smtp_effective_flag_contract() -> None:
+    validation = read("cmake/ConfluxComponentValidation.cmake")
+    network = read("cmake/components/NetworkTargets.cmake")
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    options = read("cmake/ConfluxOptions.cmake")
+    external_tests = read("tests/ExternalTests.cmake")
+    discovery = read("tests/TestDiscovery.cmake")
+    presets = read("cmake/ConfluxPresets.cmake")
+    errors: list[str] = []
+    if 'set(CONFLUX_EFFECTIVE_SMTP "${CONFLUX_WANT_SMTP}")' not in validation:
+        errors.append("component validation must derive the effective SMTP flag")
+    if re.search(r"set\(\s*CONFLUX_WANT_SMTP\s+FALSE", validation):
+        errors.append("component validation must not mutate the requested SMTP flag")
+    if "CONFLUX_WANT_SMTP          CONFLUX_BUILD_SMTP" not in presets:
+        errors.append("presets must keep resolving the requested SMTP option")
+    for path, text, marker in [
+        ("cmake/components/NetworkTargets.cmake", network, "CONFLUX_EFFECTIVE_SMTP"),
+        ("cmake/ConfluxInterfaceMode.cmake", interface_mode, "if(CONFLUX_EFFECTIVE_SMTP)"),
+        ("cmake/ConfluxOptions.cmake", options, "$<BOOL:${CONFLUX_EFFECTIVE_SMTP}>"),
+        ("tests/ExternalTests.cmake", external_tests, "if(CONFLUX_EFFECTIVE_SMTP)"),
+        ("tests/TestDiscovery.cmake", discovery, "if(CONFLUX_EFFECTIVE_SMTP)"),
+    ]:
+        if marker not in text:
+            errors.append(f"{path} must publish SMTP from the effective flag")
+    if errors:
+        fail("\n".join(errors))
+
+
 def check_metrics_status_is_graph_gated() -> None:
     provider = read("cmake/ConfluxProviderResolution.cmake")
     if "if(NOT (CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER))" not in provider:
@@ -2415,6 +2443,7 @@ def main() -> int:
     check_package_smoke_policy_cases_use_variables()
     check_duplicate_target_link_libraries()
     check_file_io_sync_effective_flag_contract()
+    check_smtp_effective_flag_contract()
     check_installed_surface_aliases()
     check_metrics_status_is_graph_gated()
     check_release_artifact_staging_contract()

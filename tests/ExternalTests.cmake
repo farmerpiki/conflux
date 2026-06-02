@@ -13,9 +13,11 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
             Catch2::Catch2WithMain
     )
 
-    add_executable(conflux_smtp_tests smtp_test.cxx)
-    target_link_libraries(conflux_smtp_tests
-        PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+    if(CONFLUX_EFFECTIVE_SMTP)
+        add_executable(conflux_smtp_tests smtp_test.cxx)
+        target_link_libraries(conflux_smtp_tests
+            PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+    endif()
 
     if(CONFLUX_BUILD_LIBCURL_EXTERNAL_TESTS AND CURL_FOUND)
         add_executable(conflux_libcurl_external)

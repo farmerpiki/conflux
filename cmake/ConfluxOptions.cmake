@@ -136,7 +136,7 @@ function(conflux_apply_api_surface_definitions target scope)
     conflux_set_api_surface_presence(templates_watch "$<TARGET_EXISTS:conflux_template_watch>" "$<BOOL:${CONFLUX_WANT_TEMPLATES_WATCH}>")
     conflux_set_api_surface_presence(process "$<TARGET_EXISTS:conflux_process>" "$<BOOL:${CONFLUX_WANT_PROCESS}>")
     conflux_set_api_surface_presence(db "$<TARGET_EXISTS:conflux_pg>" "$<BOOL:${CONFLUX_HAS_DB}>")
-    conflux_set_api_surface_presence(smtp "$<TARGET_EXISTS:conflux_net_smtp>" "$<BOOL:${CONFLUX_WANT_SMTP}>")
+    conflux_set_api_surface_presence(smtp "$<TARGET_EXISTS:conflux_net_smtp>" "$<BOOL:${CONFLUX_EFFECTIVE_SMTP}>")
 
     target_compile_definitions(${target} ${scope}
         CONFLUX_API_SURFACE_LEVEL=${CONFLUX_API_SURFACE_LEVEL_VALUE}
