@@ -1851,7 +1851,13 @@ def check_duplicate_target_link_libraries() -> None:
 def check_installed_surface_aliases() -> None:
     options = read("cmake/ConfluxOptions.cmake")
     config = read("cmake/conflux-config.cmake.in")
-    build_macros = set(re.findall(r"CONFLUX_SURFACE_HAS_([A-Z0-9_]+)=", options))
+    if "_conflux_surface_has_" in options:
+        fail("build-tree surface macros must derive directly from conflux_set_api_surface_presence")
+    build_macros = {
+        suffix.upper()
+        for suffix in re.findall(r"conflux_set_api_surface_presence\(([a-z0-9_]+)", options)
+    }
+    build_macros.add("FEATURES")
     installed_aliases = set(
         re.findall(r"_conflux_installed_surface_definitions ([A-Z0-9_]+) 1", config),
     )
