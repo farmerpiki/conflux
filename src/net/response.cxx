@@ -32,6 +32,18 @@ namespace conflux::http {
 	return out;
 }
 
+[[nodiscard]] std::string response_html_error_body(
+	int status,
+	std::string_view status_text,
+	std::string_view detail = {}) {
+	auto body = std::format("<html><body><h1>{} {}</h1>", status, status_text);
+	if (!detail.empty()) {
+		body += std::format("<p>{}</p>", response_html_escape(detail));
+	}
+	body += "</body></html>";
+	return body;
+}
+
 } // namespace conflux::http
 
 export namespace conflux::http {
@@ -528,34 +540,15 @@ struct Response {
 	}
 	[[nodiscard]] static Response not_found(
 		std::string_view path) {
-		Response r;
-		r.status = kHttpNotFound;
-		r.status_text = "Not Found";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body(
-			std::format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
-		return r;
+		return html(response_html_error_body(kHttpNotFound, "Not Found", path), kHttpNotFound);
 	}
 	[[nodiscard]] static Response bad_request(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ? std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
-									 std::format(
-										 "<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>",
-										 response_html_escape(detail));
-		Response r;
-		r.status = kHttpBadRequest;
-		r.status_text = "Bad Request";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body(std::move(body));
-		return r;
+		return html(response_html_error_body(kHttpBadRequest, "Bad Request", detail), kHttpBadRequest);
 	}
 	[[nodiscard]] static Response unauthorized(
 		std::string_view www_authenticate = {}) {
-		Response r;
-		r.status = kHttpUnauthorized;
-		r.status_text = "Unauthorized";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>401 Unauthorized</h1></body></html>");
+		auto r = html(response_html_error_body(kHttpUnauthorized, "Unauthorized"), kHttpUnauthorized);
 		if (!www_authenticate.empty()) {
 			r.headers["WWW-Authenticate"] = std::string{www_authenticate};
 		}
@@ -563,24 +556,11 @@ struct Response {
 	}
 	[[nodiscard]] static Response forbidden(
 		std::string_view detail = {}) {
-		auto body =
-			detail.empty() ?
-				std::string{"<html><body><h1>403 Forbidden</h1></body></html>"} :
-				std::format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
-		Response r;
-		r.status = kHttpForbidden;
-		r.status_text = "Forbidden";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body(std::move(body));
-		return r;
+		return html(response_html_error_body(kHttpForbidden, "Forbidden", detail), kHttpForbidden);
 	}
 	[[nodiscard]] static Response method_not_allowed(
 		std::initializer_list<std::string_view> allowed = {}) {
-		Response r;
-		r.status = kHttpMethodNotAllowed;
-		r.status_text = "Method Not Allowed";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>405 Method Not Allowed</h1></body></html>");
+		auto r = html(response_html_error_body(kHttpMethodNotAllowed, "Method Not Allowed"), kHttpMethodNotAllowed);
 		if (allowed.size() > 0) {
 			std::string allow;
 			for (auto it = allowed.begin(); it != allowed.end(); ++it) {
@@ -595,32 +575,19 @@ struct Response {
 	}
 	[[nodiscard]] static Response unprocessable_entity(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ? std::string{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
-									 std::format(
-										 "<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>",
-										 response_html_escape(detail));
-		Response r;
-		r.status = kHttpUnprocessableEntity;
-		r.status_text = "Unprocessable Entity";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body(std::move(body));
-		return r;
+		return html(
+			response_html_error_body(kHttpUnprocessableEntity, "Unprocessable Entity", detail),
+			kHttpUnprocessableEntity);
 	}
 	[[nodiscard]] static Response uri_too_long() {
-		Response r;
-		r.status = kHttpUriTooLong;
-		r.status_text = "URI Too Long";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>414 URI Too Long</h1></body></html>");
-		return r;
+		return html(response_html_error_body(kHttpUriTooLong, "URI Too Long"), kHttpUriTooLong);
 	}
 	[[nodiscard]] static Response header_fields_too_large() {
-		Response r;
-		r.status = kHttpRequestHeaderFieldsTooLarge;
-		r.status_text = "Request Header Fields Too Large";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>431 Request Header Fields Too Large</h1></body></html>");
-		return r;
+		return html(
+			response_html_error_body(
+				kHttpRequestHeaderFieldsTooLarge,
+				"Request Header Fields Too Large"),
+			kHttpRequestHeaderFieldsTooLarge);
 	}
 	[[nodiscard]] static Response bad_gateway(
 		std::string_view detail = {}) {
@@ -632,12 +599,7 @@ struct Response {
 		return r;
 	}
 	[[nodiscard]] static Response gateway_timeout() {
-		Response r;
-		r.status = kHttpGatewayTimeout;
-		r.status_text = "Gateway Timeout";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>504 Gateway Timeout</h1></body></html>");
-		return r;
+		return html(response_html_error_body(kHttpGatewayTimeout, "Gateway Timeout"), kHttpGatewayTimeout);
 	}
 	[[nodiscard]] static Response sse(
 		std::shared_ptr<conflux::http::SseChannel> ch) {
@@ -653,16 +615,9 @@ struct Response {
 	}
 	[[nodiscard]] static Response internal_error(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ? std::string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
-									 std::format(
-										 "<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>",
-										 response_html_escape(detail));
-		Response r;
-		r.status = kHttpInternalServerError;
-		r.status_text = "Internal Server Error";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body(std::move(body));
-		return r;
+		return html(
+			response_html_error_body(kHttpInternalServerError, "Internal Server Error", detail),
+			kHttpInternalServerError);
 	}
 	[[nodiscard]] static Response no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
 	[[nodiscard]] static Response not_modified(
@@ -674,12 +629,9 @@ struct Response {
 		return r;
 	}
 	[[nodiscard]] static Response content_too_large() {
-		Response r;
-		r.status = kHttpRequestEntityTooLarge;
-		r.status_text = "Content Too Large";
-		r.content_type = std::string{kContentTypeHtmlUtf8};
-		r.set_text_body("<html><body><h1>413 Content Too Large</h1></body></html>");
-		return r;
+		return html(
+			response_html_error_body(kHttpRequestEntityTooLarge, "Content Too Large"),
+			kHttpRequestEntityTooLarge);
 	}
 	// Append a Set-Cookie header. Attributes are Opt; pass empty strings to omit.
 	// Example: resp.set_cookie("session", "abc123", "Path=/; HttpOnly; SameSite=Lax")
