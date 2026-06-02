@@ -283,10 +283,9 @@ void dispatch_request(
 
 	if (content_length_count != 0) {
 		auto cl = common_headers.content_length;
-		std::size_t content_length{};
-		auto const *cl_end = std::ranges::next(cl.data(), ssize(cl));
-		auto [ptr, ec] = std::from_chars(cl.data(), cl_end, content_length);
-		if (ec != std::errc{} || ptr != cl_end) {
+		auto parsed_content_length = conflux::http::parse_content_length_limited(cl, max_body_size);
+		if (!parsed_content_length
+			&& parsed_content_length.error() == conflux::http::ContentLengthParseError::malformed) {
 			emit_rejection(
 				conn,
 				raw,
@@ -295,10 +294,11 @@ void dispatch_request(
 				ring.alt_svc_header);
 			return;
 		}
-		if (content_length > max_body_size) {
+		if (!parsed_content_length) {
 			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::body_too_large, ring.alt_svc_header);
 			return;
 		}
+		auto const content_length = *parsed_content_length;
 		if (raw.size() - body_start < content_length) {
 			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_continue();

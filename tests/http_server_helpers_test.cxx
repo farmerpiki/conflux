@@ -5,9 +5,30 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.response;
 import conflux.net.http.realtime;
 import conflux.net.http_server_helpers;
+
+TEST_CASE(
+	"http_server_helpers: Content-Length parser validates decimal limits",
+	"[http_server_helpers]") {
+	auto exact = conflux::http::parse_content_length_limited("12", 12);
+	REQUIRE(exact.has_value());
+	CHECK(*exact == 12);
+
+	auto malformed = conflux::http::parse_content_length_limited("12x", 99);
+	REQUIRE_FALSE(malformed.has_value());
+	CHECK(malformed.error() == conflux::http::ContentLengthParseError::malformed);
+
+	auto empty = conflux::http::parse_content_length_limited("", 99);
+	REQUIRE_FALSE(empty.has_value());
+	CHECK(empty.error() == conflux::http::ContentLengthParseError::malformed);
+
+	auto too_large = conflux::http::parse_content_length_limited("13", 12);
+	REQUIRE_FALSE(too_large.has_value());
+	CHECK(too_large.error() == conflux::http::ContentLengthParseError::too_large);
+}
 
 TEST_CASE(
 	"http_server_helpers: header name validation follows HTTP token grammar",

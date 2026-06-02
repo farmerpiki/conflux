@@ -340,11 +340,9 @@ int Ring::h2_on_header_cb(
 				h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 				return 0;
 			}
-			std::size_t content_length{};
-			auto const *cl_end = std::ranges::next(v.data(), ssize(v));
-			auto [ptr, ec] = std::from_chars(v.data(), cl_end, content_length);
-			if (ec == std::errc{} && ptr == cl_end && content_length <= ctx->ring->max_body_size) {
-				stream.expected_body_size = content_length;
+			auto parsed_content_length = conflux::http::parse_content_length_limited(v, ctx->ring->max_body_size);
+			if (parsed_content_length) {
+				stream.expected_body_size = *parsed_content_length;
 			} else {
 				h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_CANCEL);
 				return 0;

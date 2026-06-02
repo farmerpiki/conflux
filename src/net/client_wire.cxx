@@ -4,6 +4,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
+import conflux.net.http.parse_helpers;
 import conflux.utils;
 
 namespace client_wire_detail {
@@ -158,19 +159,18 @@ struct EffectiveRequestHeader {
 	if (value.empty()) {
 		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "invalid Content-Length"});
 	}
-	std::size_t content_length{};
-	auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), content_length);
-	if (ec != std::errc{} || ptr != value.data() + value.size()) {
+	auto parsed = conflux::http::parse_content_length_value(value);
+	if (!parsed) {
 		return std::unexpected(
 			HttpError{.kind = HttpErrorKind::protocol, .message = std::format("invalid Content-Length '{}'", value)});
 	}
-	if (content_length > max_body_bytes) {
+	if (*parsed > max_body_bytes) {
 		return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::body_too_large,
-				.message = std::format("Content-Length {} exceeds limit {}", content_length, max_body_bytes)});
+				.message = std::format("Content-Length {} exceeds limit {}", *parsed, max_body_bytes)});
 	}
-	return content_length;
+	return *parsed;
 }
 
 [[nodiscard]] std::size_t estimate_request_wire_size(

@@ -19,6 +19,38 @@ export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
 export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
+export enum class ContentLengthParseError : std::uint8_t {
+	malformed,
+	too_large,
+};
+
+export [[nodiscard]] std::expected<std::size_t, ContentLengthParseError> parse_content_length_value(
+	std::string_view value) noexcept {
+	if (value.empty()) {
+		return std::unexpected(ContentLengthParseError::malformed);
+	}
+	std::size_t content_length{};
+	auto const *last = value.data() + value.size();
+	auto const [ptr, ec] = std::from_chars(value.data(), last, content_length);
+	if (ec != std::errc{} || ptr != last) {
+		return std::unexpected(ContentLengthParseError::malformed);
+	}
+	return content_length;
+}
+
+export [[nodiscard]] std::expected<std::size_t, ContentLengthParseError> parse_content_length_limited(
+	std::string_view value,
+	std::size_t max_body_size) noexcept {
+	auto parsed = parse_content_length_value(value);
+	if (!parsed) {
+		return parsed;
+	}
+	if (*parsed > max_body_size) {
+		return std::unexpected(ContentLengthParseError::too_large);
+	}
+	return parsed;
+}
+
 [[nodiscard]] bool parse_chunk_size_line(
 	std::string_view size_line_raw,
 	std::size_t &chunk_size) {
