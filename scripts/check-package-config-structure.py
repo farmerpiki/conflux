@@ -1138,6 +1138,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpCoreTests.cmake",
         "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
+        "tests/HttpObservabilityTests.cmake",
         "tests/HttpParseHelpersTests.cmake",
         "tests/HttpPolicyTests.cmake",
         "tests/HttpProxyTests.cmake",
@@ -1664,6 +1665,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCompressionTests.cmake")': "tests CMake must include the HTTP compression test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpJsonTests.cmake")': "tests CMake must include the HTTP JSON test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpObservabilityTests.cmake")': "tests CMake must include the HTTP observability test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpServerHelpersTests.cmake")': "tests CMake must include the HTTP server helpers test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpParseHelpersTests.cmake")': "tests CMake must include the HTTP parse helpers test fragment",
@@ -1750,6 +1752,12 @@ def check_build_docs_guard_contracts() -> None:
         },
         "tests/HttpLifecycleTests.cmake": {
             "add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)": "HTTP lifecycle test fragment must define send-zc lifecycle tests when enabled",
+        },
+        "tests/HttpObservabilityTests.cmake": {
+            "conflux_http_middleware_compile_fail_global_request_id_options": "HTTP observability test fragment must keep request id compile-fail check",
+            "conflux_http_middleware_compile_fail_global_tracing_middleware": "HTTP observability test fragment must keep tracing middleware compile-fail check",
+            "conflux_http_metrics_compile_fail_global_counter": "HTTP observability test fragment must keep counter compile-fail check",
+            "conflux_http_metrics_compile_fail_global_pressure_formatter": "HTTP observability test fragment must keep pressure formatter compile-fail check",
         },
         "tests/HttpResponseTests.cmake": {
             "add_executable(conflux_http_response_tests http_response_test.cxx)": "HTTP response test fragment must define response tests",
