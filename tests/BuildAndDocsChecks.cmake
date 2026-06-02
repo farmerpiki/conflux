@@ -1,39 +1,30 @@
 if(CONFLUX_BUILD_TESTS)
-    add_test(NAME build/no-std-streams
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check_no_std_streams.py")
-    set_tests_properties(build/no-std-streams PROPERTIES
-        LABELS "build;lint"
-    )
+    function(conflux_add_python_check test_name script_path labels)
+        add_test(NAME ${test_name}
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/${script_path}")
+        set_tests_properties(${test_name} PROPERTIES
+            LABELS "${labels}"
+        )
+    endfunction()
 
-    add_test(NAME build/cmake-source-files
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-cmake-source-files.py")
-    set_tests_properties(build/cmake-source-files PROPERTIES
-        LABELS "build;lint"
-    )
-
-    add_test(NAME build/component-map
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-component-map.py")
-    set_tests_properties(build/component-map PROPERTIES
-        LABELS "build;docs;package"
-    )
-
-    add_test(NAME build/http-facade-snapshot
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-http-facade-snapshot.py")
-    set_tests_properties(build/http-facade-snapshot PROPERTIES
-        LABELS "build;http;lint"
-    )
-
-    add_test(NAME build/api-surface-map
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-api-surface-map.py")
-    set_tests_properties(build/api-surface-map PROPERTIES
-        LABELS "build;docs;public-api"
-    )
-
-    add_test(NAME build/global-module-exports
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-global-module-exports.py")
-    set_tests_properties(build/global-module-exports PROPERTIES
-        LABELS "build;public-api;lint"
-    )
+    conflux_add_python_check(build/no-std-streams
+        scripts/check_no_std_streams.py
+        "build;lint")
+    conflux_add_python_check(build/cmake-source-files
+        scripts/check-cmake-source-files.py
+        "build;lint")
+    conflux_add_python_check(build/component-map
+        scripts/check-component-map.py
+        "build;docs;package")
+    conflux_add_python_check(build/http-facade-snapshot
+        scripts/check-http-facade-snapshot.py
+        "build;http;lint")
+    conflux_add_python_check(build/api-surface-map
+        scripts/check-api-surface-map.py
+        "build;docs;public-api")
+    conflux_add_python_check(build/global-module-exports
+        scripts/check-global-module-exports.py
+        "build;public-api;lint")
 
     add_test(NAME build/package-config
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-package-config.sh"
@@ -58,11 +49,9 @@ if(CONFLUX_BUILD_TESTS)
         RUN_SERIAL TRUE
     )
 
-    add_test(NAME build/cmake-preset-build-dir
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-cmake-preset-build-dir.py")
-    set_tests_properties(build/cmake-preset-build-dir PROPERTIES
-        LABELS "build;presets"
-    )
+    conflux_add_python_check(build/cmake-preset-build-dir
+        scripts/check-cmake-preset-build-dir.py
+        "build;presets")
 
     add_test(NAME build/header-first-contact-smoke
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-header-first-contact-smoke.sh"
@@ -111,33 +100,19 @@ if(CONFLUX_BUILD_TESTS)
         )
     endif()
 
-    add_test(NAME docs/planning-state
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-planning-state.py")
-    set_tests_properties(docs/planning-state PROPERTIES
-        LABELS "docs;lint"
-    )
-
-    add_test(NAME docs/release-docs
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-release-docs.py")
-    set_tests_properties(docs/release-docs PROPERTIES
-        LABELS "docs;lint"
-    )
-
-    add_test(NAME docs/first-contact-public-dialect
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-first-contact-public-dialect.py")
-    set_tests_properties(docs/first-contact-public-dialect PROPERTIES
-        LABELS "docs;lint;public-api"
-    )
-
-    add_test(NAME docs/package-docs
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-package-docs.py")
-    set_tests_properties(docs/package-docs PROPERTIES
-        LABELS "docs;package"
-    )
-
-    add_test(NAME docs/release-notes
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/check-release-notes.py")
-    set_tests_properties(docs/release-notes PROPERTIES
-        LABELS "docs;release"
-    )
+    conflux_add_python_check(docs/planning-state
+        scripts/check-planning-state.py
+        "docs;lint")
+    conflux_add_python_check(docs/release-docs
+        scripts/check-release-docs.py
+        "docs;lint")
+    conflux_add_python_check(docs/first-contact-public-dialect
+        scripts/check-first-contact-public-dialect.py
+        "docs;lint;public-api")
+    conflux_add_python_check(docs/package-docs
+        scripts/check-package-docs.py
+        "docs;package")
+    conflux_add_python_check(docs/release-notes
+        scripts/check-release-notes.py
+        "docs;release")
 endif()
