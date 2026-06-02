@@ -57,6 +57,7 @@ if ! cmake -S "$source_root" -B "$probe_dir" -G "$generator" \
 fi
 rm -rf "$probe_dir" "$probe_log"
 
+CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}" \
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \
     --build-dir "$base/build" \

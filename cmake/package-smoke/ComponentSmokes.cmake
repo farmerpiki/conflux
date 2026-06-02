@@ -61,9 +61,7 @@ int main() { return 0; }
 #if !CONFLUX_SURFACE_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_SURFACE_HAS_JSON=1"
 #endif
-import conflux.features;
 import conflux.json;
-static_assert(conflux::HAS_JSON);
 int main() {
     auto parsed = conflux::json::parse("{\"x\":1}");
     return parsed.has_value() ? 0 : 1;
@@ -77,9 +75,7 @@ int main() {
 #if !CONFLUX_SURFACE_HAS_JSON
 #error "conflux::json package target must publish CONFLUX_SURFACE_HAS_JSON=1"
 #endif
-import conflux.features;
 import conflux.json;
-static_assert(conflux::HAS_JSON);
 int main() { return 0; }
 ]])
 			endif()

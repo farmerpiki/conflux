@@ -137,6 +137,9 @@ list(REMOVE_DUPLICATES conflux_RESOLVED_EXTERNAL_DEPS)
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     if(TARGET conflux::core)
+        target_include_directories(conflux::core INTERFACE
+            "${PACKAGE_PREFIX_DIR}/include"
+            "${PACKAGE_PREFIX_DIR}/include/conflux/modules")
         target_compile_definitions(conflux::core INTERFACE
             CONFLUX_INTERFACE_MODULE=1
             CONFLUX_MODULE_USE_IMPORT_STD=$<BOOL:${CONFLUX_USE_IMPORT_STD}>)

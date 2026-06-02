@@ -11,6 +11,7 @@ target_sources(conflux_net_http
             ${CONFLUX_SRC_ROOT}/net/http.cppm
 )
 target_link_libraries(conflux_net_http
+    PRIVATE conflux_options
     PUBLIC conflux_types
     PUBLIC conflux_net_config
     PUBLIC conflux_http_core

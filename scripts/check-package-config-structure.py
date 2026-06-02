@@ -516,6 +516,8 @@ def check_header_interface_contracts() -> None:
             "foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)": "package config must validate requested components",
             "check_required_components(conflux)": "package config must call check_required_components(conflux)",
             "conflux::conflux": "package config must provide the canonical umbrella alias when available",
+            '"${PACKAGE_PREFIX_DIR}/include"': "module-interface package targets must expose installed header includes",
+            '"${PACKAGE_PREFIX_DIR}/include/conflux/modules"': "module-interface package targets must expose installed module support includes",
         },
     }
     errors: list[str] = []
@@ -1078,6 +1080,9 @@ def check_cmake_extraction_contracts() -> None:
         "cmake/components/HttpServerTargets.cmake": {
             'conflux_apply_http_server_compiler_workarounds("${CONFLUX_SRC_ROOT}/net/http_server_send.cxx")': "HTTP server compiler workaround must stay source-file scoped",
         },
+        "cmake/components/HttpUmbrellaTargets.cmake": {
+            "PRIVATE conflux_options": "HTTP umbrella target must inherit generated include paths and build macros from conflux_options",
+        },
         "tests/HttpFacadeTests.cmake": {
             'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
         },
@@ -1363,6 +1368,9 @@ def check_package_smoke_wrapper_contracts() -> None:
         "scripts/check-package-smoke-core-isolated.sh": {
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
         },
+        "scripts/check-package-smoke-mixed-module-header.sh": {
+            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
+        },
     }
     errors: list[str] = []
     for path, markers in checks.items():
@@ -1468,6 +1476,9 @@ def check_package_smoke_project_contract() -> None:
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
     if missing:
         fail("\n".join(missing))
+    component_smokes = read("cmake/package-smoke/ComponentSmokes.cmake")
+    if "import conflux.features;" in component_smokes:
+        fail("narrow component package smokes must not import the aggregate conflux.features module")
 
 
 def check_package_smoke_runner_contract() -> None:
