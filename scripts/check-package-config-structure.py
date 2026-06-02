@@ -1605,12 +1605,15 @@ def check_duplicate_ctest_names() -> None:
 
 
 def external_tokens_from_metadata() -> set[str]:
-    metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
-    metadata_body = cmake_function_body(
-        metadata,
-        "function(_conflux_external_token_for_item out_var item)",
+    registry = read("cmake/ConfluxExternalDependencyRegistry.cmake")
+    match = re.search(
+        r"set\(CONFLUX_EXTERNAL_DEPENDENCY_TOKENS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
     )
-    return set(re.findall(r"set\(_token ([A-Z0-9_]+)\)", metadata_body))
+    if match is None:
+        fail("missing CONFLUX_EXTERNAL_DEPENDENCY_TOKENS")
+    return set(re.findall(r"\b[A-Z][A-Z0-9_]+\b", match.group("body")))
 
 
 def component_exports_from_registry() -> set[str]:
@@ -1645,25 +1648,43 @@ def generated_header_support_exports() -> set[str]:
 def check_external_dependency_tokens() -> None:
     config = read("cmake/conflux-config.cmake.in")
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
-    config_body = cmake_function_body(
-        config,
-        "function(_conflux_find_external_dep token)",
-    )
-    metadata_body = cmake_function_body(
-        metadata,
-        "function(_conflux_external_token_for_item out_var item)",
-    )
-
-    config_tokens = set(re.findall(r'token STREQUAL "([A-Z0-9_]+)"', config_body))
-    metadata_tokens = set(re.findall(r"set\(_token ([A-Z0-9_]+)\)", metadata_body))
+    registry = read("cmake/ConfluxExternalDependencyRegistry.cmake")
+    metadata_tokens = external_tokens_from_metadata()
     errors: list[str] = []
-    append_set_delta_errors(
-        errors,
-        metadata_tokens,
-        config_tokens,
-        "tokens missing from cmake/conflux-config.cmake.in: ",
-        "tokens missing from cmake/ConfluxGeneratePackageMetadata.cmake.in: ",
-    )
+    required_registry_prefixes = [
+        "CONFLUX_EXTERNAL_DEPENDENCY_TARGETS_",
+        "CONFLUX_EXTERNAL_DEPENDENCY_KIND_",
+        "CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_",
+    ]
+    for token in metadata_tokens:
+        for prefix in required_registry_prefixes:
+            if f"set({prefix}{token} " not in registry:
+                errors.append(f"external dependency registry missing {prefix}{token}")
+    config_markers = {
+        "ConfluxExternalDependencyRegistry.cmake": "package config must include the external dependency registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_TOKENS": "package config must validate external dependency tokens through the registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_KIND_${token}": "package config must resolve external dependency kind through the registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_${token}": "package config must resolve external dependency packages through the registry",
+    }
+    errors.extend(message for marker, message in config_markers.items() if marker not in config)
+    metadata_markers = {
+        "ConfluxExternalDependencyRegistry.cmake": "package metadata generator must include the external dependency registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_TOKENS": "package metadata generator must map external targets through the registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_TARGETS_${_candidate}": "package metadata generator must map external targets through registry target lists",
+    }
+    errors.extend(message for marker, message in metadata_markers.items() if marker not in metadata)
+    if re.search(r'token STREQUAL "[A-Z0-9_]+"', config):
+        errors.append("package config must not carry a separate external-token resolver ladder")
+    if re.search(r"set\(_token [A-Z0-9_]+\)", metadata):
+        errors.append("package metadata generator must not carry a separate external-token mapping ladder")
+    install_text = read("cmake/ConfluxInstall.cmake")
+    header_text = read("cmake/ConfluxHeaderInterface.cmake")
+    for path, text in [
+        ("cmake/ConfluxInstall.cmake", install_text),
+        ("cmake/ConfluxHeaderInterface.cmake", header_text),
+    ]:
+        if "ConfluxExternalDependencyRegistry.cmake" not in text:
+            errors.append(f"{path} must install the external dependency registry")
     if errors:
         fail("\n".join(errors))
 

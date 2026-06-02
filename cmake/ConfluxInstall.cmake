@@ -220,6 +220,7 @@ write_basic_package_version_file(
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ConfluxExternalDependencyRegistry.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
 
