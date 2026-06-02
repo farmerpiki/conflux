@@ -126,6 +126,90 @@ void emit_rejection(
 	conn.request_bytes = raw.size();
 }
 
+void install_response_state(
+	Conn &conn,
+	conflux::http::Response &&resp,
+	Ring &ring,
+	conflux::http::RequestView const &req,
+	std::shared_ptr<std::string> request_storage,
+	std::shared_ptr<std::vector<conflux::http::UploadedFile>> request_files) {
+	if (resp.is_deferred()) {
+#if CONFLUX_HAS_HTTP2
+		if (conn.is_h2) {
+			conn.own_response = conflux::http::format_response(
+				conflux::http::Response::internal_error("deferred responses unsupported over HTTP/2"),
+				ring.alt_svc_header,
+				true);
+			conn.has_response = true;
+			return;
+		}
+#endif
+		conn.is_deferred = true;
+		conn.deferred_head_only = resp.head_only;
+		auto deferred_response = resp.deferred_response_ptr();
+		if (request_storage) {
+			deferred_response->keep_alive(request_storage);
+		}
+		if (request_files) {
+			deferred_response->keep_alive(request_files);
+		}
+		conn.deferred_efd = deferred_response->eventfd_fd();
+		conn.deferred_response = resp.take_deferred_response();
+		conn.deferred_request_storage = std::move(request_storage);
+		if (request_files) {
+			conn.deferred_request_files = std::move(request_files);
+		}
+		conn.has_response = false;
+	} else if (resp.is_ws_upgrade()) {
+		conn.is_ws = true;
+		conn.ws_upgrade = resp.ws_upgrade_ptr();
+		conn.ws_work_pool = ring.resolve_ws_work_pool(req);
+		conn.saved_req = req.to_owned();
+		conn.close_after_send = false;
+		conn.own_response = conflux::http::format_response(resp);
+		conn.has_response = true;
+	} else if (resp.is_sse()) {
+		conn.close_after_send = true;
+		conn.is_sse = true;
+		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
+		conn.sse_channel = resp.take_sse_channel();
+		conn.own_response = std::string{conflux::http::format_sse_headers(conn.close_after_send)};
+		conn.has_response = true;
+	} else if (resp.is_mapped_file()) {
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		if (resp.head_only) {
+			conn.has_response = true;
+		} else {
+			conn.mapped_file = resp.take_mapped_file();
+			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
+			conn.mapped_delivered = 0;
+			conn.has_response = false;
+			{
+				std::scoped_lock lk{ring.metrics_mu_};
+				++ring.static_file_counters_.mapped_responses;
+			}
+		}
+	} else if (resp.is_streamed_file()) {
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		if (resp.head_only) {
+			conn.has_response = true;
+		} else {
+			conn.streamed_file = resp.take_streamed_file();
+			conn.streamed_headers_sent = false;
+			conn.streamed_delivered = 0;
+			conn.streamed_splice_in_flight = false;
+			conn.has_response = true;
+			{
+				std::scoped_lock lk{ring.metrics_mu_};
+				++ring.static_file_counters_.streamed_responses;
+			}
+		}
+	} else {
+		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
+		conn.has_response = true;
+	}
+}
+
 } // namespace
 void dispatch_request(
 	Conn &conn,
@@ -405,79 +489,5 @@ void dispatch_request(
 					elapsed_ms));
 		}
 	}
-	if (resp.is_deferred()) {
-#if CONFLUX_HAS_HTTP2
-		if (conn.is_h2) {
-			conn.own_response = conflux::http::format_response(
-				conflux::http::Response::internal_error("deferred responses unsupported over HTTP/2"),
-				ring.alt_svc_header,
-				true);
-			conn.has_response = true;
-			return;
-		}
-#endif
-		conn.is_deferred = true;
-		conn.deferred_head_only = resp.head_only;
-		auto deferred_response = resp.deferred_response_ptr();
-		if (request_storage) {
-			deferred_response->keep_alive(request_storage);
-		}
-		if (request_files) {
-			deferred_response->keep_alive(request_files);
-		}
-		conn.deferred_efd = deferred_response->eventfd_fd();
-		conn.deferred_response = resp.take_deferred_response();
-		conn.deferred_request_storage = std::move(request_storage);
-		if (request_files) {
-			conn.deferred_request_files = std::move(request_files);
-		}
-		conn.has_response = false;
-	} else if (resp.is_ws_upgrade()) {
-		conn.is_ws = true;
-		conn.ws_upgrade = resp.ws_upgrade_ptr();
-		conn.ws_work_pool = ring.resolve_ws_work_pool(req);
-		conn.saved_req = req.to_owned();
-		conn.close_after_send = false;
-		conn.own_response = conflux::http::format_response(resp);
-		conn.has_response = true;
-	} else if (resp.is_sse()) {
-		conn.close_after_send = true;
-		conn.is_sse = true;
-		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
-		conn.sse_channel = resp.take_sse_channel();
-		conn.own_response = std::string{conflux::http::format_sse_headers(conn.close_after_send)};
-		conn.has_response = true;
-	} else if (resp.is_mapped_file()) {
-		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
-		if (resp.head_only) {
-			conn.has_response = true;
-		} else {
-			conn.mapped_file = resp.take_mapped_file();
-			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
-			conn.mapped_delivered = 0;
-			conn.has_response = false;
-			{
-				std::scoped_lock lk{ring.metrics_mu_};
-				++ring.static_file_counters_.mapped_responses;
-			}
-		}
-	} else if (resp.is_streamed_file()) {
-		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
-		if (resp.head_only) {
-			conn.has_response = true;
-		} else {
-			conn.streamed_file = resp.take_streamed_file();
-			conn.streamed_headers_sent = false;
-			conn.streamed_delivered = 0;
-			conn.streamed_splice_in_flight = false;
-			conn.has_response = true;
-			{
-				std::scoped_lock lk{ring.metrics_mu_};
-				++ring.static_file_counters_.streamed_responses;
-			}
-		}
-	} else {
-		conn.own_response = conflux::http::format_response(resp, ring.alt_svc_header, conn.close_after_send);
-		conn.has_response = true;
-	}
+	install_response_state(conn, std::move(resp), ring, req, std::move(request_storage), std::move(request_files));
 }
