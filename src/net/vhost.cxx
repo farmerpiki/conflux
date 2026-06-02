@@ -52,7 +52,7 @@ public:
 	[[nodiscard]] std::shared_ptr<WorkPool> resolved_work_pool(
 		std::string_view host_header) const {
 		auto host = ascii_lower(conflux::http::host_without_port(host_header));
-		auto it = vhosts_.find(std::string{host});
+		auto it = vhosts_.find(host);
 		if (it != vhosts_.end()) {
 			return it->second.work_pool();
 		}
@@ -61,7 +61,7 @@ public:
 	[[nodiscard]] conflux::http::Response dispatch(
 		conflux::http::RequestView const &req) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
-		auto it = vhosts_.find(std::string{host});
+		auto it = vhosts_.find(host);
 		if (it != vhosts_.end()) {
 			return it->second.dispatch(req);
 		}
@@ -82,7 +82,7 @@ public:
 		conflux::http::RequestView const &req,
 		conflux::http::RequestContext const &ctx) const {
 		auto host = ascii_lower(conflux::http::host_without_port(req.headers["host"]));
-		auto it = vhosts_.find(std::string{host});
+		auto it = vhosts_.find(host);
 		if (it != vhosts_.end()) {
 			return it->second.dispatch_context(req, ctx);
 		}
@@ -93,7 +93,7 @@ public:
 	}
 
 private:
-	std::unordered_map<std::string, conflux::http::Router> vhosts_;
+	conflux::support::TransparentStringMap<conflux::http::Router> vhosts_;
 	std::unique_ptr<conflux::http::Router> default_;
 	std::shared_ptr<WorkPool> work_pool_{};
 };
