@@ -458,6 +458,84 @@ def check_header_public_components_use_registry_exports() -> None:
         fail("\n".join(failures))
 
 
+def check_header_interface_contracts() -> None:
+    checks = {
+        "cmake/ConfluxOptions.cmake": {
+            "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "missing package smoke component cache variable",
+            "add_test(NAME build/package-config-install-tree": "missing installed-prefix package smoke CTest guard",
+            "CONFLUX_BUILD_PACKAGE_TESTS": "missing package-only CTest option",
+            "CONFLUX_HEADER_FAST_COMPILE": "missing header fast-compile option",
+            "CONFLUX_HEADER_LINK_EXAMPLES": "missing opt-in linked header examples option",
+            "CONFLUX_HEADER_LINK_SMOKE": "missing opt-in linked header smoke option",
+            "CONFLUX_RUN_HEADER_COMPONENT_SMOKE": "missing opt-in full header component smoke option",
+            'CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"': "API surface definitions must handle header mode separately",
+            "CONFLUX_WANT_HTTP_POLICY": "header API surface macros must derive from resolved component flags",
+            "CONFLUX_RUN_INSTALL_TREE_SMOKE": "missing opt-in install-tree smoke CTest option",
+            "add_test(NAME build/install-tree-smoke": "missing install-tree smoke CTest guard",
+            "set(CMAKE_CXX_SCAN_FOR_MODULES OFF)": "HEADER_INTERFACE must disable CMake module scanning",
+        },
+        "cmake/ConfluxInterfaceMode.cmake": {
+            "CXX_SCAN_FOR_MODULES OFF": "header generated targets must disable module scanning",
+            "CONFLUX_HEADER_FAST_COMPILE": "header generated targets must honor fast-compile option",
+            "CONFLUX_HEADER_LINK_EXAMPLES": "header examples must keep implementation linking opt-in",
+            "conflux_add_header_link_smoke_targets": "header mode must expose a linked smoke target",
+            "header/link-smoke-http": "header linked HTTP smoke must be registered with CTest",
+            "conflux_header_impl_json": "header implementation sources must be split by component",
+            "COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0": "header generated targets must override release optimization for fast compile",
+        },
+        "scripts/check-header-first-contact-smoke.sh": {
+            "conflux_header_smoke_api_surface_curated": "first-contact header smoke must build only the curated API surface target",
+        },
+        "scripts/check-header-component-smoke.sh": {
+            "CONFLUX_HEADER_COMPONENT_SMOKE_BUILD_ROOT": "full header component smoke must remain separately configurable",
+        },
+        "cmake/conflux-config.cmake.in": {
+            "@PACKAGE_INIT@": "package config must use PACKAGE_INIT",
+            "include(CMakeFindDependencyMacro)": "package config must include CMakeFindDependencyMacro",
+            "set(CONFLUX_RUNTIME_REQUIRES_LIBURING": "package config must expose runtime liburing status",
+            "foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)": "package config must validate requested components",
+            "check_required_components(conflux)": "package config must call check_required_components(conflux)",
+            "conflux::conflux": "package config must provide the canonical umbrella alias when available",
+        },
+    }
+    errors: list[str] = []
+    for path, markers in checks.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker not in text)
+    interface_text = read("cmake/ConfluxInterfaceMode.cmake")
+    for line in interface_text.splitlines():
+        if "target_link_libraries" not in line or "conflux_headers" not in line:
+            continue
+        if "PkgConfig::LIBURING" in line:
+            errors.append("header support target must not leak liburing into every header package component")
+        if "PkgConfig::XXHASH" in line:
+            errors.append("header support target must not leak xxhash into every header package component")
+
+    data = json.loads(read("CMakePresets.json"))
+    configure_presets = {
+        preset["name"]: preset
+        for preset in data.get("configurePresets", [])
+        if isinstance(preset.get("name"), str)
+    }
+    build_presets = {
+        preset["name"]: preset
+        for preset in data.get("buildPresets", [])
+        if isinstance(preset.get("name"), str)
+    }
+    release_header = configure_presets.get("release-header-artifacts")
+    if release_header is None:
+        errors.append("missing release-header-artifacts preset")
+    else:
+        feature_set = release_header.get("cacheVariables", {}).get("CONFLUX_FEATURE_SET")
+        if feature_set != "release-json":
+            errors.append("release-header-artifacts must pin release-json feature set")
+    release_clang = build_presets.get("release-clang-libcxx")
+    if release_clang is None or release_clang.get("configurePreset") != "release-clang-libcxx":
+        errors.append("missing release-clang-libcxx build preset")
+    if errors:
+        fail("\n".join(sorted(errors)))
+
+
 def check_cmake_preset_names_unique() -> None:
     data = json.loads(read("CMakePresets.json"))
     errors: list[str] = []
@@ -1652,6 +1730,7 @@ def main() -> int:
     check_header_source_ids_exist()
     check_header_support_components_are_limited()
     check_header_public_components_use_registry_exports()
+    check_header_interface_contracts()
     check_cmake_preset_names_unique()
     check_cmake_preset_references()
     check_test_preset_filters()

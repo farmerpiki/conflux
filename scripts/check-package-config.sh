@@ -202,34 +202,10 @@ grep -q 'add_test(NAME docs/package-docs' tests/CMakeLists.txt tests/BuildAndDoc
     || fail "missing package-docs CTest guard"
 grep -q 'add_test(NAME docs/release-notes' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
     || fail "missing release-notes CTest guard"
-grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' cmake/ConfluxOptions.cmake \
-    || fail "missing package smoke component cache variable"
-grep -q 'add_test(NAME build/package-config-install-tree' cmake/ConfluxOptions.cmake \
-    || fail "missing installed-prefix package smoke CTest guard"
-grep -q 'CONFLUX_BUILD_PACKAGE_TESTS' cmake/ConfluxOptions.cmake \
-    || fail "missing package-only CTest option"
-grep -q 'CONFLUX_HEADER_FAST_COMPILE' cmake/ConfluxOptions.cmake \
-    || fail "missing header fast-compile option"
-grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' cmake/ConfluxOptions.cmake \
-    || fail "missing opt-in linked header examples option"
-grep -q 'CONFLUX_HEADER_LINK_SMOKE' cmake/ConfluxOptions.cmake \
-    || fail "missing opt-in linked header smoke option"
-grep -q 'CONFLUX_RUN_HEADER_COMPONENT_SMOKE' cmake/ConfluxOptions.cmake \
-    || fail "missing opt-in full header component smoke option"
-grep -q 'conflux_header_smoke_api_surface_curated' scripts/check-header-first-contact-smoke.sh \
-    || fail "first-contact header smoke must build only the curated API surface target"
-grep -q 'CONFLUX_HEADER_COMPONENT_SMOKE_BUILD_ROOT' scripts/check-header-component-smoke.sh \
-    || fail "full header component smoke must remain separately configurable"
-grep -q 'CXX_SCAN_FOR_MODULES OFF' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header generated targets must disable module scanning"
-grep -q 'CONFLUX_HEADER_FAST_COMPILE' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header generated targets must honor fast-compile option"
-grep -q 'CONFLUX_HEADER_LINK_EXAMPLES' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header examples must keep implementation linking opt-in"
-grep -q 'CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"' cmake/ConfluxOptions.cmake \
-    || fail "API surface definitions must handle header mode separately"
-grep -q 'CONFLUX_WANT_HTTP_POLICY' cmake/ConfluxOptions.cmake \
-    || fail "header API surface macros must derive from resolved component flags"
+grep -q 'check_header_interface_contracts' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must verify header interface contracts"
+grep -q 'release-header-artifacts must pin release-json feature set' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must keep release-header-artifacts preset checks"
 grep -q 'check_header_http_impls_do_not_pull_json' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must protect header HTTP/JSON implementation isolation"
 grep -q 'header example registration must parse explicit implementation deps' scripts/check-package-config-structure.py \
@@ -260,48 +236,10 @@ grep -q 'check_package_smoke_wrapper_default_components' scripts/check-package-c
     || fail "package-config structure guard must validate wrapper default package smoke components"
 grep -q 'wrapper default package smoke components must be public registry exports' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must keep wrapper smoke defaults on public components"
-grep -q 'conflux_add_header_link_smoke_targets' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header mode must expose a linked smoke target"
-grep -q 'header/link-smoke-http' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header linked HTTP smoke must be registered with CTest"
-grep -q 'conflux_header_impl_json' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header implementation sources must be split by component"
-grep -q 'COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0' cmake/ConfluxInterfaceMode.cmake \
-    || fail "header generated targets must override release optimization for fast compile"
-grep -q 'CONFLUX_RUN_INSTALL_TREE_SMOKE' cmake/ConfluxOptions.cmake \
-    || fail "missing opt-in install-tree smoke CTest option"
-grep -q 'add_test(NAME build/install-tree-smoke' cmake/ConfluxOptions.cmake \
-	|| fail "missing install-tree smoke CTest guard"
-grep -q 'set(CMAKE_CXX_SCAN_FOR_MODULES OFF)' cmake/ConfluxOptions.cmake \
-	|| fail "HEADER_INTERFACE must disable CMake module scanning"
-grep -q '"name": "release-header-artifacts"' CMakePresets.json \
-    || fail "missing release-header-artifacts preset"
-grep -A14 '"name": "release-header-artifacts"' CMakePresets.json | grep -q '"CONFLUX_FEATURE_SET": "release-json"' \
-    || fail "release-header-artifacts must pin release-json feature set"
-grep -q '"configurePreset": "release-clang-libcxx"' CMakePresets.json \
-    || fail "missing release-clang-libcxx test preset"
-grep -q '@PACKAGE_INIT@' cmake/conflux-config.cmake.in \
-    || fail "package config must use PACKAGE_INIT"
-grep -q 'include(CMakeFindDependencyMacro)' cmake/conflux-config.cmake.in \
-    || fail "package config must include CMakeFindDependencyMacro"
 grep -q 'check_package_config_uses_generated_component_metadata' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must verify generated package component metadata use"
 grep -q 'hand-written component dependency table' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must reject hand-written package component dependency tables"
-if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::LIBURING' cmake/ConfluxInterfaceMode.cmake; then
-    fail "header support target must not leak liburing into every header package component"
-fi
-if grep -q 'target_link_libraries *( *conflux_headers .*PkgConfig::XXHASH' cmake/ConfluxInterfaceMode.cmake; then
-    fail "header support target must not leak xxhash into every header package component"
-fi
-grep -q 'set(CONFLUX_RUNTIME_REQUIRES_LIBURING' cmake/conflux-config.cmake.in \
-    || fail "package config must expose runtime liburing status"
-grep -q 'foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)' cmake/conflux-config.cmake.in \
-    || fail "package config must validate requested components"
-grep -q 'check_required_components(conflux)' cmake/conflux-config.cmake.in \
-    || fail "package config must call check_required_components(conflux)"
-grep -q 'conflux::conflux' cmake/conflux-config.cmake.in \
-    || fail "package config must provide the canonical umbrella alias when available"
 grep -q 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake \
     || fail "JSONTestSuite fetch must name the upstream repository explicitly"
 if grep -A6 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake | grep -Eq 'GIT_TAG[[:space:]]+(master|main)$'; then
