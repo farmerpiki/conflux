@@ -1137,6 +1137,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpCoreTests.cmake",
         "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
+        "tests/HttpParseHelpersTests.cmake",
         "tests/HttpResponseTests.cmake",
         "tests/HttpServerHelpersTests.cmake",
         "tests/IoTests.cmake",
@@ -1656,6 +1657,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpJsonTests.cmake")': "tests CMake must include the HTTP JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpServerHelpersTests.cmake")': "tests CMake must include the HTTP server helpers test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpParseHelpersTests.cmake")': "tests CMake must include the HTTP parse helpers test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
@@ -1737,6 +1739,11 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_http_server_helpers_tests http_server_helpers_test.cxx)": "HTTP server helpers test fragment must define server helpers tests",
             "conflux_http_server_helpers_compile_fail_global_format_response": "HTTP server helpers test fragment must keep format response compile-fail check",
             "conflux_http_server_helpers_compile_fail_global_parse_cookies": "HTTP server helpers test fragment must keep parse cookies compile-fail check",
+        },
+        "tests/HttpParseHelpersTests.cmake": {
+            "conflux_http_parse_helpers_compile_fail_global_chunk_state": "HTTP parse helpers test fragment must keep chunk state compile-fail check",
+            "conflux_http_parse_helpers_compile_fail_global_parse_urlencoded": "HTTP parse helpers test fragment must keep parse urlencoded compile-fail check",
+            "conflux_http_parse_helpers_compile_fail_global_content_type": "HTTP parse helpers test fragment must keep content type compile-fail check",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
