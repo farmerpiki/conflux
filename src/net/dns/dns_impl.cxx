@@ -958,7 +958,10 @@ public:
 	}
 	void invalidate_by_host(
 		std::string_view host) {
-		std::string const prefix = std::format("{}:", host);
+		std::string prefix;
+		prefix.reserve(host.size() + 1);
+		prefix.append(host);
+		prefix.push_back(':');
 		std::scoped_lock const lk{mtx_};
 		(void)entries_.erase_if([&](std::string_view key, DnsCacheEntry const &) { return key.starts_with(prefix); });
 	}
@@ -973,13 +976,21 @@ public:
 	AddressFamily prefer,
 	bool v4,
 	bool v6) {
-	return std::format(
-		"{}:{}:{}{}{}",
-		host,
-		port,
-		prefer == AddressFamily::v4 ? '4' : '6',
-		v4 ? '4' : '-',
-		v6 ? '6' : '-');
+	std::array<char, std::numeric_limits<std::uint16_t>::digits10 + 1> port_buf{};
+	auto const [port_end, ec] = std::to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
+	if (ec != std::errc{}) {
+		return {};
+	}
+	std::string out;
+	out.reserve(host.size() + static_cast<std::size_t>(port_end - port_buf.data()) + 5);
+	out.append(host);
+	out.push_back(':');
+	out.append(port_buf.data(), port_end);
+	out.push_back(':');
+	out.push_back(prefer == AddressFamily::v4 ? '4' : '6');
+	out.push_back(v4 ? '4' : '-');
+	out.push_back(v6 ? '6' : '-');
+	return out;
 }
 [[nodiscard]] std::chrono::milliseconds effective_native_timeout(
 	ResolveOptions const &opts) noexcept {
@@ -1029,9 +1040,14 @@ public:
 	}
 	std::vector<std::string> out;
 	out.reserve(search_domains.size() + 1);
-	std::ranges::transform(search_domains, std::back_inserter(out), [&](std::string const &domain) {
-		return std::format("{}.{}", normalized, domain);
-	});
+	for (auto const &domain: search_domains) {
+		std::string candidate;
+		candidate.reserve(normalized.size() + 1 + domain.size());
+		candidate.append(normalized);
+		candidate.push_back('.');
+		candidate.append(domain);
+		out.push_back(std::move(candidate));
+	}
 	out.push_back(std::move(normalized));
 	return out;
 }
