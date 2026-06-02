@@ -1138,6 +1138,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
         "tests/HttpParseHelpersTests.cmake",
+        "tests/HttpProxyTests.cmake",
         "tests/HttpResponseTests.cmake",
         "tests/HttpRouterDispatchTests.cmake",
         "tests/HttpRouterMatchTests.cmake",
@@ -1662,6 +1663,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpServerHelpersTests.cmake")': "tests CMake must include the HTTP server helpers test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpParseHelpersTests.cmake")': "tests CMake must include the HTTP parse helpers test fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpProxyTests.cmake")': "tests CMake must include the HTTP proxy test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpStaticCoreTests.cmake")': "tests CMake must include the HTTP static core test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterDispatchTests.cmake")': "tests CMake must include the HTTP router dispatch test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterMatchTests.cmake")': "tests CMake must include the HTTP router match test fragment",
@@ -1752,6 +1754,11 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_http_parse_helpers_compile_fail_global_chunk_state": "HTTP parse helpers test fragment must keep chunk state compile-fail check",
             "conflux_http_parse_helpers_compile_fail_global_parse_urlencoded": "HTTP parse helpers test fragment must keep parse urlencoded compile-fail check",
             "conflux_http_parse_helpers_compile_fail_global_content_type": "HTTP parse helpers test fragment must keep content type compile-fail check",
+        },
+        "tests/HttpProxyTests.cmake": {
+            "conflux_http_proxy_compile_fail_global_proxy_options": "HTTP proxy test fragment must keep proxy options compile-fail check",
+            "conflux_http_proxy_compile_fail_global_blocking_proxy": "HTTP proxy test fragment must keep blocking proxy compile-fail check",
+            "conflux_http_proxy_compile_fail_global_async_proxy": "HTTP proxy test fragment must keep async proxy compile-fail check",
         },
         "tests/HttpStaticCoreTests.cmake": {
             "conflux_http_static_core_compile_fail_global_static_request": "HTTP static core test fragment must keep static request compile-fail check",
