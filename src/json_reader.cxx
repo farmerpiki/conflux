@@ -63,6 +63,37 @@ namespace {
 	return token.decode_into(std::span<char>{scratch.string_overflow.data(), scratch.string_overflow.size()});
 }
 
+[[nodiscard]] bool is_digit_char(
+	char c) noexcept {
+	return c >= '0' && c <= '9';
+}
+
+[[nodiscard]] std::size_t scan_digits_fast(
+	char const *p,
+	std::size_t n) noexcept {
+	std::size_t i = 0;
+	if constexpr (std::endian::native == std::endian::little) {
+		constexpr std::uint64_t kLow = 0x3030303030303030ULL;
+		constexpr std::uint64_t kHigh = 0x3939393939393939ULL;
+		constexpr std::uint64_t kMsb = 0x8080808080808080ULL;
+		while (i + sizeof(std::uint64_t) <= n) {
+			std::uint64_t word{};
+			std::memcpy(&word, p + i, sizeof(word));
+			std::uint64_t const below = (word - kLow) & ~word & kMsb;
+			std::uint64_t const above = ((word + (0x7f7f7f7f7f7f7f7fULL - kHigh)) | word) & kMsb;
+			std::uint64_t const bad = below | above;
+			if (bad != 0U) {
+				return i + static_cast<std::size_t>(__builtin_ctzll(bad) >> 3U);
+			}
+			i += sizeof(std::uint64_t);
+		}
+	}
+	while (i < n && is_digit_char(p[i])) {
+		++i;
+	}
+	return i;
+}
+
 [[nodiscard]] bool raw_json_name_fast_path_safe(
 	std::string_view name) noexcept {
 	for (char ch: name) {
@@ -412,7 +443,52 @@ std::expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 }
 
 std::expected<std::string_view, JsonError> JsonReader::parse_number_lexeme() {
-	return parse_number_lexeme_direct();
+	std::size_t const start = pos_;
+	std::size_t p = pos_;
+	auto commit = [&] {
+		col_ += p - pos_;
+		pos_ = p;
+	};
+
+	if (p < input_.size() && input_[p] == '-') {
+		++p;
+	}
+	if (p >= input_.size() || !is_digit_char(input_[p])) [[unlikely]] {
+		commit();
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+	}
+	bool const starts_zero = input_[p] == '0';
+	++p;
+	if (starts_zero && p < input_.size() && is_digit_char(input_[p])) [[unlikely]] {
+		commit();
+		return std::unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+	}
+	p += scan_digits_fast(input_.data() + p, input_.size() - p);
+	if (p < input_.size() && input_[p] == '.') {
+		++p;
+		if (p >= input_.size() || !is_digit_char(input_[p])) [[unlikely]] {
+			commit();
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
+		}
+		p += scan_digits_fast(input_.data() + p, input_.size() - p);
+	}
+	if (p < input_.size() && (input_[p] == 'e' || input_[p] == 'E')) {
+		++p;
+		if (p < input_.size() && (input_[p] == '+' || input_[p] == '-')) {
+			++p;
+		}
+		if (p >= input_.size() || !is_digit_char(input_[p])) [[unlikely]] {
+			commit();
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
+		}
+		p += scan_digits_fast(input_.data() + p, input_.size() - p);
+	}
+	if (p - start > kMaxNumberLexemeLen) [[unlikely]] {
+		commit();
+		return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+	}
+	commit();
+	return input_.substr(start, pos_ - start);
 }
 
 std::expected<void, JsonError> JsonReader::parse_number_into_val() {
