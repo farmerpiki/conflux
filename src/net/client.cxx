@@ -572,6 +572,58 @@ bool recv_chunked(
 	return std::nullopt;
 }
 
+struct BlockingResponseHeadRead {
+	std::string raw;
+	std::size_t header_end{};
+	client_wire::ParsedResponseHead parsed;
+};
+
+[[nodiscard]] std::expected<BlockingResponseHeadRead, HttpError> receive_blocking_http1_response_head(
+	Connection &conn,
+	int first_byte_timeout_sec,
+	std::size_t max_header_bytes,
+	std::size_t max_body_bytes,
+	HttpTelemetry &tel) {
+	auto t_ttfb = std::chrono::steady_clock::now();
+	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_timeout_sec, max_header_bytes + 4096);
+	auto raw = std::move(received_head.bytes);
+	auto const header_end = raw.find("\r\n\r\n");
+	if (header_end == std::string::npos) {
+		if (received_head.timed_out) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::timeout,
+					.phase = HttpPhase::first_byte,
+					.message = "timed out waiting for response headers"});
+		}
+		if (raw.size() >= max_header_bytes) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::header_too_large,
+					.message = std::format("response headers exceed {} bytes", max_header_bytes)});
+		}
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+	}
+	if (header_end > max_header_bytes) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::header_too_large,
+				.message = std::format("response headers exceed {} bytes", max_header_bytes)});
+	}
+	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
+	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body_bytes);
+	if (!parsed_head) {
+		return std::unexpected(std::move(parsed_head).error());
+	}
+	return BlockingResponseHeadRead{
+		.raw = std::move(raw),
+		.header_end = header_end,
+		.parsed = std::move(*parsed_head),
+	};
+}
+
 // Core blocking transport — returns ClientResult.
 ClientResult do_blocking_request(
 	conflux::http::ClientRequest const &req,
@@ -747,52 +799,22 @@ ClientResult do_blocking_request(
 	std::size_t const max_body = opts.max_body_bytes;
 	std::size_t const max_buf = opts.max_buffered_bytes;
 
-	auto t_ttfb = std::chrono::steady_clock::now();
-	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
-	auto raw = std::move(received_head.bytes);
-	auto const header_end = raw.find("\r\n\r\n");
-
-	if (header_end == std::string::npos) {
+	auto received_head = receive_blocking_http1_response_head(conn, first_byte_sec, max_hdr, max_body, tel);
+	if (!received_head) {
 		close_conn(conn);
-		if (received_head.timed_out) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::timeout,
-					.phase = HttpPhase::first_byte,
-					.message = "timed out waiting for response headers"});
-		}
-		if (raw.size() >= max_hdr) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::header_too_large,
-					.message = std::format("response headers exceed {} bytes", max_hdr)});
-		}
-		return std::unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+		return std::unexpected(std::move(received_head).error());
 	}
-	if (header_end > max_hdr) {
-		close_conn(conn);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::header_too_large,
-				.message = std::format("response headers exceed {} bytes", max_hdr)});
-	}
-	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
-
-	auto const headers_str = std::string_view{raw}.substr(0, header_end);
-	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body);
-	if (!parsed_head) {
-		close_conn(conn);
-		return std::unexpected(std::move(parsed_head).error());
-	}
-	auto const content_length = parsed_head->content_length;
-	auto const has_content_length = parsed_head->has_content_length;
-	auto const chunked = parsed_head->chunked;
+	auto raw = std::move(received_head->raw);
+	auto const header_end = received_head->header_end;
+	auto &parsed_head = received_head->parsed;
+	auto const content_length = parsed_head.content_length;
+	auto const has_content_length = parsed_head.has_content_length;
+	auto const chunked = parsed_head.chunked;
 	ClientResponse response;
-	response.head.status = parsed_head->status;
-	response.head.status_text = std::move(parsed_head->status_text);
-	response.head.headers = std::move(parsed_head->headers);
-	response.head.set_cookies = std::move(parsed_head->set_cookies);
+	response.head.status = parsed_head.status;
+	response.head.status_text = std::move(parsed_head.status_text);
+	response.head.headers = std::move(parsed_head.headers);
+	response.head.set_cookies = std::move(parsed_head.set_cookies);
 
 	// Receive body.
 	std::size_t const body_offset = header_end + 4;
@@ -1013,52 +1035,23 @@ ClientStreamResult do_blocking_request_streaming(
 	std::size_t const max_body = opts.max_body_bytes;
 	std::size_t const max_buf = opts.max_buffered_bytes;
 
-	auto t_ttfb = std::chrono::steady_clock::now();
-	auto received_head = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
-	auto raw = std::move(received_head.bytes);
-	auto const header_end = raw.find("\r\n\r\n");
-	if (header_end == std::string::npos) {
+	auto received_head = receive_blocking_http1_response_head(conn, first_byte_sec, max_hdr, max_body, tel);
+	if (!received_head) {
 		close_conn(conn);
-		if (received_head.timed_out) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::timeout,
-					.phase = HttpPhase::first_byte,
-					.message = "timed out waiting for response headers"});
-		}
-		if (raw.size() >= max_hdr) {
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::header_too_large,
-					.message = std::format("response headers exceed {} bytes", max_hdr)});
-		}
-		return std::unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+		return std::unexpected(std::move(received_head).error());
 	}
-	if (header_end > max_hdr) {
-		close_conn(conn);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::header_too_large,
-				.message = std::format("response headers exceed {} bytes", max_hdr)});
-	}
-	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
-
-	auto const headers_str = std::string_view{raw}.substr(0, header_end);
-	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body);
-	if (!parsed_head) {
-		close_conn(conn);
-		return std::unexpected(std::move(parsed_head).error());
-	}
+	auto raw = std::move(received_head->raw);
+	auto const header_end = received_head->header_end;
+	auto &parsed_head = received_head->parsed;
 	ClientStreamResponse response;
-	response.head.status = parsed_head->status;
-	response.head.status_text = std::move(parsed_head->status_text);
-	response.head.headers = std::move(parsed_head->headers);
-	response.head.set_cookies = std::move(parsed_head->set_cookies);
+	response.head.status = parsed_head.status;
+	response.head.status_text = std::move(parsed_head.status_text);
+	response.head.headers = std::move(parsed_head.headers);
+	response.head.set_cookies = std::move(parsed_head.set_cookies);
 
-	auto const content_length = parsed_head->content_length;
-	auto const has_content_length = parsed_head->has_content_length;
-	auto const chunked = parsed_head->chunked;
+	auto const content_length = parsed_head.content_length;
+	auto const has_content_length = parsed_head.has_content_length;
+	auto const chunked = parsed_head.chunked;
 	std::size_t const body_offset = header_end + 4;
 	tel.bytes_received += raw.size();
 	raw.erase(0, body_offset);
