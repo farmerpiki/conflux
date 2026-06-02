@@ -1637,6 +1637,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
@@ -1697,6 +1698,9 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_http_core_tests)": "HTTP core test fragment must define HTTP core tests",
             "conflux_http_core_compile_fail_global_request": "HTTP core test fragment must keep request compile-fail check",
             "conflux_http_core_compile_fail_global_http_fields_view": "HTTP core test fragment must keep fields view compile-fail check",
+        },
+        "tests/HttpLifecycleTests.cmake": {
+            "add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)": "HTTP lifecycle test fragment must define send-zc lifecycle tests when enabled",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
