@@ -54,7 +54,6 @@ module_probe_dir="$base/module-interface-probe"
 module_probe_log="$base/module-interface-probe.log"
 if ! cmake -S "$root" -B "$module_probe_dir" -G Ninja \
 	-DCONFLUX_FEATURE_SET=core \
-	-DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -83,7 +82,6 @@ cleanup_build() {
 
 core_dir="$(run_configure core \
 	-DCONFLUX_FEATURE_SET=core \
-	-DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -98,7 +96,6 @@ cleanup_build "$core_dir"
 json_internal_dir="$(run_configure json-internal \
 	-DCONFLUX_FEATURE_SET=json \
 	-DCONFLUX_JSON_HASH_PROVIDER=INTERNAL \
-	-DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \

@@ -1071,6 +1071,9 @@ def check_cmake_extraction_contracts() -> None:
         "scripts/check-optimized-presets.sh": {
             "subprocess": "optimized preset guard must not shell out once per preset",
         },
+        "scripts/check-provider-policy-matrix.sh": {
+            "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "provider policy matrix must not pass warning-prone CMake PkgConfig disable flags",
+        },
     }
     errors: list[str] = []
     for path, markers in checks.items():
