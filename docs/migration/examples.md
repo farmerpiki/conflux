@@ -12,13 +12,14 @@ only meant to build libraries/tests/benchmarks.
 The aggregate build target is:
 
 ```bash
-cmake --build /tmp/conflux/<preset> --target conflux_examples
+BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" <preset>)"
+cmake --build "$BUILD_DIR" --target conflux_examples
 ```
 
 When `CONFLUX_BUILD_TESTS=ON`, CTest also exposes a build-only gate:
 
 ```bash
-ctest --test-dir /tmp/conflux/<preset> -R '^examples/compile$'
+ctest --test-dir "$BUILD_DIR" -R '^examples/compile$'
 ```
 
 This gate compiles all example executables available in the active feature set;

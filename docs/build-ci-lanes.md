@@ -95,7 +95,8 @@ Equivalent direct CTest invocation after configuring/building the preset:
 ```sh
 ctest --preset fuzz-clang-stdcxx
 # or
-ctest --test-dir /tmp/conflux/fuzz-clang-stdcxx -L fuzz-smoke --output-on-failure
+BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" fuzz-clang-stdcxx)"
+ctest --test-dir "$BUILD_DIR" -L fuzz-smoke --output-on-failure
 ```
 
 ## Performance build lane
@@ -145,7 +146,8 @@ rm -rf /tmp/conflux-pgo/clang
 mkdir -p /tmp/conflux-pgo/clang
 cmake --preset pgo-gen-clang-libcxx
 cmake --build --preset pgo-gen-clang-libcxx
-ctest --test-dir /tmp/conflux/pgo-gen-clang-libcxx --output-on-failure
+BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" pgo-gen-clang-libcxx)"
+ctest --test-dir "$BUILD_DIR" --output-on-failure
 llvm-profdata merge -output=/tmp/conflux-pgo/clang/merged.profdata \
     /tmp/conflux-pgo/clang/*.profraw
 cmake --preset pgo-use-clang-libcxx
@@ -156,7 +158,8 @@ rm -rf /tmp/conflux-pgo/gcc16
 mkdir -p /tmp/conflux-pgo/gcc16
 cmake --preset pgo-gen-gcc16-stdcxx
 cmake --build --preset pgo-gen-gcc16-stdcxx
-ctest --test-dir /tmp/conflux/pgo-gen-gcc16-stdcxx --output-on-failure
+BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" pgo-gen-gcc16-stdcxx)"
+ctest --test-dir "$BUILD_DIR" --output-on-failure
 cmake --preset pgo-use-gcc16-stdcxx
 cmake --build --preset pgo-use-gcc16-stdcxx
 ```
