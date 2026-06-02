@@ -901,6 +901,20 @@ def check_preset_build_dir_usage_contracts() -> None:
         "scripts/db_pipeline_live_evidence.sh": {
             'cmake-preset-build-dir.py "$REPO_ROOT" "$PRESET"': "DB pipeline evidence must validate configured preset",
         },
+        "benchmarks/README.md": {
+            'PERF_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" perf-clang-libcxx)"': "benchmark README must derive perf build dir from CMake presets",
+        },
+        "benchmarks/notes/json_direct_struct_bottlenecks.md": {
+            'PERF_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" perf-clang-libcxx)"': "JSON direct-struct benchmark note must derive perf build dir from CMake presets",
+        },
+        "docs/migration/examples.md": {
+            'cmake-preset-build-dir.py "$PWD" <preset>': "examples migration doc must derive build dir from CMake presets",
+        },
+        "docs/build-ci-lanes.md": {
+            'cmake-preset-build-dir.py "$PWD" fuzz-clang-stdcxx': "build CI lane doc must derive fuzz test dir from CMake presets",
+            'cmake-preset-build-dir.py "$PWD" pgo-gen-clang-libcxx': "build CI lane doc must derive Clang PGO test dir from CMake presets",
+            'cmake-preset-build-dir.py "$PWD" pgo-gen-gcc16-stdcxx': "build CI lane doc must derive GCC PGO test dir from CMake presets",
+        },
     }
     forbidden = {
         "scripts/check-changed-cxx.sh": {
@@ -930,6 +944,20 @@ def check_preset_build_dir_usage_contracts() -> None:
         },
         "scripts/bench_record.sh": {
             'PROJECT_TMP="/tmp/$(basename "$REPO_ROOT")"': "benchmark recorder debug cleanup must not hardcode /tmp/<repo>",
+        },
+        "benchmarks/README.md": {
+            "/tmp/<repo>/perf-clang-libcxx": "benchmark README must not hardcode perf preset build dirs",
+        },
+        "benchmarks/notes/json_direct_struct_bottlenecks.md": {
+            "/tmp/<repo>/perf-clang-libcxx": "JSON direct-struct benchmark note must not hardcode perf preset build dirs",
+        },
+        "docs/migration/examples.md": {
+            "/tmp/conflux/<preset>": "examples migration doc must not reconstruct preset build dirs",
+        },
+        "docs/build-ci-lanes.md": {
+            "ctest --test-dir /tmp/conflux/fuzz-clang-stdcxx": "build CI lane doc must not hardcode fuzz preset build dir",
+            "ctest --test-dir /tmp/conflux/pgo-gen-clang-libcxx": "build CI lane doc must not hardcode Clang PGO preset build dir",
+            "ctest --test-dir /tmp/conflux/pgo-gen-gcc16-stdcxx": "build CI lane doc must not hardcode GCC PGO preset build dir",
         },
     }
     errors: list[str] = []
