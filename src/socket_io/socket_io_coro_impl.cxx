@@ -160,6 +160,60 @@ template<class Submit>
 		});
 	return task;
 }
+
+template<class Submit>
+[[nodiscard]] wroot::Task<std::size_t> submit_cancellable_timeout_size_io(
+	TcpStreamState &st,
+	std::shared_ptr<void> keeper,
+	std::chrono::milliseconds timeout,
+	char const *error_context,
+	char const *timeout_context,
+	Submit &&submit) {
+	auto task_src = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto task = std::move(task_src.first);
+	auto shared_src = std::move(task_src.second);
+	auto ts = make_kernel_timespec(timeout);
+	auto state = std::make_shared<IoTimeoutState>();
+	auto [slot, gen] = st.ring->completions().reserve(
+		[shared_src, state, keeper = std::move(keeper), error_context, timeout_context](IoResult r) mutable {
+			try {
+				if (r.res == -ECANCELED) {
+					auto cause = state->stop_cause.load(std::memory_order_acquire);
+					if (cause == StopCause::user_cancel) {
+						auto _ = shared_src->try_set_cancelled(state->reason());
+					} else {
+						auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, timeout_context}));
+					}
+					return;
+				}
+				if (r.res < 0) {
+					auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, error_context}));
+					return;
+				}
+				auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
+			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+		});
+	std::uint64_t const ud = st.ring->encode(slot, gen);
+	auto [tslot, tgen] = st.ring->completions().reserve([ts, state](IoResult r) mutable {
+		if (r.res == -ETIME) {
+			state->mark_stop(StopCause::timeout);
+		}
+		auto _ = ts;
+	});
+	std::uint64_t const timeout_ud = st.ring->encode(tslot, tgen);
+	if (!std::invoke(std::forward<Submit>(submit), ud, timeout_ud, ts.get())) {
+		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
+		st.ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
+		return task;
+	}
+	auto ring_ptr = st.ring;
+	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, weak_src, state](wroot::CancelReason reason) noexcept {
+		state->mark_cancel(reason);
+		submit_cancel_for_ud(ring_ptr, ud, weak_src, state->reason());
+	});
+	return task;
+}
 // ─── TcpStream ───────────────────────────────────────────────────────────────
 
 [[nodiscard]] TcpStreamState &tcp_state(
@@ -322,51 +376,19 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_5 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = std::move(task_src_5.first);
-	auto shared_src = std::move(task_src_5.second);
 	OsFd const h = st.handle.get();
-	auto ts = make_kernel_timespec(timeout);
-	auto state = std::make_shared<IoTimeoutState>();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
-		try {
-			if (r.res == -ECANCELED) {
-				auto cause = state->stop_cause.load(std::memory_order_acquire);
-				if (cause == StopCause::user_cancel) {
-					auto _ = shared_src->try_set_cancelled(state->reason());
-				} else {
-					auto _ =
-						shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, "tcp: send timed out"}));
-				}
-				return;
-			}
-			if (r.res < 0) {
-				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: send"}));
-				return;
-			}
-			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-	});
-	std::uint64_t const send_ud = st.ring->encode(slot, gen);
-	auto [tslot, tgen] = st.ring->completions().reserve([ts, state](IoResult r) mutable {
-		if (r.res == -ETIME) {
-			state->mark_stop(StopCause::timeout);
-		}
-		auto _ = ts;
-	});
-	std::uint64_t const timeout_ud = st.ring->encode(tslot, tgen);
-	if (!submit_send_timeout_borrowed(st.ring->raw(), h, src.data(), src.size(), ts.get(), send_ud, timeout_ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
-		st.ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
-		return task;
-	}
-	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, send_ud, weak_src, state](wroot::CancelReason reason) noexcept {
-		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, send_ud, weak_src, state->reason());
-	});
-	return task;
+	return submit_cancellable_timeout_size_io(
+		st,
+		{},
+		timeout,
+		"tcp: send",
+		"tcp: send timed out",
+		[ring = st.ring,
+		 h,
+		 data = src.data(),
+		 size = src.size()](std::uint64_t ud, std::uint64_t timeout_ud, __kernel_timespec *ts) {
+			return submit_send_timeout_borrowed(ring->raw(), h, data, size, ts, ud, timeout_ud);
+		});
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src,
@@ -451,51 +473,19 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
 	}
-	auto task_src_6 = wroot::make_shared_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto task = std::move(task_src_6.first);
-	auto shared_src = std::move(task_src_6.second);
 	OsFd const h = st.handle.get();
-	auto ts = make_kernel_timespec(timeout);
-	auto state = std::make_shared<RecvTimeoutState>();
-	auto [slot, gen] = st.ring->completions().reserve([shared_src, ts, state](IoResult r) mutable {
-		try {
-			if (r.res == -ECANCELED) {
-				auto cause = state->stop_cause.load(std::memory_order_acquire);
-				if (cause == StopCause::user_cancel) {
-					auto _ = shared_src->try_set_cancelled(state->reason());
-				} else {
-					auto _ =
-						shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT, "tcp: recv timed out"}));
-				}
-				return;
-			}
-			if (r.res < 0) {
-				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "tcp: recv"}));
-				return;
-			}
-			auto _ = shared_src->try_set_value(wroot::Success<std::size_t>{static_cast<std::size_t>(r.res)});
-		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-	});
-	std::uint64_t const recv_ud = st.ring->encode(slot, gen);
-	auto [tslot, tgen] = st.ring->completions().reserve([ts, state](IoResult r) mutable {
-		if (r.res == -ETIME) {
-			state->mark_stop(StopCause::timeout);
-		}
-		auto _ = ts;
-	});
-	std::uint64_t const timeout_ud = st.ring->encode(tslot, tgen);
-	if (!submit_recv_timeout_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ts.get(), recv_ud, timeout_ud)) {
-		st.ring->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
-		st.ring->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
-		return task;
-	}
-	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
-		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, recv_ud, weak_src, state->reason());
-	});
-	return task;
+	return submit_cancellable_timeout_size_io(
+		st,
+		{},
+		timeout,
+		"tcp: recv",
+		"tcp: recv timed out",
+		[ring = st.ring,
+		 h,
+		 data = dst.data(),
+		 size = dst.size()](std::uint64_t ud, std::uint64_t timeout_ud, __kernel_timespec *ts) {
+			return submit_recv_timeout_borrowed(ring->raw(), h, data, size, ts, ud, timeout_ud);
+		});
 }
 // ─── ConnectOp ───────────────────────────────────────────────────────────────
 
