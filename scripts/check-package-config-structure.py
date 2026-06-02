@@ -1031,7 +1031,6 @@ def check_cmake_extraction_contracts() -> None:
             "include(ConfluxUringProbes)": "missing io_uring probe CMake module include",
             "conflux_configure_uring_probes(conflux_uring)": "root CMake must configure io_uring probes at the conflux_uring target",
             "include(ConfluxCompilerProbes)": "missing compiler probes CMake module include",
-            'conflux_apply_aesni_source_options("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx")': "crypto AES-NI source options must stay source-file scoped through the SIMD helper",
             "include(ConfluxOptionsTarget)": "missing options target CMake module include",
             "include(ConfluxCompilerWorkarounds)": "missing compiler workaround CMake module include",
             "include(ConfluxModuleLibrary)": "missing module-library helper CMake module include",
@@ -1092,6 +1091,9 @@ def check_cmake_extraction_contracts() -> None:
             'set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "-O0")': "template compiler workaround must stay source-file scoped",
             "GCC 15 currently ICEs": "compiler workaround must keep its GCC ICE motivation",
             "GNU release builds have needed this fallback for the HTTP send": "HTTP server compiler workaround must keep its GNU release-build motivation",
+        },
+        "cmake/components/CryptoTargets.cmake": {
+            'conflux_apply_aesni_source_options("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx")': "crypto AES-NI source options must stay source-file scoped through the SIMD helper",
         },
         "tests/HttpFacadeTests.cmake": {
             'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
