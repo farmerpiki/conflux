@@ -21,9 +21,9 @@ import conflux.socket_io.blocking;
 
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
-using conflux::socket_io::SyncWaitSocketTaskTimeout;
 using conflux::socket_io::ConnectOptions;
 using conflux::socket_io::SocketRawRing;
+using conflux::socket_io::SyncWaitSocketTaskTimeout;
 using conflux::socket_io::TcpStream;
 using conflux::socket_io::UdpSocket;
 using conflux::uring::CompletionTable;
@@ -31,6 +31,7 @@ using conflux::uring::UserDataFn;
 using conflux::utils::ascii_lower;
 using conflux::utils::ascii_lower_inplace;
 using conflux::utils::LineRange;
+using conflux::utils::trim;
 using conflux::work::Cancelled;
 using conflux::work::join_all;
 
@@ -74,16 +75,6 @@ struct ResolvConfig {
 	std::chrono::milliseconds query_timeout{0};
 	size_t attempts{1};
 };
-[[nodiscard]] std::string trim_ascii_copy(
-	std::string_view sv) {
-	while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r')) {
-		sv.remove_prefix(1);
-	}
-	while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t' || sv.back() == '\r')) {
-		sv.remove_suffix(1);
-	}
-	return std::string{sv};
-}
 [[nodiscard]] std::optional<size_t> parse_decimal_size(
 	std::string_view sv) noexcept {
 	if (sv.empty()) {
@@ -137,7 +128,7 @@ void parse_resolv_options(
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		std::string token = trim_ascii_copy(end == std::string_view::npos ? rest : rest.substr(0, end));
+		std::string token{trim(end == std::string_view::npos ? rest : rest.substr(0, end))};
 		if (end == std::string_view::npos) {
 			rest = {};
 		} else {
@@ -170,7 +161,7 @@ void parse_resolv_options(
 			if (auto comment = line.find_first_of("#;"); comment != std::string::npos) {
 				line.resize(comment);
 			}
-			auto trimmed = trim_ascii_copy(line);
+			auto trimmed = trim(line);
 			if (trimmed.empty()) {
 				continue;
 			}
@@ -181,8 +172,7 @@ void parse_resolv_options(
 				rest = std::string_view{trimmed.data() + split + 1, trimmed.size() - split - 1};
 			}
 			if (key == "nameserver") {
-				auto const sv = trim_ascii_copy(rest);
-				if (auto ns = parse_nameserver(sv); ns.has_value()) {
+				if (auto ns = parse_nameserver(trim(rest)); ns.has_value()) {
 					out.nameservers.push_back(*ns);
 				}
 				continue;
