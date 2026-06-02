@@ -17,6 +17,7 @@ production-style codegen.
 ```sh
 cmake --preset perf-clang-libcxx
 cmake --build --preset perf-clang-libcxx --target conflux_record_benches
+PERF_BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" perf-clang-libcxx)"
 ```
 
 or:
@@ -56,7 +57,7 @@ lookup-specialization changes.
 Before changing the cutoff or extending this to reflected decode, rerun at least:
 
 ```sh
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_bench --filter 'decode/manual/reader/direct/wide'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_bench" --filter 'decode/manual/reader/direct/wide'
 ```
 
 Acceptance evidence should include all-known and unknown-heavy rows, plus
@@ -85,17 +86,17 @@ policy, number lexing, fixed numeric array decode, or string decode:
 
 ```sh
 cmake --build --preset perf-clang-libcxx --target conflux_json_direct_struct_bench
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'order/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'duplicate/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'numeric/'
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench --json --filter 'strings/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'order/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'duplicate/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'numeric/'
+"$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" --json --filter 'strings/'
 ```
 
 For branch comparisons, capture both wall-time rows and hardware counters:
 
 ```sh
-scripts/bench_perf_stat.py /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench -- --filter 'order/'
-scripts/bench_perf_stat.py /tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_json_direct_struct_bench -- --filter 'numeric/'
+scripts/bench_perf_stat.py "$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" -- --filter 'order/'
+scripts/bench_perf_stat.py "$PERF_BUILD_DIR/benchmarks/conflux_json_direct_struct_bench" -- --filter 'numeric/'
 ```
 
 P2996 reflected rows in `conflux_json_reflect_bench` mirror the medium
@@ -114,7 +115,7 @@ builds keep the same benchmark target set.
 
 ```sh
 cmake --build --preset perf-clang-libcxx --target conflux_cpu_dispatch_impl_bench
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_cpu_dispatch_impl_bench --json
+"$PERF_BUILD_DIR/benchmarks/conflux_cpu_dispatch_impl_bench" --json
 ```
 
 
@@ -149,12 +150,12 @@ target produces an executable, tool versions, and the exact commands used.
 ## Running individual binaries
 
 ```sh
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --list
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --filter router
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --iterations 50000
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --format csv
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_benchmarks --csv   # alias for --format csv
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks"
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks" --list
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks" --filter router
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks" --iterations 50000
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks" --format csv
+"$PERF_BUILD_DIR/benchmarks/conflux_benchmarks" --csv   # alias for --format csv
 ```
 
 ## HTTP/1.1 representative workload gate
@@ -172,8 +173,8 @@ common middleware, large responses/static files, and connect-close lifecycle
 pressure.
 
 ```sh
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_http11_representative_bench --list
-/tmp/<repo>/perf-clang-libcxx/benchmarks/conflux_http11_representative_bench \
+"$PERF_BUILD_DIR/benchmarks/conflux_http11_representative_bench" --list
+"$PERF_BUILD_DIR/benchmarks/conflux_http11_representative_bench" \
   --json --workload api_mixed_middleware --duration 30 --warmup 5
 ```
 
