@@ -1633,6 +1633,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")': "tests CMake must include the test discovery registration fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
         },
         "tests/BuildAndDocsChecks.cmake": {
@@ -1658,6 +1659,11 @@ def check_build_docs_guard_contracts() -> None:
             "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
             "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
             "function(conflux_discover_db_integration_tests target)": "test helper fragment must centralize DB integration discovery",
+        },
+        "tests/TestDiscovery.cmake": {
+            "include(CTest)": "test discovery fragment must enable CTest",
+            "conflux_discover_stress_tests(conflux_http_full_drain_contract_e2e)": "test discovery fragment must register full-drain stress tests",
+            "conflux_discover_db_integration_tests(conflux_db_integration)": "test discovery fragment must register DB integration discovery",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
