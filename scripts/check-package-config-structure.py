@@ -1129,6 +1129,7 @@ def check_script_default_benchmark_targets() -> None:
         "CMakeLists.txt",
         "benchmarks/CMakeLists.txt",
         "tests/CMakeLists.txt",
+        "tests/ApiSurfaceImportTests.cmake",
         "tests/CoreTests.cmake",
         "tests/DbTests.cmake",
         "tests/DnsSurfaceTests.cmake",
@@ -1659,6 +1660,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/ApiSurfaceImportTests.cmake")': "tests CMake must include the API surface import smoke fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/MainTests.cmake")': "tests CMake must include the main test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
@@ -1712,6 +1714,11 @@ def check_build_docs_guard_contracts() -> None:
             "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
             "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
             "function(conflux_discover_db_integration_tests target)": "test helper fragment must centralize DB integration discovery",
+        },
+        "tests/ApiSurfaceImportTests.cmake": {
+            "add_executable(conflux_api_surface_core_import_smoke": "API surface import fragment must define core import smoke",
+            "conflux_api_surface_${_surface}_import_smoke": "API surface import fragment must define aggregate import smokes",
+            "api-surface/import-${_surface}": "API surface import fragment must register aggregate import CTests",
         },
         "tests/MainTests.cmake": {
             "add_executable(conflux_tests)": "main test fragment must define the main test target",
