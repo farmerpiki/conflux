@@ -572,14 +572,7 @@ struct Response {
 		std::initializer_list<std::string_view> allowed = {}) {
 		auto r = html(response_html_error_body(kHttpMethodNotAllowed, "Method Not Allowed"), kHttpMethodNotAllowed);
 		if (allowed.size() > 0) {
-			std::string allow;
-			for (auto it = allowed.begin(); it != allowed.end(); ++it) {
-				if (it != allowed.begin()) {
-					allow += ", ";
-				}
-				allow += *it;
-			}
-			r.headers["Allow"] = std::move(allow);
+			r.headers["Allow"] = conflux::http::join_header_tokens(allowed);
 		}
 		return r;
 	}

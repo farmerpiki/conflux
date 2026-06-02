@@ -546,6 +546,29 @@ public:
 	return HeaderTokenView{header_value};
 }
 
+template<std::ranges::input_range Range>
+[[nodiscard]] std::string join_header_tokens(
+	Range const &tokens) {
+	std::size_t total = 0;
+	std::size_t count = 0;
+	for (auto const &token: tokens) {
+		total += std::string_view{token}.size();
+		++count;
+	}
+	if (count > 1) {
+		total += (count - 1) * 2;
+	}
+	std::string out;
+	out.reserve(total);
+	for (auto const &token: tokens) {
+		if (!out.empty()) {
+			out += ", ";
+		}
+		out += std::string_view{token};
+	}
+	return out;
+}
+
 [[nodiscard]] constexpr std::size_t find_unquoted_header_delim(
 	std::string_view s,
 	char needle,

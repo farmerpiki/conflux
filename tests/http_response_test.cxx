@@ -117,6 +117,15 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http response: join_header_tokens renders comma-separated field values",
+	"[http.response]") {
+	std::vector<std::string> tokens{"GET", "POST", "OPTIONS"};
+	CHECK(conflux::http::join_header_tokens(tokens) == "GET, POST, OPTIONS");
+	CHECK(conflux::http::join_header_tokens(std::array<std::string_view, 1>{"Origin"}) == "Origin");
+	CHECK(conflux::http::join_header_tokens(std::array<std::string_view, 0>{}).empty());
+}
+
+TEST_CASE(
 	"http response: content_length follows body kind and explicit HEAD hint",
 	"[http.response]") {
 	conflux::http::Response resp = conflux::http::Response::text("hello");

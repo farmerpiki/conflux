@@ -6,6 +6,7 @@ import conflux.net.router;
 import conflux.net.http.response;
 
 export namespace conflux::http {
+
 constexpr unsigned kCorsDefaultMaxAge = 86400U; // 24 hours
 struct CorsOptions {
 	std::vector<std::string> allowed_origins{"*"};
@@ -17,26 +18,6 @@ struct CorsOptions {
 };
 namespace cors_detail {
 
-// Join a V of strings with ", ".
-std::string join(
-	std::vector<std::string> const &v) {
-	std::size_t total = 0;
-	for (auto const &e: v) {
-		total += e.size();
-	}
-	if (v.size() > 1) {
-		total += (v.size() - 1) * 2;
-	}
-	std::string s;
-	s.reserve(total);
-	for (auto const &e: v) {
-		if (!s.empty()) {
-			s += ", ";
-		}
-		s += e;
-	}
-	return s;
-}
 [[nodiscard]] std::string decimal_string(
 	unsigned value) {
 	std::array<char, 16> buf{};
@@ -57,9 +38,9 @@ struct PreparedCorsOptions {
 	explicit PreparedCorsOptions(
 		CorsOptions options)
 		: opts(std::move(options))
-		, allowed_methods(join(opts.allowed_methods))
-		, allowed_headers(join(opts.allowed_headers))
-		, expose_headers(join(opts.expose_headers))
+		, allowed_methods(join_header_tokens(opts.allowed_methods))
+		, allowed_headers(join_header_tokens(opts.allowed_headers))
+		, expose_headers(join_header_tokens(opts.expose_headers))
 		, max_age(decimal_string(opts.max_age))
 		, wildcard_origin(opts.allowed_origins.size() == 1 && opts.allowed_origins[0] == "*") {}
 };
