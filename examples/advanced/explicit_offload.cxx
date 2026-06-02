@@ -6,8 +6,6 @@
 //   curl -X POST http://localhost:9111/api/hash
 //        -H 'Content-Type: application/json' -d '{"input":"conflux","rounds":200}'
 import conflux.extended;
-import conflux.net.http.server_types;
-import conflux.net.http.native_json;
 import std;
 
 namespace http = conflux::http;
@@ -83,20 +81,15 @@ static std::uint64_t hash_rounds(
 int main() {
 	auto app = http::App::default_server();
 
-	WorkPool pool{
-		WorkPoolOptions{
-						.threads = 2,
-						.max_inject_queue = 128,
-						.queue_mode = WorkPoolQueueMode::no_stealing,
-						.worker_name_prefix = "cf-hash",
-						}
-    };
+	auto pool_options = WorkPoolOptions{
+		.threads = 2,
+		.max_inject_queue = 128,
+		.queue_mode = WorkPoolQueueMode::no_stealing,
+		.worker_name_prefix = "cf-hash",
+	};
+	WorkPool pool{pool_options};
 
-	app.get("/api/status", [] {
-		return http::Json{
-			StatusReply{.status = "ok", .placement = "ring-thread"}
-        };
-	});
+	app.get("/api/status", [] { return http::json(StatusReply{.status = "ok", .placement = "ring-thread"}); });
 
 	app.post("/api/hash", [&pool](http::Json<HashRequest> const &body) -> http::Result<http::Response> {
 		if (body->input.empty()) {
@@ -109,7 +102,7 @@ int main() {
 
 		HashRequest request = *body;
 		return http::offload(pool, [request = std::move(request)] {
-			return http::codec::json::response_or_internal_error(
+			return http::json(
 				HashReply{
 					.algorithm = "fnv1a64",
 					.rounds = request.rounds,

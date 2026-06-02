@@ -233,7 +233,35 @@ def case_production_showcase() -> None:
     assert_body_contains(metrics, b"http_requests_total")
 
 
+def case_explicit_offload() -> None:
+    status = http_request(9111, "GET", "/api/status")
+    assert_status(status, "HTTP/1.1 200")
+    assert_body_contains(status, b"ring-thread")
+
+    invalid = http_request(
+        9111,
+        "POST",
+        "/api/hash",
+        {"Content-Type": "application/json"},
+        b'{"input":"conflux","rounds":1001}',
+    )
+    assert_status(invalid, "HTTP/1.1 400")
+    assert_body_contains(invalid, b"rounds must be between 1 and 1000")
+
+    hashed = http_request(
+        9111,
+        "POST",
+        "/api/hash",
+        {"Content-Type": "application/json"},
+        b'{"input":"conflux","rounds":3}',
+    )
+    assert_status(hashed, "HTTP/1.1 200")
+    assert_body_contains(hashed, b"fnv1a64")
+    assert_body_contains(hashed, b'"rounds":3')
+
+
 CASES: dict[str, tuple[int, Callable[[], None]]] = {
+    "explicit_offload": (9111, case_explicit_offload),
     "quickstart_hello": (9090, case_quickstart_hello),
     "quickstart_json_crud": (9110, case_quickstart_json_crud),
     "quickstart_static_files": (9095, case_quickstart_static_files),
