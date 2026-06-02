@@ -1633,6 +1633,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/MainTests.cmake")': "tests CMake must include the main test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
@@ -1667,6 +1668,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
             "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
             "function(conflux_discover_db_integration_tests target)": "test helper fragment must centralize DB integration discovery",
+        },
+        "tests/MainTests.cmake": {
+            "add_executable(conflux_tests)": "main test fragment must define the main test target",
+            "http_e2e_middleware.cxx": "main test fragment must keep middleware e2e source wiring",
+            "target_include_directories(conflux_tests PRIVATE \"${CMAKE_SOURCE_DIR}/src/net\")": "main test fragment must keep net-private include path",
+            "target_link_libraries(conflux_tests PRIVATE ZLIB::ZLIB)": "main test fragment must keep optional ZLIB edge",
         },
         "tests/CoreTests.cmake": {
             "add_executable(conflux_crypto_tests crypto_test.cxx)": "core test fragment must define crypto tests",
