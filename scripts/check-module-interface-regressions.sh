@@ -102,9 +102,9 @@ require_contains cmake/ConfluxOptions.cmake 'CONFLUX_JSON_REFLECT AND CMAKE_CXX_
     'reflection/import-std handling for standard-library module sources'
 require_contains cmake/ConfluxOptions.cmake 'PROPERTIES COMPILE_OPTIONS "\$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}"' \
     'reflection compile options on standard-library module sources'
-require_contains CMakeLists.txt 'target_compile_options\(conflux_json_reflect PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
+require_contains cmake/components/JsonTargets.cmake 'target_compile_options\(conflux_json_reflect PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
     'reflection compile options on the JSON reflection target'
-require_contains CMakeLists.txt 'target_compile_options\(conflux_json_reflect_provider PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
+require_contains cmake/components/JsonTargets.cmake 'target_compile_options\(conflux_json_reflect_provider PUBLIC \$\{CONFLUX_REFLECTION_COMPILE_OPTIONS\}\)' \
     'reflection compile options on the JSON reflection provider target'
 if grep -R -E '451f2fe2|d0edc3af|a9e1cf81|0e5b6991|CMAKE_EXPERIMENTAL_CXX_IMPORT_STD' \
         "$SOURCE_DIR/CMakeLists.txt" "$SOURCE_DIR/cmake" \
@@ -112,13 +112,13 @@ if grep -R -E '451f2fe2|d0edc3af|a9e1cf81|0e5b6991|CMAKE_EXPERIMENTAL_CXX_IMPORT
     fail 'CMake import-std experiment UUIDs must only live in cmake/ConfluxImportStdGate.cmake'
 fi
 
-if ! python3 - "$SOURCE_DIR/CMakeLists.txt" <<'PY'
+if ! python3 - "$SOURCE_DIR/CMakeLists.txt" "$SOURCE_DIR/cmake/components/RuntimeTargets.cmake" <<'PY'
 from __future__ import annotations
 import re
 import sys
 from pathlib import Path
 
-cmake = Path(sys.argv[1]).read_text()
+cmake = "\n".join(Path(path).read_text() for path in sys.argv[1:])
 cmake_for_match = cmake.replace("${CONFLUX_SRC_ROOT}/", "src/")
 failures: list[str] = []
 
@@ -152,7 +152,7 @@ def calls_for(command: str, name: str) -> list[str]:
 def require_private_impl(target: str, path: str) -> None:
     calls = calls_for("target_sources", target) + calls_for("conflux_add_module_library", target)
     if not calls:
-        failures.append(f"CMakeLists.txt: missing source registration for {target}")
+        failures.append(f"CMake target files: missing source registration for {target}")
         return
     public_hits = [call for call in calls if path in call and "PUBLIC FILE_SET CXX_MODULES" in call]
     if public_hits:

@@ -143,44 +143,6 @@ target_compile_definitions(conflux_net_tls PUBLIC CONFLUX_HAS_TLS=1)
 endif() # CONFLUX_HAS_TLS && HTTP/TLS consumer
 
 
-if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
-    foreach(_conflux_json_reflect_dep IN ITEMS
-            conflux_types
-            conflux_json
-            conflux_json_boundary
-            conflux_json_native_provider)
-        if(TARGET ${_conflux_json_reflect_dep})
-            target_compile_options(${_conflux_json_reflect_dep} PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
-        endif()
-    endforeach()
-
-    add_library(conflux_json_reflect STATIC)
-    target_compile_features(conflux_json_reflect PUBLIC cxx_std_26)
-    target_sources(conflux_json_reflect
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES ${CONFLUX_SRC_ROOT}/json_reflect.cxx
-    )
-    target_link_libraries(conflux_json_reflect
-        PUBLIC  conflux_json conflux_types
-        PRIVATE conflux_options
-    )
-    target_compile_options(conflux_json_reflect PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
-
-    add_library(conflux_json_reflect_provider STATIC)
-    target_sources(conflux_json_reflect_provider
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CONFLUX_SRC_ROOT}"
-            FILES ${CONFLUX_SRC_ROOT}/json_reflect_provider.cxx
-    )
-    target_link_libraries(conflux_json_reflect_provider
-        PUBLIC  conflux_json_reflect conflux_json_native_provider conflux_json_boundary
-        PRIVATE conflux_options
-    )
-    target_compile_options(conflux_json_reflect_provider PUBLIC ${CONFLUX_REFLECTION_COMPILE_OPTIONS})
-    message(STATUS "conflux: JSON P2996 reflection codec enabled (${CONFLUX_REFLECTION_COMPILE_OPTIONS})")
-endif()
-
 add_library(conflux_direct_slot_pool STATIC)
 target_sources(conflux_direct_slot_pool
     PUBLIC FILE_SET CXX_MODULES
