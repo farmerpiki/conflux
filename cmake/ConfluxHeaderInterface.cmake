@@ -243,6 +243,8 @@ function(conflux_install_generated_header_file relpath)
     if(NOT EXISTS "${_source}")
         return()
     endif()
+    set_property(GLOBAL APPEND PROPERTY
+        CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS "${relpath}")
     get_filename_component(_dest_dir "${relpath}" DIRECTORY)
     if(_dest_dir)
         install(FILES "${_source}"
@@ -256,6 +258,9 @@ endfunction()
 function(conflux_install_generated_header_component name)
     conflux_install_generated_header_file("conflux/${name}.hxx")
     if(EXISTS "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${name}")
+        file(GLOB_RECURSE _component_headers
+            RELATIVE "${CONFLUX_GENERATED_INCLUDE_DIR}"
+            "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${name}/*.hxx")
         set(_install_args
             DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${name}/"
             DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux/${name}")
@@ -263,9 +268,59 @@ function(conflux_install_generated_header_component name)
             list(APPEND _install_args
                 PATTERN "reflect.hxx" EXCLUDE
                 PATTERN "reflect_provider.hxx" EXCLUDE)
+            list(FILTER _component_headers EXCLUDE REGEX
+                "^conflux/json/(reflect|reflect_provider)\\.hxx$")
         endif()
         install(${_install_args})
+        foreach(_component_header IN LISTS _component_headers)
+            set_property(GLOBAL APPEND PROPERTY
+                CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS
+                "${_component_header}")
+        endforeach()
     endif()
+endfunction()
+
+function(conflux_collect_generated_detail_includes out)
+    set(_queue ${ARGN})
+    set(_seen)
+    set(_detail_headers)
+    while(_queue)
+        list(POP_FRONT _queue _relpath)
+        if(_relpath IN_LIST _seen)
+            continue()
+        endif()
+        list(APPEND _seen "${_relpath}")
+        set(_source "${CONFLUX_GENERATED_INCLUDE_DIR}/${_relpath}")
+        if(NOT EXISTS "${_source}")
+            continue()
+        endif()
+        file(READ "${_source}" _text)
+        string(REGEX MATCHALL
+            "#[ \t]*include[ \t]*<conflux/detail/generated/[^>]+>"
+            _matches "${_text}")
+        foreach(_match IN LISTS _matches)
+            string(REGEX REPLACE ".*<([^>]+)>.*" "\\1" _detail_header "${_match}")
+            if(NOT _detail_header IN_LIST _detail_headers)
+                list(APPEND _detail_headers "${_detail_header}")
+                list(APPEND _queue "${_detail_header}")
+            endif()
+        endforeach()
+    endwhile()
+    set(${out} "${_detail_headers}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_install_generated_detail_headers)
+    get_property(_installed_headers GLOBAL PROPERTY
+        CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS)
+    if(NOT _installed_headers)
+        return()
+    endif()
+    list(REMOVE_DUPLICATES _installed_headers)
+    conflux_collect_generated_detail_includes(_detail_headers
+        ${_installed_headers})
+    foreach(_detail_header IN LISTS _detail_headers)
+        conflux_install_generated_header_file("${_detail_header}")
+    endforeach()
 endfunction()
 
 function(conflux_install_registered_public_headers)
@@ -354,8 +409,7 @@ function(conflux_install_registered_public_headers)
             DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/conflux")
     endif()
 
-    install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail/generated)
+    conflux_install_generated_detail_headers()
 endfunction()
 
 conflux_any_target_links_item(CONFLUX_INSTALL_NEEDS_LIBURING

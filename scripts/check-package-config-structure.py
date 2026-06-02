@@ -1041,6 +1041,9 @@ def check_cmake_extraction_contracts() -> None:
             "header implementation component": "header implementation metadata validation must reject mismatched component/target pairs",
             "must use the header_impl_ package namespace": "header implementation metadata validation must enforce generated impl component namespace",
             "must pair with target 'conflux_${_component}'": "header implementation metadata validation must pair impl components with matching targets",
+            "CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS": "header interface must track generated public headers selected for install",
+            "function(conflux_collect_generated_detail_includes out)": "header interface must collect generated detail includes from installed public headers",
+            "function(conflux_install_generated_detail_headers)": "header interface must install only referenced generated detail headers",
         },
         "cmake/ConfluxComponentValidation.cmake": {
             "function(conflux_require_component_flag request_var dependency_var diagnostic)": "component validation module must centralize simple component prerequisite checks",
@@ -1339,6 +1342,7 @@ def check_package_smoke_wrapper_contracts() -> None:
         },
         "scripts/check-package-smoke-core-isolated.sh": {
             "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
+            "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
         },
         "scripts/check-package-smoke-runtime.sh": {
             "pkg-config --exists liburing": "runtime package smoke must gate on real liburing",
@@ -1978,6 +1982,9 @@ def check_package_metadata_generator_contract() -> None:
     missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
     if missing:
         fail("\n".join(missing))
+    header_interface = read("cmake/ConfluxHeaderInterface.cmake")
+    if 'install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"' in header_interface:
+        fail("header interface must not install the entire generated detail header directory")
 
 
 def check_package_smoke_external_tokens() -> None:
