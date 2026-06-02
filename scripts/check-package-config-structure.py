@@ -1248,12 +1248,37 @@ def package_smoke_wrapper_default_components() -> dict[str, str]:
 
 def check_package_smoke_wrapper_default_components() -> None:
     public_components = public_component_exports_from_registry()
+    expected_defaults = {
+        "scripts/check-package-smoke-core-isolated.sh": "core",
+        "scripts/check-package-smoke-liburing-free.sh": "core;json;file_io_sync",
+        "scripts/check-package-smoke-runtime.sh": "core;json;http;file_io_sync;work",
+        "scripts/check-package-smoke-db.sh": "core;json;pg",
+        "scripts/check-package-smoke-mixed-module-header.sh": "core;json;http",
+        "scripts/check-public-module-import-smoke.sh": "core;json;http",
+    }
     errors: list[str] = []
-    for path, components in package_smoke_wrapper_default_components().items():
+    defaults = package_smoke_wrapper_default_components()
+    if set(defaults) != set(expected_defaults):
+        append_set_delta_errors(
+            errors,
+            set(expected_defaults),
+            set(defaults),
+            "package smoke wrapper defaults missing scripts: ",
+            "package smoke wrapper defaults contain unexpected scripts: ",
+        )
+    for path, components in defaults.items():
         requested = [component for component in components.split(";") if component]
         if not requested:
             errors.append(f"{path}: wrapper default package smoke components must be non-empty")
             continue
+        expected = [component for component in expected_defaults.get(path, "").split(";") if component]
+        if expected and requested != expected:
+            errors.append(
+                f"{path}: wrapper default package smoke components changed: "
+                + ";".join(requested)
+                + " != "
+                + ";".join(expected),
+            )
         unknown = sorted(component for component in requested if component not in public_components)
         if unknown:
             errors.append(
@@ -1267,21 +1292,17 @@ def check_package_smoke_wrapper_default_components() -> None:
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
         "scripts/check-package-smoke-liburing-free.sh": {
-            "core;json;file_io_sync": "liburing-free package smoke must request only liburing-free components",
             "LIBURING;LIBPQ;OPENSSL": "liburing-free package smoke must explicitly forbid runtime/db/tls external deps",
         },
         "scripts/check-package-smoke-core-isolated.sh": {
             "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
-            "--components core": "core-isolated package smoke must request only core",
         },
         "scripts/check-package-smoke-runtime.sh": {
-            "core;json;http;file_io_sync;work": "runtime package smoke must request work/http components",
             "pkg-config --exists liburing": "runtime package smoke must gate on real liburing",
         },
         "scripts/check-package-smoke-db.sh": {
             "pkg-config --exists libpq": "DB package smoke must gate on libpq",
             "pkg-config --exists liburing": "DB package smoke must gate on real liburing",
-            "core;json;pg": "DB package smoke must request the exported pg component",
             "--enable-db-smoke": "DB package smoke must enable DB component checks",
         },
     }
