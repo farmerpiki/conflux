@@ -172,6 +172,77 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
+struct StaticRangeParseResult {
+	bool range_request{};
+	bool unsatisfiable{};
+	std::size_t start{};
+	std::size_t end{};
+};
+
+[[nodiscard]] bool parse_static_range_size(
+	std::string_view text,
+	std::size_t &out) noexcept {
+	if (text.empty()) {
+		return false;
+	}
+	auto const *first = text.data();
+	auto const *last = std::ranges::next(text.data(), ssize(text));
+	auto [ptr, ec] = std::from_chars(first, last, out);
+	return ec == std::errc{} && ptr == last;
+}
+
+[[nodiscard]] StaticRangeParseResult parse_static_range_request(
+	std::string_view range_header,
+	std::size_t file_size) noexcept {
+	StaticRangeParseResult result{.start = 0, .end = file_size - 1};
+	if (range_header.empty() || !range_header.starts_with("bytes=")) {
+		return result;
+	}
+	auto const spec = range_header.substr(6);
+	auto const dash = spec.find('-');
+	if (dash == std::string_view::npos) {
+		return result;
+	}
+
+	auto const start_text = spec.substr(0, dash);
+	auto const end_text = spec.substr(dash + 1);
+	std::size_t start = 0;
+	std::size_t end = file_size - 1;
+	bool ok = true;
+	bool satisfiable = false;
+
+	if (start_text.empty()) {
+		std::size_t suffix_len = 0;
+		ok = parse_static_range_size(end_text, suffix_len);
+		if (ok && suffix_len > 0) {
+			start = suffix_len >= file_size ? 0 : file_size - suffix_len;
+			end = file_size - 1;
+			satisfiable = true;
+		}
+	} else {
+		ok = parse_static_range_size(start_text, start);
+		if (ok && !end_text.empty()) {
+			ok = parse_static_range_size(end_text, end);
+		}
+		if (ok) {
+			end = std::min(end, file_size - 1);
+			satisfiable = start < file_size && start <= end;
+		}
+	}
+
+	if (!ok) {
+		return result;
+	}
+	if (!satisfiable) {
+		result.unsatisfiable = true;
+		return result;
+	}
+	result.range_request = true;
+	result.start = start;
+	result.end = end;
+	return result;
+}
+
 [[nodiscard]] std::string_view static_mime_type(
 	std::string_view file_param) noexcept {
 	auto const ext_pos = file_param.rfind('.');
@@ -663,65 +734,23 @@ conflux::http::Response handle_static_get(
 			return base_response(kHttpOk, "OK");
 		}
 
-		// Parse Range header for partial content (only supported when no precompression applied).
 		std::size_t range_start = 0;
 		std::size_t range_end = file_size - 1;
 		bool is_range_request = false;
 		if (content_encoding.empty()) {
-			auto const &range_hdr = r.range;
-			if (!range_hdr.empty() && range_hdr.starts_with("bytes=")) {
-				auto spec = std::string_view{range_hdr}.substr(6);
-				auto dash = spec.find('-');
-				if (dash != std::string_view::npos) {
-					auto start_sv = spec.substr(0, dash);
-					auto end_sv = spec.substr(dash + 1);
-					std::size_t rs = 0;
-					std::size_t re = file_size - 1;
-					bool ok = true;
-					bool satisfiable = false;
-					auto parse_size = [](std::string_view s, std::size_t &out) {
-						if (s.empty()) {
-							return false;
-						}
-						auto const *first = s.data();
-						auto const *last = std::ranges::next(s.data(), ssize(s));
-						auto [p, ec] = std::from_chars(first, last, out);
-						return ec == std::errc{} && p == last;
-					};
-
-					if (start_sv.empty()) {
-						std::size_t suffix_len = 0;
-						ok = parse_size(end_sv, suffix_len);
-						if (ok && suffix_len > 0) {
-							rs = suffix_len >= file_size ? 0 : file_size - suffix_len;
-							re = file_size - 1;
-							satisfiable = true;
-						}
-					} else {
-						ok = parse_size(start_sv, rs);
-						if (ok && !end_sv.empty()) {
-							ok = parse_size(end_sv, re);
-						}
-						if (ok) {
-							re = std::min(re, file_size - 1);
-							satisfiable = rs < file_size && rs <= re;
-						}
-					}
-
-					if (ok && satisfiable) {
-						range_start = rs;
-						range_end = re;
-						is_range_request = true;
-					} else if (ok) {
-						// Range not satisfiable
-						auto resp = conflux::http::Response{};
-						resp.status = kHttpRangeNotSatisfiable;
-						resp.status_text = "Range Not Satisfiable";
-						resp.content_type = "text/plain; charset=utf-8";
-						resp.headers["Content-Range"] = static_unsatisfied_content_range(file_size);
-						return resp;
-					}
-				}
+			auto const range = parse_static_range_request(r.range, file_size);
+			if (range.unsatisfiable) {
+				auto resp = conflux::http::Response{};
+				resp.status = kHttpRangeNotSatisfiable;
+				resp.status_text = "Range Not Satisfiable";
+				resp.content_type = "text/plain; charset=utf-8";
+				resp.headers["Content-Range"] = static_unsatisfied_content_range(file_size);
+				return resp;
+			}
+			if (range.range_request) {
+				range_start = range.start;
+				range_end = range.end;
+				is_range_request = true;
 			}
 		}
 
