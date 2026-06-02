@@ -1633,6 +1633,7 @@ def check_build_docs_guard_contracts() -> None:
     checks = {
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")': "tests CMake must include the test discovery registration fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
         },
@@ -1662,8 +1663,15 @@ def check_build_docs_guard_contracts() -> None:
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
+            "conflux_discover_tests(conflux_json_conformance_external)": "test discovery fragment must register JSON conformance tests",
+            "conflux_discover_tests(conflux_json_testsuite_gate)": "test discovery fragment must register JSONTestSuite gate when available",
             "conflux_discover_stress_tests(conflux_http_full_drain_contract_e2e)": "test discovery fragment must register full-drain stress tests",
             "conflux_discover_db_integration_tests(conflux_db_integration)": "test discovery fragment must register DB integration discovery",
+        },
+        "tests/JsonTests.cmake": {
+            "add_executable(conflux_json_tests json_test.cxx)": "JSON test fragment must define the main JSON test target",
+            "add_executable(conflux_json_conformance_external json_conformance_external.cxx)": "JSON test fragment must define external conformance tests",
+            "add_executable(conflux_json_testsuite_gate json_testsuite_gate.cxx)": "JSON test fragment must define JSONTestSuite gate target when available",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
