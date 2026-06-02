@@ -1034,6 +1034,7 @@ def check_cmake_extraction_contracts() -> None:
             "include(ConfluxComponentValidation)": "header interface must run component validation before defining header targets",
             "function(conflux_header_support_component target export_name)": "header support component metadata must use the shared header helper",
             "conflux_header_support_component(conflux_headers headers)": "headers support component must use the shared header helper",
+            "include(ConfluxHeaderInstall)": "header interface must delegate header install helpers to ConfluxHeaderInstall.cmake",
             "function(conflux_validate_header_impl_metadata)": "header implementation metadata lists must be validated before package metadata assembly",
             "header implementation metadata lists are out of sync": "header implementation metadata validation must reject out-of-sync lists",
             "header implementation target '${_target}' is listed more than once": "header implementation metadata validation must reject duplicate targets",
@@ -1041,9 +1042,12 @@ def check_cmake_extraction_contracts() -> None:
             "header implementation component": "header implementation metadata validation must reject mismatched component/target pairs",
             "must use the header_impl_ package namespace": "header implementation metadata validation must enforce generated impl component namespace",
             "must pair with target 'conflux_${_component}'": "header implementation metadata validation must pair impl components with matching targets",
-            "CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS": "header interface must track generated public headers selected for install",
-            "function(conflux_collect_generated_detail_includes out)": "header interface must collect generated detail includes from installed public headers",
-            "function(conflux_install_generated_detail_headers)": "header interface must install only referenced generated detail headers",
+        },
+        "cmake/ConfluxHeaderInstall.cmake": {
+            "CONFLUX_HEADER_INSTALLED_GENERATED_HEADERS": "header install helper must track generated public headers selected for install",
+            "function(conflux_collect_generated_detail_includes out)": "header install helper must collect generated detail includes from installed public headers",
+            "function(conflux_install_generated_detail_headers)": "header install helper must install only referenced generated detail headers",
+            "function(conflux_install_registered_public_headers)": "header install helper must own registered public header installation",
         },
         "cmake/ConfluxComponentValidation.cmake": {
             "function(conflux_require_component_flag request_var dependency_var diagnostic)": "component validation module must centralize simple component prerequisite checks",
@@ -1982,8 +1986,8 @@ def check_package_metadata_generator_contract() -> None:
     missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
     if missing:
         fail("\n".join(missing))
-    header_interface = read("cmake/ConfluxHeaderInterface.cmake")
-    if 'install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"' in header_interface:
+    header_install = read("cmake/ConfluxHeaderInstall.cmake")
+    if 'install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"' in header_install:
         fail("header interface must not install the entire generated detail header directory")
 
 
