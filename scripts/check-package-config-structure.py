@@ -1634,6 +1634,7 @@ def check_build_docs_guard_contracts() -> None:
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
@@ -1671,6 +1672,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_utils_tests utils_test.cxx)": "core test fragment must define utils tests",
             "add_executable(conflux_password_hash_tests password_hash_test.cxx)": "core test fragment must define password hash tests",
             "add_executable(conflux_config_tests config_test.cxx)": "core test fragment must define config tests when available",
+        },
+        "tests/ExternalTests.cmake": {
+            "add_executable(conflux_tls_external)": "external test fragment must define TLS external tests when available",
+            "add_executable(conflux_smtp_tests smtp_test.cxx)": "external test fragment must define SMTP tests when available",
+            "add_executable(conflux_h2_external)": "external test fragment must define HTTP/2 external tests when available",
+            "add_executable(conflux_third_party_conformance_server third_party_conformance_server.cxx)": "external test fragment must define third-party conformance server when enabled",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
