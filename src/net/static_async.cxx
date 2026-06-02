@@ -179,6 +179,13 @@ struct StaticRangeParseResult {
 	std::size_t end{};
 };
 
+struct StaticSelectedSidecar {
+	std::string rel_path;
+	std::string full_path;
+	struct ::stat stat{};
+	std::string_view content_encoding;
+};
+
 [[nodiscard]] bool parse_static_range_size(
 	std::string_view text,
 	std::size_t &out) noexcept {
@@ -241,6 +248,48 @@ struct StaticRangeParseResult {
 	result.start = start;
 	result.end = end;
 	return result;
+}
+
+[[nodiscard]] std::optional<StaticSelectedSidecar> probe_static_sidecar(
+	int root_fd,
+	std::string const &base_full_path,
+	std::string const &rel_path,
+	std::string_view suffix,
+	std::string_view content_encoding) {
+	auto sidecar_rel = rel_path + std::string{suffix};
+	conflux::file_io_sync::UniqueFd sidecar_fd{
+		contained_static_open(root_fd, sidecar_rel.c_str(), O_PATH | O_CLOEXEC)};
+	if (!sidecar_fd) {
+		return std::nullopt;
+	}
+	struct ::stat sidecar_stat{};
+	if (::fstat(sidecar_fd.fd(), &sidecar_stat) != 0 || !S_ISREG(sidecar_stat.st_mode)) {
+		return std::nullopt;
+	}
+	return StaticSelectedSidecar{
+		.rel_path = std::move(sidecar_rel),
+		.full_path = base_full_path + std::string{suffix},
+		.stat = sidecar_stat,
+		.content_encoding = content_encoding};
+}
+
+[[nodiscard]] std::optional<StaticSelectedSidecar> select_static_precompressed_sidecar(
+	int root_fd,
+	std::string const &base_full_path,
+	std::string const &rel_path,
+	std::string_view accept_encoding) {
+	auto const accepted = parse_static_accept_encoding(accept_encoding);
+	if (accepted.br) {
+		if (auto sidecar = probe_static_sidecar(root_fd, base_full_path, rel_path, ".br", "br")) {
+			return sidecar;
+		}
+	}
+	if (accepted.gzip) {
+		if (auto sidecar = probe_static_sidecar(root_fd, base_full_path, rel_path, ".gz", "gzip")) {
+			return sidecar;
+		}
+	}
+	return std::nullopt;
 }
 
 [[nodiscard]] std::string_view static_mime_type(
@@ -619,37 +668,14 @@ conflux::http::Response handle_static_get(
 			}
 		}
 
-		// Pre-compressed sidecar: try .br then .gz.
 		std::string content_encoding;
 		if (static_options.precompressed) {
-			auto const accepted = parse_static_accept_encoding(r.accept_encoding);
-			if (accepted.br) {
-				auto br_rel = rel_str + ".br";
-				conflux::file_io_sync::UniqueFd br_fd{
-					contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC)};
-				if (br_fd) {
-					struct ::stat br_st{};
-					if (::fstat(br_fd.fd(), &br_st) == 0 && S_ISREG(br_st.st_mode)) {
-						full_path = rd + "/" + br_rel;
-						st = br_st;
-						content_encoding = "br";
-						rel_str = br_rel;
-					}
-				}
-			}
-			if (content_encoding.empty() && accepted.gzip) {
-				auto gz_rel = rel_str + ".gz";
-				conflux::file_io_sync::UniqueFd gz_fd{
-					contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC)};
-				if (gz_fd) {
-					struct ::stat gz_st{};
-					if (::fstat(gz_fd.fd(), &gz_st) == 0 && S_ISREG(gz_st.st_mode)) {
-						full_path = rd + "/" + gz_rel;
-						st = gz_st;
-						content_encoding = "gzip";
-						rel_str = gz_rel;
-					}
-				}
+			if (auto sidecar =
+					select_static_precompressed_sidecar(root_fd, full_path, rel_str, r.accept_encoding)) {
+				full_path = std::move(sidecar->full_path);
+				st = sidecar->stat;
+				content_encoding = sidecar->content_encoding;
+				rel_str = std::move(sidecar->rel_path);
 			}
 		}
 		if (!S_ISREG(st.st_mode)) {
