@@ -1634,6 +1634,7 @@ def check_build_docs_guard_contracts() -> None:
         "tests/CMakeLists.txt": {
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")': "tests CMake must include the test discovery registration fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
         },
@@ -1665,6 +1666,7 @@ def check_build_docs_guard_contracts() -> None:
             "include(CTest)": "test discovery fragment must enable CTest",
             "conflux_discover_tests(conflux_json_conformance_external)": "test discovery fragment must register JSON conformance tests",
             "conflux_discover_tests(conflux_json_testsuite_gate)": "test discovery fragment must register JSONTestSuite gate when available",
+            "conflux_discover_tests(conflux_direct_slot_pool_tests)": "test discovery fragment must register direct slot pool tests",
             "conflux_discover_stress_tests(conflux_http_full_drain_contract_e2e)": "test discovery fragment must register full-drain stress tests",
             "conflux_discover_db_integration_tests(conflux_db_integration)": "test discovery fragment must register DB integration discovery",
         },
@@ -1672,6 +1674,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_json_tests json_test.cxx)": "JSON test fragment must define the main JSON test target",
             "add_executable(conflux_json_conformance_external json_conformance_external.cxx)": "JSON test fragment must define external conformance tests",
             "add_executable(conflux_json_testsuite_gate json_testsuite_gate.cxx)": "JSON test fragment must define JSONTestSuite gate target when available",
+        },
+        "tests/WorkTests.cmake": {
+            "add_library(conflux_work_api_snapshot OBJECT work_api_snapshot.cxx)": "work test fragment must define the work API snapshot",
+            "add_executable(conflux_work_tests work_test.cxx)": "work test fragment must define the main work tests",
+            "add_executable(conflux_direct_slot_pool_tests direct_slot_pool_test.cxx)": "work test fragment must define direct slot pool tests",
+            "conflux_direct_slot_pool_compile_fail_global_pool": "work test fragment must keep direct slot pool compile-fail checks",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
