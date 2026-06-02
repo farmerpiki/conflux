@@ -1559,7 +1559,7 @@ def check_options_target_order() -> None:
         read("CMakeLists.txt"),
         [
             "include(ConfluxOptionsTarget)",
-            "conflux_add_module_library(conflux_types",
+            "include(cmake/components/CoreTargets.cmake)",
         ],
         "conflux_options target setup must run before component targets",
     )
