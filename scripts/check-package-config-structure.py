@@ -1362,8 +1362,8 @@ def check_package_smoke_wrapper_contracts() -> None:
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
-    if "--forbid-components" in core_isolated:
-        errors.append("core-isolated package smoke must rely on the default core component isolation policy")
+    if "--forbid-components 'json;http;http1;http2;http3;http_protocol;template;pg;db'" not in core_isolated:
+        errors.append("core-isolated package smoke must include strict physical component isolation policy")
     if "--forbid-external-deps" in core_isolated:
         errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if errors:
@@ -2052,8 +2052,6 @@ def check_core_isolated_forbidden_components() -> None:
             fail(f"{variable} contains unknown package components: {';'.join(unknown)}")
 
     runner_forbidden = shell_semicolon_list_var(runner, "forbid_runtime_db_template_components")
-    if "--forbid-components" in core_isolated:
-        fail("core-isolated package smoke must rely on the default core component isolation policy")
     if "--components core" not in core_isolated:
         fail("core-isolated package smoke must request the core component")
     errors: list[str] = []
@@ -2063,6 +2061,13 @@ def check_core_isolated_forbidden_components() -> None:
         runner_forbidden,
         "default core isolation policy is missing component entries: ",
         "default core isolation policy contains unexpected component entries: ",
+    )
+    append_set_delta_errors(
+        errors,
+        {"json", "http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"},
+        shell_semicolon_flag_value(core_isolated, "--forbid-components"),
+        "strict core-isolated smoke forbidden components missing entries: ",
+        "strict core-isolated smoke forbidden components contain unexpected entries: ",
     )
     append_set_delta_errors(
         errors,
