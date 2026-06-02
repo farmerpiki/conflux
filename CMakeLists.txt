@@ -39,9 +39,13 @@ conflux_detect_aesni(CONFLUX_HAS_AESNI)
 include(ConfluxCompilerProbes)
 include(ConfluxOptionsTarget)
 
+conflux_detect_stdsimd(_conflux_simd_backend)
+conflux_add_stdsimd_targets("${_conflux_simd_backend}")
+
 include(cmake/components/CoreTargets.cmake)
 include(cmake/components/CryptoTargets.cmake)
 include(cmake/components/JsonTargets.cmake)
+conflux_attach_stdsimd_targets("${_conflux_simd_backend}")
 include(cmake/components/FileTargets.cmake)
 include(cmake/components/TemplateTargets.cmake)
 include(cmake/components/RuntimeTargets.cmake)
@@ -118,28 +122,6 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
 
 endif()
 
-conflux_detect_stdsimd(_conflux_simd_backend)
-conflux_add_stdsimd_targets("${_conflux_simd_backend}")
-conflux_attach_stdsimd_targets("${_conflux_simd_backend}")
-
-add_library(conflux_utils STATIC)
-target_sources(conflux_utils
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CONFLUX_SRC_ROOT}"
-        FILES
-        ${CONFLUX_SRC_ROOT}/utils.cxx
-        ${CONFLUX_SRC_ROOT}/facade/conflux_core.cxx
-)
-target_link_libraries(conflux_utils
-    PRIVATE conflux_options
-    PRIVATE conflux_cpu_features
-    PUBLIC  conflux_types
-)
-if(NOT _conflux_simd_backend STREQUAL "OFF")
-    target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
-    target_link_libraries(conflux_utils PRIVATE conflux_simd_runtime)
-endif()
-
 add_library(conflux_net_config STATIC)
 target_sources(conflux_net_config
     PUBLIC FILE_SET CXX_MODULES
@@ -162,11 +144,6 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
 else()
     target_compile_definitions(conflux_net_config PUBLIC CONFLUX_HAS_HTTP3=0)
 endif()
-
-# Keep the package-facing core anchor aligned with the documented
-# "types + utils" core surface while leaving HTTP configuration as a separate
-# support component.
-target_link_libraries(conflux_core INTERFACE conflux_utils)
 
 if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_parse_helpers STATIC)

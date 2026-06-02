@@ -17,3 +17,26 @@ endif()
 
 add_library(conflux_cpu_features STATIC ${CONFLUX_SRC_ROOT}/cpu_features.cxx)
 target_link_libraries(conflux_cpu_features PRIVATE conflux_options)
+
+add_library(conflux_utils STATIC)
+target_sources(conflux_utils
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CONFLUX_SRC_ROOT}"
+        FILES
+        ${CONFLUX_SRC_ROOT}/utils.cxx
+        ${CONFLUX_SRC_ROOT}/facade/conflux_core.cxx
+)
+target_link_libraries(conflux_utils
+    PRIVATE conflux_options
+    PRIVATE conflux_cpu_features
+    PUBLIC  conflux_types
+)
+if(NOT _conflux_simd_backend STREQUAL "OFF")
+    target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
+    target_link_libraries(conflux_utils PRIVATE conflux_simd_runtime)
+endif()
+
+# Keep the package-facing core anchor aligned with the documented
+# "types + utils" core surface while leaving HTTP configuration as a separate
+# support component.
+target_link_libraries(conflux_core INTERFACE conflux_utils)
