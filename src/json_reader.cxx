@@ -994,6 +994,73 @@ JsonReader::JsonReader(
 	, opts_{opts} {}
 
 template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::parse_object_key_token_impl() {
+	if (pos_ >= input_.size()) [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	if (input_[pos_] == '"') {
+		adv();
+		if (auto str_res = parse_str_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+			set_error(str_res.error());
+			return std::unexpected(last_error_);
+		}
+		return {};
+	}
+	if constexpr (Mode == ParseMode::json5) {
+		if (input_[pos_] == '\'') {
+			adv();
+			if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
+				set_error(str_res.error());
+				return std::unexpected(last_error_);
+			}
+			return {};
+		}
+		std::size_t const key_start = pos_;
+		char const fc = input_[pos_];
+		if ((fc >= 'A' && fc <= 'Z') || (fc >= 'a' && fc <= 'z') || fc == '_' || fc == '$') {
+			adv();
+			while (pos_ < input_.size()) {
+				char const ch = input_[pos_];
+				if ((ch >= 'A' && ch <= 'Z')
+					|| (ch >= 'a' && ch <= 'z')
+					|| (ch >= '0' && ch <= '9')
+					|| ch == '_'
+					|| ch == '$') {
+					adv();
+				} else {
+					break;
+				}
+			}
+			std::string_view raw_lex = input_.substr(key_start, pos_ - key_start);
+			key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
+			key_token_.unquoted_ = true;
+			return {};
+		}
+	}
+	auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
+	set_error(e);
+	return std::unexpected(last_error_);
+}
+
+template<ParseMode Mode>
+std::expected<void, JsonError> JsonReader::finish_object_key_parse_impl(
+	StateFrame &top) {
+	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
+		return std::unexpected(std::move(ok).error());
+	}
+	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
+		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
+		set_error(e);
+		return std::unexpected(last_error_);
+	}
+	adv();
+	top.awaiting_value = true;
+	return {};
+}
+
+template<ParseMode Mode>
 std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl() {
 	if (has_error_) [[unlikely]] {
 		return std::unexpected(last_error_);
@@ -1087,65 +1154,12 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next_impl
 		}
 	}
 	top.first = false;
-	if (pos_ >= input_.size()) [[unlikely]] {
-		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
-		set_error(e);
-		return std::unexpected(last_error_);
+	if (auto key = parse_object_key_token_impl<Mode>(); !key) [[unlikely]] {
+		return std::unexpected(std::move(key).error());
 	}
-	if (input_[pos_] == '"') {
-		adv();
-		if (auto str_res = parse_str_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
-			set_error(str_res.error());
-			return std::unexpected(last_error_);
-		}
-	} else if constexpr (Mode == ParseMode::json5) {
-		if (input_[pos_] == '\'') {
-			adv();
-			if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
-				set_error(str_res.error());
-				return std::unexpected(last_error_);
-			}
-		} else {
-			std::size_t const key_start = pos_;
-			char const fc = input_[pos_];
-			if ((fc >= 'A' && fc <= 'Z') || (fc >= 'a' && fc <= 'z') || fc == '_' || fc == '$') {
-				adv();
-				while (pos_ < input_.size()) {
-					char const ch = input_[pos_];
-					if ((ch >= 'A' && ch <= 'Z')
-						|| (ch >= 'a' && ch <= 'z')
-						|| (ch >= '0' && ch <= '9')
-						|| ch == '_'
-						|| ch == '$') {
-						adv();
-					} else {
-						break;
-					}
-				}
-				std::string_view raw_lex = input_.substr(key_start, pos_ - key_start);
-				key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
-				key_token_.unquoted_ = true;
-			} else [[unlikely]] {
-				auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
-				set_error(e);
-				return std::unexpected(last_error_);
-			}
-		}
-	} else {
-		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
-		set_error(e);
-		return std::unexpected(last_error_);
+	if (auto key = finish_object_key_parse_impl<Mode>(top); !key) [[unlikely]] {
+		return std::unexpected(std::move(key).error());
 	}
-	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
-		return std::unexpected(std::move(ok).error());
-	}
-	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
-		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
-		set_error(e);
-		return std::unexpected(last_error_);
-	}
-	adv();
-	top.awaiting_value = true;
 	return std::optional<Event>{Event::key};
 }
 
@@ -1193,67 +1207,12 @@ std::expected<std::optional<JsonStringToken>, JsonError> JsonReader::next_object
 		}
 	}
 	top.first = false;
-	if (pos_ >= input_.size()) [[unlikely]] {
-		auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
-		set_error(e);
-		return std::unexpected(last_error_);
+	if (auto key = parse_object_key_token_impl<Mode>(); !key) [[unlikely]] {
+		return std::unexpected(std::move(key).error());
 	}
-	if (input_[pos_] == '"') {
-		adv();
-		if (auto str_res = parse_str_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
-			set_error(str_res.error());
-			return std::unexpected(last_error_);
-		}
-	} else {
-		if constexpr (Mode == ParseMode::json5) {
-			if (input_[pos_] == '\'') {
-				adv();
-				if (auto str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_); !str_res) [[unlikely]] {
-					set_error(str_res.error());
-					return std::unexpected(last_error_);
-				}
-			} else {
-				std::size_t const key_start = pos_;
-				char const fc = input_[pos_];
-				if ((fc >= 'A' && fc <= 'Z') || (fc >= 'a' && fc <= 'z') || fc == '_' || fc == '$') {
-					adv();
-					while (pos_ < input_.size()) {
-						char const ch = input_[pos_];
-						if ((ch >= 'A' && ch <= 'Z')
-							|| (ch >= 'a' && ch <= 'z')
-							|| (ch >= '0' && ch <= '9')
-							|| ch == '_'
-							|| ch == '$') {
-							adv();
-						} else {
-							break;
-						}
-					}
-					std::string_view raw_lex = input_.substr(key_start, pos_ - key_start);
-					key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
-					key_token_.unquoted_ = true;
-				} else [[unlikely]] {
-					auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
-					set_error(e);
-					return std::unexpected(last_error_);
-				}
-			}
-		} else {
-			auto e = mk_err(JsonIssueCode::syntax_error, "std::expected string key");
-			set_error(e);
-			return std::unexpected(last_error_);
-		}
+	if (auto key = finish_object_key_parse_impl<Mode>(top); !key) [[unlikely]] {
+		return std::unexpected(std::move(key).error());
 	}
-	if (auto ok = skip_ws_checked_fast_impl<Mode>(); !ok) [[unlikely]] {
-		return std::unexpected(std::move(ok).error());
-	}
-	if (pos_ >= input_.size() || input_[pos_] != ':') [[unlikely]] {
-		auto e = mk_err(JsonIssueCode::syntax_error, "std::expected ':'");
-		set_error(e);
-		return std::unexpected(last_error_);
-	}
-	adv();
-	top.awaiting_value = true;
 	return std::optional<JsonStringToken>{key_token_};
 }
 

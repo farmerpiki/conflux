@@ -1313,6 +1313,10 @@ private:
 	void adv(std::size_t n = 1) noexcept;
 	[[nodiscard]] std::expected<void, JsonError> parse_str_into_token(LimitOption max_sz, JsonStringToken &tok_out);
 	[[nodiscard]] std::expected<void, JsonError> parse_str_sq_into_token(LimitOption max_sz, JsonStringToken &tok_out);
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> parse_object_key_token_impl();
+	template<ParseMode Mode>
+	[[nodiscard]] std::expected<void, JsonError> finish_object_key_parse_impl(StateFrame &top);
 	[[nodiscard]] static bool is_digit_ascii(
 		char c) noexcept {
 		return c >= '0' && c <= '9';
