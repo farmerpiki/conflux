@@ -1559,6 +1559,61 @@ def check_install_and_dependency_contracts() -> None:
         fail("\n".join(errors))
 
 
+def check_build_docs_guard_contracts() -> None:
+    checks = {
+        "tests/CMakeLists.txt": {
+            'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
+            "add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})": "compile-fail checks must stay compile-time OBJECT target checks",
+            "scripts/check-compile-fail-target.sh": "compile-fail checks must use the compile-fail target runner",
+        },
+        "tests/BuildAndDocsChecks.cmake": {
+            "add_test(NAME build/cmake-source-files": "missing CMake source-file CTest guard",
+            "add_test(NAME build/component-map": "missing component-map CTest guard",
+            "add_test(NAME build/http-facade-snapshot": "missing HTTP facade snapshot CTest guard",
+            "add_test(NAME build/package-config": "missing package-config CTest guard",
+            "add_test(NAME build/module-fragility-regression": "module-fragility CTest guard must live in build/docs fragment",
+            "add_test(NAME build/optimized-presets": "optimized-presets CTest guard must live in build/docs fragment",
+            "add_test(NAME build/cmake-preset-build-dir": "CMake preset build-dir helper CTest guard must live in build/docs fragment",
+            "add_test(NAME build/header-first-contact-smoke": "missing default first-contact header smoke CTest guard",
+            "CONFLUX_RUN_HEADER_COMPONENT_SMOKE": "full header component smoke must be opt-in",
+            "add_test(NAME build/header-component-smoke": "missing full header component smoke CTest guard",
+            "add_test(NAME docs/planning-state": "missing planning-state CTest guard",
+            "add_test(NAME docs/release-docs": "missing release-docs CTest guard",
+            "add_test(NAME docs/package-docs": "missing package-docs CTest guard",
+            "add_test(NAME docs/release-notes": "missing release-notes CTest guard",
+        },
+        "scripts/check-cmake-source-files.py": {
+            'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
+            'ROOT / "tests" / "CMakeLists.txt"': "CMake source-file guard must scan tests CMakeLists",
+            'ROOT / "cmake" / "package-smoke" / "CMakeLists.txt"': "CMake source-file guard must scan package-smoke CMakeLists",
+            'ROOT / "benchmarks" / "CMakeLists.txt"': "CMake source-file guard must scan benchmarks CMakeLists",
+            'ROOT / "examples" / "CMakeLists.txt"': "CMake source-file guard must scan examples CMakeLists",
+            'ROOT / "fuzz" / "CMakeLists.txt"': "CMake source-file guard must scan fuzz CMakeLists",
+            'EXTENSION_PATTERN = "|".join': "CMake source-file guard must derive its regex from SOURCE_EXTENSIONS",
+        },
+        "scripts/check-component-map.py": {
+            "declared as both public and support": "component-map guard must reject public/support component ownership overlap",
+            "uses an unsafe export name": "component-map guard must reject unsafe component export names",
+            "must use support-component naming": "component-map guard must reject support components without support naming",
+        },
+        "scripts/cmake-preset-build-dir.py": {
+            "duplicate configure preset": "CMake preset build-dir helper must reject duplicate configure preset names",
+            "cyclic preset include involving": "CMake preset build-dir helper must reject cyclic preset includes",
+            "cyclic preset inheritance involving": "CMake preset build-dir helper must reject cyclic preset inheritance",
+        },
+        "scripts/check-cmake-preset-build-dir.py": {
+            "cyclic preset includes must be rejected": "CMake preset build-dir helper guard must cover cyclic include rejection",
+            "cyclic preset inheritance must be rejected": "CMake preset build-dir helper guard must cover cyclic inheritance rejection",
+        },
+    }
+    errors: list[str] = []
+    for path, markers in checks.items():
+        text = read(path)
+        errors.extend(message for marker, message in markers.items() if marker not in text)
+    if errors:
+        fail("\n".join(sorted(errors)))
+
+
 def check_package_metadata_generator_contract() -> None:
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
     required_markers = {
@@ -1792,6 +1847,7 @@ def main() -> int:
     check_external_dependency_tokens()
     check_package_config_uses_generated_component_metadata()
     check_install_and_dependency_contracts()
+    check_build_docs_guard_contracts()
     check_package_metadata_generator_contract()
     check_package_smoke_external_tokens()
     check_core_isolated_forbidden_components()

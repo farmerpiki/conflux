@@ -130,70 +130,10 @@ grep -q 'check_package_metadata_generator_contract' scripts/check-package-config
     || fail "package-config structure guard must verify package metadata generator validation"
 grep -q 'package metadata generator must reject component partition drift' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must keep package metadata partition validation"
-grep -q 'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")' tests/CMakeLists.txt \
-    || fail "tests CMake must include the build/docs CTest registration fragment"
-grep -q 'add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})' tests/CMakeLists.txt \
-    || fail "compile-fail checks must stay compile-time OBJECT target checks"
-grep -q 'scripts/check-compile-fail-target.sh' tests/CMakeLists.txt \
-    || fail "compile-fail checks must use the compile-fail target runner"
-grep -q 'add_test(NAME build/cmake-source-files' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing CMake source-file CTest guard"
-grep -q 'ROOT / "tests"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan test CMake fragments"
-grep -q 'ROOT / "tests" / "CMakeLists.txt"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan tests CMakeLists"
-grep -q 'ROOT / "cmake" / "package-smoke" / "CMakeLists.txt"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan package-smoke CMakeLists"
-grep -q 'ROOT / "benchmarks" / "CMakeLists.txt"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan benchmarks CMakeLists"
-grep -q 'ROOT / "examples" / "CMakeLists.txt"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan examples CMakeLists"
-grep -q 'ROOT / "fuzz" / "CMakeLists.txt"' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must scan fuzz CMakeLists"
-grep -q 'EXTENSION_PATTERN = "|".join' scripts/check-cmake-source-files.py \
-    || fail "CMake source-file guard must derive its regex from SOURCE_EXTENSIONS"
-grep -q 'add_test(NAME build/component-map' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing component-map CTest guard"
-grep -q 'declared as both public and support' scripts/check-component-map.py \
-    || fail "component-map guard must reject public/support component ownership overlap"
-grep -q 'public component `.*` uses an unsafe export name' scripts/check-component-map.py \
-    || fail "component-map guard must reject unsafe public component export names"
-grep -q 'support component `.*` uses an unsafe export name' scripts/check-component-map.py \
-    || fail "component-map guard must reject unsafe support component export names"
-grep -q 'add_test(NAME build/http-facade-snapshot' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing HTTP facade snapshot CTest guard"
-grep -q 'add_test(NAME build/package-config' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing package-config CTest guard"
-grep -q 'add_test(NAME build/module-fragility-regression' tests/BuildAndDocsChecks.cmake \
-    || fail "module-fragility CTest guard must live in build/docs fragment"
-grep -q 'add_test(NAME build/optimized-presets' tests/BuildAndDocsChecks.cmake \
-    || fail "optimized-presets CTest guard must live in build/docs fragment"
-grep -q 'add_test(NAME build/cmake-preset-build-dir' tests/BuildAndDocsChecks.cmake \
-    || fail "CMake preset build-dir helper CTest guard must live in build/docs fragment"
-grep -q 'duplicate configure preset' scripts/cmake-preset-build-dir.py \
-    || fail "CMake preset build-dir helper must reject duplicate configure preset names"
-grep -q 'cyclic preset include involving' scripts/cmake-preset-build-dir.py \
-    || fail "CMake preset build-dir helper must reject cyclic preset includes"
-grep -q 'cyclic preset inheritance involving' scripts/cmake-preset-build-dir.py \
-    || fail "CMake preset build-dir helper must reject cyclic preset inheritance"
-grep -q 'cyclic preset includes must be rejected' scripts/check-cmake-preset-build-dir.py \
-    || fail "CMake preset build-dir helper guard must cover cyclic include rejection"
-grep -q 'cyclic preset inheritance must be rejected' scripts/check-cmake-preset-build-dir.py \
-    || fail "CMake preset build-dir helper guard must cover cyclic inheritance rejection"
-grep -q 'add_test(NAME build/header-first-contact-smoke' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing default first-contact header smoke CTest guard"
-grep -q 'CONFLUX_RUN_HEADER_COMPONENT_SMOKE' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "full header component smoke must be opt-in"
-grep -q 'add_test(NAME build/header-component-smoke' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing full header component smoke CTest guard"
-grep -q 'add_test(NAME docs/planning-state' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing planning-state CTest guard"
-grep -q 'add_test(NAME docs/release-docs' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing release-docs CTest guard"
-grep -q 'add_test(NAME docs/package-docs' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing package-docs CTest guard"
-grep -q 'add_test(NAME docs/release-notes' tests/CMakeLists.txt tests/BuildAndDocsChecks.cmake \
-    || fail "missing release-notes CTest guard"
+grep -q 'check_build_docs_guard_contracts' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must verify build/docs guard contracts"
+grep -q 'compile-fail checks must stay compile-time OBJECT target checks' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must keep compile-fail CTest contract"
 grep -q 'check_header_interface_contracts' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must verify header interface contracts"
 grep -q 'release-header-artifacts must pin release-json feature set' scripts/check-package-config-structure.py \
