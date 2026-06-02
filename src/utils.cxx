@@ -28,6 +28,23 @@ inline constexpr std::uint64_t rotl(
 	int k) noexcept {
 	return (x << k) | (x >> (64 - k));
 }
+
+void fill_from_getrandom(
+	std::span<std::byte> out,
+	std::string_view context) {
+	std::size_t total = 0;
+	while (total < out.size()) {
+		auto const n = ::getrandom(out.data() + total, out.size() - total, 0);
+		if (n < 0 && errno == EINTR) {
+			continue;
+		}
+		if (n <= 0) {
+			throw std::system_error{errno, std::system_category(), std::string{context}};
+		}
+		total += static_cast<std::size_t>(n);
+	}
+}
+
 // xoshiro256** PRNG. Seeded once per std::thread from getrandom(2).
 class Xoshiro256ss {
 	std::array<std::uint64_t, 4> s_{};
@@ -35,18 +52,7 @@ class Xoshiro256ss {
 public:
 	Xoshiro256ss() {
 		// Seed from kernel CSPRNG. getrandom is non-blocking once initialized.
-		auto *bytes = reinterpret_cast<unsigned char *>(s_.data());
-		std::size_t total = 0;
-		while (total < s_.size() * sizeof(std::uint64_t)) {
-			auto const n = ::getrandom(bytes + total, s_.size() * sizeof(std::uint64_t) - total, 0);
-			if (n < 0 && errno == EINTR) {
-				continue;
-			}
-			if (n <= 0) {
-				throw std::system_error{errno, std::system_category(), "random_bytes: getrandom"};
-			}
-			total += static_cast<std::size_t>(n);
-		}
+		fill_from_getrandom(std::as_writable_bytes(std::span{s_}), "random_bytes: getrandom");
 		if ((s_[0] | s_[1] | s_[2] | s_[3]) == 0) {
 			s_[0] = 0x9E3779B97F4A7C15ULL;
 		}
@@ -101,17 +107,7 @@ export void eprintln(
 
 export void crypto_random_bytes(
 	std::span<unsigned char> out) {
-	std::size_t total = 0;
-	while (total < out.size()) {
-		auto n = ::getrandom(out.data() + total, out.size() - total, 0);
-		if (n < 0 && errno == EINTR) {
-			continue;
-		}
-		if (n <= 0) {
-			throw std::system_error{errno, std::system_category(), "crypto_random_bytes: getrandom"};
-		}
-		total += static_cast<std::size_t>(n);
-	}
+	utils_detail::fill_from_getrandom(std::as_writable_bytes(out), "crypto_random_bytes: getrandom");
 }
 export void random_bytes(
 	std::span<unsigned char> out) {
