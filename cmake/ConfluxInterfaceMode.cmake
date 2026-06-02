@@ -1,3 +1,28 @@
+function(conflux_append_optional_bridge_inputs args_out roots_out)
+    set(_args ${${args_out}})
+    set(_roots ${${roots_out}})
+    if(CONFLUX_BUILD_EXAMPLES)
+        list(APPEND _args
+            --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+            --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
+        list(APPEND _roots "${CMAKE_CURRENT_SOURCE_DIR}/examples")
+    endif()
+    if(CONFLUX_BUILD_TESTS)
+        list(APPEND _args
+            --tests-src "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+            --tests-out "${CONFLUX_GENERATED_TESTS_DIR}")
+        list(APPEND _roots "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    endif()
+    if(CONFLUX_BUILD_BENCHMARKS)
+        list(APPEND _args
+            --benchmarks-src "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks"
+            --benchmarks-out "${CONFLUX_GENERATED_BENCHMARKS_DIR}")
+        list(APPEND _roots "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks")
+    endif()
+    set(${args_out} "${_args}" PARENT_SCOPE)
+    set(${roots_out} "${_roots}" PARENT_SCOPE)
+endfunction()
+
 function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_ROOT "${CMAKE_CURRENT_BINARY_DIR}/generated/bridge" CACHE PATH
         "Generated module/header bridge root")
@@ -36,6 +61,9 @@ function(conflux_configure_interface_mode)
         --manifest-out "${CONFLUX_BRIDGE_MANIFEST}"
         --cmake-fragment-out "${CONFLUX_BRIDGE_CMAKE_FRAGMENT}"
         --write)
+    set(_bridge_input_roots
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/module_header_bridge.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
     if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args --warnings-as-errors)
@@ -46,56 +74,15 @@ function(conflux_configure_interface_mode)
             --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
             --source-mode module-std-headers
             --consumer-mode module-std-headers)
-        if(CONFLUX_BUILD_EXAMPLES)
-            list(APPEND _bridge_args
-                --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
-                --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
-        endif()
-        if(CONFLUX_BUILD_TESTS)
-            list(APPEND _bridge_args
-                --tests-src "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-                --tests-out "${CONFLUX_GENERATED_TESTS_DIR}")
-        endif()
-        if(CONFLUX_BUILD_BENCHMARKS)
-            list(APPEND _bridge_args
-                --benchmarks-src "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks"
-                --benchmarks-out "${CONFLUX_GENERATED_BENCHMARKS_DIR}")
-        endif()
     elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
         list(APPEND _bridge_args
             --source-out "${CONFLUX_GENERATED_SOURCE_DIR}"
             --source-mode header)
-        if(CONFLUX_BUILD_EXAMPLES)
-            list(APPEND _bridge_args
-                --examples-src "${CMAKE_CURRENT_SOURCE_DIR}/examples"
-                --examples-out "${CONFLUX_GENERATED_EXAMPLES_DIR}")
-        endif()
-        if(CONFLUX_BUILD_TESTS)
-            list(APPEND _bridge_args
-                --tests-src "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-                --tests-out "${CONFLUX_GENERATED_TESTS_DIR}")
-        endif()
-        if(CONFLUX_BUILD_BENCHMARKS)
-            list(APPEND _bridge_args
-                --benchmarks-src "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks"
-                --benchmarks-out "${CONFLUX_GENERATED_BENCHMARKS_DIR}")
-        endif()
     else()
         message(FATAL_ERROR "unknown CONFLUX_INTERFACE_MODE=${CONFLUX_INTERFACE_MODE}")
     endif()
 
-    set(_bridge_input_roots
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/module_header_bridge.py"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    if(CONFLUX_BUILD_EXAMPLES)
-        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/examples")
-    endif()
-    if(CONFLUX_BUILD_TESTS)
-        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/tests")
-    endif()
-    if(CONFLUX_BUILD_BENCHMARKS)
-        list(APPEND _bridge_input_roots "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks")
-    endif()
+    conflux_append_optional_bridge_inputs(_bridge_args _bridge_input_roots)
     foreach(_bridge_input_root IN LISTS _bridge_input_roots)
         if(IS_DIRECTORY "${_bridge_input_root}")
             file(GLOB_RECURSE _bridge_inputs CONFIGURE_DEPENDS

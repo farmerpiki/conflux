@@ -212,6 +212,8 @@ def check_compile_time_bench_defaults() -> None:
 
 def check_header_bridge_optional_inputs() -> None:
     text = read("cmake/ConfluxInterfaceMode.cmake")
+    if "function(conflux_append_optional_bridge_inputs args_out roots_out)" not in text:
+        fail("header bridge optional examples/tests/benchmarks inputs must be centralized")
     checks = {
         "--examples-src": "CONFLUX_BUILD_EXAMPLES",
         "--tests-src": "CONFLUX_BUILD_TESTS",
