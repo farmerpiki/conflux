@@ -549,7 +549,7 @@ void apply_prefix(
 	}
 }
 // Strip zone ID (%...) and surrounding brackets from an address S.
-std::string_view strip_ip_decorators(
+constexpr std::string_view strip_ip_decorators(
 	std::string_view s) noexcept {
 	if (auto z = s.find('%'); z != std::string_view::npos) {
 		s.remove_suffix(s.size() - z);
@@ -560,6 +560,9 @@ std::string_view strip_ip_decorators(
 	}
 	return s;
 }
+
+static_assert(strip_ip_decorators("[::1]") == "::1");
+static_assert(strip_ip_decorators("fe80::1%eth0") == "fe80::1");
 
 } // namespace
 // Parse a dotted-decimal IPv4 address into host std::byte order.
