@@ -1636,6 +1636,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/IoTests.cmake")': "tests CMake must include the io/dns test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")': "tests CMake must include the test discovery registration fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")': "tests CMake must include the build/docs CTest registration fragment",
         },
@@ -1689,6 +1690,12 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_work_tests work_test.cxx)": "work test fragment must define the main work tests",
             "add_executable(conflux_direct_slot_pool_tests direct_slot_pool_test.cxx)": "work test fragment must define direct slot pool tests",
             "conflux_direct_slot_pool_compile_fail_global_pool": "work test fragment must keep direct slot pool compile-fail checks",
+        },
+        "tests/IoTests.cmake": {
+            "add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)": "io test fragment must define CQ overflow tests",
+            "add_executable(conflux_file_io_tests file_io_test.cxx)": "io test fragment must define file io tests",
+            "add_executable(conflux_dns_codec_tests dns_codec_test.cxx)": "io test fragment must define DNS codec tests",
+            "add_executable(conflux_socket_task_ring_tests socket_task_ring_test.cxx)": "io test fragment must define socket task ring tests",
         },
         "scripts/check-cmake-source-files.py": {
             'ROOT / "tests"': "CMake source-file guard must scan test CMake fragments",
