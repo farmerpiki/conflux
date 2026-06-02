@@ -1035,7 +1035,6 @@ def check_cmake_extraction_contracts() -> None:
             "include(ConfluxCompilerWorkarounds)": "missing compiler workaround CMake module include",
             "include(ConfluxModuleLibrary)": "missing module-library helper CMake module include",
             "include(ConfluxComponentValidation)": "missing component validation CMake module include",
-            'conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")': "template compiler workaround must stay source-file scoped",
             'conflux_apply_http_server_compiler_workarounds("${CONFLUX_SRC_ROOT}/net/http_server_send.cxx")': "HTTP server compiler workaround must stay source-file scoped",
         },
         "cmake/ConfluxProviderSelection.cmake": {
@@ -1094,6 +1093,9 @@ def check_cmake_extraction_contracts() -> None:
         },
         "cmake/components/CryptoTargets.cmake": {
             'conflux_apply_aesni_source_options("${CONFLUX_SRC_ROOT}/crypto_aesni.cxx")': "crypto AES-NI source options must stay source-file scoped through the SIMD helper",
+        },
+        "cmake/components/TemplateTargets.cmake": {
+            'conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")': "template compiler workaround must stay source-file scoped",
         },
         "tests/HttpFacadeTests.cmake": {
             'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",

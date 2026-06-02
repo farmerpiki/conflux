@@ -43,6 +43,7 @@ include(cmake/components/CoreTargets.cmake)
 include(cmake/components/CryptoTargets.cmake)
 include(cmake/components/JsonTargets.cmake)
 include(cmake/components/FileTargets.cmake)
+include(cmake/components/TemplateTargets.cmake)
 
 include(ConfluxComponentValidation)
 
@@ -199,36 +200,6 @@ target_link_libraries(conflux_file_watch
     PUBLIC  conflux_file_io
 )
 endif() # CONFLUX_WANT_FILE_WATCH
-
-if(CONFLUX_WANT_TEMPLATES)
-conflux_add_module_library(conflux_template
-    PUBLIC_MODULES
-        ${CONFLUX_SRC_ROOT}/template.cxx
-    PRIVATE_SOURCES
-        ${CONFLUX_SRC_ROOT}/template_env.cxx
-        ${CONFLUX_SRC_ROOT}/template_impl.cxx
-        ${CONFLUX_SRC_ROOT}/template_parse.cxx
-        ${CONFLUX_SRC_ROOT}/template_render.cxx
-)
-conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")
-target_link_libraries(conflux_template
-    PRIVATE conflux_options
-    PUBLIC  conflux_json
-    PUBLIC  conflux_utils
-    PUBLIC  conflux_file_io_sync
-)
-endif() # CONFLUX_WANT_TEMPLATES
-
-if(CONFLUX_WANT_TEMPLATES_WATCH)
-conflux_add_module_library(conflux_template_watch
-    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/template_watch.cxx
-)
-target_link_libraries(conflux_template_watch
-    PRIVATE conflux_options
-    PUBLIC  conflux_template
-    PUBLIC  conflux_file_watch
-)
-endif() # CONFLUX_WANT_TEMPLATES_WATCH
 
 if(CONFLUX_WANT_SOCKET_IO)
 conflux_add_module_library(conflux_socket_io
