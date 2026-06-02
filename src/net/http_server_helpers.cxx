@@ -137,26 +137,6 @@ static void append_sv(
 	out.append(value.data(), value.size());
 }
 
-static void append_dec(
-	std::string &out,
-	auto value) {
-	std::array<char, 32> buf{};
-	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == std::errc{}) {
-		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
-	}
-}
-
-static void append_hex(
-	std::string &out,
-	std::size_t value) {
-	std::array<char, 2 * sizeof(std::size_t)> buf{};
-	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value, 16);
-	if (ec == std::errc{}) {
-		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
-	}
-}
-
 [[nodiscard]] static std::size_t response_reserve_hint(
 	conflux::http::Response const &r,
 	std::string_view alt_svc,
@@ -202,7 +182,7 @@ export std::string format_response(
 	std::string out;
 	out.reserve(response_reserve_hint(r, alt_svc, include_body));
 	out += "HTTP/1.1 ";
-	append_dec(out, r.status);
+	conflux::http::detail::append_decimal(out, r.status);
 	out += ' ';
 	if (is_valid_reason_phrase(r.status_text)) {
 		out += r.status_text;
@@ -218,12 +198,12 @@ export std::string format_response(
 	if (r.status == 304) {
 		if (r.content_length_hint != 0) {
 			out += "Content-Length: ";
-			append_dec(out, r.content_length_hint);
+			conflux::http::detail::append_decimal(out, r.content_length_hint);
 			out += "\r\n";
 		}
 	} else if (!status_no_body) {
 		out += "Content-Length: ";
-		append_dec(out, r.content_length());
+		conflux::http::detail::append_decimal(out, r.content_length());
 		out += "\r\n";
 	}
 	for (auto const &[k, v]: r.headers) {
@@ -281,7 +261,7 @@ export [[nodiscard]] std::string format_http_chunk(
 	std::string_view payload) {
 	std::string out;
 	out.reserve(2 * sizeof(std::size_t) + 4 + payload.size());
-	append_hex(out, payload.size());
+	conflux::http::detail::append_hex(out, payload.size());
 	out += "\r\n";
 	append_sv(out, payload);
 	out += "\r\n";

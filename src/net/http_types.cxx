@@ -29,6 +29,34 @@ using conflux::utils::append_url_percent_encoded;
 using conflux::utils::ascii_lower;
 using conflux::utils::url_percent_encoded_size;
 
+namespace detail {
+
+template<typename T>
+void append_decimal(
+	std::string &out,
+	T value) {
+	std::array<char, 32> buf{};
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == std::errc{}) {
+		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
+	}
+}
+
+template<typename T>
+void append_hex(
+	std::string &out,
+	T value) {
+	using U = std::make_unsigned_t<T>;
+	std::array<char, sizeof(U) * 2> buf{};
+	auto const converted = static_cast<U>(value);
+	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), converted, 16);
+	if (ec == std::errc{}) {
+		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
+	}
+}
+
+} // namespace detail
+
 struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};

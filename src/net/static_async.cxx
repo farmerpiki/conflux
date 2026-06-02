@@ -71,29 +71,6 @@ struct StaticDir {
 	[[nodiscard]] explicit operator bool() const noexcept { return dir != nullptr; }
 };
 
-template<typename T>
-void append_static_hex(
-	std::string &out,
-	T value) {
-	using U = std::make_unsigned_t<T>;
-	std::array<char, sizeof(U) * 2> buf{};
-	auto const v = static_cast<U>(value);
-	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v, 16);
-	if (ec == std::errc{}) {
-		out.append(buf.data(), ptr);
-	}
-}
-
-void append_static_decimal(
-	std::string &out,
-	std::size_t value) {
-	std::array<char, 32> buf{};
-	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == std::errc{}) {
-		out.append(buf.data(), ptr);
-	}
-}
-
 struct StaticAcceptedEncodings {
 	bool br{};
 	bool gzip{};
@@ -111,9 +88,9 @@ struct StaticAcceptedEncodings {
 	std::string out;
 	out.reserve(2 + sizeof(off_t) * 2 + 1 + sizeof(time_t) * 2);
 	out.push_back('"');
-	append_static_hex(out, size);
+	conflux::http::detail::append_hex(out, size);
 	out.push_back('-');
-	append_static_hex(out, mtime);
+	conflux::http::detail::append_hex(out, mtime);
 	out.push_back('"');
 	return out;
 }
@@ -170,11 +147,11 @@ struct StaticAcceptedEncodings {
 	std::string out;
 	out.reserve(32 + 3 * 20);
 	out += "bytes ";
-	append_static_decimal(out, first);
+	conflux::http::detail::append_decimal(out, first);
 	out.push_back('-');
-	append_static_decimal(out, last);
+	conflux::http::detail::append_decimal(out, last);
 	out.push_back('/');
-	append_static_decimal(out, total);
+	conflux::http::detail::append_decimal(out, total);
 	return out;
 }
 
@@ -183,7 +160,7 @@ struct StaticAcceptedEncodings {
 	std::string out;
 	out.reserve(16 + 20);
 	out += "bytes */";
-	append_static_decimal(out, total);
+	conflux::http::detail::append_decimal(out, total);
 	return out;
 }
 

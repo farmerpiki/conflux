@@ -23,16 +23,6 @@ using namespace conflux::http;
 	return !is_request_controlled_header(name);
 }
 
-void append_decimal(
-	std::string &out,
-	std::size_t value) {
-	std::array<char, 32> buf{};
-	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
-	if (ec == std::errc{}) {
-		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
-	}
-}
-
 [[nodiscard]] std::size_t decimal_size(
 	std::size_t value) noexcept {
 	std::size_t n = 1;
@@ -400,7 +390,7 @@ void accumulate_telemetry(
 	wire += "Connection: close\r\n";
 	if (!req.body().empty()) {
 		wire += "Content-Length: ";
-		append_decimal(wire, req.body().size());
+		conflux::http::detail::append_decimal(wire, req.body().size());
 		wire += "\r\n";
 	}
 	wire += "\r\n";
