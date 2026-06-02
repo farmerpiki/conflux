@@ -284,6 +284,96 @@ wroot::Task<void> write_http1_request(
 	}
 }
 
+struct BodyReceiveContext {
+	std::string_view method;
+	bool chunked{};
+	bool has_content_length{};
+	std::size_t content_length{};
+	std::size_t counted_initial_body_bytes{};
+	std::size_t max_body_size{};
+	std::size_t max_buffered_size{};
+};
+
+template<typename T>
+wroot::Task<std::optional<HttpError>> receive_http1_body(
+	T &stream,
+	ClientResponse &response,
+	HttpTelemetry &tel,
+	BodyReceiveContext ctx) {
+	if (ctx.method == "HEAD") {
+		response.body.clear();
+	} else if (ctx.chunked) {
+		std::string decoded;
+		bool too_large = false;
+		try {
+			if (!co_await async_recv_chunked(
+					stream,
+					response.body,
+					decoded,
+					ctx.max_body_size,
+					ctx.max_buffered_size,
+					too_large)) {
+				if (too_large) {
+					co_return HttpError{
+						.kind = HttpErrorKind::body_too_large,
+						.message = std::format("chunked body exceeds limit {}", ctx.max_body_size)};
+				}
+				co_return HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.message = "failed to receive chunked body"};
+			}
+		} catch (IoError const &e) {
+			co_return HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::between_bytes,
+				.os_errno = e.code().value(),
+				.message = "timed out receiving chunked body"};
+		}
+		tel.bytes_received += decoded.size();
+		response.body = std::move(decoded);
+	} else if (ctx.has_content_length && ctx.content_length > response.body.size()) {
+		try {
+			if (!co_await async_recv_exact(stream, response.body, ctx.content_length, ctx.max_body_size)) {
+				if (response.body.size() >= ctx.max_body_size) {
+					co_return HttpError{
+						.kind = HttpErrorKind::body_too_large,
+						.message = std::format("body exceeds limit {}", ctx.max_body_size)};
+				}
+				co_return HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.message = "failed to receive body"};
+			}
+		} catch (IoError const &e) {
+			co_return HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::between_bytes,
+				.os_errno = e.code().value(),
+				.message = "timed out receiving body"};
+		}
+		tel.bytes_received += ctx.content_length - ctx.counted_initial_body_bytes;
+	} else if (!ctx.has_content_length && !ctx.chunked) {
+		bool too_large = false;
+		try {
+			co_await async_recv_to_eof(stream, response.body, ctx.max_body_size, too_large);
+		} catch (IoError const &e) {
+			co_return HttpError{
+				.kind = HttpErrorKind::read,
+				.phase = HttpPhase::between_bytes,
+				.os_errno = e.code().value(),
+				.message = "timed out receiving body"};
+		}
+		if (too_large) {
+			co_return HttpError{
+				.kind = HttpErrorKind::body_too_large,
+				.message = std::format("EOF-delimited body exceeds limit {}", ctx.max_body_size)};
+		}
+		tel.bytes_received += response.body.size();
+	}
+	co_return std::nullopt;
+}
+
 [[nodiscard]] std::vector<client_dns_bridge::Endpoint> resolve_client_endpoints(
 	Url const &url,
 	HttpClientOptions const &opts,
@@ -550,140 +640,25 @@ wroot::Task<ClientResult> do_async_request(
 	}
 	std::size_t const counted_initial_body_bytes =
 		has_content_length ? std::min(initial_body_bytes, content_length) : initial_body_bytes;
+	BodyReceiveContext const body_ctx{
+		.method = req.method(),
+		.chunked = chunked,
+		.has_content_length = has_content_length,
+		.content_length = content_length,
+		.counted_initial_body_bytes = counted_initial_body_bytes,
+		.max_body_size = max_body_sz,
+		.max_buffered_size = max_buf,
+	};
 	auto do_body = [&]() -> wroot::Task<std::optional<HttpError>> {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
 			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			if (req.method() == "HEAD") {
-				response.body.clear();
-			} else if (chunked) {
-				std::string decoded;
-				bool too_large = false;
-				try {
-					if (!co_await async_recv_chunked(tr, response.body, decoded, max_body_sz, max_buf, too_large)) {
-						if (too_large)
-							co_return HttpError{
-								.kind = HttpErrorKind::body_too_large,
-								.message = std::format("chunked body exceeds limit {}", max_body_sz)};
-						co_return HttpError{
-							.kind = HttpErrorKind::read,
-							.phase = HttpPhase::between_bytes,
-							.message = "failed to receive chunked body"};
-					}
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving chunked body"};
-				}
-				tel.bytes_received += decoded.size();
-				response.body = std::move(decoded);
-			} else if (has_content_length && content_length > response.body.size()) {
-				try {
-					if (!co_await async_recv_exact(tr, response.body, content_length, max_body_sz)) {
-						if (response.body.size() >= max_body_sz)
-							co_return HttpError{
-								.kind = HttpErrorKind::body_too_large,
-								.message = std::format("body exceeds limit {}", max_body_sz)};
-						co_return HttpError{
-							.kind = HttpErrorKind::read,
-							.phase = HttpPhase::between_bytes,
-							.message = "failed to receive body"};
-					}
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving body"};
-				}
-				tel.bytes_received += content_length - counted_initial_body_bytes;
-			} else if (!has_content_length && !chunked) {
-				bool too_large = false;
-				try {
-					co_await async_recv_to_eof(tr, response.body, max_body_sz, too_large);
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving body"};
-				}
-				if (too_large)
-					co_return HttpError{
-						.kind = HttpErrorKind::body_too_large,
-						.message = std::format("EOF-delimited body exceeds limit {}", max_body_sz)};
-				tel.bytes_received += response.body.size();
-			}
-			co_return std::nullopt;
+			co_return co_await receive_http1_body(tr, response, tel, body_ctx);
 		}
 #endif
 		{
 			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			if (req.method() == "HEAD") {
-				response.body.clear();
-			} else if (chunked) {
-				std::string decoded;
-				bool too_large = false;
-				try {
-					if (!co_await async_recv_chunked(pr, response.body, decoded, max_body_sz, max_buf, too_large)) {
-						if (too_large)
-							co_return HttpError{
-								.kind = HttpErrorKind::body_too_large,
-								.message = std::format("chunked body exceeds limit {}", max_body_sz)};
-						co_return HttpError{
-							.kind = HttpErrorKind::read,
-							.phase = HttpPhase::between_bytes,
-							.message = "failed to receive chunked body"};
-					}
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving chunked body"};
-				}
-				tel.bytes_received += decoded.size();
-				response.body = std::move(decoded);
-			} else if (has_content_length && content_length > response.body.size()) {
-				try {
-					if (!co_await async_recv_exact(pr, response.body, content_length, max_body_sz)) {
-						if (response.body.size() >= max_body_sz)
-							co_return HttpError{
-								.kind = HttpErrorKind::body_too_large,
-								.message = std::format("body exceeds limit {}", max_body_sz)};
-						co_return HttpError{
-							.kind = HttpErrorKind::read,
-							.phase = HttpPhase::between_bytes,
-							.message = "failed to receive body"};
-					}
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving body"};
-				}
-				tel.bytes_received += content_length - counted_initial_body_bytes;
-			} else if (!has_content_length && !chunked) {
-				bool too_large = false;
-				try {
-					co_await async_recv_to_eof(pr, response.body, max_body_sz, too_large);
-				} catch (IoError const &e) {
-					co_return HttpError{
-						.kind = HttpErrorKind::read,
-						.phase = HttpPhase::between_bytes,
-						.os_errno = e.code().value(),
-						.message = "timed out receiving body"};
-				}
-				if (too_large)
-					co_return HttpError{
-						.kind = HttpErrorKind::body_too_large,
-						.message = std::format("EOF-delimited body exceeds limit {}", max_body_sz)};
-				tel.bytes_received += response.body.size();
-			}
-			co_return std::nullopt;
+			co_return co_await receive_http1_body(pr, response, tel, body_ctx);
 		}
 	};
 	if (auto berr = co_await do_body(); berr) {
