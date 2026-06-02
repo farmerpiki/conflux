@@ -27,6 +27,13 @@ struct MethodRouteLookupIndex {
 	RouteLookupIndex routes{};
 };
 
+struct PreparedRoutePattern {
+	std::vector<conflux::http::detail::Segment> pattern{};
+	std::string path_pattern{};
+	std::string exact_path{};
+	bool has_exact_path{};
+};
+
 struct Router::Impl {
 	struct Route {
 		std::string method{};
@@ -139,6 +146,19 @@ void index_route_pattern(
 		return;
 	}
 	index.generic.push_back(route_index);
+}
+
+[[nodiscard]] PreparedRoutePattern prepare_route_pattern(
+	std::string_view path) {
+	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto const has_exact_path = is_exact_literal_pattern(pattern);
+	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
+	return PreparedRoutePattern{
+		.pattern = std::move(pattern),
+		.path_pattern = std::move(path_pattern),
+		.exact_path = has_exact_path ? std::string{path} : std::string{},
+		.has_exact_path = has_exact_path,
+	};
 }
 
 [[nodiscard]] MethodRouteLookupIndex &find_or_add_method_index(
@@ -458,21 +478,19 @@ void Router::add_prepared(
 	std::string_view method,
 	std::string_view path,
 	Handler handler) {
-	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto prepared = prepare_route_pattern(path);
 	auto const route_index = impl_->routes.size();
-	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	index_route_pattern(
 		find_or_add_method_index(impl_->route_indexes, method).routes,
-		pattern,
-		has_exact_path ? path : std::string_view{},
+		prepared.pattern,
+		prepared.exact_path,
 		route_index);
 	impl_->routes.push_back({
 		.method = std::string{method},
-		.pattern = std::move(pattern),
-		.path_pattern = std::move(path_pattern),
-		.exact_path = has_exact_path ? std::string{path} : std::string{},
-		.has_exact_path = has_exact_path,
+		.pattern = std::move(prepared.pattern),
+		.path_pattern = std::move(prepared.path_pattern),
+		.exact_path = std::move(prepared.exact_path),
+		.has_exact_path = prepared.has_exact_path,
 		.handler = std::move(handler),
 	});
 }
@@ -496,21 +514,19 @@ void Router::add_context_prepared(
 	std::string_view path,
 	std::shared_ptr<std::chrono::milliseconds> timeout,
 	ContextHandler handler) {
-	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto prepared = prepare_route_pattern(path);
 	auto const route_index = impl_->context_routes.size();
-	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	index_route_pattern(
 		find_or_add_method_index(impl_->context_route_indexes, method).routes,
-		pattern,
-		has_exact_path ? path : std::string_view{},
+		prepared.pattern,
+		prepared.exact_path,
 		route_index);
 	impl_->context_routes.push_back({
 		.method = std::string{method},
-		.pattern = std::move(pattern),
-		.path_pattern = std::move(path_pattern),
-		.exact_path = has_exact_path ? std::string{path} : std::string{},
-		.has_exact_path = has_exact_path,
+		.pattern = std::move(prepared.pattern),
+		.path_pattern = std::move(prepared.path_pattern),
+		.exact_path = std::move(prepared.exact_path),
+		.has_exact_path = prepared.has_exact_path,
 		.timeout = std::move(timeout),
 		.handler = std::move(handler),
 	});
@@ -555,16 +571,14 @@ void Router::sse_prepared(
 	std::string_view path,
 	SseHandler handler) {
 	(void)impl_->ensure_work_pool();
-	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto prepared = prepare_route_pattern(path);
 	auto const route_index = impl_->sse_routes.size();
-	auto const has_exact_path = is_exact_literal_pattern(pattern);
-	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
-	index_route_pattern(impl_->sse_index, pattern, has_exact_path ? path : std::string_view{}, route_index);
+	index_route_pattern(impl_->sse_index, prepared.pattern, prepared.exact_path, route_index);
 	impl_->sse_routes.push_back({
-		.pattern = std::move(pattern),
-		.path_pattern = std::move(path_pattern),
-		.exact_path = has_exact_path ? std::string{path} : std::string{},
-		.has_exact_path = has_exact_path,
+		.pattern = std::move(prepared.pattern),
+		.path_pattern = std::move(prepared.path_pattern),
+		.exact_path = std::move(prepared.exact_path),
+		.has_exact_path = prepared.has_exact_path,
 		.handler = std::move(handler),
 	});
 }
