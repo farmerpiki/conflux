@@ -1020,14 +1020,66 @@ struct Url {
 	std::string query{}; // raw, without leading '?'
 
 	[[nodiscard]] static std::expected<Url, UrlError> parse(std::string_view input);
+	[[nodiscard]] bool uses_default_port() const noexcept {
+		return (scheme == "http" && port == 80) || (scheme == "https" && port == 443);
+	}
+	[[nodiscard]] std::size_t origin_form_target_size() const noexcept {
+		std::size_t n = path.empty() ? 1 : path.size();
+		if (!query.empty()) {
+			n += 1 + query.size();
+		}
+		return n;
+	}
+	void append_origin_form_target(
+		std::string &out) const {
+		if (path.empty()) {
+			out += '/';
+		} else {
+			out += path;
+		}
+		if (!query.empty()) {
+			out += '?';
+			out += query;
+		}
+	}
+	[[nodiscard]] std::size_t host_header_value_size(
+		std::string_view override_host = {}) const noexcept {
+		if (!override_host.empty()) {
+			return override_host.size();
+		}
+		if (uses_default_port()) {
+			return host.size();
+		}
+		std::size_t port_digits = 1;
+		for (auto value = port; value >= 10; value /= 10) {
+			++port_digits;
+		}
+		return host.size() + 1 + port_digits;
+	}
+	void append_host_header_value(
+		std::string &out,
+		std::string_view override_host = {}) const {
+		if (!override_host.empty()) {
+			out += override_host;
+			return;
+		}
+		out += host;
+		if (!uses_default_port()) {
+			out += ':';
+			std::array<char, 5> port_buf{};
+			auto const [ptr, ec] = std::to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
+			if (ec == std::errc{}) {
+				out.append(port_buf.data(), static_cast<std::size_t>(ptr - port_buf.data()));
+			}
+		}
+	}
 	[[nodiscard]] std::string str() const {
 		std::string out;
 		out.reserve(scheme.size() + 3 + host.size() + 7 + path.size() + query.size() + 1);
 		out += scheme;
 		out += "://";
 		out += host;
-		bool const default_port = (scheme == "http" && port == 80) || (scheme == "https" && port == 443);
-		if (!default_port) {
+		if (!uses_default_port()) {
 			out += ':';
 			std::array<char, 5> port_buf{};
 			auto const [ptr, ec] = std::to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);

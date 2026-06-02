@@ -73,6 +73,11 @@ struct Url {
     std::string query;           // raw, no leading '?'
 
     static std::expected<Url, UrlError> parse(std::string_view input);
+    bool uses_default_port() const noexcept;
+    std::size_t origin_form_target_size() const noexcept;
+    void append_origin_form_target(std::string& out) const;
+    std::size_t host_header_value_size(std::string_view override_host = {}) const noexcept;
+    void append_host_header_value(std::string& out, std::string_view override_host = {}) const;
     std::string str() const;
     void set_query_param(std::string_view name, std::string_view value); // percent-encodes
 };

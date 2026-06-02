@@ -43,61 +43,6 @@ void append_decimal(
 	return n;
 }
 
-[[nodiscard]] bool url_uses_default_port(
-	Url const &url) noexcept {
-	return (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
-}
-
-[[nodiscard]] std::size_t host_header_value_size(
-	Url const &url,
-	std::string_view caller_host) noexcept {
-	if (!caller_host.empty()) {
-		return caller_host.size();
-	}
-	if (url_uses_default_port(url)) {
-		return url.host.size();
-	}
-	return url.host.size() + 1 + decimal_size(url.port);
-}
-
-void append_host_header_value(
-	std::string &out,
-	Url const &url,
-	std::string_view caller_host) {
-	if (!caller_host.empty()) {
-		out += caller_host;
-		return;
-	}
-	out += url.host;
-	if (!url_uses_default_port(url)) {
-		out += ':';
-		append_decimal(out, url.port);
-	}
-}
-
-[[nodiscard]] std::size_t request_target_size(
-	Url const &url) noexcept {
-	std::size_t n = url.path.empty() ? 1 : url.path.size();
-	if (!url.query.empty()) {
-		n += 1 + url.query.size();
-	}
-	return n;
-}
-
-void append_request_target(
-	std::string &out,
-	Url const &url) {
-	if (url.path.empty()) {
-		out += '/';
-	} else {
-		out += url.path;
-	}
-	if (!url.query.empty()) {
-		out += '?';
-		out += url.query;
-	}
-}
-
 void append_header_line(
 	std::string &out,
 	std::string_view name,
@@ -180,10 +125,10 @@ struct EffectiveRequestHeader {
 	auto const &url = req.url();
 	std::size_t n = req.method().size()
 				  + 1
-				  + request_target_size(url)
+				  + url.origin_form_target_size()
 				  + sizeof(" HTTP/1.1\r\nHost: ")
 				  - 1
-				  + host_header_value_size(url, caller_host)
+				  + url.host_header_value_size(caller_host)
 				  + 2;
 	for (auto const &header: effective_headers) {
 		if (header.emit) {
@@ -442,9 +387,9 @@ void accumulate_telemetry(
 	wire.reserve(estimate_request_wire_size(req, effective_headers, caller_host));
 	wire += req.method();
 	wire += ' ';
-	append_request_target(wire, url);
+	url.append_origin_form_target(wire);
 	wire += " HTTP/1.1\r\nHost: ";
-	append_host_header_value(wire, url, caller_host);
+	url.append_host_header_value(wire, caller_host);
 	wire += "\r\n";
 
 	for (auto const &header: effective_headers) {

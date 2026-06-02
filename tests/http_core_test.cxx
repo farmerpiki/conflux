@@ -89,6 +89,30 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http core: Url renders origin-form targets and Host header values",
+	"[http.core]") {
+	auto url = chttp::Url::parse("https://example.com:8443/api/v1?q=one");
+	REQUIRE(url.has_value());
+	CHECK_FALSE(url->uses_default_port());
+	CHECK(url->origin_form_target_size() == std::string_view{"/api/v1?q=one"}.size());
+	std::string target;
+	url->append_origin_form_target(target);
+	CHECK(target == "/api/v1?q=one");
+	CHECK(url->host_header_value_size() == std::string_view{"example.com:8443"}.size());
+	std::string host;
+	url->append_host_header_value(host);
+	CHECK(host == "example.com:8443");
+
+	auto default_port = chttp::Url::parse("http://example.com/");
+	REQUIRE(default_port.has_value());
+	CHECK(default_port->uses_default_port());
+	CHECK(default_port->host_header_value_size("override.test") == std::string_view{"override.test"}.size());
+	std::string overridden_host;
+	default_port->append_host_header_value(overridden_host, "override.test");
+	CHECK(overridden_host == "override.test");
+}
+
+TEST_CASE(
 	"http core: fallible request builders report URL errors without throwing",
 	"[http.core]") {
 	auto bad = chttp::try_get("example.com/path");
