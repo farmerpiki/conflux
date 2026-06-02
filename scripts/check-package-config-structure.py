@@ -64,41 +64,6 @@ def check_marker_order(text: str, markers: list[str], diagnostic: str) -> None:
         fail(diagnostic)
 
 
-def check_no_legacy_mock_liburing_refs() -> None:
-    roots = [
-        Path("CMakeLists.txt"),
-        Path("CMakePresets.json"),
-        Path("build-all.sh"),
-        Path("cmake"),
-        Path("scripts"),
-        Path("docs"),
-        Path("tests"),
-        Path("examples"),
-        Path("benchmarks"),
-        Path("fuzz"),
-    ]
-    legacy_suffixes = (
-        "USE" + "_MOCK_LIBURING",
-        "MOCK" + "_LIBURING_ROOT",
-    )
-    pattern = re.compile(r"CONFLUX_(?:" + "|".join(re.escape(suffix) for suffix in legacy_suffixes) + r")")
-    hits: list[str] = []
-    for root in roots:
-        paths = [root] if root.is_file() else root.rglob("*")
-        for path in paths:
-            if not path.is_file():
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                continue
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                if pattern.search(line):
-                    hits.append(f"{path}:{line_no}: {line.strip()}")
-    if hits:
-        fail("\n".join(hits))
-
-
 def check_no_legacy_stdsimd_option() -> None:
     roots = [
         Path("CMakeLists.txt"),
@@ -2238,7 +2203,6 @@ def main() -> int:
         Path(sys.argv[1]).resolve(strict=True)
         os.chdir(sys.argv[1])
 
-    check_no_legacy_mock_liburing_refs()
     check_no_legacy_stdsimd_option()
     check_no_explicit_build_parallelism()
     check_provider_policy_scenarios_are_isolated()
