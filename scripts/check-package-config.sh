@@ -96,110 +96,59 @@ python3 scripts/check-empty-catch-rationale.py . \
 
 grep -Eq '^project\(conflux VERSION [0-9]+\.[0-9]+\.[0-9]+ LANGUAGES CXX\)' CMakeLists.txt \
     || fail "project() must declare the package version"
-grep -q 'check_cmake_extraction_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify CMake extraction contracts"
-grep -q 'compiler workaround must keep its GCC ICE motivation' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep compiler workaround motivations"
-
-grep -q 'check_install_and_dependency_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify install and dependency contracts"
-grep -q 'JSONTestSuite fetch must pin a full commit SHA' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep JSONTestSuite pin validation"
-grep -q 'check_package_metadata_generator_contract' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify package metadata generator validation"
-grep -q 'package metadata generator must reject component partition drift' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep package metadata partition validation"
-grep -q 'check_build_docs_guard_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify build/docs guard contracts"
-grep -q 'compile-fail checks must stay compile-time OBJECT target checks' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep compile-fail CTest contract"
-grep -q 'check_header_interface_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify header interface contracts"
-grep -q 'release-header-artifacts must pin release-json feature set' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep release-header-artifacts preset checks"
-grep -q 'check_header_http_impls_do_not_pull_json' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must protect header HTTP/JSON implementation isolation"
-grep -q 'header example registration must parse explicit implementation deps' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must require explicit header example implementation dependency parsing"
-grep -q 'dual header example must declare HTTP client implementation deps explicitly' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep the dual header example dependency declaration explicit"
-grep -q 'linked header examples must declare implementation deps explicitly' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject source-id-based header implementation inference"
-grep -q 'router_impl owns serve_static' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must motivate the header HTTP static implementation fallback"
-grep -q 'check_header_impl_lists_have_no_duplicates' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject duplicate header implementation dependency entries"
-grep -q 'check_header_source_ids_exist' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale header bridge source ids"
-grep -q 'header bridge source ids are missing backing .cxx files' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must explain stale header bridge source ids"
-grep -q 'check_header_support_components_are_limited' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must limit manually managed header support components"
-grep -q 'generated-header support export' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must make generated-header support export exceptions explicit"
-grep -q 'support registry export' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject unknown header support export names"
-grep -q 'check_header_public_components_use_registry_exports' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep header package components registry-derived"
-grep -q 'is not a public registry export' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject header package components outside the public registry"
-grep -q 'check_package_smoke_wrapper_default_components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate wrapper default package smoke components"
-grep -q 'wrapper default package smoke components must be public registry exports' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep wrapper smoke defaults on public components"
-grep -q 'check_package_config_uses_generated_component_metadata' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify generated package component metadata use"
-grep -q 'hand-written component dependency table' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject hand-written package component dependency tables"
-grep -q 'check_package_smoke_project_contract' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify the package smoke project contract"
-grep -q 'found unrequested visible target' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep package smoke target-visibility rejection"
-grep -q 'check_package_smoke_runner_contract' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify the package smoke runner contract"
-grep -q 'package smoke runner must reject support components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep package smoke runner support-component rejection"
-grep -q 'check_preset_build_dir_usage_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify preset-derived build directory usage"
-grep -q 'matrix scripts must not reconstruct preset build dirs' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject hardcoded matrix build directories"
-grep -q 'check_install_tree_smoke_runner_contract' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify the install-tree smoke runner contract"
-grep -q 'install-tree smoke runner must reject support components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep install-tree smoke runner support-component rejection"
-grep -q 'check_install_tree_ctest_helpers' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify install-tree smoke CTest helper wiring"
-grep -q 'mixed-module-header-smoke>' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject empty-argument generator expressions in install-tree smoke CTests"
-grep -q 'check_package_smoke_wrapper_contracts' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify package smoke wrapper contracts"
-grep -q 'core-isolated package smoke must force the external JSON hash provider' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep core-isolated provider-noise coverage"
-grep -q 'external tokens missing from core-isolated forbidden list' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify full core-isolated external-token coverage"
-grep -q 'def cmake_function_body' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must centralize CMake function-body extraction"
-grep -q 'def shell_semicolon_list_var' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must parse shell semicolon-list policies"
-grep -q 'def append_set_delta_errors' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must centralize set-delta error reporting"
-grep -q 'contains unknown external tokens' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject unknown tokens in package smoke external-dependency policies"
-grep -q 'contains unknown package components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject unknown package components in package smoke component policies"
-grep -q 'check_core_isolated_forbidden_components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must compare core-isolated component isolation with default core smoke policy"
-grep -q 'check_package_smoke_policy_cases_use_variables' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must require package smoke policy cases to use named variables"
-grep -q 'policy variables are not used' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject unused package smoke policy variables"
-grep -q 'Path("cmake/package-smoke/CMakeLists.txt")' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must scan duplicate link edges outside root CMake"
-grep -q 'requests non-public package smoke components' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject non-public install-smoke preset components"
-grep -q 'check_release_artifact_staging_contract' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify release artifact staging"
-grep -q 'release artifact guard must validate bridge python metadata' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep release artifact bridge metadata validation"
+require_structure_guard_markers <<'EOF'
+check_cmake_extraction_contracts|package-config structure guard must verify CMake extraction contracts
+compiler workaround must keep its GCC ICE motivation|package-config structure guard must keep compiler workaround motivations
+check_install_and_dependency_contracts|package-config structure guard must verify install and dependency contracts
+JSONTestSuite fetch must pin a full commit SHA|package-config structure guard must keep JSONTestSuite pin validation
+check_package_metadata_generator_contract|package-config structure guard must verify package metadata generator validation
+package metadata generator must reject component partition drift|package-config structure guard must keep package metadata partition validation
+check_build_docs_guard_contracts|package-config structure guard must verify build/docs guard contracts
+compile-fail checks must stay compile-time OBJECT target checks|package-config structure guard must keep compile-fail CTest contract
+check_header_interface_contracts|package-config structure guard must verify header interface contracts
+release-header-artifacts must pin release-json feature set|package-config structure guard must keep release-header-artifacts preset checks
+check_header_http_impls_do_not_pull_json|package-config structure guard must protect header HTTP/JSON implementation isolation
+header example registration must parse explicit implementation deps|package-config structure guard must require explicit header example implementation dependency parsing
+dual header example must declare HTTP client implementation deps explicitly|package-config structure guard must keep the dual header example dependency declaration explicit
+linked header examples must declare implementation deps explicitly|package-config structure guard must reject source-id-based header implementation inference
+router_impl owns serve_static|package-config structure guard must motivate the header HTTP static implementation fallback
+check_header_impl_lists_have_no_duplicates|package-config structure guard must reject duplicate header implementation dependency entries
+check_header_source_ids_exist|package-config structure guard must reject stale header bridge source ids
+header bridge source ids are missing backing .cxx files|package-config structure guard must explain stale header bridge source ids
+check_header_support_components_are_limited|package-config structure guard must limit manually managed header support components
+generated-header support export|package-config structure guard must make generated-header support export exceptions explicit
+support registry export|package-config structure guard must reject unknown header support export names
+check_header_public_components_use_registry_exports|package-config structure guard must keep header package components registry-derived
+is not a public registry export|package-config structure guard must reject header package components outside the public registry
+check_package_smoke_wrapper_default_components|package-config structure guard must validate wrapper default package smoke components
+wrapper default package smoke components must be public registry exports|package-config structure guard must keep wrapper smoke defaults on public components
+check_package_config_uses_generated_component_metadata|package-config structure guard must verify generated package component metadata use
+hand-written component dependency table|package-config structure guard must reject hand-written package component dependency tables
+check_package_smoke_project_contract|package-config structure guard must verify the package smoke project contract
+found unrequested visible target|package-config structure guard must keep package smoke target-visibility rejection
+check_package_smoke_runner_contract|package-config structure guard must verify the package smoke runner contract
+package smoke runner must reject support components|package-config structure guard must keep package smoke runner support-component rejection
+check_preset_build_dir_usage_contracts|package-config structure guard must verify preset-derived build directory usage
+matrix scripts must not reconstruct preset build dirs|package-config structure guard must reject hardcoded matrix build directories
+check_install_tree_smoke_runner_contract|package-config structure guard must verify the install-tree smoke runner contract
+install-tree smoke runner must reject support components|package-config structure guard must keep install-tree smoke runner support-component rejection
+check_install_tree_ctest_helpers|package-config structure guard must verify install-tree smoke CTest helper wiring
+mixed-module-header-smoke>|package-config structure guard must reject empty-argument generator expressions in install-tree smoke CTests
+check_package_smoke_wrapper_contracts|package-config structure guard must verify package smoke wrapper contracts
+core-isolated package smoke must force the external JSON hash provider|package-config structure guard must keep core-isolated provider-noise coverage
+external tokens missing from core-isolated forbidden list|package-config structure guard must verify full core-isolated external-token coverage
+def cmake_function_body|package-config structure guard must centralize CMake function-body extraction
+def shell_semicolon_list_var|package-config structure guard must parse shell semicolon-list policies
+def append_set_delta_errors|package-config structure guard must centralize set-delta error reporting
+contains unknown external tokens|package-config structure guard must reject unknown tokens in package smoke external-dependency policies
+contains unknown package components|package-config structure guard must reject unknown package components in package smoke component policies
+check_core_isolated_forbidden_components|package-config structure guard must compare core-isolated component isolation with default core smoke policy
+check_package_smoke_policy_cases_use_variables|package-config structure guard must require package smoke policy cases to use named variables
+policy variables are not used|package-config structure guard must reject unused package smoke policy variables
+Path("cmake/package-smoke/CMakeLists.txt")|package-config structure guard must scan duplicate link edges outside root CMake
+requests non-public package smoke components|package-config structure guard must reject non-public install-smoke preset components
+check_release_artifact_staging_contract|package-config structure guard must verify release artifact staging
+release artifact guard must validate bridge python metadata|package-config structure guard must keep release artifact bridge metadata validation
+EOF
 
 printf 'check-package-config: ok\n'
