@@ -18,6 +18,11 @@ DOC_COMPONENT_RE = re.compile(
     r"^\|\s*`([^`]+)`\s*\|\s*`conflux::([^`]+)`\s*\|",
     re.MULTILINE,
 )
+DOC_PUBLIC_ROW_RE = re.compile(
+    r"^\|\s*`([^`]+)`\s*\|\s*`conflux::([^`]+)`\s*\|\s*([^|]+?)\s*\|"
+    r"\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|",
+    re.MULTILINE,
+)
 DOC_SUPPORT_COMPONENT_RE = re.compile(
     r"^\|\s*`(_[^`]+)`\s*\|\s*[^|]*\|\s*[^|]*\|",
     re.MULTILINE,
@@ -58,6 +63,23 @@ def documented_components() -> dict[str, str]:
     return components
 
 
+def documented_public_rows() -> dict[str, tuple[str, str, str, str]]:
+    text = COMPONENT_MAP.read_text(encoding="utf-8")
+    rows: dict[str, tuple[str, str, str, str]] = {}
+    for component, target, imports, api_surface, contracts in DOC_PUBLIC_ROW_RE.findall(text):
+        if component.startswith("_"):
+            continue
+        if component in rows:
+            raise ValueError(f"duplicate documented component row: {component}")
+        rows[component] = (
+            target.strip(),
+            imports.strip(),
+            api_surface.strip(),
+            contracts.strip(),
+        )
+    return rows
+
+
 def documented_support_components() -> set[str]:
     text = COMPONENT_MAP.read_text(encoding="utf-8")
     components: set[str] = set()
@@ -73,6 +95,7 @@ def main() -> int:
     cmake_components = public_components()
     cmake_support_components = support_components()
     doc_components = documented_components()
+    doc_rows = documented_public_rows()
     doc_support_components = documented_support_components()
 
     for component in sorted(cmake_components.keys() & cmake_support_components.keys()):
@@ -113,6 +136,12 @@ def main() -> int:
     for component in sorted(doc_components.keys() - cmake_components.keys()):
         failures.append(f"docs/component-map.md documents non-CMake component `{component}`")
 
+    for component in sorted(cmake_components.keys() - doc_rows.keys()):
+        failures.append(f"missing docs/component-map.md public row details for CMake component `{component}`")
+
+    for component in sorted(doc_rows.keys() - cmake_components.keys()):
+        failures.append(f"docs/component-map.md details non-CMake component `{component}`")
+
     for component in sorted(cmake_support_components.keys() - doc_support_components):
         failures.append(f"missing docs/component-map.md support row for CMake component `{component}`")
 
@@ -126,6 +155,22 @@ def main() -> int:
                 "component-map target mismatch for "
                 f"`{component}`: expected `conflux::{component}`, found `conflux::{documented_target}`"
             )
+
+    valid_surfaces = {"curated", "extended", "complete", "explicit-only", "selected"}
+    for component, (target, imports, api_surface, contracts) in sorted(doc_rows.items()):
+        if target != component:
+            failures.append(
+                "component-map row target mismatch for "
+                f"`{component}`: expected `conflux::{component}`, found `conflux::{target}`"
+            )
+        if "conflux" not in imports:
+            failures.append(f"component-map row for `{component}` must document an import/include path")
+        if api_surface not in valid_surfaces:
+            failures.append(
+                f"component-map row for `{component}` uses unknown API surface `{api_surface}`"
+            )
+        if not re.search(r"\b(docs|examples|tests|fuzz|src)/|README\.md", contracts):
+            failures.append(f"component-map row for `{component}` must document a contract owner")
 
     if failures:
         print("component-map guard failed:", file=sys.stderr)
