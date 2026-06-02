@@ -293,21 +293,16 @@ inline std::expected<PathParts, IoError> split_contained_path(
 	}
 
 	// reject path components that are ..
-	std::string_view remaining = path;
-	while (!remaining.empty()) {
-		auto const slash = remaining.find('/');
-		auto const component = remaining.substr(0, slash);
-		if (component == ".." || component.empty()) {
-			if (component == "..") {
-				return std::unexpected{
-					IoError{EINVAL, "file_io_sync: .. in path"}
-                };
-			}
+	auto const ok = conflux::support::for_each_path_component(path, [](std::string_view component) {
+		if (component == "..") {
+			return false;
 		}
-		if (slash == std::string_view::npos) {
-			break;
-		}
-		remaining = remaining.substr(slash + 1);
+		return true;
+	});
+	if (!ok) {
+		return std::unexpected{
+			IoError{EINVAL, "file_io_sync: .. in path"}
+        };
 	}
 
 	auto const last_slash = path.rfind('/');

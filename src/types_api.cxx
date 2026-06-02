@@ -140,6 +140,26 @@ struct TransparentStringEqual {
 template<class Value>
 using TransparentStringMap = std::unordered_map<std::string, Value, TransparentStringHash, TransparentStringEqual>;
 
+template<class Fn>
+constexpr bool for_each_path_component(
+	std::string_view path,
+	Fn &&fn) noexcept(noexcept(std::invoke(std::forward<Fn>(fn), std::string_view{}))) {
+	std::size_t pos = 0;
+	while (pos < path.size()) {
+		auto const next = path.find('/', pos);
+		std::string_view const component =
+			next == std::string_view::npos ? path.substr(pos) : path.substr(pos, next - pos);
+		if (!std::invoke(std::forward<Fn>(fn), component)) {
+			return false;
+		}
+		if (next == std::string_view::npos) {
+			break;
+		}
+		pos = next + 1;
+	}
+	return true;
+}
+
 template<class Value>
 class StringLruMap {
 	struct Entry {

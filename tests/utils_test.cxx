@@ -277,6 +277,15 @@ TEST_CASE(
 static_assert(conflux::support::fnv1a64("") == 0xcbf29ce484222325ULL);
 static_assert(conflux::support::fnv1a64("hello") == 0xa430d84680aabd0bULL);
 static_assert(conflux::support::fnv1a64_ascii_fold("Content-Type") == 0xf4dd5cf6a7a0235ULL);
+static_assert([] {
+	std::array<std::string_view, 3> components{};
+	std::size_t count = 0;
+	auto const ok = conflux::support::for_each_path_component("a//b/", [&](std::string_view component) {
+		components[count++] = component;
+		return true;
+	});
+	return ok && count == 3 && components[0] == "a" && components[1].empty() && components[2] == "b";
+}());
 
 // ---------------------------------------------------------------------------
 // random_bytes

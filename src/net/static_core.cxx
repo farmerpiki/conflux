@@ -196,16 +196,13 @@ struct StaticCacheStore {
 	std::string_view raw) {
 	std::string result;
 	result.reserve(raw.size() + 1);
-	std::size_t pos = 0;
-	while (pos < raw.size()) {
-		auto const next = raw.find('/', pos);
-		std::string_view const seg = next == std::string_view::npos ? raw.substr(pos) : raw.substr(pos, next - pos);
+	auto const ok = conflux::support::for_each_path_component(raw, [&result](std::string_view seg) {
 		if (seg.find('\0') != std::string_view::npos) {
-			return std::nullopt;
+			return false;
 		}
 		if (seg == "..") {
 			if (result.empty()) {
-				return std::nullopt;
+				return false;
 			}
 			auto const slash = result.rfind('/');
 			if (slash == 0) {
@@ -217,10 +214,10 @@ struct StaticCacheStore {
 			result.push_back('/');
 			result += seg;
 		}
-		if (next == std::string_view::npos) {
-			break;
-		}
-		pos = next + 1;
+		return true;
+	});
+	if (!ok) {
+		return std::nullopt;
 	}
 	return result;
 }
