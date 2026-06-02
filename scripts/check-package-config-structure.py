@@ -603,6 +603,7 @@ def cmake_test_cmake_paths() -> list[Path]:
         Path("cmake/ConfluxOptions.cmake"),
         Path("cmake/ConfluxInterfaceMode.cmake"),
         Path("cmake/package-smoke/CMakeLists.txt"),
+        *sorted(Path("cmake/package-smoke").glob("*.cmake")),
         Path("fuzz/CMakeLists.txt"),
     ]
 
@@ -1362,7 +1363,11 @@ def check_package_smoke_wrapper_contracts() -> None:
 
 
 def check_package_smoke_project_contract() -> None:
-    text = read("cmake/package-smoke/CMakeLists.txt")
+    paths = [
+        Path("cmake/package-smoke/CMakeLists.txt"),
+        *sorted(Path("cmake/package-smoke").glob("*.cmake")),
+    ]
+    text = "\n".join(read(str(path)) for path in paths)
     required_markers = {
         "find_package(conflux REQUIRED COMPONENTS": "package smoke project must consume find_package(conflux COMPONENTS ...)",
         "CONFLUX_PACKAGE_SMOKE_COMPONENTS must name at least one component": "package smoke project must reject empty component lists",
@@ -1394,6 +1399,9 @@ def check_package_smoke_project_contract() -> None:
         "CXX_SCAN_FOR_MODULES OFF": "header package smoke must disable module scanning for header targets",
         "found unrequested visible target": "package smoke must reject unrequested visible targets",
         "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}": "package smoke summary must report runtime/liburing status",
+        'include("${CMAKE_CURRENT_LIST_DIR}/PublicModuleImports.cmake")': "package smoke project must include the public-module import fragment",
+        'include("${CMAKE_CURRENT_LIST_DIR}/MixedModuleHeader.cmake")': "package smoke project must include the mixed module/header fragment",
+        'include("${CMAKE_CURRENT_LIST_DIR}/ComponentSmokes.cmake")': "package smoke project must include the component smoke fragment",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
     if missing:
