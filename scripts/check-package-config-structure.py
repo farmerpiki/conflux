@@ -1135,6 +1135,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/E2ETests.cmake",
         "tests/ExternalTests.cmake",
         "tests/HttpCoreTests.cmake",
+        "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
         "tests/HttpResponseTests.cmake",
         "tests/IoTests.cmake",
@@ -1651,6 +1652,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpJsonTests.cmake")': "tests CMake must include the HTTP JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
@@ -1716,6 +1718,10 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_http_core_tests)": "HTTP core test fragment must define HTTP core tests",
             "conflux_http_core_compile_fail_global_request": "HTTP core test fragment must keep request compile-fail check",
             "conflux_http_core_compile_fail_global_http_fields_view": "HTTP core test fragment must keep fields view compile-fail check",
+        },
+        "tests/HttpJsonTests.cmake": {
+            "add_executable(conflux_http_json_tests http_json_test.cxx)": "HTTP JSON test fragment must define JSON tests",
+            "conflux_http_json_compile_fail_provider_template_response_alias": "HTTP JSON test fragment must keep provider template response alias compile-fail check",
         },
         "tests/HttpLifecycleTests.cmake": {
             "add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)": "HTTP lifecycle test fragment must define send-zc lifecycle tests when enabled",
