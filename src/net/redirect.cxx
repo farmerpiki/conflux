@@ -5,12 +5,18 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 export namespace conflux::http {
-[[nodiscard]] inline bool is_safe_redirect_suffix(
+
+[[nodiscard]] constexpr bool is_safe_redirect_suffix(
 	std::string_view s) noexcept {
 	if (s.starts_with("//") || s.starts_with("/\\")) {
 		return false;
 	}
-	return std::ranges::none_of(s, [](char c) { return c == '@' || c == '\\' || c == '\r' || c == '\n'; });
+	for (char const c: s) {
+		if (c == '@' || c == '\\' || c == '\r' || c == '\n') {
+			return false;
+		}
+	}
+	return true;
 }
 struct RedirectRule {
 	// Path to match. When prefix_match is false, exact match only.
@@ -29,8 +35,9 @@ struct RedirectOptions {
 // Rules are evaluated in order; first match wins.
 Router::Middleware redirect_middleware(
 	RedirectOptions opts = {}) {
-	return [opts = std::move(
-				opts)](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts = std::move(opts)](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		for (auto const &rule: opts.rules) {
 			bool matched = false;
 			std::string target = rule.to;

@@ -476,7 +476,7 @@ public:
 		std::string_view token_{};
 		bool done_{true};
 
-		void read_current() noexcept {
+		constexpr void read_current() noexcept {
 			if (pos_ > header_.size()) {
 				done_ = true;
 				token_ = {};
@@ -494,8 +494,8 @@ public:
 		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
-		Iterator() = default;
-		Iterator(
+		constexpr Iterator() = default;
+		constexpr Iterator(
 			std::string_view header,
 			std::size_t pos) noexcept
 			: header_{header}
@@ -503,8 +503,8 @@ public:
 			read_current();
 		}
 
-		[[nodiscard]] std::string_view operator *() const noexcept { return token_; }
-		Iterator &operator ++() noexcept {
+		[[nodiscard]] constexpr std::string_view operator *() const noexcept { return token_; }
+		constexpr Iterator &operator ++() noexcept {
 			if (done_) {
 				return *this;
 			}
@@ -518,11 +518,11 @@ public:
 			}
 			return *this;
 		}
-		void operator ++(
+		constexpr void operator ++(
 			int) noexcept {
 			++(*this);
 		}
-		[[nodiscard]] friend bool operator ==(
+		[[nodiscard]] friend constexpr bool operator ==(
 			Iterator const &lhs,
 			Iterator const &rhs) noexcept {
 			return lhs.done_ == rhs.done_
@@ -537,8 +537,8 @@ public:
 		std::string_view header) noexcept
 		: header_{header} {}
 
-	[[nodiscard]] Iterator begin() const noexcept { return Iterator{header_, 0}; }
-	[[nodiscard]] Iterator end() const noexcept { return {}; }
+	[[nodiscard]] constexpr Iterator begin() const noexcept { return Iterator{header_, 0}; }
+	[[nodiscard]] constexpr Iterator end() const noexcept { return {}; }
 };
 
 [[nodiscard]] constexpr HeaderTokenView header_tokens(
@@ -595,7 +595,7 @@ class HeaderParamView {
 		HeaderParam param_{};
 		bool done_{true};
 
-		void read_current() noexcept {
+		constexpr void read_current() noexcept {
 			while (pos_ <= params_.size()) {
 				auto const semi = find_unquoted(params_, ';', pos_);
 				auto segment = conflux::utils::trim(
@@ -630,8 +630,8 @@ class HeaderParamView {
 		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
-		Iterator() = default;
-		Iterator(
+		constexpr Iterator() = default;
+		constexpr Iterator(
 			std::string_view params,
 			std::size_t pos) noexcept
 			: params_{params}
@@ -639,18 +639,18 @@ class HeaderParamView {
 			read_current();
 		}
 
-		[[nodiscard]] HeaderParam operator *() const noexcept { return param_; }
-		Iterator &operator ++() noexcept {
+		[[nodiscard]] constexpr HeaderParam operator *() const noexcept { return param_; }
+		constexpr Iterator &operator ++() noexcept {
 			if (!done_) {
 				read_current();
 			}
 			return *this;
 		}
-		void operator ++(
+		constexpr void operator ++(
 			int) noexcept {
 			++(*this);
 		}
-		[[nodiscard]] friend bool operator ==(
+		[[nodiscard]] friend constexpr bool operator ==(
 			Iterator const &lhs,
 			Iterator const &rhs) noexcept {
 			return lhs.done_ == rhs.done_
@@ -667,8 +667,8 @@ public:
 		std::string_view params) noexcept
 		: params_{params} {}
 
-	[[nodiscard]] Iterator begin() const noexcept { return Iterator{params_, 0}; }
-	[[nodiscard]] Iterator end() const noexcept { return {}; }
+	[[nodiscard]] constexpr Iterator begin() const noexcept { return Iterator{params_, 0}; }
+	[[nodiscard]] constexpr Iterator end() const noexcept { return {}; }
 };
 
 [[nodiscard]] constexpr HeaderParamView header_params(
@@ -691,7 +691,7 @@ class HeaderItemView {
 		HeaderTokenView::Iterator end_{};
 		HeaderItem item_{};
 
-		void read_current() noexcept {
+		constexpr void read_current() noexcept {
 			if (it_ == end_) {
 				item_ = {};
 				return;
@@ -721,27 +721,27 @@ class HeaderItemView {
 		using iterator_concept = std::input_iterator_tag;
 		using iterator_category = std::input_iterator_tag;
 
-		Iterator() = default;
-		explicit Iterator(
+		constexpr Iterator() = default;
+		explicit constexpr Iterator(
 			std::string_view header)
 			: it_{header_tokens(header).begin()}
 			, end_{header_tokens(header).end()} {
 			read_current();
 		}
 
-		[[nodiscard]] HeaderItem operator *() const noexcept { return item_; }
-		Iterator &operator ++() noexcept {
+		[[nodiscard]] constexpr HeaderItem operator *() const noexcept { return item_; }
+		constexpr Iterator &operator ++() noexcept {
 			if (it_ != end_) {
 				++it_;
 				read_current();
 			}
 			return *this;
 		}
-		void operator ++(
+		constexpr void operator ++(
 			int) noexcept {
 			++(*this);
 		}
-		[[nodiscard]] friend bool operator ==(
+		[[nodiscard]] friend constexpr bool operator ==(
 			Iterator const &lhs,
 			Iterator const &rhs) noexcept {
 			return lhs.it_ == rhs.it_;
@@ -753,8 +753,8 @@ public:
 		std::string_view header) noexcept
 		: header_{header} {}
 
-	[[nodiscard]] Iterator begin() const noexcept { return Iterator{header_}; }
-	[[nodiscard]] Iterator end() const noexcept { return {}; }
+	[[nodiscard]] constexpr Iterator begin() const noexcept { return Iterator{header_}; }
+	[[nodiscard]] constexpr Iterator end() const noexcept { return {}; }
 };
 
 [[nodiscard]] constexpr HeaderItemView header_items(
@@ -1266,3 +1266,41 @@ inline constexpr bool std::ranges::enable_borrowed_range<conflux::http::HeaderIt
 static_assert(std::ranges::borrowed_range<conflux::http::HeaderTokenView>);
 static_assert(std::ranges::borrowed_range<conflux::http::HeaderParamView>);
 static_assert(std::ranges::borrowed_range<conflux::http::HeaderItemView>);
+static_assert([] {
+	auto tokens = conflux::http::header_tokens(" gzip , br ");
+	auto it = tokens.begin();
+	if (*it != "gzip") {
+		return false;
+	}
+	++it;
+	if (*it != "br") {
+		return false;
+	}
+	++it;
+	return it == tokens.end();
+}());
+static_assert([] {
+	auto params = conflux::http::header_params(R"(q=1; note="a;b")");
+	auto it = params.begin();
+	auto first = *it;
+	if (first.name != "q" || first.value != "1" || !first.has_value) {
+		return false;
+	}
+	++it;
+	auto second = *it;
+	return second.name == "note" && second.value == R"("a;b")" && second.has_value;
+}());
+static_assert([] {
+	auto items = conflux::http::header_items(R"(gzip;q=0.5, br; q=1)");
+	auto it = items.begin();
+	auto first = *it;
+	if (first.name != "gzip") {
+		return false;
+	}
+	auto first_param = *first.params.begin();
+	if (first_param.name != "q" || first_param.value != "0.5") {
+		return false;
+	}
+	++it;
+	return (*it).name == "br";
+}());

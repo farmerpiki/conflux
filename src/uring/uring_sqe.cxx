@@ -315,11 +315,11 @@ inline constexpr CancelFlags userdata{IORING_ASYNC_CANCEL_USERDATA};
 inline constexpr CancelFlags op{IORING_ASYNC_CANCEL_OP};
 
 } // namespace cancel_flags
-[[nodiscard]] inline CancelFlags cancel_fd_flags(
+[[nodiscard]] constexpr CancelFlags cancel_fd_flags(
 	OsFd) noexcept {
 	return CancelFlags{};
 }
-[[nodiscard]] inline CancelFlags cancel_fd_flags(
+[[nodiscard]] constexpr CancelFlags cancel_fd_flags(
 	DirectFd fd) noexcept {
 	return fd.valid() ? cancel_flags::fd_fixed : CancelFlags{};
 }

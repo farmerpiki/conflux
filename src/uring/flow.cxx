@@ -28,7 +28,7 @@ struct OwnedInlinePath {
 	static constexpr std::size_t cap = 255;
 	std::array<char, cap + 1> buf{};
 	std::size_t len{};
-	[[nodiscard]] static std::expected<OwnedInlinePath, int> from_sv(
+	[[nodiscard]] static constexpr std::expected<OwnedInlinePath, int> from_sv(
 		std::string_view sv) noexcept {
 		if (sv.size() > cap) {
 			return std::unexpected{-ENAMETOOLONG};
@@ -37,21 +37,29 @@ struct OwnedInlinePath {
 			return std::unexpected{-EINVAL};
 		}
 		OwnedInlinePath p{};
-		std::memcpy(p.buf.data(), sv.data(), sv.size());
+		for (std::size_t i = 0; i < sv.size(); ++i) {
+			p.buf[i] = sv[i];
+		}
 		p.buf[sv.size()] = '\0';
 		p.len = sv.size();
 		return p;
 	}
-	[[nodiscard]] char const *c_str() const noexcept { return buf.data(); }
+	[[nodiscard]] constexpr char const *c_str() const noexcept { return buf.data(); }
 };
 struct OpResult {
 	std::int32_t res = 0;
 	std::uint32_t requested = 0;
 	FlowOpKind kind = FlowOpKind::open_direct;
-	[[nodiscard]] bool ok() const noexcept { return res >= 0; }
-	[[nodiscard]] bool is_io() const noexcept { return kind == FlowOpKind::read || kind == FlowOpKind::write; }
-	[[nodiscard]] bool short_io() const noexcept { return is_io() && res >= 0 && std::uint32_t(res) < requested; }
-	[[nodiscard]] bool full_io() const noexcept { return is_io() && res >= 0 && std::uint32_t(res) == requested; }
+	[[nodiscard]] constexpr bool ok() const noexcept { return res >= 0; }
+	[[nodiscard]] constexpr bool is_io() const noexcept {
+		return kind == FlowOpKind::read || kind == FlowOpKind::write;
+	}
+	[[nodiscard]] constexpr bool short_io() const noexcept {
+		return is_io() && res >= 0 && std::uint32_t(res) < requested;
+	}
+	[[nodiscard]] constexpr bool full_io() const noexcept {
+		return is_io() && res >= 0 && std::uint32_t(res) == requested;
+	}
 };
 struct FlowRejection {
 	std::uint32_t flow_local_index;
@@ -63,7 +71,7 @@ struct FlowResult {
 	bool close_in_chain;
 	bool close_cqe_seen;
 	std::int32_t close_raw_res;
-	[[nodiscard]] bool open_ok() const noexcept { return !ops.empty() && ops[0].res >= 0; }
+	[[nodiscard]] constexpr bool open_ok() const noexcept { return !ops.empty() && ops[0].res >= 0; }
 	[[nodiscard]] std::optional<std::int32_t> cleanup_result() const noexcept {
 		if (!close_needed || !close_cqe_seen) {
 			return std::nullopt;
@@ -76,28 +84,17 @@ struct FlowResult {
 };
 // encode_tag / encode_tag_raw — exported so tests can craft CQEs without
 // duplicating the bitfield layout.
-[[nodiscard]] inline std::uint64_t encode_tag_raw(
+[[nodiscard]] constexpr std::uint64_t encode_tag_raw(
 	std::uint32_t idx,
 	std::uint32_t gen,
 	std::uint8_t op_idx,
 	std::uint8_t raw_kind) noexcept {
-	struct Tag {
-		std::uint64_t flow_index :24;
-		std::uint64_t generation :24;
-		std::uint64_t op_index   :8;
-		std::uint64_t op_kind    :8;
-	};
-	static_assert(sizeof(Tag) == 8);
-	Tag d{};
-	d.flow_index = idx & 0xFFFFFFu;
-	d.generation = gen & 0xFFFFFFu;
-	d.op_index = op_idx;
-	d.op_kind = raw_kind;
-	std::uint64_t v{};
-	std::memcpy(&v, &d, 8);
-	return v;
+	return (std::uint64_t{idx & 0xFFFFFFu})
+		 | (std::uint64_t{gen & 0xFFFFFFu} << 24U)
+		 | (std::uint64_t{op_idx} << 48U)
+		 | (std::uint64_t{raw_kind} << 56U);
 }
-[[nodiscard]] inline std::uint64_t encode_tag(
+[[nodiscard]] constexpr std::uint64_t encode_tag(
 	std::uint32_t idx,
 	std::uint32_t gen,
 	std::uint8_t op_idx,
@@ -197,12 +194,24 @@ struct FlowUserData {
 	std::uint64_t op_kind    :8;
 };
 static_assert(sizeof(FlowUserData) == 8);
-[[nodiscard]] inline FlowUserData decode_tag(
+[[nodiscard]] constexpr FlowUserData decode_tag(
 	std::uint64_t v) noexcept {
 	FlowUserData d{};
-	std::memcpy(&d, &v, 8);
+	d.flow_index = v & 0xFFFFFFu;
+	d.generation = (v >> 24U) & 0xFFFFFFu;
+	d.op_index = static_cast<std::uint8_t>((v >> 48U) & 0xFFu);
+	d.op_kind = static_cast<std::uint8_t>((v >> 56U) & 0xFFu);
 	return d;
 }
+
+static_assert([] {
+	auto const encoded = encode_tag_raw(0x123456u, 0xABCDEFu, 0x42u, 0x7Fu);
+	auto const decoded = decode_tag(encoded);
+	return decoded.flow_index == 0x123456u
+		&& decoded.generation == 0xABCDEFu
+		&& decoded.op_index == 0x42u
+		&& decoded.op_kind == 0x7Fu;
+}());
 struct DirectFileFlowState {
 	std::uint32_t flow_index;
 	std::uint32_t generation;
