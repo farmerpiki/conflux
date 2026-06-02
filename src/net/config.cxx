@@ -467,6 +467,30 @@ bool apply_server_key(
 	if (apply_config_member_table(cfg, key, val, kUnsignedKeys, parse_uint<unsigned>)) {
 		return true;
 	}
+	static constexpr std::array<std::pair<std::string_view, std::uint32_t Config::*>, 4> kUint32Keys{
+		{
+         {"request_timeout_ms", &Config::request_timeout_ms},
+         {"tls_sniff_timeout_ms", &Config::tls_sniff_timeout_ms},
+         {"slow_handler_warn_ms", &Config::slow_handler_warn_ms},
+         {"busy_poll_us", &Config::busy_poll_us},
+		 }
+    };
+	if (apply_config_member_table(cfg, key, val, kUint32Keys, parse_uint<std::uint32_t>)) {
+		return true;
+	}
+	static constexpr std::array<std::pair<std::string_view, std::size_t Config::*>, 6> kSizeKeys{
+		{
+         {"max_body_size", &Config::max_body_size},
+         {"fixed_buffer_slabs", &Config::fixed_buffer_slabs},
+         {"fixed_buffer_bytes", &Config::fixed_buffer_bytes},
+         {"splice_pipe_pairs", &Config::splice_pipe_pairs},
+         {"send_buffer_slabs", &Config::send_buffer_slabs},
+         {"send_buffer_bytes", &Config::send_buffer_bytes},
+		 }
+    };
+	if (apply_config_member_table(cfg, key, val, kSizeKeys, parse_uint<std::size_t>)) {
+		return true;
+	}
 	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
 		{
          {"cert_file", &Config::cert_file},
@@ -480,12 +504,6 @@ bool apply_server_key(
 	}
 	if (key == "port") {
 		cfg.port = parse_uint<std::uint16_t>(val, key);
-	} else if (key == "max_body_size") {
-		cfg.max_body_size = parse_uint<std::size_t>(val, key);
-	} else if (key == "request_timeout_ms") {
-		cfg.request_timeout_ms = parse_uint<std::uint32_t>(val, key);
-	} else if (key == "tls_sniff_timeout_ms") {
-		cfg.tls_sniff_timeout_ms = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "max_request_line_size") {
 		cfg.parser_limits.max_request_line_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_header_line_size") {
@@ -498,22 +516,8 @@ bool apply_server_key(
 		cfg.parser_limits.max_chunks = parse_uint<std::size_t>(val, key);
 	} else if (key == "slow_handler_diagnostics") {
 		cfg.slow_handler_diagnostics = parse_bool(val, key);
-	} else if (key == "slow_handler_warn_ms") {
-		cfg.slow_handler_warn_ms = parse_uint<std::uint32_t>(val, key);
-	} else if (key == "fixed_buffer_slabs") {
-		cfg.fixed_buffer_slabs = parse_uint<std::size_t>(val, key);
-	} else if (key == "fixed_buffer_bytes") {
-		cfg.fixed_buffer_bytes = parse_uint<std::size_t>(val, key);
-	} else if (key == "splice_pipe_pairs") {
-		cfg.splice_pipe_pairs = parse_uint<std::size_t>(val, key);
-	} else if (key == "send_buffer_slabs") {
-		cfg.send_buffer_slabs = parse_uint<std::size_t>(val, key);
-	} else if (key == "send_buffer_bytes") {
-		cfg.send_buffer_bytes = parse_uint<std::size_t>(val, key);
 	} else if (key == "send_fixed_buffers") {
 		cfg.send_fixed_buffers = parse_bool(val, key);
-	} else if (key == "busy_poll_us") {
-		cfg.busy_poll_us = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "ring_core") {
 		cfg.ring_core = parse_int(val, key);
 	} else if (key == "worker_core_base") {
