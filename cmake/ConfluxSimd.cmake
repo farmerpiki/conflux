@@ -203,7 +203,7 @@ function(conflux_attach_stdsimd_targets backend)
 
     if(TARGET conflux_json)
         message(STATUS "conflux: ${backend} SIMD path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
-        target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
+        target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_HAS_STDSIMD=1)
         string(TOLOWER "${backend}" _conflux_json_simd_target_suffix)
         target_sources(conflux_json PRIVATE $<TARGET_OBJECTS:conflux_json_simd_${_conflux_json_simd_target_suffix}>)
         if(CONFLUX_JSON_STDSIMD_IFUNC)

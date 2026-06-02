@@ -99,6 +99,36 @@ def check_no_legacy_mock_liburing_refs() -> None:
         fail("\n".join(hits))
 
 
+def check_no_legacy_stdsimd_option() -> None:
+    roots = [
+        Path("CMakeLists.txt"),
+        Path("CMakePresets.json"),
+        Path("cmake"),
+        Path("scripts"),
+        Path("docs"),
+        Path("tests"),
+        Path("examples"),
+        Path("benchmarks"),
+        Path("proposals"),
+    ]
+    legacy_name = "CONFLUX_JSON" + "_USE_STDSIMD"
+    hits: list[str] = []
+    for root in roots:
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if legacy_name in line:
+                    hits.append(f"{path}:{line_no}: {line.strip()}")
+    if hits:
+        fail("\n".join(hits))
+
+
 def check_no_explicit_build_parallelism() -> None:
     roots = [
         Path("build-all.sh"),
@@ -2197,6 +2227,7 @@ def main() -> int:
         os.chdir(sys.argv[1])
 
     check_no_legacy_mock_liburing_refs()
+    check_no_legacy_stdsimd_option()
     check_no_explicit_build_parallelism()
     check_provider_policy_scenarios_are_isolated()
     check_run_build_artifact_root_examples_are_declared()
