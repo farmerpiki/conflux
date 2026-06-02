@@ -961,18 +961,18 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_quickstart_openapi examples/quickstart/openapi
             HTTP_IMPLS
             IMPLS conflux_header_impl_json)
-        conflux_add_header_example_from_id(conflux_hello examples/hello
+        conflux_add_header_example_from_id(conflux_hello examples/public/hello
             HTTP_IMPLS
             IMPLS conflux_header_impl_json)
-        conflux_add_header_example_from_id(conflux_middleware examples/middleware
+        conflux_add_header_example_from_id(conflux_middleware examples/public/middleware
             HTTP_IMPLS
             IMPLS conflux_header_impl_json)
-        conflux_add_header_example_from_id(conflux_sse examples/sse HTTP_IMPLS)
-        conflux_add_header_example_from_id(conflux_static examples/static
+        conflux_add_header_example_from_id(conflux_sse examples/public/sse HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_static examples/public/static
             HTTP_IMPLS
             IMPLS conflux_header_impl_json)
-        conflux_add_header_example_from_id(conflux_forms examples/forms HTTP_IMPLS)
-        conflux_add_header_example_from_id(conflux_gzip examples/gzip
+        conflux_add_header_example_from_id(conflux_forms examples/public/forms HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_gzip examples/public/gzip
             HTTP_IMPLS
             IMPLS conflux_header_impl_json)
         conflux_add_header_example_from_id(conflux_dual examples/advanced/dual
@@ -987,7 +987,7 @@ function(conflux_add_header_examples_from_source_ids)
     endif()
 
     if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_CLIENT)
-        conflux_add_header_example_from_id(conflux_http_client examples/http_client
+        conflux_add_header_example_from_id(conflux_http_client examples/public/http_client
             HTTP_IMPLS
             IMPLS conflux_header_impl_http_client conflux_header_impl_http_proxy)
         conflux_add_header_example_from_id(conflux_http_client_builder_example examples/advanced/http_client_builder

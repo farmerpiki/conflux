@@ -262,14 +262,14 @@ def check_header_http_impls_do_not_pull_json() -> None:
         "examples/advanced/http_client_json",
         "examples/advanced/manual_json_members",
         "examples/advanced/production_showcase",
-        "examples/hello",
-        "examples/middleware",
+        "examples/public/hello",
+        "examples/public/middleware",
         "examples/quickstart/json_crud",
         "examples/quickstart/json_reflect_crud",
         "examples/quickstart/openapi",
         "examples/quickstart/postgres_json",
-        "examples/static",
-        "examples/gzip",
+        "examples/public/static",
+        "examples/public/gzip",
     }
     add_examples_body = cmake_function_body(
         text,

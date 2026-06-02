@@ -42,26 +42,26 @@ if(TARGET conflux)
     endif()
 
     # Easy HTTP examples (first-contact / v1-facing)
-    add_executable(conflux_hello ${_conflux_examples_root}/hello.cxx)
+    add_executable(conflux_hello ${_conflux_examples_root}/public/hello.cxx)
     target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
 
-    add_executable(conflux_middleware ${_conflux_examples_root}/middleware.cxx)
+    add_executable(conflux_middleware ${_conflux_examples_root}/public/middleware.cxx)
     target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
 
-    add_executable(conflux_sse ${_conflux_examples_root}/sse.cxx)
+    add_executable(conflux_sse ${_conflux_examples_root}/public/sse.cxx)
     target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
 
-    add_executable(conflux_static ${_conflux_examples_root}/static.cxx)
+    add_executable(conflux_static ${_conflux_examples_root}/public/static.cxx)
     target_link_libraries(conflux_static PRIVATE conflux conflux_options)
 
     # Additional examples
-    add_executable(conflux_forms ${_conflux_examples_root}/forms.cxx)
+    add_executable(conflux_forms ${_conflux_examples_root}/public/forms.cxx)
     target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
 
-    add_executable(conflux_gzip ${_conflux_examples_root}/gzip.cxx)
+    add_executable(conflux_gzip ${_conflux_examples_root}/public/gzip.cxx)
     target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_client ${_conflux_examples_root}/http_client.cxx)
+    add_executable(conflux_http_client ${_conflux_examples_root}/public/http_client.cxx)
     target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 
     add_executable(conflux_dual ${_conflux_examples_root}/advanced/dual.cxx)

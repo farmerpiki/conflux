@@ -129,24 +129,24 @@ Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable ext
 | `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | extended | `docs/json-boundary-guide.md` |
 | `http_app_json` | `conflux::http_app_json` | `conflux.net.http.app_json` | extended | `docs/json-boundary-guide.md`, `examples/advanced/manual_json_members.cxx`, `examples/advanced/explicit_offload.cxx` |
 | `http_native_json` | `conflux::http_native_json` | `conflux.net.http.native_json` | extended | `docs/json-boundary-guide.md`, `examples/advanced/manual_json_members.cxx`, `examples/advanced/http_client_json.cxx` |
-| `http_router` | `conflux::http_router` | `conflux.net.router` | complete | `docs/http-server-api.md`, `examples/hello.cxx` |
+| `http_router` | `conflux::http_router` | `conflux.net.router` | complete | `docs/http-server-api.md`, `examples/public/hello.cxx` |
 | `router_match` | `conflux::router_match` | `conflux.net.router_match` | complete | `tests/http_core_test.cxx` |
 | `router_dispatch` | `conflux::router_dispatch` | `conflux.net.router_dispatch` | complete | `docs/naming-audit.md` |
 | `router_static` | `conflux::router_static` | `conflux.net.router_static` | complete | `tests/http_core_test.cxx` |
 | `http_server_helpers` | `conflux::http_server_helpers` | `conflux.net.http_server_helpers` | complete | `tests/http_server_helpers_test.cxx` |
 | `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | extended | `docs/http-server-api.md`, `tests/config_test.cxx` |
-| `http_server` | `conflux::http_server` | `conflux.net.http_server` | extended | `docs/http-server-api.md`, `examples/hello.cxx` |
+| `http_server` | `conflux::http_server` | `conflux.net.http_server` | extended | `docs/http-server-api.md`, `examples/public/hello.cxx` |
 | `http_app` | `conflux::http_app` | `conflux.http.extended`, `conflux.net.app` | extended | `docs/http-server-api.md` |
-| `http_client` | `conflux::http_client` | first-contact `conflux.net.http.client`, lower-level `conflux.net.client`, and HTTP/1 wire helpers in `conflux.net.client_wire` | extended | `docs/conflux-http-client-api.md`, `examples/http_client.cxx`, `examples/advanced/http_client_json.cxx` |
+| `http_client` | `conflux::http_client` | first-contact `conflux.net.http.client`, lower-level `conflux.net.client`, and HTTP/1 wire helpers in `conflux.net.client_wire` | extended | `docs/conflux-http-client-api.md`, `examples/public/http_client.cxx`, `examples/advanced/http_client_json.cxx` |
 | `http` | `conflux::http` | `conflux.http` façade, `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` and `conflux.net.http.client` | curated | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
-| `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | complete | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
-| `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | complete | `examples/static.cxx` |
-| `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | complete | `examples/static.cxx` |
-| `http_realtime` | `conflux::http_realtime` | `conflux.net.http.realtime` | complete | `examples/sse.cxx` |
+| `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | complete | `examples/public/static.cxx`, `tests/file_io_http_e2e.cxx` |
+| `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | complete | `examples/public/static.cxx` |
+| `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | complete | `examples/public/static.cxx` |
+| `http_realtime` | `conflux::http_realtime` | `conflux.net.http.realtime` | complete | `examples/public/sse.cxx` |
 | `http_policy` | `conflux::http_policy` | `conflux.net.cache_control`, `conflux.net.cors`, `conflux.net.etag`, `conflux.net.forwarded`, `conflux.net.ip_filter`, `conflux.net.rate_limit`, `conflux.net.redirect`, `conflux.net.response_cache`, `conflux.net.security`, `conflux.net.trailing_slash` | extended | `docs/auth-rate-limit-hooks.md`, `docs/http-security-corpus.md` |
 | `http_auth` | `conflux::http_auth` | `conflux.net.auth`, `conflux.net.csrf`, `conflux.net.cookie_signing`, `conflux.net.password_hash`; `conflux.net.jwt` when TLS is built | extended | `docs/auth-password-hashing.md`, `docs/auth-session-token-audit.md` |
 | `http_observability` | `conflux::http_observability` | `conflux.net.observability`, `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id`; `conflux.net.metrics` when metrics are enabled | extended | `examples/advanced/http_observability.cxx` |
-| `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | complete | `examples/gzip.cxx` |
+| `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | complete | `examples/public/gzip.cxx` |
 | `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | extended | `examples/advanced/vhost_openapi.cxx` |
 | `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | extended | `examples/advanced/vhost_openapi.cxx` |
 | `http_async_client` | `conflux::http_async_client` | `conflux.net.async_client` | complete | `docs/conflux-http-client-api.md`, `examples/advanced/http_client_builder.cxx` |
