@@ -119,6 +119,14 @@ struct StaticAcceptedEncodings {
 	return resp;
 }
 
+[[nodiscard]] conflux::http::Response static_write_result_response(
+	bool existed) {
+	conflux::http::Response resp;
+	resp.status = existed ? kHttpNoContent : kHttpCreated;
+	resp.status_text = existed ? "No Content" : "Created";
+	return resp;
+}
+
 [[nodiscard]] std::optional<conflux::http::Response> static_conditional_not_modified(
 	http_detail::StaticRequest const &request,
 	std::string_view etag,
@@ -560,10 +568,7 @@ conflux::http::Response handle_static_put(
 					return;
 				}
 				static_cache.evict_path_and_sidecars(full_path);
-				conflux::http::Response resp;
-				resp.status = existed ? kHttpNoContent : kHttpCreated;
-				resp.status_text = existed ? "No Content" : "Created";
-				dr->complete(std::move(resp));
+				dr->complete(static_write_result_response(existed));
 			});
 			if (!ok) {
 				return conflux::http::Response::internal_error("offload queue full");
@@ -578,10 +583,7 @@ conflux::http::Response handle_static_put(
 			return conflux::http::Response::internal_error();
 		}
 		static_cache.evict_path_and_sidecars(full_path);
-		conflux::http::Response resp;
-		resp.status = existed ? kHttpNoContent : kHttpCreated;
-		resp.status_text = existed ? "No Content" : "Created";
-		return resp;
+		return static_write_result_response(existed);
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
@@ -924,10 +926,7 @@ conflux::work::root::Task<void> do_save_static_file(
 	try {
 		co_await fr->async_atomic_write(dir_fd, std::move(rel_path), std::as_bytes(std::span{*body_owned}));
 		static_cache.evict_path_and_sidecars(*fp);
-		conflux::http::Response resp;
-		resp.status = existed ? kHttpNoContent : kHttpCreated;
-		resp.status_text = existed ? "No Content" : "Created";
-		dr->complete(std::move(resp));
+		dr->complete(static_write_result_response(existed));
 	} catch (...) { dr->complete(conflux::http::Response::internal_error()); }
 }
 
