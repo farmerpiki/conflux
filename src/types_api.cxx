@@ -331,7 +331,7 @@ struct BuildInfo {
 	bool header_interface;
 };
 
-[[nodiscard]] BuildInfo build_info() noexcept {
+[[nodiscard]] constexpr BuildInfo build_info() noexcept {
 	return BuildInfo{
 		.version = CONFLUX_BUILD_VERSION,
 		.git_commit = CONFLUX_BUILD_GIT_COMMIT,
@@ -352,6 +352,8 @@ struct BuildInfo {
 		.header_interface = std::string_view{CONFLUX_BUILD_INTERFACE_MODE} == "HEADER_INTERFACE",
 	};
 }
+
+static_assert(!build_info().version.empty());
 
 [[nodiscard]] std::string build_info_summary() {
 	auto const info = build_info();
