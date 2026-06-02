@@ -14,11 +14,16 @@ option(CONFLUX_BUILD_LIBCURL_EXTERNAL_TESTS
 set(CONFLUX_CATCH_RNG_SEED "" CACHE STRING "Optional Catch2 RNG seed used by discovered CTest tests")
 set(CONFLUX_PG_TEST_CONNINFO "" CACHE STRING "libpq conninfo for DB integration tests (e.g. host=localhost user=postgres dbname=conflux_test)")
 
-function(conflux_discover_tests target)
+function(conflux_catch_extra_args out_var)
     set(extra_args --order lex)
     if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
         list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
     endif()
+    set(${out_var} ${extra_args} PARENT_SCOPE)
+endfunction()
+
+function(conflux_discover_tests target)
+    conflux_catch_extra_args(extra_args)
     catch_discover_tests(${target}
         ${ARGN}
         EXTRA_ARGS ${extra_args}
@@ -28,10 +33,7 @@ function(conflux_discover_tests target)
 endfunction()
 
 function(conflux_discover_stress_tests target)
-    set(extra_args --order lex)
-    if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
-        list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
-    endif()
+    conflux_catch_extra_args(extra_args)
     catch_discover_tests(${target}
         ${ARGN}
         EXTRA_ARGS ${extra_args}
@@ -60,10 +62,7 @@ function(conflux_add_compile_fail_test)
 endfunction()
 
 function(conflux_discover_db_integration_tests target)
-    set(extra_args --order lex)
-    if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
-        list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
-    endif()
+    conflux_catch_extra_args(extra_args)
     set(env_props "")
     if(NOT CONFLUX_PG_TEST_CONNINFO STREQUAL "")
         list(APPEND env_props ENVIRONMENT "PG_TEST_CONNINFO=${CONFLUX_PG_TEST_CONNINFO}")
