@@ -543,6 +543,35 @@ bool recv_chunked(
 	ClientResponse const &resp) {
 	return client_wire::follow_redirect_request(req, resp.head.status, resp.head.headers);
 }
+
+[[nodiscard]] std::optional<HttpError> send_blocking_http1_request(
+	Connection &conn,
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	int write_timeout_sec,
+	HttpTelemetry &tel) {
+	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	if (!send_all(conn, wire, write_timeout_sec)) {
+		return HttpError{
+			.kind = HttpErrorKind::write,
+			.phase = HttpPhase::write,
+			.os_errno = errno,
+			.message = "failed to send request headers"};
+	}
+	tel.bytes_sent += wire.size();
+	if (!req.body().empty()) {
+		if (!send_all(conn, req.body(), write_timeout_sec)) {
+			return HttpError{
+				.kind = HttpErrorKind::write,
+				.phase = HttpPhase::write,
+				.os_errno = errno,
+				.message = "failed to send request body"};
+		}
+		tel.bytes_sent += req.body().size();
+	}
+	return std::nullopt;
+}
+
 // Core blocking transport — returns ClientResult.
 ClientResult do_blocking_request(
 	conflux::http::ClientRequest const &req,
@@ -705,34 +734,10 @@ ClientResult do_blocking_request(
 	conn.tls_stream = std::move(tls_stream);
 #endif
 
-	// Build request line + headers.
-	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
-
-	// Send headers.
 	int const write_sec = to_sec(timeouts.write);
-	if (!send_all(conn, wire, write_sec)) {
+	if (auto write_error = send_blocking_http1_request(conn, req, opts, write_sec, tel)) {
 		close_conn(conn);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::write,
-				.phase = HttpPhase::write,
-				.os_errno = errno,
-				.message = "failed to send request headers"});
-	}
-	tel.bytes_sent += wire.size();
-
-	// Send body.
-	if (!req.body().empty()) {
-		if (!send_all(conn, req.body(), write_sec)) {
-			close_conn(conn);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::write,
-					.phase = HttpPhase::write,
-					.os_errno = errno,
-					.message = "failed to send request body"});
-		}
-		tel.bytes_sent += req.body().size();
+		return std::unexpected(std::move(*write_error));
 	}
 
 	// Receive response headers.
@@ -996,29 +1001,10 @@ ClientStreamResult do_blocking_request_streaming(
 	conn.tls_stream = std::move(tls_stream);
 #endif
 
-	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 	int const write_sec = to_sec(timeouts.write);
-	if (!send_all(conn, wire, write_sec)) {
+	if (auto write_error = send_blocking_http1_request(conn, req, opts, write_sec, tel)) {
 		close_conn(conn);
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::write,
-				.phase = HttpPhase::write,
-				.os_errno = errno,
-				.message = "failed to send request headers"});
-	}
-	tel.bytes_sent += wire.size();
-	if (!req.body().empty()) {
-		if (!send_all(conn, req.body(), write_sec)) {
-			close_conn(conn);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::write,
-					.phase = HttpPhase::write,
-					.os_errno = errno,
-					.message = "failed to send request body"});
-		}
-		tel.bytes_sent += req.body().size();
+		return std::unexpected(std::move(*write_error));
 	}
 
 	int const first_byte_sec = to_sec(timeouts.first_byte);
