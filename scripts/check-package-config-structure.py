@@ -1630,22 +1630,26 @@ def external_tokens_from_metadata() -> set[str]:
     return set(re.findall(r"\b[A-Z][A-Z0-9_]+\b", match.group("body")))
 
 
-def component_declarations_from_registry() -> list[tuple[str, str, str]]:
+def component_declarations_from_registry() -> list[tuple[str, str, str, str]]:
     registry = read("cmake/ConfluxComponentRegistry.cmake")
-    declarations = re.findall(r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)"', registry)
+    declarations = re.findall(
+        r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)\|'
+        r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"',
+        registry,
+    )
     if not declarations:
         fail("missing CONFLUX_COMPONENT_DECLARATIONS")
     return declarations
 
 
 def component_exports_from_registry() -> set[str]:
-    return {export for _, export, _ in component_declarations_from_registry()}
+    return {export for _, export, _, _ in component_declarations_from_registry()}
 
 
 def component_exports_from_registry_kind(kind: str) -> set[str]:
     return {
         export
-        for _, export, declaration_kind in component_declarations_from_registry()
+        for _, export, declaration_kind, _ in component_declarations_from_registry()
         if declaration_kind == kind
     }
 
@@ -1656,15 +1660,24 @@ def check_component_registry_contract() -> None:
         "set(CONFLUX_COMPONENT_DECLARATIONS": "component registry must keep a single authoritative declaration list",
         "list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "public component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_SUPPORT_COMPONENT_DECLARATIONS": "support component declarations must be derived from the authoritative registry",
-        'REQUESTABLE")': "component registry must name requestable components by kind",
-        'SUPPORT")': "component registry must name support components by kind",
+        "REQUESTABLE|": "component registry must name requestable components by kind",
+        "SUPPORT|": "component registry must name support components by kind",
+        "STABLE": "component registry must classify component stability tiers",
+        "ADVANCED": "component registry must classify component stability tiers",
+        "EXPERIMENTAL": "component registry must classify component stability tiers",
+        "INTERNAL_SUPPORT": "component registry must classify support components as internal support",
     }
     errors = sorted(message for marker, message in required_markers.items() if marker not in registry)
     declarations = component_declarations_from_registry()
-    exports = [export for _, export, _ in declarations]
+    exports = [export for _, export, _, _ in declarations]
     duplicate_exports = sorted(name for name, count in Counter(exports).items() if count > 1)
     if duplicate_exports:
         errors.append("component registry duplicate exports: " + ";".join(duplicate_exports))
+    for _target, export, kind, tier in declarations:
+        if kind == "SUPPORT" and tier != "INTERNAL_SUPPORT":
+            errors.append(f"support component {export} must use INTERNAL_SUPPORT tier")
+        if kind == "REQUESTABLE" and tier == "INTERNAL_SUPPORT":
+            errors.append(f"requestable component {export} must not use INTERNAL_SUPPORT tier")
     if errors:
         fail("\n".join(errors))
 

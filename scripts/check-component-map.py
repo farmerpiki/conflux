@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
-COMPONENT_RE = re.compile(r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)"')
+COMPONENT_RE = re.compile(
+    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)\|'
+    r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"'
+)
 DOC_COMPONENT_RE = re.compile(
     r"^\|\s*`([^`]+)`\s*\|\s*`conflux::([^`]+)`\s*\|",
     re.MULTILINE,
@@ -21,25 +24,25 @@ DOC_SUPPORT_COMPONENT_RE = re.compile(
 )
 
 
-def declared_components(kind: str) -> dict[str, str]:
+def declared_components(kind: str) -> dict[str, tuple[str, str]]:
     text = COMPONENT_SOURCE.read_text(encoding="utf-8")
-    components: dict[str, str] = {}
-    for target, export_name, declared_kind in COMPONENT_RE.findall(text):
+    components: dict[str, tuple[str, str]] = {}
+    for target, export_name, declared_kind, tier in COMPONENT_RE.findall(text):
         if declared_kind != kind:
             continue
         if export_name in components:
             raise ValueError(f"duplicate CMake component export name: {export_name}")
-        components[export_name] = target
+        components[export_name] = (target, tier)
     if not components:
         raise ValueError(f"missing {kind} component declarations")
     return components
 
 
-def public_components() -> dict[str, str]:
+def public_components() -> dict[str, tuple[str, str]]:
     return declared_components("REQUESTABLE")
 
 
-def support_components() -> dict[str, str]:
+def support_components() -> dict[str, tuple[str, str]]:
     return declared_components("SUPPORT")
 
 
@@ -76,7 +79,7 @@ def main() -> int:
         failures.append(f"CMake component `{component}` is declared as both public and support")
 
     all_targets: dict[str, str] = {}
-    for component, target in {**cmake_components, **cmake_support_components}.items():
+    for component, (target, _) in {**cmake_components, **cmake_support_components}.items():
         owner = all_targets.get(target)
         if owner is not None:
             failures.append(
@@ -84,21 +87,25 @@ def main() -> int:
             )
         all_targets[target] = component
 
-    for component, target in sorted(cmake_components.items()):
+    for component, (target, tier) in sorted(cmake_components.items()):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", component):
             failures.append(f"public component `{component}` uses an unsafe export name")
         if component.startswith("_"):
             failures.append(f"public component `{component}` must not use support-component naming")
         if target != "conflux" and not target.startswith("conflux_"):
             failures.append(f"public component `{component}` uses unexpected target `{target}`")
+        if tier == "INTERNAL_SUPPORT":
+            failures.append(f"public component `{component}` must not use internal-support tier")
 
-    for component, target in sorted(cmake_support_components.items()):
+    for component, (target, tier) in sorted(cmake_support_components.items()):
         if not re.fullmatch(r"_[A-Za-z][A-Za-z0-9_]*", component):
             failures.append(f"support component `{component}` uses an unsafe export name")
         if not component.startswith("_"):
             failures.append(f"support component `{component}` must use support-component naming")
         if not target.startswith("conflux_"):
             failures.append(f"support component `{component}` uses unexpected target `{target}`")
+        if tier != "INTERNAL_SUPPORT":
+            failures.append(f"support component `{component}` must use internal-support tier")
 
     for component in sorted(cmake_components.keys() - doc_components.keys()):
         failures.append(f"missing docs/component-map.md row for CMake component `{component}`")

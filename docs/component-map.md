@@ -118,6 +118,11 @@ time and are consumed through the separate runtime smoke lane.
 
 Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable extension/provider/customization modules are `extended`; raw runtime, protocol, parser, socket/file async I/O, and helper internals are `complete` or explicit-only. Detailed drift checking is deferred to the manifest stage.
 
+`cmake/ConfluxComponentRegistry.cmake` also classifies each component as
+`STABLE`, `ADVANCED`, `EXPERIMENTAL`, or `INTERNAL_SUPPORT`. The registry is the
+source of truth for package stability tier metadata; this document owns the
+human-facing import/include path and contract reference.
+
 ## HTTP component map
 
 | Component | CMake target | Primary imports | API surface | Contract docs / examples |
