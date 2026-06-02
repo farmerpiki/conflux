@@ -1635,6 +1635,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/TestHelpers.cmake")': "tests CMake must include the shared test helper fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")': "tests CMake must include the socket/runtime test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/WorkTests.cmake")': "tests CMake must include the work/runtime test target fragment",
@@ -1678,6 +1679,10 @@ def check_build_docs_guard_contracts() -> None:
             "add_executable(conflux_smtp_tests smtp_test.cxx)": "external test fragment must define SMTP tests when available",
             "add_executable(conflux_h2_external)": "external test fragment must define HTTP/2 external tests when available",
             "add_executable(conflux_third_party_conformance_server third_party_conformance_server.cxx)": "external test fragment must define third-party conformance server when enabled",
+        },
+        "tests/TemplateProcessTests.cmake": {
+            "add_executable(conflux_template_tests template_test.cxx)": "template/process test fragment must define template tests",
+            "add_executable(conflux_process_tests process_test.cxx)": "template/process test fragment must define process tests",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",

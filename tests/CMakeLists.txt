@@ -2222,15 +2222,9 @@ if(TARGET conflux_http_server AND CONFLUX_EXPERIMENTAL_SEND_ZC)
         PRIVATE conflux_http_server conflux_options Catch2::Catch2WithMain)
 endif()
 
-add_executable(conflux_template_tests template_test.cxx)
-target_link_libraries(
-    conflux_template_tests
-    PRIVATE conflux_template conflux_json conflux_types conflux_options Catch2::Catch2WithMain)
+include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")
-
-add_executable(conflux_process_tests process_test.cxx)
-target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SocketTests.cmake")
 
