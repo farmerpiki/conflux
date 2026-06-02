@@ -510,10 +510,6 @@ private:
 		std::shared_ptr<conflux::http::SseChannel> const &channel);
 	[[nodiscard]] static Response defer_http_task(conflux::work::root::Task<Response> task);
 	[[nodiscard]] Response run_middlewares(conflux::http::RequestView const &req, Handler const &inner) const;
-	[[nodiscard]] std::optional<Response> run_context_middlewares(
-		conflux::http::RequestView const &req,
-		conflux::http::RequestContext const &ctx,
-		ContextHandler const &inner) const;
 	[[nodiscard]] static Response run_async_http_task(conflux::work::root::Task<Response> task);
 	template<class>
 	static constexpr bool kDependentFalse = false;
