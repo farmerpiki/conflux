@@ -122,22 +122,14 @@ grep -q 'check_cmake_extraction_contracts' scripts/check-package-config-structur
 grep -q 'compiler workaround must keep its GCC ICE motivation' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must keep compiler workaround motivations"
 
-grep -q 'configure_package_config_file(' cmake/ConfluxInstall.cmake \
-    || fail "missing configure_package_config_file()"
-grep -q 'write_basic_package_version_file(' cmake/ConfluxInstall.cmake \
-    || fail "missing write_basic_package_version_file()"
-grep -q 'VERSION ${PROJECT_VERSION}' cmake/ConfluxInstall.cmake \
-    || fail "package version file must use PROJECT_VERSION"
-grep -q 'install(EXPORT confluxTargets' cmake/ConfluxInstall.cmake \
-    || fail "missing install(EXPORT confluxTargets)"
-grep -q 'install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")' cmake/ConfluxInstall.cmake \
-    || fail "missing install-time package metadata generator"
+grep -q 'check_install_and_dependency_contracts' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must verify install and dependency contracts"
+grep -q 'JSONTestSuite fetch must pin a full commit SHA' scripts/check-package-config-structure.py \
+    || fail "package-config structure guard must keep JSONTestSuite pin validation"
 grep -q 'check_package_metadata_generator_contract' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must verify package metadata generator validation"
 grep -q 'package metadata generator must reject component partition drift' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must keep package metadata partition validation"
-grep -q 'NAMESPACE conflux::' cmake/ConfluxInstall.cmake \
-    || fail "export namespace must stay conflux::"
 grep -q 'include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")' tests/CMakeLists.txt \
     || fail "tests CMake must include the build/docs CTest registration fragment"
 grep -q 'add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})' tests/CMakeLists.txt \
@@ -240,16 +232,6 @@ grep -q 'check_package_config_uses_generated_component_metadata' scripts/check-p
     || fail "package-config structure guard must verify generated package component metadata use"
 grep -q 'hand-written component dependency table' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must reject hand-written package component dependency tables"
-grep -q 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake \
-    || fail "JSONTestSuite fetch must name the upstream repository explicitly"
-if grep -A6 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake | grep -Eq 'GIT_TAG[[:space:]]+(master|main)$'; then
-    fail "JSONTestSuite fetch must not use a floating branch"
-fi
-grep -A6 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake | grep -Eq 'GIT_TAG[[:space:]]+[0-9a-f]{40}$' \
-    || fail "JSONTestSuite fetch must pin a full commit SHA"
-grep -A6 'GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git' cmake/Dependencies.cmake | grep -q 'GIT_SHALLOW    FALSE' \
-    || fail "JSONTestSuite full SHA fetch must not be shallow"
-
 grep -q 'check_package_smoke_project_contract' scripts/check-package-config-structure.py \
     || fail "package-config structure guard must verify the package smoke project contract"
 grep -q 'found unrequested visible target' scripts/check-package-config-structure.py \

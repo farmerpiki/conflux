@@ -1517,6 +1517,48 @@ def check_package_config_uses_generated_component_metadata() -> None:
         fail("package config must not resolve optional deps from install-wide booleans")
 
 
+def check_install_and_dependency_contracts() -> None:
+    install = read("cmake/ConfluxInstall.cmake")
+    required_install_markers = {
+        "configure_package_config_file(": "missing configure_package_config_file()",
+        "write_basic_package_version_file(": "missing write_basic_package_version_file()",
+        "VERSION ${PROJECT_VERSION}": "package version file must use PROJECT_VERSION",
+        "install(EXPORT confluxTargets": "missing install(EXPORT confluxTargets)",
+        'install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/ConfluxGeneratePackageMetadata.cmake")': "missing install-time package metadata generator",
+        "NAMESPACE conflux::": "export namespace must stay conflux::",
+    }
+    errors = sorted(
+        message
+        for marker, message in required_install_markers.items()
+        if marker not in install
+    )
+
+    dependencies = read("cmake/Dependencies.cmake")
+    match = re.search(
+        r"FetchContent_Declare\(\s*JSONTestSuite(?P<body>.*?)\)",
+        dependencies,
+        re.DOTALL,
+    )
+    if match is None:
+        errors.append("JSONTestSuite fetch must be declared explicitly")
+    else:
+        body = match.group("body")
+        if "GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git" not in body:
+            errors.append("JSONTestSuite fetch must name the upstream repository explicitly")
+        tag = re.search(r"\bGIT_TAG\s+([^\s\)]+)", body)
+        if tag is None:
+            errors.append("JSONTestSuite fetch must pin a full commit SHA")
+        elif tag.group(1) in {"master", "main"}:
+            errors.append("JSONTestSuite fetch must not use a floating branch")
+        elif not re.fullmatch(r"[0-9a-f]{40}", tag.group(1)):
+            errors.append("JSONTestSuite fetch must pin a full commit SHA")
+        shallow = re.search(r"\bGIT_SHALLOW\s+([^\s\)]+)", body)
+        if shallow is None or shallow.group(1) != "FALSE":
+            errors.append("JSONTestSuite full SHA fetch must not be shallow")
+    if errors:
+        fail("\n".join(errors))
+
+
 def check_package_metadata_generator_contract() -> None:
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
     required_markers = {
@@ -1749,6 +1791,7 @@ def main() -> int:
     check_duplicate_ctest_names()
     check_external_dependency_tokens()
     check_package_config_uses_generated_component_metadata()
+    check_install_and_dependency_contracts()
     check_package_metadata_generator_contract()
     check_package_smoke_external_tokens()
     check_core_isolated_forbidden_components()
