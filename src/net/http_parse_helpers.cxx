@@ -69,7 +69,7 @@ export [[nodiscard]] std::string_view content_type_media_type(
 	std::string_view content_type) noexcept {
 	auto const semi = content_type.find(';');
 	auto const media_type = semi == std::string_view::npos ? content_type : content_type.substr(0, semi);
-	return conflux::http::trim_http_whitespace(media_type);
+	return conflux::utils::trim(media_type);
 }
 
 export [[nodiscard]] bool content_type_matches(

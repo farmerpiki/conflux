@@ -444,17 +444,6 @@ template<class Fields, class Pred>
 	return http_date(std::chrono::system_clock::to_time_t(tp));
 }
 
-[[nodiscard]] constexpr std::string_view trim_http_whitespace(
-	std::string_view s) noexcept {
-	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
-		s.remove_prefix(1);
-	}
-	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
-		s.remove_suffix(1);
-	}
-	return s;
-}
-
 class HeaderTokenView {
 	std::string_view header_{};
 
@@ -472,7 +461,7 @@ public:
 				return;
 			}
 			auto const comma = header_.find(',', pos_);
-			token_ = trim_http_whitespace(
+			token_ = conflux::utils::trim(
 				comma == std::string_view::npos ? header_.substr(pos_) : header_.substr(pos_, comma - pos_));
 			done_ = false;
 		}
@@ -587,7 +576,7 @@ class HeaderParamView {
 		void read_current() noexcept {
 			while (pos_ <= params_.size()) {
 				auto const semi = find_unquoted(params_, ';', pos_);
-				auto segment = trim_http_whitespace(
+				auto segment = conflux::utils::trim(
 					semi == std::string_view::npos ? params_.substr(pos_) : params_.substr(pos_, semi - pos_));
 				if (semi == std::string_view::npos) {
 					pos_ = params_.size() + 1;
@@ -599,11 +588,11 @@ class HeaderParamView {
 				}
 				auto const eq = find_unquoted(segment, '=');
 				if (eq == std::string_view::npos) {
-					param_ = HeaderParam{.name = trim_http_whitespace(segment)};
+					param_ = HeaderParam{.name = conflux::utils::trim(segment)};
 				} else {
 					param_ = HeaderParam{
-						.name = trim_http_whitespace(segment.substr(0, eq)),
-						.value = trim_http_whitespace(segment.substr(eq + 1)),
+						.name = conflux::utils::trim(segment.substr(0, eq)),
+						.value = conflux::utils::trim(segment.substr(eq + 1)),
 						.has_value = true};
 				}
 				done_ = false;
@@ -687,14 +676,14 @@ class HeaderItemView {
 			}
 			auto const token = *it_;
 			auto const semi = find_unquoted_header_delim(token, ';');
-			auto const first = trim_http_whitespace(semi == std::string_view::npos ? token : token.substr(0, semi));
+			auto const first = conflux::utils::trim(semi == std::string_view::npos ? token : token.substr(0, semi));
 			auto const eq = find_unquoted_header_delim(first, '=');
 			std::string_view name = first;
 			std::string_view value{};
 			bool has_value = false;
 			if (eq != std::string_view::npos) {
-				name = trim_http_whitespace(first.substr(0, eq));
-				value = trim_http_whitespace(first.substr(eq + 1));
+				name = conflux::utils::trim(first.substr(0, eq));
+				value = conflux::utils::trim(first.substr(eq + 1));
 				has_value = true;
 			}
 			item_ = HeaderItem{
@@ -758,7 +747,7 @@ public:
 			continue;
 		}
 		float q = 1.0F;
-		auto const value = trim_http_whitespace(param.value);
+		auto const value = conflux::utils::trim(param.value);
 		auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), q);
 		if (ec == std::errc{} && ptr == value.data() + value.size()) {
 			return q;
@@ -789,7 +778,7 @@ bool for_each_comma_token(
 	if (!ascii_ci_equal(authorization.substr(0, scheme.size()), scheme)) {
 		return std::nullopt;
 	}
-	return trim_http_whitespace(authorization.substr(scheme.size() + 1));
+	return conflux::utils::trim(authorization.substr(scheme.size() + 1));
 }
 
 // ─── errors ──────────────────────────────────────────────────────────────────

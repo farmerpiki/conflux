@@ -13,6 +13,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http.response;
 export namespace conflux::http {
+
 struct ResponseCacheOptions {
 	// Maximum number of entries in the LRU cache.
 	std::size_t max_entries{256};
@@ -110,7 +111,7 @@ std::chrono::seconds parse_max_age(
 		if (!item.has_value || !conflux::http::ascii_iequals(item.name, "max-age")) {
 			continue;
 		}
-		auto const val = conflux::http::trim_http_whitespace(item.value);
+		auto const val = conflux::utils::trim(item.value);
 		long v = 0;
 		auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
 		if (ec == std::errc{} && ptr == val.data() + val.size()) {
@@ -188,9 +189,9 @@ Router::Middleware response_cache_middleware(
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
 	auto mtx = std::make_shared<std::mutex>();
 
-	return [opts,
-			cache,
-			mtx](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts, cache, mtx](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		bool const is_head = req.method == "HEAD";
 		if (req.method != "GET" && !is_head) {
 			return next(req);

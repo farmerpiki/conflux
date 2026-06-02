@@ -447,8 +447,11 @@ Router::ContextHandler Router::Group::wrap_context(
 	ContextHandler h) const {
 	for (int i = static_cast<int>(context_middlewares_.size()) - 1; i >= 0; --i) {
 		auto mw = context_middlewares_[static_cast<std::size_t>(i)];
-		h = [mw = std::move(mw), n = std::move(h)](conflux::http::RequestView const &r, conflux::http::RequestContext const &c)
-			-> conflux::work::root::Task<Response> { co_return co_await mw(r, c, n); };
+		h = [mw = std::move(mw), n = std::move(h)](
+				conflux::http::RequestView const &r,
+				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
+			co_return co_await mw(r, c, n);
+		};
 	}
 	return h;
 }
@@ -614,7 +617,7 @@ Router &Router::ws_prepared(
 			if (!conflux::http::detail::is_valid_handshake(req)) {
 				return Response::bad_request();
 			}
-			auto key = conflux::http::trim_http_whitespace(req.headers["sec-websocket-key"]);
+			auto key = conflux::utils::trim(req.headers["sec-websocket-key"]);
 			auto up = std::make_shared<conflux::http::WsUpgrade>();
 			up->accept_key = conflux::http::detail::ws_accept_key(key);
 			up->handler = h;

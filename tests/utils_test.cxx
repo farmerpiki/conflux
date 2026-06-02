@@ -112,6 +112,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: trim strips leading and trailing whitespace",
 	"[utils]") {
+	static_assert(trim("  hello  ") == "hello");
 	CHECK(trim("  hello  ") == "hello");
 	CHECK(trim("\t\nhello\r\n") == "hello");
 }

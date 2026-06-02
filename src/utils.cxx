@@ -703,7 +703,7 @@ export std::string ascii_upper(
 	return out;
 }
 // Trim leading/trailing ASCII whitespace (space, tab, CR, LF).
-export std::string_view trim(
+export constexpr std::string_view trim(
 	std::string_view s) noexcept {
 	auto is_ws = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
 	while (!s.empty() && is_ws(s.front())) {

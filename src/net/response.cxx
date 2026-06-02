@@ -584,9 +584,7 @@ struct Response {
 	}
 	[[nodiscard]] static Response header_fields_too_large() {
 		return html(
-			response_html_error_body(
-				kHttpRequestHeaderFieldsTooLarge,
-				"Request Header Fields Too Large"),
+			response_html_error_body(kHttpRequestHeaderFieldsTooLarge, "Request Header Fields Too Large"),
 			kHttpRequestHeaderFieldsTooLarge);
 	}
 	[[nodiscard]] static Response bad_gateway(
@@ -657,7 +655,7 @@ struct Response {
 			headers["Vary"] = std::string{token};
 			return;
 		}
-		if (conflux::http::trim_http_whitespace(current) == "*") {
+		if (conflux::utils::trim(current) == "*") {
 			return;
 		}
 		bool const already_present =
