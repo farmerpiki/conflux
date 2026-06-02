@@ -44,6 +44,13 @@ constexpr std::size_t kClientMaxChunkCount = 100000;
 	return {reinterpret_cast<std::uint8_t const *>(text.data()), text.size()};
 }
 
+struct AddrInfoDeleter {
+	void operator ()(
+		addrinfo *p) const noexcept {
+		::freeaddrinfo(p);
+	}
+};
+
 #if CONFLUX_HAS_TLS
 [[nodiscard]] std::string tls_error_string() {
 	std::string out;
@@ -309,14 +316,14 @@ wroot::Task<void> write_http1_request(
 		hints.ai_flags = AI_ADDRCONFIG;
 		addrinfo *res_raw = nullptr;
 		if (::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res_raw) == 0) {
-			for (auto const *ai = res_raw; ai; ai = ai->ai_next) {
+			std::unique_ptr<addrinfo, AddrInfoDeleter> const res{res_raw};
+			for (auto const *ai = res.get(); ai; ai = ai->ai_next) {
 				client_dns_bridge::Endpoint ep{};
 				memcpy(ep.addr, ai->ai_addr, std::min(sizeof(ep.addr), static_cast<std::size_t>(ai->ai_addrlen)));
 				ep.addr_len = static_cast<unsigned>(ai->ai_addrlen);
 				ep.family = (ai->ai_family == AF_INET6) ? 6 : 4;
 				endpoints.push_back(ep);
 			}
-			::freeaddrinfo(res_raw);
 		}
 	}
 	return endpoints;
