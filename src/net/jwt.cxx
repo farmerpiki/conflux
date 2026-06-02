@@ -115,19 +115,6 @@ bool json_array_contains_string(
 	}
 	return false;
 }
-// Constant-time std::byte comparison (avoids timing side-channel on signature).
-bool ct_equal(
-	std::span<unsigned char const> a,
-	std::span<unsigned char const> b) {
-	if (a.size() != b.size()) {
-		return false;
-	}
-	unsigned char diff = 0;
-	for (std::size_t i = 0; i < a.size(); ++i) {
-		diff = static_cast<unsigned char>(diff | (a[i] ^ b[i]));
-	}
-	return diff == 0;
-}
 [[nodiscard]] bool token_expired(
 	std::int64_t exp,
 	std::int64_t now,
@@ -168,14 +155,14 @@ namespace jwt_detail {
 	std::string const &sig_claimed,
 	conflux::http::ResolvedSecretRotation const &secrets) {
 	auto expected_signature = jwt_signature(secrets.active, signing_input);
-	if (ct_equal(
+	if (conflux::crypto::constant_time_eq(
 			conflux::crypto::to_unsigned_span(sig_claimed),
 			std::span{expected_signature.data(), expected_signature.size()})) {
 		return true;
 	}
 	for (auto const &previous: secrets.previous) {
 		expected_signature = jwt_signature(previous, signing_input);
-		if (ct_equal(
+		if (conflux::crypto::constant_time_eq(
 				conflux::crypto::to_unsigned_span(sig_claimed),
 				std::span{expected_signature.data(), expected_signature.size()})) {
 			return true;

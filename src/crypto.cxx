@@ -464,35 +464,32 @@ std::array<unsigned char, 32> hmac_sha256(
 	return conflux::crypto::hmac_sha256_precomputed(conflux::crypto::hmac_sha256_key(key), msg);
 }
 bool constant_time_eq(
-	std::string_view a,
-	std::string_view b) {
+	std::span<unsigned char const> a,
+	std::span<unsigned char const> b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
 #if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
 	constexpr std::size_t kStdsimdThreshold = 64;
 	if (a.size() >= kStdsimdThreshold) {
-		return conflux_constant_time_eq_stdsimd(
-				   reinterpret_cast<unsigned char const *>(a.data()),
-				   reinterpret_cast<unsigned char const *>(b.data()),
-				   a.size())
-			!= 0;
+		return conflux_constant_time_eq_stdsimd(a.data(), b.data(), a.size()) != 0;
 	}
 #elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
 	constexpr std::size_t kStdsimdThreshold = 64;
 	if (a.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
-		return conflux_constant_time_eq_stdsimd(
-				   reinterpret_cast<unsigned char const *>(a.data()),
-				   reinterpret_cast<unsigned char const *>(b.data()),
-				   a.size())
-			!= 0;
+		return conflux_constant_time_eq_stdsimd(a.data(), b.data(), a.size()) != 0;
 	}
 #endif
 	unsigned char acc = 0;
 	for (std::size_t i = 0; i < a.size(); ++i) {
-		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
+		acc = static_cast<unsigned char>(acc | (a[i] ^ b[i]));
 	}
 	return acc == 0;
+}
+bool constant_time_eq(
+	std::string_view a,
+	std::string_view b) {
+	return constant_time_eq(to_unsigned_span(a), to_unsigned_span(b));
 }
 
 } // namespace conflux::crypto
@@ -838,12 +835,7 @@ std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 		expected_tag[i] = static_cast<unsigned char>(expected_tag[i] ^ ghash_state[i]);
 	}
 
-	// Constant-time tag comparison
-	unsigned char tag_diff = 0;
-	for (std::size_t i = 0; i < 16; ++i) {
-		tag_diff = static_cast<unsigned char>(tag_diff | (expected_tag[i] ^ claimed_tag[i]));
-	}
-	if (tag_diff != 0) {
+	if (!constant_time_eq(std::span{expected_tag.data(), expected_tag.size()}, claimed_tag)) {
 		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
 	}
 

@@ -162,6 +162,24 @@ TEST_CASE(
 	CHECK(h[31] == 0xc1);
 }
 // ---------------------------------------------------------------------------
+// constant_time_eq
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"crypto: constant_time_eq compares byte spans",
+	"[crypto]") {
+	std::array<unsigned char, 4> lhs{1, 2, 3, 4};
+	std::array<unsigned char, 4> same{1, 2, 3, 4};
+	std::array<unsigned char, 4> different{1, 2, 3, 5};
+	std::array<unsigned char, 3> shorter{1, 2, 3};
+
+	CHECK(conflux::crypto::constant_time_eq(lhs, same));
+	CHECK_FALSE(conflux::crypto::constant_time_eq(lhs, different));
+	CHECK_FALSE(conflux::crypto::constant_time_eq(lhs, shorter));
+	CHECK(conflux::crypto::constant_time_eq(std::string_view{"same"}, std::string_view{"same"}));
+	CHECK_FALSE(conflux::crypto::constant_time_eq(std::string_view{"same"}, std::string_view{"diff"}));
+}
+// ---------------------------------------------------------------------------
 // HMAC-SHA256
 // ---------------------------------------------------------------------------
 
