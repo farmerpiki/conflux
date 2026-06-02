@@ -9,6 +9,15 @@ fail() {
     exit 1
 }
 
+require_structure_guard_markers() {
+    local marker diagnostic
+    while IFS='|' read -r marker diagnostic; do
+        [[ -n "$marker" ]] || continue
+        grep -q -- "$marker" scripts/check-package-config-structure.py \
+            || fail "$diagnostic"
+    done
+}
+
 [[ -f CMakeLists.txt ]] || fail "missing CMakeLists.txt"
 [[ -f cmake/conflux-config.cmake.in ]] || fail "missing package config template"
 [[ -f cmake/ConfluxOptions.cmake ]] || fail "missing option/normalization CMake module"
@@ -48,70 +57,40 @@ fail() {
 
 python3 scripts/check-package-config-structure.py . \
     || fail "package-config structure guard failed"
-grep -q 'check_metrics_status_is_graph_gated' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep metrics status scoped to active HTTP graphs"
-grep -q 'check_duplicate_ctest_names' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject duplicate CTest names"
-grep -q 'for path in cmake_test_cmake_paths()' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must scan every CTest registration fragment"
-grep -q 'def check_marker_order' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must centralize marker-order checks"
-grep -q 'check_cmake_preset_names_unique' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject duplicate CMake preset names"
-grep -q 'has missing or non-string name' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject malformed CMake preset names"
-grep -q 'check_cmake_preset_references' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate CMake preset references"
-grep -q 'references missing configurePreset' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale CMake preset references"
-grep -q 'must match configurePreset' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must keep build preset names aligned with configure presets"
-grep -q 'check_test_preset_filters' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate exact test preset filters"
-grep -q 'filters unknown CTest name' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale exact test preset name filters"
-grep -q 'filters unknown CTest label' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale test preset label filters"
-grep -q 'check_matrix_script_presets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate matrix script preset lists"
-grep -q 'matrix presets missing from CMakePresets.json' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale matrix preset names"
-grep -q 'check_build_all_presets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate build-all preset list"
-grep -q 'build-all.sh: presets missing from CMakePresets.json' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale build-all preset names"
-grep -q 'check_script_default_presets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate script default preset lists"
-grep -q 'default presets missing from CMakePresets.json' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale script default preset names"
-grep -q 'BENCH_PRESETS' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate benchmark recorder default presets"
-grep -q 'check_script_default_benchmark_targets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate script default benchmark target lists"
-grep -q 'default benchmark targets are not declared by CMake' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale script default benchmark targets"
-grep -q 'check_json_perf_benchmark_maps' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate JSON perf benchmark maps"
-grep -q 'JSON perf default benches must match JSON perf default targets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject mismatched JSON perf defaults"
-grep -q 'check_no_explicit_build_parallelism' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject explicit build parallelism"
-grep -q 'explicit build parallelism is not allowed' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must explain explicit build parallelism failures"
-grep -q 'check_provider_policy_scenarios_are_isolated' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must verify provider-policy scenario isolation"
-grep -q 'provider-policy isolation flags' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject provider-policy scenarios that pull tests/examples/benchmarks"
-grep -q 'check_run_build_artifact_root_examples_are_declared' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate run-build-artifact root example allowlist"
-grep -q 'undeclared example targets' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale run-build-artifact example entries"
-grep -q 'check_compile_time_bench_defaults' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must validate compile-time benchmark defaults"
-grep -q 'compile-time benchmark default targets are not declared by CMake' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale compile-time benchmark targets"
-grep -q 'compile-time benchmark incremental sources are missing' scripts/check-package-config-structure.py \
-    || fail "package-config structure guard must reject stale compile-time benchmark sources"
+require_structure_guard_markers <<'EOF'
+check_metrics_status_is_graph_gated|package-config structure guard must keep metrics status scoped to active HTTP graphs
+check_duplicate_ctest_names|package-config structure guard must reject duplicate CTest names
+for path in cmake_test_cmake_paths()|package-config structure guard must scan every CTest registration fragment
+def check_marker_order|package-config structure guard must centralize marker-order checks
+check_cmake_preset_names_unique|package-config structure guard must reject duplicate CMake preset names
+has missing or non-string name|package-config structure guard must reject malformed CMake preset names
+check_cmake_preset_references|package-config structure guard must validate CMake preset references
+references missing configurePreset|package-config structure guard must reject stale CMake preset references
+must match configurePreset|package-config structure guard must keep build preset names aligned with configure presets
+check_test_preset_filters|package-config structure guard must validate exact test preset filters
+filters unknown CTest name|package-config structure guard must reject stale exact test preset name filters
+filters unknown CTest label|package-config structure guard must reject stale test preset label filters
+check_matrix_script_presets|package-config structure guard must validate matrix script preset lists
+matrix presets missing from CMakePresets.json|package-config structure guard must reject stale matrix preset names
+check_build_all_presets|package-config structure guard must validate build-all preset list
+build-all.sh: presets missing from CMakePresets.json|package-config structure guard must reject stale build-all preset names
+check_script_default_presets|package-config structure guard must validate script default preset lists
+default presets missing from CMakePresets.json|package-config structure guard must reject stale script default preset names
+BENCH_PRESETS|package-config structure guard must validate benchmark recorder default presets
+check_script_default_benchmark_targets|package-config structure guard must validate script default benchmark target lists
+default benchmark targets are not declared by CMake|package-config structure guard must reject stale script default benchmark targets
+check_json_perf_benchmark_maps|package-config structure guard must validate JSON perf benchmark maps
+JSON perf default benches must match JSON perf default targets|package-config structure guard must reject mismatched JSON perf defaults
+check_no_explicit_build_parallelism|package-config structure guard must reject explicit build parallelism
+explicit build parallelism is not allowed|package-config structure guard must explain explicit build parallelism failures
+check_provider_policy_scenarios_are_isolated|package-config structure guard must verify provider-policy scenario isolation
+provider-policy isolation flags|package-config structure guard must reject provider-policy scenarios that pull tests/examples/benchmarks
+check_run_build_artifact_root_examples_are_declared|package-config structure guard must validate run-build-artifact root example allowlist
+undeclared example targets|package-config structure guard must reject stale run-build-artifact example entries
+check_compile_time_bench_defaults|package-config structure guard must validate compile-time benchmark defaults
+compile-time benchmark default targets are not declared by CMake|package-config structure guard must reject stale compile-time benchmark targets
+compile-time benchmark incremental sources are missing|package-config structure guard must reject stale compile-time benchmark sources
+EOF
 python3 scripts/check-empty-catch-rationale.py . \
     || fail "empty-catch rationale guard failed"
 
