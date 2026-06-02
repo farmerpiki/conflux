@@ -36,6 +36,13 @@ def shell_policy_variables(text: str) -> set[str]:
     return set(re.findall(r"^(forbid_[A-Za-z0-9_]+)=\"[^\"]*\"", text, re.MULTILINE))
 
 
+def shell_semicolon_flag_value(text: str, flag: str) -> set[str]:
+    match = re.search(rf"{re.escape(flag)}\s+'([^']*)'", text)
+    if match is None:
+        fail(f"missing shell semicolon-list flag: {flag}")
+    return {item for item in match.group(1).split(";") if item}
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1674,6 +1681,7 @@ def check_package_metadata_generator_contract() -> None:
 def check_package_smoke_external_tokens() -> None:
     tokens = external_tokens_from_metadata()
     runner = read("scripts/run-package-config-smoke.sh")
+    liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
     scripts = "\n".join(
         runner if path == "scripts/run-package-config-smoke.sh" else read(path)
         for path in [
@@ -1707,6 +1715,14 @@ def check_package_smoke_external_tokens() -> None:
         errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if "--components core" not in core_isolated:
         errors.append("core-isolated package smoke must request the core component")
+    liburing_free_forbidden = shell_semicolon_flag_value(liburing_free, "--forbid-external-deps")
+    append_set_delta_errors(
+        errors,
+        tokens - {"XXHASH"},
+        liburing_free_forbidden,
+        "external tokens missing from liburing-free forbidden list: ",
+        "unknown external tokens in liburing-free forbidden list: ",
+    )
     if errors:
         fail("\n".join(errors))
 
@@ -1714,6 +1730,7 @@ def check_package_smoke_external_tokens() -> None:
 def check_core_isolated_forbidden_components() -> None:
     runner = read("scripts/run-package-config-smoke.sh")
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
+    liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
     allowed_components = component_exports_from_registry() | {"db"}
     for variable, value in re.findall(r"^(forbid_[A-Za-z0-9_]*components)=\"([^\"]*)\"", runner, re.MULTILINE):
         policy_components = {component for component in value.split(";") if component}
@@ -1733,6 +1750,13 @@ def check_core_isolated_forbidden_components() -> None:
         runner_forbidden,
         "default core isolation policy is missing component entries: ",
         "default core isolation policy contains unexpected component entries: ",
+    )
+    append_set_delta_errors(
+        errors,
+        {"http", "http1", "http2", "http3", "http_protocol", "work", "dns", "template", "db", "pg"},
+        shell_semicolon_flag_value(liburing_free, "--forbid-components"),
+        "liburing-free forbidden components missing isolation entries: ",
+        "liburing-free forbidden components contain unexpected entries: ",
     )
     if errors:
         fail("\n".join(errors))
