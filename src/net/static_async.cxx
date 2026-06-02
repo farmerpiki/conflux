@@ -148,6 +148,51 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
+[[nodiscard]] std::string static_last_modified(
+	time_t mtime) {
+	// Thread-local cache keyed on mtime: hot directories commonly serve many
+	// files sharing a handful of mtimes, so strftime runs once per mtime value
+	// per thread.
+	thread_local time_t last_mtime_cached = 0;
+	thread_local std::string last_modified_cached;
+	if (mtime == last_mtime_cached && !last_modified_cached.empty()) {
+		return last_modified_cached;
+	}
+	last_modified_cached = conflux::http::http_date(mtime);
+	last_mtime_cached = mtime;
+	return last_modified_cached;
+}
+
+[[nodiscard]] conflux::http::Response static_not_modified() {
+	conflux::http::Response resp;
+	resp.status = kHttpNotModified;
+	resp.status_text = "Not Modified";
+	resp.content_type.clear();
+	resp.set_text_body({});
+	return resp;
+}
+
+[[nodiscard]] std::optional<conflux::http::Response> static_conditional_not_modified(
+	http_detail::StaticRequest const &request,
+	std::string_view etag,
+	time_t mtime) {
+	if (auto const &inm = request.if_none_match; !inm.empty() && inm == etag) {
+		return static_not_modified();
+	}
+	if (auto const ims = request.if_modified_since; !ims.empty() && ims.size() < 64) {
+		std::array<char, 64> ims_buf{};
+		std::ranges::copy(ims, ims_buf.data());
+		tm req_tm{};
+		if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
+			req_tm.tm_isdst = 0;
+			if (mtime <= ::timegm(&req_tm)) {
+				return static_not_modified();
+			}
+		}
+	}
+	return std::nullopt;
+}
+
 [[nodiscard]] std::string static_content_range(
 	std::size_t first,
 	std::size_t last,
@@ -726,44 +771,10 @@ conflux::http::Response handle_static_get(
 		// Build ETag from size + mtime.
 		auto etag = static_file_etag(st.st_size, st.st_mtime);
 
-		// Format Last-Modified. Thread-local cache keyed on mtime — a hot
-		// directory typically serves many files sharing a handful of mtimes,
-		// so strftime runs once per mtime value per std::thread.
-		thread_local time_t last_mtime_cached = 0;
-		thread_local std::string last_modified_cached;
-		std::string last_modified;
-		if (st.st_mtime == last_mtime_cached && !last_modified_cached.empty()) {
-			last_modified = last_modified_cached;
-		} else {
-			last_modified = conflux::http::http_date(st.st_mtime);
-			last_modified_cached = last_modified;
-			last_mtime_cached = st.st_mtime;
-		}
+		auto last_modified = static_last_modified(st.st_mtime);
 
-		// 304 Not Modified checks.
-		if (auto const &inm = r.if_none_match; !inm.empty() && inm == etag) {
-			conflux::http::Response resp;
-			resp.status = kHttpNotModified;
-			resp.status_text = "Not Modified";
-			resp.content_type.clear();
-			resp.set_text_body({});
-			return resp;
-		}
-		if (auto const ims = r.if_modified_since; !ims.empty() && ims.size() < 64) {
-			std::array<char, 64> ims_buf{};
-			std::ranges::copy(ims, ims_buf.data());
-			tm req_tm{};
-			if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
-				req_tm.tm_isdst = 0;
-				if (st.st_mtime <= ::timegm(&req_tm)) {
-					conflux::http::Response resp;
-					resp.status = kHttpNotModified;
-					resp.status_text = "Not Modified";
-					resp.content_type.clear();
-					resp.set_text_body({});
-					return resp;
-				}
-			}
+		if (auto not_modified = static_conditional_not_modified(r, etag, st.st_mtime)) {
+			return std::move(*not_modified);
 		}
 
 		// Use original file_param, not a selected .gz/.br sidecar path.
