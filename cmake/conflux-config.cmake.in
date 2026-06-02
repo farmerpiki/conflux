@@ -241,6 +241,12 @@ if("db" IN_LIST conflux_VISIBLE_COMPONENTS)
     _conflux_append_surface_definition(
         _conflux_installed_surface_definitions DB_COMPAT 1)
 endif()
+foreach(_conflux_visible_target IN LISTS conflux_VISIBLE_TARGETS)
+    if(TARGET ${_conflux_visible_target})
+        target_compile_definitions(${_conflux_visible_target} INTERFACE
+            ${_conflux_installed_surface_definitions})
+    endif()
+endforeach()
 if(TARGET conflux::headers)
     target_compile_definitions(conflux::headers INTERFACE
         ${_conflux_installed_surface_definitions})

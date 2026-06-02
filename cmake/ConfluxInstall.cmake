@@ -2,6 +2,8 @@
 # Public package targets / install-export
 # ---------------------------------------------------------------------------
 
+include(ConfluxHeaderInstall)
+
 set(CONFLUX_PACKAGE_COMPONENTS)
 set(CONFLUX_PACKAGE_TARGETS)
 set(CONFLUX_PACKAGE_SUPPORT_COMPONENTS)
@@ -224,12 +226,46 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
+
+set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
+conflux_register_header_public_hpp(config)
+conflux_register_header_public_hpp(curated)
+conflux_register_header_public_hpp(extended)
+conflux_register_header_public_hpp(complete)
+foreach(_component IN LISTS CONFLUX_PACKAGE_COMPONENTS)
+    if(EXISTS "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/${_component}.hxx")
+        conflux_register_header_public_hpp("${_component}")
+    endif()
+endforeach()
+foreach(_component IN ITEMS http json work)
+    if(_component IN_LIST CONFLUX_PACKAGE_COMPONENTS)
+        set_property(GLOBAL APPEND PROPERTY
+            CONFLUX_HEADER_PUBLIC_HPP_TOP_LEVEL_NAMES "${_component}")
+    endif()
+endforeach()
+set(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS FALSE)
+foreach(_component IN ITEMS
+        crypto dns dns_bridge file_io file_map http http_app http_client
+        http_core http_realtime http_server socket_io uring work)
+    if(_component IN_LIST CONFLUX_PACKAGE_COMPONENTS)
+        set(CONFLUX_HEADER_INSTALL_RUNTIME_COMPONENTS TRUE)
+    endif()
+endforeach()
+set(CONFLUX_HEADER_INSTALL_DB_COMPONENTS FALSE)
+if(pg IN_LIST CONFLUX_PACKAGE_COMPONENTS)
+    set(CONFLUX_HEADER_INSTALL_DB_COMPONENTS TRUE)
+endif()
+conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
+conflux_install_registered_public_headers()
+
 install(FILES
+    ${CONFLUX_SRC_ROOT}/cpu_features.hxx
     ${CONFLUX_SRC_ROOT}/json_simd_backend.hxx
     ${CONFLUX_SRC_ROOT}/simd_backend.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules/src
 )
 install(FILES
+    ${CONFLUX_SRC_ROOT}/cpu_features.hxx
     ${CONFLUX_SRC_ROOT}/json_simd_backend.hxx
     ${CONFLUX_SRC_ROOT}/simd_backend.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules

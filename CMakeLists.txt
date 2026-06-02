@@ -117,6 +117,7 @@ target_link_libraries(conflux_json
     PRIVATE conflux_options
     PRIVATE conflux_cpu_features
 )
+target_compile_definitions(conflux_json PUBLIC CONFLUX_HAS_JSON=1)
 if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
     target_link_libraries(conflux_json PRIVATE PkgConfig::XXHASH)
     target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
@@ -1352,7 +1353,8 @@ target_link_libraries(conflux_http_app_json
 endif() # conflux_http_response_json && conflux_http_app && conflux_http_router
 
 if(CONFLUX_WANT_HTTP_SERVER)
-target_sources(conflux_http_app
+add_library(conflux_net_http STATIC)
+target_sources(conflux_net_http
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CONFLUX_SRC_ROOT}"
         FILES
@@ -1362,51 +1364,50 @@ target_sources(conflux_http_app
             ${CONFLUX_SRC_ROOT}/net/http_server_umbrella.cxx
             ${CONFLUX_SRC_ROOT}/net/http.cppm
 )
-add_library(conflux_net_http INTERFACE)
 target_link_libraries(conflux_net_http
-    INTERFACE conflux_types
-    INTERFACE conflux_net_config
-    INTERFACE conflux_http_core
-    INTERFACE conflux_http_json
-    INTERFACE conflux_http_response_json
-    INTERFACE conflux_http_app_json
-    INTERFACE conflux_http_router
-    INTERFACE conflux_net_client
-    INTERFACE conflux_http_protocol
-    INTERFACE conflux_http_server
-    INTERFACE conflux_http_app
-    INTERFACE conflux_http_auth
-    INTERFACE conflux_http_compression
-    INTERFACE conflux_http_policy
-    INTERFACE conflux_http_observability
-    INTERFACE conflux_http_openapi
-    INTERFACE conflux_http_vhost
+    PUBLIC conflux_types
+    PUBLIC conflux_net_config
+    PUBLIC conflux_http_core
+    PUBLIC conflux_http_json
+    PUBLIC conflux_http_response_json
+    PUBLIC conflux_http_app_json
+    PUBLIC conflux_http_router
+    PUBLIC conflux_net_client
+    PUBLIC conflux_http_protocol
+    PUBLIC conflux_http_server
+    PUBLIC conflux_http_app
+    PUBLIC conflux_http_auth
+    PUBLIC conflux_http_compression
+    PUBLIC conflux_http_policy
+    PUBLIC conflux_http_observability
+    PUBLIC conflux_http_openapi
+    PUBLIC conflux_http_vhost
 )
 if(TARGET conflux_http_native_json)
-    target_link_libraries(conflux_net_http INTERFACE conflux_http_native_json)
+    target_link_libraries(conflux_net_http PUBLIC conflux_http_native_json)
 endif()
 if(TARGET conflux_json)
-    target_link_libraries(conflux_net_http INTERFACE conflux_json)
+    target_link_libraries(conflux_net_http PUBLIC conflux_json)
 endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_TLS=1)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=1)
 else()
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_TLS=0)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=0)
 endif()
 if(CONFLUX_HAS_METRICS STREQUAL "true")
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_METRICS=1)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=1)
 else()
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_METRICS=0)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=0)
 endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP2=1)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=1)
 else()
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP2=0)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=0)
 endif()
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP3=1)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP3=1)
 else()
-    target_compile_definitions(conflux_net_http INTERFACE CONFLUX_HAS_HTTP3=0)
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP3=0)
 endif()
 endif() # CONFLUX_WANT_HTTP_SERVER (HTTP umbrella)
 

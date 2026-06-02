@@ -48,11 +48,6 @@ function(conflux_configure_interface_mode)
     set(CONFLUX_GENERATED_TESTS_DIR "${CONFLUX_GENERATED_TESTS_DIR}" PARENT_SCOPE)
     set(CONFLUX_GENERATED_BENCHMARKS_DIR "${CONFLUX_GENERATED_BENCHMARKS_DIR}" PARENT_SCOPE)
 
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
-            AND CONFLUX_IMPORT_STD_ENABLED)
-        return()
-    endif()
-
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(_bridge_args
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/module_header_bridge.py"
@@ -101,9 +96,8 @@ function(conflux_configure_interface_mode)
     if(NOT _bridge_rc EQUAL 0)
         message(FATAL_ERROR "conflux module/header bridge generation failed with exit code ${_bridge_rc}")
     endif()
-
     include("${CONFLUX_BRIDGE_CMAKE_FRAGMENT}")
-    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+    if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND NOT CONFLUX_IMPORT_STD_ENABLED)
         set(CONFLUX_SRC_ROOT "${CONFLUX_GENERATED_SOURCE_DIR}" PARENT_SCOPE)
     endif()
     if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES
