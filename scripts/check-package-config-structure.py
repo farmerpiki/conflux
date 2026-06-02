@@ -1029,7 +1029,6 @@ def check_cmake_extraction_contracts() -> None:
             "include(ConfluxProviderSelection)": "missing provider selection CMake module include",
             "include(ConfluxPython)": "missing Python configuration CMake module include",
             "include(ConfluxUringProbes)": "missing io_uring probe CMake module include",
-            "conflux_configure_uring_probes(conflux_uring)": "root CMake must configure io_uring probes at the conflux_uring target",
             "include(ConfluxCompilerProbes)": "missing compiler probes CMake module include",
             "include(ConfluxOptionsTarget)": "missing options target CMake module include",
             "include(ConfluxCompilerWorkarounds)": "missing compiler workaround CMake module include",
@@ -1096,6 +1095,9 @@ def check_cmake_extraction_contracts() -> None:
         },
         "cmake/components/TemplateTargets.cmake": {
             'conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")': "template compiler workaround must stay source-file scoped",
+        },
+        "cmake/components/RuntimeTargets.cmake": {
+            "conflux_configure_uring_probes(conflux_uring)": "runtime CMake must configure io_uring probes at the conflux_uring target",
         },
         "tests/HttpFacadeTests.cmake": {
             'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
