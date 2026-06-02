@@ -1266,8 +1266,6 @@ def check_package_smoke_wrapper_contracts() -> None:
         "scripts/check-package-smoke-core-isolated.sh": {
             "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
             "--components core": "core-isolated package smoke must request only core",
-            "http;http1;http2;http3;http_protocol;template;pg;db": "core-isolated package smoke must forbid runtime/db/template components",
-            "LIBURING;LIBPQ;OPENSSL;XXHASH": "core-isolated package smoke must forbid external dependencies despite provider noise",
         },
         "scripts/check-package-smoke-runtime.sh": {
             "core;json;http;file_io_sync;work": "runtime package smoke must request work/http components",
@@ -1284,6 +1282,11 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
+    if "--forbid-components" in core_isolated:
+        errors.append("core-isolated package smoke must rely on the default core component isolation policy")
+    if "--forbid-external-deps" in core_isolated:
+        errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if errors:
         fail("\n".join(sorted(errors)))
 
@@ -1700,17 +1703,10 @@ def check_package_smoke_external_tokens() -> None:
     )
 
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
-    match = re.search(r"--forbid-external-deps\s+'([^']+)'", core_isolated)
-    if match is None:
-        fail("core-isolated package smoke must pass --forbid-external-deps")
-    core_forbidden = {token for token in match.group(1).split(";") if token}
-    append_set_delta_errors(
-        errors,
-        tokens,
-        core_forbidden,
-        "external tokens missing from core-isolated forbidden list: ",
-        "unknown external tokens in core-isolated forbidden list: ",
-    )
+    if "--forbid-external-deps" in core_isolated:
+        errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
+    if "--components core" not in core_isolated:
+        errors.append("core-isolated package smoke must request the core component")
     if errors:
         fail("\n".join(errors))
 
@@ -1725,18 +1721,18 @@ def check_core_isolated_forbidden_components() -> None:
         if unknown:
             fail(f"{variable} contains unknown package components: {';'.join(unknown)}")
 
-    isolated_match = re.search(r"--forbid-components\s+'([^']+)'", core_isolated)
-    if isolated_match is None:
-        fail("core-isolated package smoke must pass --forbid-components")
     runner_forbidden = shell_semicolon_list_var(runner, "forbid_runtime_db_template_components")
-    isolated_forbidden = {component for component in isolated_match.group(1).split(";") if component}
+    if "--forbid-components" in core_isolated:
+        fail("core-isolated package smoke must rely on the default core component isolation policy")
+    if "--components core" not in core_isolated:
+        fail("core-isolated package smoke must request the core component")
     errors: list[str] = []
     append_set_delta_errors(
         errors,
+        {"http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"},
         runner_forbidden,
-        isolated_forbidden,
-        "core-isolated forbidden components missing default core isolation entries: ",
-        "core-isolated forbidden components not present in default core isolation entries: ",
+        "default core isolation policy is missing component entries: ",
+        "default core isolation policy contains unexpected component entries: ",
     )
     if errors:
         fail("\n".join(errors))
