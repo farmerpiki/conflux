@@ -165,63 +165,6 @@ export void parse_urlencoded(
 	}
 }
 
-export std::int64_t decode_chunked(
-	std::string_view data,
-	std::size_t max_body_size,
-	std::size_t max_chunks,
-	std::string &body) {
-	body.clear();
-	std::size_t pos = 0;
-	std::size_t chunks_seen = 0;
-	while (true) {
-		if (++chunks_seen > max_chunks) {
-			return -1;
-		}
-		auto crlf = data.find("\r\n", pos);
-		if (crlf == std::string_view::npos) {
-			return 0;
-		}
-
-		std::size_t chunk_size = 0;
-		if (!parse_chunk_size_line(data.substr(pos, crlf - pos), chunk_size)) {
-			return -1;
-		}
-		pos = crlf + 2;
-
-		if (chunk_size == 0) {
-			std::size_t trailer_lines = 0;
-			std::size_t trailer_bytes = 0;
-			while (true) {
-				auto next = data.find("\r\n", pos);
-				if (next == std::string_view::npos) {
-					return 0;
-				}
-				if (next == pos) {
-					return static_cast<std::int64_t>(pos + 2);
-				}
-				auto const line_bytes = next - pos + 2;
-				if (!accept_chunk_trailer_line(line_bytes, trailer_lines, trailer_bytes)) {
-					return -1;
-				}
-				pos = next + 2;
-			}
-		}
-
-		if (body.size() > max_body_size || chunk_size > max_body_size - body.size()) {
-			return -2;
-		}
-		auto const remaining_wire = data.size() - pos;
-		if (chunk_size > remaining_wire || remaining_wire - chunk_size < 2) {
-			return 0;
-		}
-		body.append(data.data() + pos, chunk_size);
-		if (data[pos + chunk_size] != '\r' || data[pos + chunk_size + 1] != '\n') {
-			return -1;
-		}
-		pos += chunk_size + 2;
-	}
-}
-
 export enum class ChunkedDecodePhase : std::uint8_t {
 	SizeLine,
 	Data,
@@ -346,6 +289,20 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 		case ChunkedDecodePhase::Complete: return static_cast<std::int64_t>(st.pos - body_start);
 		}
 	}
+}
+
+export std::int64_t decode_chunked(
+	std::string_view data,
+	std::size_t max_body_size,
+	std::size_t max_chunks,
+	std::string &body) {
+	body.clear();
+	ChunkedDecodeState st;
+	auto const rc = decode_chunked_incremental(data, 0, max_body_size, max_chunks, st);
+	if (rc > 0) {
+		body = std::move(st.body);
+	}
+	return rc;
 }
 
 } // namespace conflux::http
