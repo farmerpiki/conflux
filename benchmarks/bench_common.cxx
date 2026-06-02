@@ -199,6 +199,10 @@ export struct BenchStats {
 	std::size_t iterations{};
 	std::uint64_t total_ns{};
 	double ns_per_iter{};
+	double best_ns_per_iter{};
+	double p10_ns_per_iter{};
+	double p50_ns_per_iter{};
+	double p99_ns_per_iter{};
 	double throughput{};
 	std::size_t sample_count{};
 	std::size_t batch{};
@@ -238,13 +242,25 @@ BenchStats bench_measure_batched(
 		samples.push_back(elapsed);
 	}
 	std::ranges::sort(samples);
-	double const median_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
+	auto percentile_ns = [&](std::size_t numerator, std::size_t denominator) {
+		std::size_t const last = samples.size() - 1;
+		std::size_t const index = (last * numerator + denominator - 1) / denominator;
+		return static_cast<double>(samples[index]) / static_cast<double>(plan.batch);
+	};
+	double const best_ns = static_cast<double>(samples.front()) / static_cast<double>(plan.batch);
+	double const p10_ns = percentile_ns(10, 100);
+	double const p50_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
+	double const p99_ns = percentile_ns(99, 100);
 	double const mbs =
-		bytes > 0 && median_ns > 0.0 ? static_cast<double>(bytes) / (median_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
+		bytes > 0 && p50_ns > 0.0 ? static_cast<double>(bytes) / (p50_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
 	BenchStats stats{
 		.iterations = plan.iterations,
 		.total_ns = total_ns,
-		.ns_per_iter = median_ns,
+		.ns_per_iter = p50_ns,
+		.best_ns_per_iter = best_ns,
+		.p10_ns_per_iter = p10_ns,
+		.p50_ns_per_iter = p50_ns,
+		.p99_ns_per_iter = p99_ns,
 		.throughput = mbs,
 	};
 	bench_apply_sample_plan(stats, plan);
@@ -259,12 +275,18 @@ export void bench_print(
 	if (json_out) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
+			"\"best_ns_per_iter\":{:.2f},\"p10_ns_per_iter\":{:.2f},\"p50_ns_per_iter\":{:.2f},"
+			"\"p99_ns_per_iter\":{:.2f},"
 			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f}}}",
 			s.config,
 			s.variant,
 			s.iterations,
 			s.total_ns,
 			s.ns_per_iter,
+			s.best_ns_per_iter,
+			s.p10_ns_per_iter,
+			s.p50_ns_per_iter,
+			s.p99_ns_per_iter,
 			sample_count,
 			batch,
 			s.timer_sample_ns,

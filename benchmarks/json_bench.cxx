@@ -18,6 +18,7 @@ import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.socket_io.blocking;
 import conflux.json;
+import conflux.utils;
 import bench_common;
 
 using namespace conflux::json;
@@ -135,13 +136,26 @@ AllocBenchStats measure_alloc(
 		samples.push_back(elapsed);
 	}
 	std::ranges::sort(samples);
-	double const med = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
-	double const mbs = (bytes > 0 && med > 0.0) ? static_cast<double>(bytes) / (med / 1e9) / (1024.0 * 1024.0) : 0.0;
+	auto percentile_ns = [&](std::size_t numerator, std::size_t denominator) {
+		std::size_t const last = samples.size() - 1;
+		std::size_t const index = (last * numerator + denominator - 1) / denominator;
+		return static_cast<double>(samples[index]) / static_cast<double>(plan.batch);
+	};
+	double const best_ns = static_cast<double>(samples.front()) / static_cast<double>(plan.batch);
+	double const p10_ns = percentile_ns(10, 100);
+	double const p50_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
+	double const p99_ns = percentile_ns(99, 100);
+	double const mbs =
+		(bytes > 0 && p50_ns > 0.0) ? static_cast<double>(bytes) / (p50_ns / 1e9) / (1024.0 * 1024.0) : 0.0;
 	double const denom = static_cast<double>(plan.iterations);
 	BenchStats timing{
 		.iterations = plan.iterations,
 		.total_ns = total,
-		.ns_per_iter = med,
+		.ns_per_iter = p50_ns,
+		.best_ns_per_iter = best_ns,
+		.p10_ns_per_iter = p10_ns,
+		.p50_ns_per_iter = p50_ns,
+		.p99_ns_per_iter = p99_ns,
 		.throughput = mbs,
 	};
 	bench_apply_sample_plan(timing, plan);
@@ -158,6 +172,12 @@ void print_alloc_row(std::string_view name, AllocBenchStats s);
 [[nodiscard]] bool should_run(
 	std::string_view name) {
 	return bench_matches_filter(std::span<std::string const>{g_filters}, name);
+}
+
+template<class T>
+void bench_consume(
+	T const &value) noexcept {
+	asm volatile("" : : "g"(&value) : "memory");
 }
 
 template<class F>
@@ -213,13 +233,19 @@ void print_alloc_row(
 	if (g_csv) {
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
-			"\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},\"timer_overhead_pct\":{:.4f},"
+			"\"best_ns_per_iter\":{:.2f},\"p10_ns_per_iter\":{:.2f},\"p50_ns_per_iter\":{:.2f},"
+			"\"p99_ns_per_iter\":{:.2f},\"sample_count\":{},\"batch\":{},\"timer_sample_ns\":{},"
+			"\"timer_overhead_pct\":{:.4f},"
 			"\"allocations_per_iter\":{:.2f},\"allocated_bytes_per_iter\":{:.2f}}}",
 			s.timing.config,
 			s.timing.variant,
 			s.timing.iterations,
 			s.timing.total_ns,
 			s.timing.ns_per_iter,
+			s.timing.best_ns_per_iter,
+			s.timing.p10_ns_per_iter,
+			s.timing.p50_ns_per_iter,
+			s.timing.p99_ns_per_iter,
 			s.timing.sample_count,
 			s.timing.batch,
 			s.timing.timer_sample_ns,
@@ -389,6 +415,25 @@ std::string make_escape_heavy_corpus() {
 		out += R"(\n\t\")"; // 6 source bytes → 3 JSON escapes per cycle
 	}
 	out += '"';
+	return out;
+}
+std::string make_plain_string_payload() {
+	std::string out;
+	out.reserve(1024UZ * 1024UZ);
+	for (std::size_t i = 0; i < 1024UZ * 1024UZ; ++i) {
+		out += static_cast<char>('a' + (i % 26UZ));
+	}
+	return out;
+}
+std::string make_escape_heavy_string_payload() {
+	std::string out;
+	constexpr std::size_t kTarget = 256UZ * 1024UZ;
+	out.reserve(kTarget);
+	while (out.size() + 3 < kTarget) {
+		out += '\n';
+		out += '\t';
+		out += '"';
+	}
 	return out;
 }
 // R0 — deeply-nested A: 256 levels of [[…]] with a single 0 at center.
@@ -1751,6 +1796,56 @@ void bench_dump_named(
 	auto s = measure([&] { (void)doc->dump(); }, warmup, iters, 1, json_str->size());
 	print_row(name, s);
 }
+Document make_string_document(
+	std::string_view value) {
+	auto b = value_builder();
+	if (auto ok = b.set_string(value); !ok) {
+		throw std::runtime_error{ok.error().message};
+	}
+	auto doc = std::move(b).finish();
+	if (!doc) {
+		throw std::runtime_error{doc.error().message};
+	}
+	return std::move(*doc);
+}
+void bench_string_escape_named(
+	std::string_view label,
+	std::string const &value,
+	std::size_t warmup,
+	std::size_t iters) {
+	std::string const fallback_name = std::format("string_escape/fallback/{}", label);
+	std::string const dump_name = std::format("string_escape/json_dump/{}", label);
+	if (should_run(fallback_name)) {
+		auto const expected = conflux::utils::json_string_fallback(value);
+		auto s = measure(
+			[&] {
+				auto escaped = conflux::utils::json_string_fallback(value);
+				bench_consume(escaped);
+			},
+			warmup,
+			iters,
+			1,
+			expected.size());
+		print_row(fallback_name, s);
+	}
+	if (should_run(dump_name)) {
+		auto const doc = make_string_document(value);
+		auto expected = doc.dump();
+		if (!expected) {
+			throw std::runtime_error{expected.error().message};
+		}
+		auto s = measure(
+			[&] {
+				auto dumped = doc.dump();
+				bench_consume(dumped);
+			},
+			warmup,
+			iters,
+			1,
+			expected->size());
+		print_row(dump_name, s);
+	}
+}
 
 struct CorpusFileSpec {
 	std::string_view label;
@@ -2032,6 +2127,8 @@ int main(
 	std::string const long_strings_corpus = make_long_strings_corpus();
 	std::string const pretty_ws_corpus = make_pretty_ws_corpus();
 	std::string const escape_heavy_corpus = make_escape_heavy_corpus();
+	std::string const plain_string_payload = make_plain_string_payload();
+	std::string const escape_heavy_string_payload = make_escape_heavy_string_payload();
 	std::string const deep_nest_corpus = make_deep_nest_corpus();
 	std::string const mixed_numbers_corpus = make_mixed_numbers_corpus();
 	std::string const lookup_escaped_corpus = make_lookup_escaped_corpus();
@@ -2092,6 +2189,8 @@ int main(
 	bench_dump_named("dump/pretty_ws", pretty_ws_corpus);
 	bench_parse_named("parse/escape_heavy (256KiB)", escape_heavy_corpus, 20, 100);
 	bench_dump_named("dump/escape_heavy", escape_heavy_corpus, 20, 100);
+	bench_string_escape_named("plain_1MiB", plain_string_payload, 10, 50);
+	bench_string_escape_named("escape_heavy_256KiB", escape_heavy_string_payload, 20, 100);
 	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 100, 500);
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);

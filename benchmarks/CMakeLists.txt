@@ -149,7 +149,7 @@ endif()
 if(TARGET conflux_json AND TARGET bench_io_common AND TARGET conflux_socket_io)
     conflux_add_recordable_benchmark(conflux_json_bench json_bench.cxx)
     target_link_libraries(conflux_json_bench
-        PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_json conflux_options)
+        PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_json conflux_utils conflux_options)
     if(CONFLUX_JSON_AVX2)
         target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
     endif()
