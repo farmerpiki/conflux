@@ -98,15 +98,6 @@ inline bool valid_query_name(
 			|| ch == '.';
 	});
 }
-inline std::uint64_t fnv1a64(
-	std::string_view s) noexcept {
-	std::uint64_t h = 14695981039346656037ULL;
-	for (char const c: s) {
-		h ^= static_cast<std::uint64_t>(static_cast<std::uint8_t>(c));
-		h *= 1099511628211ULL;
-	}
-	return h;
-}
 
 } // namespace detail
 export struct ConnectParams {
@@ -127,7 +118,7 @@ public:
 	static std::string stable_name(
 		std::string_view sql) {
 		static constexpr std::string_view kAlphabet{"abcdefghijklmnopqrstuvwxyz234567"};
-		std::uint64_t const h = detail::fnv1a64(sql);
+		std::uint64_t const h = conflux::support::fnv1a64(sql);
 		std::string name;
 		name.reserve(15);
 		name += "p_";

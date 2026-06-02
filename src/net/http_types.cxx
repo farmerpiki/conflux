@@ -34,14 +34,8 @@ struct FieldHash {
 	bool ci{false};
 	[[nodiscard]] std::size_t operator ()(
 		std::string_view s) const noexcept {
-		std::size_t h = 14695981039346656037ULL;
-		for (char const ch: s) {
-			auto const c = static_cast<unsigned char>(ch);
-			unsigned char const k = ci ? ascii_ci_fold(c) : c;
-			h ^= k;
-			h *= 1099511628211ULL;
-		}
-		return h;
+		auto const hash = ci ? conflux::support::fnv1a64_ascii_fold(s) : conflux::support::fnv1a64(s);
+		return static_cast<std::size_t>(hash);
 	}
 	[[nodiscard]] std::size_t operator ()(
 		std::string const &s) const noexcept {

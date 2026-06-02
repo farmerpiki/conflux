@@ -74,6 +74,27 @@ template<typename T>
 
 export namespace conflux::support {
 
+[[nodiscard]] constexpr std::uint64_t fnv1a64(
+	std::string_view value) noexcept {
+	std::uint64_t hash = 14695981039346656037ULL;
+	for (char const raw: value) {
+		hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(raw));
+		hash *= 1099511628211ULL;
+	}
+	return hash;
+}
+
+[[nodiscard]] constexpr std::uint64_t fnv1a64_ascii_fold(
+	std::string_view value) noexcept {
+	std::uint64_t hash = 14695981039346656037ULL;
+	for (char const raw: value) {
+		auto const c = static_cast<unsigned char>(raw);
+		hash ^= static_cast<std::uint64_t>(c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c);
+		hash *= 1099511628211ULL;
+	}
+	return hash;
+}
+
 struct TransparentStringHash {
 	using is_transparent = void;
 

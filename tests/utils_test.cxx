@@ -273,6 +273,11 @@ TEST_CASE(
 	CHECK(hex_char_to_int('z') == -1);
 	CHECK(hex_char_to_int(' ') == -1);
 }
+
+static_assert(conflux::support::fnv1a64("") == 0xcbf29ce484222325ULL);
+static_assert(conflux::support::fnv1a64("hello") == 0xa430d84680aabd0bULL);
+static_assert(conflux::support::fnv1a64_ascii_fold("Content-Type") == 0xf4dd5cf6a7a0235ULL);
+
 // ---------------------------------------------------------------------------
 // random_bytes
 // ---------------------------------------------------------------------------
