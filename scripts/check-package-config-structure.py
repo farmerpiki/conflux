@@ -1143,6 +1143,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/HttpRouterDispatchTests.cmake",
         "tests/HttpRouterMatchTests.cmake",
         "tests/HttpServerHelpersTests.cmake",
+        "tests/HttpServerTests.cmake",
         "tests/HttpStaticCoreTests.cmake",
         "tests/HttpVhostTests.cmake",
         "tests/IoTests.cmake",
@@ -1668,6 +1669,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterDispatchTests.cmake")': "tests CMake must include the HTTP router dispatch test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpRouterMatchTests.cmake")': "tests CMake must include the HTTP router match test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpVhostTests.cmake")': "tests CMake must include the HTTP vhost test fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpServerTests.cmake")': "tests CMake must include the HTTP server test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
@@ -1776,6 +1778,9 @@ def check_build_docs_guard_contracts() -> None:
         },
         "tests/HttpVhostTests.cmake": {
             "conflux_http_vhost_compile_fail_global_vhost_router": "HTTP vhost test fragment must keep vhost router compile-fail check",
+        },
+        "tests/HttpServerTests.cmake": {
+            "conflux_http_server_compile_fail_global_http_server": "HTTP server test fragment must keep HTTP server compile-fail check",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
