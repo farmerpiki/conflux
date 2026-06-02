@@ -69,7 +69,7 @@ using AsyncNext = Router::AsyncNext;
 
 [[nodiscard]] Response owned_text(
 	std::string body) {
-	return text(std::move(body));
+	return Response::text(std::move(body));
 }
 
 [[nodiscard]] Response html(
@@ -89,7 +89,7 @@ using AsyncNext = Router::AsyncNext;
 
 [[nodiscard]] Response owned_html(
 	std::string body) {
-	return html(std::move(body));
+	return Response::html(std::move(body));
 }
 
 [[nodiscard]] Response no_content() {
@@ -152,7 +152,7 @@ template<class F>
 [[nodiscard]] Response owned_created(
 	std::string body,
 	std::string content_type = "text/plain; charset=utf-8") {
-	return created(std::move(body), std::move(content_type));
+	return Response::with_body(std::move(body), std::move(content_type), kHttpCreated);
 }
 
 template<class T>
