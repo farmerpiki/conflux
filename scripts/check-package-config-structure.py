@@ -1136,6 +1136,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/ExternalTests.cmake",
         "tests/HttpCoreTests.cmake",
         "tests/HttpLifecycleTests.cmake",
+        "tests/HttpResponseTests.cmake",
         "tests/IoTests.cmake",
         "tests/JsonTests.cmake",
         "tests/MainTests.cmake",
@@ -1650,6 +1651,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpLifecycleTests.cmake")': "tests CMake must include the HTTP lifecycle test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/TemplateProcessTests.cmake")': "tests CMake must include the template/process test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/JsonTests.cmake")': "tests CMake must include the JSON test target fragment",
@@ -1717,6 +1719,11 @@ def check_build_docs_guard_contracts() -> None:
         },
         "tests/HttpLifecycleTests.cmake": {
             "add_executable(conflux_send_zc_lifecycle_tests send_zc_lifecycle_test.cxx)": "HTTP lifecycle test fragment must define send-zc lifecycle tests when enabled",
+        },
+        "tests/HttpResponseTests.cmake": {
+            "add_executable(conflux_http_response_tests http_response_test.cxx)": "HTTP response test fragment must define response tests",
+            "conflux_http_response_compile_fail_global_deferred_response": "HTTP response test fragment must keep deferred response compile-fail check",
+            "conflux_http_response_compile_fail_global_response": "HTTP response test fragment must keep response compile-fail check",
         },
         "tests/TestDiscovery.cmake": {
             "include(CTest)": "test discovery fragment must enable CTest",
