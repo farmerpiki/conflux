@@ -1134,6 +1134,7 @@ def check_script_default_benchmark_targets() -> None:
         "tests/DnsSurfaceTests.cmake",
         "tests/E2ETests.cmake",
         "tests/ExternalTests.cmake",
+        "tests/HttpCompressionTests.cmake",
         "tests/HttpCoreTests.cmake",
         "tests/HttpJsonTests.cmake",
         "tests/HttpLifecycleTests.cmake",
@@ -1659,6 +1660,7 @@ def check_build_docs_guard_contracts() -> None:
             'include("${CMAKE_CURRENT_LIST_DIR}/MainTests.cmake")': "tests CMake must include the main test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")': "tests CMake must include the core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/ExternalTests.cmake")': "tests CMake must include the external test target fragment",
+            'include("${CMAKE_CURRENT_LIST_DIR}/HttpCompressionTests.cmake")': "tests CMake must include the HTTP compression test fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpCoreTests.cmake")': "tests CMake must include the HTTP core test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpJsonTests.cmake")': "tests CMake must include the HTTP JSON test target fragment",
             'include("${CMAKE_CURRENT_LIST_DIR}/HttpResponseTests.cmake")': "tests CMake must include the HTTP response test target fragment",
@@ -1728,6 +1730,11 @@ def check_build_docs_guard_contracts() -> None:
         "tests/TemplateProcessTests.cmake": {
             "add_executable(conflux_template_tests template_test.cxx)": "template/process test fragment must define template tests",
             "add_executable(conflux_process_tests process_test.cxx)": "template/process test fragment must define process tests",
+        },
+        "tests/HttpCompressionTests.cmake": {
+            "conflux_http_compression_compile_fail_global_compress_options": "HTTP compression test fragment must keep compress options compile-fail check",
+            "conflux_http_compression_compile_fail_global_gzip_backend": "HTTP compression test fragment must keep gzip backend compile-fail check",
+            "conflux_http_compression_compile_fail_global_compress_middleware": "HTTP compression test fragment must keep compression middleware compile-fail check",
         },
         "tests/HttpCoreTests.cmake": {
             "add_executable(http_request_assert_probe http_request_assert_probe.cxx)": "HTTP core test fragment must define request assert probe",
