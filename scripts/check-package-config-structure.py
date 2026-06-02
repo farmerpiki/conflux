@@ -1348,9 +1348,6 @@ def check_package_smoke_wrapper_default_components() -> None:
 
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
-        "scripts/check-package-smoke-liburing-free.sh": {
-            "LIBURING;LIBPQ;OPENSSL": "liburing-free package smoke must explicitly forbid runtime/db/tls external deps",
-        },
         "scripts/check-package-smoke-core-isolated.sh": {
             "CONFLUX_JSON_HASH_PROVIDER=XXHASH": "core-isolated package smoke must force the external JSON hash provider",
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
@@ -1368,9 +1365,35 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    liburing_free_forbidden = shell_semicolon_flag_value(
+        read("scripts/check-package-smoke-liburing-free.sh"),
+        "--forbid-external-deps",
+    )
+    for token in ["LIBURING", "LIBPQ", "OPENSSL"]:
+        if token not in liburing_free_forbidden:
+            errors.append(
+                f"liburing-free package smoke must explicitly forbid {token}",
+            )
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
-    if "--forbid-components 'json;http;http1;http2;http3;http_protocol;template;pg;db'" not in core_isolated:
-        errors.append("core-isolated package smoke must include strict physical component isolation policy")
+    core_forbidden = shell_semicolon_flag_value(core_isolated, "--forbid-components")
+    expected_core_forbidden = {
+        "json",
+        "http",
+        "http1",
+        "http2",
+        "http3",
+        "http_protocol",
+        "template",
+        "pg",
+        "db",
+    }
+    append_set_delta_errors(
+        errors,
+        expected_core_forbidden,
+        core_forbidden,
+        "core-isolated package smoke forbidden components missing: ",
+        "core-isolated package smoke forbidden components unexpected: ",
+    )
     if "--forbid-external-deps" in core_isolated:
         errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if errors:
