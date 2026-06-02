@@ -1398,6 +1398,9 @@ def check_package_smoke_wrapper_contracts() -> None:
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
     core_forbidden = shell_semicolon_flag_value(core_isolated, "--forbid-components")
     expected_core_forbidden = {
+        "curated",
+        "extended",
+        "complete",
         "json",
         "http",
         "http1",
@@ -1717,6 +1720,8 @@ def check_package_config_uses_generated_component_metadata() -> None:
 
 def check_install_and_dependency_contracts() -> None:
     install = read("cmake/ConfluxInstall.cmake")
+    header = read("cmake/ConfluxHeaderInterface.cmake")
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
     required_install_markers = {
         "configure_package_config_file(": "missing configure_package_config_file()",
         "write_basic_package_version_file(": "missing write_basic_package_version_file()",
@@ -1730,6 +1735,24 @@ def check_install_and_dependency_contracts() -> None:
         for marker, message in required_install_markers.items()
         if marker not in install
     )
+    profile_helper_markers = {
+        "function(conflux_register_header_public_profile_hpps)": "profile header hpp registration must use a shared helper",
+        "if(NOT umbrella IN_LIST CONFLUX_PACKAGE_COMPONENTS)": "profile hpp wrappers must require the aggregate package component",
+        "foreach(_profile IN ITEMS curated extended complete)": "profile hpp helper must cover all aggregate profiles",
+    }
+    errors.extend(
+        message for marker, message in profile_helper_markers.items()
+        if marker not in interface_mode
+    )
+    for path, text in [
+        ("cmake/ConfluxInstall.cmake", install),
+        ("cmake/ConfluxHeaderInterface.cmake", header),
+    ]:
+        if "conflux_register_header_public_profile_hpps()" not in text:
+            errors.append(f"{path} must use shared profile hpp registration")
+        for profile in ["curated", "extended", "complete"]:
+            if f"conflux_register_header_public_hpp({profile})" in text:
+                errors.append(f"{path} must not register {profile}.hpp unconditionally")
 
     dependencies = read("cmake/Dependencies.cmake")
     match = re.search(
@@ -2136,7 +2159,20 @@ def check_core_isolated_forbidden_components() -> None:
     )
     append_set_delta_errors(
         errors,
-        {"json", "http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"},
+        {
+            "curated",
+            "extended",
+            "complete",
+            "json",
+            "http",
+            "http1",
+            "http2",
+            "http3",
+            "http_protocol",
+            "template",
+            "pg",
+            "db",
+        },
         shell_semicolon_flag_value(core_isolated, "--forbid-components"),
         "strict core-isolated smoke forbidden components missing entries: ",
         "strict core-isolated smoke forbidden components contain unexpected entries: ",

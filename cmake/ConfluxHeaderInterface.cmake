@@ -227,9 +227,7 @@ endif()
 
 set(CONFLUX_PUBLIC_HPP_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/public-hpp/conflux")
 conflux_register_header_public_hpp(config)
-conflux_register_header_public_hpp(curated)
-conflux_register_header_public_hpp(extended)
-conflux_register_header_public_hpp(complete)
+conflux_register_header_public_profile_hpps()
 conflux_write_header_public_hpp_files("${CONFLUX_PUBLIC_HPP_DIR}")
 
 conflux_add_header_component_smoke_targets()

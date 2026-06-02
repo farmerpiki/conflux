@@ -19,7 +19,7 @@ json_smoke_build_dir="$work_root/json-smoke"
     --feature-set core \
     --interface-mode HEADER_INTERFACE \
     --generator Ninja \
-    --forbid-components 'json;http;http1;http2;http3;http_protocol;template;pg;db'
+    --forbid-components 'curated;extended;complete;json;http;http1;http2;http3;http_protocol;template;pg;db'
 
 if ! pkg-config --exists libxxhash; then
     printf 'check-package-smoke-core-isolated: skipped json-feature lane; libxxhash was not found by pkg-config\n' >&2
@@ -38,6 +38,18 @@ fi
     -- -DCONFLUX_POSTGRES_PROVIDER=OFF -DCONFLUX_JSON_HASH_PROVIDER=XXHASH
 
 for forbidden_header in \
+    "$strict_prefix/include/conflux/curated.hpp" \
+    "$strict_prefix/include/conflux/curated.hxx" \
+    "$strict_prefix/include/conflux/extended.hpp" \
+    "$strict_prefix/include/conflux/extended.hxx" \
+    "$strict_prefix/include/conflux/complete.hpp" \
+    "$strict_prefix/include/conflux/complete.hxx" \
+    "$json_prefix/include/conflux/curated.hpp" \
+    "$json_prefix/include/conflux/curated.hxx" \
+    "$json_prefix/include/conflux/extended.hpp" \
+    "$json_prefix/include/conflux/extended.hxx" \
+    "$json_prefix/include/conflux/complete.hpp" \
+    "$json_prefix/include/conflux/complete.hxx" \
     "$json_prefix/include/conflux/detail/generated/net/compress_backend_zlib_like.hxx"
 do
     if [[ -e "$forbidden_header" ]]; then
