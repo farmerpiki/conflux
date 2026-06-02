@@ -11,7 +11,7 @@ COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
 COMPONENT_RE = re.compile(
-    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)\|'
+    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPERIMENTAL|SUPPORT)\|'
     r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"'
 )
 DOC_COMPONENT_RE = re.compile(
@@ -49,6 +49,15 @@ def public_components() -> dict[str, tuple[str, str]]:
 
 def support_components() -> dict[str, tuple[str, str]]:
     return declared_components("SUPPORT")
+
+
+def documented_components_for(
+    kinds: tuple[str, ...],
+) -> dict[str, tuple[str, str]]:
+    components: dict[str, tuple[str, str]] = {}
+    for kind in kinds:
+        components.update(declared_components(kind))
+    return components
 
 
 def documented_components() -> dict[str, str]:
@@ -93,16 +102,17 @@ def documented_support_components() -> set[str]:
 def main() -> int:
     failures: list[str] = []
     cmake_components = public_components()
+    cmake_documented_components = documented_components_for(("REQUESTABLE", "EXPERIMENTAL"))
     cmake_support_components = support_components()
     doc_components = documented_components()
     doc_rows = documented_public_rows()
     doc_support_components = documented_support_components()
 
-    for component in sorted(cmake_components.keys() & cmake_support_components.keys()):
+    for component in sorted(cmake_documented_components.keys() & cmake_support_components.keys()):
         failures.append(f"CMake component `{component}` is declared as both public and support")
 
     all_targets: dict[str, str] = {}
-    for component, (target, _) in {**cmake_components, **cmake_support_components}.items():
+    for component, (target, _) in {**cmake_documented_components, **cmake_support_components}.items():
         owner = all_targets.get(target)
         if owner is not None:
             failures.append(
@@ -130,16 +140,16 @@ def main() -> int:
         if tier != "INTERNAL_SUPPORT":
             failures.append(f"support component `{component}` must use internal-support tier")
 
-    for component in sorted(cmake_components.keys() - doc_components.keys()):
+    for component in sorted(cmake_documented_components.keys() - doc_components.keys()):
         failures.append(f"missing docs/component-map.md row for CMake component `{component}`")
 
-    for component in sorted(doc_components.keys() - cmake_components.keys()):
+    for component in sorted(doc_components.keys() - cmake_documented_components.keys()):
         failures.append(f"docs/component-map.md documents non-CMake component `{component}`")
 
-    for component in sorted(cmake_components.keys() - doc_rows.keys()):
+    for component in sorted(cmake_documented_components.keys() - doc_rows.keys()):
         failures.append(f"missing docs/component-map.md public row details for CMake component `{component}`")
 
-    for component in sorted(doc_rows.keys() - cmake_components.keys()):
+    for component in sorted(doc_rows.keys() - cmake_documented_components.keys()):
         failures.append(f"docs/component-map.md details non-CMake component `{component}`")
 
     for component in sorted(cmake_support_components.keys() - doc_support_components):
@@ -148,7 +158,7 @@ def main() -> int:
     for component in sorted(doc_support_components - cmake_support_components.keys()):
         failures.append(f"docs/component-map.md documents non-CMake support component `{component}`")
 
-    for component in sorted(cmake_components.keys() & doc_components.keys()):
+    for component in sorted(cmake_documented_components.keys() & doc_components.keys()):
         documented_target = doc_components[component]
         if documented_target != component:
             failures.append(

@@ -8,6 +8,8 @@ include("@CMAKE_CURRENT_SOURCE_DIR@/cmake/ConfluxExternalDependencyRegistry.cmak
 
 set(_conflux_requestable_components "@CONFLUX_PACKAGE_COMPONENTS@")
 set(_conflux_requestable_targets "@CONFLUX_PACKAGE_TARGETS@")
+set(_conflux_experimental_components "@CONFLUX_PACKAGE_EXPERIMENTAL_COMPONENTS@")
+set(_conflux_experimental_targets "@CONFLUX_PACKAGE_EXPERIMENTAL_TARGETS@")
 set(_conflux_support_components "@CONFLUX_PACKAGE_SUPPORT_COMPONENTS@")
 set(_conflux_support_targets "@CONFLUX_PACKAGE_SUPPORT_TARGETS@")
 set(_conflux_all_components "@CONFLUX_PACKAGE_ALL_COMPONENTS@")
@@ -65,6 +67,7 @@ endfunction()
 
 function(_conflux_validate_component_partitions)
     set(_expected_all_components ${_conflux_requestable_components})
+    list(APPEND _expected_all_components ${_conflux_experimental_components})
     list(APPEND _expected_all_components ${_conflux_support_components})
     if(_expected_all_components)
         list(SORT _expected_all_components)
@@ -77,10 +80,11 @@ function(_conflux_validate_component_partitions)
 
     if(NOT _expected_all_components STREQUAL _actual_all_components)
         _conflux_fail(
-            "all component list must match requestable plus support components")
+            "all component list must match requestable plus experimental plus support components")
     endif()
 
     set(_expected_all_targets ${_conflux_requestable_targets})
+    list(APPEND _expected_all_targets ${_conflux_experimental_targets})
     list(APPEND _expected_all_targets ${_conflux_support_targets})
     if(_expected_all_targets)
         list(SORT _expected_all_targets)
@@ -93,12 +97,14 @@ function(_conflux_validate_component_partitions)
 
     if(NOT _expected_all_targets STREQUAL _actual_all_targets)
         _conflux_fail(
-            "all target list must match requestable plus support targets")
+            "all target list must match requestable plus experimental plus support targets")
     endif()
 endfunction()
 
 _conflux_validate_parallel_lists(
     _conflux_requestable_components _conflux_requestable_targets requestable)
+_conflux_validate_parallel_lists(
+    _conflux_experimental_components _conflux_experimental_targets experimental)
 _conflux_validate_parallel_lists(
     _conflux_support_components _conflux_support_targets support)
 _conflux_validate_parallel_lists(
@@ -234,6 +240,8 @@ set(_external_file "${_conflux_package_dir}/conflux-component-external-deps.cmak
 file(WRITE "${_targets_file}"
     "set(_conflux_requestable_components \"${_conflux_requestable_components}\")\n"
     "set(_conflux_requestable_targets \"${_conflux_requestable_targets}\")\n"
+    "set(_conflux_experimental_components \"${_conflux_experimental_components}\")\n"
+    "set(_conflux_experimental_targets \"${_conflux_experimental_targets}\")\n"
     "set(_conflux_support_components \"${_conflux_support_components}\")\n"
     "set(_conflux_support_targets \"${_conflux_support_targets}\")\n"
     "set(_conflux_all_components \"${_conflux_all_components}\")\n"

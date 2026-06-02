@@ -123,6 +123,11 @@ Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable ext
 source of truth for package stability tier metadata; this document owns the
 human-facing import/include path and contract reference.
 
+Only `STABLE` and `ADVANCED` package components are requestable through
+`find_package(... COMPONENTS ...)`. `EXPERIMENTAL` targets may be exported when
+their feature gates build them, but they stay out of the normal requestable
+package component list.
+
 ## HTTP component map
 
 | Component | CMake target | Primary imports | API surface | Contract docs / examples |

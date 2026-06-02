@@ -1455,7 +1455,9 @@ def check_package_smoke_project_contract() -> None:
         "import conflux.types;": "module package smoke source must import an installed conflux module",
         "#include <conflux/types.hpp>": "header package smoke source must include only the installed core header",
         "available_components=${conflux_AVAILABLE_COMPONENTS}": "package smoke summary must report available components",
+        "available_experimental_targets=${conflux_AVAILABLE_EXPERIMENTAL_TARGETS}": "package smoke summary must report available experimental targets",
         "visible_components=${conflux_VISIBLE_COMPONENTS}": "package smoke summary must report visible components",
+        "visible_experimental_targets=${conflux_VISIBLE_EXPERIMENTAL_TARGETS}": "package smoke summary must report visible experimental targets",
         "visible_support_targets=${conflux_VISIBLE_SUPPORT_TARGETS}": "package smoke summary must report visible support targets",
         "resolved_external_deps=${conflux_RESOLVED_EXTERNAL_DEPS}": "package smoke summary must report resolved external deps",
         "CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS": "package smoke must support negative external dependency assertions",
@@ -1633,7 +1635,7 @@ def external_tokens_from_metadata() -> set[str]:
 def component_declarations_from_registry() -> list[tuple[str, str, str, str]]:
     registry = read("cmake/ConfluxComponentRegistry.cmake")
     declarations = re.findall(
-        r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|SUPPORT)\|'
+        r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPERIMENTAL|SUPPORT)\|'
         r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"',
         registry,
     )
@@ -1659,8 +1661,10 @@ def check_component_registry_contract() -> None:
     required_markers = {
         "set(CONFLUX_COMPONENT_DECLARATIONS": "component registry must keep a single authoritative declaration list",
         "list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "public component declarations must be derived from the authoritative registry",
+        "list(APPEND CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS": "experimental component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_SUPPORT_COMPONENT_DECLARATIONS": "support component declarations must be derived from the authoritative registry",
         "REQUESTABLE|": "component registry must name requestable components by kind",
+        "EXPERIMENTAL|": "component registry must name experimental components by kind",
         "SUPPORT|": "component registry must name support components by kind",
         "STABLE": "component registry must classify component stability tiers",
         "ADVANCED": "component registry must classify component stability tiers",
@@ -1676,6 +1680,10 @@ def check_component_registry_contract() -> None:
     for _target, export, kind, tier in declarations:
         if kind == "SUPPORT" and tier != "INTERNAL_SUPPORT":
             errors.append(f"support component {export} must use INTERNAL_SUPPORT tier")
+        if kind == "EXPERIMENTAL" and tier != "EXPERIMENTAL":
+            errors.append(f"experimental component {export} must use EXPERIMENTAL tier")
+        if kind == "REQUESTABLE" and tier not in {"STABLE", "ADVANCED"}:
+            errors.append(f"requestable component {export} must use STABLE or ADVANCED tier")
         if kind == "REQUESTABLE" and tier == "INTERNAL_SUPPORT":
             errors.append(f"requestable component {export} must not use INTERNAL_SUPPORT tier")
     if errors:
@@ -1746,8 +1754,10 @@ def check_package_config_uses_generated_component_metadata() -> None:
         "conflux-component-external-deps.cmake": "package config must include generated external dependency metadata",
         "confluxTargets-${_export_component}.cmake": "package config must include requested split exported targets",
         "set(conflux_AVAILABLE_COMPONENTS": "package config must expose available components",
+        "set(conflux_AVAILABLE_EXPERIMENTAL_TARGETS": "package config must expose available experimental targets",
         "set(conflux_AVAILABLE_SUPPORT_TARGETS": "package config must expose available support targets",
         "set(conflux_VISIBLE_COMPONENTS": "package config must expose visible components",
+        "set(conflux_VISIBLE_EXPERIMENTAL_TARGETS": "package config must expose visible experimental targets",
         "set(conflux_VISIBLE_SUPPORT_TARGETS": "package config must expose visible support targets",
         "set(conflux_RESOLVED_EXTERNAL_DEPS": "package config must expose resolved external deps",
         "_conflux_import_component": "package config must compute requested component dependency closure",
@@ -2121,8 +2131,8 @@ def check_package_metadata_generator_contract() -> None:
         "is not a valid conflux namespaced target": "package metadata generator must reject invalid namespaced target entries",
         "must pair with target": "package metadata generator must reject mismatched component/target pairs",
         "function(_conflux_validate_component_partitions)": "package metadata generator must validate component partitions",
-        "all component list must match requestable plus support components": "package metadata generator must reject component partition drift",
-        "all target list must match requestable plus support targets": "package metadata generator must reject target partition drift",
+        "all component list must match requestable plus experimental plus support components": "package metadata generator must reject component partition drift",
+        "all target list must match requestable plus experimental plus support targets": "package metadata generator must reject target partition drift",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
     if missing:

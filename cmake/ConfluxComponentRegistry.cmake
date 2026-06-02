@@ -12,8 +12,8 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_json|json|REQUESTABLE|STABLE"
     "conflux_json_native_provider|json_native_provider|REQUESTABLE|ADVANCED"
     "conflux_json_file|json_file|REQUESTABLE|STABLE"
-    "conflux_json_reflect|json_reflect|REQUESTABLE|EXPERIMENTAL"
-    "conflux_json_reflect_provider|json_reflect_provider|REQUESTABLE|EXPERIMENTAL"
+    "conflux_json_reflect|json_reflect|EXPERIMENTAL|EXPERIMENTAL"
+    "conflux_json_reflect_provider|json_reflect_provider|EXPERIMENTAL|EXPERIMENTAL"
     "conflux_template|template|REQUESTABLE|ADVANCED"
     "conflux_file_watch|file_watch|REQUESTABLE|ADVANCED"
     "conflux_template_watch|template_watch|REQUESTABLE|ADVANCED"
@@ -47,7 +47,7 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_http_native_json|http_native_json|REQUESTABLE|ADVANCED"
     "conflux_http1|http1|REQUESTABLE|ADVANCED"
     "conflux_http2|http2|REQUESTABLE|ADVANCED"
-    "conflux_http3|http3|REQUESTABLE|EXPERIMENTAL"
+    "conflux_http3|http3|EXPERIMENTAL|EXPERIMENTAL"
     "conflux_http_protocol|http_protocol|REQUESTABLE|ADVANCED"
     "conflux_http_server|http_server|REQUESTABLE|ADVANCED"
     "conflux_http_app|http_app|REQUESTABLE|ADVANCED"
@@ -69,6 +69,7 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_cpu_features|_cpu_features|SUPPORT|INTERNAL_SUPPORT")
 
 set(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS)
+set(CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS)
 set(CONFLUX_SUPPORT_COMPONENT_DECLARATIONS)
 foreach(_entry IN LISTS CONFLUX_COMPONENT_DECLARATIONS)
     string(REPLACE "|" ";" _parts "${_entry}")
@@ -78,6 +79,9 @@ foreach(_entry IN LISTS CONFLUX_COMPONENT_DECLARATIONS)
     list(GET _parts 3 _tier)
     if(_kind STREQUAL "REQUESTABLE")
         list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS
+            "${_target}|${_export_name}")
+    elseif(_kind STREQUAL "EXPERIMENTAL")
+        list(APPEND CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS
             "${_target}|${_export_name}")
     elseif(_kind STREQUAL "SUPPORT")
         list(APPEND CONFLUX_SUPPORT_COMPONENT_DECLARATIONS
