@@ -12,20 +12,22 @@ baseline is called out explicitly.
 Build base and candidate binaries into separate paths, then compare:
 
 ```sh
-# Build base (on main or pre-migration commit):
-cmake --build /tmp/conflux/debug-clang-libcxx --target conflux_http_server_bench conflux_http_server_concurrency_bench
+BUILD_DIR="$(python3 scripts/cmake-preset-build-dir.py "$PWD" debug-clang-libcxx)"
 
-cp /tmp/conflux/debug-clang-libcxx/benchmarks/conflux_http_server_bench \
+# Build base (on main or pre-migration commit):
+cmake --build "$BUILD_DIR" --target conflux_http_server_bench conflux_http_server_concurrency_bench
+
+cp "$BUILD_DIR/benchmarks/conflux_http_server_bench" \
    /tmp/conflux-base/benchmarks/conflux_http_server_bench
-cp /tmp/conflux/debug-clang-libcxx/benchmarks/conflux_http_server_concurrency_bench \
+cp "$BUILD_DIR/benchmarks/conflux_http_server_concurrency_bench" \
    /tmp/conflux-base/benchmarks/conflux_http_server_concurrency_bench
 
 # Build candidate (on migration branch):
-cmake --build /tmp/conflux/debug-clang-libcxx --target conflux_http_server_bench conflux_http_server_concurrency_bench
+cmake --build "$BUILD_DIR" --target conflux_http_server_bench conflux_http_server_concurrency_bench
 
-cp /tmp/conflux/debug-clang-libcxx/benchmarks/conflux_http_server_bench \
+cp "$BUILD_DIR/benchmarks/conflux_http_server_bench" \
    /tmp/conflux-cand/benchmarks/conflux_http_server_bench
-cp /tmp/conflux/debug-clang-libcxx/benchmarks/conflux_http_server_concurrency_bench \
+cp "$BUILD_DIR/benchmarks/conflux_http_server_concurrency_bench" \
    /tmp/conflux-cand/benchmarks/conflux_http_server_concurrency_bench
 ```
 
