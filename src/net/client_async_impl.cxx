@@ -260,17 +260,12 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 	}
 	throw IoError{ECONNREFUSED, "connect: all endpoints failed"};
 }
-wroot::Task<ClientResult> do_async_request(
-	SocketTaskRing &ring,
-	ClientRequest const &req,
+
+[[nodiscard]] std::vector<client_dns_bridge::Endpoint> resolve_client_endpoints(
+	Url const &url,
 	HttpClientOptions const &opts,
-	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
-	auto const &url = req.url();
-	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
-	HttpTelemetry tel{};
+	std::chrono::milliseconds resolve_timeout) {
 	std::vector<client_dns_bridge::Endpoint> endpoints;
-	auto const t0 = std::chrono::steady_clock::now();
-	cancel->throw_if_cancelled();
 	if (opts.resolver) {
 		std::array<char, 256> errbuf{};
 		auto *ctx = &endpoints;
@@ -279,7 +274,7 @@ wroot::Task<ClientResult> do_async_request(
 			url.host.data(),
 			url.host.size(),
 			static_cast<std::uint16_t>(url.port),
-			timeouts.resolve.count() > 0 ? timeouts.resolve.count() : 30000LL,
+			resolve_timeout.count() > 0 ? resolve_timeout.count() : 30000LL,
 			ctx,
 			[](void *c, client_dns_bridge::Endpoint const &ep) noexcept {
 				static_cast<std::vector<client_dns_bridge::Endpoint> *>(c)->push_back(ep);
@@ -308,6 +303,20 @@ wroot::Task<ClientResult> do_async_request(
 			::freeaddrinfo(res_raw);
 		}
 	}
+	return endpoints;
+}
+
+wroot::Task<ClientResult> do_async_request(
+	SocketTaskRing &ring,
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
+	auto const &url = req.url();
+	auto const timeouts = detail::effective_http_timeouts(req.timeouts(), opts.default_timeouts);
+	HttpTelemetry tel{};
+	auto const t0 = std::chrono::steady_clock::now();
+	cancel->throw_if_cancelled();
+	auto endpoints = resolve_client_endpoints(url, opts, timeouts.resolve);
 	tel.dns = std::chrono::steady_clock::now() - t0;
 	cancel->throw_if_cancelled();
 	if (endpoints.empty()) {
