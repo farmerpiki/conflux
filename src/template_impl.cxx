@@ -1672,6 +1672,37 @@ TmplValue apply_reverse_filter(
 	std::reverse(result.as_array().begin(), result.as_array().end());
 	return result;
 }
+TmplValue apply_last_filter(
+	TmplValue const &val) {
+	if (val.is_array() && !val.as_array().empty()) {
+		return val.as_array().back();
+	}
+	return {};
+}
+TmplValue apply_min_filter(
+	TmplValue const &val) {
+	if (!val.is_array()) {
+		return val;
+	}
+	auto const &arr = val.as_array();
+	if (arr.empty()) {
+		return {};
+	}
+	TmplValue const *m = arr.data();
+	for (std::size_t i = 1; i < arr.size(); ++i) {
+		if (arr[i].dump() < m->dump()) {
+			m = &arr[i];
+		}
+	}
+	return *m;
+}
+TmplValue apply_list_filter(
+	TmplValue const &val) {
+	if (val.is_array()) {
+		return val;
+	}
+	return TmplValue{TmplValue::Array{}};
+}
 template<class EvalArg>
 TmplValue apply_selectattr_filter(
 	TmplValue const &val,
@@ -1791,32 +1822,13 @@ TmplValue Environment::Impl::apply_filter(
 		return apply_reverse_filter(val);
 	}
 	if (name == "last") {
-		if (val.is_array() && !val.as_array().empty()) {
-			return val.as_array().back();
-		}
-		return {};
+		return apply_last_filter(val);
 	}
 	if (name == "std::min") {
-		if (val.is_array()) {
-			auto const &arr = val.as_array();
-			if (arr.empty()) {
-				return {};
-			}
-			TmplValue const *m = arr.data();
-			for (std::size_t i = 1; i < arr.size(); ++i) {
-				if (arr[i].dump() < m->dump()) {
-					m = &arr[i];
-				}
-			}
-			return *m;
-		}
-		return val;
+		return apply_min_filter(val);
 	}
 	if (name == "list") {
-		if (val.is_array()) {
-			return val;
-		}
-		return TmplValue{TmplValue::Array{}};
+		return apply_list_filter(val);
 	}
 	if (name == "selectattr") {
 		return apply_selectattr_filter(val, args.size(), eval_arg, value_to_string_fn);
