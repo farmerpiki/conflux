@@ -2255,6 +2255,14 @@ def check_package_metadata_generator_contract() -> None:
         "function(_conflux_validate_component_partitions)": "package metadata generator must validate component partitions",
         "all component list must match requestable plus explicit plus experimental plus support components": "package metadata generator must reject component partition drift",
         "all target list must match requestable plus explicit plus experimental plus support targets": "package metadata generator must reject target partition drift",
+        "ConfluxComponentRegistry.cmake": "package metadata generator must include the component registry",
+        "function(_conflux_validate_registry_subset components registry_exports label)": "package metadata generator must validate generated components against registry buckets",
+        "CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "package metadata generator must validate requestable components against registry declarations",
+        "CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS": "package metadata generator must validate explicit components against registry declarations",
+        "CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS": "package metadata generator must validate experimental components against registry declarations",
+        "CONFLUX_SUPPORT_COMPONENT_DECLARATIONS": "package metadata generator must validate support components against registry declarations",
+        '_component STREQUAL "headers"': "package metadata generator must allow generated header support components",
+        '_component MATCHES "^header_impl_"': "package metadata generator must allow generated header implementation support components",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
     if missing:

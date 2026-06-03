@@ -4,6 +4,7 @@ cmake_policy(SET CMP0057 NEW)
 set(_conflux_install_prefix "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 set(_conflux_package_dir
     "${_conflux_install_prefix}/@CMAKE_INSTALL_LIBDIR@/cmake/conflux")
+include("@CMAKE_CURRENT_SOURCE_DIR@/cmake/ConfluxComponentRegistry.cmake")
 include("@CMAKE_CURRENT_SOURCE_DIR@/cmake/ConfluxExternalDependencyRegistry.cmake")
 
 set(_conflux_requestable_components "@CONFLUX_PACKAGE_COMPONENTS@")
@@ -105,6 +106,31 @@ function(_conflux_validate_component_partitions)
     endif()
 endfunction()
 
+function(_conflux_registry_exports out_var declarations)
+    set(_exports)
+    foreach(_entry IN LISTS ${declarations})
+        string(REPLACE "|" ";" _parts "${_entry}")
+        list(GET _parts 1 _export_name)
+        list(APPEND _exports "${_export_name}")
+    endforeach()
+    set(${out_var} "${_exports}" PARENT_SCOPE)
+endfunction()
+
+function(_conflux_validate_registry_subset components registry_exports label)
+    foreach(_component IN LISTS ${components})
+        if(label STREQUAL "support"
+                AND (_component STREQUAL "headers"
+                    OR _component STREQUAL "header_impl"
+                    OR _component MATCHES "^header_impl_"))
+            continue()
+        endif()
+        if(NOT _component IN_LIST ${registry_exports})
+            _conflux_fail(
+                "${label} component '${_component}' is not declared by ConfluxComponentRegistry.cmake")
+        endif()
+    endforeach()
+endfunction()
+
 _conflux_validate_parallel_lists(
     _conflux_requestable_components _conflux_requestable_targets requestable)
 _conflux_validate_parallel_lists(
@@ -116,6 +142,22 @@ _conflux_validate_parallel_lists(
 _conflux_validate_parallel_lists(
     _conflux_all_components _conflux_all_targets all)
 _conflux_validate_component_partitions()
+_conflux_registry_exports(_conflux_requestable_registry_exports
+    CONFLUX_PUBLIC_COMPONENT_DECLARATIONS)
+_conflux_registry_exports(_conflux_explicit_registry_exports
+    CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS)
+_conflux_registry_exports(_conflux_experimental_registry_exports
+    CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS)
+_conflux_registry_exports(_conflux_support_registry_exports
+    CONFLUX_SUPPORT_COMPONENT_DECLARATIONS)
+_conflux_validate_registry_subset(_conflux_requestable_components
+    _conflux_requestable_registry_exports requestable)
+_conflux_validate_registry_subset(_conflux_explicit_components
+    _conflux_explicit_registry_exports explicit)
+_conflux_validate_registry_subset(_conflux_experimental_components
+    _conflux_experimental_registry_exports experimental)
+_conflux_validate_registry_subset(_conflux_support_components
+    _conflux_support_registry_exports support)
 
 function(_conflux_component_export_file out_var component)
     set(${out_var}
