@@ -4,13 +4,15 @@
 
 include_guard(GLOBAL)
 
+include(ConfluxExternalDependencyRegistry)
+
 string(TOUPPER "${CONFLUX_TLS_PROVIDER}" CONFLUX_TLS_PROVIDER_UPPER)
 if((CONFLUX_WANT_HTTP_SERVER OR CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_AUTH)
         AND NOT CONFLUX_TLS_PROVIDER_UPPER STREQUAL "OFF")
-    find_package(OpenSSL)
+    conflux_find_external_dependency_package(OPENSSL)
 endif()
 if(CONFLUX_WANT_HTTP_COMPRESSION)
-    find_package(ZLIB)
+    conflux_find_external_dependency_package(ZLIB)
 endif()
 
 # ---- OpenSSL / TLS ---------------------------------------------------------

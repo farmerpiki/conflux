@@ -1775,6 +1775,7 @@ def check_external_dependency_tokens() -> None:
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
     registry = read("cmake/ConfluxExternalDependencyRegistry.cmake")
     dependencies = read("cmake/Dependencies.cmake")
+    provider_resolution = read("cmake/ConfluxProviderResolution.cmake")
     metadata_tokens = external_tokens_from_metadata()
     errors: list[str] = []
     required_registry_prefixes = [
@@ -1784,9 +1785,10 @@ def check_external_dependency_tokens() -> None:
         "function(conflux_external_dependency_targets",
         "function(conflux_existing_external_dependency_targets",
         "function(conflux_link_existing_external_dependency_targets",
+        "macro(conflux_find_external_dependency_package",
     ]
     for prefix in required_registry_prefixes:
-        if prefix.startswith("function("):
+        if prefix.startswith(("function(", "macro(")):
             if prefix not in registry:
                 errors.append(f"external dependency registry missing {prefix}")
             continue
@@ -1814,6 +1816,18 @@ def check_external_dependency_tokens() -> None:
         "conflux_pkg_provider_from_registry": "build-time pkg-config discovery must use registry tokens",
     }
     errors.extend(message for marker, message in dependency_markers.items() if marker not in dependencies)
+    provider_resolution_markers = {
+        "ConfluxExternalDependencyRegistry": "provider resolution must include the external dependency registry",
+        "conflux_find_external_dependency_package(OPENSSL)": "provider resolution must discover OpenSSL through the registry",
+        "conflux_find_external_dependency_package(ZLIB)": "provider resolution must discover ZLIB through the registry",
+    }
+    errors.extend(
+        message for marker, message in provider_resolution_markers.items()
+        if marker not in provider_resolution
+    )
+    for package in ["OpenSSL", "ZLIB"]:
+        if re.search(rf"^\s*find_package\({package}\b", provider_resolution, re.MULTILINE):
+            errors.append(f"provider resolution must not call find_package({package}) directly")
     interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
     header_interface = read("cmake/ConfluxHeaderInterface.cmake")
     header_link_markers = {
