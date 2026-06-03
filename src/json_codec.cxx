@@ -2462,6 +2462,66 @@ template<ParseMode Mode, class T>
 }
 
 template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_custom_or_members_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	if constexpr (std::same_as<T, Document>) {
+		std::size_t const start = r.value_start_pos();
+		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		std::string_view const slice = r.input().substr(start, r.pos() - start);
+		return conflux::json::parse(slice, r.parse_options());
+	} else if constexpr (has_members_spec<T>::value) {
+		T result{};
+		if (auto ok = decode_members_from_event_into<Mode, T>(result, r, ev, opts, scratch); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		return result;
+	} else if constexpr (codec_decodes_reader_event_mode_with_options<Mode, T>) {
+		return JsonCodec<T>::template decode<Mode>(r, ev, opts, scratch);
+	} else if constexpr (codec_decodes_reader_event_with_options<T>) {
+		return JsonCodec<T>::decode(r, ev, opts, scratch);
+	} else if constexpr (has_codec_spec<T>::value) {
+		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
+		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
+		std::size_t const start = r.value_start_pos();
+		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
+			return std::unexpected(std::move(ok).error());
+		}
+		std::string_view const slice = r.input().substr(start, r.pos() - start);
+		auto doc = conflux::json::parse(slice, r.parse_options());
+		if (!doc) {
+			return std::unexpected(std::move(doc).error());
+		}
+		return decode_codec<T>(doc->root(), opts);
+	} else {
+		static_assert(!std::same_as<T, T>, "No JsonReader support for type T");
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_custom_or_members_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	if constexpr (has_members_spec<T>::value) {
+		return decode_members_from_event_into<Mode, T>(out, r, ev, opts, scratch);
+	} else {
+		auto decoded = decode_from_event<Mode, T>(r, ev, opts, scratch);
+		if (!decoded) {
+			return std::unexpected(std::move(decoded).error());
+		}
+		out = std::move(*decoded);
+		return {};
+	}
+}
+
+template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_next_object_value_into(
 	T &out,
 	JsonReader &r,
@@ -3159,38 +3219,8 @@ std::expected<T, JsonError> decode_from_event(
 		return decode_tuple_like_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		return decode_map_from_event<Mode, T>(r, ev, opts, scratch);
-	} else if constexpr (std::same_as<T, Document>) {
-		std::size_t const start = r.value_start_pos();
-		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
-			return std::unexpected(std::move(ok).error());
-		}
-		std::string_view const slice = r.input().substr(start, r.pos() - start);
-		return conflux::json::parse(slice, r.parse_options());
-	} else if constexpr (has_members_spec<T>::value) {
-		T result{};
-		if (auto ok = decode_members_from_event_into<Mode, T>(result, r, ev, opts, scratch); !ok) {
-			return std::unexpected(std::move(ok).error());
-		}
-		return result;
-	} else if constexpr (codec_decodes_reader_event_mode_with_options<Mode, T>) {
-		return JsonCodec<T>::template decode<Mode>(r, ev, opts, scratch);
-	} else if constexpr (codec_decodes_reader_event_with_options<T>) {
-		return JsonCodec<T>::decode(r, ev, opts, scratch);
-	} else if constexpr (has_codec_spec<T>::value) {
-		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
-		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
-		std::size_t const start = r.value_start_pos();
-		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
-			return std::unexpected(std::move(ok).error());
-		}
-		std::string_view const slice = r.input().substr(start, r.pos() - start);
-		auto doc = conflux::json::parse(slice, r.parse_options());
-		if (!doc) {
-			return std::unexpected(std::move(doc).error());
-		}
-		return decode_codec<T>(doc->root(), opts);
 	} else {
-		static_assert(!std::same_as<T, T>, "No JsonReader support for type T");
+		return decode_custom_or_members_from_event<Mode, T>(r, ev, opts, scratch);
 	}
 }
 
@@ -3214,15 +3244,8 @@ std::expected<void, JsonError> decode_into(
 		return decode_tuple_like_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		return decode_map_into<Mode, T>(out, r, ev, opts, scratch);
-	} else if constexpr (has_members_spec<T>::value) {
-		return decode_members_from_event_into<Mode, T>(out, r, ev, opts, scratch);
 	} else {
-		auto decoded = decode_from_event<Mode, T>(r, ev, opts, scratch);
-		if (!decoded) {
-			return std::unexpected(std::move(decoded).error());
-		}
-		out = std::move(*decoded);
-		return {};
+		return decode_custom_or_members_into<Mode, T>(out, r, ev, opts, scratch);
 	}
 }
 
