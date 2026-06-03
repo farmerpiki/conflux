@@ -208,17 +208,18 @@ if pkg-config --exists libargon2; then
 	cleanup_build "$auth_auto_system_dir"
 fi
 
-if pkg-config --exists libngtcp2 libngtcp2_crypto_ossl libnghttp3; then
-	dev_exp_h3_dir="$(run_configure dev-exp-http3 \
-		-DCONFLUX_FEATURE_SET=dev-exp-all \
-		-DCONFLUX_BUILD_TESTS=OFF \
-		-DCONFLUX_BUILD_EXAMPLES=OFF \
-		-DCONFLUX_BUILD_BENCHMARKS=OFF \
-		-DCONFLUX_FETCH_TEST_DEPS=OFF)"
+dev_exp_h3_dir="$(run_configure dev-exp-http3 \
+	-DCONFLUX_FEATURE_SET=dev-exp-all \
+	-DCONFLUX_BUILD_TESTS=OFF \
+	-DCONFLUX_BUILD_EXAMPLES=OFF \
+	-DCONFLUX_BUILD_BENCHMARKS=OFF \
+	-DCONFLUX_FETCH_TEST_DEPS=OFF)"
+if cmake --build "$dev_exp_h3_dir" --target help | grep -q '^... conflux_http3:'; then
 	run_build "$dev_exp_h3_dir" --target conflux_http3
 	cleanup_build "$dev_exp_h3_dir"
 else
-	printf 'provider-policy: skip dev-exp HTTP/3 build; HTTP/3 pkg-config deps missing\n'
+	printf 'provider-policy: skip dev-exp HTTP/3 build; target unavailable\n'
+	cleanup_build "$dev_exp_h3_dir"
 fi
 
 printf 'provider-policy: ok\n'

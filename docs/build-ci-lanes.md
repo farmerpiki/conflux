@@ -271,18 +271,11 @@ This lane configures and builds representative provider-policy scenarios:
 dependency-light `core`, JSON with system/default and internal
 hash providers, web-server compression with automatic gzip selection and
 `CONFLUX_GZIP_PROVIDER=ALL`, stable HTTP server with HTTP/3 gated off, and HTTP
-auth with the Argon2 runtime provider. `CONFLUX_GZIP_PROVIDER=AUTO` benchmarks
-all discovered gzip backends during configure when more than one backend is
-available, skips the benchmark when only one backend exists, and compiles only
-the selected backend by default.
-
-The AUTO result is cached in `CONFLUX_RESOLVED_GZIP_PROVIDER`, with an internal
-fingerprint covering the discovered candidate set, compiler, build type, and
-C++ flags. Reconfiguring the same build tree reuses the cached selection instead
-of rerunning the probes. Changing those inputs invalidates the fingerprint and
-reruns selection. Use `CONFLUX_GZIP_PROVIDER=ALL` to build every discovered
-backend, or set `CONFLUX_GZIP_PROVIDER=LIBDEFLATE`, `ZLIB_NG`, `ZLIB`, or `ISAL`
-to pin a backend and avoid configure-time benchmarking entirely.
+auth with the Argon2 runtime provider. `CONFLUX_GZIP_PROVIDER=AUTO` selects the
+first discovered gzip backend in provider preference order and compiles only the
+selected backend by default. Use `CONFLUX_GZIP_PROVIDER=ALL` to build every
+discovered backend, or set `CONFLUX_GZIP_PROVIDER=LIBDEFLATE`, `ZLIB_NG`,
+`ZLIB`, or `ISAL` to pin a backend.
 
 Other provider knobs expose their resolved result in cache variables as well:
 `CONFLUX_RESOLVED_JSON_HASH_PROVIDER`, `CONFLUX_RESOLVED_BROTLI_PROVIDER`,

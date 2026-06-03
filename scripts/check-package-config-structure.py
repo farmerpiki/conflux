@@ -1846,6 +1846,13 @@ def check_external_dependency_tokens() -> None:
             "build-time pkg-config discovery must use registry tokens: "
             + ", ".join(sorted(set(direct_pkg_calls)))
         )
+    for stale_probe in [
+        "function(conflux_gzip_probe_source",
+        "function(conflux_benchmark_gzip_backend",
+        "conflux-provider-probes",
+    ]:
+        if stale_probe in dependencies:
+            errors.append("build-time provider discovery must not carry unused gzip benchmark probe code")
     if re.search(r'token STREQUAL "[A-Z0-9_]+"', config):
         errors.append("package config must not carry a separate external-token resolver ladder")
     if re.search(r"set\(_token [A-Z0-9_]+\)", metadata):
