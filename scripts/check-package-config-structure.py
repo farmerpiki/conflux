@@ -2747,6 +2747,7 @@ def check_release_sku_guard_contract() -> None:
         "required_skus": "release SKU guard must require the expected release SKUs",
         "feature_set != sku_name": "release SKU guard must require every release SKU to map to a known feature-set",
         "kind == \"REQUESTABLE\"": "release SKU guard must restrict selected components to requestable exports",
+        "duplicate component": "release SKU guard must reject duplicate selected components",
         "duplicate": "release SKU guard must reject duplicate docs/examples",
         "path.is_file()": "release SKU guard must require selected docs/examples to exist",
         "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",

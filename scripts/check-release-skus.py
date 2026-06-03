@@ -77,7 +77,11 @@ def main() -> int:
                 errors.append(f"{sku_name}: feature_set must match the SKU name")
 
             selected_components = string_list(sku.get("components"), errors, f"{sku_name}: components")
+            seen_components: set[str] = set()
             for component in selected_components:
+                if component in seen_components:
+                    errors.append(f"{sku_name}: duplicate component {component}")
+                seen_components.add(component)
                 if component not in components:
                     errors.append(f"{sku_name}: component {component} is not requestable")
             if not selected_components:
