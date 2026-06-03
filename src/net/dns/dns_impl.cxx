@@ -1520,6 +1520,192 @@ struct TlsRingBase {
 };
 thread_local TlsRingBase tls_rb_;
 
+[[nodiscard]] std::expected<ResolveResult, DnsError> resolve_blocking_nss_result(
+	std::string_view host,
+	std::uint16_t port,
+	ResolveOptions const &effective_opts) {
+	addrinfo hints{};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_ADDRCONFIG;
+	addrinfo *res_raw = nullptr;
+	std::string const h{host};
+	std::string const p = std::to_string(port);
+	auto const t0 = std::chrono::steady_clock::now();
+	int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
+	auto const elapsed = std::chrono::steady_clock::now() - t0;
+	if (gai != 0 || res_raw == nullptr) {
+		return std::unexpected{
+			DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}
+        };
+	}
+	UniqueAddrInfo const res{res_raw};
+	ResolveResult result;
+	result.elapsed = elapsed;
+	for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
+		if (rp->ai_family == AF_INET && effective_opts.allow_v4) {
+			Endpoint ep{};
+			ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+			ep.family = AddressFamily::v4;
+			std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+			result.endpoints.push_back(ep);
+		} else if (rp->ai_family == AF_INET6 && effective_opts.allow_v6) {
+			Endpoint ep{};
+			ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+			ep.family = AddressFamily::v6;
+			std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+			result.endpoints.push_back(ep);
+		}
+	}
+	if (result.endpoints.empty()) {
+		return std::unexpected{
+			DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", host)}
+        };
+	}
+	return result;
+}
+
+[[nodiscard]] std::optional<DnsError> ensure_blocking_dns_ring() {
+	if (tls_rb_.initialized) {
+		return std::nullopt;
+	}
+	if (::io_uring_queue_init(32, &tls_rb_.ring, 0) < 0) {
+		return DnsError{DnsErrorKind::no_ring, "resolve_blocking: io_uring_queue_init failed"};
+	}
+	tls_rb_.initialized = true;
+	return std::nullopt;
+}
+
+[[nodiscard]] std::string blocking_dns_cache_key(
+	auto const &impl,
+	std::string_view candidate,
+	std::uint16_t port,
+	ResolveOptions const &effective_opts) {
+	if (!impl->cache || effective_opts.bypass_cache) {
+		return {};
+	}
+	return make_cache_key(candidate, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
+}
+
+[[nodiscard]] std::optional<std::expected<ResolveResult, DnsError>> lookup_blocking_dns_cache(
+	auto const &impl,
+	std::string const &cache_key) {
+	if (!impl->cache || cache_key.empty()) {
+		return std::nullopt;
+	}
+	if (auto hit = impl->cache->get(cache_key); hit.has_value()) {
+		if (hit->is_negative) {
+			return std::unexpected{
+				DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"}
+            };
+		}
+		hit->from_cache = true;
+		return std::move(*hit);
+	}
+	return std::nullopt;
+}
+
+void cache_blocking_dns_negative_result(
+	auto const &impl,
+	std::string const &cache_key) {
+	if (!impl->cache || cache_key.empty()) {
+		return;
+	}
+	ResolveResult neg;
+	neg.is_negative = true;
+	try {
+		impl->cache->put(cache_key, neg, impl->opts.cache_negative_ttl);
+	} catch (...) { ignore_best_effort_dns_failure(); }
+}
+
+[[nodiscard]] std::expected<ResolveResult, DnsError> resolve_blocking_native_candidate(
+	auto const &impl,
+	SocketTaskRing &tmp_str,
+	std::vector<NameserverEndpoint> const &ns_list,
+	std::string const &candidate,
+	std::uint16_t port,
+	ResolveOptions const &effective_opts,
+	codec::Edns0Options const &edns,
+	std::string const &cache_key) {
+	auto flow = build_native_udp_flow_with_nameservers(
+		tmp_str,
+		ns_list,
+		0,
+		candidate,
+		port,
+		effective_opts.allow_v4,
+		effective_opts.allow_v6,
+		effective_opts.prefer,
+		effective_native_timeout(effective_opts),
+		edns);
+	try {
+		auto budget = effective_native_timeout(effective_opts) + std::chrono::milliseconds{500};
+		auto result = sync_wait_socket_task(tmp_str, std::move(flow), budget);
+		if (result.endpoints.empty()) {
+			return result;
+		}
+		return cache_native_dns_result(impl, cache_key, std::move(result));
+	} catch (SyncWaitSocketTaskTimeout const &) {
+		return std::unexpected{
+			DnsError{DnsErrorKind::timeout, "resolve_blocking: pump timeout"}
+        };
+	} catch (DnsError const &e) {
+		if (e.kind == DnsErrorKind::nxdomain) {
+			cache_blocking_dns_negative_result(impl, cache_key);
+		}
+		return std::unexpected{e};
+	} catch (std::exception const &e) {
+		return std::unexpected{
+			DnsError{DnsErrorKind::network, std::format("resolve_blocking: {}", e.what())}
+        };
+	}
+}
+
+[[nodiscard]] std::expected<ResolveResult, DnsError> resolve_blocking_native_udp_result(
+	auto const &impl,
+	std::string_view host,
+	std::uint16_t port,
+	ResolveOptions const &effective_opts) {
+	auto const ns_list = native_udp_nameservers(impl, effective_opts);
+	if (ns_list.empty()) {
+		return std::unexpected{
+			DnsError{DnsErrorKind::no_servers, "resolve_blocking: no nameservers configured"}
+        };
+	}
+	if (auto err = ensure_blocking_dns_ring(); err) {
+		return std::unexpected{*err};
+	}
+	SocketTaskRing tmp_str{
+		SocketRawRing{&tls_rb_.ring},
+		tls_rb_.ct,
+		[](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
+			return (static_cast<std::uint64_t>(gen) << 32U) | slot;
+		}};
+	codec::Edns0Options const edns{.udp_size = impl->opts.edns0_udp_size};
+	std::optional<DnsError> last_nxdomain;
+	for (auto const &candidate: resolve_candidates(host, impl->search_domains, impl->ndots)) {
+		std::string const cache_key = blocking_dns_cache_key(impl, candidate, port, effective_opts);
+		if (auto cached = lookup_blocking_dns_cache(impl, cache_key); cached) {
+			if (*cached) {
+				return std::move(**cached);
+			}
+			last_nxdomain = cached->error();
+			continue;
+		}
+		auto result =
+			resolve_blocking_native_candidate(impl, tmp_str, ns_list, candidate, port, effective_opts, edns, cache_key);
+		if (result) {
+			return std::move(*result);
+		}
+		if (result.error().kind == DnsErrorKind::nxdomain) {
+			last_nxdomain = result.error();
+			continue;
+		}
+		return std::unexpected{result.error()};
+	}
+	return std::unexpected{last_nxdomain.value_or(DnsError{DnsErrorKind::nxdomain, "dns: name not found"})};
+}
+
 } // namespace
 std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	std::string_view host,
@@ -1553,143 +1739,10 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 
 	if (impl_->backend == ResolverBackend::nss_thread) {
-		addrinfo hints{};
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_socktype = SOCK_STREAM;
-		hints.ai_flags = AI_ADDRCONFIG;
-		addrinfo *res_raw = nullptr;
-		std::string const h{host};
-		std::string const p = std::to_string(port);
-		auto const t0 = std::chrono::steady_clock::now();
-		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
-		auto const elapsed = std::chrono::steady_clock::now() - t0;
-		if (gai != 0 || res_raw == nullptr) {
-			return std::unexpected{
-				DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}
-            };
-		}
-		UniqueAddrInfo const res{res_raw};
-		ResolveResult result;
-		result.elapsed = elapsed;
-		for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
-			if (rp->ai_family == AF_INET && effective_opts.allow_v4) {
-				Endpoint ep{};
-				ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-				ep.family = AddressFamily::v4;
-				std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-				result.endpoints.push_back(ep);
-			} else if (rp->ai_family == AF_INET6 && effective_opts.allow_v6) {
-				Endpoint ep{};
-				ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-				ep.family = AddressFamily::v6;
-				std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-				result.endpoints.push_back(ep);
-			}
-		}
-		if (result.endpoints.empty()) {
-			return std::unexpected{
-				DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", host)}
-            };
-		}
-		return result;
+		return resolve_blocking_nss_result(host, port, effective_opts);
 	}
 
-	// native_udp: spin a temporary ring for this synchronous call
-	{
-		auto const base_ns =
-			effective_opts.override_nameservers.empty() ? impl_->nameservers : effective_opts.override_nameservers;
-		auto const ns_list = nameservers_with_attempts(base_ns, impl_->attempts);
-		if (ns_list.empty()) {
-			return std::unexpected{
-				DnsError{DnsErrorKind::no_servers, "resolve_blocking: no nameservers configured"}
-            };
-		}
-
-		if (!tls_rb_.initialized) {
-			if (::io_uring_queue_init(32, &tls_rb_.ring, 0) < 0) {
-				return std::unexpected{
-					DnsError{DnsErrorKind::no_ring, "resolve_blocking: io_uring_queue_init failed"}
-                };
-			}
-			tls_rb_.initialized = true;
-		}
-		SocketTaskRing tmp_str{
-			SocketRawRing{&tls_rb_.ring},
-			tls_rb_.ct,
-			[](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
-				return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-			}};
-		codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
-		std::optional<DnsError> last_nxdomain;
-		for (auto const &candidate: resolve_candidates(host, impl_->search_domains, impl_->ndots)) {
-			std::string const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
-																							 candidate,
-																							 port,
-																							 effective_opts.prefer,
-																							 effective_opts.allow_v4,
-																							 effective_opts.allow_v6) :
-																						 std::string{};
-			if (impl_->cache && !effective_opts.bypass_cache) {
-				if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
-					if (hit->is_negative) {
-						last_nxdomain = DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"};
-						continue;
-					}
-					hit->from_cache = true;
-					return std::move(*hit);
-				}
-			}
-			auto flow = build_native_udp_flow_with_nameservers(
-				tmp_str,
-				ns_list,
-				0,
-				candidate,
-				port,
-				effective_opts.allow_v4,
-				effective_opts.allow_v6,
-				effective_opts.prefer,
-				effective_native_timeout(effective_opts),
-				edns);
-			try {
-				auto budget = effective_native_timeout(effective_opts) + std::chrono::milliseconds{500};
-				auto result = sync_wait_socket_task(tmp_str, std::move(flow), budget);
-				if (result.endpoints.empty()) {
-					return result;
-				}
-				if (impl_->cache && !cache_key.empty() && !result.endpoints.empty()) {
-					auto const max_ttl = impl_->opts.cache_max_ttl;
-					auto const ttl =
-						(result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
-					try {
-						impl_->cache->put(cache_key, result, ttl);
-					} catch (...) { ignore_best_effort_dns_failure(); }
-				}
-				return result;
-			} catch (SyncWaitSocketTaskTimeout const &) {
-				return std::unexpected{
-					DnsError{DnsErrorKind::timeout, "resolve_blocking: pump timeout"}
-                };
-			} catch (DnsError const &e) {
-				if (e.kind == DnsErrorKind::nxdomain) {
-					last_nxdomain = e;
-					if (impl_->cache && !cache_key.empty()) {
-						ResolveResult neg;
-						neg.is_negative = true;
-						try {
-							impl_->cache->put(cache_key, neg, impl_->opts.cache_negative_ttl);
-						} catch (...) { ignore_best_effort_dns_failure(); }
-					}
-					continue;
-				}
-				return std::unexpected{e};
-			} catch (std::exception const &e) {
-				return std::unexpected{
-					DnsError{DnsErrorKind::network, std::format("resolve_blocking: {}", e.what())}
-                };
-			}
-		}
-		return std::unexpected{last_nxdomain.value_or(DnsError{DnsErrorKind::nxdomain, "dns: name not found"})};
-	}
+	return resolve_blocking_native_udp_result(impl_, host, port, effective_opts);
 }
 void Resolver::invalidate(
 	std::string_view host) {
