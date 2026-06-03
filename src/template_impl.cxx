@@ -1366,98 +1366,102 @@ TmplValue Environment::Impl::eval_legacy_base(
 		}
 	}
 
-	{
-		TmplValue owned;
-		bool use_owned = false;
-		TmplValue const *cur = &context;
-		auto set_owned = [&](TmplValue v) {
-			owned = std::move(v);
-			cur = &owned;
-			use_owned = true;
-		};
-		std::string remaining{b};
+	return eval_legacy_path(b, context);
+}
 
-		while (!remaining.empty()) {
-			auto bracket = remaining.find('[');
-			auto dot = remaining.find('.');
-			auto paren = remaining.find('(');
+TmplValue Environment::Impl::eval_legacy_path(
+	std::string_view base,
+	TmplValue const &context) const {
+	TmplValue owned;
+	bool use_owned = false;
+	TmplValue const *cur = &context;
+	auto set_owned = [&](TmplValue v) {
+		owned = std::move(v);
+		cur = &owned;
+		use_owned = true;
+	};
+	std::string remaining{base};
 
-			auto next_sep = std::min({bracket, dot, paren, remaining.size()});
+	while (!remaining.empty()) {
+		auto bracket = remaining.find('[');
+		auto dot = remaining.find('.');
+		auto paren = remaining.find('(');
 
-			if (next_sep == 0 && bracket == 0) {
-				auto close = remaining.find(']', 1);
-				if (close == std::string::npos) {
+		auto next_sep = std::min({bracket, dot, paren, remaining.size()});
+
+		if (next_sep == 0 && bracket == 0) {
+			auto close = remaining.find(']', 1);
+			if (close == std::string::npos) {
+				return {};
+			}
+			auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
+			if (auto colon = idx_str.find(':'); colon != std::string_view::npos) {
+				if (cur->is_string()) {
+					auto start_s = trim(idx_str.substr(0, colon));
+					auto end_s = trim(idx_str.substr(colon + 1));
+					set_owned(slice_template_string(
+						cur->as<std::string_view>(),
+						start_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{start_s}, context)},
+						end_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{end_s}, context)}));
+				} else {
 					return {};
 				}
-				auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
-				if (auto colon = idx_str.find(':'); colon != std::string::npos) {
-					if (cur->is_string()) {
-						auto start_s = trim(idx_str.substr(0, colon));
-						auto end_s = trim(idx_str.substr(colon + 1));
-						set_owned(slice_template_string(
-							cur->as<std::string_view>(),
-							start_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{start_s}, context)},
-							end_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{end_s}, context)}));
-					} else {
-						return {};
-					}
-					remaining = remaining.substr(close + 1);
-					if (!remaining.empty() && remaining[0] == '.') {
-						remaining = remaining.substr(1);
-					}
-					continue;
-				}
-				auto idx_val = eval_expr(std::string{idx_str}, context);
-				auto found = lookup_template_index(*cur, idx_val);
-				if (!found) {
-					return {};
-				}
-				set_owned(std::move(*found));
 				remaining = remaining.substr(close + 1);
 				if (!remaining.empty() && remaining[0] == '.') {
 					remaining = remaining.substr(1);
 				}
 				continue;
 			}
-
-			std::string const key = remaining.substr(0, next_sep);
-			remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : "";
-
-			bool const is_method_call = !remaining.empty() && remaining[0] == '(';
-
-			if (!key.empty() && !is_method_call) {
-				auto found = lookup_template_field(*cur, key);
-				if (!found) {
-					return {};
-				}
-				set_owned(std::move(*found));
+			auto idx_val = eval_expr(std::string{idx_str}, context);
+			auto found = lookup_template_index(*cur, idx_val);
+			if (!found) {
+				return {};
 			}
-
-			if (is_method_call) {
-				auto const close = find_matching_pair(remaining, 0, '(', ')');
-				if (close == std::string::npos) {
-					return {};
-				}
-				auto args_str = remaining.substr(1, close - 1);
-				auto method_args = split_args(args_str);
-				remaining = remaining.substr(close + 1);
-				if (!remaining.empty() && remaining[0] == '.') {
-					remaining = remaining.substr(1);
-				}
-
-				set_owned(apply_fallback_path_method(key, *cur, method_args, context));
-				continue;
-			}
-
+			set_owned(std::move(*found));
+			remaining = remaining.substr(close + 1);
 			if (!remaining.empty() && remaining[0] == '.') {
 				remaining = remaining.substr(1);
 			}
+			continue;
 		}
-		if (use_owned) {
-			return owned;
+
+		std::string const key = remaining.substr(0, next_sep);
+		remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : "";
+
+		bool const is_method_call = !remaining.empty() && remaining[0] == '(';
+
+		if (!key.empty() && !is_method_call) {
+			auto found = lookup_template_field(*cur, key);
+			if (!found) {
+				return {};
+			}
+			set_owned(std::move(*found));
 		}
-		return *cur;
+
+		if (is_method_call) {
+			auto const close = find_matching_pair(remaining, 0, '(', ')');
+			if (close == std::string::npos) {
+				return {};
+			}
+			auto args_str = remaining.substr(1, close - 1);
+			auto method_args = split_args(args_str);
+			remaining = remaining.substr(close + 1);
+			if (!remaining.empty() && remaining[0] == '.') {
+				remaining = remaining.substr(1);
+			}
+
+			set_owned(apply_fallback_path_method(key, *cur, method_args, context));
+			continue;
+		}
+
+		if (!remaining.empty() && remaining[0] == '.') {
+			remaining = remaining.substr(1);
+		}
 	}
+	if (use_owned) {
+		return owned;
+	}
+	return *cur;
 }
 
 TmplValue Environment::Impl::eval_expr(
