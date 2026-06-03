@@ -1,3 +1,19 @@
+#include <arpa/inet.h>
+#include <catch2/catch_test_macros.hpp>
+#include <cerrno>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+import std;
+import conflux.http.extended;
+import conflux.net.config;
+import conflux.net.router;
+import conflux.tests.support;
+
+using conflux::http::Config;
+using conflux::tests::ScopedTestServer;
+
 // Regression test for handle_send recv re-arm bug:
 // When a send CQE arrives with response_ptr==nullptr (can occur when an
 // error-path response races with a multishot recv CQE clearing recv_armed),
@@ -16,15 +32,36 @@
 //       failure.
 namespace {
 
-int make_conn() {
-	ensure_server();
+Config recv_rearm_cfg() {
+	Config cfg{};
+	cfg.port = 0;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.single_issuer = true;
+	cfg.defer_taskrun = true;
+	cfg.coop_taskrun = true;
+	cfg.taskrun_flag = true;
+	return cfg;
+}
+conflux::http::Router recv_rearm_router() {
+	conflux::http::Router router;
+	router.get("/api/ping", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::json(R"({"status":"ok"})");
+	});
+	router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(req.body);
+	});
+	return router;
+}
+int make_conn(
+	std::uint16_t port) {
 	int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
 		throw std::runtime_error{"socket"};
 	}
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(g_test_port);
+	addr.sin_port = htons(port);
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
@@ -79,11 +116,13 @@ TEST_CASE(
 		"Host: localhost\r\n"
 		"Connection: close\r\n"
 		"\r\n";
+	ScopedTestServer srv{recv_rearm_cfg(), recv_rearm_router()};
+	auto const port = srv.port();
 	constexpr int kIter = 300;
 	for (int i = 0; i < kIter; ++i) {
 		// (a) standalone error — server must send FIN promptly
 		{
-			int fd = make_conn();
+			int fd = make_conn(port);
 			::send(fd, kDupCL.data(), kDupCL.size(), MSG_NOSIGNAL);
 			auto r = drain_fd(fd);
 			REQUIRE(r.starts_with("HTTP/1.1 400"));
@@ -100,7 +139,7 @@ TEST_CASE(
 		// during handle_http_response_send_complete; server must 400+close and
 		// not get stuck reading the good request after it.
 		{
-			int fd = make_conn();
+			int fd = make_conn(port);
 			std::string both{kDupCL};
 			both.append(kGood);
 			::send(fd, both.data(), both.size(), MSG_NOSIGNAL);
@@ -111,13 +150,14 @@ TEST_CASE(
 		}
 		// (c) verify server still responsive after each iteration
 		{
-			int fd = make_conn();
+			int fd = make_conn(port);
 			::send(fd, kGood.data(), kGood.size(), MSG_NOSIGNAL);
 			auto r = drain_fd(fd);
 			REQUIRE(r.starts_with("HTTP/1.1 200"));
 			::close(fd);
 		}
 	}
+	srv.stop();
 }
 // ---------------------------------------------------------------------------
 // PR A — cancel_recv_if_armed: shutdown drains armed multishot recv connections

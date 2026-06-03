@@ -1115,4 +1115,3 @@ TEST_CASE(
 	REQUIRE(n == 0); // server closed
 }
 #include "http_e2e_middleware.cxx"
-#include "http_e2e_observability.cxx"

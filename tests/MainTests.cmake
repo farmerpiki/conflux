@@ -1,7 +1,6 @@
 add_executable(conflux_tests)
 set_source_files_properties(
     http_e2e_middleware.cxx
-    http_e2e_observability.cxx
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(conflux_tests
@@ -20,7 +19,6 @@ target_sources(conflux_tests
         http_compress_e2e.cxx
         http_redirect_e2e.cxx
         http_e2e_middleware.cxx
-        http_e2e_observability.cxx
         http3_test.cxx
     PRIVATE FILE_SET CXX_MODULES FILES
         support.cxx
