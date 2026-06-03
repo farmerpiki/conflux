@@ -3,10 +3,12 @@
 # Explicit user overrides (ON/OFF) are never overwritten; AUTO resolves to preset default.
 
 set(CONFLUX_FEATURE_SET "core" CACHE STRING
-    "Feature bundle: core;work;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
+    "Feature bundle: core;auto;work;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
 set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
-    core work json http-minimal http-api http-api-full web-server http-server-complete complete
+    core auto work json http-minimal http-api http-api-full web-server http-server-complete complete
     dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full)
+
+include(ConfluxExternalDependencyRegistry)
 
 # ---------------------------------------------------------------------------
 # Tri-state resolver
@@ -35,6 +37,31 @@ function(conflux_resolve_provider out flag_name preset_default)
     endif()
     set(${out} "${_provider_value}" CACHE INTERNAL "Resolved conflux provider flag" FORCE)
     set(${out} "${_provider_value}" PARENT_SCOPE)
+endfunction()
+
+function(conflux_auto_pkg_config_token_available out token)
+    if(NOT token IN_LIST CONFLUX_EXTERNAL_DEPENDENCY_TOKENS)
+        message(FATAL_ERROR "conflux_auto_pkg_config_token_available(${token}): unknown external dependency token")
+    endif()
+    if(NOT CONFLUX_EXTERNAL_DEPENDENCY_KIND_${token} STREQUAL "PKG_CONFIG")
+        message(FATAL_ERROR
+            "conflux_auto_pkg_config_token_available(${token}): external dependency is not pkg-config based")
+    endif()
+    find_package(PkgConfig QUIET)
+    if(NOT PkgConfig_FOUND OR NOT PKG_CONFIG_EXECUTABLE)
+        set(${out} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    execute_process(
+        COMMAND "${PKG_CONFIG_EXECUTABLE}" --exists ${CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_${token}}
+        RESULT_VARIABLE _exists
+        OUTPUT_QUIET
+        ERROR_QUIET)
+    if(_exists EQUAL 0)
+        set(${out} TRUE PARENT_SCOPE)
+    else()
+        set(${out} FALSE PARENT_SCOPE)
+    endif()
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -145,6 +172,37 @@ macro(conflux_apply_preset)
 
     if(_p STREQUAL "core")
         # Types, utils, generated features. No liburing, no HTTP, no JSON.
+    elseif(_p STREQUAL "auto")
+        message(NOTICE
+            "CONFLUX_FEATURE_SET=auto: quick-try mode. Stable components are enabled "
+            "when their dependencies are detected on this machine. This mode is not "
+            "recommended for packaging, reproducible CI, or published benchmarks.")
+        set(_d_JSON TRUE)
+        conflux_auto_pkg_config_token_available(_conflux_auto_has_liburing LIBURING)
+        set(_conflux_auto_enabled_components json)
+        set(_conflux_auto_disabled_reasons)
+        if(_conflux_auto_has_liburing)
+            set(_d_RUNTIME TRUE)
+            set(_d_FILE_IO_SYNC TRUE)
+            set(_d_FILE_MAP TRUE)
+            set(_d_FILE_IO TRUE)
+            set(_d_SOCKET_IO TRUE)
+            set(_d_DNS TRUE)
+            set(_d_CRYPTO TRUE)
+            set(_d_HTTP_CORE TRUE)
+            set(_d_HTTP_ROUTER TRUE)
+            set(_d_HTTP_SERVER TRUE)
+            set(_d_HTTP_JSON TRUE)
+            list(APPEND _conflux_auto_enabled_components http)
+        else()
+            list(APPEND _conflux_auto_disabled_reasons "http: liburing not found")
+        endif()
+        list(JOIN _conflux_auto_enabled_components ", " _conflux_auto_enabled_summary)
+        message(STATUS "conflux: auto feature set enabled components: ${_conflux_auto_enabled_summary}")
+        if(_conflux_auto_disabled_reasons)
+            list(JOIN _conflux_auto_disabled_reasons "; " _conflux_auto_disabled_summary)
+            message(STATUS "conflux: auto feature set disabled components: ${_conflux_auto_disabled_summary}")
+        endif()
     elseif(_p STREQUAL "work")
         set(_d_RUNTIME TRUE)
         set(_d_SOCKET_IO TRUE)

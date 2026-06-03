@@ -43,6 +43,7 @@ require_structure_guard_markers() {
 [[ -f scripts/external-dependency-tokens.py ]] || fail "missing external dependency token helper"
 [[ -f scripts/check-provider-policy-matrix.sh ]] || fail "missing provider-policy matrix guard"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
+[[ -f scripts/check-auto-feature-set-configure.sh ]] || fail "missing auto feature-set configure smoke"
 [[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
 [[ -f scripts/cmake-preset-build-dir.py ]] || fail "missing CMake preset build-dir helper"
 [[ -f scripts/check-cmake-preset-build-dir.py ]] || fail "missing CMake preset build-dir helper guard"

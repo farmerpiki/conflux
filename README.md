@@ -171,3 +171,18 @@ Use `CONFLUX_FEATURE_SET` to select a bundle and `find_package(conflux REQUIRED
 COMPONENTS ...)` to consume installed targets. The current component/target map
 lives in [`docs/component-map.md`](docs/component-map.md); CI/package validation
 commands live in [`docs/build-ci-lanes.md`](docs/build-ci-lanes.md).
+
+## Quick try with auto-detected features
+
+For local source evaluation, Conflux can enable first-contact stable components
+whose dependencies are already installed on your machine:
+
+```sh
+cmake -S . -B /tmp/conflux/auto -DCONFLUX_FEATURE_SET=auto
+cmake --build /tmp/conflux/auto
+```
+
+`CONFLUX_FEATURE_SET=auto` is meant for quickly trying Conflux without learning
+every optional feature flag first. Do not use `auto` for packaging,
+reproducible CI, or published benchmarks. Use an explicit feature set for those
+cases.
