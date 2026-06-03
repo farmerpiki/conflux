@@ -22,6 +22,7 @@ target_sources(conflux_json
         ${CONFLUX_SRC_ROOT}/json_storage.cxx
         ${CONFLUX_SRC_ROOT}/json_number.cxx
         ${CONFLUX_SRC_ROOT}/json_reader.cxx
+        ${CONFLUX_SRC_ROOT}/json_reader_object_values.cxx
         ${CONFLUX_SRC_ROOT}/json_dom.cxx
         ${CONFLUX_SRC_ROOT}/json_lookup.cxx
         ${CONFLUX_SRC_ROOT}/json_dump.cxx
