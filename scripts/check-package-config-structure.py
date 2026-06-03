@@ -2352,11 +2352,23 @@ def check_installed_surface_aliases() -> None:
         re.findall(r"_conflux_installed_surface_definitions ([A-Z0-9_]+) 1", config),
     )
     allowed_install_only = {"DB_COMPAT"}
-    missing = sorted(installed_aliases - build_macros - allowed_install_only)
-    if missing:
-        fail(
+    component_macros = {export.upper() for export in component_exports_from_registry()}
+    missing_build_macros = sorted(installed_aliases - build_macros - allowed_install_only)
+    missing_installed_macros = sorted(build_macros - component_macros - installed_aliases - {"FEATURES"})
+    errors: list[str] = []
+    if missing_build_macros:
+        errors.append(
             "installed surface aliases missing from build-tree surface macros: "
-            + ";".join(missing),
+            + ";".join(missing_build_macros),
+        )
+    if missing_installed_macros:
+        errors.append(
+            "build-tree surface macros missing from install-tree component or alias macros: "
+            + ";".join(missing_installed_macros),
+        )
+    if errors:
+        fail(
+            "\n".join(errors),
         )
 
 
