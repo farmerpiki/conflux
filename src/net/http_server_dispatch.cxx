@@ -36,6 +36,24 @@ struct CommonHeaderSummary {
 	bool expect_unsupported{};
 };
 
+enum class ParseDispatchStatus : std::uint8_t {
+	Incomplete,
+	Rejected,
+	Ok,
+};
+
+enum class BodyDispatchStatus : std::uint8_t {
+	Incomplete,
+	Rejected,
+	Ready,
+};
+
+struct BodyDispatchResult {
+	BodyDispatchStatus status{BodyDispatchStatus::Ready};
+	std::string_view body;
+	std::size_t stream_bytes{};
+};
+
 void note_common_header(
 	CommonHeaderSummary &summary,
 	std::string_view name,
@@ -95,6 +113,18 @@ void note_common_header(
 	}
 }
 
+void reset_http1_response_state(
+	Conn &conn) {
+	conn.has_response = false;
+	conn.written = 0;
+	conn.mapped_file.reset();
+	conn.mapped_total = 0;
+	conn.mapped_delivered = 0;
+	conn.zc_tls_bypass_counted = false;
+	conn.is_sse = false;
+	conn.sse_headers_sent = false;
+}
+
 [[nodiscard]] conflux::http::ExpectState common_expect_state(
 	CommonHeaderSummary const &summary) noexcept {
 	if (summary.expect_unsupported) {
@@ -124,6 +154,283 @@ void emit_rejection(
 	conn.has_response = true;
 	conn.close_after_send = true;
 	conn.request_bytes = raw.size();
+}
+
+[[nodiscard]] ParseDispatchStatus parse_or_reject_http1_request(
+	Conn &conn,
+	std::string_view raw,
+	Ring &ring,
+	conflux::http::ParserLimits const &limits,
+	conflux::http1::ParsedRequest &parsed) {
+	switch (conflux::http1::parse_request(raw, limits, parsed)) {
+	case conflux::http1::ParseStatus::Incomplete: return ParseDispatchStatus::Incomplete;
+	case conflux::http1::ParseStatus::UriTooLong:
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::request_line_too_large, ring.alt_svc_header);
+		return ParseDispatchStatus::Rejected;
+	case conflux::http1::ParseStatus::HeaderLineTooLarge:
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::header_line_too_large, ring.alt_svc_header);
+		return ParseDispatchStatus::Rejected;
+	case conflux::http1::ParseStatus::HeaderBlockTooLarge:
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::header_block_too_large, ring.alt_svc_header);
+		return ParseDispatchStatus::Rejected;
+	case conflux::http1::ParseStatus::TooManyHeaders:
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::too_many_headers, ring.alt_svc_header);
+		return ParseDispatchStatus::Rejected;
+	case conflux::http1::ParseStatus::BadRequest:
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::malformed_request, ring.alt_svc_header);
+		return ParseDispatchStatus::Rejected;
+	case conflux::http1::ParseStatus::Ok: return ParseDispatchStatus::Ok;
+	}
+	return ParseDispatchStatus::Rejected;
+}
+
+[[nodiscard]] bool validate_http1_host_headers(
+	Conn &conn,
+	std::string_view raw,
+	Ring &ring,
+	std::string_view version,
+	CommonHeaderSummary const &common_headers) {
+	if (version != "HTTP/1.1") {
+		return true;
+	}
+	auto const host_count = common_headers.host_count;
+	if (host_count == 0) {
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::missing_host, ring.alt_svc_header);
+		return false;
+	}
+	if (host_count > 1) {
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::duplicate_host, ring.alt_svc_header);
+		return false;
+	}
+	return true;
+}
+
+[[nodiscard]] bool maybe_make_https_redirect_response(
+	Conn &conn,
+	std::string_view raw,
+	Ring &ring,
+	bool http_redirect_to_https,
+	std::vector<std::string> const &https_redirect_hosts,
+	CommonHeaderSummary const &common_headers,
+	std::string_view path,
+	std::string_view redirect_query) {
+	if (!http_redirect_to_https || conn.is_tls) {
+		return false;
+	}
+	auto host = common_headers.host;
+	auto const host_bare = conflux::http::host_without_port_or_ipv6_brackets(host);
+	std::string_view canonical_host;
+	for (auto const &h: https_redirect_hosts) {
+		if (conflux::http::ascii_iequals(h, host_bare)) {
+			canonical_host = h;
+			break;
+		}
+	}
+	if (host.empty() || canonical_host.empty()) {
+		auto r = conflux::http::Response::text("Bad Request", conflux::http::kHttpBadRequest);
+		conn.own_response = conflux::http::format_response(r, ring.alt_svc_header, true);
+		conn.has_response = true;
+		conn.close_after_send = true;
+		conn.request_bytes = raw.size();
+		return true;
+	}
+	std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
+	redirect_target += redirect_query;
+	conn.own_response = conflux::http::format_response(
+		conflux::http::Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
+		ring.alt_svc_header,
+		true);
+	conn.has_response = true;
+	conn.close_after_send = true;
+	conn.request_bytes = raw.size();
+	return true;
+}
+
+void queue_expect_continue_response(
+	Conn &conn) {
+	conn.own_response = "HTTP/1.1 100 Continue\r\n\r\n";
+	conn.has_response = true;
+	conn.written = 0;
+	conn.request_bytes = 0;
+	conn.expect_continue_sent = true;
+}
+
+[[nodiscard]] BodyDispatchResult resolve_http1_body_view(
+	Conn &conn,
+	std::string_view raw,
+	Ring &ring,
+	std::size_t body_start,
+	std::size_t max_body_size,
+	conflux::http::ParserLimits const &limits,
+	conflux::http::HttpFieldsView const &headers,
+	CommonHeaderSummary const &common_headers) {
+	auto const content_length_count = common_headers.content_length_count;
+	auto const transfer_encoding_count = common_headers.transfer_encoding_count;
+	if (content_length_count != 0 && transfer_encoding_count != 0) {
+		emit_rejection(
+			conn,
+			raw,
+			ring,
+			conflux::http::HttpRejectReason::content_length_with_transfer_encoding,
+			ring.alt_svc_header);
+		return {.status = BodyDispatchStatus::Rejected};
+	}
+	if (content_length_count > 1) {
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::duplicate_content_length, ring.alt_svc_header);
+		return {.status = BodyDispatchStatus::Rejected};
+	}
+	if (transfer_encoding_count > 1) {
+		emit_rejection(
+			conn,
+			raw,
+			ring,
+			conflux::http::HttpRejectReason::invalid_transfer_encoding,
+			ring.alt_svc_header);
+		return {.status = BodyDispatchStatus::Rejected};
+	}
+	if (transfer_encoding_count != 0 && !conflux::http::has_valid_chunked_transfer_encoding(headers)) {
+		emit_rejection(
+			conn,
+			raw,
+			ring,
+			conflux::http::HttpRejectReason::unsupported_transfer_encoding,
+			ring.alt_svc_header);
+		return {.status = BodyDispatchStatus::Rejected};
+	}
+
+	auto const expect_state = common_expect_state(common_headers);
+	if (expect_state == conflux::http::ExpectState::unsupported) {
+		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::expectation_failed, ring.alt_svc_header);
+		return {.status = BodyDispatchStatus::Rejected};
+	}
+	if (content_length_count != 0) {
+		auto cl = common_headers.content_length;
+		auto parsed_content_length = conflux::http::parse_content_length_limited(cl, max_body_size);
+		if (!parsed_content_length
+			&& parsed_content_length.error() == conflux::http::ContentLengthParseError::malformed) {
+			emit_rejection(
+				conn,
+				raw,
+				ring,
+				conflux::http::HttpRejectReason::malformed_content_length,
+				ring.alt_svc_header);
+			return {.status = BodyDispatchStatus::Rejected};
+		}
+		if (!parsed_content_length) {
+			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::body_too_large, ring.alt_svc_header);
+			return {.status = BodyDispatchStatus::Rejected};
+		}
+		auto const content_length = *parsed_content_length;
+		if (raw.size() - body_start < content_length) {
+			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
+				queue_expect_continue_response(conn);
+			}
+			return {.status = BodyDispatchStatus::Incomplete};
+		}
+		return {
+			.status = BodyDispatchStatus::Ready,
+			.body = raw.substr(body_start, content_length),
+			.stream_bytes = content_length};
+	}
+	if (transfer_encoding_count != 0) {
+		auto rc = conflux::http::decode_chunked_incremental(
+			raw,
+			body_start,
+			max_body_size,
+			limits.max_chunks,
+			conn.chunked_decode);
+		if (rc == 0) {
+			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
+				queue_expect_continue_response(conn);
+			}
+			return {.status = BodyDispatchStatus::Incomplete};
+		}
+		if (rc == -1) {
+			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::invalid_chunk, ring.alt_svc_header);
+			return {.status = BodyDispatchStatus::Rejected};
+		}
+		if (rc == -2) {
+			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::body_too_large, ring.alt_svc_header);
+			return {.status = BodyDispatchStatus::Rejected};
+		}
+		return {
+			.status = BodyDispatchStatus::Ready,
+			.body = conn.chunked_decode.body,
+			.stream_bytes = static_cast<std::size_t>(rc)};
+	}
+	return {.status = BodyDispatchStatus::Ready};
+}
+
+void apply_http1_keep_alive(
+	Conn &conn,
+	std::string_view version,
+	CommonHeaderSummary const &common_headers) {
+	bool keep_alive = (version == "HTTP/1.1");
+	if (common_headers.connection_close) {
+		keep_alive = false;
+	} else if (common_headers.connection_keep_alive) {
+		keep_alive = true;
+	}
+	conn.close_after_send = !keep_alive;
+}
+
+[[nodiscard]] conflux::http::Response invoke_http1_handler(
+	Ring &ring,
+	conflux::http::RequestView const &req,
+	std::string_view method,
+	std::string_view path) {
+	auto const handler_started = std::chrono::steady_clock::now();
+	conflux::http::Response resp;
+	try {
+		if (auto async = ring.try_dispatch_context(req)) {
+			resp = std::move(*async);
+		} else {
+			resp = ring.dispatch(req);
+		}
+	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
+		resp = conflux::http::Response::internal_error();
+	}
+	if (ring.slow_handler_diagnostics) {
+		auto const elapsed_ms =
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
+				.count();
+		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
+			conflux::utils::eprintln(
+				std::format(
+					"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
+					method,
+					path,
+					elapsed_ms));
+		}
+	}
+	return resp;
+}
+
+[[nodiscard]] bool maybe_stabilize_request_storage(
+	Conn &conn,
+	Ring &ring,
+	std::size_t max_body_size,
+	bool http_redirect_to_https,
+	std::vector<std::string> const &https_redirect_hosts,
+	conflux::http::ParserLimits const &limits,
+	std::shared_ptr<std::string> const &request_storage) {
+	if (request_storage) {
+		return false;
+	}
+	auto storage =
+		conn.partial.cut_prefix(conn.request_bytes, ring.acquire_request_buffer(), ring.request_tail_scratch);
+	std::string_view const raw_request{*storage};
+	dispatch_request(
+		conn,
+		raw_request,
+		ring,
+		max_body_size,
+		http_redirect_to_https,
+		https_redirect_hosts,
+		limits,
+		std::move(storage));
+	conn.request_bytes = 0;
+	return true;
 }
 
 void install_response_state(
@@ -220,34 +527,12 @@ void dispatch_request(
 	std::vector<std::string> const &https_redirect_hosts,
 	conflux::http::ParserLimits const &limits,
 	std::shared_ptr<std::string> request_storage) {
-	conn.has_response = false;
-	conn.written = 0;
-	conn.mapped_file.reset();
-	conn.mapped_total = 0;
-	conn.mapped_delivered = 0;
-	conn.zc_tls_bypass_counted = false;
-	conn.is_sse = false;
-	conn.sse_headers_sent = false;
+	reset_http1_response_state(conn);
 
 	conflux::http1::ParsedRequest parsed;
-	switch (conflux::http1::parse_request(raw, limits, parsed)) {
-	case conflux::http1::ParseStatus::Incomplete: return;
-	case conflux::http1::ParseStatus::UriTooLong:
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::request_line_too_large, ring.alt_svc_header);
+	auto const parse_status = parse_or_reject_http1_request(conn, raw, ring, limits, parsed);
+	if (parse_status != ParseDispatchStatus::Ok) {
 		return;
-	case conflux::http1::ParseStatus::HeaderLineTooLarge:
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::header_line_too_large, ring.alt_svc_header);
-		return;
-	case conflux::http1::ParseStatus::HeaderBlockTooLarge:
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::header_block_too_large, ring.alt_svc_header);
-		return;
-	case conflux::http1::ParseStatus::TooManyHeaders:
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::too_many_headers, ring.alt_svc_header);
-		return;
-	case conflux::http1::ParseStatus::BadRequest:
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::malformed_request, ring.alt_svc_header);
-		return;
-	case conflux::http1::ParseStatus::Ok: break;
 	}
 	auto const header_end = parsed.header_end_offset;
 
@@ -271,178 +556,45 @@ void dispatch_request(
 		note_common_header(common_headers, name, field_value);
 	}
 
-	if (version == "HTTP/1.1") {
-		auto const host_count = common_headers.host_count;
-		if (host_count == 0) {
-			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::missing_host, ring.alt_svc_header);
-			return;
-		}
-		if (host_count > 1) {
-			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::duplicate_host, ring.alt_svc_header);
-			return;
-		}
+	if (!validate_http1_host_headers(conn, raw, ring, version, common_headers)) {
+		return;
 	}
 
-	if (http_redirect_to_https && !conn.is_tls) {
-		auto host = common_headers.host;
-		auto const host_bare = conflux::http::host_without_port_or_ipv6_brackets(host);
-		std::string_view canonical_host;
-		for (auto const &h: https_redirect_hosts) {
-			if (conflux::http::ascii_iequals(h, host_bare)) {
-				canonical_host = h;
-				break;
-			}
-		}
-		if (host.empty() || canonical_host.empty()) {
-			auto r = conflux::http::Response::text("Bad Request", conflux::http::kHttpBadRequest);
-			conn.own_response = conflux::http::format_response(r, ring.alt_svc_header, true);
-			conn.has_response = true;
-			conn.close_after_send = true;
-			conn.request_bytes = raw.size();
-			return;
-		}
-		std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
-		redirect_target += redirect_query;
-		conn.own_response = conflux::http::format_response(
-			conflux::http::Response::redirect(std::format("https://{}{}", canonical_host, redirect_target), 308),
-			ring.alt_svc_header,
-			true);
-		conn.has_response = true;
-		conn.close_after_send = true;
-		conn.request_bytes = raw.size();
+	if (maybe_make_https_redirect_response(
+			conn,
+			raw,
+			ring,
+			http_redirect_to_https,
+			https_redirect_hosts,
+			common_headers,
+			path,
+			redirect_query)) {
 		return;
 	}
 
 	auto body_start = header_end + 4;
-	std::size_t body_stream_bytes = 0;
-
-	auto const content_length_count = common_headers.content_length_count;
-	auto const transfer_encoding_count = common_headers.transfer_encoding_count;
-	if (content_length_count != 0 && transfer_encoding_count != 0) {
-		emit_rejection(
-			conn,
-			raw,
-			ring,
-			conflux::http::HttpRejectReason::content_length_with_transfer_encoding,
-			ring.alt_svc_header);
+	auto body_result =
+		resolve_http1_body_view(conn, raw, ring, body_start, max_body_size, limits, headers, common_headers);
+	if (body_result.status != BodyDispatchStatus::Ready) {
 		return;
 	}
-	if (content_length_count > 1) {
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::duplicate_content_length, ring.alt_svc_header);
-		return;
-	}
-	if (transfer_encoding_count > 1) {
-		emit_rejection(
-			conn,
-			raw,
-			ring,
-			conflux::http::HttpRejectReason::invalid_transfer_encoding,
-			ring.alt_svc_header);
-		return;
-	}
-	if (transfer_encoding_count != 0 && !conflux::http::has_valid_chunked_transfer_encoding(headers)) {
-		emit_rejection(
-			conn,
-			raw,
-			ring,
-			conflux::http::HttpRejectReason::unsupported_transfer_encoding,
-			ring.alt_svc_header);
-		return;
-	}
-
-	auto const expect_state = common_expect_state(common_headers);
-	if (expect_state == conflux::http::ExpectState::unsupported) {
-		emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::expectation_failed, ring.alt_svc_header);
-		return;
-	}
-	auto const queue_continue = [&] {
-		conn.own_response = "HTTP/1.1 100 Continue\r\n\r\n";
-		conn.has_response = true;
-		conn.written = 0;
-		conn.request_bytes = 0;
-		conn.expect_continue_sent = true;
-	};
-
-	if (content_length_count != 0) {
-		auto cl = common_headers.content_length;
-		auto parsed_content_length = conflux::http::parse_content_length_limited(cl, max_body_size);
-		if (!parsed_content_length
-			&& parsed_content_length.error() == conflux::http::ContentLengthParseError::malformed) {
-			emit_rejection(
-				conn,
-				raw,
-				ring,
-				conflux::http::HttpRejectReason::malformed_content_length,
-				ring.alt_svc_header);
-			return;
-		}
-		if (!parsed_content_length) {
-			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::body_too_large, ring.alt_svc_header);
-			return;
-		}
-		auto const content_length = *parsed_content_length;
-		if (raw.size() - body_start < content_length) {
-			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
-				queue_continue();
-			}
-			return;
-		}
-		body = raw.substr(body_start, content_length);
-		body_stream_bytes = content_length;
-	} else if (transfer_encoding_count != 0) {
-		auto rc = conflux::http::decode_chunked_incremental(
-			raw,
-			body_start,
-			max_body_size,
-			limits.max_chunks,
-			conn.chunked_decode);
-		if (rc == 0) {
-			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
-				queue_continue();
-			}
-			return;
-		}
-		if (rc == -1) {
-			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::invalid_chunk, ring.alt_svc_header);
-			return;
-		}
-		if (rc == -2) {
-			emit_rejection(conn, raw, ring, conflux::http::HttpRejectReason::body_too_large, ring.alt_svc_header);
-			return;
-		}
-		body = conn.chunked_decode.body;
-		body_stream_bytes = static_cast<std::size_t>(rc);
-	}
+	body = body_result.body;
 
 	conn.expect_continue_sent = false;
 
 	conflux::http::populate_request_parts(target, headers, body, query, form, cookies, files);
 
-	{
-		bool keep_alive = (version == "HTTP/1.1");
-		if (common_headers.connection_close) {
-			keep_alive = false;
-		} else if (common_headers.connection_keep_alive) {
-			keep_alive = true;
-		}
-		conn.close_after_send = !keep_alive;
-	}
+	apply_http1_keep_alive(conn, version, common_headers);
 
-	conn.request_bytes = header_end + 4 + body_stream_bytes;
-	if (!request_storage) {
-		auto storage =
-			conn.partial.cut_prefix(conn.request_bytes, ring.acquire_request_buffer(), ring.request_tail_scratch);
-		std::string_view const raw_request{*storage};
-		dispatch_request(
+	conn.request_bytes = header_end + 4 + body_result.stream_bytes;
+	if (maybe_stabilize_request_storage(
 			conn,
-			raw_request,
 			ring,
 			max_body_size,
 			http_redirect_to_https,
 			https_redirect_hosts,
 			limits,
-			std::move(storage));
-		conn.request_bytes = 0;
+			request_storage)) {
 		return;
 	}
 
@@ -465,29 +617,6 @@ void dispatch_request(
 		cookies,
 		file_views,
 		body};
-	auto const handler_started = std::chrono::steady_clock::now();
-	conflux::http::Response resp;
-	try {
-		if (auto async = ring.try_dispatch_context(req)) {
-			resp = std::move(*async);
-		} else {
-			resp = ring.dispatch(req);
-		}
-	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
-		resp = conflux::http::Response::internal_error();
-	}
-	if (ring.slow_handler_diagnostics) {
-		auto const elapsed_ms =
-			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
-				.count();
-		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
-			conflux::utils::eprintln(
-				std::format(
-					"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
-					method,
-					path,
-					elapsed_ms));
-		}
-	}
+	auto resp = invoke_http1_handler(ring, req, method, path);
 	install_response_state(conn, std::move(resp), ring, req, std::move(request_storage), std::move(request_files));
 }
