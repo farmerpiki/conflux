@@ -19,6 +19,11 @@ required_paths=(
     "$stage_dir/source/SUPPORT.md"
     "$stage_dir/source/cmake"
     "$stage_dir/source/docs"
+    "$stage_dir/source/docs/release-json/json-api.md"
+    "$stage_dir/source/docs/release-json/json-boundary-guide.md"
+    "$stage_dir/source/docs/release-json/json-cookbook.md"
+    "$stage_dir/source/docs/release-json/package-consumption.md"
+    "$stage_dir/source/docs/release-json/prerelease-status.md"
     "$stage_dir/source/examples/release-json/json.cxx"
     "$stage_dir/source/examples/release-json/json_config.cxx"
     "$stage_dir/source/examples/release-json/json_diagnostics.cxx"
@@ -49,6 +54,11 @@ fi
 if ! grep -qx 'selected_examples=source/examples/release-json' \
         "$stage_dir/release-artifact-manifest.txt"; then
     printf 'check-release-source-archive: manifest does not record release-json selected examples\n' >&2
+    exit 1
+fi
+if ! grep -qx 'selected_docs=source/docs/release-json' \
+        "$stage_dir/release-artifact-manifest.txt"; then
+    printf 'check-release-source-archive: manifest does not record release-json selected docs\n' >&2
     exit 1
 fi
 

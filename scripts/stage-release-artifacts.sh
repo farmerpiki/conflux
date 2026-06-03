@@ -129,6 +129,14 @@ cp -a \
     "$root/examples/advanced/json_stream_ingest.cxx" \
     "$root/examples/advanced/json_transform.cxx" \
     "$stage_dir/source/examples/release-json/"
+mkdir -p "$stage_dir/source/docs/release-json"
+cp -a \
+    "$root/docs/json-api.md" \
+    "$root/docs/json-boundary-guide.md" \
+    "$root/docs/json-cookbook.md" \
+    "$root/docs/package-consumption.md" \
+    "$root/docs/prerelease-status.md" \
+    "$stage_dir/source/docs/release-json/"
 
 package_config="$(find "$stage_dir/install" -path '*/cmake/conflux/conflux-config.cmake' -print -quit)"
 if [[ -z "$package_config" ]]; then
@@ -146,6 +154,7 @@ fi
     printf 'generated_header_artifact=install/include/conflux\n'
     printf 'source_generated_header_artifact=source/include/conflux\n'
     printf 'selected_examples=source/examples/release-json\n'
+    printf 'selected_docs=source/docs/release-json\n'
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"
 } > "$stage_dir/release-artifact-manifest.txt"
