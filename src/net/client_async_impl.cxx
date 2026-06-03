@@ -294,6 +294,11 @@ struct BodyReceiveContext {
 	std::size_t max_buffered_size{};
 };
 
+struct ParsedResponseStart {
+	ClientResponse response;
+	BodyReceiveContext body_ctx;
+};
+
 template<typename T>
 wroot::Task<std::optional<HttpError>> receive_http1_body(
 	T &stream,
@@ -372,6 +377,66 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 		tel.bytes_received += response.body.size();
 	}
 	co_return std::nullopt;
+}
+
+[[nodiscard]] std::expected<ParsedResponseStart, HttpError> parse_http1_response_start(
+	std::string raw,
+	std::string_view method,
+	std::size_t max_hdr,
+	std::size_t max_body_sz,
+	std::size_t max_buf) {
+	auto const header_end = raw.find("\r\n\r\n");
+	if (header_end == std::string::npos) {
+		if (raw.size() >= max_hdr) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::header_too_large,
+					.message = std::format("response headers exceed {} bytes", max_hdr)});
+		}
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+	}
+	if (header_end > max_hdr) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::header_too_large,
+				.message = std::format("response headers exceed {} bytes", max_hdr)});
+	}
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
+	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body_sz);
+	if (!parsed_head) {
+		return std::unexpected(std::move(parsed_head).error());
+	}
+	auto const content_length = parsed_head->content_length;
+	auto const has_content_length = parsed_head->has_content_length;
+	auto const chunked = parsed_head->chunked;
+	ClientResponse response;
+	response.head.status = parsed_head->status;
+	response.head.status_text = std::move(parsed_head->status_text);
+	response.head.headers = std::move(parsed_head->headers);
+	response.head.set_cookies = std::move(parsed_head->set_cookies);
+	std::size_t const body_offset = header_end + 4;
+	std::size_t const initial_body_bytes = raw.size() - body_offset;
+	raw.erase(0, body_offset);
+	response.body = std::move(raw);
+	if (has_content_length && response.body.size() > content_length) {
+		response.body.resize(content_length);
+	}
+	std::size_t const counted_initial_body_bytes =
+		has_content_length ? std::min(initial_body_bytes, content_length) : initial_body_bytes;
+	return ParsedResponseStart{
+		.response = std::move(response),
+		.body_ctx =
+			BodyReceiveContext{
+							   .method = method,
+							   .chunked = chunked,
+							   .has_content_length = has_content_length,
+							   .content_length = content_length,
+							   .counted_initial_body_bytes = counted_initial_body_bytes,
+							   .max_body_size = max_body_sz,
+							   .max_buffered_size = max_buf,
+							   },
+	};
 }
 
 template<typename T>
@@ -472,6 +537,159 @@ wroot::Task<std::expected<TcpStream, HttpError>> connect_client_stream(
 	co_return stream;
 }
 
+#if CONFLUX_HAS_TLS
+wroot::Task<std::optional<HttpError>> setup_async_client_tls(
+	TcpStream &stream,
+	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
+	Url const &url,
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel,
+	std::chrono::milliseconds tls_timeout,
+	HttpTelemetry &tel) {
+	bool const verify = req.verify_peer() && opts.verify_peer;
+	auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
+	conflux::net_tls::TlsContext tls_ctx;
+	tls_ctx.set_verify_peer(verify);
+	if (verify) {
+		if (!opts.ca_bundle_path.empty()) {
+			if (!SSL_CTX_load_verify_locations(tls_ctx.native_handle(), opts.ca_bundle_path.c_str(), nullptr)) {
+				co_return HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = tls_error_string()};
+			}
+		} else {
+			tls_ctx.set_default_verify_paths();
+		}
+	}
+	cancel->throw_if_cancelled();
+	tls_stream.emplace(tls_ctx, std::move(stream), cancel);
+	if (!tls_stream->set_server_name(sni_sv) || (verify && !tls_stream->set_verify_hostname(sni_sv))) {
+		co_return HttpError{
+			.kind = HttpErrorKind::tls,
+			.phase = HttpPhase::tls,
+			.message = "TLS SNI/hostname setup failed"};
+	}
+	auto const t_tls = std::chrono::steady_clock::now();
+	TP const tls_dl = tls_timeout.count() > 0 ? t_tls + tls_timeout : TP::max();
+	try {
+		co_await tls_stream->handshake_connect(tls_dl);
+	} catch (wroot::CancelledError const &) { throw; } catch (conflux::net_tls::TlsError const &e) {
+		co_return HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = tls_error_string(e)};
+	} catch (IoError const &e) {
+		co_return HttpError{
+			.kind = HttpErrorKind::tls,
+			.phase = HttpPhase::tls,
+			.os_errno = e.code().value(),
+			.message = std::format("TLS handshake failed: {}", e.what())};
+	}
+	if (verify) {
+		long const vr = SSL_get_verify_result(tls_stream->native_handle());
+		if (vr != X509_V_OK) {
+			co_return HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = X509_verify_cert_error_string(vr)};
+		}
+	}
+	tel.tls = std::chrono::steady_clock::now() - t_tls;
+	tel.tls_verified = verify;
+	tel.negotiated_protocol = "https/1.1";
+	if (auto const *cipher = SSL_get_current_cipher(tls_stream->native_handle())) {
+		tel.tls_cipher = SSL_CIPHER_get_name(cipher);
+		tel.tls_version = SSL_CIPHER_get_version(cipher);
+	}
+	co_return std::nullopt;
+}
+#endif
+
+wroot::Task<std::optional<HttpError>> write_async_client_request(
+	TcpStream &stream,
+#if CONFLUX_HAS_TLS
+	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
+#endif
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel,
+	std::chrono::milliseconds between_bytes,
+	std::chrono::milliseconds write_timeout,
+	std::string_view wire,
+	std::string_view body) {
+	try {
+#if CONFLUX_HAS_TLS
+		if (tls_stream) {
+			TlsStreamRef tr{*tls_stream, between_bytes, write_timeout};
+			co_await write_http1_request(tr, wire, body);
+		} else
+#endif
+		{
+			PlainStreamRef pr{stream, cancel, between_bytes, write_timeout};
+			co_await write_http1_request(pr, wire, body);
+		}
+	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
+		co_return HttpError{
+			.kind = HttpErrorKind::write,
+			.phase = HttpPhase::write,
+			.os_errno = e.code().value(),
+			.message = "failed to send request"};
+	}
+	co_return std::nullopt;
+}
+
+wroot::Task<std::expected<std::string, HttpError>> receive_async_client_head(
+	TcpStream &stream,
+#if CONFLUX_HAS_TLS
+	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
+#endif
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel,
+	std::chrono::milliseconds between_bytes,
+	std::chrono::milliseconds write_timeout,
+	std::size_t max_hdr,
+	TP first_byte_deadline) {
+#if CONFLUX_HAS_TLS
+	if (tls_stream) {
+		TlsStreamRef tr{*tls_stream, between_bytes, write_timeout};
+		co_return co_await receive_http1_response_head(tr, max_hdr, first_byte_deadline);
+	}
+#endif
+	PlainStreamRef pr{stream, cancel, between_bytes, write_timeout};
+	co_return co_await receive_http1_response_head(pr, max_hdr, first_byte_deadline);
+}
+
+wroot::Task<std::optional<HttpError>> receive_async_client_body(
+	TcpStream &stream,
+#if CONFLUX_HAS_TLS
+	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
+#endif
+	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel,
+	std::chrono::milliseconds between_bytes,
+	std::chrono::milliseconds write_timeout,
+	ClientResponse &response,
+	HttpTelemetry &tel,
+	BodyReceiveContext body_ctx) {
+#if CONFLUX_HAS_TLS
+	if (tls_stream) {
+		TlsStreamRef tr{*tls_stream, between_bytes, write_timeout};
+		co_return co_await receive_http1_body(tr, response, tel, body_ctx);
+	}
+#endif
+	PlainStreamRef pr{stream, cancel, between_bytes, write_timeout};
+	co_return co_await receive_http1_body(pr, response, tel, body_ctx);
+}
+
+wroot::Task<void> close_async_client_stream(
+	TcpStream &stream,
+#if CONFLUX_HAS_TLS
+	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
+#endif
+	std::chrono::milliseconds write_timeout) {
+#if CONFLUX_HAS_TLS
+	if (tls_stream) {
+		try {
+			co_await tls_stream->close(write_timeout);
+		} catch (...) {}
+		co_return;
+	}
+#endif
+	co_await stream.async_close();
+}
+
 wroot::Task<ClientResult> do_async_request(
 	SocketTaskRing &ring,
 	ClientRequest const &req,
@@ -507,60 +725,10 @@ wroot::Task<ClientResult> do_async_request(
 #if CONFLUX_HAS_TLS
 	std::optional<conflux::net_tls::TcpTlsStream> tls_stream;
 	if (is_tls) {
-		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
-		conflux::net_tls::TlsContext tls_ctx;
-		tls_ctx.set_verify_peer(verify);
-		if (verify) {
-			if (!opts.ca_bundle_path.empty()) {
-				if (!SSL_CTX_load_verify_locations(tls_ctx.native_handle(), opts.ca_bundle_path.c_str(), nullptr)) {
-					co_return std::unexpected(
-						HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = tls_error_string()});
-				}
-			} else {
-				tls_ctx.set_default_verify_paths();
-			}
-		}
-		cancel->throw_if_cancelled();
-		tls_stream.emplace(tls_ctx, std::move(stream), cancel);
-		if (!tls_stream->set_server_name(sni_sv) || (verify && !tls_stream->set_verify_hostname(sni_sv))) {
-			co_return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = "TLS SNI/hostname setup failed"});
-		}
-		auto const t_tls = std::chrono::steady_clock::now();
-		TP const tls_dl = timeouts.tls.count() > 0 ? t_tls + timeouts.tls : TP::max();
-		try {
-			co_await tls_stream->handshake_connect(tls_dl);
-		} catch (wroot::CancelledError const &) { throw; } catch (conflux::net_tls::TlsError const &e) {
-			co_return std::unexpected(
-				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = tls_error_string(e)});
-		} catch (IoError const &e) {
-			co_return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.os_errno = e.code().value(),
-					.message = std::format("TLS handshake failed: {}", e.what())});
-		}
-		if (verify) {
-			long const vr = SSL_get_verify_result(tls_stream->native_handle());
-			if (vr != X509_V_OK) {
-				co_return std::unexpected(
-					HttpError{
-						.kind = HttpErrorKind::tls,
-						.phase = HttpPhase::tls,
-						.message = X509_verify_cert_error_string(vr)});
-			}
-		}
-		tel.tls = std::chrono::steady_clock::now() - t_tls;
-		tel.tls_verified = verify;
-		tel.negotiated_protocol = "https/1.1";
-		if (auto const *cipher = SSL_get_current_cipher(tls_stream->native_handle())) {
-			tel.tls_cipher = SSL_CIPHER_get_name(cipher);
-			tel.tls_version = SSL_CIPHER_get_version(cipher);
+		if (auto tls_error =
+				co_await setup_async_client_tls(stream, tls_stream, url, req, opts, cancel, timeouts.tls, tel);
+			tls_error) {
+			co_return std::unexpected(std::move(*tls_error));
 		}
 	}
 #else
@@ -571,24 +739,18 @@ wroot::Task<ClientResult> do_async_request(
 #endif
 	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 	cancel->throw_if_cancelled();
-	try {
+	if (auto write_error = co_await write_async_client_request(
+			stream,
 #if CONFLUX_HAS_TLS
-		if (tls_stream) {
-			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			co_await write_http1_request(tr, wire, req.body());
-		} else
+			tls_stream,
 #endif
-		{
-			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			co_await write_http1_request(pr, wire, req.body());
-		}
-	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
-		co_return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::write,
-				.phase = HttpPhase::write,
-				.os_errno = e.code().value(),
-				.message = "failed to send request"});
+			cancel,
+			timeouts.between_bytes,
+			timeouts.write,
+			wire,
+			req.body());
+		write_error) {
+		co_return std::unexpected(std::move(*write_error));
 	}
 	tel.bytes_sent += wire.size() + req.body().size();
 	std::size_t const max_hdr = opts.max_header_bytes;
@@ -597,97 +759,46 @@ wroot::Task<ClientResult> do_async_request(
 	auto const t2 = std::chrono::steady_clock::now();
 	TP const first_byte_dl = timeouts.first_byte.count() > 0 ? t2 + timeouts.first_byte : TP::max();
 	cancel->throw_if_cancelled();
-	std::string raw;
+	auto received_head = co_await receive_async_client_head(
+		stream,
 #if CONFLUX_HAS_TLS
-	if (tls_stream) {
-		TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-		auto received_head = co_await receive_http1_response_head(tr, max_hdr, first_byte_dl);
-		if (!received_head) {
-			co_return std::unexpected(std::move(received_head).error());
-		}
-		raw = std::move(*received_head);
-	} else
+		tls_stream,
 #endif
-	{
-		PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-		auto received_head = co_await receive_http1_response_head(pr, max_hdr, first_byte_dl);
-		if (!received_head) {
-			co_return std::unexpected(std::move(received_head).error());
-		}
-		raw = std::move(*received_head);
+		cancel,
+		timeouts.between_bytes,
+		timeouts.write,
+		max_hdr,
+		first_byte_dl);
+	if (!received_head) {
+		co_return std::unexpected(std::move(received_head).error());
 	}
-	auto const header_end = raw.find("\r\n\r\n");
-	if (header_end == std::string::npos) {
-		if (raw.size() >= max_hdr) {
-			co_return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::header_too_large,
-					.message = std::format("response headers exceed {} bytes", max_hdr)});
-		}
-		co_return std::unexpected(
-			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
-	}
-	if (header_end > max_hdr) {
-		co_return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::header_too_large,
-				.message = std::format("response headers exceed {} bytes", max_hdr)});
-	}
+	std::string raw = std::move(*received_head);
 	tel.bytes_received += raw.size();
-	auto const headers_str = std::string_view{raw}.substr(0, header_end);
-	auto parsed_head = client_wire::parse_http1_response_head(headers_str, max_body_sz);
-	if (!parsed_head) {
-		co_return std::unexpected(std::move(parsed_head).error());
+	auto parsed_response = parse_http1_response_start(std::move(raw), req.method(), max_hdr, max_body_sz, max_buf);
+	if (!parsed_response) {
+		co_return std::unexpected(std::move(parsed_response).error());
 	}
-	auto const content_length = parsed_head->content_length;
-	auto const has_content_length = parsed_head->has_content_length;
-	auto const chunked = parsed_head->chunked;
-	ClientResponse response;
-	response.head.status = parsed_head->status;
-	response.head.status_text = std::move(parsed_head->status_text);
-	response.head.headers = std::move(parsed_head->headers);
-	response.head.set_cookies = std::move(parsed_head->set_cookies);
-	std::size_t const body_offset = header_end + 4;
-	std::size_t const initial_body_bytes = raw.size() - body_offset;
-	raw.erase(0, body_offset);
-	response.body = std::move(raw);
-	if (has_content_length && response.body.size() > content_length) {
-		response.body.resize(content_length);
-	}
-	std::size_t const counted_initial_body_bytes =
-		has_content_length ? std::min(initial_body_bytes, content_length) : initial_body_bytes;
-	BodyReceiveContext const body_ctx{
-		.method = req.method(),
-		.chunked = chunked,
-		.has_content_length = has_content_length,
-		.content_length = content_length,
-		.counted_initial_body_bytes = counted_initial_body_bytes,
-		.max_body_size = max_body_sz,
-		.max_buffered_size = max_buf,
-	};
-	auto do_body = [&]() -> wroot::Task<std::optional<HttpError>> {
+	auto response = std::move(parsed_response->response);
+	if (auto berr = co_await receive_async_client_body(
+			stream,
 #if CONFLUX_HAS_TLS
-		if (tls_stream) {
-			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			co_return co_await receive_http1_body(tr, response, tel, body_ctx);
-		}
+			tls_stream,
 #endif
-		{
-			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			co_return co_await receive_http1_body(pr, response, tel, body_ctx);
-		}
-	};
-	if (auto berr = co_await do_body(); berr) {
+			cancel,
+			timeouts.between_bytes,
+			timeouts.write,
+			response,
+			tel,
+			parsed_response->body_ctx);
+		berr) {
 		co_return std::unexpected(std::move(*berr));
 	}
+	co_await close_async_client_stream(
+		stream,
 #if CONFLUX_HAS_TLS
-	if (tls_stream) {
-		try {
-			co_await tls_stream->close(timeouts.write);
-		} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort TLS close during error/cleanup path.
-	} else
+		tls_stream,
 #endif
-		co_await stream.async_close();
+		timeouts.write);
 	response.telemetry = tel;
 	co_return response;
 }
