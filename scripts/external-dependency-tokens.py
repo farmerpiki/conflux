@@ -38,6 +38,21 @@ def external_dependency_tokens(root: Path) -> list[str]:
     return tokens
 
 
+def validate_policies(tokens: list[str]) -> None:
+    known = set(tokens)
+    errors: list[str] = []
+    for policy, allowed_tokens in sorted(POLICY_ALLOWED_TOKENS.items()):
+        seen: set[str] = set()
+        for token in allowed_tokens:
+            if token in seen:
+                errors.append(f"{policy}: duplicate allowed token {token}")
+            seen.add(token)
+            if token not in known:
+                errors.append(f"{policy}: unknown allowed token {token}")
+    if errors:
+        fail("invalid named external dependency policies: " + ";".join(errors))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("repo_root")
@@ -46,6 +61,7 @@ def main() -> int:
     args = parser.parse_args()
     root = Path(args.repo_root).resolve()
     tokens = external_dependency_tokens(root)
+    validate_policies(tokens)
     excludes = set(args.exclude)
     if args.policy is not None:
         excludes.update(POLICY_ALLOWED_TOKENS[args.policy])

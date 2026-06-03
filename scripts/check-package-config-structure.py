@@ -2445,6 +2445,9 @@ def check_package_smoke_external_tokens() -> None:
         "--exclude": "external dependency token helper must support policy exclusions",
         "--policy": "external dependency token helper must support named package-smoke policies",
         "POLICY_ALLOWED_TOKENS": "external dependency token helper must centralize named package-smoke policies",
+        "validate_policies": "external dependency token helper must validate named policies against the registry",
+        "unknown allowed token": "external dependency token helper must reject stale named policy tokens",
+        "duplicate allowed token": "external dependency token helper must reject duplicate named policy tokens",
         "unknown excluded external dependency tokens": "external dependency token helper must reject unknown exclusions",
     }
     runner_required = {
