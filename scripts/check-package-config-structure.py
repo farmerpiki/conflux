@@ -2490,17 +2490,31 @@ def check_release_artifact_staging_contract() -> None:
         "RELEASE_POLICY.md": "release artifact staging must include release policy",
         "SECURITY.md": "release artifact staging must include security policy",
         "SUPPORT.md": "release artifact staging must include support policy",
+        "scripts/generate-public-header-include-smoke.py": "release artifact staging must include generated header smoke helper",
+        "scripts/module_header_bridge.py": "release artifact staging must include module/header bridge helper",
         '"$stage_dir/source/include"': "release artifact staging must include generated public headers in the source tree",
         "source_generated_header_artifact=source/include/conflux": "release artifact manifest must record source generated headers",
     }
     source_archive = read("scripts/check-release-source-archive.sh")
+    bootstrap = read("scripts/check-release-artifact-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
     source_required = {
         "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
         "stage-release-artifacts.sh": "source archive check must stage the release artifact it validates",
         "source/include/conflux/features.hxx": "source archive check must require generated feature headers",
         "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
+        "source/scripts/generate-public-header-include-smoke.py": "source archive check must require generated header smoke helper",
+        "source/scripts/module_header_bridge.py": "source archive check must require module/header bridge helper",
         "source_generated_header_artifact=source/include/conflux": "source archive check must require source generated-header manifest metadata",
+    }
+    bootstrap_required = {
+        "check-release-artifact-bootstrap": "release artifact checks must include a source bootstrap entrypoint",
+        "stage-release-artifacts.sh": "bootstrap check must stage the release artifact it validates",
+        'cp -a "$stage_dir/source" "$bootstrap_source"': "bootstrap check must build from the staged source tree",
+        '[[ -e "$bootstrap_source/.git" ]]': "bootstrap check must reject staged git metadata",
+        "-DCONFLUX_FEATURE_SET=release-json": "bootstrap check must configure the release JSON SKU",
+        "-DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE": "bootstrap check must configure header mode",
+        "cmake --build": "bootstrap check must build the staged source",
     }
     generated_headers_required = {
         "check-release-generated-headers-policy": "release artifact checks must include a generated headers policy entrypoint",
@@ -2512,6 +2526,7 @@ def check_release_artifact_staging_contract() -> None:
     }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
+    missing.extend(message for marker, message in bootstrap_required.items() if marker not in bootstrap)
     missing.extend(message for marker, message in generated_headers_required.items() if marker not in generated_headers_policy)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
@@ -2522,6 +2537,8 @@ def check_release_artifact_staging_contract() -> None:
         'stage / "source" / "SUPPORT.md"': "release artifact guard must require support policy",
         'stage / "source" / "include" / "conflux" / "json.hxx"': "release artifact guard must require generated JSON headers in source artifacts",
         'stage / "source" / "include" / "conflux" / "features.hxx"': "release artifact guard must require generated feature headers in source artifacts",
+        'stage / "source" / "scripts" / "generate-public-header-include-smoke.py"': "release artifact guard must require generated header smoke helper",
+        'stage / "source" / "scripts" / "module_header_bridge.py"': "release artifact guard must require module/header bridge helper",
         "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)

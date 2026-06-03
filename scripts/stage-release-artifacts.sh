@@ -111,6 +111,7 @@ tar -C "$root" -cf - \
     SUPPORT.md \
     cmake \
     docs \
+    scripts/generate-public-header-include-smoke.py \
     scripts/module_header_bridge.py \
     src \
     tests \

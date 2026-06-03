@@ -21,6 +21,7 @@ required_paths=(
     "$stage_dir/source/docs"
     "$stage_dir/source/include/conflux/features.hxx"
     "$stage_dir/source/include/conflux/json.hxx"
+    "$stage_dir/source/scripts/generate-public-header-include-smoke.py"
     "$stage_dir/source/scripts/module_header_bridge.py"
     "$stage_dir/source/src"
     "$stage_dir/source/tests"
