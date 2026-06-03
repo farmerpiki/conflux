@@ -1065,6 +1065,10 @@ struct TreeBuilder {
 	using MemberNameIndexAlloc = std::pmr::polymorphic_allocator<std::pair<MemberNameKey const, std::size_t>>;
 	using MemberNameIndex =
 		std::unordered_map<MemberNameKey, std::size_t, MemberNameHash, MemberNameEq, MemberNameIndexAlloc>;
+	enum class ObjectMemberSeparator {
+		next,
+		close,
+	};
 
 	[[nodiscard]] std::optional<std::size_t> dedup_member_index(
 		std::size_t members_start,
@@ -1229,6 +1233,38 @@ struct TreeBuilder {
 		return {};
 	}
 
+	[[nodiscard]] std::expected<ObjectMemberSeparator, JsonError> parse_object_member_separator(
+		std::size_t members_start) {
+		if (auto ok = skip_ws_checked(); !ok) {
+			staging_members.resize(members_start);
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos >= tok.src.size()) [[unlikely]] {
+			staging_members.resize(members_start);
+			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+		}
+		if (tok.src[tok.pos] == '}') {
+			tok.adv();
+			return ObjectMemberSeparator::close;
+		}
+		if (tok.src[tok.pos] != ',') {
+			staging_members.resize(members_start);
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
+		}
+		tok.adv();
+		if constexpr (Mode == ParseMode::json5) {
+			if (auto ok = skip_ws_checked(); !ok) {
+				staging_members.resize(members_start);
+				return std::unexpected(std::move(ok).error());
+			}
+			if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+				tok.adv();
+				return ObjectMemberSeparator::close;
+			}
+		}
+		return ObjectMemberSeparator::next;
+	}
+
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_object(
 		std::size_t depth) {
@@ -1254,32 +1290,12 @@ struct TreeBuilder {
 				return std::unexpected(std::move(member).error());
 			}
 
-			if (auto ok = skip_ws_checked(); !ok) {
-				staging_members.resize(members_start);
-				return std::unexpected(std::move(ok).error());
+			auto sep = parse_object_member_separator(members_start);
+			if (!sep) {
+				return std::unexpected(std::move(sep).error());
 			}
-			if (tok.pos >= tok.src.size()) [[unlikely]] {
-				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
-			}
-			if (tok.src[tok.pos] == '}') {
-				tok.adv();
+			if (*sep == ObjectMemberSeparator::close) {
 				return finish_object(members_start);
-			}
-			if (tok.src[tok.pos] != ',') {
-				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ',' or '}'"));
-			}
-			tok.adv();
-			if constexpr (Mode == ParseMode::json5) {
-				if (auto ok = skip_ws_checked(); !ok) {
-					staging_members.resize(members_start);
-					return std::unexpected(std::move(ok).error());
-				}
-				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
-					tok.adv();
-					return finish_object(members_start);
-				}
 			}
 		}
 	}
