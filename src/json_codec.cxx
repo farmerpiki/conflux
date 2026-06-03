@@ -1738,6 +1738,86 @@ template<class String>
 template<ParseMode Mode, class T>
 std::expected<void, JsonError>
 decode_into(T &out, JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_scalar_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (std::same_as<T, bool>) {
+		if (ev != Ev::bool_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected bool"});
+		}
+		return r.bool_val();
+	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
+		if (ev != Ev::number_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
+		}
+		return r.number_val().template get_as<T>();
+	} else if constexpr (is_basic_string_of_char_v<T>) {
+		if (ev != Ev::string_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected string"});
+		}
+		return string_from_token<T>(r.string_token(), scratch);
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_scalar_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (std::same_as<T, bool>) {
+		if (ev != Ev::bool_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected bool"});
+		}
+		out = r.bool_val();
+		return {};
+	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
+		if (ev != Ev::number_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
+		}
+		auto value = r.number_val().template get_as<T>();
+		if (!value) {
+			return std::unexpected(std::move(value).error());
+		}
+		out = *value;
+		return {};
+	} else if constexpr (is_basic_string_of_char_v<T>) {
+		if (ev != Ev::string_value) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected string"});
+		}
+		return decode_string_into(out, r.string_token(), scratch);
+	}
+}
+
 template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_members_from_event_into(
 	T &result,
@@ -2433,33 +2513,11 @@ std::expected<T, JsonError> decode_from_event(
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
 
-	if constexpr (std::same_as<T, bool>) {
-		if (ev != Ev::bool_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected bool"});
-		}
-		return r.bool_val();
-	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
-		if (ev != Ev::number_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected number"});
-		}
-		return r.number_val().template get_as<T>();
-	} else if constexpr (is_basic_string_of_char_v<T>) {
-		if (ev != Ev::string_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected string"});
-		}
-		return string_from_token<T>(r.string_token(), scratch);
+	if constexpr (
+		std::same_as<T, bool>
+		|| ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+		|| is_basic_string_of_char_v<T>) {
+		return decode_scalar_from_event<Mode, T>(r, ev, scratch);
 	} else if constexpr (std::same_as<T, std::string_view>) {
 		static_assert(
 			!std::same_as<T, std::string_view>,
@@ -2786,39 +2844,11 @@ std::expected<void, JsonError> decode_into(
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
-	if constexpr (std::same_as<T, bool>) {
-		if (ev != Ev::bool_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected bool"});
-		}
-		out = r.bool_val();
-		return {};
-	} else if constexpr ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) {
-		if (ev != Ev::number_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected number"});
-		}
-		auto value = r.number_val().template get_as<T>();
-		if (!value) {
-			return std::unexpected(std::move(value).error());
-		}
-		out = *value;
-		return {};
-	} else if constexpr (is_basic_string_of_char_v<T>) {
-		if (ev != Ev::string_value) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected string"});
-		}
-		return decode_string_into(out, r.string_token(), scratch);
+	if constexpr (
+		std::same_as<T, bool>
+		|| ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+		|| is_basic_string_of_char_v<T>) {
+		return decode_scalar_into<Mode, T>(out, r, ev, scratch);
 	} else if constexpr (is_optional<T>::value) {
 		using Inner = typename T::value_type;
 		if (ev == Ev::null_value) {
