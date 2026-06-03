@@ -49,7 +49,7 @@ if [[ "$release_sku" == "release-json" ]]; then
         python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH
     )"
     package_smoke_configure+=(
-        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="http;http1;http2;http3;http_protocol;template;pg;db;dns;work"
+        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="http;http1;http2;http3;http_protocol;http_compression;net_tls;template;pg;db;dns;work"
         -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbid_external_deps_without_json_hash"
     )
 fi

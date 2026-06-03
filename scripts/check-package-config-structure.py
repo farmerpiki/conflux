@@ -2675,6 +2675,25 @@ def check_release_artifact_staging_contract() -> None:
     bootstrap = read("scripts/check-release-artifact-bootstrap.sh")
     offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
+    runner_json_forbidden = shell_semicolon_list_var(read("scripts/run-package-config-smoke.sh"), "forbid_json_components")
+    bootstrap_forbidden_match = re.search(
+        r'-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="([^"]*)"',
+        bootstrap,
+    )
+    if bootstrap_forbidden_match is None:
+        fail("bootstrap check must assert release-json forbidden package components")
+    bootstrap_json_forbidden = {
+        component
+        for component in bootstrap_forbidden_match.group(1).split(";")
+        if component
+    }
+    if bootstrap_json_forbidden != runner_json_forbidden:
+        fail(
+            "bootstrap release-json forbidden components must match package-smoke JSON policy: "
+            + ";".join(sorted(bootstrap_json_forbidden))
+            + " != "
+            + ";".join(sorted(runner_json_forbidden)),
+        )
     source_required = {
         "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
         "stage-release-artifacts.sh": "source archive check must stage the release artifact it validates",
