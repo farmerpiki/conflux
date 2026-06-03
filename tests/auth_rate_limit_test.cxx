@@ -35,11 +35,11 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	conflux::http::AuthFailureLimiter limiter{
 		conflux::http::AuthThrottleOptions{
-							.max_failures = 2,
-							.window = std::chrono::seconds{60},
-							.lockout = std::chrono::seconds{30},
-							.max_subjects = 16,
-							}
+										   .max_failures = 2,
+										   .window = std::chrono::seconds{60},
+										   .lockout = std::chrono::seconds{30},
+										   .max_subjects = 16,
+										   }
     };
 
 	CHECK(limiter.before_attempt("account:alice", at(100)).allowed);
@@ -72,11 +72,11 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	conflux::http::AuthFailureLimiter limiter{
 		conflux::http::AuthThrottleOptions{
-							.max_failures = 1,
-							.window = std::chrono::seconds{10},
-							.lockout = std::chrono::seconds{0},
-							.max_subjects = 4,
-							}
+										   .max_failures = 1,
+										   .window = std::chrono::seconds{10},
+										   .lockout = std::chrono::seconds{0},
+										   .max_subjects = 4,
+										   }
     };
 
 	(void)limiter.record_failure("api-token:deadbeef", at(200));
@@ -89,11 +89,11 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	conflux::http::AuthFailureLimiter limiter{
 		conflux::http::AuthThrottleOptions{
-							.max_failures = 2,
-							.window = std::chrono::seconds{60},
-							.lockout = std::chrono::seconds{60},
-							.max_subjects = 4,
-							}
+										   .max_failures = 2,
+										   .window = std::chrono::seconds{60},
+										   .lockout = std::chrono::seconds{60},
+										   .max_subjects = 4,
+										   }
     };
 
 	(void)limiter.record_failure("account:alice", at(1));
@@ -110,11 +110,11 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	conflux::http::AuthFailureLimiter limiter{
 		conflux::http::AuthThrottleOptions{
-							.max_failures = 3,
-							.window = std::chrono::seconds{60},
-							.lockout = std::chrono::seconds{60},
-							.max_subjects = 2,
-							}
+										   .max_failures = 3,
+										   .window = std::chrono::seconds{60},
+										   .lockout = std::chrono::seconds{60},
+										   .max_subjects = 2,
+										   }
     };
 
 	(void)limiter.record_failure("account:a", at(1));
@@ -148,11 +148,11 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	conflux::http::AuthFailureLimiter limiter{
 		conflux::http::AuthThrottleOptions{
-							.max_failures = 1,
-							.window = std::chrono::seconds{60},
-							.lockout = std::chrono::seconds{60},
-							.max_subjects = 4,
-							}
+										   .max_failures = 1,
+										   .window = std::chrono::seconds{60},
+										   .lockout = std::chrono::seconds{60},
+										   .max_subjects = 4,
+										   }
     };
 	auto middleware = conflux::http::auth_throttle_middleware(limiter, [](conflux::http::RequestView const &req) {
 		return conflux::http::auth_throttle_form_key(req, "username");

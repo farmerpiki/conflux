@@ -684,10 +684,13 @@ TEST_CASE(
 	auto doc = conflux::json::object([](auto &obj) {
 		REQUIRE(obj("id", 42).has_value());
 		REQUIRE(obj("name", "alice").has_value());
-		REQUIRE(obj.array("tags", [](auto &arr) {
-			REQUIRE(arr("x").has_value());
-			REQUIRE(arr("y").has_value());
-		}).has_value());
+		REQUIRE(obj.array(
+					   "tags",
+					   [](auto &arr) {
+						   REQUIRE(arr("x").has_value());
+						   REQUIRE(arr("y").has_value());
+					   })
+					.has_value());
 	});
 	REQUIRE(doc.has_value());
 

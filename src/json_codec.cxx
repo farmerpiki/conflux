@@ -4475,8 +4475,7 @@ template<class T>
 		}
 		if (predicted >= 0
 			&& predicted < static_cast<std::ptrdiff_t>(N)
-			&& fp_match_member_key_by_index<T>(
-				static_cast<std::size_t>(predicted), c, lim.max_string, &consumed_colon))
+			&& fp_match_member_key_by_index<T>(static_cast<std::size_t>(predicted), c, lim.max_string, &consumed_colon))
 			[[likely]] {
 			idx = static_cast<std::size_t>(predicted);
 			key_name = meta[idx].name;

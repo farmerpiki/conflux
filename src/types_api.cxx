@@ -143,7 +143,9 @@ using TransparentStringMap = std::unordered_map<std::string, Value, TransparentS
 template<class Fn>
 constexpr bool for_each_path_component(
 	std::string_view path,
-	Fn &&fn) noexcept(noexcept(std::invoke(std::forward<Fn>(fn), std::string_view{}))) {
+	Fn &&fn)
+	noexcept(
+		noexcept(std::invoke(std::forward<Fn>(fn), std::string_view{}))) {
 	std::size_t pos = 0;
 	while (pos < path.size()) {
 		auto const next = path.find('/', pos);

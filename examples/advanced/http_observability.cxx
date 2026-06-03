@@ -18,10 +18,11 @@ int main() {
 			.service_name = "observability-example",
 			.metrics_path = "/metrics",
 		}));
-	app.use(conflux::http::security_headers_middleware({
-		.hsts_max_age = 0,
-		.csp = "default-src 'none'; frame-ancestors 'none'",
-	}));
+	app.use(
+		conflux::http::security_headers_middleware({
+			.hsts_max_age = 0,
+			.csp = "default-src 'none'; frame-ancestors 'none'",
+		}));
 	app.use(conflux::http::cache_control_middleware({.default_directive = "no-store"}));
 	app.use(conflux::http::rate_limit_middleware({.requests = 60, .window = std::chrono::seconds{60}, .burst = 10}));
 

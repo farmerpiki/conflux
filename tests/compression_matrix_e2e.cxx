@@ -199,8 +199,12 @@ std::uint16_t compression_port() {
 		Config cfg = mw_config();
 		conflux::http::Router router;
 		router.use(conflux::http::compress_middleware({.min_body_size = 64}));
-		router.get("/large", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(4096, 'A')); });
-		router.get("/small", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(std::string(32, 's')); });
+		router.get("/large", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::text(std::string(4096, 'A'));
+		});
+		router.get("/small", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::text(std::string(32, 's'));
+		});
 		router.get("/binary", [](conflux::http::OwnedRequest const &) {
 			conflux::http::Response response;
 			response.status = 200;
@@ -209,11 +213,15 @@ std::uint16_t compression_port() {
 			response.set_text_body(std::string(4096, '\0'));
 			return response;
 		});
-		router.post("/echo", [](conflux::http::OwnedRequest const &req) { return conflux::http::Response::text(req.body); });
-		router.sse("/events", [](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
-			(void)channel->send("data: hello\n\n");
-			channel->close();
+		router.post("/echo", [](conflux::http::OwnedRequest const &req) {
+			return conflux::http::Response::text(req.body);
 		});
+		router.sse(
+			"/events",
+			[](conflux::http::OwnedRequest const &, std::shared_ptr<conflux::http::SseChannel> const &channel) {
+				(void)channel->send("data: hello\n\n");
+				channel->close();
+			});
 		port = test_servers().start(cfg, std::move(router));
 	});
 	return port;

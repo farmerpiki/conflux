@@ -42,53 +42,62 @@ int main() {
 
 	// Register broad request boundary policy first: first-registered middleware is
 	// the outer wrapper, so CORS preflight can short-circuit before auth/CSRF.
-	app.use(conflux::http::cors_middleware({
-		.allowed_origins = {"https://app.example"},
-		.allowed_methods = {"GET", "POST", "OPTIONS"},
-		.allowed_headers = {"Content-Type", "Authorization", "X-CSRF-Token"},
-		.expose_headers = {"X-Request-Id", "Traceparent", "ETag"},
-		.allow_credentials = true,
-	}));
-	app.use(conflux::http::forwarded_middleware({
-		.trusted_proxies = {"127.0.0.0/8", "::1/128"},
-		.strict_mode = true,
-	}));
-	app.use(conflux::http::ip_filter_middleware({
-		.mode = conflux::http::IpFilterMode::blocklist,
-		.cidrs = {"203.0.113.0/24"},
-	}));
+	app.use(
+		conflux::http::cors_middleware({
+			.allowed_origins = {"https://app.example"},
+			.allowed_methods = {"GET", "POST", "OPTIONS"},
+			.allowed_headers = {"Content-Type", "Authorization", "X-CSRF-Token"},
+			.expose_headers = {"X-Request-Id", "Traceparent", "ETag"},
+			.allow_credentials = true,
+    }));
+	app.use(
+		conflux::http::forwarded_middleware({
+			.trusted_proxies = {"127.0.0.0/8", "::1/128"},
+			.strict_mode = true,
+    }));
+	app.use(
+		conflux::http::ip_filter_middleware({
+			.mode = conflux::http::IpFilterMode::blocklist,
+			.cidrs = {"203.0.113.0/24"},
+		}));
 
 	app.use(conflux::http::request_id_middleware());
 	app.use(conflux::http::tracing_middleware({.propagate_in_response = true}));
-	app.use(conflux::http::security_headers_middleware({
-		.hsts_max_age = 0,
-		.csp = "default-src 'self'; frame-ancestors 'none'",
-		.hsts_only_on_tls = false,
-	}));
-	app.use(conflux::http::redirect_middleware({
-		.rules =
-			{
-					{.from = "/old-dashboard", .to = "/dashboard", .status = 308},
-					{.from = "/v1/", .to = "/v2/", .status = 307, .prefix_match = true},
-					},
-	}));
-	app.use(conflux::http::trailing_slash_middleware({.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
+	app.use(
+		conflux::http::security_headers_middleware({
+			.hsts_max_age = 0,
+			.csp = "default-src 'self'; frame-ancestors 'none'",
+			.hsts_only_on_tls = false,
+		}));
+	app.use(
+		conflux::http::redirect_middleware({
+			.rules =
+				{
+						{.from = "/old-dashboard", .to = "/dashboard", .status = 308},
+						{.from = "/v1/", .to = "/v2/", .status = 307, .prefix_match = true},
+						},
+    }));
+	app.use(
+		conflux::http::trailing_slash_middleware(
+			{.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
 	app.use(conflux::http::cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
 	app.use(conflux::http::csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(conflux::http::etag_middleware({.weak = true}));
-	app.use(conflux::http::response_cache_middleware({
-		.max_entries = 64,
-		.max_bytes = 512 * 1024,
-		.default_ttl = std::chrono::seconds{15},
-	}));
-	app.use(conflux::http::cache_control_middleware({
-		.rules =
-			{
-					{.mime_prefix = "application/json", .directive = "no-store"},
-					{.mime_prefix = "text/html", .directive = "no-cache"},
-					},
-		.default_directive = "max-age=60, public",
-	}));
+	app.use(
+		conflux::http::response_cache_middleware({
+			.max_entries = 64,
+			.max_bytes = 512 * 1024,
+			.default_ttl = std::chrono::seconds{15},
+		}));
+	app.use(
+		conflux::http::cache_control_middleware({
+			.rules =
+				{
+						{.mime_prefix = "application/json", .directive = "no-store"},
+						{.mime_prefix = "text/html", .directive = "no-cache"},
+						},
+			.default_directive = "max-age=60, public",
+    }));
 	app.use(conflux::http::structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
 
 	app.get("/", [](conflux::http::OwnedRequest const &) {
@@ -130,7 +139,10 @@ int main() {
 
 	app.get("/login", [](conflux::http::OwnedRequest const &) {
 		auto resp = conflux::http::Response::text("signed session cookie set; try /me\n");
-		resp.set_cookie("session", conflux::http::sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
+		resp.set_cookie(
+			"session",
+			conflux::http::sign_cookie("demo-user", "0123456789abcdef"),
+			"Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 
@@ -145,11 +157,16 @@ int main() {
 	});
 
 	std::vector<conflux::http::Router::Middleware> openapi_auth;
-	openapi_auth.push_back(conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
+	openapi_auth.push_back(
+		conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
 	auto &openapi_router = http::router(app);
 	openapi_router.get(
 		"/openapi.json",
-		conflux::http::openapi_handler_protected(openapi_router, "conflux policy stack example", "0.1.0", std::move(openapi_auth)));
+		conflux::http::openapi_handler_protected(
+			openapi_router,
+			"conflux policy stack example",
+			"0.1.0",
+			std::move(openapi_auth)));
 
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);

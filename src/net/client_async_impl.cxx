@@ -381,9 +381,7 @@ wroot::Task<std::expected<std::string, HttpError>> receive_http1_response_head(
 	TP first_byte_deadline) {
 	try {
 		co_return co_await async_recv_until(stream, "\r\n\r\n", max_header_bytes + 4096, first_byte_deadline);
-	} catch (wroot::CancelledError const &) {
-		throw;
-	} catch (IoError const &e) {
+	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
 		co_return std::unexpected(
 			HttpError{
 				.kind = HttpErrorKind::read,
@@ -740,9 +738,7 @@ namespace conflux::http {
 	namespace wroot = conflux::work::root;
 	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto cancel = std::make_shared<conflux::net::detail::ActiveTaskCancelRelay>();
-	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept {
-		cancel->cancel();
-	});
+	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept { cancel->cancel(); });
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
 	std::move(driver).detach();
 	return std::move(out);

@@ -7,5 +7,5 @@ export import conflux.extended;
 #elif CONFLUX_API_SURFACE_LEVEL == CONFLUX_API_SURFACE_COMPLETE
 export import conflux.complete;
 #else
-#error "invalid CONFLUX_API_SURFACE_LEVEL"
+	#error "invalid CONFLUX_API_SURFACE_LEVEL"
 #endif

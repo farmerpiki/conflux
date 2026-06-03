@@ -46,7 +46,9 @@ inline std::string build_query(
 // unreserved set) and appended to the Location header.
 Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
-	return [opts](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) -> conflux::http::Response {
+	return [opts](
+			   conflux::http::RequestView const &req,
+			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const &path = req.path;
 
 		// Never touch the root.

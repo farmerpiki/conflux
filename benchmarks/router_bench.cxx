@@ -241,7 +241,8 @@ Case make_router_dense_head_exact_case() {
 		.default_iterations = 500000,
 		.run = [state] {
 			auto resp = state->router.dispatch(state->req);
-			return static_cast<std::size_t>(resp.status) + static_cast<std::size_t>(resp.head_only)
+			return static_cast<std::size_t>(resp.status)
+				 + static_cast<std::size_t>(resp.head_only)
 				 + resp.text_body().size();
 		}};
 }

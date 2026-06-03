@@ -95,8 +95,9 @@ int main() {
 	});
 
 	app.group("/private", [](auto &g) {
-		g.use(conflux::http::basic_auth_middleware(
-			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
+		g.use(conflux::http::basic_auth_middleware([](std::string_view user, std::string_view pass) {
+			return user == "demo" && pass == "demo";
+		}));
 
 		(void)g.get("/profile", [](http::RequestView const &req) {
 			return http::json(

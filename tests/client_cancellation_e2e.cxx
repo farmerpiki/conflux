@@ -319,9 +319,7 @@ TEST_CASE(
 	try {
 		auto out = fx->run_to_outcome(std::move(task));
 		CHECK(out.is_cancelled());
-	} catch (root::CancelledError const &) {
-		SUCCEED();
-	}
+	} catch (root::CancelledError const &) { SUCCEED(); }
 }
 
 TEST_CASE(

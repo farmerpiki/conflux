@@ -27,7 +27,9 @@ static conflux::http::Router make_api_router() {
 
 static conflux::http::Router make_web_router() {
 	conflux::http::Router web;
-	web.get("/status", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("<h1>web ok</h1>"); });
+	web.get("/status", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::html("<h1>web ok</h1>");
+	});
 	web.get("/", [](conflux::http::OwnedRequest const &) {
 		return conflux::http::Response::html("<html><body><h1>web host</h1><p>Try /status.</p></body></html>");
 	});

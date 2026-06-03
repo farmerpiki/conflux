@@ -1585,9 +1585,7 @@ std::expected<Document, JsonError> parse_copy(
 		input.size(),
 		std::make_unique<DocumentStorage>(),
 		opts,
-		[input](DocumentStorage &storage) {
-			prepare_copied_input(storage, input);
-		});
+		[input](DocumentStorage &storage) { prepare_copied_input(storage, input); });
 }
 // Move-in owning overload: avoids the input copy. Keep this a concrete
 // std::string rvalue overload so unrelated string-like temporaries continue to
@@ -1613,9 +1611,7 @@ std::expected<Document, JsonError> parse_borrowed(
 		input.size(),
 		std::make_unique<DocumentStorage>(),
 		opts,
-		[input](DocumentStorage &storage) {
-			prepare_borrowed_input(storage, input);
-		});
+		[input](DocumentStorage &storage) { prepare_borrowed_input(storage, input); });
 }
 std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,
@@ -1645,9 +1641,7 @@ std::expected<Document, JsonError> parse_copy(
 		input.size(),
 		std::make_unique<DocumentStorage>(resource),
 		opts,
-		[input](DocumentStorage &storage) {
-			prepare_copied_input(storage, input);
-		});
+		[input](DocumentStorage &storage) { prepare_copied_input(storage, input); });
 }
 std::expected<Document, JsonError> parse_borrowed(
 	std::string_view input,
@@ -1657,9 +1651,7 @@ std::expected<Document, JsonError> parse_borrowed(
 		input.size(),
 		std::make_unique<DocumentStorage>(resource),
 		opts,
-		[input](DocumentStorage &storage) {
-			prepare_borrowed_input(storage, input);
-		});
+		[input](DocumentStorage &storage) { prepare_borrowed_input(storage, input); });
 }
 std::expected<Document, JsonError> parse_borrowed_unsafe(
 	std::string_view input,

@@ -100,8 +100,9 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		// Regular routes first. Candidate selection has already filtered by method.
 		for (auto const &route: routes) {
 			matched_params.clear();
-			bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-														conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
+			bool const matched = route.has_exact_path ?
+									 (route.exact_path == path_sv) :
+									 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 			if (matched) {
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
 				std::string_view const effective_method =
@@ -173,8 +174,9 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		if (req.method == "GET") {
 			for (auto const &route: sse_routes) {
 				matched_params.clear();
-				bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-															conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
+				bool const matched = route.has_exact_path ?
+										 (route.exact_path == path_sv) :
+										 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
 					auto channel = std::make_shared<conflux::http::SseChannel>();
 					conflux::http::OwnedRequest matched = req.to_owned();
@@ -216,8 +218,9 @@ export template<typename ContextRouteRange, typename Ctx>
 	bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 	for (auto const &route: context_routes) {
 		matched_params.clear();
-		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
-													conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
+		bool const matched = route.has_exact_path ?
+								 (route.exact_path == path_sv) :
+								 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
 			auto all_params = req.params;
 			for (auto const &[k, v]: matched_params) {
@@ -248,9 +251,11 @@ export template<typename ContextRouteRange, typename Ctx>
 				options.timeout = *route.timeout;
 			}
 			return DeferredRouteTask{
-				.task =
-					[](auto handler, conflux::http::RequestView req, Ctx const &ctx, std::string route_pattern, bool should_annotate)
-					-> conflux::work::root::Task<conflux::http::Response> {
+				.task = [](auto handler,
+						   conflux::http::RequestView req,
+						   Ctx const &ctx,
+						   std::string route_pattern,
+						   bool should_annotate) -> conflux::work::root::Task<conflux::http::Response> {
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
 						 req = std::move(req),

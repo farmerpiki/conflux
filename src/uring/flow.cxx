@@ -129,9 +129,7 @@ struct OwnedPathStorage {
 		std::unique_ptr<char[]> storage;
 		try {
 			storage = std::make_unique_for_overwrite<char[]>(path.size() + 1);
-		} catch (std::bad_alloc const &) {
-			return false;
-		}
+		} catch (std::bad_alloc const &) { return false; }
 		std::memcpy(storage.get(), path.data(), path.size());
 		storage[path.size()] = '\0';
 		inline_path = {};

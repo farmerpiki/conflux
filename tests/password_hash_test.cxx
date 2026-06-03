@@ -95,7 +95,8 @@ TEST_CASE(
 TEST_CASE(
 	"conflux::http::password_hash: resource limits are configurable",
 	"[auth][conflux::http::password_hash]") {
-	auto configured = conflux::http::password_hash_configure_resource_limits({.max_concurrent_hashes = 1, .max_waiting_hashes = 0});
+	auto configured =
+		conflux::http::password_hash_configure_resource_limits({.max_concurrent_hashes = 1, .max_waiting_hashes = 0});
 	REQUIRE(configured.has_value());
 	auto current = conflux::http::password_hash_resource_limits();
 	CHECK(current.max_concurrent_hashes == 1);

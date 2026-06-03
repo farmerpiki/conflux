@@ -41,9 +41,10 @@ struct StoredResponseOptions {
 } // namespace detail
 
 template<class Provider, class F>
-concept JsonViewHandler = requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn, req), opts) } -> std::same_as<Response>;
-};
+concept JsonViewHandler =
+	requires(std::decay_t<F> &fn, conflux::http::RequestView const &req, ResponseOptions const &opts) {
+		{ response_or_internal_error_with<Provider>(std::invoke(fn, req), opts) } -> std::same_as<Response>;
+	};
 
 template<class Provider, class F>
 concept JsonNullaryHandler = requires(std::decay_t<F> &fn, ResponseOptions const &opts) {
@@ -140,7 +141,8 @@ template<class Provider, class F>
 	using Fn = std::decay_t<F>;
 	auto stored_opts = detail::store_response_options(opts);
 	return conflux::http::Router::Handler{
-		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](conflux::http::RequestView const &req) mutable -> Response {
+		[fn = Fn(std::forward<F>(fn)),
+		 opts = std::move(stored_opts)](conflux::http::RequestView const &req) mutable -> Response {
 			if constexpr (JsonViewHandler<Provider, Fn>) {
 				return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
 			} else {

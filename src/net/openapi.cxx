@@ -58,9 +58,8 @@ conflux::http::Router::Handler openapi_handler_protected(
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		conflux::http::Router::Middleware mw = std::move(*it);
 		conflux::http::Router::Handler next = std::move(current);
-		current = [mw = std::move(mw), next = std::move(next)](conflux::http::RequestView const &req) -> conflux::http::Response {
-			return mw(req, next);
-		};
+		current = [mw = std::move(mw), next = std::move(next)](
+					  conflux::http::RequestView const &req) -> conflux::http::Response { return mw(req, next); };
 	}
 	return current;
 }

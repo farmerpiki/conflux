@@ -135,7 +135,9 @@ TEST_CASE(
 	CHECK(conflux::http::extract_param("form-data; x-name=wrong; name=right", "name") == "right");
 	CHECK(conflux::http::extract_param("form-data; NAME=upper", "name") == "upper");
 	CHECK(conflux::http::extract_param(R"(form-data; name="upload"; filename="a;b.txt")", "filename") == "a;b.txt");
-	CHECK(conflux::http::extract_param(R"(multipart/form-data; boundary="abc;123"; charset=utf-8)", "boundary") == "abc;123");
+	CHECK(
+		conflux::http::extract_param(R"(multipart/form-data; boundary="abc;123"; charset=utf-8)", "boundary")
+		== "abc;123");
 }
 
 TEST_CASE(
@@ -305,7 +307,8 @@ TEST_CASE(
 	"http_server_helpers: complete and incremental chunked decoders agree",
 	"[http_server_helpers]") {
 	std::string body;
-	auto consumed = conflux::http::decode_chunked("4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nTrailer: ok\r\n\r\nextra", 64, 8, body);
+	auto consumed =
+		conflux::http::decode_chunked("4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nTrailer: ok\r\n\r\nextra", 64, 8, body);
 	REQUIRE(consumed > 0);
 	CHECK(body == "Wikipedia");
 
