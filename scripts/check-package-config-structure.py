@@ -2516,6 +2516,11 @@ def check_release_artifact_staging_contract() -> None:
         "-DCONFLUX_FEATURE_SET=release-json": "bootstrap check must configure the release JSON SKU",
         "-DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE": "bootstrap check must configure header mode",
         "cmake --build": "bootstrap check must build the staged source",
+        'cmake --install "$bootstrap_build" --prefix "$bootstrap_prefix"': "bootstrap check must install the staged source build",
+        '"$bootstrap_source/cmake/package-smoke"': "bootstrap check must consume the installed package from staged source package smoke",
+        '-DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json"': "bootstrap check must run a release-json installed package smoke",
+        '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS=': "bootstrap check must assert unrelated provider deps stay out",
+        'ctest --test-dir "$package_smoke_build" --output-on-failure': "bootstrap check must run installed package smoke tests",
     }
     offline_bootstrap_required = {
         "check-release-offline-bootstrap": "release artifact checks must include an offline bootstrap entrypoint",
