@@ -984,6 +984,95 @@ TmplValue Environment::Impl::eval_path(
 	}
 	return use_owned ? owned : *cur;
 }
+TmplValue Environment::Impl::eval_base_operand(
+	CompiledBaseExpr const &base,
+	std::size_t index,
+	TmplValue const &context) const {
+	return base.operands.size() > index && base.operands[index] ? eval_expr(*base.operands[index], context) :
+																  TmplValue{};
+}
+TmplValue Environment::Impl::eval_base_object(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	TmplValue obj{TmplValue::Object{}};
+	for (auto const &item: base.object_items) {
+		obj.set(item.key, item.value ? eval_expr(*item.value, context) : TmplValue{});
+	}
+	return obj;
+}
+TmplValue Environment::Impl::eval_base_binary_or(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	auto left = eval_base_operand(base, 0, context);
+	if (is_truthy(left)) {
+		return left;
+	}
+	return eval_base_operand(base, 1, context);
+}
+TmplValue Environment::Impl::eval_base_binary_and(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	auto left = eval_base_operand(base, 0, context);
+	if (!is_truthy(left)) {
+		return left;
+	}
+	return eval_base_operand(base, 1, context);
+}
+TmplValue Environment::Impl::eval_base_compare(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	auto left = eval_base_operand(base, 0, context);
+	auto right = eval_base_operand(base, 1, context);
+	switch (base.compare_op) {
+	case CompiledCompareOp::eq: return TmplValue{left == right};
+	case CompiledCompareOp::ne: return TmplValue{left != right};
+	case CompiledCompareOp::le:
+	case CompiledCompareOp::ge:
+	case CompiledCompareOp::lt:
+	case CompiledCompareOp::gt:
+		{
+			double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
+							  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
+							  left.is_float() ? left.as<double>() :
+												0.0;
+			double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
+							  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
+							  right.is_float() ? right.as<double>() :
+												 0.0;
+			if (base.compare_op == CompiledCompareOp::le) {
+				return TmplValue{lv <= rv};
+			}
+			if (base.compare_op == CompiledCompareOp::ge) {
+				return TmplValue{lv >= rv};
+			}
+			if (base.compare_op == CompiledCompareOp::lt) {
+				return TmplValue{lv < rv};
+			}
+			return TmplValue{lv > rv};
+		}
+	case CompiledCompareOp::in:
+		if (right.is_array()) {
+			for (auto const &item: right.as_array()) {
+				if (item == left) {
+					return TmplValue{true};
+				}
+			}
+			return TmplValue{false};
+		}
+		if (right.is_string() && left.is_string()) {
+			return TmplValue{right.as<std::string_view>().find(left.as<std::string_view>()) != std::string_view::npos};
+		}
+		return TmplValue{false};
+	}
+	return {};
+}
+TmplValue Environment::Impl::eval_base_concat(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	auto left = eval_base_operand(base, 0, context);
+	auto right = eval_base_operand(base, 1, context);
+	return TmplValue{value_to_string(left) + value_to_string(right)};
+}
 TmplValue Environment::Impl::eval_base(
 	CompiledBaseExpr const &base,
 	TmplValue const &context) const {
@@ -1002,96 +1091,14 @@ TmplValue Environment::Impl::eval_base(
 		return tmpl_array_from(base.operands, [&](auto const &item) {
 			return item ? eval_expr(*item, context) : TmplValue{};
 		});
-	case CompiledBaseKind::object:
-		{
-			TmplValue obj{TmplValue::Object{}};
-			for (auto const &item: base.object_items) {
-				obj.set(item.key, item.value ? eval_expr(*item.value, context) : TmplValue{});
-			}
-			return obj;
-		}
-	case CompiledBaseKind::group:
-		return !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-	case CompiledBaseKind::path: return eval_path(base.path, context);
-	case CompiledBaseKind::unary_not:
-		return TmplValue{
-			!(base.operands.empty() || !base.operands[0] ? false : is_truthy(eval_expr(*base.operands[0], context)))};
-	case CompiledBaseKind::binary_or:
-		{
-			auto left =
-				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			if (is_truthy(left)) {
-				return left;
-			}
-			return base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
-		}
-	case CompiledBaseKind::binary_and:
-		{
-			auto left =
-				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			if (!is_truthy(left)) {
-				return left;
-			}
-			return base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
-		}
-	case CompiledBaseKind::compare:
-		{
-			auto left =
-				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			auto right =
-				base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
-			switch (base.compare_op) {
-			case CompiledCompareOp::eq: return TmplValue{left == right};
-			case CompiledCompareOp::ne: return TmplValue{left != right};
-			case CompiledCompareOp::le:
-			case CompiledCompareOp::ge:
-			case CompiledCompareOp::lt:
-			case CompiledCompareOp::gt:
-				{
-					double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
-									  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
-									  left.is_float() ? left.as<double>() :
-														0.0;
-					double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
-									  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
-									  right.is_float() ? right.as<double>() :
-														 0.0;
-					if (base.compare_op == CompiledCompareOp::le) {
-						return TmplValue{lv <= rv};
-					}
-					if (base.compare_op == CompiledCompareOp::ge) {
-						return TmplValue{lv >= rv};
-					}
-					if (base.compare_op == CompiledCompareOp::lt) {
-						return TmplValue{lv < rv};
-					}
-					return TmplValue{lv > rv};
-				}
-			case CompiledCompareOp::in:
-				if (right.is_array()) {
-					for (auto const &item: right.as_array()) {
-						if (item == left) {
-							return TmplValue{true};
-						}
-					}
-					return TmplValue{false};
-				}
-				if (right.is_string() && left.is_string()) {
-					return TmplValue{
-						right.as<std::string_view>().find(left.as<std::string_view>()) != std::string_view::npos};
-				}
-				return TmplValue{false};
-			}
-			return {};
-		}
-	case CompiledBaseKind::concat:
-		{
-			auto left =
-				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			auto right =
-				base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
-			return TmplValue{value_to_string(left) + value_to_string(right)};
-		}
+	case CompiledBaseKind::object    : return eval_base_object(base, context);
+	case CompiledBaseKind::group     : return eval_base_operand(base, 0, context);
+	case CompiledBaseKind::path      : return eval_path(base.path, context);
+	case CompiledBaseKind::unary_not : return TmplValue{!is_truthy(eval_base_operand(base, 0, context))};
+	case CompiledBaseKind::binary_or : return eval_base_binary_or(base, context);
+	case CompiledBaseKind::binary_and: return eval_base_binary_and(base, context);
+	case CompiledBaseKind::compare   : return eval_base_compare(base, context);
+	case CompiledBaseKind::concat    : return eval_base_concat(base, context);
 	}
 	return {};
 }

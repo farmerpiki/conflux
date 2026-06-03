@@ -360,6 +360,12 @@ struct Environment::Impl {
 	TmplValue eval_expr(CompiledExpr const &expr, TmplValue const &context) const;
 	TmplValue eval_legacy_base(std::string const &base, TmplValue const &context) const;
 	TmplValue eval_base(CompiledBaseExpr const &base, TmplValue const &context) const;
+	TmplValue eval_base_operand(CompiledBaseExpr const &base, std::size_t index, TmplValue const &context) const;
+	TmplValue eval_base_object(CompiledBaseExpr const &base, TmplValue const &context) const;
+	TmplValue eval_base_binary_or(CompiledBaseExpr const &base, TmplValue const &context) const;
+	TmplValue eval_base_binary_and(CompiledBaseExpr const &base, TmplValue const &context) const;
+	TmplValue eval_base_compare(CompiledBaseExpr const &base, TmplValue const &context) const;
+	TmplValue eval_base_concat(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_path(std::vector<CompiledPathSegment> const &path, TmplValue const &context) const;
 	TmplValue apply_method(
 		std::string const &name,
