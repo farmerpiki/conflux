@@ -16,6 +16,7 @@ target_sources(conflux_tests
         http_static_e2e.cxx
         http_fields_test.cxx
         http_router_unit_test.cxx
+        http1_parser_test.cxx
         http_e2e_middleware.cxx
         http_e2e_observability.cxx
         http3_test.cxx
