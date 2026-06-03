@@ -12,7 +12,7 @@ import conflux.utils;
 
 export namespace conflux::http {
 
-using conflux::utils::random_bytes;
+using conflux::utils::fast_random_bytes;
 
 template<typename>
 class TraceCallback;
@@ -87,7 +87,7 @@ namespace tracing_detail {
 std::string gen_hex(
 	std::size_t nbytes) {
 	std::vector<unsigned char> buf(nbytes);
-	random_bytes(buf);
+	fast_random_bytes(buf);
 	static constexpr std::string_view kHex = "0123456789abcdef";
 	std::string out;
 	out.reserve(nbytes * 2);

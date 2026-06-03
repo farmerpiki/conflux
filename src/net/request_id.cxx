@@ -17,13 +17,11 @@ struct RequestIdOptions {
 };
 namespace request_id_detail {
 
-using conflux::utils::random_bytes;
+using conflux::utils::fast_random_bytes;
 
-// Generate a UUID v4 (random) as a hex std::string without dashes.
-// Uses /dev/urandom — no dependency on OpenSSL.
 std::string generate_uuid() {
 	std::array<unsigned char, 16> bytes{};
-	random_bytes(bytes);
+	fast_random_bytes(bytes);
 
 	// Set UUID v4 version and std::variant bits.
 	bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0F) | 0x40); // version 4

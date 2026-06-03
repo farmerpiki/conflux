@@ -52,7 +52,7 @@ class Xoshiro256ss {
 public:
 	Xoshiro256ss() {
 		// Seed from kernel CSPRNG. getrandom is non-blocking once initialized.
-		fill_from_getrandom(std::as_writable_bytes(std::span{s_}), "random_bytes: getrandom");
+		fill_from_getrandom(std::as_writable_bytes(std::span{s_}), "fast_random_bytes: getrandom");
 		if ((s_[0] | s_[1] | s_[2] | s_[3]) == 0) {
 			s_[0] = 0x9E3779B97F4A7C15ULL;
 		}
@@ -109,7 +109,7 @@ export void crypto_random_bytes(
 	std::span<unsigned char> out) {
 	utils_detail::fill_from_getrandom(std::as_writable_bytes(out), "crypto_random_bytes: getrandom");
 }
-export void random_bytes(
+export void fast_random_bytes(
 	std::span<unsigned char> out) {
 	static thread_local utils_detail::Xoshiro256ss rng{};
 	std::size_t i = 0;
