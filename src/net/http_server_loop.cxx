@@ -1081,81 +1081,78 @@ void Ring::handle_shutdown() {
 	arm_timer();
 }
 
-void Ring::handle_accept(
-	int res,
-	conflux::uring::CqeFlags flg) {
-	if (res < 0) {
-		HTTP_TRACE(
-			std::format(
-				"accept_err res={} direct={} recv_bundle={} mode={} more={}",
-				res,
-				accepted_sockets_direct,
-				use_recv_bundle,
-				buffer_ring_mode_name(buf_ring_->mode()),
-				cqe_has_more(flg)));
-		if (!shutting_down) {
-			queue_multishot_accept();
-		}
-		return;
-	}
-	if (shutting_down) {
-		{
-			std::scoped_lock lk{metrics_mu_};
-			++pressure_counters_.accept_rejected;
-		}
-		if (accepted_sockets_direct) {
-			auto const ud = pack(Op::DirectSlotClose, 0, res);
-			if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
-				if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(res))) {
-					conflux::utils::eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", res));
-				}
-			}
-			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
-				defer_op([this, res, ud] {
-					submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud);
-				});
-			}
-		} else {
-			auto const ud = pack(Op::Close, 0, res);
-			if (!submit_close(raw_, OsFd::from_os(res), ud)) {
-				defer_op([this, res, ud] { submit_close(raw_, OsFd::from_os(res), ud); });
-			}
-		}
-		if (!cqe_has_more(flg)
-			&& drain_control != nullptr
-			&& drain_control->active.load(std::memory_order_acquire)
-			&& !drain_control->options.stop_accepting) {
-			queue_multishot_accept();
-		}
-		return;
-	}
+void Ring::handle_accept_error(
+	[[maybe_unused]] int res,
+	[[maybe_unused]] conflux::uring::CqeFlags flg) {
 	HTTP_TRACE(
 		std::format(
-			"accept fd={} direct={} recv_bundle={} mode={} more={}",
+			"accept_err res={} direct={} recv_bundle={} mode={} more={}",
 			res,
 			accepted_sockets_direct,
 			use_recv_bundle,
 			buffer_ring_mode_name(buf_ring_->mode()),
 			cqe_has_more(flg)));
-	if (accepted_sockets_direct && direct_slots_) {
-		if (!direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
-			++accepted_direct_failures_;
-			conflux::utils::eprintln(
-				std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
-			accepted_sockets_direct = false;
-			submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
-			auto const ud = pack(Op::DirectSlotClose, 0, res);
-			if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud)) {
-				defer_op([this, res, ud] {
-					submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(res)), ud);
-				});
+	if (!shutting_down) {
+		queue_multishot_accept();
+	}
+}
+
+void Ring::reject_accepted_socket_during_shutdown(
+	int fd,
+	conflux::uring::CqeFlags flg) {
+	{
+		std::scoped_lock lk{metrics_mu_};
+		++pressure_counters_.accept_rejected;
+	}
+	if (accepted_sockets_direct) {
+		auto const ud = pack(Op::DirectSlotClose, 0, fd);
+		if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(fd))) {
+			if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
+				conflux::utils::eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", fd));
 			}
-			return;
+		}
+		if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+			defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
+		}
+	} else {
+		auto const ud = pack(Op::Close, 0, fd);
+		if (!submit_close(raw_, OsFd::from_os(fd), ud)) {
+			defer_op([this, fd, ud] { submit_close(raw_, OsFd::from_os(fd), ud); });
 		}
 	}
-	auto &conn = conn_for(res);
+	if (!cqe_has_more(flg)
+		&& drain_control != nullptr
+		&& drain_control->active.load(std::memory_order_acquire)
+		&& !drain_control->options.stop_accepting) {
+		queue_multishot_accept();
+	}
+}
+
+bool Ring::adopt_direct_accept_slot_or_disable(
+	int fd) {
+	if (!accepted_sockets_direct || !direct_slots_) {
+		return true;
+	}
+	if (direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(fd))) {
+		return true;
+	}
+	++accepted_direct_failures_;
+	conflux::utils::eprintln(
+		std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", fd));
+	accepted_sockets_direct = false;
+	submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
+	auto const ud = pack(Op::DirectSlotClose, 0, fd);
+	if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+		defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
+	}
+	return false;
+}
+
+void Ring::reset_accepted_connection(
+	int fd,
+	Conn &conn) {
 	++conn.gen;
-	conn.fd = res;
+	conn.fd = fd;
 	conn.recv_armed = false;
 	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
@@ -1181,20 +1178,28 @@ void Ring::handle_accept(
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
 	conn.last_activity = std::chrono::steady_clock::now();
+}
+
+void Ring::record_accepted_peer_address(
+	int fd,
+	Conn &conn) {
 	if (!accepted_sockets_direct) {
 		sockaddr_in6 peer_addr{};
 		socklen_t peer_len = sizeof(peer_addr);
-		if (::getpeername(res, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
+		if (::getpeername(fd, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
 			conn.remote_addr = conflux::utils::ip_to_string(peer_addr.sin6_addr);
 		} else {
 			conn.remote_addr.clear();
 		}
-	} else {
-		conn.remote_addr = conflux::utils::ip_to_string(client_addr.sin6_addr);
+		return;
 	}
+	conn.remote_addr = conflux::utils::ip_to_string(client_addr.sin6_addr);
+}
+
+void Ring::reset_connection_protocol_state(
+	Conn &conn) {
 	conn.is_tls = false;
 #if CONFLUX_HAS_TLS
-	// Free any SSL left by a prior tenant on this fd slot.
 	if (conn.ssl != nullptr) {
 		conn.ssl.reset();
 	}
@@ -1202,9 +1207,6 @@ void Ring::handle_accept(
 	conn.tls_send_pending.clear();
 	conn.tls_send_inflight.clear();
 	conn.tls_send_off = 0;
-	// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first std::byte".
-	// SSL_new() is deferred to phase1_copy_recv_bufs after the first-std::byte sniff.
-	// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
 	conn.tls_hs_done = (ssl_ctx != nullptr);
 	conn.tls_sending_response = false;
 	conn.tls_shutdown_after_send = false;
@@ -1226,19 +1228,59 @@ void Ring::handle_accept(
 	conn.h2_sse_stream_id = -1;
 	conn.h2_sse_pending_wait = false;
 #endif
+}
+
+void Ring::apply_accepted_socket_options(
+	int fd) {
 	if (!accepted_sockets_direct) {
-		::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
-		::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
+		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
+		::setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
 		if (busy_poll_us_ > 0) {
-			::setsockopt(res, SOL_SOCKET, SO_BUSY_POLL, &busy_poll_us_, sizeof busy_poll_us_);
+			::setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &busy_poll_us_, sizeof busy_poll_us_);
 		}
 		if (prefer_busy_poll_) {
-			::setsockopt(res, SOL_SOCKET, SO_PREFER_BUSY_POLL, &tcp_opt_one_, sizeof tcp_opt_one_);
+			::setsockopt(fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &tcp_opt_one_, sizeof tcp_opt_one_);
 		}
-		queue_multishot_recv(res);
-	} else {
-		queue_direct_accept_setup(res);
 	}
+}
+
+void Ring::arm_accepted_connection_recv(
+	int fd) {
+	if (!accepted_sockets_direct) {
+		queue_multishot_recv(fd);
+		return;
+	}
+	queue_direct_accept_setup(fd);
+}
+
+void Ring::handle_accept(
+	int res,
+	conflux::uring::CqeFlags flg) {
+	if (res < 0) {
+		handle_accept_error(res, flg);
+		return;
+	}
+	if (shutting_down) {
+		reject_accepted_socket_during_shutdown(res, flg);
+		return;
+	}
+	HTTP_TRACE(
+		std::format(
+			"accept fd={} direct={} recv_bundle={} mode={} more={}",
+			res,
+			accepted_sockets_direct,
+			use_recv_bundle,
+			buffer_ring_mode_name(buf_ring_->mode()),
+			cqe_has_more(flg)));
+	if (!adopt_direct_accept_slot_or_disable(res)) {
+		return;
+	}
+	auto &conn = conn_for(res);
+	reset_accepted_connection(res, conn);
+	record_accepted_peer_address(res, conn);
+	reset_connection_protocol_state(conn);
+	apply_accepted_socket_options(res);
+	arm_accepted_connection_recv(res);
 	if (!cqe_has_more(flg)) {
 		queue_multishot_accept();
 	}

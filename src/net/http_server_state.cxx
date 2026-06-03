@@ -681,6 +681,14 @@ struct Ring {
 	void arm_timer();
 	void handle_timer();
 	void handle_shutdown();
+	void handle_accept_error([[maybe_unused]] int res, [[maybe_unused]] conflux::uring::CqeFlags flg);
+	void reject_accepted_socket_during_shutdown(int fd, conflux::uring::CqeFlags flg);
+	[[nodiscard]] bool adopt_direct_accept_slot_or_disable(int fd);
+	void reset_accepted_connection(int fd, Conn &conn);
+	void record_accepted_peer_address(int fd, Conn &conn);
+	void reset_connection_protocol_state(Conn &conn);
+	void apply_accepted_socket_options(int fd);
+	void arm_accepted_connection_recv(int fd);
 	void handle_accept(int res, conflux::uring::CqeFlags flg);
 	void discard_recv_bufs(int res, conflux::uring::CqeFlags flags) noexcept;
 	void discard_recv_bufs(RecvComp &rc) noexcept;
