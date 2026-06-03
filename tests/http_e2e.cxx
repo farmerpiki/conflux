@@ -36,7 +36,6 @@ import conflux.net.http.static_files;
 import conflux.net.http_server;
 import conflux.net.ip_filter;
 import conflux.net.metrics;
-import conflux.net.openapi;
 import conflux.net.rate_limit;
 import conflux.net.redirect;
 import conflux.net.router;
