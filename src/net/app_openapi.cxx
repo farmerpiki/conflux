@@ -62,181 +62,265 @@ struct AppOpenApiRoute {
 	return "bearerAuth";
 }
 
-[[nodiscard]] std::string render_openapi_spec(
-	std::span<AppOpenApiRoute const> routes,
+} // namespace conflux::http::detail
+
+namespace {
+
+using conflux::http::detail::AppOpenApiRoute;
+using conflux::http::detail::json_string;
+using conflux::http::detail::openapi_auth_scheme_name;
+using conflux::http::detail::openapi_method_key;
+using conflux::http::detail::openapi_schema_for_path_type;
+using conflux::http::kHttpCreated;
+
+struct OpenApiAuthUsage {
+	bool bearer{};
+	bool basic{};
+};
+
+struct OpenApiRouteGroups {
+	std::vector<std::string_view> path_order;
+	std::map<std::string_view, std::vector<AppOpenApiRoute const *>> routes_by_path;
+};
+
+[[nodiscard]] OpenApiAuthUsage collect_openapi_auth_usage(
+	std::span<AppOpenApiRoute const> routes) {
+	auto usage = OpenApiAuthUsage{};
+	for (auto const &route: routes) {
+		if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
+			auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
+			if (scheme == "basic") {
+				usage.basic = true;
+			} else {
+				usage.bearer = true;
+			}
+		}
+	}
+	return usage;
+}
+
+[[nodiscard]] OpenApiRouteGroups collect_openapi_route_groups(
+	std::span<AppOpenApiRoute const> routes) {
+	auto groups = OpenApiRouteGroups{};
+	for (auto const &route: routes) {
+		auto [it, inserted] = groups.routes_by_path.try_emplace(route.path);
+		if (inserted) {
+			groups.path_order.push_back(route.path);
+		}
+		it->second.push_back(std::addressof(route));
+	}
+	return groups;
+}
+
+void append_openapi_info(
+	std::string &out,
 	std::string_view title,
 	std::string_view version) {
-	std::string out;
 	out += R"({"openapi":"3.0.0","info":{"title":)";
 	out += json_string(title);
 	out += R"(,"version":)";
 	out += json_string(version);
 	out += R"(})";
-	bool has_bearer_auth = false;
-	bool has_basic_auth = false;
-	for (auto const &route: routes) {
-		if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
-			auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
-			if (scheme == "basic") {
-				has_basic_auth = true;
-			} else {
-				has_bearer_auth = true;
-			}
-		}
+}
+
+void append_openapi_security_components(
+	std::string &out,
+	OpenApiAuthUsage usage) {
+	if (!usage.bearer && !usage.basic) {
+		return;
 	}
-	if (has_bearer_auth || has_basic_auth) {
-		out += R"(,"components":{"securitySchemes":{)";
-		bool first_scheme = true;
-		if (has_bearer_auth) {
-			out += R"("bearerAuth":{"type":"http","scheme":"bearer"})";
-			first_scheme = false;
+	out += R"(,"components":{"securitySchemes":{)";
+	auto first_scheme = true;
+	if (usage.bearer) {
+		out += R"("bearerAuth":{"type":"http","scheme":"bearer"})";
+		first_scheme = false;
+	}
+	if (usage.basic) {
+		if (!first_scheme) {
+			out += ',';
 		}
-		if (has_basic_auth) {
-			if (!first_scheme) {
+		out += R"("basicAuth":{"type":"http","scheme":"basic"})";
+	}
+	out += R"(}})";
+}
+
+void append_openapi_operation_metadata(
+	std::string &out,
+	AppOpenApiRoute const &route) {
+	if (!route.name.empty()) {
+		out += R"("operationId":)";
+		out += json_string(route.name);
+		out += ',';
+	}
+	if (!route.openapi_summary.empty()) {
+		out += R"("summary":)";
+		out += json_string(route.openapi_summary);
+		out += ',';
+	}
+	if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
+		auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
+		out += R"("security":[{)";
+		out += json_string(openapi_auth_scheme_name(scheme));
+		out += R"(:[]}])";
+		if (!route.bearer_token_policy.empty()) {
+			out += R"(,"x-bearer-token-policy":)";
+			out += json_string(route.bearer_token_policy);
+		}
+		out += ',';
+	}
+	if (route.timeout.count() != 0) {
+		out += R"("x-timeout-ms":)";
+		out += std::to_string(route.timeout.count());
+		out += ',';
+	}
+	if (!route.rate_limit.empty()) {
+		out += R"("x-rate-limit":)";
+		out += json_string(route.rate_limit);
+		out += ',';
+	}
+	if (route.max_body_size != 0) {
+		out += R"("x-max-body-size":)";
+		out += std::to_string(route.max_body_size);
+		out += ',';
+	}
+	if (route.middleware_count != 0) {
+		out += R"("x-middleware-count":)";
+		out += std::to_string(route.middleware_count);
+		out += ',';
+	}
+}
+
+void append_openapi_parameters(
+	std::string &out,
+	AppOpenApiRoute const &route) {
+	out += R"("parameters":[)";
+	for (std::size_t i = 0; i < route.path_params.size(); ++i) {
+		if (i != 0) {
+			out += ',';
+		}
+		out += R"({"name":)";
+		out += json_string(route.path_params[i]);
+		out += R"(,"in":"path","required":true,"schema":)";
+		if (auto const *types = route.path_param_types; types != nullptr) {
+			auto const type =
+				std::ranges::find(*types, route.path_params[i], &std::pair<std::string, std::string>::first);
+			if (type != types->end()) {
+				out += openapi_schema_for_path_type(type->second);
+			} else {
+				out += openapi_schema_for_path_type({});
+			}
+		} else {
+			out += openapi_schema_for_path_type({});
+		}
+		out += "}";
+	}
+	out += ']';
+}
+
+void append_openapi_request_body(
+	std::string &out,
+	AppOpenApiRoute const &route) {
+	if (route.consumes.empty()) {
+		return;
+	}
+	out += R"(,"requestBody":{"content":{)";
+	for (std::size_t i = 0; i < route.consumes.size(); ++i) {
+		if (i != 0) {
+			out += ',';
+		}
+		out += json_string(route.consumes[i]);
+		out += R"(:{"schema":)";
+		out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
+		out += "}";
+	}
+	out += "}}";
+}
+
+void append_openapi_responses(
+	std::string &out,
+	AppOpenApiRoute const &route) {
+	out += R"(,"responses":{)";
+	out += json_string(std::to_string(route.success_status));
+	out += R"(:{"description":)";
+	out += json_string(route.success_status == kHttpCreated ? "Created" : "OK");
+	if (!route.produces.empty()) {
+		out += R"(,"content":{)";
+		for (std::size_t i = 0; i < route.produces.size(); ++i) {
+			if (i != 0) {
 				out += ',';
 			}
-			out += R"("basicAuth":{"type":"http","scheme":"basic"})";
+			out += json_string(route.produces[i]);
+			out += R"(:{"schema":)";
+			out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
+			out += "}";
 		}
-		out += R"(}})";
+		out += "}";
 	}
+	out += "}";
+	if (route.problem_response) {
+		out +=
+			R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
+	}
+	if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
+		out += R"(,"401":{"description":"Unauthorized"})";
+	}
+	if (!route.rate_limit.empty()) {
+		out += R"(,"429":{"description":"Too Many Requests"})";
+	}
+	if (route.timeout.count() != 0) {
+		out += R"(,"504":{"description":"Gateway Timeout"})";
+	}
+	out += "}";
+}
+
+void append_openapi_operation(
+	std::string &out,
+	AppOpenApiRoute const &route) {
+	out += json_string(openapi_method_key(route.method));
+	out += ":{";
+	append_openapi_operation_metadata(out, route);
+	append_openapi_parameters(out, route);
+	append_openapi_request_body(out, route);
+	append_openapi_responses(out, route);
+	out += "}";
+}
+
+void append_openapi_paths(
+	std::string &out,
+	OpenApiRouteGroups const &groups) {
 	out += R"(,"paths":{)";
-	std::vector<std::string_view> path_order;
-	std::map<std::string_view, std::vector<AppOpenApiRoute const *>> routes_by_path;
-	for (auto const &route: routes) {
-		auto [it, inserted] = routes_by_path.try_emplace(route.path);
-		if (inserted) {
-			path_order.push_back(route.path);
-		}
-		it->second.push_back(std::addressof(route));
-	}
-	for (std::size_t path_index = 0; path_index < path_order.size(); ++path_index) {
-		auto const &path = path_order[path_index];
-		auto const &path_routes = routes_by_path.at(path);
+	for (std::size_t path_index = 0; path_index < groups.path_order.size(); ++path_index) {
+		auto const &path = groups.path_order[path_index];
+		auto const &path_routes = groups.routes_by_path.at(path);
 		if (path_index != 0) {
 			out += ',';
 		}
 		out += json_string(path);
 		out += ":{";
 		for (std::size_t route_index = 0; route_index < path_routes.size(); ++route_index) {
-			auto const &route = *path_routes[route_index];
 			if (route_index != 0) {
 				out += ',';
 			}
-			out += json_string(openapi_method_key(route.method));
-			out += ":{";
-			if (!route.name.empty()) {
-				out += R"("operationId":)";
-				out += json_string(route.name);
-				out += ',';
-			}
-			if (!route.openapi_summary.empty()) {
-				out += R"("summary":)";
-				out += json_string(route.openapi_summary);
-				out += ',';
-			}
-			if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
-				auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
-				out += R"("security":[{)";
-				out += json_string(openapi_auth_scheme_name(scheme));
-				out += R"(:[]}])";
-				if (!route.bearer_token_policy.empty()) {
-					out += R"(,"x-bearer-token-policy":)";
-					out += json_string(route.bearer_token_policy);
-				}
-				out += ',';
-			}
-			if (route.timeout.count() != 0) {
-				out += R"("x-timeout-ms":)";
-				out += std::to_string(route.timeout.count());
-				out += ',';
-			}
-			if (!route.rate_limit.empty()) {
-				out += R"("x-rate-limit":)";
-				out += json_string(route.rate_limit);
-				out += ',';
-			}
-			if (route.max_body_size != 0) {
-				out += R"("x-max-body-size":)";
-				out += std::to_string(route.max_body_size);
-				out += ',';
-			}
-			if (route.middleware_count != 0) {
-				out += R"("x-middleware-count":)";
-				out += std::to_string(route.middleware_count);
-				out += ',';
-			}
-			out += R"("parameters":[)";
-			for (std::size_t i = 0; i < route.path_params.size(); ++i) {
-				if (i != 0) {
-					out += ',';
-				}
-				out += R"({"name":)";
-				out += json_string(route.path_params[i]);
-				out += R"(,"in":"path","required":true,"schema":)";
-				if (auto const *types = route.path_param_types; types != nullptr) {
-					auto const type =
-						std::ranges::find(*types, route.path_params[i], &std::pair<std::string, std::string>::first);
-					if (type != types->end()) {
-						out += openapi_schema_for_path_type(type->second);
-					} else {
-						out += openapi_schema_for_path_type({});
-					}
-				} else {
-					out += openapi_schema_for_path_type({});
-				}
-				out += "}";
-			}
-			out += ']';
-			if (!route.consumes.empty()) {
-				out += R"(,"requestBody":{"content":{)";
-				for (std::size_t i = 0; i < route.consumes.size(); ++i) {
-					if (i != 0) {
-						out += ',';
-					}
-					out += json_string(route.consumes[i]);
-					out += R"(:{"schema":)";
-					out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
-					out += "}";
-				}
-				out += "}}";
-			}
-			out += R"(,"responses":{)";
-			out += json_string(std::to_string(route.success_status));
-			out += R"(:{"description":)";
-			out += json_string(route.success_status == kHttpCreated ? "Created" : "OK");
-			if (!route.produces.empty()) {
-				out += R"(,"content":{)";
-				for (std::size_t i = 0; i < route.produces.size(); ++i) {
-					if (i != 0) {
-						out += ',';
-					}
-					out += json_string(route.produces[i]);
-					out += R"(:{"schema":)";
-					out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
-					out += "}";
-				}
-				out += "}";
-			}
-			out += "}";
-			if (route.problem_response) {
-				out +=
-					R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";
-			}
-			if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
-				out += R"(,"401":{"description":"Unauthorized"})";
-			}
-			if (!route.rate_limit.empty()) {
-				out += R"(,"429":{"description":"Too Many Requests"})";
-			}
-			if (route.timeout.count() != 0) {
-				out += R"(,"504":{"description":"Gateway Timeout"})";
-			}
-			out += "}";
-			out += "}";
+			append_openapi_operation(out, *path_routes[route_index]);
 		}
 		out += "}";
 	}
-	out += "}}";
+	out += "}";
+}
+
+} // namespace
+
+export namespace conflux::http::detail {
+
+[[nodiscard]] std::string render_openapi_spec(
+	std::span<AppOpenApiRoute const> routes,
+	std::string_view title,
+	std::string_view version) {
+	std::string out;
+	append_openapi_info(out, title, version);
+	append_openapi_security_components(out, collect_openapi_auth_usage(routes));
+	append_openapi_paths(out, collect_openapi_route_groups(routes));
+	out += "}";
 	return out;
 }
 
