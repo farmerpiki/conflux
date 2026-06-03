@@ -2485,6 +2485,7 @@ def check_release_artifact_staging_contract() -> None:
         "--feature-set": "release artifact staging must expose an explicit feature-set",
         'CONFLUX_FEATURE_SET="$feature_set"': "release artifact staging explicit build path must pass the selected feature-set",
         "module-header-bridge-manifest.json": "release artifact staging must include the bridge manifest",
+        "CMakePresets.json": "release artifact staging must include CMake presets",
         "CHANGELOG.md": "release artifact staging must include the changelog",
         "RELEASE_POLICY.md": "release artifact staging must include release policy",
         "SECURITY.md": "release artifact staging must include security policy",
@@ -2493,6 +2494,7 @@ def check_release_artifact_staging_contract() -> None:
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
+        'stage / "source" / "CMakePresets.json"': "release artifact guard must require CMake presets",
         'stage / "source" / "CHANGELOG.md"': "release artifact guard must require the changelog",
         'stage / "source" / "RELEASE_POLICY.md"': "release artifact guard must require release policy",
         'stage / "source" / "SECURITY.md"': "release artifact guard must require security policy",

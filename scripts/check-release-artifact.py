@@ -36,6 +36,7 @@ def main(argv: list[str]) -> int:
 
     required = [
         stage / "source" / "CMakeLists.txt",
+        stage / "source" / "CMakePresets.json",
         stage / "source" / "CHANGELOG.md",
         stage / "source" / "LICENSE",
         stage / "source" / "README.md",

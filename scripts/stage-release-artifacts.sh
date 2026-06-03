@@ -101,6 +101,7 @@ cmake --install "$build_dir" --prefix "$stage_dir/install"
 mkdir -p "$stage_dir/source" "$stage_dir/artifacts"
 tar -C "$root" -cf - \
     CMakeLists.txt \
+    CMakePresets.json \
     CHANGELOG.md \
     LICENSE \
     NOTICE \
