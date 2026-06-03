@@ -2494,6 +2494,7 @@ def check_release_artifact_staging_contract() -> None:
         "source_generated_header_artifact=source/include/conflux": "release artifact manifest must record source generated headers",
     }
     source_archive = read("scripts/check-release-source-archive.sh")
+    generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
     source_required = {
         "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
         "stage-release-artifacts.sh": "source archive check must stage the release artifact it validates",
@@ -2501,8 +2502,17 @@ def check_release_artifact_staging_contract() -> None:
         "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
         "source_generated_header_artifact=source/include/conflux": "source archive check must require source generated-header manifest metadata",
     }
+    generated_headers_required = {
+        "check-release-generated-headers-policy": "release artifact checks must include a generated headers policy entrypoint",
+        "stage-release-artifacts.sh": "generated headers policy must stage the release artifact it validates",
+        'diff -qr "$install_include" "$source_include"': "generated headers policy must keep source and install include trees identical",
+        "module_header_bridge.py; do not edit by hand": "generated headers policy must require bridge-generated headers",
+        "generated_header_artifact=install/include/conflux": "generated headers policy must require install generated-header manifest metadata",
+        "source_generated_header_artifact=source/include/conflux": "generated headers policy must require source generated-header manifest metadata",
+    }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
+    missing.extend(message for marker, message in generated_headers_required.items() if marker not in generated_headers_policy)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
         'stage / "source" / "CMakePresets.json"': "release artifact guard must require CMake presets",
