@@ -27,6 +27,7 @@ target_sources(conflux_json
         ${CONFLUX_SRC_ROOT}/json_dump.cxx
         ${CONFLUX_SRC_ROOT}/json_parse.cxx
         ${CONFLUX_SRC_ROOT}/json_builder.cxx
+        ${CONFLUX_SRC_ROOT}/json_patch.cxx
         ${CONFLUX_SRC_ROOT}/json_stream.cxx
 )
 target_link_libraries(conflux_json
