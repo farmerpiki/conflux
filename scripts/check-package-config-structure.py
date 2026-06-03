@@ -179,6 +179,10 @@ def package_smoke_runner_cache_variables(text: str) -> set[str]:
     return set(re.findall(r"-D(CONFLUX_PACKAGE_SMOKE_[A-Z0-9_]+)=", text))
 
 
+def package_smoke_component_branches(text: str) -> set[str]:
+    return set(re.findall(r"_component STREQUAL \"([A-Za-z0-9_]+)\"", text))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1857,6 +1861,18 @@ def check_package_smoke_project_contract() -> None:
     component_smokes = read("cmake/package-smoke/ComponentSmokes.cmake")
     if "import conflux.features;" in component_smokes:
         fail("narrow component package smokes must not import the aggregate conflux.features module")
+    default_components = {
+        component
+        for components in package_smoke_wrapper_default_components().values()
+        for component in components.split(";")
+        if component
+    }
+    missing_component_smokes = sorted(default_components - package_smoke_component_branches(component_smokes))
+    if missing_component_smokes:
+        fail(
+            "package smoke default wrapper components missing component smoke branches: "
+            + ";".join(missing_component_smokes),
+        )
 
 
 def check_package_smoke_runner_contract() -> None:
