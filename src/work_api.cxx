@@ -79,6 +79,19 @@ public:
 	virtual ~QueueTarget() = default;
 	virtual bool enqueue(::conflux::detail::small_move_only_function<void()> job) = 0;
 };
+template<typename Target, typename TaskSource>
+void set_async_enqueue_rejected(
+	Target const &target,
+	std::shared_ptr<TaskSource> const &src) {
+	using namespace conflux::work::root;
+	if constexpr (requires { target.stopped(); }) {
+		if (target.stopped()) {
+			auto _ = src->try_set_cancelled(work_errc::cancelled_shutdown);
+			return;
+		}
+	}
+	auto _ = src->try_set_exception(std::make_exception_ptr(WorkError{"work enqueue rejected"}));
+}
 // Vyukov-style MPMC bounded ring buffer, lock-free. Capacity rounded up to
 // next power-of-2 at construction. try_push/try_pop are noexcept because item
 // move-assign is noexcept for all WorkPool queue payloads.
@@ -489,7 +502,7 @@ export template<typename Target, typename Fn>
 		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	};
 	if (!target.enqueue(std::move(job))) {
-		auto _ = shared_src->try_set_cancelled(work_errc::cancelled_requested);
+		work_detail::set_async_enqueue_rejected(target, shared_src);
 	}
 	return std::move(task);
 }
@@ -520,7 +533,7 @@ export template<typename Target, typename Fn>
 		}
 	};
 	if (!target.enqueue(std::move(job))) {
-		auto _ = shared_src->try_set_cancelled(work_errc::cancelled_requested);
+		work_detail::set_async_enqueue_rejected(target, shared_src);
 	}
 	return std::move(task);
 }

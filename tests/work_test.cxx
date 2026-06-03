@@ -18,6 +18,14 @@ using conflux::work::sync_wait;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;
 using conflux::work::WorkPoolQueueMode;
+struct RejectingQueueTarget {
+	template<class Job>
+	bool enqueue(
+		Job &&) {
+		return false;
+	}
+	[[nodiscard]] bool stopped() const noexcept { return false; }
+};
 TEST_CASE(
 	"work: async_run_on executes callable on pool",
 	"[work]") {
@@ -55,6 +63,25 @@ TEST_CASE(
 		sync_wait(async_run_on(pool, [] { return 99; }));
 	} catch (Cancelled const &) { cancelled = true; }
 	CHECK(cancelled);
+}
+TEST_CASE(
+	"work: async_run_on stopped pool reports shutdown cancellation",
+	"[work]") {
+	WorkPool pool;
+	pool.stop();
+	auto task = async_run_on(pool, [] { return 99; });
+	auto out = root::blocking_join(std::move(task));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
+}
+TEST_CASE(
+	"work: async_run_on non-stopped rejection reports enqueue failure",
+	"[work]") {
+	RejectingQueueTarget target;
+	auto rejected = async_run_on(target, [] { return 2; });
+	auto rejected_out = root::blocking_join(std::move(rejected));
+	REQUIRE(rejected_out.is_failure());
+	CHECK_THROWS_AS(std::rethrow_exception(rejected_out.failure().error), root::WorkError);
 }
 TEST_CASE(
 	"work: async_run_cancellable_on executes callable on pool",

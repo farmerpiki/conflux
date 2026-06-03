@@ -599,6 +599,9 @@ Raw jobs submitted through `enqueue()` must not throw unless
 the sink receives the `std::exception_ptr`; exceptions thrown by the sink are
 suppressed. `async_run_on(pool, fn)` does not use this sink for normal callable
 failures because it reports them through the returned task.
+If async submission is rejected before the callable is queued, a stopped target
+reports shutdown cancellation and a capacity/wake rejection reports a
+`root::WorkError` failure through the returned task.
 
 Blocking waits are not assisted by `WorkPool`. A job running on a pool worker
 must not synchronously wait for other work that is queued only to the same pool,
