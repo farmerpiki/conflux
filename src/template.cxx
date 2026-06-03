@@ -336,6 +336,8 @@ std::vector<std::string> split_args(std::string_view s);
 CompiledExpr compile_expr(std::string const &expr);
 TmplValue node_to_tmpl(json::NodeRef n);
 TmplValue const *obj_find(TmplValue const &obj, std::string_view key);
+std::string str_replace_all(std::string_view src, std::string_view old_s, std::string_view new_s);
+std::string str_capitalize(std::string s);
 std::vector<std::pair<std::string, std::optional<TmplValue>>>
 save_scope(TmplValue const &ctx, std::span<std::string const> names);
 void restore_scope(TmplValue &ctx, std::vector<std::pair<std::string, std::optional<TmplValue>>> const &saved);
