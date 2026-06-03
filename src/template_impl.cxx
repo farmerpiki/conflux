@@ -1009,6 +1009,28 @@ TmplValue slice_template_string(
 		static_cast<std::size_t>(start),
 		static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))}};
 }
+std::optional<TmplValue> lookup_template_index(
+	TmplValue const &value,
+	TmplValue const &index) {
+	if (value.is_array() && index.is_int()) {
+		auto idx = index.as<std::int64_t>();
+		auto const &arr = value.as_array();
+		if (idx < 0) {
+			idx += static_cast<std::int64_t>(arr.size());
+		}
+		if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
+			return arr[static_cast<std::size_t>(idx)];
+		}
+		return std::nullopt;
+	}
+	if (value.is_object() && index.is_string()) {
+		auto const *found = obj_find(value, index.as<std::string_view>());
+		if (found) {
+			return *found;
+		}
+	}
+	return std::nullopt;
+}
 TmplValue Environment::Impl::eval_path(
 	std::vector<CompiledPathSegment> const &path,
 	TmplValue const &context) const {
@@ -1036,26 +1058,11 @@ TmplValue Environment::Impl::eval_path(
 		case CompiledPathSegmentKind::index:
 			{
 				auto idx_val = seg.expr ? eval_expr(*seg.expr, context) : TmplValue{};
-				if (cur->is_array() && idx_val.is_int()) {
-					auto idx = idx_val.as<std::int64_t>();
-					auto const &arr = cur->as_array();
-					if (idx < 0) {
-						idx += static_cast<std::int64_t>(arr.size());
-					}
-					if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
-						set_owned(arr[static_cast<std::size_t>(idx)]);
-					} else {
-						return {};
-					}
-				} else if (cur->is_object() && idx_val.is_string()) {
-					auto const *found = obj_find(*cur, idx_val.as<std::string_view>());
-					if (!found) {
-						return {};
-					}
-					set_owned(*found);
-				} else {
+				auto found = lookup_template_index(*cur, idx_val);
+				if (!found) {
 					return {};
 				}
+				set_owned(std::move(*found));
 				break;
 			}
 		case CompiledPathSegmentKind::slice:
@@ -1398,27 +1405,11 @@ TmplValue Environment::Impl::eval_legacy_base(
 					continue;
 				}
 				auto idx_val = eval_expr(std::string{idx_str}, context);
-				if (cur->is_array() && idx_val.is_int()) {
-					auto idx = idx_val.as<std::int64_t>();
-					auto const &arr = cur->as_array();
-					if (idx < 0) {
-						idx += static_cast<std::int64_t>(arr.size());
-					}
-					if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
-						set_owned(arr[static_cast<std::size_t>(idx)]);
-					} else {
-						return {};
-					}
-				} else if (cur->is_object() && idx_val.is_string()) {
-					auto const *found = obj_find(*cur, idx_val.as<std::string_view>());
-					if (found) {
-						set_owned(*found);
-					} else {
-						return {};
-					}
-				} else {
+				auto found = lookup_template_index(*cur, idx_val);
+				if (!found) {
 					return {};
 				}
+				set_owned(std::move(*found));
 				remaining = remaining.substr(close + 1);
 				if (!remaining.empty() && remaining[0] == '.') {
 					remaining = remaining.substr(1);
