@@ -64,4 +64,11 @@ cmake -S "$bootstrap_source" -B "$module_build" -G Ninja \
     -DCONFLUX_POSTGRES_PROVIDER=OFF
 cmake --build "$module_build"
 
+for build_dir in "$header_build" "$module_build" "$package_smoke_build"; do
+    if [[ -d "$build_dir/_deps" ]]; then
+        printf 'check-release-artifact-bootstrap: unexpected FetchContent _deps directory in %s\n' "$build_dir" >&2
+        exit 1
+    fi
+done
+
 printf 'check-release-artifact-bootstrap: ok (%s)\n' "$bootstrap_source"

@@ -2717,6 +2717,7 @@ def check_release_artifact_staging_contract() -> None:
         '-DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$sku_components"': "bootstrap check must run an installed package smoke for the selected SKU",
         '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS=': "bootstrap check must assert unrelated provider deps stay out",
         'ctest --test-dir "$package_smoke_build" --output-on-failure': "bootstrap check must run installed package smoke tests",
+        '[[ -d "$build_dir/_deps" ]]': "bootstrap check must reject FetchContent outputs",
     }
     offline_bootstrap_required = {
         "check-release-offline-bootstrap": "release artifact checks must include an offline bootstrap entrypoint",
