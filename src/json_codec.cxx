@@ -2154,6 +2154,263 @@ template<ParseMode Mode, class T>
 }
 
 template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_tuple_like_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_pair_v<T>) {
+		using FA = typename T::first_type;
+		using FB = typename T::second_type;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		T result;
+		{
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in pair"});
+			}
+			auto v = decode_from_event<Mode, FA>(r, **ne, opts, scratch);
+			if (!v) {
+				return std::unexpected(std::move(v).error());
+			}
+			result.first = std::move(*v);
+		}
+		{
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in pair"});
+			}
+			auto v = decode_from_event<Mode, FB>(r, **ne, opts, scratch);
+			if (!v) {
+				return std::unexpected(std::move(v).error());
+			}
+			result.second = std::move(*v);
+		}
+		{
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne || **ne != Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "std::expected pair of length 2"});
+			}
+		}
+		return result;
+	} else if constexpr (is_tuple_of_v<T>) {
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		T result;
+		bool ok = true;
+		JsonError first_err;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			(([&]() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto ne = r.next_impl<Mode>();
+				 if (!ne) {
+					 ok = false;
+					 first_err = std::move(ne).error();
+					 return;
+				 }
+				 if (!*ne) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::unexpected_eof,
+						 .message = "EOF in tuple"};
+					 return;
+				 }
+				 if (**ne == Ev::end_array) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::invalid_value,
+						 .message = std::format("std::expected tuple of length {}", N)};
+					 return;
+				 }
+				 using E = std::tuple_element_t<Is, T>;
+				 auto v = decode_from_event<Mode, E>(r, **ne, opts, scratch);
+				 if (!v) {
+					 ok = false;
+					 first_err = std::move(v).error();
+					 return;
+				 }
+				 get<Is>(result) = std::move(*v);
+			 })(),
+			 ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return std::unexpected(std::move(first_err));
+		}
+		auto ne = r.next_impl<Mode>();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("std::expected tuple of length {}", N)});
+		}
+		return result;
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_tuple_like_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_pair_v<T>) {
+		using FA = typename T::first_type;
+		using FB = typename T::second_type;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		{
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne || **ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "std::expected pair of length 2"});
+			}
+			auto decoded = decode_into<Mode, FA>(out.first, r, **ne, opts, scratch);
+			if (!decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+		{
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne || **ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "std::expected pair of length 2"});
+			}
+			auto decoded = decode_into<Mode, FB>(out.second, r, **ne, opts, scratch);
+			if (!decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+		auto ne = r.next_impl<Mode>();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = "std::expected pair of length 2"});
+		}
+		return {};
+	} else if constexpr (is_tuple_of_v<T>) {
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		bool ok = true;
+		JsonError first_err;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			(([&]() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto ne = r.next_impl<Mode>();
+				 if (!ne) {
+					 ok = false;
+					 first_err = std::move(ne).error();
+					 return;
+				 }
+				 if (!*ne || **ne == Ev::end_array) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::invalid_value,
+						 .message = std::format("std::expected tuple of length {}", N)};
+					 return;
+				 }
+				 using E = std::tuple_element_t<Is, T>;
+				 auto decoded = decode_into<Mode, E>(get<Is>(out), r, **ne, opts, scratch);
+				 if (!decoded) {
+					 ok = false;
+					 first_err = std::move(decoded).error();
+				 }
+			 })(),
+			 ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return std::unexpected(std::move(first_err));
+		}
+		auto ne = r.next_impl<Mode>();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("std::expected tuple of length {}", N)});
+		}
+		return {};
+	}
+}
+
+template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_members_from_event_into(
 	T &result,
 	JsonReader &r,
@@ -2861,132 +3118,8 @@ std::expected<T, JsonError> decode_from_event(
 		return decode_optional_like_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_vector_of_v<T> || is_std_array_v<T>) {
 		return decode_sequence_from_event<Mode, T>(r, ev, opts, scratch);
-	} else if constexpr (is_pair_v<T>) {
-		using FA = typename T::first_type;
-		using FB = typename T::second_type;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		T result;
-		{
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in pair"});
-			}
-			auto v = decode_from_event<Mode, FA>(r, **ne, opts, scratch);
-			if (!v) {
-				return std::unexpected(std::move(v).error());
-			}
-			result.first = std::move(*v);
-		}
-		{
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in pair"});
-			}
-			auto v = decode_from_event<Mode, FB>(r, **ne, opts, scratch);
-			if (!v) {
-				return std::unexpected(std::move(v).error());
-			}
-			result.second = std::move(*v);
-		}
-		{
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne || **ne != Ev::end_array) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.message = "std::expected pair of length 2"});
-			}
-		}
-		return result;
-	} else if constexpr (is_tuple_of_v<T>) {
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		T result;
-		bool ok = true;
-		JsonError first_err;
-		constexpr std::size_t N = std::tuple_size_v<T>;
-		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
-			(([&]() {
-				 if (!ok) {
-					 return;
-				 }
-				 auto ne = r.next_impl<Mode>();
-				 if (!ne) {
-					 ok = false;
-					 first_err = std::move(ne).error();
-					 return;
-				 }
-				 if (!*ne) {
-					 ok = false;
-					 first_err = JsonError{
-						 .stage = JsonStage::decode,
-						 .code = JsonIssueCode::unexpected_eof,
-						 .message = "EOF in tuple"};
-					 return;
-				 }
-				 if (**ne == Ev::end_array) {
-					 ok = false;
-					 first_err = JsonError{
-						 .stage = JsonStage::decode,
-						 .code = JsonIssueCode::invalid_value,
-						 .message = std::format("std::expected tuple of length {}", N)};
-					 return;
-				 }
-				 using E = std::tuple_element_t<Is, T>;
-				 auto v = decode_from_event<Mode, E>(r, **ne, opts, scratch);
-				 if (!v) {
-					 ok = false;
-					 first_err = std::move(v).error();
-					 return;
-				 }
-				 get<Is>(result) = std::move(*v);
-			 })(),
-			 ...);
-		}(std::make_index_sequence<N>{});
-		if (!ok) {
-			return std::unexpected(std::move(first_err));
-		}
-		auto ne = r.next_impl<Mode>();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
-		}
-		if (!*ne || **ne != Ev::end_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.message = std::format("std::expected tuple of length {}", N)});
-		}
-		return result;
+	} else if constexpr (is_pair_v<T> || is_tuple_of_v<T>) {
+		return decode_tuple_like_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		if (ev != Ev::begin_object) {
 			return std::unexpected(
@@ -3052,116 +3185,8 @@ std::expected<void, JsonError> decode_into(
 		return decode_optional_like_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_vector_of_v<T> || is_std_array_v<T>) {
 		return decode_sequence_into<Mode, T>(out, r, ev, opts, scratch);
-	} else if constexpr (is_pair_v<T>) {
-		using FA = typename T::first_type;
-		using FB = typename T::second_type;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		{
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne || **ne == Ev::end_array) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.message = "std::expected pair of length 2"});
-			}
-			auto decoded = decode_into<Mode, FA>(out.first, r, **ne, opts, scratch);
-			if (!decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-		}
-		{
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne || **ne == Ev::end_array) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.message = "std::expected pair of length 2"});
-			}
-			auto decoded = decode_into<Mode, FB>(out.second, r, **ne, opts, scratch);
-			if (!decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-		}
-		auto ne = r.next_impl<Mode>();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
-		}
-		if (!*ne || **ne != Ev::end_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.message = "std::expected pair of length 2"});
-		}
-		return {};
-	} else if constexpr (is_tuple_of_v<T>) {
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		bool ok = true;
-		JsonError first_err;
-		constexpr std::size_t N = std::tuple_size_v<T>;
-		[&]<std::size_t... Is>(std::index_sequence<Is...>) {
-			(([&]() {
-				 if (!ok) {
-					 return;
-				 }
-				 auto ne = r.next_impl<Mode>();
-				 if (!ne) {
-					 ok = false;
-					 first_err = std::move(ne).error();
-					 return;
-				 }
-				 if (!*ne || **ne == Ev::end_array) {
-					 ok = false;
-					 first_err = JsonError{
-						 .stage = JsonStage::decode,
-						 .code = JsonIssueCode::invalid_value,
-						 .message = std::format("std::expected tuple of length {}", N)};
-					 return;
-				 }
-				 using E = std::tuple_element_t<Is, T>;
-				 auto decoded = decode_into<Mode, E>(get<Is>(out), r, **ne, opts, scratch);
-				 if (!decoded) {
-					 ok = false;
-					 first_err = std::move(decoded).error();
-				 }
-			 })(),
-			 ...);
-		}(std::make_index_sequence<N>{});
-		if (!ok) {
-			return std::unexpected(std::move(first_err));
-		}
-		auto ne = r.next_impl<Mode>();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
-		}
-		if (!*ne || **ne != Ev::end_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.message = std::format("std::expected tuple of length {}", N)});
-		}
-		return {};
+	} else if constexpr (is_pair_v<T> || is_tuple_of_v<T>) {
+		return decode_tuple_like_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
 		if (ev != Ev::begin_object) {
 			return std::unexpected(
