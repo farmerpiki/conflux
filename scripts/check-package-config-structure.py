@@ -709,9 +709,7 @@ def check_install_smoke_presets() -> None:
     public_components = public_component_exports_from_registry()
     required = [
         "release-core-install-smoke",
-        "release-json-install-smoke",
-        "release-http-api-install-smoke",
-        "release-web-server-install-smoke",
+        *(f"{sku_name}-install-smoke" for sku_name in sorted(release_skus)),
         "release-header-artifacts-install-smoke",
     ]
     errors: list[str] = []
