@@ -256,6 +256,20 @@ struct PreparedSpawnImage {
 // pipe_fds: if kind==Piped, filled with pipe2(); returns pipe_fds[read_end] for stdin, [write_end] for out/err.
 // parent_fd: set to the parent's end of the pipe.
 using PipeFds = std::array<int, 2>;
+
+struct SpawnStdioPlan {
+	PipeFds in_pipe{-1, -1};
+	PipeFds out_pipe{-1, -1};
+	PipeFds err_pipe{-1, -1};
+	int parent_in{-1};
+	int parent_out{-1};
+	int parent_err{-1};
+	int child_in{-1};
+	int child_out{-1};
+	int child_err{-1};
+	std::error_code error{};
+};
+
 int setup_stdio(
 	Stdio const &s,
 	bool is_stdin,
@@ -289,6 +303,22 @@ void close_stdio_pipes(
 			::close(pipe->back());
 		}
 	}
+}
+
+[[nodiscard]] SpawnStdioPlan prepare_spawn_stdio(
+	SpawnOptions const &opts) {
+	SpawnStdioPlan stdio;
+	stdio.child_in = setup_stdio(opts.stdin_, true, stdio.in_pipe, stdio.parent_in);
+	stdio.child_out = setup_stdio(opts.stdout_, false, stdio.out_pipe, stdio.parent_out);
+	stdio.child_err = setup_stdio(opts.stderr_, false, stdio.err_pipe, stdio.parent_err);
+
+	if (stdio.child_in == -3 || stdio.child_out == -3 || stdio.child_err == -3) {
+		auto const err = errno;
+		close_stdio_pipes(stdio.in_pipe, stdio.out_pipe, stdio.err_pipe);
+		stdio.error = std::error_code{err, std::system_category()};
+	}
+
+	return stdio;
 }
 
 // Child-side: set up one stdio fd (called between fork/exec; async-signal-safe only).
@@ -463,29 +493,15 @@ export std::expected<Process, std::error_code> spawn_clone(
 	std::uint64_t clone_flags) {
 	auto image = prepare_spawn_image(exe, args, opts);
 
-	// Set up stdio pipes.
-	PipeFds in_pipe{-1, -1};
-	PipeFds out_pipe{-1, -1};
-	PipeFds err_pipe{-1, -1};
-	int parent_in = -1;
-	int parent_out = -1;
-	int parent_err = -1;
-
-	int const child_in = setup_stdio(opts.stdin_, true, in_pipe, parent_in);
-	int const child_out = setup_stdio(opts.stdout_, false, out_pipe, parent_out);
-	int const child_err = setup_stdio(opts.stderr_, false, err_pipe, parent_err);
-
-	if (child_in == -3 || child_out == -3 || child_err == -3) {
-		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
-		return std::unexpected{
-			std::error_code{errno, std::system_category()}
-        };
+	auto stdio = prepare_spawn_stdio(opts);
+	if (stdio.error) {
+		return std::unexpected{stdio.error};
 	}
 
 	// Error-reporting pipe: child writes errno if exec fails; parent detects success via EOF.
 	PipeFds exec_err_pipe{-1, -1};
 	if (::pipe2(exec_err_pipe.data(), O_CLOEXEC) < 0) {
-		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
+		close_stdio_pipes(stdio.in_pipe, stdio.out_pipe, stdio.err_pipe);
 		return std::unexpected{
 			std::error_code{errno, std::system_category()}
         };
@@ -499,7 +515,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg,google-runtime-int)
 	if (pid < 0) {
 		int const err = errno;
-		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
+		close_stdio_pipes(stdio.in_pipe, stdio.out_pipe, stdio.err_pipe);
 		::close(exec_err_pipe[0]);
 		::close(exec_err_pipe[1]);
 		return std::unexpected{
@@ -513,14 +529,22 @@ export std::expected<Process, std::error_code> spawn_clone(
 			opts,
 			image.argv_ptrs,
 			image.envp_ptrs,
-			child_in,
-			child_out,
-			child_err,
+			stdio.child_in,
+			stdio.child_out,
+			stdio.child_err,
 			exec_err_pipe);
 	}
 
 	// ---- PARENT ----
-	return finish_parent_spawn(pid, in_pipe, out_pipe, err_pipe, exec_err_pipe, parent_in, parent_out, parent_err);
+	return finish_parent_spawn(
+		pid,
+		stdio.in_pipe,
+		stdio.out_pipe,
+		stdio.err_pipe,
+		exec_err_pipe,
+		stdio.parent_in,
+		stdio.parent_out,
+		stdio.parent_err);
 }
 // ---------------------------------------------------------------------------
 // spawn — convenience wrapper with default clone flags
