@@ -135,6 +135,7 @@ fi
     printf 'primary_interface=MODULE_INTERFACE\n'
     printf 'feature_set=%s\n' "$feature_set"
     printf 'generated_header_artifact=install/include/conflux\n'
+    printf 'source_generated_header_artifact=source/include/conflux\n'
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"
 } > "$stage_dir/release-artifact-manifest.txt"

@@ -2491,6 +2491,7 @@ def check_release_artifact_staging_contract() -> None:
         "SECURITY.md": "release artifact staging must include security policy",
         "SUPPORT.md": "release artifact staging must include support policy",
         '"$stage_dir/source/include"': "release artifact staging must include generated public headers in the source tree",
+        "source_generated_header_artifact=source/include/conflux": "release artifact manifest must record source generated headers",
     }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     guard_required = {
@@ -2502,6 +2503,7 @@ def check_release_artifact_staging_contract() -> None:
         'stage / "source" / "SUPPORT.md"': "release artifact guard must require support policy",
         'stage / "source" / "include" / "conflux" / "json.hxx"': "release artifact guard must require generated JSON headers in source artifacts",
         'stage / "source" / "include" / "conflux" / "features.hxx"': "release artifact guard must require generated feature headers in source artifacts",
+        "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)
     if missing:

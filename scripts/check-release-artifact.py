@@ -59,6 +59,8 @@ def main(argv: list[str]) -> int:
     release_manifest = read_manifest(stage / "release-artifact-manifest.txt")
     if release_manifest.get("feature_set") != "release-json":
         fail("release artifact must be staged with feature_set=release-json")
+    if release_manifest.get("source_generated_header_artifact") != "source/include/conflux":
+        fail("release artifact must record source/include/conflux generated headers")
 
     manifest_path = stage / "artifacts" / "module-header-bridge-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
