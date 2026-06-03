@@ -21,13 +21,17 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_types
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_parse_helpers
     PUBLIC  conflux_http_response
     PUBLIC  conflux_json
     PUBLIC  conflux_json_boundary
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_router_match
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_server
+    PUBLIC  conflux_crypto
+    PUBLIC  conflux_uring
     PUBLIC  conflux_work
     PUBLIC  conflux_utils
 )

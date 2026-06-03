@@ -1,3 +1,8 @@
+module;
+
+#include <memory>
+#include <mutex>
+
 export module conflux.work.root:tasks;
 
 import std;

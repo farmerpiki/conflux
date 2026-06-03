@@ -14,8 +14,11 @@ target_link_libraries(conflux_net_http
     PRIVATE conflux_options
     PUBLIC conflux_types
     PUBLIC conflux_net_config
+    PUBLIC conflux_file_io_sync
     PUBLIC conflux_http_core
     PUBLIC conflux_http_json
+    PUBLIC conflux_http_realtime
+    PUBLIC conflux_http_response
     PUBLIC conflux_http_response_json
     PUBLIC conflux_http_app_json
     PUBLIC conflux_http_router
@@ -29,6 +32,8 @@ target_link_libraries(conflux_net_http
     PUBLIC conflux_http_observability
     PUBLIC conflux_http_openapi
     PUBLIC conflux_http_vhost
+    PUBLIC conflux_utils
+    PUBLIC conflux_work
 )
 if(TARGET conflux_http_native_json)
     target_link_libraries(conflux_net_http PUBLIC conflux_http_native_json)

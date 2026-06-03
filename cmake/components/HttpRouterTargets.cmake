@@ -55,6 +55,7 @@ target_sources(conflux_http_response_json
 )
 target_link_libraries(conflux_http_response_json
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_response
     PUBLIC  conflux_utils

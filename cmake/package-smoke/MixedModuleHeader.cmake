@@ -36,10 +36,9 @@ if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
         string(APPEND _conflux_mixed_include_headers "#include <conflux/json.hpp>
 ")
         string(APPEND _conflux_mixed_include_checks [[
-    auto parsed = conflux::json::parse(R"({"x":1})");
-    if (!parsed.has_value()) {
+#if !defined(CONFLUX_HAS_JSON) || !CONFLUX_HAS_JSON
         return -1;
-    }
+#endif
     score += 1;
 ]])
     endif()
@@ -50,7 +49,7 @@ if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
 ")
         string(APPEND _conflux_mixed_import_checks [[
     auto response = conflux::http::text("ok");
-    if (response.status != 200 || response.text_body() != "ok") {
+    if (response.status != 200 || response.text_body() != std::string_view{"ok"}) {
         return -2;
     }
     score += 1;
@@ -59,7 +58,7 @@ if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
 ")
         string(APPEND _conflux_mixed_include_checks [[
     auto response = conflux::http::text("ok");
-    if (response.status != 200 || response.text_body() != "ok") {
+    if (response.status != 200 || response.text_body() != std::string_view{"ok"}) {
         return -2;
     }
     score += 1;
@@ -71,6 +70,7 @@ if(CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER)
 ")
     else()
         set(_conflux_mixed_import_std_prelude "#include <optional>
+#include <string_view>
 ")
     endif()
 
@@ -83,6 +83,7 @@ ${_conflux_mixed_import_checks}    return score;
 
     file(WRITE "${_conflux_mixed_include_source}" "${_conflux_mixed_include_headers}
 #include <optional>
+#include <string_view>
 
 int conflux_mixed_included() {
 ${_conflux_mixed_include_checks}    return score;

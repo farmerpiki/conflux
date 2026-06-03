@@ -23,6 +23,10 @@ module;
 #if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
 	#include <sys/mman.h>
 #endif
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 
 export module conflux.work.root:core;
 

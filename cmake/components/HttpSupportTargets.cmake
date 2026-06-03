@@ -17,7 +17,9 @@ target_sources(conflux_http_policy
 )
 target_link_libraries(conflux_http_policy
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
     PUBLIC  conflux_http_parse_helpers
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )
@@ -41,6 +43,8 @@ target_sources(conflux_http_auth
 )
 target_link_libraries(conflux_http_auth
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_crypto
     PUBLIC  conflux_utils
@@ -107,6 +111,8 @@ target_sources(conflux_http_observability
 target_link_libraries(conflux_http_observability
     PRIVATE conflux_options
     PRIVATE conflux_file_io_sync
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
     PUBLIC  conflux_work
@@ -135,6 +141,8 @@ target_sources(conflux_http_openapi
 )
 target_link_libraries(conflux_http_openapi
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )
@@ -155,6 +163,8 @@ target_sources(conflux_http_vhost
 )
 target_link_libraries(conflux_http_vhost
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
     PUBLIC  conflux_work
@@ -183,7 +193,9 @@ target_sources(conflux_http_compression
 )
 target_link_libraries(conflux_http_compression
     PRIVATE conflux_options
+    PUBLIC  conflux_http_core
     PUBLIC  conflux_http_parse_helpers
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_router
     PUBLIC  conflux_utils
 )
