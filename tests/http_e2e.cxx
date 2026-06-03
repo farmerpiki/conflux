@@ -42,7 +42,6 @@ import conflux.net.redirect;
 import conflux.net.request_id;
 import conflux.net.router;
 import conflux.net.security;
-import conflux.net.tracing;
 import conflux.net.trailing_slash;
 import conflux.net.vhost;
 #if CONFLUX_HAS_TLS
@@ -724,22 +723,6 @@ void check_json_string_at(
 	auto value = node.as_string();
 	REQUIRE(value.has_value());
 	CHECK(*value == expected);
-}
-// tracing_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_trace_port = 0;
-void ensure_trace_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::tracing_middleware({.propagate_in_response = true}));
-		// Echo the injected traceparent header so tests can verify it.
-		router.get("/", [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(std::string{req.headers["traceparent"]});
-		});
-		g_trace_port = start_mw_server(mw_config(), std::move(router));
-	});
 }
 // ---------------------------------------------------------------------------
 // VHostRouter test server
