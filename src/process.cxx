@@ -219,6 +219,39 @@ std::vector<std::string> build_env(
 	}
 	return env_strs;
 }
+
+struct PreparedSpawnImage {
+	std::vector<std::string> arg_strs{};
+	std::vector<char *> argv_ptrs{};
+	std::vector<std::string> env_strs{};
+	std::vector<char *> envp_ptrs{};
+};
+
+[[nodiscard]] PreparedSpawnImage prepare_spawn_image(
+	std::filesystem::path const &exe,
+	std::vector<std::string_view> const &args,
+	SpawnOptions const &opts) {
+	PreparedSpawnImage image;
+	image.arg_strs.reserve(args.size() + 1);
+	image.arg_strs.emplace_back(exe.string());
+	std::ranges::transform(args, std::back_inserter(image.arg_strs), [](std::string_view arg) {
+		return std::string{arg};
+	});
+
+	image.argv_ptrs.reserve(image.arg_strs.size() + 1);
+	std::ranges::transform(image.arg_strs, std::back_inserter(image.argv_ptrs), [](std::string &s) {
+		return s.data();
+	});
+	image.argv_ptrs.push_back(nullptr);
+
+	image.env_strs = build_env(opts.extra_env, opts.clear_env);
+	image.envp_ptrs.reserve(image.env_strs.size() + 1);
+	std::ranges::transform(image.env_strs, std::back_inserter(image.envp_ptrs), [](std::string &s) {
+		return s.data();
+	});
+	image.envp_ptrs.push_back(nullptr);
+	return image;
+}
 // Prepare stdio fd for child: returns the fd to dup3 into 0/1/2, or -1 for inherit, or -2 for /dev/null.
 // pipe_fds: if kind==Piped, filled with pipe2(); returns pipe_fds[read_end] for stdin, [write_end] for out/err.
 // parent_fd: set to the parent's end of the pipe.
@@ -244,6 +277,18 @@ int setup_stdio(
 		return pipe_fds[1];
 	}
 	return -1;
+}
+
+void close_stdio_pipes(
+	PipeFds &in_pipe,
+	PipeFds &out_pipe,
+	PipeFds &err_pipe) noexcept {
+	for (auto *pipe: {&in_pipe, &out_pipe, &err_pipe}) {
+		if (pipe->front() >= 0) {
+			::close(pipe->front());
+			::close(pipe->back());
+		}
+	}
 }
 
 // Child-side: set up one stdio fd (called between fork/exec; async-signal-safe only).
@@ -416,23 +461,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	std::vector<std::string_view> const &args,
 	SpawnOptions const &opts,
 	std::uint64_t clone_flags) {
-	// Copy std::string_view args → std::vector<std::string> before fork (views may be into caller's stack).
-	std::vector<std::string> arg_strs;
-	arg_strs.reserve(args.size() + 1);
-	arg_strs.emplace_back(exe.string());
-	std::ranges::transform(args, std::back_inserter(arg_strs), [](std::string_view arg) { return std::string{arg}; });
-
-	// Build argv and envp now (no alloc after fork in child).
-	std::vector<char *> argv_ptrs;
-	argv_ptrs.reserve(arg_strs.size() + 1);
-	std::ranges::transform(arg_strs, std::back_inserter(argv_ptrs), [](std::string &s) { return s.data(); });
-	argv_ptrs.push_back(nullptr);
-
-	auto env_strs = build_env(opts.extra_env, opts.clear_env);
-	std::vector<char *> envp_ptrs;
-	envp_ptrs.reserve(env_strs.size() + 1);
-	std::ranges::transform(env_strs, std::back_inserter(envp_ptrs), [](std::string &s) { return s.data(); });
-	envp_ptrs.push_back(nullptr);
+	auto image = prepare_spawn_image(exe, args, opts);
 
 	// Set up stdio pipes.
 	PipeFds in_pipe{-1, -1};
@@ -446,17 +475,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 	int const child_out = setup_stdio(opts.stdout_, false, out_pipe, parent_out);
 	int const child_err = setup_stdio(opts.stderr_, false, err_pipe, parent_err);
 
-	auto close_stdio_pipes = [&] {
-		for (auto *pipe: {&in_pipe, &out_pipe, &err_pipe}) {
-			if (pipe->front() >= 0) {
-				::close(pipe->front());
-				::close(pipe->back());
-			}
-		}
-	};
-
 	if (child_in == -3 || child_out == -3 || child_err == -3) {
-		close_stdio_pipes();
+		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
 		return std::unexpected{
 			std::error_code{errno, std::system_category()}
         };
@@ -465,7 +485,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	// Error-reporting pipe: child writes errno if exec fails; parent detects success via EOF.
 	PipeFds exec_err_pipe{-1, -1};
 	if (::pipe2(exec_err_pipe.data(), O_CLOEXEC) < 0) {
-		close_stdio_pipes();
+		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
 		return std::unexpected{
 			std::error_code{errno, std::system_category()}
         };
@@ -479,7 +499,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg,google-runtime-int)
 	if (pid < 0) {
 		int const err = errno;
-		close_stdio_pipes();
+		close_stdio_pipes(in_pipe, out_pipe, err_pipe);
 		::close(exec_err_pipe[0]);
 		::close(exec_err_pipe[1]);
 		return std::unexpected{
@@ -488,7 +508,15 @@ export std::expected<Process, std::error_code> spawn_clone(
 	}
 
 	if (pid == 0) {
-		run_child_spawn_path(exe, opts, argv_ptrs, envp_ptrs, child_in, child_out, child_err, exec_err_pipe);
+		run_child_spawn_path(
+			exe,
+			opts,
+			image.argv_ptrs,
+			image.envp_ptrs,
+			child_in,
+			child_out,
+			child_err,
+			exec_err_pipe);
 	}
 
 	// ---- PARENT ----
