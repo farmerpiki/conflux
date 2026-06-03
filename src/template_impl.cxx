@@ -1181,12 +1181,18 @@ TmplValue Environment::Impl::eval_base_compare(
 	auto right = eval_base_operand(base, 1, context);
 	return compare_template_values(left, right, base.compare_op);
 }
+TmplValue concat_template_values(
+	TmplValue const &left,
+	TmplValue const &right,
+	auto value_to_string_fn) {
+	return TmplValue{value_to_string_fn(left) + value_to_string_fn(right)};
+}
 TmplValue Environment::Impl::eval_base_concat(
 	CompiledBaseExpr const &base,
 	TmplValue const &context) const {
 	auto left = eval_base_operand(base, 0, context);
 	auto right = eval_base_operand(base, 1, context);
-	return TmplValue{value_to_string(left) + value_to_string(right)};
+	return concat_template_values(left, right, [](TmplValue const &value) { return value_to_string(value); });
 }
 TmplValue Environment::Impl::eval_base(
 	CompiledBaseExpr const &base,
@@ -1342,35 +1348,11 @@ TmplValue Environment::Impl::eval_legacy_base(
 	}
 
 	{
-		int depth = 0;
-		bool in_s = false;
-		char sqc = 0;
-		for (std::size_t i = 0; i < b.size(); ++i) {
-			char const c = b[i];
-			if (in_s) {
-				if (c == sqc) {
-					in_s = false;
-				}
-				continue;
-			}
-			if (c == '"' || c == '\'') {
-				in_s = true;
-				sqc = c;
-				continue;
-			}
-			if (c == '(' || c == '[') {
-				++depth;
-				continue;
-			}
-			if (c == ')' || c == ']') {
-				--depth;
-				continue;
-			}
-			if (depth == 0 && c == '~') {
-				auto left = eval_expr(std::string{b.substr(0, i)}, context);
-				auto right = eval_expr(std::string{b.substr(i + 1)}, context);
-				return TmplValue{value_to_string(left) + value_to_string(right)};
-			}
+		auto const i = find_top_level_char(b, '~');
+		if (i != std::string_view::npos) {
+			auto left = eval_expr(std::string{b.substr(0, i)}, context);
+			auto right = eval_expr(std::string{b.substr(i + 1)}, context);
+			return concat_template_values(left, right, [](TmplValue const &value) { return value_to_string(value); });
 		}
 	}
 
