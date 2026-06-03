@@ -45,9 +45,12 @@ package_smoke_configure=(
     -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE
 )
 if [[ "$release_sku" == "release-json" ]]; then
+    forbid_external_deps_without_json_hash="$(
+        python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH
+    )"
     package_smoke_configure+=(
         -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="http;http1;http2;http3;http_protocol;template;pg;db;dns;work"
-        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
+        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbid_external_deps_without_json_hash"
     )
 fi
 "${package_smoke_configure[@]}"
