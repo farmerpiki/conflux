@@ -5,7 +5,8 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work_root="${CONFLUX_RELEASE_BOOTSTRAP_WORK:-${TMPDIR:-/tmp}/conflux-release-artifact-bootstrap}"
 stage_dir="$work_root/stage"
 bootstrap_source="$work_root/source"
-bootstrap_build="$work_root/build"
+header_build="$work_root/header-build"
+module_build="$work_root/module-build"
 bootstrap_prefix="$work_root/prefix"
 package_smoke_build="$work_root/package-smoke"
 
@@ -13,7 +14,7 @@ package_smoke_build="$work_root/package-smoke"
     --stage-dir "$stage_dir" \
     --no-tarball
 
-rm -rf "$bootstrap_source" "$bootstrap_build" "$bootstrap_prefix" "$package_smoke_build"
+rm -rf "$bootstrap_source" "$header_build" "$module_build" "$bootstrap_prefix" "$package_smoke_build"
 mkdir -p "$work_root"
 cp -a "$stage_dir/source" "$bootstrap_source"
 
@@ -22,7 +23,7 @@ if [[ -e "$bootstrap_source/.git" ]]; then
     exit 1
 fi
 
-cmake -S "$bootstrap_source" -B "$bootstrap_build" -G Ninja \
+cmake -S "$bootstrap_source" -B "$header_build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCONFLUX_FEATURE_SET=release-json \
     -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
@@ -30,8 +31,8 @@ cmake -S "$bootstrap_source" -B "$bootstrap_build" -G Ninja \
     -DCONFLUX_BUILD_EXAMPLES=OFF \
     -DCONFLUX_BUILD_BENCHMARKS=OFF \
     -DCONFLUX_POSTGRES_PROVIDER=OFF
-cmake --build "$bootstrap_build"
-cmake --install "$bootstrap_build" --prefix "$bootstrap_prefix"
+cmake --build "$header_build"
+cmake --install "$header_build" --prefix "$bootstrap_prefix"
 
 cmake -S "$bootstrap_source/cmake/package-smoke" -B "$package_smoke_build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$bootstrap_prefix" \
@@ -41,5 +42,15 @@ cmake -S "$bootstrap_source/cmake/package-smoke" -B "$package_smoke_build" -G Ni
     -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
 cmake --build "$package_smoke_build"
 ctest --test-dir "$package_smoke_build" --output-on-failure
+
+cmake -S "$bootstrap_source" -B "$module_build" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCONFLUX_FEATURE_SET=release-json \
+    -DCONFLUX_INTERFACE_MODE=MODULE_INTERFACE \
+    -DCONFLUX_BUILD_TESTS=OFF \
+    -DCONFLUX_BUILD_EXAMPLES=OFF \
+    -DCONFLUX_BUILD_BENCHMARKS=OFF \
+    -DCONFLUX_POSTGRES_PROVIDER=OFF
+cmake --build "$module_build"
 
 printf 'check-release-artifact-bootstrap: ok (%s)\n' "$bootstrap_source"
