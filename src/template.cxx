@@ -362,6 +362,11 @@ struct Environment::Impl {
 	TmplValue eval_base(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_base_operand(CompiledBaseExpr const &base, std::size_t index, TmplValue const &context) const;
 	TmplValue eval_base_object(CompiledBaseExpr const &base, TmplValue const &context) const;
+	template<class EvalRight>
+	TmplValue eval_template_or(TmplValue left, EvalRight eval_right) const;
+	template<class EvalRight>
+	TmplValue eval_template_and(TmplValue left, EvalRight eval_right) const;
+	TmplValue eval_template_not(TmplValue const &value) const;
 	TmplValue eval_base_binary_or(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_base_binary_and(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_base_compare(CompiledBaseExpr const &base, TmplValue const &context) const;

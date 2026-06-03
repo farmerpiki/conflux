@@ -1107,23 +1107,39 @@ TmplValue Environment::Impl::eval_base_object(
 	}
 	return obj;
 }
+template<class EvalRight>
+TmplValue Environment::Impl::eval_template_or(
+	TmplValue left,
+	EvalRight eval_right) const {
+	if (is_truthy(left)) {
+		return left;
+	}
+	return eval_right();
+}
+template<class EvalRight>
+TmplValue Environment::Impl::eval_template_and(
+	TmplValue left,
+	EvalRight eval_right) const {
+	if (!is_truthy(left)) {
+		return left;
+	}
+	return eval_right();
+}
+TmplValue Environment::Impl::eval_template_not(
+	TmplValue const &value) const {
+	return TmplValue{!is_truthy(value)};
+}
 TmplValue Environment::Impl::eval_base_binary_or(
 	CompiledBaseExpr const &base,
 	TmplValue const &context) const {
 	auto left = eval_base_operand(base, 0, context);
-	if (is_truthy(left)) {
-		return left;
-	}
-	return eval_base_operand(base, 1, context);
+	return eval_template_or(std::move(left), [&] { return eval_base_operand(base, 1, context); });
 }
 TmplValue Environment::Impl::eval_base_binary_and(
 	CompiledBaseExpr const &base,
 	TmplValue const &context) const {
 	auto left = eval_base_operand(base, 0, context);
-	if (!is_truthy(left)) {
-		return left;
-	}
-	return eval_base_operand(base, 1, context);
+	return eval_template_and(std::move(left), [&] { return eval_base_operand(base, 1, context); });
 }
 
 TmplValue compare_template_values(
@@ -1215,7 +1231,7 @@ TmplValue Environment::Impl::eval_base(
 	case CompiledBaseKind::object    : return eval_base_object(base, context);
 	case CompiledBaseKind::group     : return eval_base_operand(base, 0, context);
 	case CompiledBaseKind::path      : return eval_path(base.path, context);
-	case CompiledBaseKind::unary_not : return TmplValue{!is_truthy(eval_base_operand(base, 0, context))};
+	case CompiledBaseKind::unary_not : return eval_template_not(eval_base_operand(base, 0, context));
 	case CompiledBaseKind::binary_or : return eval_base_binary_or(base, context);
 	case CompiledBaseKind::binary_and: return eval_base_binary_and(base, context);
 	case CompiledBaseKind::compare   : return eval_base_compare(base, context);
@@ -1304,10 +1320,7 @@ TmplValue Environment::Impl::eval_legacy_base(
 		auto const i = find_top_level_token(b, " or ");
 		if (i != std::string_view::npos) {
 			auto left = eval_expr(std::string{b.substr(0, i)}, context);
-			if (is_truthy(left)) {
-				return left;
-			}
-			return eval_expr(std::string{b.substr(i + 4)}, context);
+			return eval_template_or(std::move(left), [&] { return eval_expr(std::string{b.substr(i + 4)}, context); });
 		}
 	}
 
@@ -1315,16 +1328,13 @@ TmplValue Environment::Impl::eval_legacy_base(
 		auto const i = find_top_level_token(b, " and ");
 		if (i != std::string_view::npos) {
 			auto left = eval_expr(std::string{b.substr(0, i)}, context);
-			if (!is_truthy(left)) {
-				return left;
-			}
-			return eval_expr(std::string{b.substr(i + 5)}, context);
+			return eval_template_and(std::move(left), [&] { return eval_expr(std::string{b.substr(i + 5)}, context); });
 		}
 	}
 
 	if (b.size() > 4 && b.substr(0, 4) == "not ") {
 		auto inner_val = eval_expr(std::string{b.substr(4)}, context);
-		return TmplValue{!is_truthy(inner_val)};
+		return eval_template_not(inner_val);
 	}
 
 	{
