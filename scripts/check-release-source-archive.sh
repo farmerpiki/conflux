@@ -3,12 +3,13 @@ set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stage_dir="${CONFLUX_RELEASE_SOURCE_ARCHIVE_STAGE:-${TMPDIR:-/tmp}/conflux-release-source-archive/stage}"
+release_sku="${CONFLUX_RELEASE_SOURCE_ARCHIVE_SKU:-release-json}"
 
 "$source_root/scripts/stage-release-artifacts.sh" \
     --stage-dir "$stage_dir" \
+    --release-sku "$release_sku" \
     --no-tarball
 
-release_sku="release-json"
 sku_components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" components)"
 mapfile -t sku_examples < <(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" examples)
 mapfile -t sku_docs < <(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" docs)
@@ -55,19 +56,19 @@ if ! grep -qx 'source_generated_header_artifact=source/include/conflux' \
     printf 'check-release-source-archive: manifest does not record source generated headers\n' >&2
     exit 1
 fi
-if ! grep -qx 'selected_examples=source/examples/release-json' \
+if ! grep -qx "selected_examples=source/examples/$release_sku" \
         "$stage_dir/release-artifact-manifest.txt"; then
-    printf 'check-release-source-archive: manifest does not record release-json selected examples\n' >&2
+    printf 'check-release-source-archive: manifest does not record %s selected examples\n' "$release_sku" >&2
     exit 1
 fi
-if ! grep -qx 'selected_docs=source/docs/release-json' \
+if ! grep -qx "selected_docs=source/docs/$release_sku" \
         "$stage_dir/release-artifact-manifest.txt"; then
-    printf 'check-release-source-archive: manifest does not record release-json selected docs\n' >&2
+    printf 'check-release-source-archive: manifest does not record %s selected docs\n' "$release_sku" >&2
     exit 1
 fi
 if ! grep -qx "package_components=$sku_components" \
         "$stage_dir/release-artifact-manifest.txt"; then
-    printf 'check-release-source-archive: manifest does not record release-json package components\n' >&2
+    printf 'check-release-source-archive: manifest does not record %s package components\n' "$release_sku" >&2
     exit 1
 fi
 
