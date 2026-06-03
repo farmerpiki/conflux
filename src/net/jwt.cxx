@@ -40,6 +40,8 @@ struct JwtOptions {
 	std::chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
 	std::function<bool(std::string_view)> revoked_jti{}; // optional revocation lookup; true = reject token
 	std::size_t max_token_bytes{16U * 1024U}; // 0 = disabled; bounds bearer-token abuse before decoding
+
+	[[nodiscard]] static JwtOptions public_server();
 };
 
 } // namespace conflux::http
@@ -366,9 +368,20 @@ export namespace conflux::http {
 std::string jwt_sign(std::string_view payload_json, std::string_view secret);
 std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
 
+JwtOptions JwtOptions::public_server() {
+	JwtOptions opts{};
+	opts.require_exp = true;
+	opts.require_iat = true;
+	opts.verify_exp = true;
+	opts.verify_nbf = true;
+	opts.clock_skew = std::chrono::seconds{30};
+	opts.max_token_lifetime = std::chrono::minutes{15};
+	return opts;
+}
+
 [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	conflux::http::AuthSecretsConfig const &cfg,
-	JwtOptions base = {},
+	JwtOptions base = JwtOptions::public_server(),
 	bool required = true) {
 	auto secrets = conflux::http::resolve_secret_rotation(cfg.jwt, "jwt", required);
 	if (!secrets) {
@@ -380,7 +393,7 @@ std::string jwt_sign(std::string_view header_json, std::string_view payload_json
 
 [[nodiscard]] std::expected<JwtOptions, std::string> jwt_options_from_config(
 	conflux::http::Config const &cfg,
-	JwtOptions base = {},
+	JwtOptions base = JwtOptions::public_server(),
 	bool required = true) {
 	return jwt_options_from_config(cfg.auth_secrets, std::move(base), required);
 }

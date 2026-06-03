@@ -86,6 +86,27 @@ session_min_secret_bytes = 16
 	REQUIRE(decoded_old.has_value());
 	CHECK(decoded_old->sub == "rotated");
 
+	auto public_jwt_opts = conflux::http::jwt_options_from_config(cfg);
+	REQUIRE(public_jwt_opts.has_value());
+	CHECK(public_jwt_opts->require_exp);
+	CHECK(public_jwt_opts->require_iat);
+	CHECK(public_jwt_opts->max_token_lifetime == std::chrono::minutes{15});
+
+	auto missing_exp = conflux::http::jwt_decode(
+		conflux::http::jwt_sign(R"({"sub":"no-exp"})", "jwt-active-secret-16-bytes"),
+		*public_jwt_opts);
+	REQUIRE_FALSE(missing_exp.has_value());
+	CHECK(missing_exp.error() == "missing exp claim");
+
+	auto const now =
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	auto valid_public_token = conflux::http::jwt_sign(
+		std::format(R"({{"sub":"bounded","iat":{},"exp":{}}})", now, now + 300),
+		"jwt-active-secret-16-bytes");
+	auto decoded_public = conflux::http::jwt_decode(valid_public_token, *public_jwt_opts);
+	REQUIRE(decoded_public.has_value());
+	CHECK(decoded_public->sub == "bounded");
+
 	auto cookie_opts = conflux::http::cookie_signing_options_from_config(cfg);
 	REQUIRE(cookie_opts.has_value());
 	CHECK(cookie_opts->secrets.active == "cookie-active-secret-16");

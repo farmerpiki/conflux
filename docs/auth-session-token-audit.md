@@ -15,7 +15,9 @@ There is no server-side session store in the framework yet. Applications that ne
 
 ## JWT policy
 
-`conflux::http::JwtOptions` now separates compatibility defaults from stricter session-token policy knobs:
+`conflux::http::JwtOptions` now separates compatibility defaults from stricter session-token policy knobs.
+Use `JwtOptions::public_server()` or the config-derived `jwt_options_from_config(...)`
+default when a token is accepted by HTTP middleware or other public-server entrypoints.
 
 - `verify_exp`: reject expired tokens when `exp` exists.
 - `verify_nbf`: reject not-yet-valid tokens when `nbf` exists.
@@ -29,15 +31,9 @@ There is no server-side session store in the framework yet. Applications that ne
 Recommended session/bearer-token policy:
 
 ```cpp
-conflux::http::JwtOptions opts;
+auto opts = conflux::http::JwtOptions::public_server();
 opts.secrets = resolve_secret_rotation(cfg.auth_secrets.jwt, "jwt").value();
-opts.require_exp = true;
-opts.require_iat = true;
 opts.require_jti = true;
-opts.verify_exp = true;
-opts.verify_nbf = true;
-opts.clock_skew = std::chrono::seconds{30};
-opts.max_token_lifetime = std::chrono::minutes{15};
 opts.revoked_jti = [&](std::string_view jti) {
     return revoked_token_store.contains(jti);
 };
@@ -47,7 +43,7 @@ Long-lived refresh tokens should use a different secret/config slot from short-l
 
 ## Expiry
 
-Tokens without `exp` are still accepted by default for compatibility tests and non-session uses, but session/bearer-token deployments should enable `require_exp`. `max_token_lifetime` is a stronger guard: it rejects missing `exp`/`iat`, rejects negative registered timestamps, rejects `exp < iat`, and caps the token lifetime even when `exp` is far in the future.
+Raw default-constructed `JwtOptions` still accept tokens without `exp` for compatibility tests and non-session uses. `jwt_options_from_config(...)` defaults to `JwtOptions::public_server()`, which requires `exp` and `iat` and caps token lifetime at 15 minutes unless the caller explicitly supplies a different policy. `max_token_lifetime` rejects missing `exp`/`iat`, rejects negative registered timestamps, rejects `exp < iat`, and caps the token lifetime even when `exp` is far in the future.
 
 ## Revocation
 
