@@ -1759,9 +1759,16 @@ def check_external_dependency_tokens() -> None:
         "CONFLUX_EXTERNAL_DEPENDENCY_TARGETS_",
         "CONFLUX_EXTERNAL_DEPENDENCY_KIND_",
         "CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_",
+        "function(conflux_external_dependency_targets",
+        "function(conflux_existing_external_dependency_targets",
+        "function(conflux_link_existing_external_dependency_targets",
     ]
-    for token in metadata_tokens:
-        for prefix in required_registry_prefixes:
+    for prefix in required_registry_prefixes:
+        if prefix.startswith("function("):
+            if prefix not in registry:
+                errors.append(f"external dependency registry missing {prefix}")
+            continue
+        for token in metadata_tokens:
             if f"set({prefix}{token} " not in registry:
                 errors.append(f"external dependency registry missing {prefix}{token}")
     config_markers = {
@@ -1785,6 +1792,14 @@ def check_external_dependency_tokens() -> None:
         "conflux_pkg_provider_from_registry": "build-time pkg-config discovery must use registry tokens",
     }
     errors.extend(message for marker, message in dependency_markers.items() if marker not in dependencies)
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    header_interface = read("cmake/ConfluxHeaderInterface.cmake")
+    header_link_markers = {
+        "conflux_link_existing_external_dependency_targets": "header implementation targets must link external targets through the registry helper",
+        "conflux_existing_external_dependency_targets(_conflux_json_links XXHASH)": "header interface JSON links must resolve xxhash through the registry helper",
+    }
+    errors.extend(message for marker, message in header_link_markers.items()
+                  if marker not in interface_mode and marker not in header_interface)
     direct_pkg_calls = re.findall(
         r"^\s*conflux_pkg_provider\(\s*([A-Z][A-Z0-9_]*)\s+(?:TRUE|FALSE)\s+[^)$]",
         dependencies,

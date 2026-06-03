@@ -154,9 +154,7 @@ if(CONFLUX_WANT_JSON)
     if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
         list(APPEND _conflux_json_compile_definitions
             CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
-        if(TARGET PkgConfig::XXHASH)
-            list(APPEND _conflux_json_links PkgConfig::XXHASH)
-        endif()
+        conflux_existing_external_dependency_targets(_conflux_json_links XXHASH)
     elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
         list(APPEND _conflux_json_compile_definitions
             CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)

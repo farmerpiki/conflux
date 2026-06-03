@@ -1,3 +1,5 @@
+include(ConfluxExternalDependencyRegistry)
+
 function(conflux_append_optional_bridge_inputs args_out roots_out)
     set(_args ${${args_out}})
     set(_roots ${${roots_out}})
@@ -246,40 +248,33 @@ endfunction()
 function(conflux_link_header_impl_hash_provider target)
     if(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "XXHASH")
         target_compile_definitions(${target} PRIVATE CONFLUX_JSON_HASH_PROVIDER_XXHASH=1)
-        if(TARGET PkgConfig::XXHASH)
-            target_link_libraries(${target} PUBLIC PkgConfig::XXHASH)
-        endif()
+        conflux_link_existing_external_dependency_targets(${target} PUBLIC XXHASH)
     elseif(CONFLUX_JSON_HASH_PROVIDER_UPPER STREQUAL "INTERNAL")
         target_compile_definitions(${target} PRIVATE CONFLUX_JSON_HASH_PROVIDER_INTERNAL=1)
     endif()
 endfunction()
 
 function(conflux_link_header_impl_liburing target)
-    if(TARGET PkgConfig::LIBURING)
-        target_link_libraries(${target} PUBLIC PkgConfig::LIBURING)
-    endif()
+    conflux_link_existing_external_dependency_targets(${target} PUBLIC LIBURING)
 endfunction()
 
 function(conflux_link_header_impl_tls_deps target)
-    foreach(_target IN ITEMS OpenSSL::SSL OpenSSL::Crypto PkgConfig::NGHTTP2 PkgConfig::NGTCP2 PkgConfig::NGTCP2_CRYPTO_OSSL PkgConfig::NGHTTP3)
-        if(TARGET ${_target})
-            target_link_libraries(${target} PUBLIC ${_target})
-        endif()
-    endforeach()
+    conflux_link_existing_external_dependency_targets(${target} PUBLIC
+        OPENSSL
+        NGHTTP2
+        NGTCP2
+        NGTCP2_CRYPTO_OSSL
+        NGHTTP3)
 endfunction()
 
 function(conflux_link_header_impl_db_deps target)
-    if(TARGET PkgConfig::LIBPQ)
-        target_link_libraries(${target} PUBLIC PkgConfig::LIBPQ)
-    endif()
+    conflux_link_existing_external_dependency_targets(${target} PUBLIC LIBPQ)
 endfunction()
 
 function(conflux_link_header_impl_crypto_deps target)
-    foreach(_target IN ITEMS OpenSSL::SSL OpenSSL::Crypto PkgConfig::ARGON2)
-        if(TARGET ${_target})
-            target_link_libraries(${target} PUBLIC ${_target})
-        endif()
-    endforeach()
+    conflux_link_existing_external_dependency_targets(${target} PUBLIC
+        OPENSSL
+        ARGON2)
 endfunction()
 
 function(conflux_register_header_impl_target target export_name)
