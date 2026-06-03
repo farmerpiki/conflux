@@ -336,6 +336,14 @@ def check_header_impl_lists_have_no_duplicates() -> None:
         Path("cmake/ConfluxHeaderInterface.cmake"),
         Path("cmake/ConfluxInterfaceMode.cmake"),
     ]
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    defined_impls = set(
+        re.findall(
+            r"\bconflux_define_header_impl_component\(\s*(conflux_header_impl_[A-Za-z0-9_]+)",
+            interface_mode,
+        ),
+    )
+    defined_impls.add("conflux_header_impl")
     call_pattern = re.compile(
         r"\b(conflux_header_public_component(?:_by_export)?|conflux_add_header_example_from_id)\((.*?)\)",
         re.DOTALL,
@@ -371,6 +379,13 @@ def check_header_impl_lists_have_no_duplicates() -> None:
                 failures.append(
                     f"{path}:{line_no}: duplicate header implementation entries: "
                     + ";".join(duplicates),
+                )
+            unknown_impls = sorted(set(impls) - defined_impls)
+            if unknown_impls:
+                line_no = text.count("\n", 0, match.start()) + 1
+                failures.append(
+                    f"{path}:{line_no}: unknown header implementation entries: "
+                    + ";".join(unknown_impls),
                 )
     if failures:
         fail("\n".join(failures))
