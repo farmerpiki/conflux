@@ -1740,6 +1740,10 @@ std::expected<void, JsonError>
 decode_into(T &out, JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
 
 template<ParseMode Mode, class T>
+std::expected<T, JsonError>
+decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
+
+template<ParseMode Mode, class T>
 [[nodiscard]] std::expected<T, JsonError> decode_scalar_from_event(
 	JsonReader &r,
 	JsonReader::Event ev,
@@ -1815,6 +1819,94 @@ template<ParseMode Mode, class T>
 					.message = "std::expected string"});
 		}
 		return decode_string_into(out, r.string_token(), scratch);
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_optional_like_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_optional<T>::value) {
+		using Inner = typename T::value_type;
+		if (ev == Ev::null_value) {
+			return T{};
+		}
+		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
+		if (!v) {
+			return std::unexpected(std::move(v).error());
+		}
+		return T{std::move(*v)};
+	} else if constexpr (is_nullable_type<T>::value) {
+		if (ev == Ev::null_value) {
+			return T{};
+		}
+		using Inner = nullable_inner_t<T>;
+		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
+		if (!v) {
+			return std::unexpected(std::move(v).error());
+		}
+		return T{std::move(*v)};
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_optional_like_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_optional<T>::value) {
+		using Inner = typename T::value_type;
+		if (ev == Ev::null_value) {
+			out.reset();
+			return {};
+		}
+		if constexpr (std::default_initializable<Inner>) {
+			out.emplace();
+			auto ok = decode_into<Mode, Inner>(*out, r, ev, opts, scratch);
+			if (!ok) {
+				out.reset();
+				return std::unexpected(std::move(ok).error());
+			}
+			return {};
+		} else {
+			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
+			if (!decoded) {
+				out.reset();
+				return std::unexpected(std::move(decoded).error());
+			}
+			out.emplace(std::move(*decoded));
+			return {};
+		}
+	} else if constexpr (is_nullable_type<T>::value) {
+		using Inner = nullable_inner_t<T>;
+		if (ev == Ev::null_value) {
+			out = T{};
+			return {};
+		}
+		if constexpr (std::default_initializable<Inner>) {
+			Inner value{};
+			auto ok = decode_into<Mode, Inner>(value, r, ev, opts, scratch);
+			if (!ok) {
+				out = T{};
+				return std::unexpected(std::move(ok).error());
+			}
+			out = T{std::move(value)};
+			return {};
+		} else {
+			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
+			if (!decoded) {
+				out = T{};
+				return std::unexpected(std::move(decoded).error());
+			}
+			out = T{std::move(*decoded)};
+			return {};
+		}
 	}
 }
 
@@ -2522,26 +2614,8 @@ std::expected<T, JsonError> decode_from_event(
 		static_assert(
 			!std::same_as<T, std::string_view>,
 			"decode<string_view>(JsonReader&) is deleted; use std::string");
-	} else if constexpr (is_optional<T>::value) {
-		using Inner = typename T::value_type;
-		if (ev == Ev::null_value) {
-			return T{};
-		}
-		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
-		if (!v) {
-			return std::unexpected(std::move(v).error());
-		}
-		return T{std::move(*v)};
-	} else if constexpr (is_nullable_type<T>::value) {
-		if (ev == Ev::null_value) {
-			return T{};
-		}
-		using Inner = nullable_inner_t<T>;
-		auto v = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
-		if (!v) {
-			return std::unexpected(std::move(v).error());
-		}
-		return T{std::move(*v)};
+	} else if constexpr (is_optional<T>::value || is_nullable_type<T>::value) {
+		return decode_optional_like_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_vector_of_v<T>) {
 		using E = typename T::value_type;
 		if (ev != Ev::begin_array) {
@@ -2849,53 +2923,8 @@ std::expected<void, JsonError> decode_into(
 		|| ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
 		|| is_basic_string_of_char_v<T>) {
 		return decode_scalar_into<Mode, T>(out, r, ev, scratch);
-	} else if constexpr (is_optional<T>::value) {
-		using Inner = typename T::value_type;
-		if (ev == Ev::null_value) {
-			out.reset();
-			return {};
-		}
-		if constexpr (std::default_initializable<Inner>) {
-			out.emplace();
-			auto ok = decode_into<Mode, Inner>(*out, r, ev, opts, scratch);
-			if (!ok) {
-				out.reset();
-				return std::unexpected(std::move(ok).error());
-			}
-			return {};
-		} else {
-			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
-			if (!decoded) {
-				out.reset();
-				return std::unexpected(std::move(decoded).error());
-			}
-			out.emplace(std::move(*decoded));
-			return {};
-		}
-	} else if constexpr (is_nullable_type<T>::value) {
-		using Inner = nullable_inner_t<T>;
-		if (ev == Ev::null_value) {
-			out = T{};
-			return {};
-		}
-		if constexpr (std::default_initializable<Inner>) {
-			Inner value{};
-			auto ok = decode_into<Mode, Inner>(value, r, ev, opts, scratch);
-			if (!ok) {
-				out = T{};
-				return std::unexpected(std::move(ok).error());
-			}
-			out = T{std::move(value)};
-			return {};
-		} else {
-			auto decoded = decode_from_event<Mode, Inner>(r, ev, opts, scratch);
-			if (!decoded) {
-				out = T{};
-				return std::unexpected(std::move(decoded).error());
-			}
-			out = T{std::move(*decoded)};
-			return {};
-		}
+	} else if constexpr (is_optional<T>::value || is_nullable_type<T>::value) {
+		return decode_optional_like_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_vector_of_v<T>) {
 		using E = typename T::value_type;
 		if (ev != Ev::begin_array) {
