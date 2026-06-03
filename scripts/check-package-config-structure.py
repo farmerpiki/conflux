@@ -2025,6 +2025,44 @@ def check_external_dependency_tokens() -> None:
     provider_resolution = read("cmake/ConfluxProviderResolution.cmake")
     metadata_tokens = external_tokens_from_metadata()
     errors: list[str] = []
+    tokens_match = re.search(
+        r"set\(CONFLUX_EXTERNAL_DEPENDENCY_TOKENS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if tokens_match is None:
+        errors.append("missing CONFLUX_EXTERNAL_DEPENDENCY_TOKENS")
+        token_declarations: list[str] = []
+    else:
+        token_declarations = re.findall(r"\b[A-Z][A-Z0-9_]+\b", tokens_match.group("body"))
+    duplicate_tokens = sorted(name for name, count in Counter(token_declarations).items() if count > 1)
+    if duplicate_tokens:
+        errors.append("external dependency registry duplicate tokens: " + ";".join(duplicate_tokens))
+    registry_metadata_variables = re.findall(
+        r"\bset\(CONFLUX_EXTERNAL_DEPENDENCY_(TARGETS|KIND|PACKAGES)_([A-Z][A-Z0-9_]*)\s+(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    stale_metadata_tokens = sorted({token for _field, token, _body in registry_metadata_variables} - metadata_tokens)
+    if stale_metadata_tokens:
+        errors.append("external dependency registry stale metadata tokens: " + ";".join(stale_metadata_tokens))
+    metadata_fields_by_token: dict[str, set[str]] = {token: set() for token in metadata_tokens}
+    for field, token, body in registry_metadata_variables:
+        metadata_fields_by_token.setdefault(token, set()).add(field)
+        values = re.findall(r"[A-Za-z0-9_:+.-]+", body)
+        if not values:
+            errors.append(f"external dependency registry empty {field} metadata for {token}")
+        if field == "KIND" and values != ["FIND_PACKAGE"] and values != ["PKG_CONFIG"]:
+            errors.append(f"external dependency registry invalid KIND metadata for {token}: {';'.join(values)}")
+        if field == "PACKAGES":
+            kind_match = re.search(rf"\bset\(CONFLUX_EXTERNAL_DEPENDENCY_KIND_{token}\s+([A-Z_]+)\)", registry)
+            if kind_match and kind_match.group(1) == "FIND_PACKAGE" and len(values) != 1:
+                errors.append(f"find_package external dependency {token} must declare exactly one package")
+    required_fields = {"TARGETS", "KIND", "PACKAGES"}
+    for token, fields in metadata_fields_by_token.items():
+        missing_fields = sorted(required_fields - fields)
+        if missing_fields:
+            errors.append(f"external dependency registry missing metadata fields for {token}: {';'.join(missing_fields)}")
     required_registry_prefixes = [
         "CONFLUX_EXTERNAL_DEPENDENCY_TARGETS_",
         "CONFLUX_EXTERNAL_DEPENDENCY_KIND_",
