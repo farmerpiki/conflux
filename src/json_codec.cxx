@@ -4433,6 +4433,57 @@ inline constexpr std::uint64_t fp_required_presence_mask_v = [] {
 	return mask;
 }();
 
+[[nodiscard]] inline FpStatus fp_handle_unknown_member(
+	FpCursor &c,
+	FpLimits const &lim,
+	std::string_view key_name) noexcept {
+	if (lim.unknown_members == UnknownMemberPolicy::reject) {
+		c.error = FpError{.code = JsonIssueCode::invalid_value, .member_name = key_name};
+		return FpStatus::error;
+	}
+	if (fp_skip_value(c, lim) != FpStatus::ok) {
+		return FpStatus::bail;
+	}
+	return FpStatus::ok;
+}
+
+[[nodiscard]] inline FpStatus fp_handle_duplicate_member(
+	FpCursor &c,
+	FpLimits const &lim,
+	std::string_view member_name,
+	bool &decode_value) noexcept {
+	if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
+		c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = member_name};
+		return FpStatus::error;
+	}
+	if (lim.duplicate_key == DuplicateKeyPolicy::first_wins) {
+		if (fp_skip_value(c, lim) != FpStatus::ok) {
+			return FpStatus::bail;
+		}
+		decode_value = false;
+		return FpStatus::ok;
+	}
+	decode_value = true;
+	return FpStatus::ok;
+}
+
+template<class T>
+[[nodiscard]] FpStatus fp_validate_required_members(
+	FpCursor &c,
+	std::uint64_t presence) noexcept {
+	auto const &meta = fp_member_meta_v<T>;
+	if ((presence & fp_required_presence_mask_v<T>) == fp_required_presence_mask_v<T>) {
+		return FpStatus::ok;
+	}
+	for (std::size_t i = 0; i < meta.size(); ++i) {
+		if (meta[i].required && (presence & (std::uint64_t{1} << i)) == 0U) {
+			c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[i].name};
+			return FpStatus::error;
+		}
+	}
+	return FpStatus::ok;
+}
+
 template<class T>
 [[nodiscard]] FpStatus fp_decode_struct(
 	T &out,
@@ -4537,14 +4588,8 @@ template<class T>
 		}
 
 		if (idx == N) {
-			// Unknown member. Both outcomes are positional-info-free, so the
-			// reject diagnostic is produced authoritatively here.
-			if (lim.unknown_members == UnknownMemberPolicy::reject) {
-				c.error = FpError{.code = JsonIssueCode::invalid_value, .member_name = key_name};
-				return FpStatus::error;
-			}
-			if (fp_skip_value(c, lim) != FpStatus::ok) {
-				return FpStatus::bail;
+			if (FpStatus const st = fp_handle_unknown_member(c, lim, key_name); st != FpStatus::ok) {
+				return st;
 			}
 			continue;
 		}
@@ -4559,17 +4604,14 @@ template<class T>
 		// --- duplicates ---
 		std::uint64_t const bit = std::uint64_t{1} << idx;
 		if ((presence & bit) != 0U) [[unlikely]] {
-			if (lim.duplicate_key == DuplicateKeyPolicy::reject) {
-				c.error = FpError{.code = JsonIssueCode::duplicate_member, .member_name = meta[idx].name};
-				return FpStatus::error;
+			bool decode_value = true;
+			if (FpStatus const st = fp_handle_duplicate_member(c, lim, meta[idx].name, decode_value);
+				st != FpStatus::ok) {
+				return st;
 			}
-			if (lim.duplicate_key == DuplicateKeyPolicy::first_wins) {
-				if (fp_skip_value(c, lim) != FpStatus::ok) {
-					return FpStatus::bail;
-				}
+			if (!decode_value) {
 				continue;
 			}
-			// last_wins: fall through and decode over the previous value.
 		}
 		presence |= bit;
 
@@ -4588,15 +4630,7 @@ template<class T>
 		}
 	}
 
-	if ((presence & fp_required_presence_mask_v<T>) != fp_required_presence_mask_v<T>) {
-		for (std::size_t i = 0; i < N; ++i) {
-			if (meta[i].required && (presence & (std::uint64_t{1} << i)) == 0U) {
-				c.error = FpError{.code = JsonIssueCode::missing_member, .member_name = meta[i].name};
-				return FpStatus::error;
-			}
-		}
-	}
-	return FpStatus::ok;
+	return fp_validate_required_members<T>(c, presence);
 }
 
 // ---------------------------------------------------------------------------
