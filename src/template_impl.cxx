@@ -1095,6 +1095,425 @@ TmplValue Environment::Impl::eval_base(
 	}
 	return {};
 }
+
+// NOLINTNEXTLINE(misc-no-recursion)
+TmplValue Environment::Impl::eval_legacy_base(
+	std::string const &base,
+	TmplValue const &context) const {
+	auto b = trim(base);
+	if (b.empty()) {
+		return {};
+	}
+
+	if ((b.front() == '"' && b.back() == '"') || (b.front() == '\'' && b.back() == '\'')) {
+		return TmplValue{b.substr(1, b.size() - 2)};
+	}
+
+	if (std::isdigit(static_cast<unsigned char>(b[0])) || (b[0] == '-' && b.size() > 1)) {
+		try {
+			if (b.find('.') != std::string::npos) {
+				return TmplValue{std::stod(std::string{b})};
+			}
+			return TmplValue{static_cast<std::int64_t>(std::stoll(std::string{b}))};
+		} catch (std::exception const &ex) {
+			eprintln(std::format("template eval_literal: failed to parse number '{}': {}", b, ex.what()));
+		}
+	}
+
+	if (b == "true" || b == "True") {
+		return TmplValue{true};
+	}
+	if (b == "false" || b == "False") {
+		return TmplValue{false};
+	}
+	if (b == "none" || b == "None") {
+		return {};
+	}
+
+	if (b.front() == '[' && b.back() == ']') {
+		auto inner = trim(b.substr(1, b.size() - 2));
+		if (inner.empty()) {
+			return TmplValue{TmplValue::Array{}};
+		}
+		auto items = split_args(inner);
+		return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
+	}
+
+	if (b.front() == '(' && b.back() == ')') {
+		auto inner = trim(b.substr(1, b.size() - 2));
+		if (inner.empty()) {
+			return TmplValue{TmplValue::Array{}};
+		}
+		auto items = split_args(inner);
+		if (items.size() == 1) {
+			return eval_expr(items[0], context);
+		}
+		return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
+	}
+
+	if (b.front() == '{' && b.back() == '}') {
+		auto inner = trim(b.substr(1, b.size() - 2));
+		if (inner.empty()) {
+			return TmplValue{TmplValue::Object{}};
+		}
+		auto pairs = split_args(inner);
+		TmplValue obj{TmplValue::Object{}};
+		for (auto &p: pairs) {
+			auto colon = p.find(':');
+			if (colon != std::string::npos) {
+				auto key = trim(std::string_view{p}.substr(0, colon));
+				auto val = trim(std::string_view{p}.substr(colon + 1));
+				if ((key.front() == '"' && key.back() == '"') || (key.front() == '\'' && key.back() == '\'')) {
+					key = key.substr(1, key.size() - 2);
+				}
+				obj.set(std::string{key}, eval_expr(std::string{val}, context));
+			}
+		}
+		return obj;
+	}
+
+	{
+		auto const i = find_top_level_token(b, " or ");
+		if (i != std::string_view::npos) {
+			auto left = eval_expr(std::string{b.substr(0, i)}, context);
+			if (is_truthy(left)) {
+				return left;
+			}
+			return eval_expr(std::string{b.substr(i + 4)}, context);
+		}
+	}
+
+	{
+		auto const i = find_top_level_token(b, " and ");
+		if (i != std::string_view::npos) {
+			auto left = eval_expr(std::string{b.substr(0, i)}, context);
+			if (!is_truthy(left)) {
+				return left;
+			}
+			return eval_expr(std::string{b.substr(i + 5)}, context);
+		}
+	}
+
+	if (b.size() > 4 && b.substr(0, 4) == "not ") {
+		auto inner_val = eval_expr(std::string{b.substr(4)}, context);
+		return TmplValue{!is_truthy(inner_val)};
+	}
+
+	{
+		static constexpr auto ops = std::to_array<std::pair<std::string_view, int>>({
+			{" == ", 0},
+			{" != ", 1},
+			{" <= ", 2},
+			{" >= ", 3},
+			{ " < ", 4},
+			{ " > ", 5},
+			{" in ", 6},
+		});
+		for (auto &[op, code]: ops) {
+			auto p = find_top_level_token(b, op);
+			if (p != std::string_view::npos) {
+				auto left = eval_expr(std::string{b.substr(0, p)}, context);
+				auto right = eval_expr(std::string{b.substr(p + op.size())}, context);
+				switch (code) {
+				case 0: return TmplValue{left == right};
+				case 1: return TmplValue{left != right};
+				case 2:
+				case 3:
+				case 4:
+				case 5:
+					{
+						double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
+										  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
+										  left.is_float() ? left.as<double>() :
+															0.0;
+						double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
+										  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
+										  right.is_float() ? right.as<double>() :
+															 0.0;
+						if (code == 2) {
+							return TmplValue{lv <= rv};
+						}
+						if (code == 3) {
+							return TmplValue{lv >= rv};
+						}
+						if (code == 4) {
+							return TmplValue{lv < rv};
+						}
+						return TmplValue{lv > rv};
+					}
+				case 6:
+					{
+						if (right.is_array()) {
+							for (auto const &item: right.as_array()) {
+								if (item == left) {
+									return TmplValue{true};
+								}
+							}
+							return TmplValue{false};
+						}
+						if (right.is_string() && left.is_string()) {
+							return TmplValue{
+								right.as<std::string_view>().find(left.as<std::string_view>())
+								!= std::string_view::npos};
+						}
+						return TmplValue{false};
+					}
+				default: break;
+				}
+			}
+		}
+	}
+
+	{
+		int depth = 0;
+		bool in_s = false;
+		char sqc = 0;
+		for (std::size_t i = 0; i < b.size(); ++i) {
+			char const c = b[i];
+			if (in_s) {
+				if (c == sqc) {
+					in_s = false;
+				}
+				continue;
+			}
+			if (c == '"' || c == '\'') {
+				in_s = true;
+				sqc = c;
+				continue;
+			}
+			if (c == '(' || c == '[') {
+				++depth;
+				continue;
+			}
+			if (c == ')' || c == ']') {
+				--depth;
+				continue;
+			}
+			if (depth == 0 && c == '~') {
+				auto left = eval_expr(std::string{b.substr(0, i)}, context);
+				auto right = eval_expr(std::string{b.substr(i + 1)}, context);
+				return TmplValue{value_to_string(left) + value_to_string(right)};
+			}
+		}
+	}
+
+	{
+		TmplValue owned;
+		bool use_owned = false;
+		TmplValue const *cur = &context;
+		auto set_owned = [&](TmplValue v) {
+			owned = std::move(v);
+			cur = &owned;
+			use_owned = true;
+		};
+		std::string remaining{b};
+
+		while (!remaining.empty()) {
+			auto bracket = remaining.find('[');
+			auto dot = remaining.find('.');
+			auto paren = remaining.find('(');
+
+			auto next_sep = std::min({bracket, dot, paren, remaining.size()});
+
+			if (next_sep == 0 && bracket == 0) {
+				auto close = remaining.find(']', 1);
+				if (close == std::string::npos) {
+					return {};
+				}
+				auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
+				if (auto colon = idx_str.find(':'); colon != std::string::npos) {
+					if (cur->is_string()) {
+						auto s = std::string(cur->as<std::string_view>());
+						auto start_s = trim(idx_str.substr(0, colon));
+						auto end_s = trim(idx_str.substr(colon + 1));
+						std::int64_t start = 0;
+						std::int64_t end = static_cast<std::int64_t>(s.size());
+						if (!start_s.empty()) {
+							auto sv = eval_expr(std::string{start_s}, context);
+							if (sv.is_int()) {
+								start = sv.as<std::int64_t>();
+								if (start < 0) {
+									start = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + start);
+								}
+							}
+						}
+						if (!end_s.empty()) {
+							auto ev = eval_expr(std::string{end_s}, context);
+							if (ev.is_int()) {
+								end = ev.as<std::int64_t>();
+								if (end < 0) {
+									end = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + end);
+								}
+							}
+						}
+						start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(s.size()));
+						end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(s.size()));
+						set_owned(
+							TmplValue{s.substr(
+								static_cast<std::size_t>(start),
+								static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
+					} else {
+						return {};
+					}
+					remaining = remaining.substr(close + 1);
+					if (!remaining.empty() && remaining[0] == '.') {
+						remaining = remaining.substr(1);
+					}
+					continue;
+				}
+				auto idx_val = eval_expr(std::string{idx_str}, context);
+				if (cur->is_array() && idx_val.is_int()) {
+					auto idx = idx_val.as<std::int64_t>();
+					auto const &arr = cur->as_array();
+					if (idx < 0) {
+						idx += static_cast<std::int64_t>(arr.size());
+					}
+					if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
+						set_owned(arr[static_cast<std::size_t>(idx)]);
+					} else {
+						return {};
+					}
+				} else if (cur->is_object() && idx_val.is_string()) {
+					auto const *found = obj_find(*cur, idx_val.as<std::string_view>());
+					if (found) {
+						set_owned(*found);
+					} else {
+						return {};
+					}
+				} else {
+					return {};
+				}
+				remaining = remaining.substr(close + 1);
+				if (!remaining.empty() && remaining[0] == '.') {
+					remaining = remaining.substr(1);
+				}
+				continue;
+			}
+
+			std::string const key = remaining.substr(0, next_sep);
+			remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : "";
+
+			bool const is_method_call = !remaining.empty() && remaining[0] == '(';
+
+			if (!key.empty() && !is_method_call) {
+				if (cur->is_object()) {
+					auto const *found = obj_find(*cur, key);
+					if (found) {
+						set_owned(*found);
+					} else {
+						return {};
+					}
+				} else if (cur->is_string() && key == "value") {
+					// no-op
+				} else {
+					return {};
+				}
+			}
+
+			if (is_method_call) {
+				auto const close = find_matching_pair(remaining, 0, '(', ')');
+				if (close == std::string::npos) {
+					return {};
+				}
+				auto args_str = remaining.substr(1, close - 1);
+				auto method_args = split_args(args_str);
+				remaining = remaining.substr(close + 1);
+				if (!remaining.empty() && remaining[0] == '.') {
+					remaining = remaining.substr(1);
+				}
+
+				if (key == "get" && cur->is_object()) {
+					if (method_args.empty()) {
+						return {};
+					}
+					auto k = eval_expr(method_args[0], context);
+					auto const *found = obj_find(*cur, value_to_string(k));
+					if (found) {
+						set_owned(*found);
+					} else if (method_args.size() > 1) {
+						set_owned(eval_expr(method_args[1], context));
+					} else {
+						set_owned(TmplValue{});
+					}
+				} else if (key == "replace" && method_args.size() >= 2) {
+					auto s = value_to_string(*cur);
+					auto old_s = value_to_string(eval_expr(method_args[0], context));
+					auto new_s = value_to_string(eval_expr(method_args[1], context));
+					set_owned(TmplValue{str_replace_all(s, old_s, new_s)});
+				} else if (key == "title") {
+					auto s = value_to_string(*cur);
+					bool up = true;
+					for (auto &c: s) {
+						if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
+							up = true;
+							continue;
+						}
+						if (up) {
+							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+							up = false;
+						} else {
+							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+						}
+					}
+					set_owned(TmplValue{std::move(s)});
+				} else if (key == "upper") {
+					auto s = value_to_string(*cur);
+					for (auto &c: s) {
+						c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+					}
+					set_owned(TmplValue{std::move(s)});
+				} else if (key == "lower") {
+					auto s = value_to_string(*cur);
+					for (auto &c: s) {
+						c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+					}
+					set_owned(TmplValue{std::move(s)});
+				} else if (key == "capitalize") {
+					set_owned(TmplValue{str_capitalize(value_to_string(*cur))});
+				} else if (key == "strftime") {
+					set_owned(TmplValue{value_to_string(*cur)});
+				} else if (key == "strip") {
+					set_owned(TmplValue{trim(value_to_string(*cur))});
+				} else if (key == "startswith" && !method_args.empty()) {
+					auto s = value_to_string(*cur);
+					auto p = value_to_string(eval_expr(method_args[0], context));
+					set_owned(TmplValue{s.compare(0, p.size(), p) == 0});
+				} else if (key == "split") {
+					auto s = value_to_string(*cur);
+					auto sep = !method_args.empty() ? value_to_string(eval_expr(method_args[0], context)) : " ";
+					TmplValue arr{TmplValue::Array{}};
+					std::size_t p = 0;
+					while (p <= s.size()) {
+						auto f = sep.empty() ? std::string::npos : s.find(sep, p);
+						if (f == std::string::npos) {
+							arr.push_back(TmplValue{s.substr(p)});
+							break;
+						}
+						arr.push_back(TmplValue{s.substr(p, f - p)});
+						p = f + sep.size();
+					}
+					set_owned(std::move(arr));
+				} else if (key == "keys" && cur->is_object()) {
+					set_owned(tmpl_object_keys(cur->as_object()));
+				} else if (key == "values" && cur->is_object()) {
+					set_owned(tmpl_object_values(cur->as_object()));
+				} else if (key == "items" && cur->is_object()) {
+					set_owned(tmpl_object_items(cur->as_object()));
+				}
+				continue;
+			}
+
+			if (!remaining.empty() && remaining[0] == '.') {
+				remaining = remaining.substr(1);
+			}
+		}
+		if (use_owned) {
+			return owned;
+		}
+		return *cur;
+	}
+}
+
 TmplValue Environment::Impl::eval_expr(
 	CompiledExpr const &expr,
 	TmplValue const &context) const {
@@ -1102,423 +1521,8 @@ TmplValue Environment::Impl::eval_expr(
 		return {};
 	}
 
-	// NOLINTNEXTLINE(misc-no-recursion)
-	auto eval_base = [&](std::string const &base) -> TmplValue {
-		auto b = trim(base);
-		if (b.empty()) {
-			return {};
-		}
-
-		if ((b.front() == '"' && b.back() == '"') || (b.front() == '\'' && b.back() == '\'')) {
-			return TmplValue{b.substr(1, b.size() - 2)};
-		}
-
-		if (std::isdigit(static_cast<unsigned char>(b[0])) || (b[0] == '-' && b.size() > 1)) {
-			try {
-				if (b.find('.') != std::string::npos) {
-					return TmplValue{std::stod(std::string{b})};
-				}
-				return TmplValue{static_cast<std::int64_t>(std::stoll(std::string{b}))};
-			} catch (std::exception const &ex) {
-				eprintln(std::format("template eval_literal: failed to parse number '{}': {}", b, ex.what()));
-			}
-		}
-
-		if (b == "true" || b == "True") {
-			return TmplValue{true};
-		}
-		if (b == "false" || b == "False") {
-			return TmplValue{false};
-		}
-		if (b == "none" || b == "None") {
-			return {};
-		}
-
-		if (b.front() == '[' && b.back() == ']') {
-			auto inner = trim(b.substr(1, b.size() - 2));
-			if (inner.empty()) {
-				return TmplValue{TmplValue::Array{}};
-			}
-			auto items = split_args(inner);
-			return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
-		}
-
-		if (b.front() == '(' && b.back() == ')') {
-			auto inner = trim(b.substr(1, b.size() - 2));
-			if (inner.empty()) {
-				return TmplValue{TmplValue::Array{}};
-			}
-			auto items = split_args(inner);
-			if (items.size() == 1) {
-				return eval_expr(items[0], context);
-			}
-			return tmpl_array_from(items, [&](auto const &item) { return eval_expr(item, context); });
-		}
-
-		if (b.front() == '{' && b.back() == '}') {
-			auto inner = trim(b.substr(1, b.size() - 2));
-			if (inner.empty()) {
-				return TmplValue{TmplValue::Object{}};
-			}
-			auto pairs = split_args(inner);
-			TmplValue obj{TmplValue::Object{}};
-			for (auto &p: pairs) {
-				auto colon = p.find(':');
-				if (colon != std::string::npos) {
-					auto key = trim(std::string_view{p}.substr(0, colon));
-					auto val = trim(std::string_view{p}.substr(colon + 1));
-					if ((key.front() == '"' && key.back() == '"') || (key.front() == '\'' && key.back() == '\'')) {
-						key = key.substr(1, key.size() - 2);
-					}
-					obj.set(std::string{key}, eval_expr(std::string{val}, context));
-				}
-			}
-			return obj;
-		}
-
-		{
-			auto const i = find_top_level_token(b, " or ");
-			if (i != std::string_view::npos) {
-				auto left = eval_expr(std::string{b.substr(0, i)}, context);
-				if (is_truthy(left)) {
-					return left;
-				}
-				return eval_expr(std::string{b.substr(i + 4)}, context);
-			}
-		}
-
-		{
-			auto const i = find_top_level_token(b, " and ");
-			if (i != std::string_view::npos) {
-				auto left = eval_expr(std::string{b.substr(0, i)}, context);
-				if (!is_truthy(left)) {
-					return left;
-				}
-				return eval_expr(std::string{b.substr(i + 5)}, context);
-			}
-		}
-
-		if (b.size() > 4 && b.substr(0, 4) == "not ") {
-			auto inner_val = eval_expr(std::string{b.substr(4)}, context);
-			return TmplValue{!is_truthy(inner_val)};
-		}
-
-		{
-			static constexpr auto ops = std::to_array<std::pair<std::string_view, int>>({
-				{" == ", 0},
-				{" != ", 1},
-				{" <= ", 2},
-				{" >= ", 3},
-				{ " < ", 4},
-				{ " > ", 5},
-				{" in ", 6},
-			});
-			for (auto &[op, code]: ops) {
-				auto p = find_top_level_token(b, op);
-				if (p != std::string_view::npos) {
-					auto left = eval_expr(std::string{b.substr(0, p)}, context);
-					auto right = eval_expr(std::string{b.substr(p + op.size())}, context);
-					switch (code) {
-					case 0: return TmplValue{left == right};
-					case 1: return TmplValue{left != right};
-					case 2:
-					case 3:
-					case 4:
-					case 5:
-						{
-							double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
-											  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
-											  left.is_float() ? left.as<double>() :
-																0.0;
-							double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
-											  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
-											  right.is_float() ? right.as<double>() :
-																 0.0;
-							if (code == 2) {
-								return TmplValue{lv <= rv};
-							}
-							if (code == 3) {
-								return TmplValue{lv >= rv};
-							}
-							if (code == 4) {
-								return TmplValue{lv < rv};
-							}
-							return TmplValue{lv > rv};
-						}
-					case 6:
-						{
-							if (right.is_array()) {
-								for (auto const &item: right.as_array()) {
-									if (item == left) {
-										return TmplValue{true};
-									}
-								}
-								return TmplValue{false};
-							}
-							if (right.is_string() && left.is_string()) {
-								return TmplValue{
-									right.as<std::string_view>().find(left.as<std::string_view>())
-									!= std::string_view::npos};
-							}
-							return TmplValue{false};
-						}
-					default: break;
-					}
-				}
-			}
-		}
-
-		{
-			int depth = 0;
-			bool in_s = false;
-			char sqc = 0;
-			for (std::size_t i = 0; i < b.size(); ++i) {
-				char const c = b[i];
-				if (in_s) {
-					if (c == sqc) {
-						in_s = false;
-					}
-					continue;
-				}
-				if (c == '"' || c == '\'') {
-					in_s = true;
-					sqc = c;
-					continue;
-				}
-				if (c == '(' || c == '[') {
-					++depth;
-					continue;
-				}
-				if (c == ')' || c == ']') {
-					--depth;
-					continue;
-				}
-				if (depth == 0 && c == '~') {
-					auto left = eval_expr(std::string{b.substr(0, i)}, context);
-					auto right = eval_expr(std::string{b.substr(i + 1)}, context);
-					return TmplValue{value_to_string(left) + value_to_string(right)};
-				}
-			}
-		}
-
-		{
-			TmplValue owned;
-			bool use_owned = false;
-			TmplValue const *cur = &context;
-			auto set_owned = [&](TmplValue v) {
-				owned = std::move(v);
-				cur = &owned;
-				use_owned = true;
-			};
-			std::string remaining{b};
-
-			while (!remaining.empty()) {
-				auto bracket = remaining.find('[');
-				auto dot = remaining.find('.');
-				auto paren = remaining.find('(');
-
-				auto next_sep = std::min({bracket, dot, paren, remaining.size()});
-
-				if (next_sep == 0 && bracket == 0) {
-					auto close = remaining.find(']', 1);
-					if (close == std::string::npos) {
-						return {};
-					}
-					auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
-					if (auto colon = idx_str.find(':'); colon != std::string::npos) {
-						if (cur->is_string()) {
-							auto s = std::string(cur->as<std::string_view>());
-							auto start_s = trim(idx_str.substr(0, colon));
-							auto end_s = trim(idx_str.substr(colon + 1));
-							std::int64_t start = 0;
-							std::int64_t end = static_cast<std::int64_t>(s.size());
-							if (!start_s.empty()) {
-								auto sv = eval_expr(std::string{start_s}, context);
-								if (sv.is_int()) {
-									start = sv.as<std::int64_t>();
-									if (start < 0) {
-										start = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + start);
-									}
-								}
-							}
-							if (!end_s.empty()) {
-								auto ev = eval_expr(std::string{end_s}, context);
-								if (ev.is_int()) {
-									end = ev.as<std::int64_t>();
-									if (end < 0) {
-										end = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + end);
-									}
-								}
-							}
-							start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(s.size()));
-							end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(s.size()));
-							set_owned(
-								TmplValue{s.substr(
-									static_cast<std::size_t>(start),
-									static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
-						} else {
-							return {};
-						}
-						remaining = remaining.substr(close + 1);
-						if (!remaining.empty() && remaining[0] == '.') {
-							remaining = remaining.substr(1);
-						}
-						continue;
-					}
-					auto idx_val = eval_expr(std::string{idx_str}, context);
-					if (cur->is_array() && idx_val.is_int()) {
-						auto idx = idx_val.as<std::int64_t>();
-						auto const &arr = cur->as_array();
-						if (idx < 0) {
-							idx += static_cast<std::int64_t>(arr.size());
-						}
-						if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
-							set_owned(arr[static_cast<std::size_t>(idx)]);
-						} else {
-							return {};
-						}
-					} else if (cur->is_object() && idx_val.is_string()) {
-						auto const *found = obj_find(*cur, idx_val.as<std::string_view>());
-						if (found) {
-							set_owned(*found);
-						} else {
-							return {};
-						}
-					} else {
-						return {};
-					}
-					remaining = remaining.substr(close + 1);
-					if (!remaining.empty() && remaining[0] == '.') {
-						remaining = remaining.substr(1);
-					}
-					continue;
-				}
-
-				std::string const key = remaining.substr(0, next_sep);
-				remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : "";
-
-				bool const is_method_call = !remaining.empty() && remaining[0] == '(';
-
-				if (!key.empty() && !is_method_call) {
-					if (cur->is_object()) {
-						auto const *found = obj_find(*cur, key);
-						if (found) {
-							set_owned(*found);
-						} else {
-							return {};
-						}
-					} else if (cur->is_string() && key == "value") {
-						// no-op
-					} else {
-						return {};
-					}
-				}
-
-				if (is_method_call) {
-					auto const close = find_matching_pair(remaining, 0, '(', ')');
-					if (close == std::string::npos) {
-						return {};
-					}
-					auto args_str = remaining.substr(1, close - 1);
-					auto method_args = split_args(args_str);
-					remaining = remaining.substr(close + 1);
-					if (!remaining.empty() && remaining[0] == '.') {
-						remaining = remaining.substr(1);
-					}
-
-					if (key == "get" && cur->is_object()) {
-						if (method_args.empty()) {
-							return {};
-						}
-						auto k = eval_expr(method_args[0], context);
-						auto const *found = obj_find(*cur, value_to_string(k));
-						if (found) {
-							set_owned(*found);
-						} else if (method_args.size() > 1) {
-							set_owned(eval_expr(method_args[1], context));
-						} else {
-							set_owned(TmplValue{});
-						}
-					} else if (key == "replace" && method_args.size() >= 2) {
-						auto s = value_to_string(*cur);
-						auto old_s = value_to_string(eval_expr(method_args[0], context));
-						auto new_s = value_to_string(eval_expr(method_args[1], context));
-						set_owned(TmplValue{str_replace_all(s, old_s, new_s)});
-					} else if (key == "title") {
-						auto s = value_to_string(*cur);
-						bool up = true;
-						for (auto &c: s) {
-							if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
-								up = true;
-								continue;
-							}
-							if (up) {
-								c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-								up = false;
-							} else {
-								c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-							}
-						}
-						set_owned(TmplValue{std::move(s)});
-					} else if (key == "upper") {
-						auto s = value_to_string(*cur);
-						for (auto &c: s) {
-							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-						}
-						set_owned(TmplValue{std::move(s)});
-					} else if (key == "lower") {
-						auto s = value_to_string(*cur);
-						for (auto &c: s) {
-							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-						}
-						set_owned(TmplValue{std::move(s)});
-					} else if (key == "capitalize") {
-						set_owned(TmplValue{str_capitalize(value_to_string(*cur))});
-					} else if (key == "strftime") {
-						set_owned(TmplValue{value_to_string(*cur)});
-					} else if (key == "strip") {
-						set_owned(TmplValue{trim(value_to_string(*cur))});
-					} else if (key == "startswith" && !method_args.empty()) {
-						auto s = value_to_string(*cur);
-						auto p = value_to_string(eval_expr(method_args[0], context));
-						set_owned(TmplValue{s.compare(0, p.size(), p) == 0});
-					} else if (key == "split") {
-						auto s = value_to_string(*cur);
-						auto sep = !method_args.empty() ? value_to_string(eval_expr(method_args[0], context)) : " ";
-						TmplValue arr{TmplValue::Array{}};
-						std::size_t p = 0;
-						while (p <= s.size()) {
-							auto f = sep.empty() ? std::string::npos : s.find(sep, p);
-							if (f == std::string::npos) {
-								arr.push_back(TmplValue{s.substr(p)});
-								break;
-							}
-							arr.push_back(TmplValue{s.substr(p, f - p)});
-							p = f + sep.size();
-						}
-						set_owned(std::move(arr));
-					} else if (key == "keys" && cur->is_object()) {
-						set_owned(tmpl_object_keys(cur->as_object()));
-					} else if (key == "values" && cur->is_object()) {
-						set_owned(tmpl_object_values(cur->as_object()));
-					} else if (key == "items" && cur->is_object()) {
-						set_owned(tmpl_object_items(cur->as_object()));
-					}
-					continue;
-				}
-
-				if (!remaining.empty() && remaining[0] == '.') {
-					remaining = remaining.substr(1);
-				}
-			}
-			if (use_owned) {
-				return owned;
-			}
-			return *cur;
-		}
-	};
-
-	TmplValue result = expr.compiled_base ? this->eval_base(*expr.compiled_base, context) : eval_base(expr.base);
+	TmplValue result =
+		expr.compiled_base ? this->eval_base(*expr.compiled_base, context) : eval_legacy_base(expr.base, context);
 
 	for (auto const &filter: expr.filters) {
 		result = apply_filter(filter, result, context);

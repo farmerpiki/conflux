@@ -358,6 +358,7 @@ struct Environment::Impl {
 	Template parse(std::string const &name, std::string const &source) const;
 	TmplValue eval_expr(std::string const &expr, TmplValue const &context) const;
 	TmplValue eval_expr(CompiledExpr const &expr, TmplValue const &context) const;
+	TmplValue eval_legacy_base(std::string const &base, TmplValue const &context) const;
 	TmplValue eval_base(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_path(std::vector<CompiledPathSegment> const &path, TmplValue const &context) const;
 	TmplValue apply_method(
