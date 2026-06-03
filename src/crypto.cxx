@@ -662,8 +662,128 @@ void gcm_inc32(
 		}
 	}
 }
+
+		#if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
+std::array<unsigned char, 16> compute_aes_gcm_tag(
+	AesKey256 const &ek,
+	std::array<unsigned char, 16> const &j0,
+	std::array<unsigned char, 16> const &h,
+	std::span<unsigned char const> ciphertext,
+	std::span<unsigned char const> aad) {
+	std::array<unsigned char, 16> ghash_state{};
+	if (!aad.empty()) {
+		ghash_update(ghash_state.data(), h.data(), aad);
+	}
+	ghash_update(ghash_state.data(), h.data(), ciphertext);
+
+	std::array<unsigned char, 16> len_block{};
+	std::uint64_t const aad_bits = aad.size() * 8;
+	std::uint64_t const ct_bits = ciphertext.size() * 8;
+	for (int i = 0; i < 8; ++i) {
+		len_block[static_cast<std::size_t>(i)] = static_cast<unsigned char>(aad_bits >> (56 - i * 8));
+		len_block[static_cast<std::size_t>(i) + 8] = static_cast<unsigned char>(ct_bits >> (56 - i * 8));
+	}
+	for (std::size_t i = 0; i < 16; ++i) {
+		ghash_state[i] = static_cast<unsigned char>(ghash_state[i] ^ len_block[i]);
+	}
+	ghash_mult(ghash_state.data(), h.data(), ghash_state.data());
+
+	std::array<unsigned char, 16> expected_tag{};
+	aes256_encrypt_block(ek, j0.data(), expected_tag.data());
+	for (std::size_t i = 0; i < 16; ++i) {
+		expected_tag[i] = static_cast<unsigned char>(expected_tag[i] ^ ghash_state[i]);
+	}
+	return expected_tag;
+}
+
+std::vector<unsigned char> decrypt_aes_gcm_ctr(
+	AesKey256 const &ek,
+	std::array<unsigned char, 16> const &j0,
+	std::span<unsigned char const> ciphertext) {
+	std::array<unsigned char, 16> ctr{};
+	std::ranges::copy(j0, ctr.begin());
+
+	std::vector<unsigned char> pt(ciphertext.size());
+	std::array<unsigned char, 16> keystream{};
+	for (std::size_t i = 0; i < ciphertext.size(); i += 16) {
+		gcm_inc32(ctr.data());
+		aes256_encrypt_block(ek, ctr.data(), keystream.data());
+		std::size_t const chunk = std::min(std::size_t{16}, ciphertext.size() - i);
+		for (std::size_t j = 0; j < chunk; ++j) {
+			pt[i + j] = static_cast<unsigned char>(ciphertext[i + j] ^ keystream[j]);
+		}
+	}
+	return pt;
+}
+
+std::expected<std::vector<unsigned char>, std::string> decrypt_aes_gcm_with_fallback(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> ciphertext_and_tag,
+	std::span<unsigned char const> aad) {
+	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
+	auto const ct = ciphertext_and_tag.subspan(0, ct_len);
+	auto const claimed_tag = ciphertext_and_tag.subspan(ct_len, 16);
+
+	auto const ek = aes256_expand_key(key);
+
+	std::array<unsigned char, 16> h_in{};
+	std::array<unsigned char, 16> h{};
+	aes256_encrypt_block(ek, h_in.data(), h.data());
+
+	std::array<unsigned char, 16> j0{};
+	std::ranges::copy(iv, j0.begin());
+	j0[15] = 1;
+
+	auto const expected_tag = compute_aes_gcm_tag(ek, j0, h, ct, aad);
+	if (!constant_time_eq(std::span{expected_tag.data(), expected_tag.size()}, claimed_tag)) {
+		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+	}
+
+	return decrypt_aes_gcm_ctr(ek, j0, ct);
+}
+		#endif
 	#endif
 
+#endif
+
+std::expected<void, std::string> validate_aes_gcm_decrypt_inputs(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> ciphertext_and_tag) {
+	if (key.size() != 32) {
+		return std::unexpected(std::string{"aes_gcm_decrypt: key must be 32 bytes"});
+	}
+	if (iv.size() != 12) {
+		return std::unexpected(std::string{"aes_gcm_decrypt: iv must be 12 bytes"});
+	}
+	if (ciphertext_and_tag.size() < 16) {
+		return std::unexpected(std::string{"aes_gcm_decrypt: input too short (need at least tag)"});
+	}
+	return {};
+}
+
+#if defined(CONFLUX_CRYPTO_USE_AESNI)
+std::expected<std::vector<unsigned char>, std::string> try_aesni_gcm_decrypt(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> ciphertext_and_tag,
+	std::span<unsigned char const> aad) {
+	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
+	std::vector<unsigned char> pt(ct_len);
+	int const rc = conflux_aes_gcm_decrypt_aesni(
+		key.data(),
+		iv.data(),
+		ciphertext_and_tag.data(),
+		ciphertext_and_tag.size(),
+		aad.data(),
+		aad.size(),
+		pt.data());
+	if (rc != 0) {
+		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
+	}
+	return pt;
+}
 #endif
 
 } // namespace
@@ -763,14 +883,8 @@ std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	std::span<unsigned char const> iv,
 	std::span<unsigned char const> ciphertext_and_tag,
 	std::span<unsigned char const> aad) {
-	if (key.size() != 32) {
-		return std::unexpected(std::string{"aes_gcm_decrypt: key must be 32 bytes"});
-	}
-	if (iv.size() != 12) {
-		return std::unexpected(std::string{"aes_gcm_decrypt: iv must be 12 bytes"});
-	}
-	if (ciphertext_and_tag.size() < 16) {
-		return std::unexpected(std::string{"aes_gcm_decrypt: input too short (need at least tag)"});
+	if (auto valid = validate_aes_gcm_decrypt_inputs(key, iv, ciphertext_and_tag); !valid.has_value()) {
+		return std::unexpected(std::move(valid.error()));
 	}
 
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
@@ -778,82 +892,12 @@ std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	if (conflux_cpu_supports_aesni_pclmul_sse41())
 	#endif
 	{
-		std::size_t const ct_len = ciphertext_and_tag.size() - 16;
-		std::vector<unsigned char> pt(ct_len);
-		int const rc = conflux_aes_gcm_decrypt_aesni(
-			key.data(),
-			iv.data(),
-			ciphertext_and_tag.data(),
-			ciphertext_and_tag.size(),
-			aad.data(),
-			aad.size(),
-			pt.data());
-		if (rc != 0) {
-			return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
-		}
-		return pt;
+		return try_aesni_gcm_decrypt(key, iv, ciphertext_and_tag, aad);
 	}
 #endif
 
 #if !defined(CONFLUX_CRYPTO_USE_AESNI) || CONFLUX_CPU_FEATURE_PROBES_RUNTIME
-	std::size_t const ct_len = ciphertext_and_tag.size() - 16;
-	auto const ct = ciphertext_and_tag.subspan(0, ct_len);
-	auto const claimed_tag = ciphertext_and_tag.subspan(ct_len, 16);
-
-	auto const ek = aes256_expand_key(key);
-
-	std::array<unsigned char, 16> h_in{};
-	std::array<unsigned char, 16> h{};
-	aes256_encrypt_block(ek, h_in.data(), h.data());
-
-	std::array<unsigned char, 16> j0{};
-	std::ranges::copy(iv, j0.begin());
-	j0[15] = 1;
-
-	// Verify tag before decrypting (authenticate-then-decrypt)
-	std::array<unsigned char, 16> ghash_state{};
-	if (!aad.empty()) {
-		ghash_update(ghash_state.data(), h.data(), aad);
-	}
-	ghash_update(ghash_state.data(), h.data(), ct);
-
-	std::array<unsigned char, 16> len_block{};
-	std::uint64_t const aad_bits = aad.size() * 8;
-	std::uint64_t const ct_bits = ct.size() * 8;
-	for (int i = 0; i < 8; ++i) {
-		len_block[static_cast<std::size_t>(i)] = static_cast<unsigned char>(aad_bits >> (56 - i * 8));
-		len_block[static_cast<std::size_t>(i) + 8] = static_cast<unsigned char>(ct_bits >> (56 - i * 8));
-	}
-	for (std::size_t i = 0; i < 16; ++i) {
-		ghash_state[i] = static_cast<unsigned char>(ghash_state[i] ^ len_block[i]);
-	}
-	ghash_mult(ghash_state.data(), h.data(), ghash_state.data());
-
-	std::array<unsigned char, 16> expected_tag{};
-	aes256_encrypt_block(ek, j0.data(), expected_tag.data());
-	for (std::size_t i = 0; i < 16; ++i) {
-		expected_tag[i] = static_cast<unsigned char>(expected_tag[i] ^ ghash_state[i]);
-	}
-
-	if (!constant_time_eq(std::span{expected_tag.data(), expected_tag.size()}, claimed_tag)) {
-		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
-	}
-
-	// Decrypt CTR
-	std::array<unsigned char, 16> ctr{};
-	std::ranges::copy(j0, ctr.begin());
-
-	std::vector<unsigned char> pt(ct_len);
-	std::array<unsigned char, 16> keystream{};
-	for (std::size_t i = 0; i < ct_len; i += 16) {
-		gcm_inc32(ctr.data());
-		aes256_encrypt_block(ek, ctr.data(), keystream.data());
-		std::size_t const chunk = std::min(std::size_t{16}, ct_len - i);
-		for (std::size_t j = 0; j < chunk; ++j) {
-			pt[i + j] = static_cast<unsigned char>(ct[i + j] ^ keystream[j]);
-		}
-	}
-	return pt;
+	return decrypt_aes_gcm_with_fallback(key, iv, ciphertext_and_tag, aad);
 #else
 	return std::unexpected(std::string{"aes_gcm_decrypt: AES-NI path selected without CPU dispatch fallback"});
 #endif
