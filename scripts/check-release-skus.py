@@ -93,10 +93,19 @@ def main() -> int:
                     errors.append(f"{sku_name}: {field} must be a non-empty list")
                     continue
                 seen: set[str] = set()
+                seen_basenames: dict[str, str] = {}
                 for item in paths:
                     if item in seen:
                         errors.append(f"{sku_name}: duplicate {field} path {item}")
                     seen.add(item)
+                    basename = Path(item).name
+                    previous = seen_basenames.get(basename)
+                    if previous is not None:
+                        errors.append(
+                            f"{sku_name}: duplicate staged {field} basename {basename}: "
+                            f"{previous} and {item}"
+                        )
+                    seen_basenames[basename] = item
                     path = ROOT / item
                     if not path.is_file():
                         errors.append(f"{sku_name}: missing {field} path {item}")

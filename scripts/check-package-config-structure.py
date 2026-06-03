@@ -2749,6 +2749,7 @@ def check_release_sku_guard_contract() -> None:
         "kind == \"REQUESTABLE\"": "release SKU guard must restrict selected components to requestable exports",
         "duplicate component": "release SKU guard must reject duplicate selected components",
         "duplicate": "release SKU guard must reject duplicate docs/examples",
+        "duplicate staged": "release SKU guard must reject selected docs/examples basename collisions",
         "path.is_file()": "release SKU guard must require selected docs/examples to exist",
         "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",
         "item.startswith(\"examples/\")": "release SKU guard must keep selected examples under examples",
