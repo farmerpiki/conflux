@@ -88,11 +88,17 @@ def main(argv: list[str]) -> int:
         fail(f"release artifact must record {sku} selected examples")
     if release_manifest.get("selected_docs") != f"source/docs/{sku}":
         fail(f"release artifact must record {sku} selected docs")
-    for source_path in sku_entry.get("docs", []):
+    expected_docs = sku_entry.get("docs")
+    if not isinstance(expected_docs, list) or not all(isinstance(item, str) and item for item in expected_docs):
+        fail(f"staged release SKU manifest has invalid docs for {sku}")
+    expected_examples = sku_entry.get("examples")
+    if not isinstance(expected_examples, list) or not all(isinstance(item, str) and item for item in expected_examples):
+        fail(f"staged release SKU manifest has invalid examples for {sku}")
+    for source_path in expected_docs:
         selected = stage / "source" / "docs" / sku / Path(source_path).name
         if not selected.is_file():
             fail(f"missing selected release doc {selected.relative_to(stage)}")
-    for source_path in sku_entry.get("examples", []):
+    for source_path in expected_examples:
         selected = stage / "source" / "examples" / sku / Path(source_path).name
         if not selected.is_file():
             fail(f"missing selected release example {selected.relative_to(stage)}")

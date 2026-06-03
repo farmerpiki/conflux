@@ -2784,8 +2784,10 @@ def check_release_artifact_staging_contract() -> None:
         "release_sku": "release artifact guard must validate selected SKU manifest metadata",
         "package_components": "release artifact guard must validate selected package component metadata",
         "sku_entry.get(\"examples\"": "release artifact guard must validate selected examples through the SKU manifest",
+        "staged release SKU manifest has invalid examples": "release artifact guard must validate staged SKU example list shape",
         "selected_examples": "release artifact guard must validate selected example manifest metadata",
         "sku_entry.get(\"docs\"": "release artifact guard must validate selected docs through the SKU manifest",
+        "staged release SKU manifest has invalid docs": "release artifact guard must validate staged SKU docs list shape",
         "selected_docs": "release artifact guard must validate selected docs manifest metadata",
         "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
