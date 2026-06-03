@@ -1096,6 +1096,174 @@ struct Resolver::Impl {
 	return std::move(task);
 }
 
+[[nodiscard]] std::vector<NameserverEndpoint> native_udp_nameservers(
+	auto const &impl,
+	ResolveOptions const &opts) {
+	auto const base_ns = opts.override_nameservers.empty() ? impl->nameservers : opts.override_nameservers;
+	return nameservers_with_attempts(base_ns, impl->attempts);
+}
+
+[[nodiscard]] root::Task<ResolveResult> make_coalesced_waiter_task(
+	root::Task<ResolveResult> waiter_task) {
+	auto [out_task, out_raw_src] =
+		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = true});
+	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
+	auto weak_out = std::weak_ptr<root::TaskSource<ResolveResult>>{out_src};
+	auto _ = out_src->install_cancel_hook([weak_out](root::CancelReason) noexcept {
+		try {
+			if (auto src = weak_out.lock()) {
+				auto _ = src->try_set_exception(
+					make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: coalesced query cancelled"}));
+			}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): cancellation callback is best-effort.
+	});
+	auto bridge_waiter = [](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
+							root::Task<ResolveResult> waiter) -> root::Task<void> {
+		try {
+			auto r = co_await std::move(waiter);
+			r.from_coalesced = true;
+			auto _ = out_src->try_set_value(root::Success<ResolveResult>{std::move(r)});
+		} catch (Cancelled const &) {
+			auto _ = out_src->try_set_exception(
+				make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+		} catch (...) { auto _ = out_src->try_set_exception(std::current_exception()); }
+	};
+	bridge_waiter(out_src, std::move(waiter_task)).detach();
+	return std::move(out_task);
+}
+
+struct NativeUdpCoalesceResult {
+	std::optional<root::Task<ResolveResult>> task;
+	std::optional<DnsError> error;
+};
+
+[[nodiscard]] NativeUdpCoalesceResult try_join_or_register_native_dns_query(
+	auto const &impl,
+	InFlightKey const &inflight_key) {
+	std::lock_guard const lock{impl->in_flight_mutex};
+	if (impl->in_flight.size() >= impl->opts.max_in_flight_queries) {
+		return {
+			.error = DnsError{DnsErrorKind::cancelled, "resolve: max in-flight queries exceeded"}
+        };
+	}
+	if (inflight_key.cache_key.empty()) {
+		return {};
+	}
+	if (auto it = impl->in_flight.find(inflight_key); it != impl->in_flight.end()) {
+		auto [waiter_task, waiter_raw_src] =
+			root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_waiter = std::make_shared<root::TaskSource<ResolveResult>>(std::move(waiter_raw_src));
+		it->second.waiters.push_back(shared_waiter);
+		return {.task = make_coalesced_waiter_task(std::move(waiter_task))};
+	}
+	impl->in_flight.emplace(inflight_key, CoalescedBroadcast{});
+	return {};
+}
+
+[[nodiscard]] std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> take_native_dns_waiters(
+	auto const &impl,
+	InFlightKey const &inflight_key) {
+	std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
+	if (inflight_key.cache_key.empty()) {
+		return waiters;
+	}
+	std::lock_guard const lock{impl->in_flight_mutex};
+	if (auto it = impl->in_flight.find(inflight_key); it != impl->in_flight.end()) {
+		waiters = std::move(it->second.waiters);
+		impl->in_flight.erase(it);
+	}
+	return waiters;
+}
+
+[[nodiscard]] ResolveResult cache_native_dns_result(
+	auto const &impl,
+	std::string const &cache_key,
+	ResolveResult result) {
+	try {
+		if (impl->cache && !cache_key.empty() && !result.endpoints.empty()) {
+			auto const ttl = (result.suggested_ttl.count() > 0) ?
+								 std::min(result.suggested_ttl, impl->opts.cache_max_ttl) :
+								 impl->opts.cache_max_ttl;
+			impl->cache->put(cache_key, result, ttl);
+		}
+	} catch (...) { ignore_best_effort_dns_failure(); }
+	return result;
+}
+
+[[nodiscard]] ResolveResult fanout_native_dns_success(
+	auto const &impl,
+	InFlightKey const &inflight_key,
+	ResolveResult result) {
+	for (auto const &waiter: take_native_dns_waiters(impl, inflight_key)) {
+		auto copy = result;
+		copy.from_coalesced = true;
+		auto _ = waiter->try_set_value(root::Success<ResolveResult>{std::move(copy)});
+	}
+	return result;
+}
+
+void maybe_cache_native_dns_negative_result(
+	auto const &impl,
+	InFlightKey const &inflight_key,
+	DnsError const &error) {
+	if (error.kind == DnsErrorKind::nxdomain && impl->cache && !inflight_key.cache_key.empty()) {
+		ResolveResult neg;
+		neg.is_negative = true;
+		try {
+			impl->cache->put(inflight_key.cache_key, neg, impl->opts.cache_negative_ttl);
+		} catch (...) { ignore_best_effort_dns_failure(); }
+	}
+}
+
+void fanout_native_dns_error(
+	auto const &impl,
+	InFlightKey const &inflight_key,
+	std::exception_ptr const &error) {
+	for (auto const &waiter: take_native_dns_waiters(impl, inflight_key)) {
+		auto _ = waiter->try_set_exception(error);
+	}
+	try {
+		std::rethrow_exception(error);
+	} catch (DnsError const &dns_error) {
+		maybe_cache_native_dns_negative_result(impl, inflight_key, dns_error);
+		throw;
+	}
+}
+
+void complete_cancelled_native_dns_query(
+	std::shared_ptr<root::TaskSource<ResolveResult>> const &out_src,
+	auto const &impl,
+	InFlightKey const &inflight_key) {
+	auto cancelled = make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
+	for (auto const &waiter: take_native_dns_waiters(impl, inflight_key)) {
+		auto _ = waiter->try_set_exception(cancelled);
+	}
+	auto _ = out_src->try_set_exception(std::move(cancelled));
+}
+
+void bridge_native_udp_result(
+	std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
+	root::Task<ResolveResult> inner,
+	auto impl,
+	InFlightKey inflight_key) {
+	auto bridge = [](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
+					 root::Task<ResolveResult> inner,
+					 auto impl,
+					 InFlightKey inflight_key) mutable -> root::Task<void> {
+		try {
+			auto result = co_await std::move(inner);
+			result = cache_native_dns_result(impl, inflight_key.cache_key, std::move(result));
+			result = fanout_native_dns_success(impl, inflight_key, std::move(result));
+			auto _ = out_src->try_set_value(root::Success<ResolveResult>{std::move(result)});
+		} catch (Cancelled const &) { complete_cancelled_native_dns_query(out_src, impl, inflight_key); } catch (...) {
+			try {
+				fanout_native_dns_error(impl, inflight_key, std::current_exception());
+			} catch (...) { auto _ = out_src->try_set_exception(std::current_exception()); }
+		}
+	};
+	bridge(std::move(out_src), std::move(inner), std::move(impl), std::move(inflight_key)).detach();
+}
+
 Resolver::Resolver(
 	::io_uring *ring,
 	CompletionTable *completions,
@@ -1229,8 +1397,7 @@ root::Task<ResolveResult> Resolver::resolve_native_udp(
 	std::string const &cache_key) {
 	InFlightKey const inflight_key{cache_key, external_ring};
 
-	auto const base_ns = opts.override_nameservers.empty() ? impl_->nameservers : opts.override_nameservers;
-	auto const ns_list = nameservers_with_attempts(base_ns, impl_->attempts);
+	auto const ns_list = native_udp_nameservers(impl_, opts);
 
 	if (ns_list.empty()) {
 		return ready_resolve_error(DnsError{DnsErrorKind::no_servers, "resolve: no nameservers configured"});
@@ -1240,119 +1407,18 @@ root::Task<ResolveResult> Resolver::resolve_native_udp(
 		return ready_resolve_error(DnsError{DnsErrorKind::no_ring, "resolve: no ring available"});
 	}
 
-	std::optional<root::Task<ResolveResult>> coalesced_out;
-	bool max_inflight_exceeded = false;
-	{
-		std::lock_guard const lock{impl_->in_flight_mutex};
-		if (impl_->in_flight.size() >= impl_->opts.max_in_flight_queries) {
-			max_inflight_exceeded = true;
-		} else if (!inflight_key.cache_key.empty()) {
-			if (auto it = impl_->in_flight.find(inflight_key); it != impl_->in_flight.end()) {
-				auto [wtask, wraw_src] =
-					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-				auto shared_waiter = std::make_shared<root::TaskSource<ResolveResult>>(std::move(wraw_src));
-				it->second.waiters.push_back(shared_waiter);
-				auto [out_task, out_raw_src] =
-					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = true});
-				auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-				auto weak_out = std::weak_ptr<root::TaskSource<ResolveResult>>{out_src};
-				auto _ = out_src->install_cancel_hook([weak_out](root::CancelReason) noexcept {
-					try {
-						if (auto src = weak_out.lock()) {
-							auto _ = src->try_set_exception(make_exception_ptr(
-								DnsError{DnsErrorKind::cancelled, "dns: coalesced query cancelled"}));
-						}
-					} catch (...) {} // NOLINT(bugprone-empty-catch): cancellation callback is best-effort.
-				});
-				[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
-				   root::Task<ResolveResult> wt) -> root::Task<void> {
-					try {
-						auto r = co_await std::move(wt);
-						r.from_coalesced = true;
-						auto _ = out_src->try_set_value(root::Success<ResolveResult>{std::move(r)});
-					} catch (Cancelled const &) {
-						auto _ = out_src->try_set_exception(
-							make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
-					} catch (...) { auto _ = out_src->try_set_exception(std::current_exception()); }
-				}(out_src, std::move(wtask))
-														.detach();
-				coalesced_out = std::move(out_task);
-			} else {
-				impl_->in_flight.emplace(inflight_key, CoalescedBroadcast{});
-			}
-		}
+	auto coalesced = try_join_or_register_native_dns_query(impl_, inflight_key);
+	if (coalesced.error) {
+		return ready_resolve_error(std::move(*coalesced.error));
 	}
-	if (max_inflight_exceeded) {
-		return ready_resolve_error(DnsError{DnsErrorKind::cancelled, "resolve: max in-flight queries exceeded"});
-	}
-	if (coalesced_out.has_value()) {
-		return std::move(*coalesced_out);
+	if (coalesced.task) {
+		return std::move(*coalesced.task);
 	}
 	auto const timeout = effective_native_timeout(opts);
 	codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
 	bool const do_v4 = opts.allow_v4;
 	bool const do_v6 = opts.allow_v6;
 	auto const candidates = resolve_candidates(host, impl_->search_domains, impl_->ndots);
-
-	auto cache_insert = [cache = impl_->cache, cache_key = cache_key, max_ttl = impl_->opts.cache_max_ttl](
-							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
-		try {
-			if (cache && !cache_key.empty() && !r.endpoints.empty()) {
-				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
-				cache->put(cache_key, r, ttl);
-			}
-		} catch (...) { ignore_best_effort_dns_failure(); }
-		return r;
-	};
-
-	auto fanout_success = // NOLINT(bugprone-exception-escape)
-		[impl = impl_, inflight_key](ResolveResult r) -> ResolveResult {
-		auto const &impl_keep = impl;
-		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
-		if (!inflight_key.cache_key.empty()) {
-			std::lock_guard const lock{impl_keep->in_flight_mutex};
-			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
-				waiters = std::move(it->second.waiters);
-				impl_keep->in_flight.erase(it);
-			}
-		}
-		for (auto const &w: waiters) {
-			auto copy = r;
-			copy.from_coalesced = true;
-			auto _ = w->try_set_value(root::Success<ResolveResult>{std::move(copy)});
-		}
-		return r;
-	};
-
-	auto fanout_error = // NOLINT(bugprone-exception-escape)
-		[impl = impl_, inflight_key](std::exception_ptr const &ep) -> ResolveResult {
-		auto const &impl_keep = impl;
-		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
-		if (!inflight_key.cache_key.empty()) {
-			std::lock_guard const lock{impl_keep->in_flight_mutex};
-			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
-				waiters = std::move(it->second.waiters);
-				impl_keep->in_flight.erase(it);
-			}
-		}
-		for (auto const &w: waiters) {
-			auto _ = w->try_set_exception(ep);
-		}
-		// Negative caching: store NXDOMAIN entries so repeat lookups skip the wire.
-		try {
-			std::rethrow_exception(ep);
-		} catch (DnsError const &de) {
-			if (de.kind == DnsErrorKind::nxdomain && impl_keep->cache && !inflight_key.cache_key.empty()) {
-				ResolveResult neg;
-				neg.is_negative = true;
-				try {
-					impl_keep->cache->put(inflight_key.cache_key, neg, impl_keep->opts.cache_negative_ttl);
-				} catch (...) { ignore_best_effort_dns_failure(); }
-			}
-			throw;
-		}
-		return {};
-	};
 
 	auto inner_task = build_native_udp_flow_with_candidates(
 		*task_ring,
@@ -1376,50 +1442,7 @@ root::Task<ResolveResult> Resolver::resolve_native_udp(
 			(void)src->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 		}
 	});
-	[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
-	   root::Task<ResolveResult> inner,
-	   auto cache_insert,
-	   auto fanout_success,
-	   auto fanout_error,
-	   std::shared_ptr<Resolver::Impl> impl,
-	   InFlightKey inflight_key) mutable -> root::Task<void> {
-		try {
-			auto const &out = out_src;
-			auto r = co_await std::move(inner);
-			r = cache_insert(std::move(r));
-			r = fanout_success(std::move(r));
-			auto _ = out->try_set_value(root::Success<ResolveResult>{std::move(r)});
-		} catch (Cancelled const &) {
-			auto const &out = out_src;
-			auto const &key = inflight_key;
-			std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
-			if (!key.cache_key.empty()) {
-				std::lock_guard const lock{impl->in_flight_mutex};
-				if (auto it = impl->in_flight.find(key); it != impl->in_flight.end()) {
-					waiters = std::move(it->second.waiters);
-					impl->in_flight.erase(it);
-				}
-			}
-			auto cancelled = make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
-			for (auto const &w: waiters) {
-				auto _ = w->try_set_exception(cancelled);
-			}
-			auto _ =
-				out->try_set_exception(make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
-		} catch (...) {
-			auto const &out = out_src;
-			try {
-				fanout_error(std::current_exception());
-			} catch (...) { auto _ = out->try_set_exception(std::current_exception()); }
-		}
-	}(out_src,
-	  std::move(inner_task),
-	  std::move(cache_insert),
-	  std::move(fanout_success),
-	  std::move(fanout_error),
-	  impl_,
-	  inflight_key)
-												.detach();
+	bridge_native_udp_result(out_src, std::move(inner_task), impl_, inflight_key);
 	return std::move(out_task);
 }
 
