@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -64,6 +65,21 @@ def shell_pkg_config_exists_probes(text: str) -> set[str]:
 
 def shell_cmake_definitions(text: str) -> dict[str, str]:
     return dict(re.findall(r"-D([A-Za-z0-9_]+)=([^ \t\n\\]+)", text))
+
+
+def package_smoke_forbidden_components(name: str) -> set[str]:
+    text = read("scripts/package-smoke-forbidden-components.py")
+    match = re.search(r"POLICIES = (?P<policies>\{.*?\n\})", text, re.DOTALL)
+    if match is None:
+        fail("missing package smoke forbidden component policies")
+    policies = ast.literal_eval(match.group("policies"))
+    try:
+        components = policies[name]
+    except KeyError:
+        fail(f"missing package smoke forbidden component policy: {name}")
+    if not isinstance(components, list) or not all(isinstance(component, str) and component for component in components):
+        fail(f"invalid package smoke forbidden component policy: {name}")
+    return set(components)
 
 
 def append_set_delta_errors(
@@ -1440,8 +1456,17 @@ def check_package_smoke_wrapper_default_components() -> None:
 
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
+        "scripts/package-smoke-forbidden-components.py": {
+            '"core": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"]': "package smoke forbidden component helper must define the core policy",
+            '"json": [': "package smoke forbidden component helper must define the JSON policy",
+            '"http_compression"': "package smoke forbidden component helper must keep compression out of JSON-only smokes",
+            '"net_tls"': "package smoke forbidden component helper must keep TLS out of JSON-only smokes",
+        },
         "scripts/check-package-smoke-core-isolated.sh": {
             "compress_backend_zlib_like.hxx": "core-isolated package smoke must reject unrelated generated compression detail headers",
+            "package-smoke-forbidden-components.py": "core-isolated package smoke must derive forbidden components from the shared package-smoke policy",
+            "--extra curated": "core-isolated package smoke must add profile headers to the shared core policy",
+            '--forbid-components "$strict_forbidden_components"': "core-isolated package smoke must pass the derived forbidden components",
         },
         "scripts/check-package-smoke-mixed-module-header.sh": {
             'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
@@ -1457,6 +1482,10 @@ def check_package_smoke_wrapper_contracts() -> None:
     if core_cmake_definitions.get("CONFLUX_JSON_HASH_PROVIDER") != "XXHASH":
         errors.append("core-isolated package smoke must force the external JSON hash provider")
     liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    if 'package-smoke-forbidden-components.py" json' not in liburing_free:
+        errors.append("liburing-free package smoke must derive forbidden components from the shared JSON policy")
+    if '--forbid-components "$forbid_components"' not in liburing_free:
+        errors.append("liburing-free package smoke must pass the derived forbidden components")
     if 'external-dependency-tokens.py" "$source_root" --exclude XXHASH' not in liburing_free:
         errors.append(
             "liburing-free package smoke must derive forbidden external deps from the registry while allowing the JSON hash provider",
@@ -1475,28 +1504,6 @@ def check_package_smoke_wrapper_contracts() -> None:
     if not shell_flag_present(read("scripts/check-package-smoke-db.sh"), "--enable-db-smoke"):
         errors.append("DB package smoke must enable DB component checks")
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
-    core_forbidden = shell_semicolon_flag_value(core_isolated, "--forbid-components")
-    expected_core_forbidden = {
-        "curated",
-        "extended",
-        "complete",
-        "json",
-        "http",
-        "http1",
-        "http2",
-        "http3",
-        "http_protocol",
-        "template",
-        "pg",
-        "db",
-    }
-    append_set_delta_errors(
-        errors,
-        expected_core_forbidden,
-        core_forbidden,
-        "core-isolated package smoke forbidden components missing: ",
-        "core-isolated package smoke forbidden components unexpected: ",
-    )
     if "--forbid-external-deps" in core_isolated:
         errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if errors:
@@ -1573,7 +1580,7 @@ def check_package_smoke_runner_contract() -> None:
         "--components must not be empty": "package smoke runner must reject empty component lists",
         "--components must request public components": "package smoke runner must reject support components in requested component lists",
         "forbid_all_external_deps=": "package smoke runner must centralize default forbidden external dependency tokens",
-        "forbid_runtime_db_template_components=": "package smoke runner must centralize default forbidden runtime/db/template component policy",
+        "package-smoke-forbidden-components.py": "package smoke runner must centralize default forbidden component policies",
         "--enable-db": "package smoke runner must expose a DB-enabled smoke option",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
@@ -2466,8 +2473,8 @@ def check_core_isolated_forbidden_components() -> None:
         if unknown:
             fail(f"{variable} contains unknown package components: {';'.join(unknown)}")
 
-    runner_forbidden = shell_semicolon_list_var(runner, "forbid_runtime_db_template_components")
-    runner_json_forbidden = shell_semicolon_list_var(runner, "forbid_json_components")
+    runner_forbidden = package_smoke_forbidden_components("core")
+    runner_json_forbidden = package_smoke_forbidden_components("json")
     if "--components core" not in core_isolated:
         fail("core-isolated package smoke must request the core component")
     errors: list[str] = []
@@ -2481,14 +2488,14 @@ def check_core_isolated_forbidden_components() -> None:
     append_set_delta_errors(
         errors,
         runner_forbidden | {"curated", "extended", "complete", "json"},
-        shell_semicolon_flag_value(core_isolated, "--forbid-components"),
+        package_smoke_forbidden_components("core") | {"curated", "extended", "complete", "json"},
         "strict core-isolated smoke forbidden components missing entries: ",
         "strict core-isolated smoke forbidden components contain unexpected entries: ",
     )
     append_set_delta_errors(
         errors,
         runner_json_forbidden,
-        shell_semicolon_flag_value(liburing_free, "--forbid-components"),
+        package_smoke_forbidden_components("json"),
         "liburing-free forbidden components missing isolation entries: ",
         "liburing-free forbidden components contain unexpected entries: ",
     )
@@ -2685,6 +2692,7 @@ def check_release_artifact_staging_contract() -> None:
         "SUPPORT.md": "release artifact staging must include support policy",
         "scripts/generate-public-header-include-smoke.py": "release artifact staging must include generated header smoke helper",
         "scripts/module_header_bridge.py": "release artifact staging must include module/header bridge helper",
+        "scripts/package-smoke-forbidden-components.py": "release artifact staging must include the package smoke forbidden component helper",
         "scripts/release-sku-field.py": "release artifact staging must include the release SKU helper",
         "release_sku=": "release artifact manifest must record the selected release SKU",
         "package_components=": "release artifact manifest must record selected package components",
@@ -2699,18 +2707,12 @@ def check_release_artifact_staging_contract() -> None:
     bootstrap = read("scripts/check-release-artifact-bootstrap.sh")
     offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
-    runner_json_forbidden = shell_semicolon_list_var(read("scripts/run-package-config-smoke.sh"), "forbid_json_components")
-    bootstrap_forbidden_match = re.search(
-        r'-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="([^"]*)"',
-        bootstrap,
-    )
-    if bootstrap_forbidden_match is None:
+    runner_json_forbidden = package_smoke_forbidden_components("json")
+    if 'package-smoke-forbidden-components.py" json' not in bootstrap:
+        fail("bootstrap check must derive release-json forbidden package components from the shared policy helper")
+    if '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components"' not in bootstrap:
         fail("bootstrap check must assert release-json forbidden package components")
-    bootstrap_json_forbidden = {
-        component
-        for component in bootstrap_forbidden_match.group(1).split(";")
-        if component
-    }
+    bootstrap_json_forbidden = package_smoke_forbidden_components("json")
     if bootstrap_json_forbidden != runner_json_forbidden:
         fail(
             "bootstrap release-json forbidden components must match package-smoke JSON policy: "
@@ -2732,6 +2734,7 @@ def check_release_artifact_staging_contract() -> None:
         "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
         "source/scripts/generate-public-header-include-smoke.py": "source archive check must require generated header smoke helper",
         "source/scripts/module_header_bridge.py": "source archive check must require module/header bridge helper",
+        "source/scripts/package-smoke-forbidden-components.py": "source archive check must require package smoke forbidden component helper",
         "source/scripts/release-sku-field.py": "source archive check must require release SKU helper",
         "CONFLUX_RELEASE_SOURCE_ARCHIVE_SKU": "source archive check must allow selecting the release SKU under test",
         '--release-sku "$release_sku"': "source archive check must pass the selected release SKU to staging",
@@ -2758,6 +2761,7 @@ def check_release_artifact_staging_contract() -> None:
         'cmake --install "$header_build" --prefix "$bootstrap_prefix"': "bootstrap check must install the staged source header build",
         '"$bootstrap_source/cmake/package-smoke"': "bootstrap check must consume the installed package from staged source package smoke",
         '-DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$sku_components"': "bootstrap check must run an installed package smoke for the selected SKU",
+        'package-smoke-forbidden-components.py" json': "bootstrap check must derive forbidden release-json package components from the shared policy helper",
         'external-dependency-tokens.py" "$source_root" --exclude XXHASH': "bootstrap check must derive forbidden release-json external deps from the registry",
         '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS=': "bootstrap check must assert unrelated provider deps stay out",
         'ctest --test-dir "$package_smoke_build" --output-on-failure': "bootstrap check must run installed package smoke tests",

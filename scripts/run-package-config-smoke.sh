@@ -113,13 +113,11 @@ cleanup_build_dir() {
 }
 trap cleanup_build_dir EXIT
 
-forbid_runtime_db_template_components="http;http1;http2;http3;http_protocol;template;pg;db"
-forbid_json_components="http;http1;http2;http3;http_protocol;http_compression;net_tls;template;pg;db;dns;work"
-forbid_template_components="http;http1;http2;http3;http_protocol;pg;db;dns"
-forbid_pg_components="http;http1;http2;http3;http_protocol;template;db"
-forbid_http_components="template;pg;db"
 external_deps_except() {
     python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude "$@"
+}
+forbidden_components_for() {
+    python3 "$source_root/scripts/package-smoke-forbidden-components.py" "$1"
 }
 forbid_all_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root")"
 forbid_external_deps_without_json_hash="$(external_deps_except XXHASH)"
@@ -130,27 +128,27 @@ forbid_pg_external_deps="$(external_deps_except LIBURING XXHASH LIBPQ)"
 if [[ "$components" != *";"* ]]; then
     case "$components" in
         core)
-            forbidden_components="${forbid_runtime_db_template_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for core)${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="${forbid_all_external_deps}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         json)
-            forbidden_components="${forbid_json_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for json)${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="${forbid_external_deps_without_json_hash}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         template)
-            forbidden_components="${forbid_template_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for template)${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="${forbid_template_external_deps}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         dns)
-            forbidden_components="${forbid_runtime_db_template_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for dns)${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="${forbid_dns_external_deps}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         pg)
-            forbidden_components="${forbid_pg_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for pg)${forbidden_components:+;$forbidden_components}"
             forbidden_external_deps="${forbid_pg_external_deps}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
         http)
-            forbidden_components="${forbid_http_components}${forbidden_components:+;$forbidden_components}"
+            forbidden_components="$(forbidden_components_for http)${forbidden_components:+;$forbidden_components}"
             ;;
     esac
 fi

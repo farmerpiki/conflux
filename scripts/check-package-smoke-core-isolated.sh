@@ -9,6 +9,7 @@ strict_smoke_build_dir="$work_root/strict-smoke"
 json_build_dir="$work_root/json-build"
 json_prefix="$work_root/json-prefix"
 json_smoke_build_dir="$work_root/json-smoke"
+strict_forbidden_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" core --extra curated --extra extended --extra complete --extra json)"
 
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \
@@ -19,7 +20,7 @@ json_smoke_build_dir="$work_root/json-smoke"
     --feature-set core \
     --interface-mode HEADER_INTERFACE \
     --generator Ninja \
-    --forbid-components 'curated;extended;complete;json;http;http1;http2;http3;http_protocol;template;pg;db'
+    --forbid-components "$strict_forbidden_components"
 
 if ! pkg-config --exists libxxhash; then
     printf 'check-package-smoke-core-isolated: skipped json-feature lane; libxxhash was not found by pkg-config\n' >&2

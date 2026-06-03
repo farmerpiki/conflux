@@ -69,6 +69,7 @@ def main(argv: list[str]) -> int:
         stage / "source" / "include" / "conflux" / "features.hxx",
         stage / "source" / "docs" / "release-skus.json",
         stage / "source" / "scripts" / "generate-public-header-include-smoke.py",
+        stage / "source" / "scripts" / "package-smoke-forbidden-components.py",
         stage / "source" / "scripts" / "release-sku-field.py",
         stage / "source" / "scripts" / "module_header_bridge.py",
         stage / "source" / "src",

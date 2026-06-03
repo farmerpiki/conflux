@@ -120,6 +120,7 @@ tar -C "$root" -cf - \
     cmake \
     docs \
     scripts/generate-public-header-include-smoke.py \
+    scripts/package-smoke-forbidden-components.py \
     scripts/release-sku-field.py \
     scripts/module_header_bridge.py \
     src \
