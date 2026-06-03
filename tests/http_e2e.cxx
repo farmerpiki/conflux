@@ -42,7 +42,6 @@ import conflux.net.redirect;
 import conflux.net.router;
 import conflux.net.security;
 import conflux.net.trailing_slash;
-import conflux.net.vhost;
 #if CONFLUX_HAS_TLS
 import conflux.net.jwt;
 #endif
@@ -705,62 +704,6 @@ void check_json_string_at(
 	auto value = node.as_string();
 	REQUIRE(value.has_value());
 	CHECK(*value == expected);
-}
-// ---------------------------------------------------------------------------
-// VHostRouter test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_vhost_port = 0;
-std::uint16_t g_vhost_direct_port = 0;
-void ensure_vhost_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router api_router;
-		api_router.get("/status", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("api");
-		});
-
-		conflux::http::Router web_router;
-		web_router.get("/status", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("web");
-		});
-
-		conflux::http::Router def_router;
-		def_router.get("/status", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("default");
-		});
-
-		auto vhr = std::make_shared<conflux::http::VHostRouter>();
-		vhr->add("api.example.com", std::move(api_router));
-		vhr->add("web.example.com", std::move(web_router));
-		vhr->set_default(std::move(def_router));
-
-		conflux::http::Router main;
-		main.use([vhr](conflux::http::OwnedRequest const &req, conflux::http::Router::Handler const &) {
-			return vhr->dispatch(req);
-		});
-		g_vhost_port = start_mw_server(mw_config(), std::move(main));
-	});
-}
-void ensure_vhost_direct_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router api_router;
-		api_router.get("/status", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("api-direct");
-		});
-
-		conflux::http::Router def_router;
-		def_router.get("/status", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("default-direct");
-		});
-
-		conflux::http::VHostRouter vhost_router;
-		vhost_router.add("api.example.com", std::move(api_router));
-		vhost_router.set_default(std::move(def_router));
-
-		g_vhost_direct_port = test_servers().start(mw_config(), std::move(vhost_router));
-	});
 }
 
 } // namespace
