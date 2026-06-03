@@ -2497,6 +2497,7 @@ def check_release_artifact_staging_contract() -> None:
     }
     source_archive = read("scripts/check-release-source-archive.sh")
     bootstrap = read("scripts/check-release-artifact-bootstrap.sh")
+    offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
     source_required = {
         "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
@@ -2516,6 +2517,16 @@ def check_release_artifact_staging_contract() -> None:
         "-DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE": "bootstrap check must configure header mode",
         "cmake --build": "bootstrap check must build the staged source",
     }
+    offline_bootstrap_required = {
+        "check-release-offline-bootstrap": "release artifact checks must include an offline bootstrap entrypoint",
+        "stage-release-artifacts.sh": "offline bootstrap check must stage the release artifact it validates",
+        'cp -a "$stage_dir/source" "$bootstrap_source"': "offline bootstrap check must build from the staged source tree",
+        "-DCONFLUX_FETCH_TEST_DEPS=OFF": "offline bootstrap check must disable test dependency fetching",
+        "-DCONFLUX_ENABLE_JSON_TESTSUITE=OFF": "offline bootstrap check must disable JSONTestSuite fetching",
+        "-DCONFLUX_JSON_HASH_PROVIDER=INTERNAL": "offline bootstrap check must avoid external JSON hash providers",
+        '[[ -d "$bootstrap_build/_deps" ]]': "offline bootstrap check must reject FetchContent outputs",
+        "cmake --build": "offline bootstrap check must build the staged source",
+    }
     generated_headers_required = {
         "check-release-generated-headers-policy": "release artifact checks must include a generated headers policy entrypoint",
         "stage-release-artifacts.sh": "generated headers policy must stage the release artifact it validates",
@@ -2527,6 +2538,7 @@ def check_release_artifact_staging_contract() -> None:
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
     missing.extend(message for marker, message in bootstrap_required.items() if marker not in bootstrap)
+    missing.extend(message for marker, message in offline_bootstrap_required.items() if marker not in offline_bootstrap)
     missing.extend(message for marker, message in generated_headers_required.items() if marker not in generated_headers_policy)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
