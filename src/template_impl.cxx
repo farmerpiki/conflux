@@ -1240,7 +1240,7 @@ TmplValue Environment::Impl::eval_base(
 	return {};
 }
 
-std::optional<TmplValue> Environment::Impl::eval_legacy_literal(
+std::optional<TmplValue> Environment::Impl::eval_fallback_literal(
 	std::string_view base) const {
 	auto b = trim(base);
 	if (b.empty()) {
@@ -1276,7 +1276,7 @@ std::optional<TmplValue> Environment::Impl::eval_legacy_literal(
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-std::optional<TmplValue> Environment::Impl::eval_legacy_collection(
+std::optional<TmplValue> Environment::Impl::eval_fallback_collection(
 	std::string_view base,
 	TmplValue const &context) const {
 	auto b = trim(base);
@@ -1330,7 +1330,7 @@ std::optional<TmplValue> Environment::Impl::eval_legacy_collection(
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-std::optional<TmplValue> Environment::Impl::eval_legacy_operator(
+std::optional<TmplValue> Environment::Impl::eval_fallback_operator(
 	std::string_view base,
 	TmplValue const &context) const {
 	auto b = trim(base);
@@ -1391,26 +1391,26 @@ std::optional<TmplValue> Environment::Impl::eval_legacy_operator(
 	return std::nullopt;
 }
 
-TmplValue Environment::Impl::eval_legacy_base(
+TmplValue Environment::Impl::eval_fallback_base(
 	std::string const &base,
 	TmplValue const &context) const {
 	auto b = trim(base);
 	if (b.empty()) {
 		return {};
 	}
-	if (auto literal = eval_legacy_literal(b); literal) {
+	if (auto literal = eval_fallback_literal(b); literal) {
 		return std::move(*literal);
 	}
-	if (auto collection = eval_legacy_collection(b, context); collection) {
+	if (auto collection = eval_fallback_collection(b, context); collection) {
 		return std::move(*collection);
 	}
-	if (auto operation = eval_legacy_operator(b, context); operation) {
+	if (auto operation = eval_fallback_operator(b, context); operation) {
 		return std::move(*operation);
 	}
-	return eval_legacy_path(b, context);
+	return eval_fallback_path(b, context);
 }
 
-TmplValue Environment::Impl::eval_legacy_path(
+TmplValue Environment::Impl::eval_fallback_path(
 	std::string_view base,
 	TmplValue const &context) const {
 	TmplValue owned;
@@ -1513,7 +1513,7 @@ TmplValue Environment::Impl::eval_expr(
 	}
 
 	TmplValue result =
-		expr.compiled_base ? this->eval_base(*expr.compiled_base, context) : eval_legacy_base(expr.base, context);
+		expr.compiled_base ? this->eval_base(*expr.compiled_base, context) : eval_fallback_base(expr.base, context);
 
 	for (auto const &filter: expr.filters) {
 		result = apply_filter(filter, result, context);
@@ -1831,71 +1831,6 @@ TmplValue Environment::Impl::apply_filter(
 		return apply_escape_filter(val, value_to_string_fn);
 	}
 	return val;
-}
-// ---------------------------------------------------------------------------
-// value_to_string / is_truthy
-// ---------------------------------------------------------------------------
-
-std::string Environment::Impl::value_to_string(
-	TmplValue const &v) {
-	if (v.is_null()) {
-		return "";
-	}
-	if (v.is_string()) {
-		return std::string(v.as<std::string_view>());
-	}
-	if (v.is_int()) {
-		return std::to_string(v.as<std::int64_t>());
-	}
-	if (v.is_uint()) {
-		return std::to_string(v.as<std::uint64_t>());
-	}
-	if (v.is_float()) {
-		auto s = std::to_string(v.as<double>());
-		auto dot = s.find('.');
-		if (dot != std::string::npos) {
-			auto last = s.find_last_not_of('0');
-			if (last != std::string::npos && last > dot) {
-				s.erase(last + 1);
-			}
-			if (s.back() == '.') {
-				s.pop_back();
-			}
-		}
-		return s;
-	}
-	if (v.is_bool()) {
-		return v.as<bool>() ? "True" : "False";
-	}
-	return v.dump();
-}
-bool Environment::Impl::is_truthy(
-	TmplValue const &v) {
-	if (v.is_null()) {
-		return false;
-	}
-	if (v.is_bool()) {
-		return v.as<bool>();
-	}
-	if (v.is_int()) {
-		return v.as<std::int64_t>() != 0;
-	}
-	if (v.is_uint()) {
-		return v.as<std::uint64_t>() != 0;
-	}
-	if (v.is_float()) {
-		return v.as<double>() != 0.0;
-	}
-	if (v.is_string()) {
-		return !v.as<std::string_view>().empty();
-	}
-	if (v.is_array()) {
-		return !v.as_array().empty();
-	}
-	if (v.is_object()) {
-		return !v.as_object().empty();
-	}
-	return false;
 }
 
 } // namespace conflux::templates

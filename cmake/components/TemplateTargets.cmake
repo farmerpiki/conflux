@@ -7,6 +7,7 @@ conflux_add_module_library(conflux_template
         ${CONFLUX_SRC_ROOT}/template_impl.cxx
         ${CONFLUX_SRC_ROOT}/template_parse.cxx
         ${CONFLUX_SRC_ROOT}/template_render.cxx
+        ${CONFLUX_SRC_ROOT}/template_value_ops.cxx
 )
 conflux_apply_template_compiler_workarounds("${CONFLUX_SRC_ROOT}/template_impl.cxx")
 target_link_libraries(conflux_template
