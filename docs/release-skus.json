@@ -1,0 +1,58 @@
+{
+  "release-json": {
+    "feature_set": "release-json",
+    "components": ["core", "json", "file_io_sync"],
+    "docs": [
+      "docs/json-api.md",
+      "docs/json-boundary-guide.md",
+      "docs/json-cookbook.md",
+      "docs/package-consumption.md",
+      "docs/prerelease-status.md"
+    ],
+    "examples": [
+      "examples/advanced/json.cxx",
+      "examples/advanced/json_config.cxx",
+      "examples/advanced/json_diagnostics.cxx",
+      "examples/advanced/json_stream_ingest.cxx",
+      "examples/advanced/json_transform.cxx"
+    ]
+  },
+  "release-http-api": {
+    "feature_set": "release-http-api",
+    "components": ["core", "json", "http"],
+    "docs": [
+      "docs/http-server-api.md",
+      "docs/conflux-http-client-api.md",
+      "docs/api-surface-profiles.md",
+      "docs/package-consumption.md",
+      "docs/prerelease-status.md"
+    ],
+    "examples": [
+      "examples/quickstart/hello.cxx",
+      "examples/quickstart/json_crud.cxx",
+      "examples/quickstart/middleware.cxx",
+      "examples/advanced/http_client_json.cxx",
+      "examples/advanced/http_policy_stack.cxx"
+    ]
+  },
+  "release-web-server": {
+    "feature_set": "release-web-server",
+    "components": ["core", "json", "http"],
+    "docs": [
+      "docs/http-server-api.md",
+      "docs/production-checklist.md",
+      "docs/observability.md",
+      "docs/configuration.md",
+      "docs/package-consumption.md",
+      "docs/prerelease-status.md"
+    ],
+    "examples": [
+      "examples/quickstart/hello.cxx",
+      "examples/quickstart/static_files.cxx",
+      "examples/quickstart/sse.cxx",
+      "examples/quickstart/websocket.cxx",
+      "examples/advanced/http_observability.cxx",
+      "examples/advanced/production_showcase.cxx"
+    ]
+  }
+}

@@ -22,6 +22,15 @@ def read_manifest(path: Path) -> dict[str, str]:
     return entries
 
 
+def release_sku(stage: Path, manifest: dict[str, str]) -> str:
+    sku = manifest.get("release_sku")
+    if not sku:
+        fail("release artifact must record release_sku")
+    if sku != "release-json":
+        fail("release artifact guard currently supports release-json")
+    return sku
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         fail("usage: check-release-artifact.py <stage-dir>")
@@ -43,19 +52,11 @@ def main(argv: list[str]) -> int:
         stage / "source" / "RELEASE_POLICY.md",
         stage / "source" / "SECURITY.md",
         stage / "source" / "SUPPORT.md",
-        stage / "source" / "docs" / "release-json" / "json-api.md",
-        stage / "source" / "docs" / "release-json" / "json-boundary-guide.md",
-        stage / "source" / "docs" / "release-json" / "json-cookbook.md",
-        stage / "source" / "docs" / "release-json" / "package-consumption.md",
-        stage / "source" / "docs" / "release-json" / "prerelease-status.md",
-        stage / "source" / "examples" / "release-json" / "json.cxx",
-        stage / "source" / "examples" / "release-json" / "json_config.cxx",
-        stage / "source" / "examples" / "release-json" / "json_diagnostics.cxx",
-        stage / "source" / "examples" / "release-json" / "json_stream_ingest.cxx",
-        stage / "source" / "examples" / "release-json" / "json_transform.cxx",
         stage / "source" / "include" / "conflux" / "json.hxx",
         stage / "source" / "include" / "conflux" / "features.hxx",
+        stage / "source" / "docs" / "release-skus.json",
         stage / "source" / "scripts" / "generate-public-header-include-smoke.py",
+        stage / "source" / "scripts" / "release-sku-field.py",
         stage / "source" / "scripts" / "module_header_bridge.py",
         stage / "source" / "src",
         stage / "install" / "include" / "conflux" / "json.hxx",
@@ -69,14 +70,29 @@ def main(argv: list[str]) -> int:
             fail(f"missing {path.relative_to(stage)}")
 
     release_manifest = read_manifest(stage / "release-artifact-manifest.txt")
+    sku = release_sku(stage, release_manifest)
     if release_manifest.get("feature_set") != "release-json":
         fail("release artifact must be staged with feature_set=release-json")
+    if release_manifest.get("package_components") != "core;json;file_io_sync":
+        fail("release artifact must record release-json package components")
     if release_manifest.get("source_generated_header_artifact") != "source/include/conflux":
         fail("release artifact must record source/include/conflux generated headers")
-    if release_manifest.get("selected_examples") != "source/examples/release-json":
+    if release_manifest.get("selected_examples") != f"source/examples/{sku}":
         fail("release artifact must record release-json selected examples")
-    if release_manifest.get("selected_docs") != "source/docs/release-json":
+    if release_manifest.get("selected_docs") != f"source/docs/{sku}":
         fail("release artifact must record release-json selected docs")
+    sku_manifest = json.loads((stage / "source" / "docs" / "release-skus.json").read_text(encoding="utf-8"))
+    sku_entry = sku_manifest.get(sku)
+    if not isinstance(sku_entry, dict):
+        fail("staged release SKU manifest does not define release-json")
+    for source_path in sku_entry.get("docs", []):
+        selected = stage / "source" / "docs" / sku / Path(source_path).name
+        if not selected.is_file():
+            fail(f"missing selected release doc {selected.relative_to(stage)}")
+    for source_path in sku_entry.get("examples", []):
+        selected = stage / "source" / "examples" / sku / Path(source_path).name
+        if not selected.is_file():
+            fail(f"missing selected release example {selected.relative_to(stage)}")
 
     manifest_path = stage / "artifacts" / "module-header-bridge-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

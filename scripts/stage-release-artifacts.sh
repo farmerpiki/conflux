@@ -8,11 +8,11 @@ stage_dir="${tmp_root}/stage"
 tarball=""
 build_dir_set=0
 preset="release-header-artifacts"
-feature_set="release-json"
+release_sku="release-json"
 
 usage() {
     cat <<'USAGE'
-usage: scripts/stage-release-artifacts.sh [--build-dir DIR] [--stage-dir DIR] [--tarball FILE] [--no-tarball] [--source-root DIR] [--feature-set NAME]
+usage: scripts/stage-release-artifacts.sh [--build-dir DIR] [--stage-dir DIR] [--tarball FILE] [--no-tarball] [--source-root DIR] [--release-sku NAME]
 
 Stages the modules-first preview release artifact shape:
   source/      tracked module sources and release docs
@@ -44,8 +44,8 @@ while (($#)); do
             root="$(cd "$2" && pwd)"
             shift 2
             ;;
-        --feature-set)
-            feature_set="$2"
+        --release-sku)
+            release_sku="$2"
             shift 2
             ;;
         -h|--help)
@@ -78,6 +78,10 @@ fi
 
 build_dir="$(mkdir -p "$(dirname "$build_dir")" && cd "$(dirname "$build_dir")" && pwd)/$(basename "$build_dir")"
 stage_dir="$(mkdir -p "$(dirname "$stage_dir")" && cd "$(dirname "$stage_dir")" && pwd)/$(basename "$stage_dir")"
+feature_set="$(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" feature_set)"
+sku_components="$(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" components)"
+mapfile -t sku_examples < <(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" examples)
+mapfile -t sku_docs < <(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" docs)
 
 prepare_dir "$build_dir"
 prepare_dir "$stage_dir"
@@ -112,6 +116,7 @@ tar -C "$root" -cf - \
     cmake \
     docs \
     scripts/generate-public-header-include-smoke.py \
+    scripts/release-sku-field.py \
     scripts/module_header_bridge.py \
     src \
     tests \
@@ -121,22 +126,14 @@ cp "$build_dir/generated/bridge/module_header_bridge_manifest.json" \
     "$stage_dir/artifacts/module-header-bridge-manifest.json"
 cp "$root/docs/releases/evidence-template.md" "$stage_dir/evidence-template.md"
 cp -a "$stage_dir/install/include" "$stage_dir/source/include"
-mkdir -p "$stage_dir/source/examples/release-json"
-cp -a \
-    "$root/examples/advanced/json.cxx" \
-    "$root/examples/advanced/json_config.cxx" \
-    "$root/examples/advanced/json_diagnostics.cxx" \
-    "$root/examples/advanced/json_stream_ingest.cxx" \
-    "$root/examples/advanced/json_transform.cxx" \
-    "$stage_dir/source/examples/release-json/"
-mkdir -p "$stage_dir/source/docs/release-json"
-cp -a \
-    "$root/docs/json-api.md" \
-    "$root/docs/json-boundary-guide.md" \
-    "$root/docs/json-cookbook.md" \
-    "$root/docs/package-consumption.md" \
-    "$root/docs/prerelease-status.md" \
-    "$stage_dir/source/docs/release-json/"
+mkdir -p "$stage_dir/source/examples/$release_sku"
+for example in "${sku_examples[@]}"; do
+    cp -a "$root/$example" "$stage_dir/source/examples/$release_sku/"
+done
+mkdir -p "$stage_dir/source/docs/$release_sku"
+for doc in "${sku_docs[@]}"; do
+    cp -a "$root/$doc" "$stage_dir/source/docs/$release_sku/"
+done
 
 package_config="$(find "$stage_dir/install" -path '*/cmake/conflux/conflux-config.cmake' -print -quit)"
 if [[ -z "$package_config" ]]; then
@@ -150,11 +147,13 @@ fi
     printf 'build_dir=%s\n' "$build_dir"
     printf 'stage_dir=%s\n' "$stage_dir"
     printf 'primary_interface=MODULE_INTERFACE\n'
+    printf 'release_sku=%s\n' "$release_sku"
     printf 'feature_set=%s\n' "$feature_set"
+    printf 'package_components=%s\n' "$sku_components"
     printf 'generated_header_artifact=install/include/conflux\n'
     printf 'source_generated_header_artifact=source/include/conflux\n'
-    printf 'selected_examples=source/examples/release-json\n'
-    printf 'selected_docs=source/docs/release-json\n'
+    printf 'selected_examples=source/examples/%s\n' "$release_sku"
+    printf 'selected_docs=source/docs/%s\n' "$release_sku"
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"
 } > "$stage_dir/release-artifact-manifest.txt"

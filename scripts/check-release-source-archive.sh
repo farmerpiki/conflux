@@ -8,6 +8,11 @@ stage_dir="${CONFLUX_RELEASE_SOURCE_ARCHIVE_STAGE:-${TMPDIR:-/tmp}/conflux-relea
     --stage-dir "$stage_dir" \
     --no-tarball
 
+release_sku="release-json"
+sku_components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" components)"
+mapfile -t sku_examples < <(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" examples)
+mapfile -t sku_docs < <(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" docs)
+
 required_paths=(
     "$stage_dir/source/CMakeLists.txt"
     "$stage_dir/source/CMakePresets.json"
@@ -19,25 +24,24 @@ required_paths=(
     "$stage_dir/source/SUPPORT.md"
     "$stage_dir/source/cmake"
     "$stage_dir/source/docs"
-    "$stage_dir/source/docs/release-json/json-api.md"
-    "$stage_dir/source/docs/release-json/json-boundary-guide.md"
-    "$stage_dir/source/docs/release-json/json-cookbook.md"
-    "$stage_dir/source/docs/release-json/package-consumption.md"
-    "$stage_dir/source/docs/release-json/prerelease-status.md"
-    "$stage_dir/source/examples/release-json/json.cxx"
-    "$stage_dir/source/examples/release-json/json_config.cxx"
-    "$stage_dir/source/examples/release-json/json_diagnostics.cxx"
-    "$stage_dir/source/examples/release-json/json_stream_ingest.cxx"
-    "$stage_dir/source/examples/release-json/json_transform.cxx"
+    "$stage_dir/source/docs/release-skus.json"
     "$stage_dir/source/include/conflux/features.hxx"
     "$stage_dir/source/include/conflux/json.hxx"
     "$stage_dir/source/scripts/generate-public-header-include-smoke.py"
+    "$stage_dir/source/scripts/release-sku-field.py"
     "$stage_dir/source/scripts/module_header_bridge.py"
     "$stage_dir/source/src"
     "$stage_dir/source/tests"
     "$stage_dir/artifacts/module-header-bridge-manifest.json"
     "$stage_dir/release-artifact-manifest.txt"
 )
+
+for doc in "${sku_docs[@]}"; do
+    required_paths+=("$stage_dir/source/docs/$release_sku/$(basename "$doc")")
+done
+for example in "${sku_examples[@]}"; do
+    required_paths+=("$stage_dir/source/examples/$release_sku/$(basename "$example")")
+done
 
 for path in "${required_paths[@]}"; do
     if [[ ! -e "$path" ]]; then
@@ -59,6 +63,11 @@ fi
 if ! grep -qx 'selected_docs=source/docs/release-json' \
         "$stage_dir/release-artifact-manifest.txt"; then
     printf 'check-release-source-archive: manifest does not record release-json selected docs\n' >&2
+    exit 1
+fi
+if ! grep -qx "package_components=$sku_components" \
+        "$stage_dir/release-artifact-manifest.txt"; then
+    printf 'check-release-source-archive: manifest does not record release-json package components\n' >&2
     exit 1
 fi
 
