@@ -160,6 +160,17 @@ def install_tree_forwarded_package_smoke_flags(text: str) -> set[str]:
     return set(re.findall(r"package_smoke_args\+=\((--[A-Za-z0-9-]+)", text))
 
 
+def package_smoke_summary_keys(text: str) -> set[str]:
+    match = re.search(
+        r'file\(WRITE "\$\{_conflux_smoke_summary\}"(?P<body>.*?)\)',
+        text,
+        re.DOTALL,
+    )
+    if match is None:
+        fail("missing package smoke summary writer")
+    return set(re.findall(r'"([A-Za-z0-9_]+)=', match.group("body")))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1784,6 +1795,41 @@ def check_package_smoke_project_contract() -> None:
         'include("${CMAKE_CURRENT_LIST_DIR}/ComponentSmokes.cmake")': "package smoke project must include the component smoke fragment",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    expected_summary_keys = {
+        "available_components",
+        "available_explicit_targets",
+        "available_experimental_targets",
+        "available_support_targets",
+        "available_targets",
+        "cmake",
+        "compiler",
+        "components",
+        "enable_db",
+        "expected_api_surface",
+        "exercise_linked_apis",
+        "forbidden_components",
+        "forbidden_external_deps",
+        "forbidden_surface_macros",
+        "interface_mode",
+        "mixed_module_header",
+        "public_module_imports",
+        "requested_components",
+        "resolved_external_deps",
+        "runtime_requires_liburing",
+        "use_import_std",
+        "visible_components",
+        "visible_explicit_targets",
+        "visible_experimental_targets",
+        "visible_support_targets",
+        "visible_targets",
+    }
+    append_set_delta_errors(
+        missing,
+        expected_summary_keys,
+        package_smoke_summary_keys(read("cmake/package-smoke/CMakeLists.txt")),
+        "package smoke summary missing keys: ",
+        "package smoke summary contains unexpected keys: ",
+    )
     if missing:
         fail("\n".join(missing))
     component_smokes = read("cmake/package-smoke/ComponentSmokes.cmake")
