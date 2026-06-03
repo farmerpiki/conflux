@@ -875,6 +875,17 @@ def check_install_smoke_presets() -> None:
         if name not in configure:
             errors.append(f"missing configure preset: {name}")
         else:
+            cache = configure[name].get("cacheVariables", {})
+            required_cache = {
+                "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+                "CONFLUX_BUILD_TESTS": "OFF",
+                "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_POSTGRES_PROVIDER=OFF",
+                "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+                "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+            }
+            for key, expected in required_cache.items():
+                if cache.get(key) != expected:
+                    errors.append(f"install-smoke preset {name} must set {key}={expected}")
             components = configure[name].get("cacheVariables", {}).get("CONFLUX_PACKAGE_SMOKE_COMPONENTS")
             if not isinstance(components, str) or not components:
                 errors.append(f"install-smoke preset {name} must set non-empty CONFLUX_PACKAGE_SMOKE_COMPONENTS")
