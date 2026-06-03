@@ -760,83 +760,108 @@ void Ring::fail_send(
 	queue_close(fd);
 }
 
-void Ring::handle_send(
+bool Ring::retry_send_completion(
 	int fd,
-	int res,
-	std::uint32_t gen) {
-	auto const ufd = static_cast<std::size_t>(fd);
-	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
-		return;
+	Conn &conn,
+	int res) {
+	if (res != -EAGAIN && res != -EINTR) {
+		return false;
 	}
-	auto &conn = fd_table[ufd];
-	if (res == -EAGAIN || res == -EINTR) {
-		conn.send_queued = false;
-		defer_queue_send_if_current(fd, conn.gen);
-		return;
-	}
+	conn.send_queued = false;
+	defer_queue_send_if_current(fd, conn.gen);
+	return true;
+}
 
 #if CONFLUX_HAS_TLS
-	// TLS path: track progress through tls_send_buf.
-	if (conn.ssl != nullptr) {
-		if (res <= 0) {
-			queue_close(fd);
-			return;
-		}
+bool Ring::handle_tls_send_progress(
+	int fd,
+	Conn &conn,
+	int res) {
+	if (conn.ssl == nullptr) {
+		return false;
+	}
+	if (res <= 0) {
+		queue_close(fd);
+		return true;
+	}
 
-		conn.tls_send_off += static_cast<std::size_t>(res);
+	conn.tls_send_off += static_cast<std::size_t>(res);
 
-		if (conn.tls_send_off < conn.tls_send_inflight.size()) {
-			conn.send_queued = false;
-			tls_queue_send(conn);
-			return;
-		}
-
-		conn.tls_send_inflight.clear();
-		conn.tls_send_off = 0;
+	if (conn.tls_send_off < conn.tls_send_inflight.size()) {
 		conn.send_queued = false;
-
-		handle_send_tls_complete(fd, conn);
-		return;
+		tls_queue_send(conn);
+		return true;
 	}
+
+	conn.tls_send_inflight.clear();
+	conn.tls_send_off = 0;
+	conn.send_queued = false;
+
+	handle_send_tls_complete(fd, conn);
+	return true;
+}
 #endif
-	if (conn.mapped_file) {
-		if (res <= 0) {
-			fail_send(fd, conn);
-			return;
-		}
-		conn.written += static_cast<std::size_t>(res);
-		if (conn.written < conn.mapped_total) {
-			queue_send_mapped(fd);
-			return;
-		}
-		finish_mapped_send(fd, conn);
-		return;
-	}
 
-	if (conn.streamed_file) {
-		if (res <= 0) {
-			fail_send(fd, conn);
-			return;
-		}
-		conn.written += static_cast<std::size_t>(res);
-		if (conn.written < conn.own_response.size()) {
-			queue_send_streamed(fd); // headers: resubmit remainder
-			return;
-		}
-		// Headers fully sent; kick off body streaming.
-		conn.streamed_headers_sent = true;
-		start_streamed_body(fd);
-		return;
+bool Ring::handle_mapped_send_progress(
+	int fd,
+	Conn &conn,
+	int res) {
+	if (!conn.mapped_file) {
+		return false;
 	}
+	if (res <= 0) {
+		fail_send(fd, conn);
+		return true;
+	}
+	conn.written += static_cast<std::size_t>(res);
+	if (conn.written < conn.mapped_total) {
+		queue_send_mapped(fd);
+		return true;
+	}
+	finish_mapped_send(fd, conn);
+	return true;
+}
 
-	if (res == -EINVAL && conn.send_buf.valid()) {
-		send_fixed_buffers_supported = false;
-		conn.send_buf = conflux::file_io::FixedBuffer{};
-		conn.send_buf_base_written = 0;
-		conn.send_buf_len = 0;
-		queue_send(fd);
-		return;
+bool Ring::handle_streamed_header_send_progress(
+	int fd,
+	Conn &conn,
+	int res) {
+	if (!conn.streamed_file) {
+		return false;
 	}
+	if (res <= 0) {
+		fail_send(fd, conn);
+		return true;
+	}
+	conn.written += static_cast<std::size_t>(res);
+	if (conn.written < conn.own_response.size()) {
+		queue_send_streamed(fd);
+		return true;
+	}
+	conn.streamed_headers_sent = true;
+	start_streamed_body(fd);
+	return true;
+}
+
+bool Ring::fallback_failed_fixed_send_buffer(
+	int fd,
+	Conn &conn,
+	int res) {
+	if (res != -EINVAL || !conn.send_buf.valid()) {
+		return false;
+	}
+	send_fixed_buffers_supported = false;
+	conn.send_buf = conflux::file_io::FixedBuffer{};
+	conn.send_buf_base_written = 0;
+	conn.send_buf_len = 0;
+	queue_send(fd);
+	return true;
+}
+
+void Ring::handle_plain_send_progress(
+	int fd,
+	Conn &conn,
+	int res) {
 	if (res > 0) {
 		if (!conn.has_response) {
 			conn.send_buf = conflux::file_io::FixedBuffer{};
@@ -860,6 +885,36 @@ void Ring::handle_send(
 		conn.send_buf_len = 0;
 		queue_close(fd);
 	}
+}
+
+void Ring::handle_send(
+	int fd,
+	int res,
+	std::uint32_t gen) {
+	auto const ufd = static_cast<std::size_t>(fd);
+	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+		return;
+	}
+	auto &conn = fd_table[ufd];
+	if (retry_send_completion(fd, conn, res)) {
+		return;
+	}
+
+#if CONFLUX_HAS_TLS
+	if (handle_tls_send_progress(fd, conn, res)) {
+		return;
+	}
+#endif
+	if (handle_mapped_send_progress(fd, conn, res)) {
+		return;
+	}
+	if (handle_streamed_header_send_progress(fd, conn, res)) {
+		return;
+	}
+	if (fallback_failed_fixed_send_buffer(fd, conn, res)) {
+		return;
+	}
+	handle_plain_send_progress(fd, conn, res);
 }
 
 void Ring::handle_send_zc(

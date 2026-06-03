@@ -777,6 +777,14 @@ struct Ring {
 	void finish_plain_send(int fd, Conn &conn);
 	void finish_mapped_send(int fd, Conn &conn);
 	void fail_send(int fd, Conn &conn);
+	[[nodiscard]] bool retry_send_completion(int fd, Conn &conn, int res);
+#if CONFLUX_HAS_TLS
+	[[nodiscard]] bool handle_tls_send_progress(int fd, Conn &conn, int res);
+#endif
+	[[nodiscard]] bool handle_mapped_send_progress(int fd, Conn &conn, int res);
+	[[nodiscard]] bool handle_streamed_header_send_progress(int fd, Conn &conn, int res);
+	[[nodiscard]] bool fallback_failed_fixed_send_buffer(int fd, Conn &conn, int res);
+	void handle_plain_send_progress(int fd, Conn &conn, int res);
 	void handle_send(int fd, int res, std::uint32_t gen);
 	void handle_send_zc(int fd, int res, conflux::uring::CqeFlags flags, std::uint32_t gen);
 
