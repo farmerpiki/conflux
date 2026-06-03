@@ -62,5 +62,9 @@ app.use(conflux::http::observability(
     }));
 ```
 
+Work-pool metrics include `work_pool_queue_stats_enabled`. Queue depth,
+rejection, and completion counters are meaningful only when the build enables
+`CONFLUX_WORK_QUEUE_STATS`; otherwise those samples stay zero.
+
 Streaming responses are measured at response creation/header commit time. Export
 stream-close counters from the stream owner when tail duration is needed.

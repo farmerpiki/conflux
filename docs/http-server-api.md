@@ -896,7 +896,9 @@ strings are never metric labels. Structured logs redact `Authorization`,
 
 Runtime pressure and work-pool metrics require explicit sources, for example
 `ObservabilitySinks{.pressure_metrics = [&server] { return
-server.metrics().pressure; }}` and `ObservabilityOptions::work_pools`. Streaming
+server.metrics().pressure; }}` and `ObservabilityOptions::work_pools`.
+Work-pool samples include `work_pool_queue_stats_enabled`; queue/rejection/job
+counters stay zero unless `CONFLUX_WORK_QUEUE_STATS` is enabled. Streaming
 responses currently measure response creation/header commit duration; stream
 owners should export close-duration metrics separately if needed.
 Parser/admission rejections are bridged into the same registry for servers

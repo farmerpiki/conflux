@@ -1,5 +1,9 @@
 #include <unistd.h>
 
+#ifndef CONFLUX_WORK_QUEUE_STATS
+	#define CONFLUX_WORK_QUEUE_STATS 0
+#endif
+
 #include <catch2/catch_test_macros.hpp>
 
 import std;
@@ -828,6 +832,7 @@ TEST_CASE(
 	auto const body = metrics.text_body();
 	CHECK(body.contains(R"(http_pressure_overflow_total{kind="accept",policy="reject"} 2)"));
 	CHECK(body.contains(R"(http_pressure_overflow_total{kind="sse",policy="drop_newest"} 3)"));
+	CHECK(body.contains(std::format("work_pool_queue_stats_enabled {}", CONFLUX_WORK_QUEUE_STATS ? 1 : 0)));
 	CHECK(body.contains(R"(work_pool_completed_total{pool="default"})"));
 	CHECK(body.contains("work_task_frame_allocations_total"));
 	CHECK_FALSE(body.contains("json_arena_slabs_total"));

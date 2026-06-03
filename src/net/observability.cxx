@@ -1,6 +1,10 @@
 module;
 #include <cctype>
 
+#ifndef CONFLUX_WORK_QUEUE_STATS
+	#define CONFLUX_WORK_QUEUE_STATS 0
+#endif
+
 export module conflux.net.observability;
 
 import std;
@@ -277,12 +281,15 @@ void append_work_pool_metrics(
 	}
 	out += "# HELP work_pool_queue_depth Approximate accepted work items not yet completed\n";
 	out += "# TYPE work_pool_queue_depth gauge\n";
+	out += "# HELP work_pool_queue_stats_enabled Whether WorkPool queue counters were compiled into this build\n";
+	out += "# TYPE work_pool_queue_stats_enabled gauge\n";
 	out += "# HELP work_pool_running Running workers, reported when available\n";
 	out += "# TYPE work_pool_running gauge\n";
 	out += "# HELP work_pool_rejected_total Work-pool enqueue rejections\n";
 	out += "# TYPE work_pool_rejected_total counter\n";
 	out += "# HELP work_pool_completed_total Work-pool completed jobs\n";
 	out += "# TYPE work_pool_completed_total counter\n";
+	append_prometheus_sample(out, "work_pool_queue_stats_enabled", {}, std::uint64_t{CONFLUX_WORK_QUEUE_STATS ? 1 : 0});
 	for (auto const &[name, pool]: work_pools) {
 		if (!pool) {
 			continue;
