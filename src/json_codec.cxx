@@ -1911,6 +1911,249 @@ template<ParseMode Mode, class T>
 }
 
 template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_sequence_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_vector_of_v<T>) {
+		using E = typename T::value_type;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		T result;
+		if constexpr (std::floating_point<E>) {
+			if (auto decoded = r.decode_floating_array_into<Mode>(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
+			if (auto decoded = r.decode_integral_array_into<Mode>(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			JsonDecodeScratch local_scratch;
+			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+			if (auto decoded = r.decode_string_array_into<Mode>(result, decode_scratch); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		} else if constexpr (is_fixed_numeric_array_v<E>) {
+			if (auto decoded = r.decode_fixed_numeric_array_vector_into<Mode>(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		}
+		if (auto reserved = reserve_vector_from_remaining_array<Mode>(result, r); !reserved) {
+			return std::unexpected(std::move(reserved).error());
+		}
+		while (true) {
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return result;
+			}
+			if constexpr (std::default_initializable<E>) {
+				auto &slot = result.emplace_back();
+				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
+				if (!decoded) {
+					return std::unexpected(std::move(decoded).error());
+				}
+			} else {
+				auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
+				if (!elem) {
+					return std::unexpected(std::move(elem).error());
+				}
+				result.push_back(std::move(*elem));
+			}
+		}
+	} else if constexpr (is_std_array_v<T>) {
+		using E = typename T::value_type;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		T result;
+		if constexpr (is_fixed_numeric_array_v<T>) {
+			if (auto decoded = r.decode_fixed_numeric_array_into<Mode>(result); !decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+			return result;
+		}
+		for (std::size_t i = 0; i < N; ++i) {
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = std::format("std::expected array of length {}", N)});
+			}
+			auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
+			if (!elem) {
+				return std::unexpected(std::move(elem).error());
+			}
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+			result[i] = std::move(*elem);
+		}
+		auto ne = r.next_impl<Mode>();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("std::expected array of length {}", N)});
+		}
+		return result;
+	}
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_sequence_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if constexpr (is_vector_of_v<T>) {
+		using E = typename T::value_type;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		out.clear();
+		if constexpr (std::floating_point<E>) {
+			return r.decode_floating_array_into<Mode>(out);
+		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
+			return r.decode_integral_array_into<Mode>(out);
+		} else if constexpr (is_basic_string_of_char_v<E>) {
+			JsonDecodeScratch local_scratch;
+			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+			return r.decode_string_array_into<Mode>(out, decode_scratch);
+		} else if constexpr (is_fixed_numeric_array_v<E>) {
+			return r.decode_fixed_numeric_array_vector_into<Mode>(out);
+		}
+		if (auto reserved = reserve_vector_from_remaining_array<Mode>(out, r); !reserved) {
+			return std::unexpected(std::move(reserved).error());
+		}
+		while (true) {
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return {};
+			}
+			if constexpr (std::default_initializable<E>) {
+				auto &slot = out.emplace_back();
+				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
+				if (!decoded) {
+					return std::unexpected(std::move(decoded).error());
+				}
+			} else {
+				auto decoded = decode_from_event<Mode, E>(r, **ne, opts, scratch);
+				if (!decoded) {
+					return std::unexpected(std::move(decoded).error());
+				}
+				out.push_back(std::move(*decoded));
+			}
+		}
+	} else if constexpr (is_std_array_v<T>) {
+		using E = typename T::value_type;
+		constexpr std::size_t N = std::tuple_size_v<T>;
+		if (ev != Ev::begin_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
+		}
+		if constexpr (is_fixed_numeric_array_v<T>) {
+			return r.decode_fixed_numeric_array_into<Mode>(out);
+		}
+		for (std::size_t i = 0; i < N; ++i) {
+			auto ne = r.next_impl<Mode>();
+			if (!ne) {
+				return std::unexpected(std::move(ne).error());
+			}
+			if (!*ne) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return std::unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = std::format("std::expected array of length {}", N)});
+			}
+			auto decoded = decode_into<Mode, E>(out[i], r, **ne, opts, scratch);
+			if (!decoded) {
+				return std::unexpected(std::move(decoded).error());
+			}
+		}
+		auto ne = r.next_impl<Mode>();
+		if (!ne) {
+			return std::unexpected(std::move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = std::format("std::expected array of length {}", N)});
+		}
+		return {};
+	}
+}
+
+template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_members_from_event_into(
 	T &result,
 	JsonReader &r,
@@ -2616,126 +2859,8 @@ std::expected<T, JsonError> decode_from_event(
 			"decode<string_view>(JsonReader&) is deleted; use std::string");
 	} else if constexpr (is_optional<T>::value || is_nullable_type<T>::value) {
 		return decode_optional_like_from_event<Mode, T>(r, ev, opts, scratch);
-	} else if constexpr (is_vector_of_v<T>) {
-		using E = typename T::value_type;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		T result;
-		if constexpr (std::floating_point<E>) {
-			if (auto decoded = r.decode_floating_array_into<Mode>(result); !decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-			return result;
-		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
-			if (auto decoded = r.decode_integral_array_into<Mode>(result); !decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-			return result;
-		} else if constexpr (is_basic_string_of_char_v<E>) {
-			JsonDecodeScratch local_scratch;
-			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
-			if (auto decoded = r.decode_string_array_into<Mode>(result, decode_scratch); !decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-			return result;
-		} else if constexpr (is_fixed_numeric_array_v<E>) {
-			if (auto decoded = r.decode_fixed_numeric_array_vector_into<Mode>(result); !decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-			return result;
-		}
-		if (auto reserved = reserve_vector_from_remaining_array<Mode>(result, r); !reserved) {
-			return std::unexpected(std::move(reserved).error());
-		}
-		while (true) {
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in array"});
-			}
-			if (**ne == Ev::end_array) {
-				return result;
-			}
-			if constexpr (std::default_initializable<E>) {
-				auto &slot = result.emplace_back();
-				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
-				if (!decoded) {
-					return std::unexpected(std::move(decoded).error());
-				}
-			} else {
-				auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
-				if (!elem) {
-					return std::unexpected(std::move(elem).error());
-				}
-				result.push_back(std::move(*elem));
-			}
-		}
-	} else if constexpr (is_std_array_v<T>) {
-		using E = typename T::value_type;
-		constexpr std::size_t N = std::tuple_size_v<T>;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		T result;
-		if constexpr (is_fixed_numeric_array_v<T>) {
-			if (auto decoded = r.decode_fixed_numeric_array_into<Mode>(result); !decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-			return result;
-		}
-		for (std::size_t i = 0; i < N; ++i) {
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in array"});
-			}
-			if (**ne == Ev::end_array) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.message = std::format("std::expected array of length {}", N)});
-			}
-			auto elem = decode_from_event<Mode, E>(r, **ne, opts, scratch);
-			if (!elem) {
-				return std::unexpected(std::move(elem).error());
-			}
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-			result[i] = std::move(*elem);
-		}
-		auto ne = r.next_impl<Mode>();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
-		}
-		if (!*ne || **ne != Ev::end_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.message = std::format("std::expected array of length {}", N)});
-		}
-		return result;
+	} else if constexpr (is_vector_of_v<T> || is_std_array_v<T>) {
+		return decode_sequence_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_pair_v<T>) {
 		using FA = typename T::first_type;
 		using FB = typename T::second_type;
@@ -2925,108 +3050,8 @@ std::expected<void, JsonError> decode_into(
 		return decode_scalar_into<Mode, T>(out, r, ev, scratch);
 	} else if constexpr (is_optional<T>::value || is_nullable_type<T>::value) {
 		return decode_optional_like_into<Mode, T>(out, r, ev, opts, scratch);
-	} else if constexpr (is_vector_of_v<T>) {
-		using E = typename T::value_type;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		out.clear();
-		if constexpr (std::floating_point<E>) {
-			return r.decode_floating_array_into<Mode>(out);
-		} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
-			return r.decode_integral_array_into<Mode>(out);
-		} else if constexpr (is_basic_string_of_char_v<E>) {
-			JsonDecodeScratch local_scratch;
-			JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
-			return r.decode_string_array_into<Mode>(out, decode_scratch);
-		} else if constexpr (is_fixed_numeric_array_v<E>) {
-			return r.decode_fixed_numeric_array_vector_into<Mode>(out);
-		}
-		if (auto reserved = reserve_vector_from_remaining_array<Mode>(out, r); !reserved) {
-			return std::unexpected(std::move(reserved).error());
-		}
-		while (true) {
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in array"});
-			}
-			if (**ne == Ev::end_array) {
-				return {};
-			}
-			if constexpr (std::default_initializable<E>) {
-				auto &slot = out.emplace_back();
-				auto decoded = decode_into<Mode, E>(slot, r, **ne, opts, scratch);
-				if (!decoded) {
-					return std::unexpected(std::move(decoded).error());
-				}
-			} else {
-				auto decoded = decode_from_event<Mode, E>(r, **ne, opts, scratch);
-				if (!decoded) {
-					return std::unexpected(std::move(decoded).error());
-				}
-				out.push_back(std::move(*decoded));
-			}
-		}
-	} else if constexpr (is_std_array_v<T>) {
-		using E = typename T::value_type;
-		constexpr std::size_t N = std::tuple_size_v<T>;
-		if (ev != Ev::begin_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected array"});
-		}
-		if constexpr (is_fixed_numeric_array_v<T>) {
-			return r.decode_fixed_numeric_array_into<Mode>(out);
-		}
-		for (std::size_t i = 0; i < N; ++i) {
-			auto ne = r.next_impl<Mode>();
-			if (!ne) {
-				return std::unexpected(std::move(ne).error());
-			}
-			if (!*ne) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in array"});
-			}
-			if (**ne == Ev::end_array) {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.message = std::format("std::expected array of length {}", N)});
-			}
-			auto decoded = decode_into<Mode, E>(out[i], r, **ne, opts, scratch);
-			if (!decoded) {
-				return std::unexpected(std::move(decoded).error());
-			}
-		}
-		auto ne = r.next_impl<Mode>();
-		if (!ne) {
-			return std::unexpected(std::move(ne).error());
-		}
-		if (!*ne || **ne != Ev::end_array) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.message = std::format("std::expected array of length {}", N)});
-		}
-		return {};
+	} else if constexpr (is_vector_of_v<T> || is_std_array_v<T>) {
+		return decode_sequence_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_pair_v<T>) {
 		using FA = typename T::first_type;
 		using FB = typename T::second_type;
