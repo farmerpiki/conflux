@@ -130,6 +130,113 @@ static std::string extract_string_arg(
 	auto sp = tag.find(' ');
 	return sp != std::string::npos ? std::string{trim(tag.substr(sp + 1))} : "";
 }
+struct ParsedForTag {
+	std::vector<std::string> vars;
+	std::string iter_expr;
+};
+static ParsedForTag parse_for_tag(
+	std::string const &tag) {
+	auto in_pos = tag.find(" in ");
+	if (in_pos == std::string::npos) {
+		throw std::runtime_error{"template parse error: missing 'in' in for tag"};
+	}
+	auto var_part = std::string{trim(tag.substr(4, in_pos - 4))};
+	auto iter_expr = std::string{trim(tag.substr(in_pos + 4))};
+	std::vector<std::string> vars;
+	std::string_view vp{var_part};
+	while (!vp.empty()) {
+		auto cp = vp.find(',');
+		auto vtok = (cp == std::string_view::npos) ? vp : vp.substr(0, cp);
+		vars.push_back(std::string{trim(vtok)});
+		if (cp == std::string_view::npos) {
+			break;
+		}
+		vp.remove_prefix(cp + 1);
+	}
+	if (vars.empty()) {
+		vars.push_back(var_part);
+	}
+	return {
+		.vars = std::move(vars),
+		.iter_expr = std::move(iter_expr),
+	};
+}
+struct ParsedSetTag {
+	std::string var;
+	std::string expr;
+};
+static ParsedSetTag parse_set_tag(
+	std::string const &tag) {
+	auto eq = tag.find('=');
+	if (eq == std::string::npos) {
+		throw std::runtime_error{std::format("template parse error: set tag missing '=': {}", tag)};
+	}
+	return {
+		.var = std::string{trim(tag.substr(4, eq - 4))},
+		.expr = std::string{trim(tag.substr(eq + 1))},
+	};
+}
+struct ParsedMacroTag {
+	std::string name;
+	std::vector<std::string> params;
+	std::vector<std::string> defaults;
+};
+static ParsedMacroTag parse_macro_tag(
+	std::string const &tag) {
+	auto paren = tag.find('(');
+	ParsedMacroTag parsed;
+	if (paren != std::string::npos) {
+		parsed.name = std::string{trim(tag.substr(6, paren - 6))};
+		auto close = tag.find(')', paren);
+		if (close != std::string::npos) {
+			auto raw = split_args(tag.substr(paren + 1, close - paren - 1));
+			for (auto &p: raw) {
+				auto eq = p.find('=');
+				if (eq != std::string::npos) {
+					parsed.params.push_back(std::string{trim(p.substr(0, eq))});
+					parsed.defaults.push_back(std::string{trim(p.substr(eq + 1))});
+				} else {
+					parsed.params.push_back(std::string{trim(p)});
+					parsed.defaults.push_back("");
+				}
+			}
+		}
+	} else {
+		parsed.name = std::string{trim(tag.substr(6))};
+	}
+	return parsed;
+}
+static FromImportNode parse_from_import_tag(
+	std::string const &tag) {
+	auto rest = std::string{trim(tag.substr(5))};
+	std::string file;
+	if (!rest.empty() && (rest.front() == '"' || rest.front() == '\'')) {
+		char const qc = rest.front();
+		auto end = rest.find(qc, 1);
+		if (end != std::string::npos) {
+			file = rest.substr(1, end - 1);
+			rest = std::string{trim(rest.substr(end + 1))};
+		}
+	}
+	if (starts_with(rest, "import ")) {
+		rest = std::string{trim(rest.substr(7))};
+	}
+	std::string nm;
+	std::string alias;
+	auto as_pos = rest.find(" as ");
+	if (as_pos != std::string::npos) {
+		nm = std::string{trim(rest.substr(0, as_pos))};
+		alias = std::string{trim(rest.substr(as_pos + 4))};
+	} else {
+		nm = std::string{trim(rest)};
+		alias = nm;
+	}
+	return {
+		.file = std::move(file),
+		.name = std::move(nm),
+		.alias = std::move(alias),
+	};
+}
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -205,32 +312,13 @@ Template Environment::Impl::parse(
 						BlockNode{block_name, body}
                 }));
 			} else if (starts_with(tag, "for ")) {
-				auto in_pos = tag.find(" in ");
-				if (in_pos == std::string::npos) {
-					throw std::runtime_error{"template parse error: missing 'in' in for tag"};
-				}
-				auto var_part = std::string{trim(tag.substr(4, in_pos - 4))};
-				auto iter_expr = std::string{trim(tag.substr(in_pos + 4))};
-				std::vector<std::string> vars;
-				std::string_view vp{var_part};
-				while (!vp.empty()) {
-					auto cp = vp.find(',');
-					auto vtok = (cp == std::string_view::npos) ? vp : vp.substr(0, cp);
-					vars.push_back(std::string{trim(vtok)});
-					if (cp == std::string_view::npos) {
-						break;
-					}
-					vp.remove_prefix(cp + 1);
-				}
-				if (vars.empty()) {
-					vars.push_back(var_part);
-				}
+				auto parsed = parse_for_tag(tag);
 				state.advance();
 				auto body = parse_nodes({"endfor"}, depth + 1);
 				state.advance();
 				nodes.push_back(
 					std::make_shared<Node>(Node{
-						ForNode{vars, iter_expr, compile_expr(iter_expr), body}
+						ForNode{parsed.vars, parsed.iter_expr, compile_expr(parsed.iter_expr), body}
                 }));
 			} else if (starts_with(tag, "if ")) {
 				IfNode if_node;
@@ -262,15 +350,10 @@ Template Environment::Impl::parse(
 				}
 				nodes.push_back(std::make_shared<Node>(Node{if_node}));
 			} else if (starts_with(tag, "set ")) {
-				auto eq = tag.find('=');
-				if (eq == std::string::npos) {
-					throw std::runtime_error{std::format("template parse error: set tag missing '=': {}", tag)};
-				}
-				auto var = std::string{trim(tag.substr(4, eq - 4))};
-				auto expr = std::string{trim(tag.substr(eq + 1))};
+				auto parsed = parse_set_tag(tag);
 				nodes.push_back(
 					std::make_shared<Node>(Node{
-						SetNode{var, expr, compile_expr(expr)}
+						SetNode{parsed.var, parsed.expr, compile_expr(parsed.expr)}
                 }));
 				state.advance();
 			} else if (starts_with(tag, "include ")) {
@@ -278,63 +361,21 @@ Template Environment::Impl::parse(
 				nodes.push_back(std::make_shared<Node>(Node{IncludeNode{inc_name}}));
 				state.advance();
 			} else if (starts_with(tag, "macro ")) {
-				auto paren = tag.find('(');
-				std::string mname;
-				std::vector<std::string> params;
-				std::vector<std::string> defaults;
-				if (paren != std::string::npos) {
-					mname = std::string{trim(tag.substr(6, paren - 6))};
-					auto close = tag.find(')', paren);
-					if (close != std::string::npos) {
-						auto raw = split_args(tag.substr(paren + 1, close - paren - 1));
-						for (auto &p: raw) {
-							auto eq = p.find('=');
-							if (eq != std::string::npos) {
-								params.push_back(std::string{trim(p.substr(0, eq))});
-								defaults.push_back(std::string{trim(p.substr(eq + 1))});
-							} else {
-								params.push_back(std::string{trim(p)});
-								defaults.push_back("");
-							}
-						}
-					}
-				} else {
-					mname = std::string{trim(tag.substr(6))};
-				}
+				auto parsed = parse_macro_tag(tag);
 				state.advance();
 				auto body = parse_nodes({"endmacro"}, depth + 1);
 				state.advance();
 				nodes.push_back(
 					std::make_shared<Node>(Node{
-						MacroNode{mname, params, defaults, compile_expr_list(defaults), body}
+						MacroNode{
+								  parsed.name,
+								  parsed.params,
+								  parsed.defaults,
+								  compile_expr_list(parsed.defaults),
+								  body}
                 }));
 			} else if (starts_with(tag, "from ")) {
-				auto rest = std::string{trim(tag.substr(5))};
-				std::string file;
-				if (!rest.empty() && (rest.front() == '"' || rest.front() == '\'')) {
-					char const qc = rest.front();
-					auto end = rest.find(qc, 1);
-					if (end != std::string::npos) {
-						file = rest.substr(1, end - 1);
-						rest = std::string{trim(rest.substr(end + 1))};
-					}
-				}
-				if (starts_with(rest, "import ")) {
-					rest = std::string{trim(rest.substr(7))};
-				}
-				std::string nm, alias;
-				auto as_pos = rest.find(" as ");
-				if (as_pos != std::string::npos) {
-					nm = std::string{trim(rest.substr(0, as_pos))};
-					alias = std::string{trim(rest.substr(as_pos + 4))};
-				} else {
-					nm = std::string{trim(rest)};
-					alias = nm;
-				}
-				nodes.push_back(
-					std::make_shared<Node>(Node{
-						FromImportNode{file, nm, alias}
-                }));
+				nodes.push_back(std::make_shared<Node>(Node{parse_from_import_tag(tag)}));
 				state.advance();
 			} else {
 				throw std::runtime_error{std::format("template parse error: unknown tag '{}'", tag)};
