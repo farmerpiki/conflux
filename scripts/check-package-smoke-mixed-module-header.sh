@@ -8,8 +8,10 @@ if [[ "$generator" == "Ninja" ]] && ! command -v ninja >/dev/null 2>&1; then
     exit 0
 fi
 base="${TMPDIR:-/tmp}/conflux-package-smoke-mixed-module-header"
-feature_set="${CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET:-http-minimal}"
-components="${CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS:-core;json;http}"
+default_feature_set="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" release-http-api feature_set)"
+default_components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" release-http-api components)"
+feature_set="${CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET:-$default_feature_set}"
+components="${CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS:-$default_components}"
 
 if [[ "$components" == *http* || "$components" == *work* ]] && ! pkg-config --exists liburing; then
     printf 'mixed-module-header-smoke: skipped; liburing was not found by pkg-config\n'

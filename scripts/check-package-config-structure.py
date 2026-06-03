@@ -1341,15 +1341,8 @@ def check_json_perf_benchmark_maps() -> None:
 def package_smoke_wrapper_default_components() -> dict[str, str]:
     checks = {
         "scripts/check-package-smoke-core-isolated.sh": r"--components\s+core\b",
-        "scripts/check-package-smoke-liburing-free.sh": r"--components\s+'([^']+)'",
         "scripts/check-package-smoke-runtime.sh": r"--components\s+'([^']+)'",
         "scripts/check-package-smoke-db.sh": r"--components\s+'([^']+)'",
-        "scripts/check-package-smoke-mixed-module-header.sh": (
-            r'components="\$\{CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS:-([^}]+)\}"'
-        ),
-        "scripts/check-public-module-import-smoke.sh": (
-            r'components="\$\{CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_COMPONENTS:-([^}]+)\}"'
-        ),
     }
     defaults: dict[str, str] = {}
     for path, pattern in checks.items():
@@ -1357,6 +1350,37 @@ def package_smoke_wrapper_default_components() -> dict[str, str]:
         if match is None:
             fail(f"missing wrapper default package smoke components in {path}")
         defaults[path] = match.group(1) if match.groups() else "core"
+    liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    if 'release-sku-field.py" "$source_root" release-json feature_set' not in liburing_free:
+        fail("liburing-free package smoke must derive the default feature set from release-json")
+    if 'release-sku-field.py" "$source_root" release-json components' not in liburing_free:
+        fail("liburing-free package smoke must derive default components from release-json")
+    if '--feature-set "$feature_set"' not in liburing_free:
+        fail("liburing-free package smoke must pass the release-json feature-set variable")
+    if '--components "$components"' not in liburing_free:
+        fail("liburing-free package smoke must pass the release-json component variable")
+    defaults["scripts/check-package-smoke-liburing-free.sh"] = release_sku_components("release-json")
+    http_api_wrappers = {
+        "scripts/check-package-smoke-mixed-module-header.sh": (
+            "CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET",
+            "CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS",
+        ),
+        "scripts/check-public-module-import-smoke.sh": (
+            "CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_FEATURE_SET",
+            "CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_COMPONENTS",
+        ),
+    }
+    for path, (feature_env, components_env) in http_api_wrappers.items():
+        text = read(path)
+        if 'release-sku-field.py" "$source_root" release-http-api feature_set' not in text:
+            fail(f"{path} must derive the default feature set from release-http-api")
+        if 'release-sku-field.py" "$source_root" release-http-api components' not in text:
+            fail(f"{path} must derive default components from release-http-api")
+        if f'feature_set="${{{feature_env}:-$default_feature_set}}"' not in text:
+            fail(f"{path} must keep the {feature_env} override")
+        if f'components="${{{components_env}:-$default_components}}"' not in text:
+            fail(f"{path} must keep the {components_env} override")
+        defaults[path] = release_sku_components("release-http-api")
     return defaults
 
 
