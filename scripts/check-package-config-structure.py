@@ -47,6 +47,17 @@ def shell_flag_present(text: str, flag: str) -> bool:
     return re.search(rf"(^|[ \t\\]){re.escape(flag)}([ \t\\\n]|$)", text) is not None
 
 
+def shell_rejected_support_component_patterns(text: str) -> set[str]:
+    loop_match = re.search(
+        r'for component in "\$\{requested_components\[@\]\}"; do(?P<body>.*?)^done$',
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if loop_match is None:
+        return set()
+    return set(re.findall(r'"\$component"\s*==\s*([A-Za-z0-9_\*]+)', loop_match.group("body")))
+
+
 def shell_pkg_config_exists_probes(text: str) -> set[str]:
     return set(re.findall(r"pkg-config\s+--exists\s+([A-Za-z0-9_.+-]+)", text))
 
@@ -1497,12 +1508,19 @@ def check_package_smoke_runner_contract() -> None:
         "normalize_cmake_list": "package smoke runner must normalize semicolon list arguments",
         "--components must not be empty": "package smoke runner must reject empty component lists",
         "--components must request public components": "package smoke runner must reject support components in requested component lists",
-        "header_impl_*": "package smoke runner must reject generated header implementation support components",
         "forbid_all_external_deps=": "package smoke runner must centralize default forbidden external dependency tokens",
         "forbid_runtime_db_template_components=": "package smoke runner must centralize default forbidden runtime/db/template component policy",
         "--enable-db": "package smoke runner must expose a DB-enabled smoke option",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    rejected_patterns = shell_rejected_support_component_patterns(text)
+    expected_patterns = {"_*", "headers", "header_impl", "header_impl_*"}
+    missing_patterns = sorted(expected_patterns - rejected_patterns)
+    if missing_patterns:
+        missing.append(
+            "package smoke runner must reject support component patterns: "
+            + ";".join(missing_patterns),
+        )
     if missing:
         fail("\n".join(missing))
 
@@ -1518,12 +1536,19 @@ def check_install_tree_smoke_runner_contract() -> None:
         "extra_cmake_args": "install-tree smoke runner must forward extra configure args",
         "run-package-config-smoke.sh": "install-tree smoke runner must consume the installed prefix",
         "--components must request public components": "install-tree smoke runner must reject support components in requested component lists",
-        "header_impl_*": "install-tree smoke runner must reject generated header implementation support components",
         "--enable-db-smoke": "install-tree smoke runner must forward DB-enabled package smoke",
         "--forbid-components": "install-tree smoke runner must forward forbidden component assertions",
         "--forbid-external-deps": "install-tree smoke runner must forward forbidden external dependency assertions",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    rejected_patterns = shell_rejected_support_component_patterns(text)
+    expected_patterns = {"_*", "headers", "header_impl", "header_impl_*"}
+    missing_patterns = sorted(expected_patterns - rejected_patterns)
+    if missing_patterns:
+        missing.append(
+            "install-tree smoke runner must reject support component patterns: "
+            + ";".join(missing_patterns),
+        )
     if missing:
         fail("\n".join(missing))
 
