@@ -978,6 +978,19 @@ struct TreeBuilder {
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
+	[[nodiscard]] std::size_t finish_array(
+		std::size_t children_start) {
+		std::size_t const len = staging.size() - children_start;
+		std::size_t const cs = store.array_children.size();
+		store.array_children.insert(
+			store.array_children.end(),
+			staging.begin() + static_cast<std::ptrdiff_t>(children_start),
+			staging.end());
+		staging.resize(children_start);
+		store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
+		return store.nodes.size() - 1;
+	}
+
 	// NOLINTNEXTLINE(misc-no-recursion)
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_array(
 		std::size_t depth) {
@@ -987,9 +1000,7 @@ struct TreeBuilder {
 		}
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 			tok.adv();
-			std::size_t const cs = store.array_children.size();
-			store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(0)));
-			return store.nodes.size() - 1;
+			return finish_array(staging.size());
 		}
 		// Phase 4: append child indices to shared staging[children_start..],
 		// flush to array_children at close, then truncate staging.
@@ -1008,16 +1019,7 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] == ']') {
 				tok.adv();
-				std::size_t const len = staging.size() - children_start;
-				std::size_t const cs = store.array_children.size();
-				store.array_children.insert(
-					store.array_children.end(),
-					staging.begin() + static_cast<std::ptrdiff_t>(children_start),
-					staging.end());
-				staging.resize(children_start);
-				store.nodes.push_back(
-					detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
-				return store.nodes.size() - 1;
+				return finish_array(children_start);
 			}
 			if (tok.src[tok.pos] != ',') {
 				staging.resize(children_start);
@@ -1030,16 +1032,7 @@ struct TreeBuilder {
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 					tok.adv();
-					std::size_t const len = staging.size() - children_start;
-					std::size_t const cs = store.array_children.size();
-					store.array_children.insert(
-						store.array_children.end(),
-						staging.begin() + static_cast<std::ptrdiff_t>(children_start),
-						staging.end());
-					staging.resize(children_start);
-					store.nodes.push_back(
-						detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
-					return store.nodes.size() - 1;
+					return finish_array(children_start);
 				}
 			}
 		}
