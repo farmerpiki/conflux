@@ -43,6 +43,11 @@ def main(argv: list[str]) -> int:
         stage / "source" / "RELEASE_POLICY.md",
         stage / "source" / "SECURITY.md",
         stage / "source" / "SUPPORT.md",
+        stage / "source" / "examples" / "release-json" / "json.cxx",
+        stage / "source" / "examples" / "release-json" / "json_config.cxx",
+        stage / "source" / "examples" / "release-json" / "json_diagnostics.cxx",
+        stage / "source" / "examples" / "release-json" / "json_stream_ingest.cxx",
+        stage / "source" / "examples" / "release-json" / "json_transform.cxx",
         stage / "source" / "include" / "conflux" / "json.hxx",
         stage / "source" / "include" / "conflux" / "features.hxx",
         stage / "source" / "scripts" / "generate-public-header-include-smoke.py",
@@ -63,6 +68,8 @@ def main(argv: list[str]) -> int:
         fail("release artifact must be staged with feature_set=release-json")
     if release_manifest.get("source_generated_header_artifact") != "source/include/conflux":
         fail("release artifact must record source/include/conflux generated headers")
+    if release_manifest.get("selected_examples") != "source/examples/release-json":
+        fail("release artifact must record release-json selected examples")
 
     manifest_path = stage / "artifacts" / "module-header-bridge-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

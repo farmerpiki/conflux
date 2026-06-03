@@ -2492,6 +2492,8 @@ def check_release_artifact_staging_contract() -> None:
         "SUPPORT.md": "release artifact staging must include support policy",
         "scripts/generate-public-header-include-smoke.py": "release artifact staging must include generated header smoke helper",
         "scripts/module_header_bridge.py": "release artifact staging must include module/header bridge helper",
+        "examples/advanced/json.cxx": "release artifact staging must include selected release-json examples",
+        "selected_examples=source/examples/release-json": "release artifact manifest must record selected release-json examples",
         '"$stage_dir/source/include"': "release artifact staging must include generated public headers in the source tree",
         "source_generated_header_artifact=source/include/conflux": "release artifact manifest must record source generated headers",
     }
@@ -2506,6 +2508,8 @@ def check_release_artifact_staging_contract() -> None:
         "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
         "source/scripts/generate-public-header-include-smoke.py": "source archive check must require generated header smoke helper",
         "source/scripts/module_header_bridge.py": "source archive check must require module/header bridge helper",
+        "source/examples/release-json/json.cxx": "source archive check must require selected release-json examples",
+        "selected_examples=source/examples/release-json": "source archive check must require selected example manifest metadata",
         "source_generated_header_artifact=source/include/conflux": "source archive check must require source generated-header manifest metadata",
     }
     bootstrap_required = {
@@ -2557,6 +2561,8 @@ def check_release_artifact_staging_contract() -> None:
         'stage / "source" / "include" / "conflux" / "features.hxx"': "release artifact guard must require generated feature headers in source artifacts",
         'stage / "source" / "scripts" / "generate-public-header-include-smoke.py"': "release artifact guard must require generated header smoke helper",
         'stage / "source" / "scripts" / "module_header_bridge.py"': "release artifact guard must require module/header bridge helper",
+        'stage / "source" / "examples" / "release-json" / "json.cxx"': "release artifact guard must require selected release-json examples",
+        "selected_examples": "release artifact guard must validate selected example manifest metadata",
         "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)

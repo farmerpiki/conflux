@@ -19,6 +19,11 @@ required_paths=(
     "$stage_dir/source/SUPPORT.md"
     "$stage_dir/source/cmake"
     "$stage_dir/source/docs"
+    "$stage_dir/source/examples/release-json/json.cxx"
+    "$stage_dir/source/examples/release-json/json_config.cxx"
+    "$stage_dir/source/examples/release-json/json_diagnostics.cxx"
+    "$stage_dir/source/examples/release-json/json_stream_ingest.cxx"
+    "$stage_dir/source/examples/release-json/json_transform.cxx"
     "$stage_dir/source/include/conflux/features.hxx"
     "$stage_dir/source/include/conflux/json.hxx"
     "$stage_dir/source/scripts/generate-public-header-include-smoke.py"
@@ -39,6 +44,11 @@ done
 if ! grep -qx 'source_generated_header_artifact=source/include/conflux' \
         "$stage_dir/release-artifact-manifest.txt"; then
     printf 'check-release-source-archive: manifest does not record source generated headers\n' >&2
+    exit 1
+fi
+if ! grep -qx 'selected_examples=source/examples/release-json' \
+        "$stage_dir/release-artifact-manifest.txt"; then
+    printf 'check-release-source-archive: manifest does not record release-json selected examples\n' >&2
     exit 1
 fi
 

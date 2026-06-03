@@ -121,6 +121,14 @@ cp "$build_dir/generated/bridge/module_header_bridge_manifest.json" \
     "$stage_dir/artifacts/module-header-bridge-manifest.json"
 cp "$root/docs/releases/evidence-template.md" "$stage_dir/evidence-template.md"
 cp -a "$stage_dir/install/include" "$stage_dir/source/include"
+mkdir -p "$stage_dir/source/examples/release-json"
+cp -a \
+    "$root/examples/advanced/json.cxx" \
+    "$root/examples/advanced/json_config.cxx" \
+    "$root/examples/advanced/json_diagnostics.cxx" \
+    "$root/examples/advanced/json_stream_ingest.cxx" \
+    "$root/examples/advanced/json_transform.cxx" \
+    "$stage_dir/source/examples/release-json/"
 
 package_config="$(find "$stage_dir/install" -path '*/cmake/conflux/conflux-config.cmake' -print -quit)"
 if [[ -z "$package_config" ]]; then
@@ -137,6 +145,7 @@ fi
     printf 'feature_set=%s\n' "$feature_set"
     printf 'generated_header_artifact=install/include/conflux\n'
     printf 'source_generated_header_artifact=source/include/conflux\n'
+    printf 'selected_examples=source/examples/release-json\n'
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"
 } > "$stage_dir/release-artifact-manifest.txt"
