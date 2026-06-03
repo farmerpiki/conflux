@@ -861,7 +861,16 @@ def check_install_smoke_presets() -> None:
         *(f"{sku_name}-install-smoke" for sku_name in sorted(release_skus)),
         "release-header-artifacts-install-smoke",
     ]
+    required_set = set(required)
     errors: list[str] = []
+    for label, presets in [
+        ("configure", configure),
+        ("build", build),
+        ("test", test),
+    ]:
+        stale = sorted(name for name in presets if name.endswith("-install-smoke") and name not in required_set)
+        if stale:
+            errors.append(f"stale {label} install-smoke presets: {';'.join(stale)}")
     for name in required:
         if name not in configure:
             errors.append(f"missing configure preset: {name}")
