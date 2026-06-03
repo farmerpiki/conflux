@@ -10,3 +10,5 @@ release, component, reproduction input or minimal program, and observed impact.
 
 The detailed handling policy is maintained in
 [`docs/project-policy.md`](docs/project-policy.md#security-disclosure).
+Release-candidate security evidence is tracked through
+[`docs/release-checklist.md`](docs/release-checklist.md).

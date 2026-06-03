@@ -17,6 +17,20 @@ def fail(message: str) -> None:
 
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
+for rel in [
+    "SECURITY.md",
+    "SUPPORT.md",
+    "CHANGELOG.md",
+    "RELEASE_POLICY.md",
+]:
+    if rel not in readme:
+        fail(f"README.md does not link {rel}")
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    if "pre-v1" not in text and "pre-1.0" not in text:
+        fail(f"{rel} must state the prerelease support/versioning context")
+    if rel != "CHANGELOG.md" and "docs/release-checklist.md" not in text:
+        fail(f"{rel} must link the release checklist")
+
 required = [
     "docs/package-consumption.md",
     "docs/component-map.md",

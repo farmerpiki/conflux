@@ -116,6 +116,9 @@ int main() {
 ## Project policy
 
 Versioning, security disclosure, supported compiler presets, and kernel/runtime support are documented in [`docs/project-policy.md`](docs/project-policy.md).
+Root release governance entrypoints are [`SECURITY.md`](SECURITY.md),
+[`SUPPORT.md`](SUPPORT.md), [`CHANGELOG.md`](CHANGELOG.md), and
+[`RELEASE_POLICY.md`](RELEASE_POLICY.md).
 The task/HTTP placement contract is documented in [`docs/execution-model.md`](docs/execution-model.md),
 and the code-review guide for concurrency/naming decisions is
 [`docs/concurrency-naming-model.md`](docs/concurrency-naming-model.md). The pre-v1
