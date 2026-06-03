@@ -2678,6 +2678,8 @@ def check_release_artifact_staging_contract() -> None:
     source_required = {
         "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
         "stage-release-artifacts.sh": "source archive check must stage the release artifact it validates",
+        "source/LICENSE": "source archive check must require the license file",
+        "source/NOTICE": "source archive check must require the notice file",
         "source/include/conflux/features.hxx": "source archive check must require generated feature headers",
         "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
         "source/scripts/generate-public-header-include-smoke.py": "source archive check must require generated header smoke helper",
