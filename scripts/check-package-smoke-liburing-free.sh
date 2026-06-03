@@ -12,7 +12,7 @@ forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens
 	--components 'core;json;file_io_sync' \
 	--feature-set json \
 	--interface-mode HEADER_INTERFACE \
-	--forbid-components 'http;http1;http2;http3;http_protocol;work;dns;template;db;pg' \
+	--forbid-components 'http;http1;http2;http3;http_protocol;http_compression;net_tls;work;dns;template;db;pg' \
 	--forbid-external-deps "$forbid_external_deps" \
 	--generator Ninja \
 	-- -DCONFLUX_POSTGRES_PROVIDER=OFF

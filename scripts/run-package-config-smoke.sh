@@ -114,7 +114,7 @@ cleanup_build_dir() {
 trap cleanup_build_dir EXIT
 
 forbid_runtime_db_template_components="http;http1;http2;http3;http_protocol;template;pg;db"
-forbid_json_components="http;http1;http2;http3;http_protocol;template;pg;db;dns;work"
+forbid_json_components="http;http1;http2;http3;http_protocol;http_compression;net_tls;template;pg;db;dns;work"
 forbid_template_components="http;http1;http2;http3;http_protocol;pg;db;dns"
 forbid_pg_components="http;http1;http2;http3;http_protocol;template;db"
 forbid_http_components="template;pg;db"

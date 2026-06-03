@@ -2442,7 +2442,20 @@ def check_core_isolated_forbidden_components() -> None:
     )
     append_set_delta_errors(
         errors,
-        {"http", "http1", "http2", "http3", "http_protocol", "work", "dns", "template", "db", "pg"},
+        {
+            "http",
+            "http1",
+            "http2",
+            "http3",
+            "http_protocol",
+            "http_compression",
+            "net_tls",
+            "work",
+            "dns",
+            "template",
+            "db",
+            "pg",
+        },
         shell_semicolon_flag_value(liburing_free, "--forbid-components"),
         "liburing-free forbidden components missing isolation entries: ",
         "liburing-free forbidden components contain unexpected entries: ",
