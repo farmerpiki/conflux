@@ -360,6 +360,51 @@ std::expected<Process, std::error_code> finish_parent_spawn(
 	return Process{pid, parent_in, parent_out, parent_err};
 }
 
+[[noreturn]] void run_child_spawn_path(
+	std::filesystem::path const &exe,
+	SpawnOptions const &opts,
+	std::vector<char *> const &argv_ptrs,
+	std::vector<char *> const &envp_ptrs,
+	int child_in,
+	int child_out,
+	int child_err,
+	PipeFds const &exec_err_pipe) {
+	if (opts.new_session) {
+		::setsid();
+	}
+
+	if (!opts.working_dir.empty()) {
+		if (::chdir(opts.working_dir.c_str()) < 0) {
+			child_exit_with_errno(exec_err_pipe[1], errno);
+		}
+	}
+
+	if (!child_setup_fd(child_in, STDIN_FILENO, opts.dup3_flags)
+		|| !child_setup_fd(child_out, STDOUT_FILENO, opts.dup3_flags)
+		|| !child_setup_fd(child_err, STDERR_FILENO, opts.dup3_flags)) {
+		child_exit_with_errno(exec_err_pipe[1], errno);
+	}
+
+	apply_child_fd_map(opts.fd_map, opts.dup3_flags, exec_err_pipe[1]);
+
+	if (opts.close_other_fds) {
+		auto const ep = static_cast<unsigned long>(exec_err_pipe[1]);
+		// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+		if (ep > 3UL) {
+			::syscall(SYS_close_range, 3UL, ep - 1UL, 0UL);
+		}
+		::syscall(SYS_close_range, ep + 1UL, ~0U, 0UL);
+		// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+	}
+
+	if (opts.pre_exec_fn != nullptr) {
+		opts.pre_exec_fn();
+	}
+
+	::execvpe(exe.c_str(), argv_ptrs.data(), envp_ptrs.data());
+	child_exit_with_errno(exec_err_pipe[1], errno);
+}
+
 } // namespace
 // ---------------------------------------------------------------------------
 // spawn_clone — core implementation
@@ -443,54 +488,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	}
 
 	if (pid == 0) {
-		// ---- CHILD ----
-		// Only async-signal-safe ops from here to exec.
-
-		// Session.
-		if (opts.new_session) {
-			::setsid();
-		}
-
-		// Working directory.
-		if (!opts.working_dir.empty()) {
-			if (::chdir(opts.working_dir.c_str()) < 0) {
-				child_exit_with_errno(exec_err_pipe[1], errno);
-			}
-		}
-
-		// dup3 stdin/stdout/stderr.  All three before closing originals in case a pipe
-		// fd happens to land on 0/1/2.
-		if (!child_setup_fd(child_in, STDIN_FILENO, opts.dup3_flags)
-			|| !child_setup_fd(child_out, STDOUT_FILENO, opts.dup3_flags)
-			|| !child_setup_fd(child_err, STDERR_FILENO, opts.dup3_flags)) {
-			child_exit_with_errno(exec_err_pipe[1], errno);
-		}
-
-		// fd_map: explicit fd mappings.
-		apply_child_fd_map(opts.fd_map, opts.dup3_flags, exec_err_pipe[1]);
-
-		// Close all inherited fds >= 3, preserving exec_err_pipe[1] so exec failure can be reported.
-		// exec_err_pipe[1] has O_CLOEXEC — it is closed automatically on successful exec.
-		if (opts.close_other_fds) {
-			auto const ep = static_cast<unsigned long>(exec_err_pipe[1]);
-			// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-			if (ep > 3UL) {
-				::syscall(SYS_close_range, 3UL, ep - 1UL, 0UL);
-			}
-			::syscall(SYS_close_range, ep + 1UL, ~0U, 0UL);
-			// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-		}
-
-		// Pre-exec hook (async-signal-safe ops only: setrlimit, prctl, etc.).
-		if (opts.pre_exec_fn != nullptr) {
-			opts.pre_exec_fn();
-		}
-
-		// exec.
-		::execvpe(exe.c_str(), argv_ptrs.data(), envp_ptrs.data());
-
-		// exec failed — report errno.
-		child_exit_with_errno(exec_err_pipe[1], errno);
+		run_child_spawn_path(exe, opts, argv_ptrs, envp_ptrs, child_in, child_out, child_err, exec_err_pipe);
 	}
 
 	// ---- PARENT ----
