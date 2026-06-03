@@ -6,14 +6,11 @@ import re
 import sys
 from pathlib import Path
 
+from component_registry import by_kind
+
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENT_SOURCE = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 COMPONENT_MAP = ROOT / "docs" / "component-map.md"
 
-COMPONENT_RE = re.compile(
-    r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPLICIT|EXPERIMENTAL|SUPPORT)\|'
-    r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"'
-)
 DOC_COMPONENT_RE = re.compile(
     r"^\|\s*`([^`]+)`\s*\|\s*`conflux::([^`]+)`\s*\|",
     re.MULTILINE,
@@ -30,17 +27,7 @@ DOC_SUPPORT_COMPONENT_RE = re.compile(
 
 
 def declared_components(kind: str) -> dict[str, tuple[str, str]]:
-    text = COMPONENT_SOURCE.read_text(encoding="utf-8")
-    components: dict[str, tuple[str, str]] = {}
-    for target, export_name, declared_kind, tier in COMPONENT_RE.findall(text):
-        if declared_kind != kind:
-            continue
-        if export_name in components:
-            raise ValueError(f"duplicate CMake component export name: {export_name}")
-        components[export_name] = (target, tier)
-    if not components:
-        raise ValueError(f"missing {kind} component declarations")
-    return components
+    return by_kind(ROOT, kind)
 
 
 def public_components() -> dict[str, tuple[str, str]]:

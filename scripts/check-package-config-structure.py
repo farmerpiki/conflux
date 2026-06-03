@@ -1710,8 +1710,8 @@ def check_package_smoke_wrapper_default_components() -> None:
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
         "scripts/package-smoke-forbidden-components.py": {
-            "ConfluxComponentRegistry.cmake": "package smoke forbidden component helper must validate policies against the component registry",
-            'kind != "SUPPORT"': "package smoke forbidden component helper must allow only public registry exports",
+            "component_registry": "package smoke forbidden component helper must validate policies against the component registry",
+            'exports(ROOT, "REQUESTABLE", "EXPLICIT", "EXPERIMENTAL")': "package smoke forbidden component helper must allow only public registry exports",
             "PACKAGE_ALIASES": "package smoke forbidden component helper must explicitly name package-only aliases",
             "unknown forbidden component": "package smoke forbidden component helper must reject stale policy entries",
             '"core": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"]': "package smoke forbidden component helper must define the core policy",
@@ -3347,10 +3347,10 @@ def check_release_sku_guard_contract() -> None:
     guard_required = {
         '"release-skus.json"': "release SKU guard must validate the SKU manifest",
         '"ConfluxPresets.cmake"': "release SKU guard must validate feature-set names against presets",
-        '"ConfluxComponentRegistry.cmake"': "release SKU guard must validate components against the registry",
+        "component_registry": "release SKU guard must validate components against the registry",
         "required_skus": "release SKU guard must require the expected release SKUs",
         "feature_set != sku_name": "release SKU guard must require every release SKU to map to a known feature-set",
-        "kind == \"REQUESTABLE\"": "release SKU guard must restrict selected components to requestable exports",
+        'exports(ROOT, "REQUESTABLE")': "release SKU guard must restrict selected components to requestable exports",
         "duplicate component": "release SKU guard must reject duplicate selected components",
         "duplicate": "release SKU guard must reject duplicate docs/examples",
         "duplicate staged": "release SKU guard must reject selected docs/examples basename collisions",

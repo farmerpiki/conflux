@@ -6,24 +6,15 @@ import re
 import sys
 from pathlib import Path
 
+from component_registry import exports
 
 ROOT = Path(__file__).resolve().parents[1]
 SKU_MANIFEST = ROOT / "docs" / "release-skus.json"
 PRESETS = ROOT / "cmake" / "ConfluxPresets.cmake"
-COMPONENT_REGISTRY = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 
 
 def public_components() -> set[str]:
-    text = COMPONENT_REGISTRY.read_text(encoding="utf-8")
-    return {
-        export
-        for _target, export, kind, _tier in re.findall(
-            r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPLICIT|EXPERIMENTAL|SUPPORT)\|'
-            r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"',
-            text,
-        )
-        if kind == "REQUESTABLE"
-    }
+    return exports(ROOT, "REQUESTABLE")
 
 
 def feature_sets() -> set[str]:

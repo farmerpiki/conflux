@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
+from component_registry import exports
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENT_REGISTRY = ROOT / "cmake" / "ConfluxComponentRegistry.cmake"
 PACKAGE_ALIASES = {"curated", "extended", "complete", "db"}
 
 
@@ -36,16 +35,7 @@ POLICIES = {
 
 
 def public_components() -> set[str]:
-    text = COMPONENT_REGISTRY.read_text(encoding="utf-8")
-    return {
-        export
-        for _target, export, kind, _tier in re.findall(
-            r'"([^"|]+)\|([^"|]+)\|(REQUESTABLE|EXPLICIT|EXPERIMENTAL|SUPPORT)\|'
-            r'(STABLE|ADVANCED|EXPERIMENTAL|INTERNAL_SUPPORT)"',
-            text,
-        )
-        if kind != "SUPPORT"
-    }
+    return exports(ROOT, "REQUESTABLE", "EXPLICIT", "EXPERIMENTAL")
 
 
 def validate_policy(component: str, components: list[str], known_components: set[str]) -> list[str]:
