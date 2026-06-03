@@ -1358,15 +1358,26 @@ def package_smoke_wrapper_default_components() -> dict[str, str]:
     return defaults
 
 
+def release_sku_components(name: str) -> str:
+    release_skus = json.loads(read("docs/release-skus.json"))
+    sku = release_skus.get(name)
+    if not isinstance(sku, dict):
+        fail(f"missing release SKU: {name}")
+    components = sku.get("components")
+    if not isinstance(components, list) or not all(isinstance(component, str) for component in components):
+        fail(f"release SKU {name} must declare string components")
+    return ";".join(components)
+
+
 def check_package_smoke_wrapper_default_components() -> None:
     public_components = public_component_exports_from_registry()
     expected_defaults = {
         "scripts/check-package-smoke-core-isolated.sh": "core",
-        "scripts/check-package-smoke-liburing-free.sh": "core;json;file_io_sync",
+        "scripts/check-package-smoke-liburing-free.sh": release_sku_components("release-json"),
         "scripts/check-package-smoke-runtime.sh": "core;json;http;file_io_sync;work",
         "scripts/check-package-smoke-db.sh": "core;json;pg",
-        "scripts/check-package-smoke-mixed-module-header.sh": "core;json;http",
-        "scripts/check-public-module-import-smoke.sh": "core;json;http",
+        "scripts/check-package-smoke-mixed-module-header.sh": release_sku_components("release-http-api"),
+        "scripts/check-public-module-import-smoke.sh": release_sku_components("release-http-api"),
     }
     errors: list[str] = []
     defaults = package_smoke_wrapper_default_components()
