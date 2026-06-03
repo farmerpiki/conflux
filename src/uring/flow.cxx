@@ -530,6 +530,27 @@ class FlowBuilder {
 	Ring &ring_;
 	FlowRuntime &rt_;
 
+	void reject(std::uint32_t local_idx, int err) noexcept;
+	void reject_unstable_borrowed_paths() noexcept;
+	[[nodiscard]] bool reserve_flow_sqes(
+		std::uint32_t local_idx,
+		std::array<io_uring_sqe *, max_chain_cqes> &sqes,
+		std::uint8_t emitted) noexcept;
+	void init_flow_state(
+		DirectFileFlowState &state,
+		DirectFileBuilder const &b,
+		std::uint8_t emitted,
+		bool mode_b) noexcept;
+	[[nodiscard]] char const *move_owned_path_if_needed(DirectFileFlowState &state, DirectFileBuilder &b) noexcept;
+	void emit_flow_sqes(
+		std::array<io_uring_sqe *, max_chain_cqes> const &sqes,
+		DirectFileFlowState &state,
+		DirectFileBuilder &b,
+		std::uint8_t emitted,
+		bool mode_b,
+		char const *open_path_override) noexcept;
+	[[nodiscard]] bool submit_one_flow(std::uint32_t local_idx) noexcept;
+
 public:
 	FlowBuilder(
 		Ring &ring,
@@ -948,10 +969,14 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 std::span<FlowRejection const> FlowBuilder::rejected_flows() const noexcept {
 	return {rt_.rejections_.data(), rt_.rejection_count_};
 }
-std::uint32_t FlowBuilder::submit() noexcept {
-	rt_.assert_owner_thread();
-	std::uint32_t accepted = 0;
-
+void FlowBuilder::reject(
+	std::uint32_t local_idx,
+	int err) noexcept {
+	if (rt_.rejection_count_ < kMaxBatch) {
+		rt_.rejections_[rt_.rejection_count_++] = {local_idx, err};
+	}
+}
+void FlowBuilder::reject_unstable_borrowed_paths() noexcept {
 	for (std::uint32_t local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
 		auto &b = rt_.builders_[local_idx];
 		// Preserve earlier builder errors such as -EINVAL, -ENOBUFS,
@@ -961,116 +986,135 @@ std::uint32_t FlowBuilder::submit() noexcept {
 			b.err = -EOPNOTSUPP;
 		}
 	}
+}
+bool FlowBuilder::reserve_flow_sqes(
+	std::uint32_t local_idx,
+	std::array<io_uring_sqe *, max_chain_cqes> &sqes,
+	std::uint8_t emitted) noexcept {
+	for (std::uint8_t n = 0; n < emitted; ++n) {
+		auto s = ring_.get_sqe();
+		if (!s) {
+			// Defensive fallback: another issuer or kernel-side SQ pressure may invalidate the
+			// earlier sq_space_left() observation. Already-acquired SQEs cannot be un-got,
+			// so convert them to ignored NOPs and reject this flow cleanly.
+			for (std::uint8_t j = 0; j < n; ++j) {
+				Sqe{sqes[j]}.prep_nop().user_data(UserData{0});
+			}
+			reject(local_idx, -EAGAIN);
+			return false;
+		}
+		sqes[n] = s.raw();
+	}
+	return true;
+}
+void FlowBuilder::init_flow_state(
+	DirectFileFlowState &state,
+	DirectFileBuilder const &b,
+	std::uint8_t emitted,
+	bool mode_b) noexcept {
+	state.initial_op_count = b.op_count;
+	state.expected_cqes = emitted;
+	state.seen_cqes = 0;
+	state.slot = b.slot;
+	state.open_seen = false;
+	state.open_ok = false;
+	state.open_res = 0;
+	state.close_requested = b.close_requested;
+	state.close_in_chain = mode_b;
+	state.close_submitted = false;
+	state.close_pending = false;
+	state.close_seen = false;
+	state.close_res = 0;
+}
+char const *FlowBuilder::move_owned_path_if_needed(
+	DirectFileFlowState &state,
+	DirectFileBuilder &b) noexcept {
+	if (!b.owns_path) {
+		return nullptr;
+	}
+	(*rt_.owned_paths_)[state.flow_index] = std::move(b.owned_path);
+	return (*rt_.owned_paths_)[state.flow_index].c_str();
+}
+void FlowBuilder::emit_flow_sqes(
+	std::array<io_uring_sqe *, max_chain_cqes> const &sqes,
+	DirectFileFlowState &state,
+	DirectFileBuilder &b,
+	std::uint8_t emitted,
+	bool mode_b,
+	char const *open_path_override) noexcept {
+	for (std::uint8_t i = 0; i < emitted; ++i) {
+		bool const is_close = mode_b && (i == b.op_count);
+		FlowOpKind const kind = is_close ? FlowOpKind::close_direct : b.ops[i].kind;
+		io_uring_sqe *sqe = sqes[i];
 
+		prep_op(sqe, i, b, is_close, i == 0 ? open_path_override : nullptr);
+
+		auto sqe_view = Sqe{sqe};
+		sqe_view.fixed_file(uses_fixed_file_fd(kind));
+
+		sqe_view.clear_flags(link_flags);
+		if (i + 1 < emitted) {
+			sqe_view.add_flags(link_flag_for_boundary(i, std::uint8_t(i + 1), b, mode_b));
+		}
+
+		sqe->user_data = encode_tag(state.flow_index, state.generation, i, kind);
+
+		if (!is_close) {
+			state.results[i] = OpResult{
+				.res = 0,
+				.requested = byte_count_of(b.ops[i]),
+				.kind = kind,
+			};
+		}
+	}
+}
+bool FlowBuilder::submit_one_flow(
+	std::uint32_t local_idx) noexcept {
+	auto &b = rt_.builders_[local_idx];
+	if (b.err != 0) {
+		reject(local_idx, b.err);
+		return false;
+	}
+	if (b.owns_path && !rt_.ensure_owned_paths()) {
+		reject(local_idx, -ENOMEM);
+		return false;
+	}
+
+	bool const mode_b = b.close_requested && mode_b_eligible(b);
+	std::uint8_t const emitted = static_cast<std::uint8_t>(b.op_count + (mode_b ? 1u : 0u));
+
+	auto *state_ptr = rt_.slab_.try_allocate();
+	if (state_ptr == nullptr) {
+		reject(local_idx, -ENOSPC);
+		return false;
+	}
+
+	if (ring_.sq_space_left() < emitted) {
+		rt_.slab_.release(*state_ptr);
+		reject(local_idx, -EAGAIN);
+		return false;
+	}
+
+	std::array<io_uring_sqe *, max_chain_cqes> sqes{};
+	if (!reserve_flow_sqes(local_idx, sqes, emitted)) {
+		rt_.slab_.release(*state_ptr);
+		return false;
+	}
+
+	auto &state = *state_ptr;
+	init_flow_state(state, b, emitted, mode_b);
+	auto const *open_path_override = move_owned_path_if_needed(state, b);
+	emit_flow_sqes(sqes, state, b, emitted, mode_b, open_path_override);
+	return true;
+}
+std::uint32_t FlowBuilder::submit() noexcept {
+	rt_.assert_owner_thread();
+	reject_unstable_borrowed_paths();
+	std::uint32_t accepted = 0;
 	for (std::uint32_t local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
-		auto &b = rt_.builders_[local_idx];
-
-		auto reject = [&](int err) {
-			if (rt_.rejection_count_ < kMaxBatch) {
-				rt_.rejections_[rt_.rejection_count_++] = {local_idx, err};
-			}
-		};
-
-		if (b.err != 0) {
-			reject(b.err);
-			continue;
+		if (submit_one_flow(local_idx)) {
+			++accepted;
 		}
-		if (b.owns_path && !rt_.ensure_owned_paths()) {
-			reject(-ENOMEM);
-			continue;
-		}
-
-		bool const mode_b = b.close_requested && mode_b_eligible(b);
-		std::uint8_t const emitted = static_cast<std::uint8_t>(b.op_count + (mode_b ? 1u : 0u));
-
-		auto *state_ptr = rt_.slab_.try_allocate();
-		if (state_ptr == nullptr) {
-			reject(-ENOSPC);
-			continue;
-		}
-
-		if (ring_.sq_space_left() < emitted) {
-			rt_.slab_.release(*state_ptr);
-			reject(-EAGAIN);
-			continue;
-		}
-
-		// Acquire all SQEs upfront so state is only initialized after full reservation.
-		// Under single-issuer serialization the sq_space_left check above guarantees
-		// these succeed.
-		std::array<io_uring_sqe *, max_chain_cqes> sqes{};
-		{
-			bool sq_ok = true;
-			for (std::uint8_t n = 0; n < emitted; ++n) {
-				auto s = ring_.get_sqe();
-				if (!s) {
-					// Defensive fallback: another issuer or kernel-side SQ pressure may invalidate the
-					// earlier sq_space_left() observation. Already-acquired SQEs cannot be un-got,
-					// so convert them to ignored NOPs and reject this flow cleanly.
-					for (std::uint8_t j = 0; j < n; ++j) {
-						Sqe{sqes[j]}.prep_nop().user_data(UserData{0});
-					}
-					rt_.slab_.release(*state_ptr);
-					reject(-EAGAIN);
-					sq_ok = false;
-					break;
-				}
-				sqes[n] = s.raw();
-			}
-			if (!sq_ok) {
-				continue;
-			}
-		}
-
-		auto &state = *state_ptr;
-		state.initial_op_count = b.op_count;
-		state.expected_cqes = emitted;
-		state.seen_cqes = 0;
-		state.slot = b.slot;
-		state.open_seen = false;
-		state.open_ok = false;
-		state.open_res = 0;
-		state.close_requested = b.close_requested;
-		state.close_in_chain = mode_b;
-		state.close_submitted = false;
-		state.close_pending = false;
-		state.close_seen = false;
-		state.close_res = 0;
-
-		char const *open_path_override = nullptr;
-		if (b.owns_path) {
-			(*rt_.owned_paths_)[state.flow_index] = std::move(b.owned_path);
-			open_path_override = (*rt_.owned_paths_)[state.flow_index].c_str();
-		}
-
-		for (std::uint8_t i = 0; i < emitted; ++i) {
-			bool const is_close = mode_b && (i == b.op_count);
-			FlowOpKind const kind = is_close ? FlowOpKind::close_direct : b.ops[i].kind;
-			io_uring_sqe *sqe = sqes[i];
-
-			prep_op(sqe, i, b, is_close, i == 0 ? open_path_override : nullptr);
-			// prep_op zeroes sqe->flags; layer our flags on top
-
-			auto sqe_view = Sqe{sqe};
-			sqe_view.fixed_file(uses_fixed_file_fd(kind));
-
-			sqe_view.clear_flags(link_flags);
-			if (i + 1 < emitted) {
-				sqe_view.add_flags(link_flag_for_boundary(i, std::uint8_t(i + 1), b, mode_b));
-			}
-
-			sqe->user_data = encode_tag(state.flow_index, state.generation, i, kind);
-
-			if (!is_close) {
-				state.results[i] = OpResult{
-					.res = 0,
-					.requested = byte_count_of(b.ops[i]),
-					.kind = kind,
-				};
-			}
-		}
-
-		++accepted;
 	}
 
 	rt_.builder_count_ = 0;
