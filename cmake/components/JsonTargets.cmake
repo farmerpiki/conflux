@@ -30,6 +30,8 @@ target_sources(conflux_json
         ${CONFLUX_SRC_ROOT}/json_lookup.cxx
         ${CONFLUX_SRC_ROOT}/json_dump.cxx
         ${CONFLUX_SRC_ROOT}/json_parse.cxx
+        ${CONFLUX_SRC_ROOT}/json_parse_entries.cxx
+        ${CONFLUX_SRC_ROOT}/json_string_token.cxx
         ${CONFLUX_SRC_ROOT}/json_builder.cxx
         ${CONFLUX_SRC_ROOT}/json_patch.cxx
         ${CONFLUX_SRC_ROOT}/json_stream.cxx
