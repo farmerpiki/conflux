@@ -2493,7 +2493,16 @@ def check_release_artifact_staging_contract() -> None:
         '"$stage_dir/source/include"': "release artifact staging must include generated public headers in the source tree",
         "source_generated_header_artifact=source/include/conflux": "release artifact manifest must record source generated headers",
     }
+    source_archive = read("scripts/check-release-source-archive.sh")
+    source_required = {
+        "check-release-source-archive": "release artifact checks must include a source archive shape entrypoint",
+        "stage-release-artifacts.sh": "source archive check must stage the release artifact it validates",
+        "source/include/conflux/features.hxx": "source archive check must require generated feature headers",
+        "source/include/conflux/json.hxx": "source archive check must require generated JSON headers",
+        "source_generated_header_artifact=source/include/conflux": "source archive check must require source generated-header manifest metadata",
+    }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
+    missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
         'stage / "source" / "CMakePresets.json"': "release artifact guard must require CMake presets",
