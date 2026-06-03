@@ -1094,6 +1094,42 @@ struct TreeBuilder {
 		return std::nullopt;
 	}
 
+	[[nodiscard]] std::size_t finish_object(
+		std::size_t members_start) {
+		std::size_t const len = staging_members.size() - members_start;
+		std::size_t const ms = store.object_members.size();
+		store.object_members.insert(
+			store.object_members.end(),
+			staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
+			staging_members.end());
+		staging_members.resize(members_start);
+		store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(len)));
+		std::size_t const obj_node_idx = store.nodes.size() - 1;
+		if (opts.warm_threshold.has_value()
+			&& len >= static_cast<std::size_t>(*opts.warm_threshold)
+			&& len >= kHashThreshold) {
+			std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(len));
+			if (cap > 0) {
+				ObjHashTable *ht = ObjHashTable::create(
+					cap,
+					static_cast<std::uint32_t>(len),
+					detail::make_hash_seed(),
+					store.hash_mr_);
+				if (ht != nullptr) {
+					if (detail::build_table(*ht, &store, ms, len)) {
+						store.nodes[obj_node_idx].hash_idx_raw =
+							ht; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+					} else {
+						ObjHashTable::destroy(ht);
+						store.nodes[obj_node_idx].hash_idx_raw =
+							kHashBuildFailedSentinel; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+					}
+				}
+			}
+		}
+		return obj_node_idx;
+	}
+
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_object(
 		std::size_t depth) {
@@ -1230,40 +1266,7 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] == '}') {
 				tok.adv();
-				std::size_t const len = staging_members.size() - members_start;
-				std::size_t const ms = store.object_members.size();
-				store.object_members.insert(
-					store.object_members.end(),
-					staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
-					staging_members.end());
-				staging_members.resize(members_start);
-				store.nodes.push_back(
-					detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(len)));
-				std::size_t const obj_node_idx = store.nodes.size() - 1;
-				// Auto-warm if warm_threshold is set and object is large enough.
-				if (opts.warm_threshold.has_value()
-					&& len >= static_cast<std::size_t>(*opts.warm_threshold)
-					&& len >= kHashThreshold) {
-					std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(len));
-					if (cap > 0) {
-						ObjHashTable *ht = ObjHashTable::create(
-							cap,
-							static_cast<std::uint32_t>(len),
-							detail::make_hash_seed(),
-							store.hash_mr_);
-						if (ht != nullptr) {
-							if (detail::build_table(*ht, &store, ms, len)) {
-								store.nodes[obj_node_idx].hash_idx_raw =
-									ht; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-							} else {
-								ObjHashTable::destroy(ht);
-								store.nodes[obj_node_idx].hash_idx_raw =
-									kHashBuildFailedSentinel; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-							}
-						}
-					}
-				}
-				return obj_node_idx;
+				return finish_object(members_start);
 			}
 			if (tok.src[tok.pos] != ',') {
 				staging_members.resize(members_start);
@@ -1277,39 +1280,7 @@ struct TreeBuilder {
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 					tok.adv();
-					std::size_t const len2 = staging_members.size() - members_start;
-					std::size_t const ms2 = store.object_members.size();
-					store.object_members.insert(
-						store.object_members.end(),
-						staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
-						staging_members.end());
-					staging_members.resize(members_start);
-					store.nodes.push_back(
-						detail::node_object(static_cast<std::uint32_t>(ms2), static_cast<std::uint32_t>(len2)));
-					std::size_t const obj2 = store.nodes.size() - 1;
-					if (opts.warm_threshold.has_value()
-						&& len2 >= static_cast<std::size_t>(*opts.warm_threshold)
-						&& len2 >= kHashThreshold) {
-						std::uint32_t const cap2 = detail::clamped_capacity(static_cast<std::uint32_t>(len2));
-						if (cap2 > 0) {
-							ObjHashTable *ht2 = ObjHashTable::create(
-								cap2,
-								static_cast<std::uint32_t>(len2),
-								detail::make_hash_seed(),
-								store.hash_mr_);
-							if (ht2 != nullptr) {
-								if (detail::build_table(*ht2, &store, ms2, len2)) {
-									store.nodes[obj2].hash_idx_raw =
-										ht2; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-								} else {
-									ObjHashTable::destroy(ht2);
-									store.nodes[obj2].hash_idx_raw =
-										kHashBuildFailedSentinel; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-								}
-							}
-						}
-					}
-					return obj2;
+					return finish_object(members_start);
 				}
 			}
 		}
