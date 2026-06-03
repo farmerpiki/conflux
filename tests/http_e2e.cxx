@@ -415,19 +415,6 @@ void ensure_compress_server() {
 		g_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
-std::uint16_t g_cors_compress_port = 0;
-void ensure_cors_compress_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://test.example"}}));
-		router.use(conflux::http::compress_middleware());
-		router.get("/big", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::html(std::string(512, 'A'));
-		});
-		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
 // ---------------------------------------------------------------------------
 // conflux::http::security_headers_middleware test server
 // ---------------------------------------------------------------------------
