@@ -136,6 +136,26 @@ def package_smoke_forbidden_components(name: str) -> set[str]:
     return set(components)
 
 
+def package_smoke_forbidden_policy_names() -> set[str]:
+    text = read("scripts/package-smoke-forbidden-components.py")
+    match = re.search(r"POLICIES = (?P<policies>\{.*?\n\})", text, re.DOTALL)
+    if match is None:
+        fail("missing package smoke forbidden component policies")
+    policies = ast.literal_eval(match.group("policies"))
+    return set(policies)
+
+
+def package_smoke_runner_default_policy_names(text: str) -> set[str]:
+    match = re.search(
+        r'case "\$components" in(?P<body>.*?)^\s+esac$',
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if match is None:
+        fail("missing package smoke runner default component policy case")
+    return set(re.findall(r"^\s+([A-Za-z0-9_]+)\)\s*$", match.group("body"), re.MULTILINE))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1666,6 +1686,16 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    runner = read("scripts/run-package-config-smoke.sh")
+    helper_policies = package_smoke_forbidden_policy_names()
+    runner_policies = package_smoke_runner_default_policy_names(runner)
+    append_set_delta_errors(
+        errors,
+        helper_policies,
+        runner_policies,
+        "package smoke runner default policies missing helper policies: ",
+        "package smoke runner default policies not declared by helper: ",
+    )
     core_cmake_definitions = shell_cmake_definitions(
         read("scripts/check-package-smoke-core-isolated.sh"),
     )
