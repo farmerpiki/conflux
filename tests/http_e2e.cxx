@@ -30,7 +30,6 @@ import conflux.net.compress;
 import conflux.net.config;
 import conflux.net.cookie_signing;
 import conflux.net.cors;
-import conflux.net.etag;
 import conflux.net.forwarded;
 import conflux.net.http.client;
 import conflux.net.http.static_files;
@@ -748,23 +747,6 @@ void check_json_absent_at(
 	std::string_view pointer) {
 	CHECK_FALSE(doc.root().at_pointer(pointer).has_value());
 }
-// conflux::http::etag_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_etag_port = 0;
-void ensure_etag_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::etag_middleware());
-		router.get("/content", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("hello world");
-		});
-		router.get("/empty", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(""); });
-		g_etag_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
 // conflux::http::response_cache_middleware test server
 // ---------------------------------------------------------------------------
 
