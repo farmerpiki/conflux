@@ -51,6 +51,17 @@ def provider_resolution_map(text: str) -> dict[str, str]:
     }
 
 
+def provider_default_map(text: str) -> dict[str, str]:
+    return {
+        default_var: public
+        for public, default_var in re.findall(
+            r"\bconflux_resolve_provider\(\s*CONFLUX_EFFECTIVE_[A-Z0-9_]+_PROVIDER\s+"
+            r"(CONFLUX_[A-Z0-9_]+_PROVIDER)\s+\$\{(_d_PROVIDER_[A-Z0-9_]+)\}",
+            text,
+        )
+    }
+
+
 def provider_selection_map(text: str) -> dict[str, str]:
     return {
         public: effective
@@ -1267,6 +1278,7 @@ def shell_case_mapping(text: str, function_name: str) -> dict[str, str]:
 
 def check_provider_option_enums() -> None:
     options = read("cmake/ConfluxOptions.cmake")
+    presets = read("cmake/ConfluxPresets.cmake")
     dependencies = read("cmake/Dependencies.cmake")
     resolution = read("cmake/ConfluxProviderResolution.cmake")
     http_support = read("cmake/components/HttpSupportTargets.cmake")
@@ -1314,6 +1326,19 @@ def check_provider_option_enums() -> None:
                 + ";".join(sorted(resolved_values))
                 + " != "
                 + ";".join(sorted(expected)),
+            )
+    default_map = provider_default_map(presets)
+    for default_var, requested in default_map.items():
+        allowed = cmake_cache_strings(options, requested)
+        values = set(re.findall(rf"\bset\({re.escape(default_var)}\s+([A-Z0-9_]+)\)", presets))
+        if not values:
+            errors.append(f"{default_var} is passed to provider resolution but never assigned")
+            continue
+        unknown = sorted(values - allowed)
+        if unknown:
+            errors.append(
+                f"{default_var} contains values outside {requested}: "
+                + ";".join(unknown)
             )
     if errors:
         fail("\n".join(errors))
