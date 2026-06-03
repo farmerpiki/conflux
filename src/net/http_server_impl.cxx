@@ -166,6 +166,261 @@ struct HttpServer::Impl {
 #endif
 };
 
+void configure_ring_from_server(
+	Ring &r,
+	conflux::http::Config const &cfg,
+	conflux::http::Router *router,
+	conflux::http::VHostRouter *vhost_router,
+	conflux::http::HttpServerObservabilityHooks const &observability_hooks,
+	int shutdown_efd,
+	Ring::DrainControl *drain_control
+#if CONFLUX_HAS_TLS
+	,
+	SSL_CTX *ssl_ctx
+#endif
+) {
+	r.router = router;
+	r.vhost_router = vhost_router;
+	r.observability_hooks_ = observability_hooks;
+	r.shutdown_efd = shutdown_efd;
+	r.drain_control = drain_control;
+	r.max_body_size = cfg.max_body_size;
+	r.request_timeout_ms = cfg.request_timeout_ms;
+	r.tls_sniff_timeout_ms = cfg.tls_sniff_timeout_ms;
+	r.slow_handler_diagnostics = cfg.slow_handler_diagnostics;
+	r.slow_handler_warn_ms = cfg.slow_handler_warn_ms;
+	r.http_redirect_to_https = cfg.http_redirect_to_https;
+	r.https_redirect_hosts = cfg.https_redirect_hosts;
+	r.parser_limits = cfg.parser_limits;
+	r.file_io_slabs = cfg.fixed_buffer_slabs;
+	r.file_io_slab_bytes = cfg.fixed_buffer_bytes;
+	r.file_io_pipe_pairs = cfg.splice_pipe_pairs;
+	r.send_buffer_slabs = cfg.send_buffer_slabs;
+	r.send_buffer_bytes = cfg.send_buffer_bytes;
+	r.send_fixed_buffers_enabled = cfg.send_fixed_buffers;
+	r.direct_accept_enabled_ = cfg.direct_accept;
+	r.cmd_sock_setsockopt_enabled_ = cfg.cmd_sock_setsockopt;
+	r.startup_banner = cfg.startup_banner;
+#if CONFLUX_HAS_TLS
+	r.ssl_ctx = ssl_ctx;
+#endif
+}
+
+void configure_ring_after_init(
+	Ring &r,
+	conflux::http::Config const &cfg,
+	unsigned ring_index) {
+	r.auto_recv_arm_policy = cfg.auto_recv_arm_policy;
+	r.busy_poll_us_ = static_cast<int>(cfg.busy_poll_us);
+	r.prefer_busy_poll_ = cfg.prefer_busy_poll;
+	r.ring_core_ = cfg.ring_core >= 0 ? cfg.ring_core + static_cast<int>(ring_index) : -1;
+	r.worker_core_ = cfg.worker_core_base >= 0 ? cfg.worker_core_base + static_cast<int>(ring_index) : -1;
+	r.send_zc_threshold_ = cfg.send_zc_threshold;
+	r.send_zc_report_usage_ = cfg.send_zc_report_usage;
+}
+
+void configure_ring_send_zc(
+	Ring &r,
+	conflux::http::Config const &cfg) {
+	if (cfg.send_zc == "on") {
+#if !CONFLUX_ENABLE_SEND_ZC
+		throw std::runtime_error{"send_zc = on but experimental SEND_ZC is disabled at build time"};
+#else
+		if (!r.caps.send_zc) {
+			throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
+		}
+		{
+			std::scoped_lock lk{r.metrics_mu_};
+			r.send_zc_enabled_ = true;
+		}
+#endif
+	} else if (cfg.send_zc == "auto") {
+		std::scoped_lock lk{r.metrics_mu_};
+		r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
+	}
+}
+
+void maybe_log_ring_startup(
+	Ring const &r,
+	conflux::http::Config const &cfg,
+	unsigned ring_count,
+	unsigned entries,
+	bool tls_enabled) {
+	if (!cfg.startup_banner) {
+		return;
+	}
+	auto const feat_s = caps_to_log_string(r.caps);
+	conflux::utils::eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
+	conflux::utils::eprintln(
+		std::format(
+			"uring_setup_flags_requested={}",
+			conflux::http::detail::setup_flags_str(r.requested_setup_flags_)));
+	conflux::utils::eprintln(
+		std::format("uring_setup_flags_active={}", conflux::http::detail::setup_flags_str(r.active_setup_flags_)));
+	conflux::utils::eprintln(
+		std::format("uring_setup_flags_stripped={}", conflux::http::detail::setup_flags_str(r.stripped_setup_flags_)));
+	conflux::utils::eprintln(
+		std::format(
+			"listening on {}://0.0.0.0:{}  "
+			"(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, "
+			"buf_ring=true)",
+			tls_enabled ? "http/https" : "http",
+			r.bound_port,
+			ring_count,
+			entries,
+			conflux::http::detail::flags_str(cfg),
+			r.listen_fixed,
+			r.accepted_sockets_direct));
+}
+
+void publish_run_status(
+	std::atomic<std::uint8_t> &run_status,
+	conflux::http::RunStatus status) {
+	std::uint8_t expected = static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally);
+	run_status.compare_exchange_strong(
+		expected,
+		static_cast<std::uint8_t>(status),
+		std::memory_order_release,
+		std::memory_order_relaxed);
+}
+
+template<typename Impl>
+void publish_startup_failure(
+	Impl &impl,
+	unsigned ring_index) {
+	{
+		std::scoped_lock const lk{impl.startup_error_mu};
+		if (!impl.startup_error) {
+			impl.startup_error = std::current_exception();
+		}
+	}
+	impl.startup_failed.store(true, std::memory_order_release);
+	publish_run_status(impl.run_status_, conflux::http::RunStatus::fatal_internal_exception);
+	impl.bound_port_.store(std::numeric_limits<std::uint16_t>::max(), std::memory_order_release);
+	impl.bound_port_.notify_all();
+	if (impl.cfg.attach_wq && ring_index == 0) {
+		impl.wq_ring_fd_.store(-1, std::memory_order_release);
+		impl.wq_ring_fd_.notify_all();
+	}
+}
+
+template<typename Impl>
+[[nodiscard]] std::thread start_ring_thread(
+	HttpServer *server,
+	Impl &impl,
+	unsigned ring_index,
+	unsigned entries) {
+	return std::thread{[server, &impl, ring_index, entries] {
+		try {
+			auto &r = *impl.ring_vec[ring_index];
+			configure_ring_from_server(
+				r,
+				impl.cfg,
+				impl.use_vhost ? nullptr : &impl.router,
+				impl.use_vhost ? &impl.vhost_router : nullptr,
+				impl.observability_hooks,
+				impl.shutdown_efds[ring_index],
+				&impl.drain_control
+#if CONFLUX_HAS_TLS
+				,
+				impl.tls_ctx ? impl.tls_ctx->native_handle() : nullptr
+#endif
+			);
+			if (ring_index == 0) {
+				r.port_signal = &impl.bound_port_;
+			}
+			int parent = -1;
+			if (impl.cfg.attach_wq && ring_index > 0) {
+				impl.wq_ring_fd_.wait(-2, std::memory_order_acquire);
+				parent = impl.wq_ring_fd_.load(std::memory_order_acquire);
+			}
+			std::uint32_t const wq_fd = conflux::http::detail::wq_fd_for_ring(impl.cfg, ring_index, parent);
+			r.use_recv_incremental_buf = impl.cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
+			r.use_recv_bundle = !r.use_recv_incremental_buf && impl.cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
+			r.init(impl.cfg.port, entries, impl.uring_flags, wq_fd, impl.cfg.no_mmap);
+			configure_ring_after_init(r, impl.cfg, ring_index);
+			configure_ring_send_zc(r, impl.cfg);
+			if (impl.cfg.attach_wq && ring_index == 0) {
+				impl.wq_ring_fd_.store(r.ring.ring_fd, std::memory_order_release);
+				impl.wq_ring_fd_.notify_all();
+			}
+#if CONFLUX_HAS_HTTP3
+			if (impl.cfg.http3.enabled && !impl.use_vhost && impl.http3_tls_ctx) {
+				r.alt_svc_header =
+					conflux::http::detail::http3_alt_svc_value(r.bound_port, impl.cfg.http3.alt_svc_max_age_sec);
+			}
+#endif
+
+			if (ring_index == 0) {
+				maybe_log_ring_startup(
+					r,
+					impl.cfg,
+					impl.rings,
+					entries,
+#if CONFLUX_HAS_TLS
+					impl.tls_ctx.has_value()
+#else
+					false
+#endif
+				);
+			}
+
+			auto const status = r.run_loop();
+			if (status != conflux::http::RunStatus::stopped_normally) {
+				publish_run_status(impl.run_status_, status);
+				server->shutdown();
+			}
+		} catch (...) {
+			publish_startup_failure(impl, ring_index);
+			server->shutdown();
+		}
+	}};
+}
+
+void join_ring_threads(
+	std::vector<std::thread> &threads) {
+	for (auto &t: threads) {
+		t.join();
+	}
+}
+
+#if CONFLUX_HAS_HTTP3
+template<typename Impl>
+void start_http3_listener(
+	Impl &impl,
+	std::uint16_t h3_port) {
+	if (!impl.cfg.http3.enabled || !impl.http3_tls_ctx || impl.use_vhost) {
+		return;
+	}
+	auto listener = std::make_unique<conflux::http::detail::Http3Listener>(
+		impl.use_vhost ? nullptr : &impl.router,
+		impl.cfg.http3,
+		h3_port,
+		impl.http3_tls_ctx->native_handle());
+	listener->start();
+	{
+		std::scoped_lock const lk{impl.http3_mu};
+		impl.http3_listener = std::move(listener);
+	}
+}
+
+template<typename Impl>
+void stop_http3_listener(
+	Impl &impl) {
+	if (!impl.cfg.http3.enabled) {
+		return;
+	}
+	std::unique_ptr<conflux::http::detail::Http3Listener> listener;
+	{
+		std::scoped_lock const lk{impl.http3_mu};
+		listener = std::move(impl.http3_listener);
+	}
+	if (listener) {
+		listener->stop();
+	}
+}
+#endif
+
 void HttpServer::initialize(
 	conflux::http::Config const &cfg) {
 	impl_->cfg = cfg;
@@ -348,7 +603,7 @@ void HttpServer::shutdown() {
 
 [[nodiscard]] conflux::http::RunStatus HttpServer::run() noexcept {
 	try {
-		(void)::signal(SIGPIPE, SIG_IGN);
+		std::ignore = ::signal(SIGPIPE, SIG_IGN);
 		impl_->running_.store(true, std::memory_order_release);
 		unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 
@@ -356,182 +611,18 @@ void HttpServer::shutdown() {
 		threads.reserve(impl_->rings);
 
 		for (unsigned i = 0; i < impl_->rings; ++i) {
-			threads.emplace_back([this, i, entries] {
-				try {
-					auto &r = *impl_->ring_vec[i];
-					r.router = impl_->use_vhost ? nullptr : &impl_->router;
-					r.vhost_router = impl_->use_vhost ? &impl_->vhost_router : nullptr;
-					r.observability_hooks_ = impl_->observability_hooks;
-					r.shutdown_efd = impl_->shutdown_efds[i];
-					r.drain_control = &impl_->drain_control;
-					r.max_body_size = impl_->cfg.max_body_size;
-					r.request_timeout_ms = impl_->cfg.request_timeout_ms;
-					r.tls_sniff_timeout_ms = impl_->cfg.tls_sniff_timeout_ms;
-					r.slow_handler_diagnostics = impl_->cfg.slow_handler_diagnostics;
-					r.slow_handler_warn_ms = impl_->cfg.slow_handler_warn_ms;
-					r.http_redirect_to_https = impl_->cfg.http_redirect_to_https;
-					r.https_redirect_hosts = impl_->cfg.https_redirect_hosts;
-					r.parser_limits = impl_->cfg.parser_limits;
-					r.file_io_slabs = impl_->cfg.fixed_buffer_slabs;
-					r.file_io_slab_bytes = impl_->cfg.fixed_buffer_bytes;
-					r.file_io_pipe_pairs = impl_->cfg.splice_pipe_pairs;
-					r.send_buffer_slabs = impl_->cfg.send_buffer_slabs;
-					r.send_buffer_bytes = impl_->cfg.send_buffer_bytes;
-					r.send_fixed_buffers_enabled = impl_->cfg.send_fixed_buffers;
-					r.direct_accept_enabled_ = impl_->cfg.direct_accept;
-					r.cmd_sock_setsockopt_enabled_ = impl_->cfg.cmd_sock_setsockopt;
-					r.startup_banner = impl_->cfg.startup_banner;
-#if CONFLUX_HAS_TLS
-					r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
-// vhost_ctxs on Ring is informational only; SNI callback is already
-// registered on the primary SSL_CTX in the constructor.
-#endif
-					if (i == 0)
-						r.port_signal = &impl_->bound_port_;
-					int parent = -1;
-					if (impl_->cfg.attach_wq && i > 0) {
-						impl_->wq_ring_fd_.wait(-2, std::memory_order_acquire);
-						parent = impl_->wq_ring_fd_.load(std::memory_order_acquire);
-					}
-					std::uint32_t const wq_fd = conflux::http::detail::wq_fd_for_ring(impl_->cfg, i, parent);
-					r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
-					r.use_recv_bundle =
-						!r.use_recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
-					r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
-					r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
-					r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
-					r.prefer_busy_poll_ = impl_->cfg.prefer_busy_poll;
-					r.ring_core_ = impl_->cfg.ring_core >= 0 ? impl_->cfg.ring_core + static_cast<int>(i) : -1;
-					r.worker_core_ =
-						impl_->cfg.worker_core_base >= 0 ? impl_->cfg.worker_core_base + static_cast<int>(i) : -1;
-					r.send_zc_threshold_ = impl_->cfg.send_zc_threshold;
-					r.send_zc_report_usage_ = impl_->cfg.send_zc_report_usage;
-					if (impl_->cfg.send_zc == "on") {
-#if !CONFLUX_ENABLE_SEND_ZC
-						throw std::runtime_error{"send_zc = on but experimental SEND_ZC is disabled at build time"};
-#else
-						if (!r.caps.send_zc)
-							throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
-						{
-							std::scoped_lock lk{r.metrics_mu_};
-							r.send_zc_enabled_ = true;
-						}
-#endif
-					} else if (impl_->cfg.send_zc == "auto") {
-						std::scoped_lock lk{r.metrics_mu_};
-						r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
-					}
-					if (impl_->cfg.attach_wq && i == 0) {
-						impl_->wq_ring_fd_.store(r.ring.ring_fd, std::memory_order_release);
-						impl_->wq_ring_fd_.notify_all();
-					}
-#if CONFLUX_HAS_HTTP3
-					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->http3_tls_ctx)
-						r.alt_svc_header = conflux::http::detail::http3_alt_svc_value(
-							r.bound_port,
-							impl_->cfg.http3.alt_svc_max_age_sec);
-#endif
-
-					if (i == 0 && impl_->cfg.startup_banner) {
-						auto const feat_s = caps_to_log_string(r.caps);
-						conflux::utils::eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
-						conflux::utils::eprintln(
-							std::format(
-								"uring_setup_flags_requested={}",
-								conflux::http::detail::setup_flags_str(r.requested_setup_flags_)));
-						conflux::utils::eprintln(
-							std::format(
-								"uring_setup_flags_active={}",
-								conflux::http::detail::setup_flags_str(r.active_setup_flags_)));
-						conflux::utils::eprintln(
-							std::format(
-								"uring_setup_flags_stripped={}",
-								conflux::http::detail::setup_flags_str(r.stripped_setup_flags_)));
-					}
-					if (i == 0 && impl_->cfg.startup_banner)
-						conflux::utils::eprintln(
-							std::format(
-								"listening on {}://0.0.0.0:{}  "
-								"(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, "
-								"buf_ring=true)",
-#if CONFLUX_HAS_TLS
-								impl_->tls_ctx ? "http/https" : "http",
-#else
-								"http",
-#endif
-								r.bound_port,
-								impl_->rings,
-								entries,
-								conflux::http::detail::flags_str(impl_->cfg),
-								r.listen_fixed,
-								r.accepted_sockets_direct));
-
-					auto const status = r.run_loop();
-					if (status != conflux::http::RunStatus::stopped_normally) {
-						std::uint8_t expected = static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally);
-						impl_->run_status_.compare_exchange_strong(
-							expected,
-							static_cast<std::uint8_t>(status),
-							std::memory_order_release,
-							std::memory_order_relaxed);
-						shutdown();
-					}
-				} catch (...) {
-					{
-						std::scoped_lock const lk{impl_->startup_error_mu};
-						if (!impl_->startup_error)
-							impl_->startup_error = std::current_exception();
-					}
-					impl_->startup_failed.store(true, std::memory_order_release);
-					{
-						std::uint8_t expected = static_cast<std::uint8_t>(conflux::http::RunStatus::stopped_normally);
-						impl_->run_status_.compare_exchange_strong(
-							expected,
-							static_cast<std::uint8_t>(conflux::http::RunStatus::fatal_internal_exception),
-							std::memory_order_release,
-							std::memory_order_relaxed);
-					}
-					impl_->bound_port_.store(std::numeric_limits<std::uint16_t>::max(), std::memory_order_release);
-					impl_->bound_port_.notify_all();
-					if (impl_->cfg.attach_wq && i == 0) {
-						impl_->wq_ring_fd_.store(-1, std::memory_order_release);
-						impl_->wq_ring_fd_.notify_all();
-					}
-					shutdown();
-				}
-			});
+			threads.emplace_back(start_ring_thread(this, *impl_, i, entries));
 		}
 
 #if CONFLUX_HAS_HTTP3
-		if (impl_->cfg.http3.enabled && impl_->http3_tls_ctx && !impl_->use_vhost) {
-			std::uint16_t const h3_port = port();
-			auto listener = std::make_unique<conflux::http::detail::Http3Listener>(
-				impl_->use_vhost ? nullptr : &impl_->router,
-				impl_->cfg.http3,
-				h3_port,
-				impl_->http3_tls_ctx->native_handle());
-			listener->start();
-			{
-				std::scoped_lock const lk{impl_->http3_mu};
-				impl_->http3_listener = std::move(listener);
-			}
-		}
+		start_http3_listener(*impl_, port());
 #endif
 
-		for (auto &t: threads) {
-			t.join();
-		}
+		join_ring_threads(threads);
 		impl_->running_.store(false, std::memory_order_release);
 		impl_->running_.notify_all();
 #if CONFLUX_HAS_HTTP3
-		std::unique_ptr<conflux::http::detail::Http3Listener> to_reset;
-		{
-			std::scoped_lock const lk{impl_->http3_mu};
-			to_reset = std::move(impl_->http3_listener);
-		}
-		if (to_reset) {
-			to_reset->stop();
-		}
+		stop_http3_listener(*impl_);
 #endif
 		return static_cast<conflux::http::RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
 	} catch (...) {
