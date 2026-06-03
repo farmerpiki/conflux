@@ -1271,6 +1271,28 @@ def check_provider_option_enums() -> None:
                 + " != "
                 + ";".join(sorted(validated)),
             )
+    resolved_checks = {
+        "CONFLUX_JSON_HASH_PROVIDER": "CONFLUX_RESOLVED_JSON_HASH_PROVIDER",
+        "CONFLUX_GZIP_PROVIDER": "CONFLUX_RESOLVED_GZIP_PROVIDER",
+        "CONFLUX_BROTLI_PROVIDER": "CONFLUX_RESOLVED_BROTLI_PROVIDER",
+        "CONFLUX_ZSTD_PROVIDER": "CONFLUX_RESOLVED_ZSTD_PROVIDER",
+        "CONFLUX_TLS_PROVIDER": "CONFLUX_RESOLVED_TLS_PROVIDER",
+        "CONFLUX_HTTP2_PROVIDER": "CONFLUX_RESOLVED_HTTP2_PROVIDER",
+        "CONFLUX_HTTP3_PROVIDER": "CONFLUX_RESOLVED_HTTP3_PROVIDER",
+        "CONFLUX_POSTGRES_PROVIDER": "CONFLUX_RESOLVED_POSTGRES_PROVIDER",
+        "CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER": "CONFLUX_RESOLVED_ARGON2_PROVIDER",
+    }
+    for requested, resolved in resolved_checks.items():
+        requested_values = cmake_cache_strings(options, requested)
+        resolved_values = cmake_cache_strings(options, resolved)
+        expected = requested_values - {"AUTO"}
+        if resolved_values != expected:
+            errors.append(
+                f"{resolved} cache STRINGS drift from {requested}: "
+                + ";".join(sorted(resolved_values))
+                + " != "
+                + ";".join(sorted(expected)),
+            )
     if errors:
         fail("\n".join(errors))
 
