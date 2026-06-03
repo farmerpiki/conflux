@@ -1490,9 +1490,9 @@ def check_package_smoke_wrapper_contracts() -> None:
         errors.append("liburing-free package smoke must derive forbidden components from the shared JSON policy")
     if '--forbid-components "$forbid_components"' not in liburing_free:
         errors.append("liburing-free package smoke must pass the derived forbidden components")
-    if 'external-dependency-tokens.py" "$source_root" --exclude XXHASH' not in liburing_free:
+    if 'external-dependency-tokens.py" "$source_root" --policy json' not in liburing_free:
         errors.append(
-            "liburing-free package smoke must derive forbidden external deps from the registry while allowing the JSON hash provider",
+            "liburing-free package smoke must derive forbidden external deps from the shared JSON policy",
         )
     runtime_pkg_config_probes = shell_pkg_config_exists_probes(
         read("scripts/check-package-smoke-runtime.sh"),
@@ -2443,15 +2443,22 @@ def check_package_smoke_external_tokens() -> None:
     helper_required = {
         "CONFLUX_EXTERNAL_DEPENDENCY_TOKENS": "external dependency token helper must read the registry token list",
         "--exclude": "external dependency token helper must support policy exclusions",
+        "--policy": "external dependency token helper must support named package-smoke policies",
+        "POLICY_ALLOWED_TOKENS": "external dependency token helper must centralize named package-smoke policies",
         "unknown excluded external dependency tokens": "external dependency token helper must reject unknown exclusions",
     }
     runner_required = {
         'scripts/external-dependency-tokens.py" "$source_root"': "package smoke runner must derive forbidden external tokens from the registry",
-        "external_deps_except": "package smoke runner must express forbidden token policies as registry exclusions",
-        "forbid_all_external_deps=\"$(python3": "package smoke runner must derive the all-forbidden policy from the registry",
+        "forbidden_external_deps_for": "package smoke runner must express forbidden token policies through named helper policies",
+        "--policy \"$1\"": "package smoke runner must pass named external dependency policies to the helper",
+        "forbid_all_external_deps=\"$(forbidden_external_deps_for all)": "package smoke runner must derive the all-forbidden policy from the helper",
+        "forbid_external_deps_without_json_hash=\"$(forbidden_external_deps_for json)": "package smoke runner must derive JSON external policy from the helper",
+        "forbid_template_external_deps=\"$(forbidden_external_deps_for template)": "package smoke runner must derive template external policy from the helper",
+        "forbid_dns_external_deps=\"$(forbidden_external_deps_for dns)": "package smoke runner must derive DNS external policy from the helper",
+        "forbid_pg_external_deps=\"$(forbidden_external_deps_for pg)": "package smoke runner must derive PG external policy from the helper",
     }
     liburing_free_required = {
-        'scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH': "liburing-free package smoke must derive forbidden external tokens from the registry",
+        'scripts/external-dependency-tokens.py" "$source_root" --policy json': "liburing-free package smoke must derive forbidden external tokens from the JSON policy",
     }
     errors.extend(message for marker, message in helper_required.items() if marker not in token_helper)
     errors.extend(message for marker, message in runner_required.items() if marker not in runner)
@@ -2766,7 +2773,7 @@ def check_release_artifact_staging_contract() -> None:
         '"$bootstrap_source/cmake/package-smoke"': "bootstrap check must consume the installed package from staged source package smoke",
         '-DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$sku_components"': "bootstrap check must run an installed package smoke for the selected SKU",
         'package-smoke-forbidden-components.py" json': "bootstrap check must derive forbidden release-json package components from the shared policy helper",
-        'external-dependency-tokens.py" "$source_root" --exclude XXHASH': "bootstrap check must derive forbidden release-json external deps from the registry",
+        'external-dependency-tokens.py" "$source_root" --policy json': "bootstrap check must derive forbidden release-json external deps from the shared JSON policy",
         '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS=': "bootstrap check must assert unrelated provider deps stay out",
         'ctest --test-dir "$package_smoke_build" --output-on-failure': "bootstrap check must run installed package smoke tests",
         '[[ -d "$build_dir/_deps" ]]': "bootstrap check must reject FetchContent outputs",

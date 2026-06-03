@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
+
+
+POLICY_ALLOWED_TOKENS = {
+    "all": [],
+    "core": [],
+    "json": ["XXHASH"],
+    "template": ["XXHASH", "OPENSSL", "ZLIB", "LIBDEFLATE", "ZLIB_NG", "LIBISAL", "BROTLI", "ZSTD"],
+    "dns": ["LIBURING", "XXHASH"],
+    "pg": ["LIBURING", "XXHASH", "LIBPQ"],
+}
 
 
 def fail(message: str) -> None:
@@ -28,17 +39,16 @@ def external_dependency_tokens(root: Path) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        fail("usage: external-dependency-tokens.py <repo-root> [--exclude TOKEN ...]")
-    root = Path(sys.argv[1]).resolve()
-    excludes: set[str] = set()
-    args = sys.argv[2:]
-    if args:
-        if args[0] != "--exclude":
-            fail("usage: external-dependency-tokens.py <repo-root> [--exclude TOKEN ...]")
-        excludes = set(args[1:])
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repo_root")
+    parser.add_argument("--exclude", nargs="*", default=[])
+    parser.add_argument("--policy", choices=sorted(POLICY_ALLOWED_TOKENS))
+    args = parser.parse_args()
+    root = Path(args.repo_root).resolve()
     tokens = external_dependency_tokens(root)
+    excludes = set(args.exclude)
+    if args.policy is not None:
+        excludes.update(POLICY_ALLOWED_TOKENS[args.policy])
     unknown = sorted(excludes - set(tokens))
     if unknown:
         fail("unknown excluded external dependency tokens: " + ";".join(unknown))

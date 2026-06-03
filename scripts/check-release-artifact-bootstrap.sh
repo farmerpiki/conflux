@@ -47,7 +47,7 @@ package_smoke_configure=(
 if [[ "$release_sku" == "release-json" ]]; then
     forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" json)"
     forbid_external_deps_without_json_hash="$(
-        python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH
+        python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy json
     )"
     package_smoke_configure+=(
         -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components"

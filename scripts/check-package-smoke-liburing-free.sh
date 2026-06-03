@@ -5,7 +5,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 feature_set="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" release-json feature_set)"
 components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" release-json components)"
 forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" json)"
-forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH)"
+forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy json)"
 
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \

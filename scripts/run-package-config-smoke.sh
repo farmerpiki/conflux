@@ -113,17 +113,17 @@ cleanup_build_dir() {
 }
 trap cleanup_build_dir EXIT
 
-external_deps_except() {
-    python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude "$@"
+forbidden_external_deps_for() {
+    python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy "$1"
 }
 forbidden_components_for() {
     python3 "$source_root/scripts/package-smoke-forbidden-components.py" "$1"
 }
-forbid_all_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root")"
-forbid_external_deps_without_json_hash="$(external_deps_except XXHASH)"
-forbid_template_external_deps="$(external_deps_except XXHASH OPENSSL ZLIB LIBDEFLATE ZLIB_NG LIBISAL BROTLI ZSTD)"
-forbid_dns_external_deps="$(external_deps_except LIBURING XXHASH)"
-forbid_pg_external_deps="$(external_deps_except LIBURING XXHASH LIBPQ)"
+forbid_all_external_deps="$(forbidden_external_deps_for all)"
+forbid_external_deps_without_json_hash="$(forbidden_external_deps_for json)"
+forbid_template_external_deps="$(forbidden_external_deps_for template)"
+forbid_dns_external_deps="$(forbidden_external_deps_for dns)"
+forbid_pg_external_deps="$(forbidden_external_deps_for pg)"
 
 if [[ "$components" != *";"* ]]; then
     case "$components" in
