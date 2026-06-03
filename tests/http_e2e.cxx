@@ -43,7 +43,6 @@ import conflux.net.request_id;
 import conflux.net.response_cache;
 import conflux.net.router;
 import conflux.net.security;
-import conflux.net.structured_log;
 import conflux.net.tracing;
 import conflux.net.trailing_slash;
 import conflux.net.vhost;
@@ -711,12 +710,6 @@ void check_problem_code(
 	REQUIRE(diagnostic_value.has_value());
 	CHECK(*diagnostic_value == code);
 }
-conflux::json::Document require_json_text(
-	std::string_view text) {
-	auto doc = conflux::json::parse_copy(std::string{text});
-	REQUIRE(doc.has_value());
-	return std::move(*doc);
-}
 conflux::json::NodeRef require_json_pointer(
 	conflux::json::Document const &doc,
 	std::string_view pointer) {
@@ -732,20 +725,6 @@ void check_json_string_at(
 	auto value = node.as_string();
 	REQUIRE(value.has_value());
 	CHECK(*value == expected);
-}
-void check_json_u64_at(
-	conflux::json::Document const &doc,
-	std::string_view pointer,
-	std::uint64_t expected) {
-	auto node = require_json_pointer(doc, pointer);
-	auto value = node.as_u64();
-	REQUIRE(value.has_value());
-	CHECK(*value == expected);
-}
-void check_json_absent_at(
-	conflux::json::Document const &doc,
-	std::string_view pointer) {
-	CHECK_FALSE(doc.root().at_pointer(pointer).has_value());
 }
 // conflux::http::response_cache_middleware test server
 // ---------------------------------------------------------------------------
@@ -827,26 +806,6 @@ void ensure_resp_cache_server() {
 		g_resp_cache_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
-// ---------------------------------------------------------------------------
-// conflux::http::structured_log_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_slog_port = 0;
-char g_slog_path[64]{};
-void ensure_slog_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		std::strcpy(g_slog_path, "/tmp/conflux_slog_XXXXXX");
-		int const tmp = ::mkstemp(g_slog_path);
-		::close(tmp);
-
-		conflux::http::Router router;
-		router.use(conflux::http::structured_log_middleware({.log_file = g_slog_path, .app_name = "test"}));
-		router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
-		g_slog_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
 // tracing_middleware test server
 // ---------------------------------------------------------------------------
 
