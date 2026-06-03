@@ -2485,10 +2485,20 @@ def check_release_artifact_staging_contract() -> None:
         "--feature-set": "release artifact staging must expose an explicit feature-set",
         'CONFLUX_FEATURE_SET="$feature_set"': "release artifact staging explicit build path must pass the selected feature-set",
         "module-header-bridge-manifest.json": "release artifact staging must include the bridge manifest",
+        "CHANGELOG.md": "release artifact staging must include the changelog",
+        "RELEASE_POLICY.md": "release artifact staging must include release policy",
+        "SECURITY.md": "release artifact staging must include security policy",
+        "SUPPORT.md": "release artifact staging must include support policy",
     }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
-    if "python_version" not in guard:
-        missing.append("release artifact guard must validate bridge python metadata")
+    guard_required = {
+        "python_version": "release artifact guard must validate bridge python metadata",
+        'stage / "source" / "CHANGELOG.md"': "release artifact guard must require the changelog",
+        'stage / "source" / "RELEASE_POLICY.md"': "release artifact guard must require release policy",
+        'stage / "source" / "SECURITY.md"': "release artifact guard must require security policy",
+        'stage / "source" / "SUPPORT.md"': "release artifact guard must require support policy",
+    }
+    missing.extend(message for marker, message in guard_required.items() if marker not in guard)
     if missing:
         fail("\n".join(missing))
 

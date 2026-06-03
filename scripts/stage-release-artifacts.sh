@@ -101,9 +101,13 @@ cmake --install "$build_dir" --prefix "$stage_dir/install"
 mkdir -p "$stage_dir/source" "$stage_dir/artifacts"
 tar -C "$root" -cf - \
     CMakeLists.txt \
+    CHANGELOG.md \
     LICENSE \
     NOTICE \
     README.md \
+    RELEASE_POLICY.md \
+    SECURITY.md \
+    SUPPORT.md \
     cmake \
     docs \
     scripts/module_header_bridge.py \

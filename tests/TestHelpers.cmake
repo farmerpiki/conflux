@@ -7,7 +7,6 @@ option(CONFLUX_BUILD_LIBCURL_EXTERNAL_TESTS
        ${CURL_FOUND})
 
 set(CONFLUX_CATCH_RNG_SEED "" CACHE STRING "Optional Catch2 RNG seed used by discovered CTest tests")
-set(CONFLUX_PG_TEST_CONNINFO "" CACHE STRING "libpq conninfo for DB integration tests (e.g. host=localhost user=postgres dbname=conflux_test)")
 
 function(conflux_catch_extra_args out_var)
     set(extra_args --order lex)

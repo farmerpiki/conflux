@@ -36,6 +36,12 @@ def main(argv: list[str]) -> int:
 
     required = [
         stage / "source" / "CMakeLists.txt",
+        stage / "source" / "CHANGELOG.md",
+        stage / "source" / "LICENSE",
+        stage / "source" / "README.md",
+        stage / "source" / "RELEASE_POLICY.md",
+        stage / "source" / "SECURITY.md",
+        stage / "source" / "SUPPORT.md",
         stage / "source" / "src",
         stage / "install" / "include" / "conflux" / "json.hxx",
         stage / "install" / "include" / "conflux" / "features.hxx",

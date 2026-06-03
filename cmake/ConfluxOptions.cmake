@@ -469,6 +469,8 @@ set_property(CACHE CONFLUX_HTTP3_PROVIDER PROPERTY STRINGS AUTO NGTCP2_NGHTTP3_O
 set(CONFLUX_POSTGRES_PROVIDER "AUTO" CACHE STRING
     "PostgreSQL provider: AUTO follows the selected feature preset; LIBPQ requires it; OFF disables PostgreSQL")
 set_property(CACHE CONFLUX_POSTGRES_PROVIDER PROPERTY STRINGS AUTO LIBPQ OFF)
+set(CONFLUX_PG_TEST_CONNINFO "" CACHE STRING
+    "libpq conninfo for DB integration tests (e.g. host=localhost user=postgres dbname=conflux_test)")
 set(CONFLUX_RESOLVED_JSON_HASH_PROVIDER "INTERNAL" CACHE STRING "Resolved JSON object-name hash provider")
 set_property(CACHE CONFLUX_RESOLVED_JSON_HASH_PROVIDER PROPERTY STRINGS XXHASH INTERNAL)
 set(CONFLUX_RESOLVED_GZIP_PROVIDER "OFF" CACHE STRING
