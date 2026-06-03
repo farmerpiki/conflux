@@ -734,6 +734,10 @@ def check_install_smoke_presets() -> None:
                         errors.append(
                             f"install-smoke preset {name} components must match docs/release-skus.json",
                         )
+                elif name == "release-header-artifacts-install-smoke" and components != release_sku_components("release-json"):
+                    errors.append(
+                        "install-smoke preset release-header-artifacts-install-smoke components must match release-json",
+                    )
         if build.get(name, {}).get("configurePreset") != name:
             errors.append(f"missing build preset mapped to configure preset: {name}")
         test_preset = test.get(name)
