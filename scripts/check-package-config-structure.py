@@ -19,6 +19,27 @@ def read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def cmake_cache_strings(text: str, variable: str) -> set[str]:
+    match = re.search(
+        rf"set_property\(CACHE\s+{re.escape(variable)}\s+PROPERTY\s+STRINGS\s+(?P<body>[^)]*)\)",
+        text,
+        re.DOTALL,
+    )
+    if match is None:
+        fail(f"missing cache STRINGS for {variable}")
+    return set(re.findall(r"\b[A-Z0-9_]+\b", match.group("body")))
+
+
+def cmake_upper_validation_values(text: str, upper_variable: str) -> set[str]:
+    match = re.search(
+        rf"{re.escape(upper_variable)}\s+MATCHES\s+\"\^\((?P<body>[^)]*)\)\$\"",
+        text,
+    )
+    if match is None:
+        fail(f"missing provider validation regex for {upper_variable}")
+    return set(match.group("body").split("|"))
+
+
 def cmake_function_body(text: str, signature: str) -> str:
     try:
         return text.split(signature, 1)[1].split("endfunction()", 1)[0]
@@ -1220,6 +1241,38 @@ def shell_case_mapping(text: str, function_name: str) -> dict[str, str]:
     if not mapping:
         fail(f"missing shell case mapping in {function_name}")
     return mapping
+
+
+def check_provider_option_enums() -> None:
+    options = read("cmake/ConfluxOptions.cmake")
+    dependencies = read("cmake/Dependencies.cmake")
+    resolution = read("cmake/ConfluxProviderResolution.cmake")
+    http_support = read("cmake/components/HttpSupportTargets.cmake")
+    checks = {
+        "CONFLUX_JSON_HASH_PROVIDER": ("CONFLUX_JSON_HASH_PROVIDER_UPPER", dependencies),
+        "CONFLUX_GZIP_PROVIDER": ("CONFLUX_GZIP_PROVIDER_UPPER", resolution),
+        "CONFLUX_BROTLI_PROVIDER": ("CONFLUX_BROTLI_PROVIDER_UPPER", resolution),
+        "CONFLUX_ZSTD_PROVIDER": ("CONFLUX_ZSTD_PROVIDER_UPPER", resolution),
+        "CONFLUX_TLS_PROVIDER": ("CONFLUX_TLS_PROVIDER_UPPER", resolution),
+        "CONFLUX_HTTP2_PROVIDER": ("CONFLUX_HTTP2_PROVIDER_UPPER", resolution),
+        "CONFLUX_HTTP3_PROVIDER": ("CONFLUX_HTTP3_PROVIDER_UPPER", resolution),
+        "CONFLUX_POSTGRES_PROVIDER": ("CONFLUX_POSTGRES_PROVIDER_UPPER", resolution),
+        "CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER": ("CONFLUX_ARGON2_PROVIDER_UPPER", http_support),
+        "CONFLUX_TEST_CATCH2_PROVIDER": ("CONFLUX_TEST_CATCH2_PROVIDER_UPPER", dependencies),
+    }
+    errors: list[str] = []
+    for variable, (upper_variable, source) in checks.items():
+        declared = cmake_cache_strings(options, variable)
+        validated = cmake_upper_validation_values(source, upper_variable)
+        if declared != validated:
+            errors.append(
+                f"{variable} cache STRINGS drift from validation regex: "
+                + ";".join(sorted(declared))
+                + " != "
+                + ";".join(sorted(validated)),
+            )
+    if errors:
+        fail("\n".join(errors))
 
 
 def check_script_default_benchmark_targets() -> None:
@@ -2953,6 +3006,7 @@ def main() -> int:
     check_script_default_presets()
     check_preset_build_dir_usage_contracts()
     check_cmake_extraction_contracts()
+    check_provider_option_enums()
     check_script_default_benchmark_targets()
     check_json_perf_benchmark_maps()
     check_provider_selection_order()
