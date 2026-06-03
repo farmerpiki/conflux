@@ -95,6 +95,44 @@ if(CONFLUX_PACKAGE_SMOKE_API_SURFACE)
 		"#endif\n")
 endif()
 
+function(conflux_package_smoke_surface_macros_for_component out component)
+    string(TOUPPER "${component}" _macro)
+    set(_macros "${_macro}")
+    if(component STREQUAL "http")
+        list(APPEND _macros HTTP_FACADE)
+    elseif(component STREQUAL "net_config")
+        list(APPEND _macros HTTP_CONFIG)
+    elseif(component STREQUAL "http_observability")
+        list(APPEND _macros HTTP_METRICS)
+    elseif(component STREQUAL "http_auth")
+        list(APPEND _macros TLS_JWT)
+    elseif(component STREQUAL "template")
+        list(APPEND _macros TEMPLATES)
+    elseif(component STREQUAL "template_watch")
+        list(APPEND _macros TEMPLATES_WATCH)
+    elseif(component STREQUAL "pg")
+        list(APPEND _macros DB DB_COMPAT)
+    elseif(component STREQUAL "db")
+        set(_macros DB DB_COMPAT)
+    endif()
+    list(REMOVE_DUPLICATES _macros)
+    set(${out} "${_macros}" PARENT_SCOPE)
+endfunction()
+
+set(_conflux_package_smoke_forbidden_surface_check "")
+set(_conflux_package_smoke_forbidden_surface_macros)
+foreach(_component IN LISTS CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS)
+    conflux_package_smoke_surface_macros_for_component(_macros "${_component}")
+    list(APPEND _conflux_package_smoke_forbidden_surface_macros ${_macros})
+endforeach()
+list(REMOVE_DUPLICATES _conflux_package_smoke_forbidden_surface_macros)
+foreach(_macro IN LISTS _conflux_package_smoke_forbidden_surface_macros)
+    string(APPEND _conflux_package_smoke_forbidden_surface_check
+        "#if CONFLUX_SURFACE_HAS_${_macro}\n"
+        "#error \"installed package exposes forbidden surface macro CONFLUX_SURFACE_HAS_${_macro}\"\n"
+        "#endif\n")
+endforeach()
+
 set(_conflux_package_smoke_linked_apis ${CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS})
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE" AND NOT TARGET conflux::header_impl)
 	set(_conflux_package_smoke_linked_apis OFF)
@@ -192,6 +230,7 @@ file(WRITE "${_conflux_smoke_summary}"
 	"enable_db=${CONFLUX_PACKAGE_SMOKE_ENABLE_DB}\n"
 	"forbidden_components=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS}\n"
 	"forbidden_external_deps=${CONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS}\n"
+	"forbidden_surface_macros=${_conflux_package_smoke_forbidden_surface_macros}\n"
 	"exercise_linked_apis=${_conflux_package_smoke_linked_apis}\n"
 	"mixed_module_header=${CONFLUX_PACKAGE_SMOKE_MIXED_MODULE_HEADER}\n"
     "public_module_imports=${CONFLUX_PACKAGE_SMOKE_PUBLIC_MODULE_IMPORTS}\n"
@@ -222,7 +261,8 @@ endfunction()
 
 set(_conflux_package_smoke_source "${CMAKE_CURRENT_BINARY_DIR}/package_smoke.cxx")
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE" AND CONFLUX_USE_IMPORT_STD)
-    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
+    file(WRITE "${_conflux_package_smoke_source}"
+        "${_conflux_package_smoke_api_surface_check}${_conflux_package_smoke_forbidden_surface_check}" [[
 import std;
 import conflux.types;
 
@@ -240,7 +280,8 @@ int main() {
 }
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
-    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
+    file(WRITE "${_conflux_package_smoke_source}"
+        "${_conflux_package_smoke_api_surface_check}${_conflux_package_smoke_forbidden_surface_check}" [[
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -262,7 +303,8 @@ int main() {
 }
 ]])
 elseif(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
-    file(WRITE "${_conflux_package_smoke_source}" "${_conflux_package_smoke_api_surface_check}" [[
+    file(WRITE "${_conflux_package_smoke_source}"
+        "${_conflux_package_smoke_api_surface_check}${_conflux_package_smoke_forbidden_surface_check}" [[
 #include <conflux/types.hpp>
 
 #include <cstddef>
