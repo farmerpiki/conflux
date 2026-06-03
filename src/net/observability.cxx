@@ -463,6 +463,15 @@ struct ObservabilityRegistry {
 		std::scoped_lock const lock{mutex};
 		std::string out;
 		out.reserve(4096);
+		append_request_counter_metrics(out);
+		append_duration_histogram_metrics(out);
+		append_rejection_metrics(out, opts.service_name);
+		append_optional_runtime_metrics(out, opts, sinks);
+		return out;
+	}
+
+	void append_request_counter_metrics(
+		std::string &out) const {
 		out += "# HELP http_requests_total Total HTTP requests processed\n";
 		out += "# TYPE http_requests_total counter\n";
 		for (auto const &[key, value]: requests) {
@@ -478,6 +487,10 @@ struct ObservabilityRegistry {
             },
 				value);
 		}
+	}
+
+	void append_duration_histogram_metrics(
+		std::string &out) const {
 		out += "# HELP http_request_duration_seconds HTTP request latency\n";
 		out += "# TYPE http_request_duration_seconds histogram\n";
 		for (auto const &[key, duration]: durations) {
@@ -523,6 +536,11 @@ struct ObservabilityRegistry {
             },
 				duration.count);
 		}
+	}
+
+	void append_rejection_metrics(
+		std::string &out,
+		std::string_view service_name) const {
 		out += "# HELP http_rejections_total HTTP rejected/problem responses\n";
 		out += "# TYPE http_rejections_total counter\n";
 		for (auto const &[key, value]: rejections) {
@@ -530,12 +548,18 @@ struct ObservabilityRegistry {
 				out,
 				"http_rejections_total",
 				{
-					{"service", opts.service_name},
-					{ "reason",         key.first},
-					{ "status",        key.second}
+					{"service", service_name},
+					{ "reason",    key.first},
+					{ "status",   key.second}
             },
 				value);
 		}
+	}
+
+	void append_optional_runtime_metrics(
+		std::string &out,
+		ObservabilityOptions const &opts,
+		ObservabilitySinks const &sinks) const {
 		if (opts.pressure_metrics) {
 			if (sinks.pressure_metrics) {
 				append_pressure_metrics(out, sinks.pressure_metrics());
@@ -552,7 +576,6 @@ struct ObservabilityRegistry {
 		if (opts.json_arena_metrics && sinks.json_arena_metrics) {
 			append_json_arena_metrics(out, sinks.json_arena_metrics());
 		}
-		return out;
 	}
 
 	mutable std::mutex mutex;
