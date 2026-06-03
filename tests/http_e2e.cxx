@@ -40,7 +40,6 @@ import conflux.net.openapi;
 import conflux.net.rate_limit;
 import conflux.net.redirect;
 import conflux.net.request_id;
-import conflux.net.response_cache;
 import conflux.net.router;
 import conflux.net.security;
 import conflux.net.tracing;
@@ -725,86 +724,6 @@ void check_json_string_at(
 	auto value = node.as_string();
 	REQUIRE(value.has_value());
 	CHECK(*value == expected);
-}
-// conflux::http::response_cache_middleware test server
-// ---------------------------------------------------------------------------
-
-std::atomic<int> g_resp_cache_count{0};
-std::uint16_t g_resp_cache_port = 0;
-void ensure_resp_cache_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(
-			conflux::http::response_cache_middleware({
-				.max_entries = 16,
-				.default_ttl = std::chrono::seconds{60},
-			}));
-		router.get("/counted", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			return conflux::http::Response::text(std::format("visit {}", n));
-		});
-		router.post("/counted", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			return conflux::http::Response::text(std::format("post {}", n));
-		});
-		router.get("/no-store", [](conflux::http::OwnedRequest const &) {
-			auto r = conflux::http::Response::text("uncacheable");
-			r.headers["Cache-Control"] = "no-store";
-			return r;
-		});
-		router.get("/vary", [](conflux::http::OwnedRequest const &req) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("{} enc={}", n, req.headers["accept-encoding"]));
-			r.headers["Vary"] = "Accept-Encoding";
-			return r;
-		});
-		router.get("/vary-star", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("star {}", n));
-			r.headers["Vary"] = "*";
-			return r;
-		});
-		router.get("/private", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("priv {}", n));
-			r.headers["Cache-Control"] = "private";
-			return r;
-		});
-		router.get("/max-age-zero", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("zero {}", n));
-			r.headers["Cache-Control"] = "max-age=0";
-			return r;
-		});
-		router.get("/no-cache", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("nocache {}", n));
-			r.headers["Cache-Control"] = "no-cache";
-			return r;
-		});
-		router.get("/cache-control-substrings", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("substrings {}", n));
-			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
-			return r;
-		});
-		router.get("/set-cookie-resp", [](conflux::http::OwnedRequest const &) {
-			int n = ++g_resp_cache_count;
-			auto r = conflux::http::Response::text(std::format("cookie {}", n));
-			r.set_cookie("sid", "abc");
-			return r;
-		});
-		router.get("/not-found-resp", [](conflux::http::OwnedRequest const &) {
-			++g_resp_cache_count;
-			return conflux::http::Response::not_found("/not-found-resp");
-		});
-		router.get("/query", [](conflux::http::OwnedRequest const &req) {
-			int n = ++g_resp_cache_count;
-			return conflux::http::Response::text(std::format("{} value={}", n, req.query["value"]));
-		});
-		g_resp_cache_port = start_mw_server(mw_config(), std::move(router));
-	});
 }
 // tracing_middleware test server
 // ---------------------------------------------------------------------------
