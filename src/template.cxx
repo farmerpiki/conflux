@@ -409,6 +409,46 @@ struct Environment::Impl {
 	static std::string value_to_string(TmplValue const &v);
 	static bool is_truthy(TmplValue const &v);
 	static constexpr int kMaxTemplateDepth = 256;
+	std::string render_expr_node(
+		ExprNode const &node,
+		TmplValue &context,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		std::unordered_map<std::string, MacroBinding> *macros,
+		int depth) const;
+	std::string render_block_node(
+		BlockNode const &node,
+		TmplValue context,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		std::unordered_map<std::string, MacroBinding> *macros,
+		int depth) const;
+	std::string render_include_node(
+		IncludeNode const &node,
+		TmplValue context,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		int depth) const;
+	void render_set_node(SetNode const &node, TmplValue &context) const;
+	std::string render_for_node(
+		ForNode const &node,
+		TmplValue &context,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		std::unordered_map<std::string, MacroBinding> *macros,
+		int depth) const;
+	std::string render_if_node(
+		IfNode const &node,
+		TmplValue context,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		std::unordered_map<std::string, MacroBinding> *macros,
+		int depth) const;
+	static void register_macro_node(MacroNode const &node, std::unordered_map<std::string, MacroBinding> &macros);
+	static void import_macro_node(
+		FromImportNode const &node,
+		std::unordered_map<std::string, Template> const &active_cache,
+		std::unordered_map<std::string, MacroBinding> &macros);
 	std::string render_nodes(
 		NodeList const &nodes,
 		TmplValue context,
