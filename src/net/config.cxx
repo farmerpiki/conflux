@@ -820,6 +820,22 @@ ParseResult parse_ini_contents(
 	return ParseResult{.cfg = std::move(cfg), .issues = std::move(issues)};
 }
 
+[[nodiscard]] bool contains_sensitive_config_token(
+	std::string_view text) {
+	std::string lower;
+	lower.reserve(text.size());
+	for (char const ch: text) {
+		lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+	}
+	constexpr std::array<std::string_view, 7> tokens{"secret", "token", "key", "password", "jwt", "cookie", "session"};
+	return std::ranges::any_of(tokens, [&](std::string_view token) { return lower.find(token) != std::string::npos; });
+}
+
+[[nodiscard]] bool should_redact_config_issue_value(
+	ConfigIssue const &issue) {
+	return contains_sensitive_config_token(issue.section) || contains_sensitive_config_token(issue.key);
+}
+
 }} // namespace conflux::http
 
 export namespace conflux::http {
@@ -849,7 +865,7 @@ export namespace conflux::http {
 		issue.section,
 		issue.key);
 	if (!issue.value.empty()) {
-		out += std::format(" value={}", issue.value);
+		out += std::format(" value={}", should_redact_config_issue_value(issue) ? "<redacted>" : issue.value);
 	}
 	if (!issue.message.empty()) {
 		out += std::format(" message={}", issue.message);
@@ -1066,6 +1082,10 @@ std::string Config::to_json_redacted() const {
 		auto parsed = parse_ini_contents(*contents, path, false);
 		if (!parsed.issues.empty()) {
 			return std::unexpected{config_issue_summary(parsed.issues.front())};
+		}
+		auto validation = validate_config(parsed.cfg, path);
+		if (!validation.empty()) {
+			return std::unexpected{config_issue_summary(validation.front())};
 		}
 		return std::move(parsed.cfg);
 	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {

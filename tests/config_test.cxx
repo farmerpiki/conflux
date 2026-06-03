@@ -131,6 +131,37 @@ port = 9091
 }
 
 TEST_CASE(
+	"net.config: checked ini loader rejects semantic config issues",
+	"[net.config]") {
+	TempIni ini{R"ini(
+[server]
+http_redirect_to_https = true
+)ini"};
+
+	auto checked = config_from_ini_checked(ini.c_str());
+	REQUIRE_FALSE(checked.has_value());
+	CHECK(checked.error().find("config.incompatible_options") != std::string::npos);
+	CHECK(checked.error().find("http_redirect_to_https") != std::string::npos);
+}
+
+TEST_CASE(
+	"net.config: diagnostic summaries redact secret-like values",
+	"[net.config]") {
+	ConfigIssue issue{
+		.code = ConfigIssueCode::unknown_key,
+		.file = "app.ini",
+		.line = 7,
+		.section = "auth",
+		.key = "jwt_secert",
+		.value = "actual-secret-token",
+		.message = "unknown config key"};
+
+	auto summary = config_issue_summary(issue);
+	CHECK(summary.find("value=<redacted>") != std::string::npos);
+	CHECK(summary.find("actual-secret-token") == std::string::npos);
+}
+
+TEST_CASE(
 	"net.config: redacted summaries hide configured secrets",
 	"[net.config]") {
 	Config cfg = Config::development();
