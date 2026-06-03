@@ -1328,6 +1328,10 @@ def check_provider_option_enums() -> None:
                 + ";".join(sorted(expected)),
             )
     default_map = provider_default_map(presets)
+    assigned_defaults = set(re.findall(r"\bset\((_d_PROVIDER_[A-Z0-9_]+)\s+[A-Z0-9_]+\)", presets))
+    unused_defaults = sorted(assigned_defaults - set(default_map))
+    if unused_defaults:
+        errors.append("preset provider defaults assigned but not resolved: " + ";".join(unused_defaults))
     for default_var, requested in default_map.items():
         allowed = cmake_cache_strings(options, requested)
         values = set(re.findall(rf"\bset\({re.escape(default_var)}\s+([A-Z0-9_]+)\)", presets))
