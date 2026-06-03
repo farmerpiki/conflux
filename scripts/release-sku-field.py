@@ -19,6 +19,8 @@ def main(argv: list[str]) -> int:
     field = argv[3]
     manifest_path = root / "docs" / "release-skus.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        fail("release SKU manifest must be a JSON object")
     sku = manifest.get(sku_name)
     if not isinstance(sku, dict):
         fail(f"unknown release SKU: {sku_name}")

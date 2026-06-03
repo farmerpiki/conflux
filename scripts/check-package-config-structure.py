@@ -2793,9 +2793,13 @@ def check_release_artifact_staging_contract() -> None:
     }
     generic_guard_required = {
         "expected_feature_set = sku_entry.get(\"feature_set\")": "release artifact guard must validate selected feature set through the SKU manifest",
+        "staged release SKU manifest has invalid feature_set": "release artifact guard must validate staged SKU feature-set shape",
         "release artifact must record {sku} package components": "release artifact guard must validate selected package components through the SKU manifest",
         "release artifact must record {sku} selected examples": "release artifact guard must validate selected examples generically",
         "release artifact must record {sku} selected docs": "release artifact guard must validate selected docs generically",
+        "selected_names(expected_docs, \"docs/\"": "release artifact guard must keep staged selected docs under docs",
+        "selected_names(expected_examples, \"examples/\"": "release artifact guard must keep staged selected examples under examples",
+        "duplicate selected {field} basename": "release artifact guard must reject staged selected doc/example basename collisions",
     }
     generic_guard_forbidden = {
         "release artifact guard currently supports release-json": "release artifact guard must not be hard-coded to one SKU",
@@ -2860,6 +2864,7 @@ def check_release_sku_guard_contract() -> None:
         "release notes must mention {sku_name} component": "release notes guard must require SKU components",
     }
     release_sku_field_required = {
+        "release SKU manifest must be a JSON object": "release SKU field helper must validate the SKU manifest shape",
         'item.startswith("docs/")': "release SKU field helper must keep selected docs under docs",
         'item.startswith("examples/")': "release SKU field helper must keep selected examples under examples",
         "(root / item).is_file()": "release SKU field helper must require selected docs/examples to exist",

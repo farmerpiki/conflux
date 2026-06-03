@@ -29,6 +29,20 @@ def release_sku(manifest: dict[str, str]) -> str:
     return sku
 
 
+def selected_names(paths: list[str], root: str, field: str, sku: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for source_path in paths:
+        if not source_path.startswith(root):
+            fail(f"staged release SKU manifest has {field} outside {root} for {sku}: {source_path}")
+        name = Path(source_path).name
+        if name in seen:
+            fail(f"staged release SKU manifest has duplicate selected {field} basename for {sku}: {name}")
+        seen.add(name)
+        names.append(name)
+    return names
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         fail("usage: check-release-artifact.py <stage-dir>")
@@ -75,6 +89,8 @@ def main(argv: list[str]) -> int:
     if not isinstance(sku_entry, dict):
         fail(f"staged release SKU manifest does not define {sku}")
     expected_feature_set = sku_entry.get("feature_set")
+    if not isinstance(expected_feature_set, str) or not expected_feature_set:
+        fail(f"staged release SKU manifest has invalid feature_set for {sku}")
     if release_manifest.get("feature_set") != expected_feature_set:
         fail(f"release artifact must be staged with feature_set={expected_feature_set}")
     expected_components = sku_entry.get("components")
@@ -94,12 +110,12 @@ def main(argv: list[str]) -> int:
     expected_examples = sku_entry.get("examples")
     if not isinstance(expected_examples, list) or not all(isinstance(item, str) and item for item in expected_examples):
         fail(f"staged release SKU manifest has invalid examples for {sku}")
-    for source_path in expected_docs:
-        selected = stage / "source" / "docs" / sku / Path(source_path).name
+    for name in selected_names(expected_docs, "docs/", "docs", sku):
+        selected = stage / "source" / "docs" / sku / name
         if not selected.is_file():
             fail(f"missing selected release doc {selected.relative_to(stage)}")
-    for source_path in expected_examples:
-        selected = stage / "source" / "examples" / sku / Path(source_path).name
+    for name in selected_names(expected_examples, "examples/", "examples", sku):
+        selected = stage / "source" / "examples" / sku / name
         if not selected.is_file():
             fail(f"missing selected release example {selected.relative_to(stage)}")
 
