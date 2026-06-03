@@ -54,9 +54,12 @@ require_structure_guard_markers() {
 [[ -f tests/BuildAndDocsChecks.cmake ]] || fail "missing build/docs CTest registration fragment"
 [[ -f scripts/stage-release-artifacts.sh ]] || fail "missing release artifact staging script"
 [[ -f scripts/check-release-artifact.py ]] || fail "missing release artifact guard"
+[[ -f scripts/check-release-skus.py ]] || fail "missing release SKU manifest guard"
 
 python3 scripts/check-package-config-structure.py . \
     || fail "package-config structure guard failed"
+python3 scripts/check-release-skus.py \
+    || fail "release SKU manifest guard failed"
 require_structure_guard_markers <<'EOF'
 check_metrics_status_is_graph_gated|package-config structure guard must keep metrics status scoped to active HTTP graphs
 check_duplicate_ctest_names|package-config structure guard must reject duplicate CTest names
@@ -149,6 +152,8 @@ Path("cmake/package-smoke/CMakeLists.txt")|package-config structure guard must s
 requests non-public package smoke components|package-config structure guard must reject non-public install-smoke preset components
 check_release_artifact_staging_contract|package-config structure guard must verify release artifact staging
 release artifact guard must validate bridge python metadata|package-config structure guard must keep release artifact bridge metadata validation
+check_release_sku_guard_contract|package-config structure guard must verify release SKU manifest guard wiring
+release SKU guard must require every release SKU to map to a known feature-set|package-config structure guard must keep release SKU feature-set validation
 EOF
 
 printf 'check-package-config: ok\n'

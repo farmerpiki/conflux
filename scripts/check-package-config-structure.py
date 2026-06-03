@@ -2695,6 +2695,31 @@ def check_release_artifact_staging_contract() -> None:
         fail("\n".join(missing))
 
 
+def check_release_sku_guard_contract() -> None:
+    package_check = read("scripts/check-package-config.sh")
+    guard = read("scripts/check-release-skus.py")
+    required = {
+        "[[ -f scripts/check-release-skus.py ]]": "package config check must require the release SKU guard",
+        "python3 scripts/check-release-skus.py": "package config check must run the release SKU guard",
+    }
+    guard_required = {
+        '"release-skus.json"': "release SKU guard must validate the SKU manifest",
+        '"ConfluxPresets.cmake"': "release SKU guard must validate feature-set names against presets",
+        '"ConfluxComponentRegistry.cmake"': "release SKU guard must validate components against the registry",
+        "required_skus": "release SKU guard must require the expected release SKUs",
+        "feature_set != sku_name": "release SKU guard must require every release SKU to map to a known feature-set",
+        "kind == \"REQUESTABLE\"": "release SKU guard must restrict selected components to requestable exports",
+        "duplicate": "release SKU guard must reject duplicate docs/examples",
+        "path.is_file()": "release SKU guard must require selected docs/examples to exist",
+        "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",
+        "item.startswith(\"examples/\")": "release SKU guard must keep selected examples under examples",
+    }
+    missing = [message for marker, message in required.items() if marker not in package_check]
+    missing.extend(message for marker, message in guard_required.items() if marker not in guard)
+    if missing:
+        fail("\n".join(missing))
+
+
 def main() -> int:
     if len(sys.argv) > 2:
         print("usage: check-package-config-structure.py [repo-root]", file=sys.stderr)
@@ -2753,6 +2778,7 @@ def main() -> int:
     check_installed_surface_aliases()
     check_metrics_status_is_graph_gated()
     check_release_artifact_staging_contract()
+    check_release_sku_guard_contract()
     return 0
 
 
