@@ -4265,6 +4265,64 @@ template<class T>
 	return FpStatus::ok;
 }
 
+[[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_bool(
+	bool &out,
+	FpCursor &c) noexcept {
+	if (*c.p == 't') {
+		if (c.remaining() < 4 || std::memcmp(c.p, "true", 4) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 4;
+		out = true;
+		return FpStatus::ok;
+	}
+	if (*c.p == 'f') {
+		if (c.remaining() < 5 || std::memcmp(c.p, "false", 5) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 5;
+		out = false;
+		return FpStatus::ok;
+	}
+	return FpStatus::bail;
+}
+
+template<class T>
+	requires is_basic_string_of_char_v<T>
+[[nodiscard]] inline FpStatus fp_decode_string(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	if (*c.p != '"') {
+		return FpStatus::bail;
+	}
+	++c.p;
+	return fp_parse_string_owned(c, out, lim.max_string);
+}
+
+template<class T>
+	requires is_optional<T>::value
+[[nodiscard]] inline FpStatus fp_decode_optional(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	using Inner = typename T::value_type;
+	if (*c.p == 'n') {
+		if (c.remaining() < 4 || std::memcmp(c.p, "null", 4) != 0) {
+			return FpStatus::bail;
+		}
+		c.p += 4;
+		out.reset();
+		return FpStatus::ok;
+	}
+	out.emplace();
+	if (FpStatus const st = fp_decode_value<Inner>(*out, c, lim); st != FpStatus::ok) {
+		out.reset();
+		return st;
+	}
+	return FpStatus::ok;
+}
+
 template<class T>
 [[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_value(
 	T &out,
@@ -4275,49 +4333,15 @@ template<class T>
 		return FpStatus::bail;
 	}
 	if constexpr (std::same_as<T, bool>) {
-		if (*c.p == 't') {
-			if (c.remaining() < 4 || std::memcmp(c.p, "true", 4) != 0) {
-				return FpStatus::bail;
-			}
-			c.p += 4;
-			out = true;
-			return FpStatus::ok;
-		}
-		if (*c.p == 'f') {
-			if (c.remaining() < 5 || std::memcmp(c.p, "false", 5) != 0) {
-				return FpStatus::bail;
-			}
-			c.p += 5;
-			out = false;
-			return FpStatus::ok;
-		}
-		return FpStatus::bail;
+		return fp_decode_bool(out, c);
 	} else if constexpr (std::integral<T> && !std::same_as<T, bool>) {
 		return fp_parse_integer<T>(c, out);
 	} else if constexpr (std::floating_point<T>) {
 		return fp_parse_floating<T>(c, out);
 	} else if constexpr (is_basic_string_of_char_v<T>) {
-		if (*c.p != '"') {
-			return FpStatus::bail;
-		}
-		++c.p;
-		return fp_parse_string_owned(c, out, lim.max_string);
+		return fp_decode_string(out, c, lim);
 	} else if constexpr (is_optional<T>::value) {
-		using Inner = typename T::value_type;
-		if (*c.p == 'n') {
-			if (c.remaining() < 4 || std::memcmp(c.p, "null", 4) != 0) {
-				return FpStatus::bail;
-			}
-			c.p += 4;
-			out.reset();
-			return FpStatus::ok;
-		}
-		out.emplace();
-		if (FpStatus const st = fp_decode_value<Inner>(*out, c, lim); st != FpStatus::ok) {
-			out.reset();
-			return st;
-		}
-		return FpStatus::ok;
+		return fp_decode_optional(out, c, lim);
 	} else if constexpr (is_vector_of_v<T>) {
 		return fp_decode_vector<T>(out, c, lim);
 	} else if constexpr (is_fixed_numeric_array_v<T>) {
