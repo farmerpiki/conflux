@@ -156,6 +156,10 @@ def package_smoke_runner_default_policy_names(text: str) -> set[str]:
     return set(re.findall(r"^\s+([A-Za-z0-9_]+)\)\s*$", match.group("body"), re.MULTILINE))
 
 
+def install_tree_forwarded_package_smoke_flags(text: str) -> set[str]:
+    return set(re.findall(r"package_smoke_args\+=\((--[A-Za-z0-9-]+)", text))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1832,6 +1836,23 @@ def check_install_tree_smoke_runner_contract() -> None:
         "--forbid-external-deps": "install-tree smoke runner must forward forbidden external dependency assertions",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in text)
+    forwarded_flags = install_tree_forwarded_package_smoke_flags(text)
+    expected_forwarded_flags = {
+        "--api-surface",
+        "--enable-db",
+        "--enable-import-std",
+        "--forbid-components",
+        "--forbid-external-deps",
+        "--mixed-module-header",
+        "--public-module-imports",
+    }
+    append_set_delta_errors(
+        missing,
+        expected_forwarded_flags,
+        forwarded_flags,
+        "install-tree smoke runner missing package-smoke flag forwarding: ",
+        "install-tree smoke runner forwards unknown package-smoke flags: ",
+    )
     rejected_patterns = shell_rejected_support_component_patterns(text)
     expected_patterns = {"_*", "headers", "header_impl", "header_impl_*"}
     missing_patterns = sorted(expected_patterns - rejected_patterns)
