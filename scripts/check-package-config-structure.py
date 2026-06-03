@@ -40,6 +40,28 @@ def cmake_upper_validation_values(text: str, upper_variable: str) -> set[str]:
     return set(match.group("body").split("|"))
 
 
+def provider_resolution_map(text: str) -> dict[str, str]:
+    return {
+        public: effective
+        for effective, public in re.findall(
+            r"\bconflux_resolve_provider\(\s*(CONFLUX_EFFECTIVE_[A-Z0-9_]+_PROVIDER)\s+"
+            r"(CONFLUX_[A-Z0-9_]+_PROVIDER)\s+",
+            text,
+        )
+    }
+
+
+def provider_selection_map(text: str) -> dict[str, str]:
+    return {
+        public: effective
+        for public, effective in re.findall(
+            r"^set\((CONFLUX_[A-Z0-9_]+_PROVIDER)\s+\"\$\{(CONFLUX_EFFECTIVE_[A-Z0-9_]+_PROVIDER)\}\"\)",
+            text,
+            re.MULTILINE,
+        )
+    }
+
+
 def cmake_function_body(text: str, signature: str) -> str:
     try:
         return text.split(signature, 1)[1].split("endfunction()", 1)[0]
@@ -1292,6 +1314,34 @@ def check_provider_option_enums() -> None:
                 + ";".join(sorted(resolved_values))
                 + " != "
                 + ";".join(sorted(expected)),
+            )
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_provider_selection_bridge() -> None:
+    presets = read("cmake/ConfluxPresets.cmake")
+    selection = read("cmake/ConfluxProviderSelection.cmake")
+    resolved = provider_resolution_map(presets)
+    bridged = provider_selection_map(selection)
+    errors: list[str] = []
+    if not resolved:
+        errors.append("provider presets must resolve provider flags through conflux_resolve_provider")
+    if resolved != bridged:
+        missing = sorted(set(resolved) - set(bridged))
+        unexpected = sorted(set(bridged) - set(resolved))
+        mismatched = sorted(
+            public
+            for public in set(resolved) & set(bridged)
+            if resolved[public] != bridged[public]
+        )
+        if missing:
+            errors.append("provider selection bridge missing providers: " + ";".join(missing))
+        if unexpected:
+            errors.append("provider selection bridge contains unexpected providers: " + ";".join(unexpected))
+        for public in mismatched:
+            errors.append(
+                f"provider selection bridge maps {public} to {bridged[public]}, expected {resolved[public]}"
             )
     if errors:
         fail("\n".join(errors))
@@ -3029,6 +3079,7 @@ def main() -> int:
     check_preset_build_dir_usage_contracts()
     check_cmake_extraction_contracts()
     check_provider_option_enums()
+    check_provider_selection_bridge()
     check_script_default_benchmark_targets()
     check_json_perf_benchmark_maps()
     check_provider_selection_order()
