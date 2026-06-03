@@ -1031,6 +1031,21 @@ std::optional<TmplValue> lookup_template_index(
 	}
 	return std::nullopt;
 }
+std::optional<TmplValue> lookup_template_field(
+	TmplValue const &value,
+	std::string_view name) {
+	if (value.is_object()) {
+		auto const *found = obj_find(value, name);
+		if (found) {
+			return *found;
+		}
+		return std::nullopt;
+	}
+	if (value.is_string() && name == "value") {
+		return value;
+	}
+	return std::nullopt;
+}
 TmplValue Environment::Impl::eval_path(
 	std::vector<CompiledPathSegment> const &path,
 	TmplValue const &context) const {
@@ -1045,13 +1060,9 @@ TmplValue Environment::Impl::eval_path(
 	for (auto const &seg: path) {
 		switch (seg.kind) {
 		case CompiledPathSegmentKind::field:
-			if (cur->is_object()) {
-				auto const *found = obj_find(*cur, seg.name);
-				if (!found) {
-					return {};
-				}
-				set_owned(*found);
-			} else if (!(cur->is_string() && seg.name == "value")) {
+			if (auto found = lookup_template_field(*cur, seg.name)) {
+				set_owned(std::move(*found));
+			} else {
 				return {};
 			}
 			break;
@@ -1423,18 +1434,11 @@ TmplValue Environment::Impl::eval_legacy_base(
 			bool const is_method_call = !remaining.empty() && remaining[0] == '(';
 
 			if (!key.empty() && !is_method_call) {
-				if (cur->is_object()) {
-					auto const *found = obj_find(*cur, key);
-					if (found) {
-						set_owned(*found);
-					} else {
-						return {};
-					}
-				} else if (cur->is_string() && key == "value") {
-					// no-op
-				} else {
+				auto found = lookup_template_field(*cur, key);
+				if (!found) {
 					return {};
 				}
+				set_owned(std::move(*found));
 			}
 
 			if (is_method_call) {
