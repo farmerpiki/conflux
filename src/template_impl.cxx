@@ -936,6 +936,55 @@ TmplValue Environment::Impl::apply_method(
 	}
 	return val;
 }
+TmplValue Environment::Impl::apply_fallback_path_method(
+	std::string const &name,
+	TmplValue const &val,
+	std::vector<std::string> const &args,
+	TmplValue const &context) const {
+	auto eval_arg = [&](std::size_t idx) -> TmplValue {
+		return idx < args.size() ? eval_expr(args[idx], context) : TmplValue{};
+	};
+	if (name == "get" && val.is_object()) {
+		return apply_template_get_method(val, args.size(), eval_arg);
+	}
+	if (name == "replace" && args.size() >= 2) {
+		return apply_template_replace_method(val, eval_arg);
+	}
+	if (name == "title") {
+		return apply_template_title_method(val);
+	}
+	if (name == "upper") {
+		return apply_template_upper_method(val);
+	}
+	if (name == "lower") {
+		return apply_template_lower_method(val);
+	}
+	if (name == "capitalize") {
+		return TmplValue{str_capitalize(value_to_string(val))};
+	}
+	if (name == "strftime") {
+		return TmplValue{value_to_string(val)};
+	}
+	if (name == "strip") {
+		return TmplValue{trim(value_to_string(val))};
+	}
+	if (name == "startswith" && !args.empty()) {
+		return apply_template_startswith_method(val, eval_arg);
+	}
+	if (name == "split") {
+		return apply_template_split_method(val, args.size(), eval_arg);
+	}
+	if (name == "keys" && val.is_object()) {
+		return tmpl_object_keys(val.as_object());
+	}
+	if (name == "values" && val.is_object()) {
+		return tmpl_object_values(val.as_object());
+	}
+	if (name == "items" && val.is_object()) {
+		return tmpl_object_items(val.as_object());
+	}
+	return val;
+}
 TmplValue Environment::Impl::eval_path(
 	std::vector<CompiledPathSegment> const &path,
 	TmplValue const &context) const {
@@ -1468,84 +1517,7 @@ TmplValue Environment::Impl::eval_legacy_base(
 					remaining = remaining.substr(1);
 				}
 
-				if (key == "get" && cur->is_object()) {
-					if (method_args.empty()) {
-						return {};
-					}
-					auto k = eval_expr(method_args[0], context);
-					auto const *found = obj_find(*cur, value_to_string(k));
-					if (found) {
-						set_owned(*found);
-					} else if (method_args.size() > 1) {
-						set_owned(eval_expr(method_args[1], context));
-					} else {
-						set_owned(TmplValue{});
-					}
-				} else if (key == "replace" && method_args.size() >= 2) {
-					auto s = value_to_string(*cur);
-					auto old_s = value_to_string(eval_expr(method_args[0], context));
-					auto new_s = value_to_string(eval_expr(method_args[1], context));
-					set_owned(TmplValue{str_replace_all(s, old_s, new_s)});
-				} else if (key == "title") {
-					auto s = value_to_string(*cur);
-					bool up = true;
-					for (auto &c: s) {
-						if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
-							up = true;
-							continue;
-						}
-						if (up) {
-							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-							up = false;
-						} else {
-							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-						}
-					}
-					set_owned(TmplValue{std::move(s)});
-				} else if (key == "upper") {
-					auto s = value_to_string(*cur);
-					for (auto &c: s) {
-						c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-					}
-					set_owned(TmplValue{std::move(s)});
-				} else if (key == "lower") {
-					auto s = value_to_string(*cur);
-					for (auto &c: s) {
-						c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-					}
-					set_owned(TmplValue{std::move(s)});
-				} else if (key == "capitalize") {
-					set_owned(TmplValue{str_capitalize(value_to_string(*cur))});
-				} else if (key == "strftime") {
-					set_owned(TmplValue{value_to_string(*cur)});
-				} else if (key == "strip") {
-					set_owned(TmplValue{trim(value_to_string(*cur))});
-				} else if (key == "startswith" && !method_args.empty()) {
-					auto s = value_to_string(*cur);
-					auto p = value_to_string(eval_expr(method_args[0], context));
-					set_owned(TmplValue{s.compare(0, p.size(), p) == 0});
-				} else if (key == "split") {
-					auto s = value_to_string(*cur);
-					auto sep = !method_args.empty() ? value_to_string(eval_expr(method_args[0], context)) : " ";
-					TmplValue arr{TmplValue::Array{}};
-					std::size_t p = 0;
-					while (p <= s.size()) {
-						auto f = sep.empty() ? std::string::npos : s.find(sep, p);
-						if (f == std::string::npos) {
-							arr.push_back(TmplValue{s.substr(p)});
-							break;
-						}
-						arr.push_back(TmplValue{s.substr(p, f - p)});
-						p = f + sep.size();
-					}
-					set_owned(std::move(arr));
-				} else if (key == "keys" && cur->is_object()) {
-					set_owned(tmpl_object_keys(cur->as_object()));
-				} else if (key == "values" && cur->is_object()) {
-					set_owned(tmpl_object_values(cur->as_object()));
-				} else if (key == "items" && cur->is_object()) {
-					set_owned(tmpl_object_items(cur->as_object()));
-				}
+				set_owned(apply_fallback_path_method(key, *cur, method_args, context));
 				continue;
 			}
 

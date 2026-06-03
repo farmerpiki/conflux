@@ -383,6 +383,11 @@ struct Environment::Impl {
 		TmplValue const &val,
 		std::vector<CompiledExprPtr> const &args,
 		TmplValue const &context) const;
+	TmplValue apply_fallback_path_method(
+		std::string const &name,
+		TmplValue const &val,
+		std::vector<std::string> const &args,
+		TmplValue const &context) const;
 	TmplValue apply_filter(CompiledFilter const &filter, TmplValue const &val, TmplValue const &context) const;
 	static std::string value_to_string(TmplValue const &v);
 	static bool is_truthy(TmplValue const &v);
