@@ -416,6 +416,25 @@ def check_header_impl_lists_have_no_duplicates() -> None:
     defined_impls.add("conflux_header_impl")
     if not defined_impls - {"conflux_header_impl"}:
         fail("component registry must declare header implementation components")
+    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    selected_impls = set(
+        re.findall(
+            r"\bconflux_define_header_impl_component_by_target\((conflux_header_impl_[A-Za-z0-9_]+)\)",
+            interface_mode,
+        ),
+    )
+    unused_declared_impls = sorted((defined_impls - {"conflux_header_impl"}) - selected_impls)
+    if unused_declared_impls:
+        fail(
+            "component registry declares header implementation targets never selected by header mode: "
+            + ";".join(unused_declared_impls),
+        )
+    unknown_selected_impls = sorted(selected_impls - defined_impls)
+    if unknown_selected_impls:
+        fail(
+            "header mode selects header implementation targets missing from the component registry: "
+            + ";".join(unknown_selected_impls),
+        )
     call_pattern = re.compile(
         r"\b(conflux_header_public_component(?:_by_export)?|conflux_add_header_example_from_id)\((.*?)\)",
         re.DOTALL,
@@ -431,7 +450,10 @@ def check_header_impl_lists_have_no_duplicates() -> None:
     }
     failures: list[str] = []
     for path in files:
-        text = path.read_text(encoding="utf-8")
+        if path == Path("cmake/ConfluxInterfaceMode.cmake"):
+            text = interface_mode
+        else:
+            text = path.read_text(encoding="utf-8")
         for match in call_pattern.finditer(text):
             tokens = match.group(2).split()
             impls: list[str] = []
@@ -2016,6 +2038,37 @@ def check_component_registry_contract() -> None:
             errors.append("header implementation declarations contain duplicate targets: " + ";".join(duplicate_impl_targets))
         if duplicate_impl_exports:
             errors.append("header implementation declarations contain duplicate exports: " + ";".join(duplicate_impl_exports))
+    generated_support_match = re.search(
+        r"set\(CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if generated_support_match is None:
+        errors.append("missing CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS")
+    else:
+        generated_support = re.findall(r'"([^"|]+)\|([^"|]+)"', generated_support_match.group("body"))
+        duplicate_generated_support_exports = sorted(
+            name
+            for name, count in Counter(export for _target, export in generated_support).items()
+            if count > 1
+        )
+        if duplicate_generated_support_exports:
+            errors.append(
+                "generated header support declarations contain duplicate exports: "
+                + ";".join(duplicate_generated_support_exports),
+            )
+        hard_coded_impl_support = sorted(
+            export
+            for _target, export in generated_support
+            if export.startswith("header_impl_")
+        )
+        if hard_coded_impl_support:
+            errors.append(
+                "generated header support declarations must derive header implementations from CONFLUX_HEADER_IMPL_DECLARATIONS: "
+                + ";".join(hard_coded_impl_support),
+            )
+    if "foreach(_entry IN LISTS CONFLUX_HEADER_IMPL_DECLARATIONS)" not in registry:
+        errors.append("generated header support declarations must be derived from header implementation declarations")
     if errors:
         fail("\n".join(errors))
 
