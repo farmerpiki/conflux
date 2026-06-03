@@ -237,6 +237,84 @@ template<ParseMode Mode, class M>
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch);
 
+template<ParseMode Mode>
+[[nodiscard]] std::expected<JsonReader::Event, JsonError> read_reflect_object_value_event(
+	JsonReader &reader) {
+	auto value = reader.next_impl<Mode>();
+	if (!value) {
+		return std::unexpected(std::move(value).error());
+	}
+	if (!*value) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::unexpected_eof,
+				.message = "EOF in object value"});
+	}
+	return **value;
+}
+
+template<ParseMode Mode>
+[[nodiscard]] std::expected<void, JsonError> handle_unknown_reflect_reader_member(
+	JsonReader &reader,
+	JsonDecodeOptions const &opts,
+	std::string_view key) {
+	if (opts.unknown_members == UnknownMemberPolicy::reject) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::invalid_value,
+				.member_name = std::string{key},
+				.message = std::format("unknown member: {}", key)});
+	}
+
+	auto value = read_reflect_object_value_event<Mode>(reader);
+	if (!value) {
+		return std::unexpected(std::move(value).error());
+	}
+	return skip_reader_event<Mode>(reader, *value);
+}
+
+template<class T, std::size_t N>
+[[nodiscard]] std::expected<void, JsonError> validate_reflect_reader_required_members(
+	T &result,
+	std::array<bool, N> const &found) {
+	bool ok = true;
+	JsonError first_err;
+	[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+		(
+			[&]<std::size_t I>() {
+				if (!ok) {
+					return;
+				}
+				constexpr auto mem = reflect_member_at<T, I>();
+				if constexpr (reflect_has_skip<mem>()) {
+					return;
+				}
+				using M = std::remove_cvref_t<decltype(result.[:mem:])>;
+				if (!found[I]) {
+					if constexpr (is_opt_refl<M>::value) {
+						result.[:mem:].reset();
+					} else {
+						constexpr auto field_name = reflect_field_name_view<mem>;
+						ok = false;
+						first_err = JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::missing_member,
+							.member_name = std::string{field_name},
+							.message = std::format("missing member: {}", field_name)};
+					}
+				}
+			}.template operator ()<Is>(),
+			...);
+	}(std::make_index_sequence<N>{});
+
+	if (!ok) {
+		return std::unexpected(std::move(first_err));
+	}
+	return {};
+}
+
 // Wide-object measurements for the manual JsonMembers path showed generated
 // lookup wins from 16 fields upward while the tiny linear path stays best for
 // small aggregates. Keep reflection on the same cutoff.
@@ -635,19 +713,13 @@ template<ParseMode Mode, class T>
 					ok = false;
 					first_err = reflect_duplicate_member_error(entry->name);
 				} else {
-					auto value = reader.next_impl<Mode>();
+					auto value = read_reflect_object_value_event<Mode>(reader);
 					if (!value) {
 						ok = false;
 						first_err = std::move(value).error();
-					} else if (!*value) {
-						ok = false;
-						first_err = JsonError{
-							.stage = JsonStage::decode,
-							.code = JsonIssueCode::unexpected_eof,
-							.message = "EOF in object value"};
 					} else if (
 						already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
-						if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
+						if (auto skipped = skip_reader_event<Mode>(reader, *value); !skipped) {
 							ok = false;
 							first_err = std::move(skipped).error();
 						}
@@ -657,9 +729,9 @@ template<ParseMode Mode, class T>
 						}
 						auto decoded = [&]() {
 							if constexpr (Mode == ParseMode::strict) {
-								return entry->decode_strict(result, reader, **value, opts, &decode_scratch);
+								return entry->decode_strict(result, reader, *value, opts, &decode_scratch);
 							} else {
-								return entry->decode_json5(result, reader, **value, opts, &decode_scratch);
+								return entry->decode_json5(result, reader, *value, opts, &decode_scratch);
 							}
 						}();
 						if (!decoded) {
@@ -692,22 +764,14 @@ template<ParseMode Mode, class T>
 							return;
 						}
 
-						auto value = reader.next_impl<Mode>();
+						auto value = read_reflect_object_value_event<Mode>(reader);
 						if (!value) {
 							ok = false;
 							first_err = std::move(value).error();
 							return;
 						}
-						if (!*value) {
-							ok = false;
-							first_err = JsonError{
-								.stage = JsonStage::decode,
-								.code = JsonIssueCode::unexpected_eof,
-								.message = "EOF in object value"};
-							return;
-						}
 						if (already_found && reader.parse_options().duplicate_key == DuplicateKeyPolicy::first_wins) {
-							if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
+							if (auto skipped = skip_reader_event<Mode>(reader, *value); !skipped) {
 								ok = false;
 								first_err = std::move(skipped).error();
 							}
@@ -718,7 +782,7 @@ template<ParseMode Mode, class T>
 						}
 
 						auto decoded = decode_reflect_reader_member_into<Mode>(
-							result.[:mem:], reader, **value, opts, &decode_scratch);
+							result.[:mem:], reader, *value, opts, &decode_scratch);
 						if (!decoded) {
 							ok = false;
 							first_err = std::move(decoded).error();
@@ -730,28 +794,9 @@ template<ParseMode Mode, class T>
 		}
 
 		if (!matched && ok) {
-			if (opts.unknown_members == UnknownMemberPolicy::reject) {
+			if (auto handled = handle_unknown_reflect_reader_member<Mode>(reader, opts, key); !handled) {
 				ok = false;
-				first_err = JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.member_name = std::string{key},
-					.message = std::format("unknown member: {}", key)};
-			} else {
-				auto value = reader.next_impl<Mode>();
-				if (!value) {
-					ok = false;
-					first_err = std::move(value).error();
-				} else if (!*value) {
-					ok = false;
-					first_err = JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::unexpected_eof,
-						.message = "EOF in object value"};
-				} else if (auto skipped = skip_reader_event<Mode>(reader, **value); !skipped) {
-					ok = false;
-					first_err = std::move(skipped).error();
-				}
+				first_err = std::move(handled).error();
 			}
 		}
 	}
@@ -760,36 +805,8 @@ template<ParseMode Mode, class T>
 		return std::unexpected(std::move(first_err));
 	}
 
-	[&]<std::size_t... Is>(std::index_sequence<Is...>) {
-		(
-			[&]<std::size_t I>() {
-				if (!ok) {
-					return;
-				}
-				constexpr auto mem = reflect_member_at<T, I>();
-				if constexpr (reflect_has_skip<mem>()) {
-					return;
-				}
-				using M = std::remove_cvref_t<decltype(result.[:mem:])>;
-				if (!found[I]) {
-					if constexpr (is_opt_refl<M>::value) {
-						result.[:mem:].reset();
-					} else {
-						constexpr auto field_name = reflect_field_name_view<mem>;
-						ok = false;
-						first_err = JsonError{
-							.stage = JsonStage::decode,
-							.code = JsonIssueCode::missing_member,
-							.member_name = std::string{field_name},
-							.message = std::format("missing member: {}", field_name)};
-					}
-				}
-			}.template operator ()<Is>(),
-			...);
-	}(std::make_index_sequence<N>{});
-
-	if (!ok) {
-		return std::unexpected(std::move(first_err));
+	if (auto validated = validate_reflect_reader_required_members(result, found); !validated) {
+		return std::unexpected(std::move(validated).error());
 	}
 	return {};
 }
