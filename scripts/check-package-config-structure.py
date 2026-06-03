@@ -330,6 +330,8 @@ def check_header_http_impls_do_not_pull_json() -> None:
         fail("header bridge must not keep an unused all-provider dependency linker")
     if "function(conflux_link_header_impl_for_source_id" in text:
         fail("linked header examples must declare implementation deps explicitly")
+    if re.search(r"function\(conflux_[A-Za-z0-9_]*link[A-Za-z0-9_]*_for_source_id", text):
+        fail("header implementation linking must not be inferred from source ids")
     if "cmake_parse_arguments(CONFLUX_HEADER_EXAMPLE" not in text:
         fail("header example registration must parse explicit implementation deps")
     http_impl_body = cmake_function_body(
@@ -386,14 +388,22 @@ def check_header_http_impls_do_not_pull_json() -> None:
         re.DOTALL,
     )
     missing: list[str] = []
+    implicit: list[str] = []
     for match in call_pattern.finditer(add_examples_body):
         call = match.group(1)
         tokens = call.split()
         if len(tokens) < 2:
             continue
         source_id = tokens[1]
+        if "HTTP_IMPLS" not in tokens and "IMPLS" not in tokens:
+            implicit.append(source_id)
         if source_id in json_example_sources and "conflux_header_impl_json" not in tokens:
             missing.append(source_id)
+    if implicit:
+        fail(
+            "header examples must declare HTTP_IMPLS or IMPLS explicitly: "
+            + ";".join(sorted(implicit)),
+        )
     if missing:
         fail(
             "header JSON examples must declare conflux_header_impl_json explicitly: "
