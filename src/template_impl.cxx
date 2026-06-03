@@ -1106,12 +1106,12 @@ TmplValue Environment::Impl::eval_base_binary_and(
 	}
 	return eval_base_operand(base, 1, context);
 }
-TmplValue Environment::Impl::eval_base_compare(
-	CompiledBaseExpr const &base,
-	TmplValue const &context) const {
-	auto left = eval_base_operand(base, 0, context);
-	auto right = eval_base_operand(base, 1, context);
-	switch (base.compare_op) {
+
+TmplValue compare_template_values(
+	TmplValue const &left,
+	TmplValue const &right,
+	CompiledCompareOp op) {
+	switch (op) {
 	case CompiledCompareOp::eq: return TmplValue{left == right};
 	case CompiledCompareOp::ne: return TmplValue{left != right};
 	case CompiledCompareOp::le:
@@ -1127,13 +1127,13 @@ TmplValue Environment::Impl::eval_base_compare(
 							  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
 							  right.is_float() ? right.as<double>() :
 												 0.0;
-			if (base.compare_op == CompiledCompareOp::le) {
+			if (op == CompiledCompareOp::le) {
 				return TmplValue{lv <= rv};
 			}
-			if (base.compare_op == CompiledCompareOp::ge) {
+			if (op == CompiledCompareOp::ge) {
 				return TmplValue{lv >= rv};
 			}
-			if (base.compare_op == CompiledCompareOp::lt) {
+			if (op == CompiledCompareOp::lt) {
 				return TmplValue{lv < rv};
 			}
 			return TmplValue{lv > rv};
@@ -1153,6 +1153,14 @@ TmplValue Environment::Impl::eval_base_compare(
 		return TmplValue{false};
 	}
 	return {};
+}
+
+TmplValue Environment::Impl::eval_base_compare(
+	CompiledBaseExpr const &base,
+	TmplValue const &context) const {
+	auto left = eval_base_operand(base, 0, context);
+	auto right = eval_base_operand(base, 1, context);
+	return compare_template_values(left, right, base.compare_op);
 }
 TmplValue Environment::Impl::eval_base_concat(
 	CompiledBaseExpr const &base,
@@ -1295,66 +1303,21 @@ TmplValue Environment::Impl::eval_legacy_base(
 	}
 
 	{
-		static constexpr auto ops = std::to_array<std::pair<std::string_view, int>>({
-			{" == ", 0},
-			{" != ", 1},
-			{" <= ", 2},
-			{" >= ", 3},
-			{ " < ", 4},
-			{ " > ", 5},
-			{" in ", 6},
+		static constexpr auto ops = std::to_array<std::pair<std::string_view, CompiledCompareOp>>({
+			{" == ", CompiledCompareOp::eq},
+			{" != ", CompiledCompareOp::ne},
+			{" <= ", CompiledCompareOp::le},
+			{" >= ", CompiledCompareOp::ge},
+			{ " < ", CompiledCompareOp::lt},
+			{ " > ", CompiledCompareOp::gt},
+			{" in ", CompiledCompareOp::in},
 		});
 		for (auto &[op, code]: ops) {
 			auto p = find_top_level_token(b, op);
 			if (p != std::string_view::npos) {
 				auto left = eval_expr(std::string{b.substr(0, p)}, context);
 				auto right = eval_expr(std::string{b.substr(p + op.size())}, context);
-				switch (code) {
-				case 0: return TmplValue{left == right};
-				case 1: return TmplValue{left != right};
-				case 2:
-				case 3:
-				case 4:
-				case 5:
-					{
-						double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
-										  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
-										  left.is_float() ? left.as<double>() :
-															0.0;
-						double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
-										  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
-										  right.is_float() ? right.as<double>() :
-															 0.0;
-						if (code == 2) {
-							return TmplValue{lv <= rv};
-						}
-						if (code == 3) {
-							return TmplValue{lv >= rv};
-						}
-						if (code == 4) {
-							return TmplValue{lv < rv};
-						}
-						return TmplValue{lv > rv};
-					}
-				case 6:
-					{
-						if (right.is_array()) {
-							for (auto const &item: right.as_array()) {
-								if (item == left) {
-									return TmplValue{true};
-								}
-							}
-							return TmplValue{false};
-						}
-						if (right.is_string() && left.is_string()) {
-							return TmplValue{
-								right.as<std::string_view>().find(left.as<std::string_view>())
-								!= std::string_view::npos};
-						}
-						return TmplValue{false};
-					}
-				default: break;
-				}
+				return compare_template_values(left, right, code);
 			}
 		}
 	}
