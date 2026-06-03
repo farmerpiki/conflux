@@ -39,7 +39,6 @@ import conflux.net.metrics;
 import conflux.net.openapi;
 import conflux.net.rate_limit;
 import conflux.net.redirect;
-import conflux.net.request_id;
 import conflux.net.router;
 import conflux.net.security;
 import conflux.net.trailing_slash;
@@ -493,23 +492,6 @@ void ensure_forwarded_lax_empty_server() {
 			return conflux::http::Response::text(req.remote_addr);
 		});
 		g_fwd_lax_empty_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
-// conflux::http::request_id_middleware helpers
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_rid_port = 0;
-void ensure_rid_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::request_id_middleware());
-		// Echo the request ID header back in the body so tests can inspect it.
-		router.get("/", [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(std::string{req.headers["x-request-id"]});
-		});
-		g_rid_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 // ---------------------------------------------------------------------------

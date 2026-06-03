@@ -126,6 +126,21 @@ target_link_libraries(conflux_http_tracing_e2e
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_http_request_id_e2e)
+target_sources(conflux_http_request_id_e2e
+    PRIVATE
+        http_request_id_e2e.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_include_directories(conflux_http_request_id_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_link_libraries(conflux_http_request_id_e2e
+    PRIVATE
+        conflux
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_http_structured_log_e2e)
 target_sources(conflux_http_structured_log_e2e
     PRIVATE
