@@ -144,6 +144,7 @@ mixed-module-header-smoke>|package-config structure guard must reject empty-argu
 check_package_smoke_wrapper_contracts|package-config structure guard must verify package smoke wrapper contracts
 core-isolated package smoke must force the external JSON hash provider|package-config structure guard must keep core-isolated provider-noise coverage
 external dependency token helper must read the registry token list|package-config structure guard must keep package smoke external-token policies registry-derived
+external dependency tokens missing from build-time discovery|package-config structure guard must keep every external token covered by build-time discovery
 def cmake_function_body|package-config structure guard must centralize CMake function-body extraction
 def shell_semicolon_list_var|package-config structure guard must parse shell semicolon-list policies
 def append_set_delta_errors|package-config structure guard must centralize set-delta error reporting

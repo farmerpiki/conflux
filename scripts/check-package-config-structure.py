@@ -1871,6 +1871,18 @@ def check_external_dependency_tokens() -> None:
             "build-time pkg-config discovery must use registry tokens: "
             + ", ".join(sorted(set(direct_pkg_calls)))
         )
+    build_discovered_tokens = set(
+        re.findall(r"\bconflux_pkg_provider_from_registry\(\s*([A-Z][A-Z0-9_]*)\b", dependencies)
+    )
+    build_discovered_tokens.update(
+        re.findall(r"\bconflux_find_external_dependency_package\(\s*([A-Z][A-Z0-9_]*)\b", provider_resolution)
+    )
+    missing_build_discovery = sorted(metadata_tokens - build_discovered_tokens)
+    if missing_build_discovery:
+        errors.append(
+            "external dependency tokens missing from build-time discovery: "
+            + ";".join(missing_build_discovery)
+        )
     for stale_probe in [
         "function(conflux_gzip_probe_source",
         "function(conflux_benchmark_gzip_backend",
