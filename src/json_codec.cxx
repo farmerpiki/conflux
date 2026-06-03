@@ -2423,6 +2423,45 @@ template<ParseMode Mode, class Map>
 decode_map_from_reader_into(Map &out, JsonReader &r, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
 
 template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<T, JsonError> decode_map_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if (ev != Ev::begin_object) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.message = "std::expected object"});
+	}
+	T result;
+	if (auto decoded = decode_map_from_reader_into<Mode>(result, r, opts, scratch); !decoded) {
+		return std::unexpected(std::move(decoded).error());
+	}
+	return result;
+}
+
+template<ParseMode Mode, class T>
+[[nodiscard]] std::expected<void, JsonError> decode_map_into(
+	T &out,
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	using Ev = JsonReader::Event;
+	if (ev != Ev::begin_object) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.message = "std::expected object"});
+	}
+	return decode_map_from_reader_into<Mode>(out, r, opts, scratch);
+}
+
+template<ParseMode Mode, class T>
 std::expected<void, JsonError> decode_next_object_value_into(
 	T &out,
 	JsonReader &r,
@@ -3103,8 +3142,6 @@ std::expected<T, JsonError> decode_from_event(
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
-	using Ev = JsonReader::Event;
-
 	if constexpr (
 		std::same_as<T, bool>
 		|| ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
@@ -3121,18 +3158,7 @@ std::expected<T, JsonError> decode_from_event(
 	} else if constexpr (is_pair_v<T> || is_tuple_of_v<T>) {
 		return decode_tuple_like_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
-		if (ev != Ev::begin_object) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected object"});
-		}
-		T result;
-		if (auto decoded = decode_map_from_reader_into<Mode>(result, r, opts, scratch); !decoded) {
-			return std::unexpected(std::move(decoded).error());
-		}
-		return result;
+		return decode_map_from_event<Mode, T>(r, ev, opts, scratch);
 	} else if constexpr (std::same_as<T, Document>) {
 		std::size_t const start = r.value_start_pos();
 		if (auto ok = skip_remaining_reader<Mode>(r, ev); !ok) {
@@ -3175,7 +3201,6 @@ std::expected<void, JsonError> decode_into(
 	JsonReader::Event ev,
 	JsonDecodeOptions const &opts,
 	JsonDecodeScratch *scratch) {
-	using Ev = JsonReader::Event;
 	if constexpr (
 		std::same_as<T, bool>
 		|| ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
@@ -3188,14 +3213,7 @@ std::expected<void, JsonError> decode_into(
 	} else if constexpr (is_pair_v<T> || is_tuple_of_v<T>) {
 		return decode_tuple_like_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
-		if (ev != Ev::begin_object) {
-			return std::unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.message = "std::expected object"});
-		}
-		return decode_map_from_reader_into<Mode>(out, r, opts, scratch);
+		return decode_map_into<Mode, T>(out, r, ev, opts, scratch);
 	} else if constexpr (has_members_spec<T>::value) {
 		return decode_members_from_event_into<Mode, T>(out, r, ev, opts, scratch);
 	} else {
