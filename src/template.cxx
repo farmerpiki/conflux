@@ -338,6 +338,9 @@ TmplValue node_to_tmpl(json::NodeRef n);
 TmplValue const *obj_find(TmplValue const &obj, std::string_view key);
 std::string str_replace_all(std::string_view src, std::string_view old_s, std::string_view new_s);
 std::string str_capitalize(std::string s);
+std::size_t find_matching_pair(std::string_view s, std::size_t open_pos, char open, char close) noexcept;
+std::size_t find_top_level_token(std::string_view haystack, std::string_view needle) noexcept;
+std::size_t find_top_level_char(std::string_view haystack, char needle) noexcept;
 std::vector<std::pair<std::string, std::optional<TmplValue>>>
 save_scope(TmplValue const &ctx, std::span<std::string const> names);
 void restore_scope(TmplValue &ctx, std::vector<std::pair<std::string, std::optional<TmplValue>>> const &saved);

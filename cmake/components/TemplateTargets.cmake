@@ -4,6 +4,7 @@ conflux_add_module_library(conflux_template
         ${CONFLUX_SRC_ROOT}/template.cxx
     PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/template_env.cxx
+        ${CONFLUX_SRC_ROOT}/template_eval.cxx
         ${CONFLUX_SRC_ROOT}/template_filters.cxx
         ${CONFLUX_SRC_ROOT}/template_impl.cxx
         ${CONFLUX_SRC_ROOT}/template_parse.cxx
