@@ -2049,6 +2049,7 @@ def check_build_docs_guard_contracts() -> None:
             "add_test(NAME build/header-component-smoke": "missing full header component smoke CTest guard",
             "conflux_add_python_check(docs/planning-state": "missing planning-state CTest guard",
             "conflux_add_python_check(docs/release-docs": "missing release-docs CTest guard",
+            "conflux_add_python_check(docs/release-skus": "missing release SKU CTest guard",
             "conflux_add_python_check(docs/package-docs": "missing package-docs CTest guard",
             "conflux_add_python_check(docs/release-notes": "missing release-notes CTest guard",
         },

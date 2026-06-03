@@ -106,6 +106,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/release-docs
         scripts/check-release-docs.py
         "docs;lint")
+    conflux_add_python_check(docs/release-skus
+        scripts/check-release-skus.py
+        "docs;release;package")
     conflux_add_python_check(docs/first-contact-public-dialect
         scripts/check-first-contact-public-dialect.py
         "docs;lint;public-api")
