@@ -33,6 +33,10 @@ def main(argv: list[str]) -> int:
     if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
         fail(f"{sku_name}.{field} must be a non-empty string list")
     for item in value:
+        if field == "docs" and not item.startswith("docs/"):
+            fail(f"{sku_name}.{field} entry must live under docs/: {item}")
+        if field == "examples" and not item.startswith("examples/"):
+            fail(f"{sku_name}.{field} entry must live under examples/: {item}")
         if field in {"docs", "examples"} and not (root / item).is_file():
             fail(f"{sku_name}.{field} references missing file: {item}")
     if field == "components":
