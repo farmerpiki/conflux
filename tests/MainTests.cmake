@@ -7,6 +7,7 @@ set_source_files_properties(
 target_sources(conflux_tests
     PRIVATE
         http_e2e.cxx
+        http_app_e2e.cxx
         http_e2e_middleware.cxx
         http_e2e_observability.cxx
         http3_test.cxx
