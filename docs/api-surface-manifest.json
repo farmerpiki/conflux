@@ -18,7 +18,6 @@
       "conflux.net.config",
       "conflux.net.http.client",
       "conflux.http.extended",
-      "conflux.net.app",
       "conflux.net.auth",
       "conflux.net.cors",
       "conflux.net.rate_limit",

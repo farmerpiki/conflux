@@ -40,7 +40,6 @@ export import conflux.net.http.client;
 
 #if CONFLUX_SURFACE_HAS_HTTP_APP
 export import conflux.http.extended;
-export import conflux.net.app;
 #endif
 
 #if CONFLUX_SURFACE_HAS_HTTP_AUTH
