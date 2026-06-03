@@ -367,6 +367,17 @@ struct Environment::Impl {
 	TmplValue eval_base_compare(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_base_concat(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_path(std::vector<CompiledPathSegment> const &path, TmplValue const &context) const;
+	template<class EvalArg>
+	TmplValue apply_template_get_method(TmplValue const &val, std::size_t arg_count, EvalArg eval_arg) const;
+	template<class EvalArg>
+	TmplValue apply_template_replace_method(TmplValue const &val, EvalArg eval_arg) const;
+	TmplValue apply_template_title_method(TmplValue const &val) const;
+	TmplValue apply_template_upper_method(TmplValue const &val) const;
+	TmplValue apply_template_lower_method(TmplValue const &val) const;
+	template<class EvalArg>
+	TmplValue apply_template_startswith_method(TmplValue const &val, EvalArg eval_arg) const;
+	template<class EvalArg>
+	TmplValue apply_template_split_method(TmplValue const &val, std::size_t arg_count, EvalArg eval_arg) const;
 	TmplValue apply_method(
 		std::string const &name,
 		TmplValue const &val,

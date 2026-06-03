@@ -800,6 +800,93 @@ TmplValue Environment::Impl::eval_expr(
 	return eval_expr(compile_expr(expr), context);
 }
 
+template<class EvalArg>
+TmplValue Environment::Impl::apply_template_get_method(
+	TmplValue const &val,
+	std::size_t arg_count,
+	EvalArg eval_arg) const {
+	if (!val.is_object() || arg_count == 0) {
+		return {};
+	}
+	auto k = eval_arg(0);
+	auto const *found = obj_find(val, value_to_string(k));
+	if (found) {
+		return *found;
+	}
+	return arg_count > 1 ? eval_arg(1) : TmplValue{};
+}
+template<class EvalArg>
+TmplValue Environment::Impl::apply_template_replace_method(
+	TmplValue const &val,
+	EvalArg eval_arg) const {
+	auto s = value_to_string(val);
+	auto old_s = value_to_string(eval_arg(0));
+	auto new_s = value_to_string(eval_arg(1));
+	return TmplValue{str_replace_all(s, old_s, new_s)};
+}
+TmplValue Environment::Impl::apply_template_title_method(
+	TmplValue const &val) const {
+	auto s = value_to_string(val);
+	bool up = true;
+	for (auto &c: s) {
+		if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
+			up = true;
+			continue;
+		}
+		if (up) {
+			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+			up = false;
+		} else {
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+	}
+	return TmplValue{std::move(s)};
+}
+TmplValue Environment::Impl::apply_template_upper_method(
+	TmplValue const &val) const {
+	auto s = value_to_string(val);
+	for (auto &c: s) {
+		c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+	}
+	return TmplValue{std::move(s)};
+}
+TmplValue Environment::Impl::apply_template_lower_method(
+	TmplValue const &val) const {
+	auto s = value_to_string(val);
+	for (auto &c: s) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return TmplValue{std::move(s)};
+}
+template<class EvalArg>
+TmplValue Environment::Impl::apply_template_startswith_method(
+	TmplValue const &val,
+	EvalArg eval_arg) const {
+	auto s = value_to_string(val);
+	auto prefix = value_to_string(eval_arg(0));
+	return TmplValue{s.compare(0, prefix.size(), prefix) == 0};
+}
+template<class EvalArg>
+TmplValue Environment::Impl::apply_template_split_method(
+	TmplValue const &val,
+	std::size_t arg_count,
+	EvalArg eval_arg) const {
+	auto s = value_to_string(val);
+	auto sep = arg_count != 0 ? value_to_string(eval_arg(0)) : std::string{" "};
+	TmplValue arr{TmplValue::Array{}};
+	std::size_t p = 0;
+	while (p <= s.size()) {
+		auto f = sep.empty() ? std::string::npos : s.find(sep, p);
+		if (f == std::string::npos) {
+			arr.push_back(TmplValue{s.substr(p)});
+			break;
+		}
+		arr.push_back(TmplValue{s.substr(p, f - p)});
+		p = f + sep.size();
+	}
+	return arr;
+}
+
 TmplValue Environment::Impl::apply_method(
 	std::string const &name,
 	TmplValue const &val,
@@ -809,52 +896,19 @@ TmplValue Environment::Impl::apply_method(
 		return idx < args.size() && args[idx] ? eval_expr(*args[idx], context) : TmplValue{};
 	};
 	if (name == "get" && val.is_object()) {
-		if (args.empty()) {
-			return {};
-		}
-		auto k = eval_arg(0);
-		auto const *found = obj_find(val, value_to_string(k));
-		if (found) {
-			return *found;
-		}
-		return args.size() > 1 ? eval_arg(1) : TmplValue{};
+		return apply_template_get_method(val, args.size(), eval_arg);
 	}
 	if (name == "replace" && args.size() >= 2) {
-		auto s = value_to_string(val);
-		auto old_s = value_to_string(eval_arg(0));
-		auto new_s = value_to_string(eval_arg(1));
-		return TmplValue{str_replace_all(s, old_s, new_s)};
+		return apply_template_replace_method(val, eval_arg);
 	}
 	if (name == "title") {
-		auto s = value_to_string(val);
-		bool up = true;
-		for (auto &c: s) {
-			if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
-				up = true;
-				continue;
-			}
-			if (up) {
-				c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-				up = false;
-			} else {
-				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-			}
-		}
-		return TmplValue{std::move(s)};
+		return apply_template_title_method(val);
 	}
 	if (name == "upper") {
-		auto s = value_to_string(val);
-		for (auto &c: s) {
-			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-		}
-		return TmplValue{std::move(s)};
+		return apply_template_upper_method(val);
 	}
 	if (name == "lower") {
-		auto s = value_to_string(val);
-		for (auto &c: s) {
-			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		}
-		return TmplValue{std::move(s)};
+		return apply_template_lower_method(val);
 	}
 	if (name == "capitalize") {
 		return TmplValue{str_capitalize(value_to_string(val))};
@@ -866,25 +920,10 @@ TmplValue Environment::Impl::apply_method(
 		return TmplValue{trim(value_to_string(val))};
 	}
 	if (name == "startswith" && !args.empty()) {
-		auto s = value_to_string(val);
-		auto prefix = value_to_string(eval_arg(0));
-		return TmplValue{s.compare(0, prefix.size(), prefix) == 0};
+		return apply_template_startswith_method(val, eval_arg);
 	}
 	if (name == "split") {
-		auto s = value_to_string(val);
-		auto sep = !args.empty() ? value_to_string(eval_arg(0)) : std::string{" "};
-		TmplValue arr{TmplValue::Array{}};
-		std::size_t p = 0;
-		while (p <= s.size()) {
-			auto f = sep.empty() ? std::string::npos : s.find(sep, p);
-			if (f == std::string::npos) {
-				arr.push_back(TmplValue{s.substr(p)});
-				break;
-			}
-			arr.push_back(TmplValue{s.substr(p, f - p)});
-			p = f + sep.size();
-		}
-		return arr;
+		return apply_template_split_method(val, args.size(), eval_arg);
 	}
 	if (name == "keys" && val.is_object()) {
 		return tmpl_object_keys(val.as_object());
