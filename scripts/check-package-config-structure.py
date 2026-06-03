@@ -700,6 +700,7 @@ def check_test_preset_filters() -> None:
 
 def check_install_smoke_presets() -> None:
     data = json.loads(read("CMakePresets.json"))
+    release_skus = json.loads(read("docs/release-skus.json"))
     configure = {preset["name"]: preset for preset in data.get("configurePresets", [])}
     build = {preset["name"]: preset for preset in data.get("buildPresets", [])}
     test = {preset["name"]: preset for preset in data.get("testPresets", [])}
@@ -708,6 +709,7 @@ def check_install_smoke_presets() -> None:
         "release-core-install-smoke",
         "release-json-install-smoke",
         "release-http-api-install-smoke",
+        "release-web-server-install-smoke",
         "release-header-artifacts-install-smoke",
     ]
     errors: list[str] = []
@@ -724,6 +726,14 @@ def check_install_smoke_presets() -> None:
                     errors.append(
                         f"install-smoke preset {name} requests non-public package smoke components: {';'.join(unknown)}",
                     )
+                sku_name = name.removesuffix("-install-smoke")
+                sku = release_skus.get(sku_name)
+                if isinstance(sku, dict):
+                    expected = sku.get("components")
+                    if isinstance(expected, list) and components != ";".join(expected):
+                        errors.append(
+                            f"install-smoke preset {name} components must match docs/release-skus.json",
+                        )
         if build.get(name, {}).get("configurePreset") != name:
             errors.append(f"missing build preset mapped to configure preset: {name}")
         test_preset = test.get(name)
