@@ -125,6 +125,17 @@ void response_helpers_compile() {
 	(void)http::html(std::string{"<p>ok</p>"});
 	(void)http::owned_html(std::string{"<p>ok</p>"});
 	(void)http::no_content();
+	[[maybe_unused]] auto bad_request_response = http::bad_request("bad");
+	[[maybe_unused]] auto not_found_response = http::not_found("/missing");
+	[[maybe_unused]] auto unauthorized_response = http::unauthorized("Bearer");
+	[[maybe_unused]] auto forbidden_response = http::forbidden("no");
+	[[maybe_unused]] auto method_not_allowed_response = http::method_not_allowed({"GET", "POST"});
+	[[maybe_unused]] auto unprocessable_entity_response = http::unprocessable_entity("invalid");
+	[[maybe_unused]] auto internal_error_response = http::internal_error("boom");
+	[[maybe_unused]] auto not_modified_response = http::not_modified(R"("abc")");
+	[[maybe_unused]] auto content_too_large_response = http::content_too_large();
+	[[maybe_unused]] auto bad_gateway_response = http::bad_gateway("upstream");
+	[[maybe_unused]] auto gateway_timeout_response = http::gateway_timeout();
 	(void)http::redirect("/next");
 	(void)http::buffered_stream([](http::StreamSink &sink) { sink.write("chunk"); });
 	(void)http::text(std::string{"ok"});
@@ -133,6 +144,9 @@ void response_helpers_compile() {
 	(void)http::created(std::string{"ok"});
 	(void)http::owned_created(std::string{"ok"});
 	(void)http::created(Payload{.value = "ok"});
+	[[maybe_unused]] auto created_with_cookie = http::created(Payload{.value = "ok"})
+													.location("/payloads/1")
+													.cookie(http::cookie("session", "abc").path("/").http_only());
 }
 
 } // namespace http_snapshot

@@ -96,6 +96,59 @@ using AsyncNext = Router::AsyncNext;
 	return Response::no_content();
 }
 
+[[nodiscard]] Response bad_request(
+	std::string_view detail = {}) {
+	return Response::bad_request(detail);
+}
+
+[[nodiscard]] Response not_found(
+	std::string_view path = {}) {
+	return Response::not_found(path);
+}
+
+[[nodiscard]] Response unauthorized(
+	std::string_view www_authenticate = {}) {
+	return Response::unauthorized(www_authenticate);
+}
+
+[[nodiscard]] Response forbidden(
+	std::string_view detail = {}) {
+	return Response::forbidden(detail);
+}
+
+[[nodiscard]] Response method_not_allowed(
+	std::initializer_list<std::string_view> allowed = {}) {
+	return Response::method_not_allowed(allowed);
+}
+
+[[nodiscard]] Response unprocessable_entity(
+	std::string_view detail = {}) {
+	return Response::unprocessable_entity(detail);
+}
+
+[[nodiscard]] Response internal_error(
+	std::string_view detail = {}) {
+	return Response::internal_error(detail);
+}
+
+[[nodiscard]] Response not_modified(
+	std::string_view etag = {}) {
+	return Response::not_modified(etag);
+}
+
+[[nodiscard]] Response content_too_large() {
+	return Response::content_too_large();
+}
+
+[[nodiscard]] Response bad_gateway(
+	std::string_view detail = {}) {
+	return Response::bad_gateway(detail);
+}
+
+[[nodiscard]] Response gateway_timeout() {
+	return Response::gateway_timeout();
+}
+
 [[nodiscard]] Response redirect(
 	std::string_view location,
 	int status = kHttpFound) {

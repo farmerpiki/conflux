@@ -275,6 +275,37 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: first-contact response helpers expose status shortcuts and builder cookies",
+	"[http.facade]") {
+	auto bad = http::bad_request("bad input");
+	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.text_body().find("bad input") != std::string::npos);
+
+	auto missing = http::not_found("/missing");
+	CHECK(missing.status == kHttpNotFound);
+	CHECK(missing.text_body().find("/missing") != std::string::npos);
+
+	CHECK(http::unauthorized("Bearer").headers["WWW-Authenticate"] == "Bearer");
+	CHECK(http::forbidden("nope").status == kHttpForbidden);
+	CHECK(http::method_not_allowed({"GET", "POST"}).headers["Allow"] == "GET, POST");
+	CHECK(http::unprocessable_entity("invalid").status == kHttpUnprocessableEntity);
+	CHECK(http::internal_error("boom").status == kHttpInternalServerError);
+	CHECK(http::not_modified(R"("etag")").headers["ETag"] == R"("etag")");
+	CHECK(http::content_too_large().status == kHttpRequestEntityTooLarge);
+	CHECK(http::bad_gateway("upstream").text_body() == "upstream");
+	CHECK(http::gateway_timeout().status == kHttpGatewayTimeout);
+
+	auto created = http::into_response(
+		http::created(FacadeAnswer{.value = "ok"})
+			.location("/answers/1")
+			.cookie(http::cookie("session", "abc").path("/").http_only()));
+	CHECK(created.status == kHttpCreated);
+	CHECK(created.headers["Location"] == "/answers/1");
+	REQUIRE_FALSE(created.set_cookies.empty());
+	CHECK(created.set_cookies.front().find("session=abc") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: validate reports duplicate routes",
 	"[http.facade]") {
 	auto app = http::app();

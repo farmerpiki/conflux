@@ -341,6 +341,25 @@ struct ResponseBuilderOps {
 	{
 		return std::forward<decltype(self)>(self).content_type(std::string{value});
 	}
+
+	[[nodiscard]] auto &cookie(
+		this auto &self,
+		CookieBuilder value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+	{
+		self.response.set_cookie(std::move(value));
+		return self;
+	}
+
+	[[nodiscard]] auto &&cookie(
+		this auto &&self,
+		CookieBuilder value)
+		requires response_builder_like<std::remove_reference_t<decltype(self)>>
+			  && std::is_rvalue_reference_v<decltype(self)>
+	{
+		self.response.set_cookie(std::move(value));
+		return std::forward<decltype(self)>(self);
+	}
 };
 
 } // namespace detail

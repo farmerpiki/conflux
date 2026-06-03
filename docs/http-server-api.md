@@ -670,6 +670,11 @@ public:
 for known status codes, so `http::text("bad", 400)` is enough for ordinary errors.
 Use the three-argument overload when a custom reason phrase is required.
 
+The first-contact `conflux.http` facade exposes matching free functions such
+as `http::text(...)`, `http::not_found(...)`, `http::bad_request(...)`,
+`http::unauthorized(...)`, `http::method_not_allowed(...)`,
+`http::content_too_large()`, and `http::gateway_timeout()`.
+
 JSON response bodies are explicit raw strings at this layer. Structured JSON
 serialization belongs at the call site or in `conflux.net.http.response_json`
 helpers.
@@ -686,8 +691,8 @@ response.set_cookie(
         .same_site(http::SameSite::Lax));
 ```
 
-`http::cookie(...)` formats the attribute string for the existing
-`Response::set_cookie(...)` storage path.
+`http::cookie(...)` formats the attribute string for `Response::set_cookie(...)`
+and response-builder `.cookie(...)` storage paths.
 
 ---
 
