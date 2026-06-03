@@ -30,7 +30,6 @@ import conflux.net.compress;
 import conflux.net.config;
 import conflux.net.cookie_signing;
 import conflux.net.cors;
-import conflux.net.csrf;
 import conflux.net.etag;
 import conflux.net.forwarded;
 import conflux.net.http.client;
@@ -668,15 +667,6 @@ void ensure_ts_307_server() {
 		g_ts_307_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
-// POST to an explicit port with extra headers (for CSRF token etc.).
-std::string http_post_on_full(
-	std::uint16_t port,
-	std::string_view path,
-	std::string_view content_type,
-	std::string_view body,
-	std::string_view extra_headers) {
-	return conflux::tests::http_post_on(port, path, content_type, body, extra_headers);
-}
 // Extract the value of a named header (case-sensitive) from a raw HTTP response.
 // Returns empty std::string if not found.
 std::string extract_header(
@@ -758,38 +748,6 @@ void check_json_absent_at(
 	std::string_view pointer) {
 	CHECK_FALSE(doc.root().at_pointer(pointer).has_value());
 }
-// Extract the value of a named cookie from a Set-Cookie header list.
-// Looks for "Set-Cookie: <name>=<value>; ..." lines.
-std::string extract_set_cookie(
-	std::string_view resp,
-	std::string_view name) {
-	std::string const needle = std::string{"Set-Cookie: "} + std::string{name} + "=";
-	auto pos = resp.find(needle);
-	if (pos == std::string_view::npos) {
-		return {};
-	}
-	pos += needle.size();
-	auto end = resp.find_first_of(";\r\n", pos);
-	return std::string{resp.substr(pos, end - pos)};
-}
-// ---------------------------------------------------------------------------
-// csrf_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_csrf_port = 0;
-void ensure_csrf_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::csrf_middleware());
-		router.get("/page", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::html("<form>");
-		});
-		router.post("/submit", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		g_csrf_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
 // conflux::http::etag_middleware test server
 // ---------------------------------------------------------------------------
 
