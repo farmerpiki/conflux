@@ -538,6 +538,85 @@ bool recv_chunked(
 		bytes_received += encoded.size() - before;
 	}
 }
+[[nodiscard]] std::expected<void, HttpError> stream_content_length_body(
+	Connection &conn,
+	std::string_view initial_body,
+	ClientBodyChunkSink const &sink,
+	int timeout_sec,
+	std::size_t content_length,
+	std::size_t max_body,
+	std::uint64_t &bytes_received) {
+	std::size_t delivered = 0;
+	if (!initial_body.empty()) {
+		if (auto emitted = emit_body_chunk(sink, initial_body); !emitted) {
+			return emitted;
+		}
+		delivered = initial_body.size();
+	}
+	std::string buffer;
+	while (delivered < content_length) {
+		auto const before = buffer.size();
+		if (!recv_some(conn, buffer, timeout_sec)) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.os_errno = errno,
+					.message = "failed to receive body"});
+		}
+		auto const appended = buffer.size() - before;
+		auto const need = content_length - delivered;
+		auto const take = std::min(appended, need);
+		if (delivered + take > max_body) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::body_too_large,
+					.message = std::format("body exceeds limit {}", max_body)});
+		}
+		if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(before, take)); !emitted) {
+			return emitted;
+		}
+		delivered += take;
+		bytes_received += take;
+	}
+	return {};
+}
+[[nodiscard]] std::expected<void, HttpError> stream_eof_body(
+	Connection &conn,
+	std::string_view initial_body,
+	ClientBodyChunkSink const &sink,
+	int timeout_sec,
+	std::size_t max_body,
+	std::uint64_t &bytes_received) {
+	if (!initial_body.empty()) {
+		if (initial_body.size() > max_body) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::body_too_large,
+					.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
+		}
+		if (auto emitted = emit_body_chunk(sink, initial_body); !emitted) {
+			return emitted;
+		}
+	}
+	std::string buffer;
+	std::size_t delivered = initial_body.size();
+	while (recv_some(conn, buffer, timeout_sec)) {
+		auto const chunk = std::string_view{buffer}.substr(delivered - initial_body.size());
+		delivered += chunk.size();
+		if (delivered > max_body) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::body_too_large,
+					.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
+		}
+		if (auto emitted = emit_body_chunk(sink, chunk); !emitted) {
+			return emitted;
+		}
+		bytes_received += chunk.size();
+	}
+	return {};
+}
 [[nodiscard]] std::expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
@@ -1015,74 +1094,23 @@ ClientStreamResult do_blocking_request_streaming(
 				return std::unexpected(std::move(streamed).error());
 			}
 		} else if (has_content_length) {
-			std::size_t delivered = 0;
-			if (!raw.empty()) {
-				if (auto emitted = emit_body_chunk(sink, raw); !emitted) {
-					close_conn(conn);
-					return std::unexpected(std::move(emitted).error());
-				}
-				delivered = raw.size();
-			}
-			std::string buffer;
-			while (delivered < content_length) {
-				auto const before = buffer.size();
-				if (!recv_some(conn, buffer, between_sec)) {
-					close_conn(conn);
-					return std::unexpected(
-						HttpError{
-							.kind = HttpErrorKind::read,
-							.phase = HttpPhase::between_bytes,
-							.os_errno = errno,
-							.message = "failed to receive body"});
-				}
-				auto const appended = buffer.size() - before;
-				auto const need = content_length - delivered;
-				auto const take = std::min(appended, need);
-				if (delivered + take > max_body) {
-					close_conn(conn);
-					return std::unexpected(
-						HttpError{
-							.kind = HttpErrorKind::body_too_large,
-							.message = std::format("body exceeds limit {}", max_body)});
-				}
-				if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(before, take)); !emitted) {
-					close_conn(conn);
-					return std::unexpected(std::move(emitted).error());
-				}
-				delivered += take;
-				tel.bytes_received += take;
+			if (auto streamed = stream_content_length_body(
+					conn,
+					raw,
+					sink,
+					between_sec,
+					content_length,
+					max_body,
+					tel.bytes_received);
+				!streamed) {
+				close_conn(conn);
+				return std::unexpected(std::move(streamed).error());
 			}
 		} else {
-			if (!raw.empty()) {
-				if (raw.size() > max_body) {
-					close_conn(conn);
-					return std::unexpected(
-						HttpError{
-							.kind = HttpErrorKind::body_too_large,
-							.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
-				}
-				if (auto emitted = emit_body_chunk(sink, raw); !emitted) {
-					close_conn(conn);
-					return std::unexpected(std::move(emitted).error());
-				}
-			}
-			std::string buffer;
-			std::size_t delivered = raw.size();
-			while (recv_some(conn, buffer, between_sec)) {
-				auto const chunk = std::string_view{buffer}.substr(delivered - raw.size());
-				delivered += chunk.size();
-				if (delivered > max_body) {
-					close_conn(conn);
-					return std::unexpected(
-						HttpError{
-							.kind = HttpErrorKind::body_too_large,
-							.message = std::format("EOF-delimited body exceeds limit {}", max_body)});
-				}
-				if (auto emitted = emit_body_chunk(sink, chunk); !emitted) {
-					close_conn(conn);
-					return std::unexpected(std::move(emitted).error());
-				}
-				tel.bytes_received += chunk.size();
+			if (auto streamed = stream_eof_body(conn, raw, sink, between_sec, max_body, tel.bytes_received);
+				!streamed) {
+				close_conn(conn);
+				return std::unexpected(std::move(streamed).error());
 			}
 		}
 	}
