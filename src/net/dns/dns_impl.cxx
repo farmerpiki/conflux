@@ -1081,6 +1081,21 @@ struct Resolver::Impl {
 	std::unordered_map<InFlightKey, CoalescedBroadcast, InFlightKeyHash, InFlightKeyEq> in_flight;
 	std::mutex in_flight_mutex;
 };
+
+[[nodiscard]] root::Task<ResolveResult> ready_resolve_success(
+	ResolveResult result) {
+	auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+	auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(result)});
+	return std::move(task);
+}
+
+[[nodiscard]] root::Task<ResolveResult> ready_resolve_error(
+	DnsError error) {
+	auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+	auto _ = raw_src.try_set_exception(make_exception_ptr(std::move(error)));
+	return std::move(task);
+}
+
 Resolver::Resolver(
 	::io_uring *ring,
 	CompletionTable *completions,
@@ -1134,6 +1149,77 @@ Resolver::Resolver(
 	}
 }
 Resolver::~Resolver() = default;
+root::Task<ResolveResult> Resolver::resolve_nss_thread(
+	SocketTaskRing *external_ring,
+	std::string_view host,
+	std::uint16_t port,
+	ResolveOptions const &opts,
+	std::string const &cache_key) {
+	if (external_ring != nullptr) {
+		return ready_resolve_error(
+			DnsError{
+				DnsErrorKind::not_implemented,
+				"resolve: nss_thread resolver does not support caller-provided ring"});
+	}
+
+	auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(raw_src));
+	bool const ok = impl_->pool->enqueue([shared_src, // NOLINT(bugprone-exception-escape)
+										  h = std::string{host},
+										  port,
+										  allow_v4 = opts.allow_v4,
+										  allow_v6 = opts.allow_v6,
+										  cache = impl_->cache,
+										  cache_key = cache_key,
+										  ttl = impl_->opts.cache_max_ttl]() mutable {
+		try {
+			addrinfo hints{};
+			hints.ai_family = AF_UNSPEC;
+			hints.ai_socktype = SOCK_STREAM;
+			hints.ai_flags = AI_ADDRCONFIG;
+			addrinfo *res_raw = nullptr;
+			std::string const p = std::to_string(port);
+			int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
+			if (gai != 0 || res_raw == nullptr) {
+				auto _ = shared_src->try_set_exception(make_exception_ptr(
+					DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
+				return;
+			}
+			UniqueAddrInfo const res{res_raw};
+			ResolveResult result;
+			for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
+				if (rp->ai_family == AF_INET && allow_v4) {
+					Endpoint ep{};
+					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+					ep.family = AddressFamily::v4;
+					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+					result.endpoints.push_back(ep);
+				} else if (rp->ai_family == AF_INET6 && allow_v6) {
+					Endpoint ep{};
+					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+					ep.family = AddressFamily::v6;
+					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+					result.endpoints.push_back(ep);
+				}
+			}
+			if (result.endpoints.empty()) {
+				auto _ = shared_src->try_set_exception(make_exception_ptr(
+					DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
+				return;
+			}
+			if (cache && !cache_key.empty() && !result.endpoints.empty()) {
+				cache->put(cache_key, result, ttl);
+			}
+			auto _ = shared_src->try_set_value(root::Success<ResolveResult>{std::move(result)});
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+	});
+	if (!ok) {
+		auto _ = shared_src->try_set_exception(
+			make_exception_ptr(DnsError{DnsErrorKind::cancelled, "nss_thread: work pool not accepting jobs"}));
+	}
+	return std::move(task);
+}
+
 root::Task<ResolveResult> Resolver::resolve_flow(
 	SocketTaskRing *external_ring,
 	std::string_view host,
@@ -1141,27 +1227,20 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	ResolveOptions const &per_opts) {
 	auto const effective_opts = apply_resolv_defaults(per_opts, impl_->resolv_query_timeout);
 	if (auto ep = try_parse_ip_literal(host, port); ep.has_value()) {
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 		ResolveResult r;
 		r.endpoints.push_back(*ep);
-		auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(r)});
-		return std::move(task);
+		return ready_resolve_success(std::move(r));
 	}
 
 	if (!is_valid_hostname(host)) {
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto _ = raw_src.try_set_exception(
-			make_exception_ptr(DnsError{DnsErrorKind::invalid_hostname, std::format("invalid hostname '{}'", host)}));
-		return std::move(task);
+		return ready_resolve_error(
+			DnsError{DnsErrorKind::invalid_hostname, std::format("invalid hostname '{}'", host)});
 	}
 
 	// /etc/hosts lookup
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
 		if (auto hosts_result = hosts_lookup_result(impl_->hosts_cache, host, port, effective_opts); hosts_result) {
-			auto [task, raw_src] =
-				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-			auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(*hosts_result)});
-			return std::move(task);
+			return ready_resolve_success(std::move(*hosts_result));
 		}
 	}
 
@@ -1174,16 +1253,11 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	// LRU cache lookup
 	if (impl_->cache && !cache_key.empty()) {
 		if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
-			auto [task, raw_src] =
-				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			if (hit->is_negative) {
-				auto _ = raw_src.try_set_exception(
-					make_exception_ptr(DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"}));
-				return std::move(task);
+				return ready_resolve_error(DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"});
 			}
 			hit->from_cache = true;
-			auto _ = raw_src.try_set_value(root::Success<ResolveResult>{std::move(*hit)});
-			return std::move(task);
+			return ready_resolve_success(std::move(*hit));
 		}
 	}
 
@@ -1199,71 +1273,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	};
 
 	if (impl_->backend == ResolverBackend::nss_thread) {
-		if (external_ring != nullptr) {
-			auto [task, raw_src] =
-				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-			auto _ = raw_src.try_set_exception(make_exception_ptr(
-				DnsError{
-					DnsErrorKind::not_implemented,
-					"resolve: nss_thread resolver does not support caller-provided ring"}));
-			return std::move(task);
-		}
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(raw_src));
-		bool const ok = impl_->pool->enqueue([shared_src, // NOLINT(bugprone-exception-escape)
-											  h = std::string{host},
-											  port,
-											  allow_v4 = effective_opts.allow_v4,
-											  allow_v6 = effective_opts.allow_v6,
-											  cache = impl_->cache,
-											  cache_key = cache_key,
-											  ttl = impl_->opts.cache_max_ttl]() mutable {
-			try {
-				addrinfo hints{};
-				hints.ai_family = AF_UNSPEC;
-				hints.ai_socktype = SOCK_STREAM;
-				hints.ai_flags = AI_ADDRCONFIG;
-				addrinfo *res_raw = nullptr;
-				std::string const p = std::to_string(port);
-				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
-				if (gai != 0 || res_raw == nullptr) {
-					auto _ = shared_src->try_set_exception(make_exception_ptr(
-						DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
-					return;
-				}
-				UniqueAddrInfo const res{res_raw};
-				ResolveResult result;
-				for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
-					if (rp->ai_family == AF_INET && allow_v4) {
-						Endpoint ep{};
-						ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-						ep.family = AddressFamily::v4;
-						std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-						result.endpoints.push_back(ep);
-					} else if (rp->ai_family == AF_INET6 && allow_v6) {
-						Endpoint ep{};
-						ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-						ep.family = AddressFamily::v6;
-						std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-						result.endpoints.push_back(ep);
-					}
-				}
-				if (result.endpoints.empty()) {
-					auto _ = shared_src->try_set_exception(make_exception_ptr(
-						DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
-					return;
-				}
-				if (cache && !cache_key.empty() && !result.endpoints.empty()) {
-					cache->put(cache_key, result, ttl);
-				}
-				auto _ = shared_src->try_set_value(root::Success<ResolveResult>{std::move(result)});
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-		});
-		if (!ok) {
-			auto _ = shared_src->try_set_exception(
-				make_exception_ptr(DnsError{DnsErrorKind::cancelled, "nss_thread: work pool not accepting jobs"}));
-		}
-		return std::move(task);
+		return resolve_nss_thread(external_ring, host, port, effective_opts, cache_key);
 	}
 
 	auto const base_ns =
@@ -1271,18 +1281,12 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto const ns_list = nameservers_with_attempts(base_ns, impl_->attempts);
 
 	if (ns_list.empty()) {
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto _ = raw_src.try_set_exception(
-			make_exception_ptr(DnsError{DnsErrorKind::no_servers, "resolve: no nameservers configured"}));
-		return std::move(task);
+		return ready_resolve_error(DnsError{DnsErrorKind::no_servers, "resolve: no nameservers configured"});
 	}
 
 	SocketTaskRing *task_ring = (external_ring != nullptr) ? external_ring : impl_->task_ring.get();
 	if (task_ring == nullptr) {
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto _ = raw_src.try_set_exception(
-			make_exception_ptr(DnsError{DnsErrorKind::no_ring, "resolve: no ring available"}));
-		return std::move(task);
+		return ready_resolve_error(DnsError{DnsErrorKind::no_ring, "resolve: no ring available"});
 	}
 
 	std::optional<root::Task<ResolveResult>> coalesced_out;
@@ -1328,10 +1332,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		}
 	}
 	if (max_inflight_exceeded) {
-		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto _ = raw_src.try_set_exception(
-			make_exception_ptr(DnsError{DnsErrorKind::cancelled, "resolve: max in-flight queries exceeded"}));
-		return std::move(task);
+		return ready_resolve_error(DnsError{DnsErrorKind::cancelled, "resolve: max in-flight queries exceeded"});
 	}
 	if (coalesced_out.has_value()) {
 		return std::move(*coalesced_out);

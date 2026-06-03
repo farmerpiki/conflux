@@ -655,6 +655,12 @@ private:
 		std::string_view host,
 		std::uint16_t port,
 		ResolveOptions const &opts = {});
+	[[nodiscard]] root::Task<ResolveResult> resolve_nss_thread(
+		SocketTaskRing *external_ring,
+		std::string_view host,
+		std::uint16_t port,
+		ResolveOptions const &opts,
+		std::string const &cache_key);
 
 	struct Impl;
 	std::shared_ptr<Impl> impl_;
