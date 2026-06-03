@@ -605,163 +605,33 @@ public:
 	}
 	std::optional<Frame> recv() {
 		while (true) {
-			if (!fill(2)) {
-				return std::nullopt;
-			}
 			detail::FrameHeader hdr{};
-			// First parse pass on 2 bytes surfaces protocol errors (rsv, opcode,
-			// unmasked, control-size) without waiting for mask bytes — the wire
-			// may legitimately have no mask for a rejected frame.
-			auto const pre = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
-			auto emit_protocol_close = [&]() {
-				auto const b0 = static_cast<std::uint8_t>(buf_[0]);
-				if ((b0 & 0x70U) != 0) {
-					close(1002, "rsv bits set");
-				} else if (std::uint8_t const op = b0 & 0x0FU; (op >= 0x3U && op <= 0x7U) || op >= 0xBU) {
-					close(1002, "reserved opcode");
-				} else {
-					close(1002, "unmasked frame");
-				}
-			};
-			if (pre == detail::FrameParseStatus::ProtocolError) {
-				emit_protocol_close();
+			if (!read_ws_frame_header(hdr)) {
 				return std::nullopt;
 			}
-			if (pre == detail::FrameParseStatus::ControlTooLarge) {
-				close(1002, "invalid control frame");
+			auto payload = read_ws_payload(hdr);
+			if (!payload) {
 				return std::nullopt;
 			}
-			// pre is Ok (no extended length) or Incomplete (need extended length + mask).
-			auto const b1 = static_cast<std::uint8_t>(buf_[1]);
-			std::uint64_t const len7 = b1 & 0x7FU;
-			std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
-			if (!fill(header_needed)) {
-				return std::nullopt;
-			}
-			auto const status = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
-			if (status != detail::FrameParseStatus::Ok) {
-				if (status == detail::FrameParseStatus::ProtocolError) {
-					close(1002, "invalid frame header");
-				} else if (status == detail::FrameParseStatus::ControlTooLarge) {
-					close(1002, "invalid control frame");
-				}
-				return std::nullopt;
-			}
-			consume(hdr.header_size);
-
-			bool const fin = hdr.fin;
-			std::uint8_t const opcode_raw = hdr.opcode;
-			std::uint64_t const plen = hdr.payload_len;
-			bool const is_control = (opcode_raw & 0x08U) != 0;
-			std::array<std::uint8_t, 4> const mask_key = hdr.mask;
-
-			if (plen > kMaxMessageSize) {
-				close(1009, "message too big");
-				return std::nullopt;
-			}
-			if (!is_control && (frag_payload_.size() + plen) > kMaxMessageSize) {
-				close(1009, "message too big");
-				return std::nullopt;
-			}
-			if (!fill(static_cast<std::size_t>(plen))) {
-				return std::nullopt;
-			}
-			std::string payload(buf_.data(), static_cast<std::size_t>(plen));
-			consume(static_cast<std::size_t>(plen));
-#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
-			constexpr std::size_t kStdsimdThreshold = 32;
-			if (payload.size() >= kStdsimdThreshold) {
-				conflux_ws_unmask_stdsimd(
-					reinterpret_cast<unsigned char *>(payload.data()),
-					payload.size(),
-					mask_key.data());
-			} else
-#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
-			constexpr std::size_t kStdsimdThreshold = 32;
-			if (payload.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
-				conflux_ws_unmask_stdsimd(
-					reinterpret_cast<unsigned char *>(payload.data()),
-					payload.size(),
-					mask_key.data());
-			} else
-#endif
-			{
-				for (std::size_t i = 0; i < payload.size(); ++i) {
-					payload[i] = static_cast<char>(
-						static_cast<unsigned char>(payload[i])
-						^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-				}
-			}
-
-			if (opcode_raw == 0x9U) {
-				do_send_frame(10, std::as_bytes(std::span{payload}));
-				continue;
-			}
-			if (opcode_raw == 0xAU) {
-				continue;
-			}
-			if (opcode_raw == 0x8U) {
-				if (plen == 1) {
-					close(1002, "invalid close payload");
-					return std::nullopt;
-				}
-				std::uint16_t echo_code = 1000;
-				if (plen >= 2) {
-					echo_code = static_cast<std::uint16_t>(
-						(static_cast<unsigned>(static_cast<std::uint8_t>(payload[0])) << 8U)
-						| static_cast<unsigned>(static_cast<std::uint8_t>(payload[1])));
-					if (!detail::is_valid_close_code(echo_code)) {
-						close(1002, "invalid close code");
-						return std::nullopt;
-					}
-					if (payload.size() > 2 && !detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
-						close(1007, "invalid utf-8");
-						return std::nullopt;
-					}
-				}
-				close(echo_code, {});
-				return std::nullopt;
-			}
-
-			if (opcode_raw == 0x0U) {
-				if (!frag_opcode_) {
-					close(1002, "std::unexpected continuation");
-					return std::nullopt;
-				}
-				frag_payload_.append(payload);
-				if (!fin) {
+			auto const opcode_raw = hdr.opcode;
+			if ((opcode_raw & 0x08U) != 0) {
+				if (handle_ws_control_frame(hdr, *payload)) {
 					continue;
 				}
-				auto const final_op = *frag_opcode_;
-				std::string final_payload = std::move(frag_payload_);
-				frag_opcode_.reset();
-				frag_payload_.clear();
-				if (final_op == Opcode::Text && !detail::utf8_is_valid(final_payload)) {
-					close(1007, "invalid utf-8");
-					return std::nullopt;
+				return std::nullopt;
+			}
+			if (opcode_raw == 0x0U) {
+				auto frame = handle_ws_continuation_frame(hdr.fin, std::move(*payload));
+				if (!frame && is_open()) {
+					continue;
 				}
-				return Frame{.opcode = final_op, .payload = std::move(final_payload)};
+				return frame;
 			}
-
-			if (opcode_raw != 0x1U && opcode_raw != 0x2U) {
-				close(1002, "reserved opcode");
-				return std::nullopt;
-			}
-			if (frag_opcode_) {
-				close(1002, "nested data frame");
-				return std::nullopt;
-			}
-			auto const opcode = static_cast<Opcode>(opcode_raw);
-			if (!fin) {
-				frag_opcode_ = opcode;
-				frag_payload_ = std::move(payload);
+			auto frame = handle_ws_data_frame(hdr.fin, opcode_raw, std::move(*payload));
+			if (!frame && is_open()) {
 				continue;
 			}
-			if (opcode == Opcode::Text && !detail::utf8_is_valid(payload)) {
-				close(1007, "invalid utf-8");
-				return std::nullopt;
-			}
-			return Frame{.opcode = opcode, .payload = std::move(payload)};
+			return frame;
 		}
 	}
 	[[nodiscard]] bool send_text(
@@ -928,6 +798,175 @@ private:
 	void consume(
 		std::size_t n) {
 		buf_.erase(0, n);
+	}
+	void emit_ws_protocol_close() {
+		auto const b0 = static_cast<std::uint8_t>(buf_[0]);
+		if ((b0 & 0x70U) != 0) {
+			close(1002, "rsv bits set");
+		} else if (std::uint8_t const op = b0 & 0x0FU; (op >= 0x3U && op <= 0x7U) || op >= 0xBU) {
+			close(1002, "reserved opcode");
+		} else {
+			close(1002, "unmasked frame");
+		}
+	}
+	[[nodiscard]] bool read_ws_frame_header(
+		detail::FrameHeader &hdr) {
+		if (!fill(2)) {
+			return false;
+		}
+		auto const pre = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
+		if (pre == detail::FrameParseStatus::ProtocolError) {
+			emit_ws_protocol_close();
+			return false;
+		}
+		if (pre == detail::FrameParseStatus::ControlTooLarge) {
+			close(1002, "invalid control frame");
+			return false;
+		}
+		auto const b1 = static_cast<std::uint8_t>(buf_[1]);
+		std::uint64_t const len7 = b1 & 0x7FU;
+		std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
+		if (!fill(header_needed)) {
+			return false;
+		}
+		auto const status = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
+		if (status != detail::FrameParseStatus::Ok) {
+			if (status == detail::FrameParseStatus::ProtocolError) {
+				close(1002, "invalid frame header");
+			} else if (status == detail::FrameParseStatus::ControlTooLarge) {
+				close(1002, "invalid control frame");
+			}
+			return false;
+		}
+		consume(hdr.header_size);
+		return true;
+	}
+	[[nodiscard]] std::optional<std::string> read_ws_payload(
+		detail::FrameHeader const &hdr) {
+		auto const plen = hdr.payload_len;
+		if (plen > kMaxMessageSize) {
+			close(1009, "message too big");
+			return std::nullopt;
+		}
+		if ((hdr.opcode & 0x08U) == 0 && (frag_payload_.size() + plen) > kMaxMessageSize) {
+			close(1009, "message too big");
+			return std::nullopt;
+		}
+		if (!fill(static_cast<std::size_t>(plen))) {
+			return std::nullopt;
+		}
+		std::string payload(buf_.data(), static_cast<std::size_t>(plen));
+		consume(static_cast<std::size_t>(plen));
+		unmask_ws_payload(payload, hdr.mask);
+		return payload;
+	}
+	static void unmask_ws_payload(
+		std::string &payload,
+		std::array<std::uint8_t, 4> const &mask_key) {
+#if defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_DIRECT
+		constexpr std::size_t kStdsimdThreshold = 32;
+		if (payload.size() >= kStdsimdThreshold) {
+			conflux_ws_unmask_stdsimd(
+				reinterpret_cast<unsigned char *>(payload.data()),
+				payload.size(),
+				mask_key.data());
+		} else
+#elif defined(CONFLUX_STDSIMD) && CONFLUX_SIMD_SELECTION_RUNTIME
+		constexpr std::size_t kStdsimdThreshold = 32;
+		if (payload.size() >= kStdsimdThreshold && conflux_cpu_supports_avx2()) {
+			conflux_ws_unmask_stdsimd(
+				reinterpret_cast<unsigned char *>(payload.data()),
+				payload.size(),
+				mask_key.data());
+		} else
+#endif
+		{
+			for (std::size_t i = 0; i < payload.size(); ++i) {
+				payload[i] = static_cast<char>(
+					static_cast<unsigned char>(payload[i])
+					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+			}
+		}
+	}
+	[[nodiscard]] bool handle_ws_control_frame(
+		detail::FrameHeader const &hdr,
+		std::string const &payload) {
+		if (hdr.opcode == 0x9U) {
+			do_send_frame(10, std::as_bytes(std::span{payload}));
+			return true;
+		}
+		if (hdr.opcode == 0xAU) {
+			return true;
+		}
+		if (hdr.opcode != 0x8U) {
+			close(1002, "reserved opcode");
+			return false;
+		}
+		if (hdr.payload_len == 1) {
+			close(1002, "invalid close payload");
+			return false;
+		}
+		std::uint16_t echo_code = 1000;
+		if (hdr.payload_len >= 2) {
+			echo_code = static_cast<std::uint16_t>(
+				(static_cast<unsigned>(static_cast<std::uint8_t>(payload[0])) << 8U)
+				| static_cast<unsigned>(static_cast<std::uint8_t>(payload[1])));
+			if (!detail::is_valid_close_code(echo_code)) {
+				close(1002, "invalid close code");
+				return false;
+			}
+			if (payload.size() > 2 && !detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
+				close(1007, "invalid utf-8");
+				return false;
+			}
+		}
+		close(echo_code, {});
+		return false;
+	}
+	[[nodiscard]] std::optional<Frame> handle_ws_continuation_frame(
+		bool fin,
+		std::string payload) {
+		if (!frag_opcode_) {
+			close(1002, "std::unexpected continuation");
+			return std::nullopt;
+		}
+		frag_payload_.append(payload);
+		if (!fin) {
+			return std::nullopt;
+		}
+		auto const final_op = *frag_opcode_;
+		std::string final_payload = std::move(frag_payload_);
+		frag_opcode_.reset();
+		frag_payload_.clear();
+		if (final_op == Opcode::Text && !detail::utf8_is_valid(final_payload)) {
+			close(1007, "invalid utf-8");
+			return std::nullopt;
+		}
+		return Frame{.opcode = final_op, .payload = std::move(final_payload)};
+	}
+	[[nodiscard]] std::optional<Frame> handle_ws_data_frame(
+		bool fin,
+		std::uint8_t opcode_raw,
+		std::string payload) {
+		if (opcode_raw != 0x1U && opcode_raw != 0x2U) {
+			close(1002, "reserved opcode");
+			return std::nullopt;
+		}
+		if (frag_opcode_) {
+			close(1002, "nested data frame");
+			return std::nullopt;
+		}
+		auto const opcode = static_cast<Opcode>(opcode_raw);
+		if (!fin) {
+			frag_opcode_ = opcode;
+			frag_payload_ = std::move(payload);
+			return std::nullopt;
+		}
+		if (opcode == Opcode::Text && !detail::utf8_is_valid(payload)) {
+			close(1007, "invalid utf-8");
+			return std::nullopt;
+		}
+		return Frame{.opcode = opcode, .payload = std::move(payload)};
 	}
 	// Send a WebSocket frame over either TLS or plain socket.
 	bool do_send_frame(
