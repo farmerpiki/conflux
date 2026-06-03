@@ -2142,6 +2142,7 @@ def check_build_docs_guard_contracts() -> None:
             "declared as both public and support": "component-map guard must reject public/support component ownership overlap",
             "uses an unsafe export name": "component-map guard must reject unsafe component export names",
             "must use support-component naming": "component-map guard must reject support components without support naming",
+            "is not declared by CMake": "component-map guard must reject stale registry target names",
         },
         "scripts/cmake-preset-build-dir.py": {
             "duplicate configure preset": "CMake preset build-dir helper must reject duplicate configure preset names",
