@@ -2430,6 +2430,7 @@ def check_core_isolated_forbidden_components() -> None:
             fail(f"{variable} contains unknown package components: {';'.join(unknown)}")
 
     runner_forbidden = shell_semicolon_list_var(runner, "forbid_runtime_db_template_components")
+    runner_json_forbidden = shell_semicolon_list_var(runner, "forbid_json_components")
     if "--components core" not in core_isolated:
         fail("core-isolated package smoke must request the core component")
     errors: list[str] = []
@@ -2442,40 +2443,14 @@ def check_core_isolated_forbidden_components() -> None:
     )
     append_set_delta_errors(
         errors,
-        {
-            "curated",
-            "extended",
-            "complete",
-            "json",
-            "http",
-            "http1",
-            "http2",
-            "http3",
-            "http_protocol",
-            "template",
-            "pg",
-            "db",
-        },
+        runner_forbidden | {"curated", "extended", "complete", "json"},
         shell_semicolon_flag_value(core_isolated, "--forbid-components"),
         "strict core-isolated smoke forbidden components missing entries: ",
         "strict core-isolated smoke forbidden components contain unexpected entries: ",
     )
     append_set_delta_errors(
         errors,
-        {
-            "http",
-            "http1",
-            "http2",
-            "http3",
-            "http_protocol",
-            "http_compression",
-            "net_tls",
-            "work",
-            "dns",
-            "template",
-            "db",
-            "pg",
-        },
+        runner_json_forbidden,
         shell_semicolon_flag_value(liburing_free, "--forbid-components"),
         "liburing-free forbidden components missing isolation entries: ",
         "liburing-free forbidden components contain unexpected entries: ",
