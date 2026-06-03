@@ -14,6 +14,7 @@ target_sources(conflux_tests
         http_realtime_e2e.cxx
         http_form_e2e.cxx
         http_static_e2e.cxx
+        http_fields_test.cxx
         http_e2e_middleware.cxx
         http_e2e_observability.cxx
         http3_test.cxx
