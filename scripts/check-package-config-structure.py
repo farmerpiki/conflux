@@ -2732,9 +2732,13 @@ def check_release_artifact_staging_contract() -> None:
 def check_release_sku_guard_contract() -> None:
     package_check = read("scripts/check-package-config.sh")
     guard = read("scripts/check-release-skus.py")
+    examples_guard = read("scripts/check-release-sku-examples.py")
+    build_docs = read("tests/BuildAndDocsChecks.cmake")
     required = {
         "[[ -f scripts/check-release-skus.py ]]": "package config check must require the release SKU guard",
         "python3 scripts/check-release-skus.py": "package config check must run the release SKU guard",
+        "[[ -f scripts/check-release-sku-examples.py ]]": "package config check must require the release SKU examples guard",
+        "python3 scripts/check-release-sku-examples.py": "package config check must run the release SKU examples guard",
     }
     guard_required = {
         '"release-skus.json"': "release SKU guard must validate the SKU manifest",
@@ -2748,8 +2752,23 @@ def check_release_sku_guard_contract() -> None:
         "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",
         "item.startswith(\"examples/\")": "release SKU guard must keep selected examples under examples",
     }
+    examples_required = {
+        '"release-skus.json"': "release SKU examples guard must read the release SKU manifest",
+        '"examples" / "CMakeLists.txt"': "release SKU examples guard must inspect module-mode examples",
+        '"ConfluxInterfaceMode.cmake"': "release SKU examples guard must inspect header-mode examples",
+        "module_example_sources": "release SKU examples guard must verify selected examples are built in module and header modes",
+        "header_example_sources": "release SKU examples guard must derive header-mode example declarations",
+        "is not declared in examples/CMakeLists.txt": "release SKU examples guard must fail on unbuilt module-mode selected examples",
+        "is not declared in header-mode examples": "release SKU examples guard must fail on unbuilt header-mode selected examples",
+    }
+    build_docs_required = {
+        "docs/release-sku-examples": "Build/docs CTest fragment must register the release SKU examples guard",
+        "scripts/check-release-sku-examples.py": "Build/docs CTest fragment must run the release SKU examples guard",
+    }
     missing = [message for marker, message in required.items() if marker not in package_check]
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)
+    missing.extend(message for marker, message in examples_required.items() if marker not in examples_guard)
+    missing.extend(message for marker, message in build_docs_required.items() if marker not in build_docs)
     if missing:
         fail("\n".join(missing))
 

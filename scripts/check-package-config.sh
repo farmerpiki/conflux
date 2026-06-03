@@ -55,11 +55,14 @@ require_structure_guard_markers() {
 [[ -f scripts/stage-release-artifacts.sh ]] || fail "missing release artifact staging script"
 [[ -f scripts/check-release-artifact.py ]] || fail "missing release artifact guard"
 [[ -f scripts/check-release-skus.py ]] || fail "missing release SKU manifest guard"
+[[ -f scripts/check-release-sku-examples.py ]] || fail "missing release SKU examples guard"
 
 python3 scripts/check-package-config-structure.py . \
     || fail "package-config structure guard failed"
 python3 scripts/check-release-skus.py \
     || fail "release SKU manifest guard failed"
+python3 scripts/check-release-sku-examples.py \
+    || fail "release SKU examples guard failed"
 require_structure_guard_markers <<'EOF'
 check_metrics_status_is_graph_gated|package-config structure guard must keep metrics status scoped to active HTTP graphs
 check_duplicate_ctest_names|package-config structure guard must reject duplicate CTest names
@@ -154,6 +157,7 @@ check_release_artifact_staging_contract|package-config structure guard must veri
 release artifact guard must validate bridge python metadata|package-config structure guard must keep release artifact bridge metadata validation
 check_release_sku_guard_contract|package-config structure guard must verify release SKU manifest guard wiring
 release SKU guard must require every release SKU to map to a known feature-set|package-config structure guard must keep release SKU feature-set validation
+release SKU examples guard must verify selected examples are built in module and header modes|package-config structure guard must keep release SKU example build wiring validation
 EOF
 
 printf 'check-package-config: ok\n'
