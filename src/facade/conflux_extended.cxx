@@ -14,15 +14,15 @@ export import conflux.file_io_sync;
 export import conflux.file_map;
 #endif
 
-#if CONFLUX_SURFACE_HAS_JSON_BOUNDARY
+#if CONFLUX_SURFACE_HAS_JSON_BOUNDARY && !CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER
 export import conflux.json.boundary;
 #endif
 
-#if CONFLUX_SURFACE_HAS_JSON_NATIVE_PROVIDER
+#if CONFLUX_SURFACE_HAS_JSON_NATIVE_PROVIDER && !CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER
 export import conflux.json.native_provider;
 #endif
 
-#if CONFLUX_SURFACE_HAS_JSON_REFLECT
+#if CONFLUX_SURFACE_HAS_JSON_REFLECT && !CONFLUX_SURFACE_HAS_JSON_REFLECT_PROVIDER
 export import conflux.json.reflect;
 #endif
 
