@@ -1457,6 +1457,10 @@ def check_package_smoke_wrapper_default_components() -> None:
 def check_package_smoke_wrapper_contracts() -> None:
     checks = {
         "scripts/package-smoke-forbidden-components.py": {
+            "ConfluxComponentRegistry.cmake": "package smoke forbidden component helper must validate policies against the component registry",
+            'kind != "SUPPORT"': "package smoke forbidden component helper must allow only public registry exports",
+            "PACKAGE_ALIASES": "package smoke forbidden component helper must explicitly name package-only aliases",
+            "unknown forbidden component": "package smoke forbidden component helper must reject stale policy entries",
             '"core": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"]': "package smoke forbidden component helper must define the core policy",
             '"json": [': "package smoke forbidden component helper must define the JSON policy",
             '"http_compression"': "package smoke forbidden component helper must keep compression out of JSON-only smokes",
