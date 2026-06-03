@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -41,6 +42,20 @@ required = [
     "docs/production-checklist.md",
     "docs/release-checklist.md",
 ]
+release_skus = json.loads((ROOT / "docs/release-skus.json").read_text(encoding="utf-8"))
+if not isinstance(release_skus, dict):
+    fail("docs/release-skus.json must be a JSON object")
+for sku_name, sku in sorted(release_skus.items()):
+    if not isinstance(sku, dict):
+        fail(f"docs/release-skus.json entry must be an object: {sku_name}")
+    docs = sku.get("docs")
+    if not isinstance(docs, list):
+        fail(f"docs/release-skus.json entry must declare docs: {sku_name}")
+    for doc in docs:
+        if not isinstance(doc, str):
+            fail(f"docs/release-skus.json doc entry must be a string: {sku_name}")
+        required.append(doc)
+
 for rel in required:
     if rel not in readme:
         fail(f"README.md does not link {rel}")

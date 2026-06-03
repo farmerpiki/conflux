@@ -56,10 +56,14 @@ Read the release-facing docs in this order:
 2. [`docs/package-consumption.md`](docs/package-consumption.md)
 3. [`docs/component-map.md`](docs/component-map.md)
 4. [`docs/public-api-map.md`](docs/public-api-map.md)
-5. [`docs/http-server-api.md`](docs/http-server-api.md) or [`docs/json-api.md`](docs/json-api.md)
-6. [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md)
-7. [`docs/production-checklist.md`](docs/production-checklist.md)
-8. [`docs/release-checklist.md`](docs/release-checklist.md)
+5. [`docs/json-api.md`](docs/json-api.md), [`docs/json-boundary-guide.md`](docs/json-boundary-guide.md), or [`docs/json-cookbook.md`](docs/json-cookbook.md)
+6. [`docs/http-server-api.md`](docs/http-server-api.md) or [`docs/conflux-http-client-api.md`](docs/conflux-http-client-api.md)
+7. [`docs/api-surface-profiles.md`](docs/api-surface-profiles.md)
+8. [`docs/observability.md`](docs/observability.md) and [`docs/configuration.md`](docs/configuration.md)
+9. [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md)
+10. [`docs/production-checklist.md`](docs/production-checklist.md)
+11. [`docs/prerelease-status.md`](docs/prerelease-status.md)
+12. [`docs/release-checklist.md`](docs/release-checklist.md)
 
 Maintainer planning files are outside this first-contact path.
 

@@ -2810,6 +2810,7 @@ def check_release_sku_guard_contract() -> None:
     guard = read("scripts/check-release-skus.py")
     examples_guard = read("scripts/check-release-sku-examples.py")
     build_docs = read("tests/BuildAndDocsChecks.cmake")
+    release_docs = read("scripts/check-release-docs.py")
     required = {
         "[[ -f scripts/check-release-skus.py ]]": "package config check must require the release SKU guard",
         "python3 scripts/check-release-skus.py": "package config check must run the release SKU guard",
@@ -2843,10 +2844,16 @@ def check_release_sku_guard_contract() -> None:
         "docs/release-sku-examples": "Build/docs CTest fragment must register the release SKU examples guard",
         "scripts/check-release-sku-examples.py": "Build/docs CTest fragment must run the release SKU examples guard",
     }
+    release_docs_required = {
+        '"docs/release-skus.json"': "release docs guard must read the release SKU manifest",
+        'sku.get("docs")': "release docs guard must derive required docs from SKU entries",
+        "required.append(doc)": "release docs guard must add SKU docs to README coverage",
+    }
     missing = [message for marker, message in required.items() if marker not in package_check]
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)
     missing.extend(message for marker, message in examples_required.items() if marker not in examples_guard)
     missing.extend(message for marker, message in build_docs_required.items() if marker not in build_docs)
+    missing.extend(message for marker, message in release_docs_required.items() if marker not in release_docs)
     if missing:
         fail("\n".join(missing))
 
