@@ -687,6 +687,8 @@ struct Ring {
 	void retire_incremental_partial(int fd, std::uint32_t gen, Conn &conn) noexcept;
 	void reclaim_retired_incremental_recv(int fd, std::uint32_t gen) noexcept;
 	void clear_retired_incremental_if_final(int fd, std::uint32_t gen, conflux::uring::CqeFlags flags) noexcept;
+	void discard_stale_recv_completion(RecvComp &rc, conflux::uring::CqeFlags orig_flags);
+	void discard_closing_recv_completion(RecvComp &rc, conflux::uring::CqeFlags orig_flags);
 	void handle_recv_cqe(int fd, int res, conflux::uring::CqeFlags flg, std::uint32_t gen);
 	bool handle_sse_send_complete(int fd, Conn &conn);
 	void handle_http_response_send_complete(int fd, Conn &conn);
@@ -741,6 +743,13 @@ struct Ring {
 	// concrete buffer backend so a later RECV_ZC backend can preserve this flow.
 	template<typename Buf>
 	bool append_recv_buf_to(Buf &dst, RecvComp &rc);
+	bool handle_ws_cancel_recv_handoff(RecvComp &rc, WsInstallEntry &entry, conflux::uring::CqeFlags orig_flags);
+	[[nodiscard]] std::optional<std::size_t> append_recv_payload_to_conn(Conn &conn, RecvComp &rc);
+	[[nodiscard]] bool update_incremental_recv_state(int fd, Conn &conn, conflux::uring::CqeFlags orig_flags);
+	void mark_request_receive_started(Conn &conn);
+	[[nodiscard]] std::size_t raw_receive_cap() const noexcept;
+	void reject_oversized_receive_buffer(int fd, Conn &conn);
+	[[nodiscard]] bool maybe_start_tls_sniff(Conn &conn);
 	void phase1_copy_recv_bufs();
 	void finish_ready_ws_handoffs();
 #if CONFLUX_HAS_TLS

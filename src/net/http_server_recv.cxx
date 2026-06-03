@@ -215,6 +215,171 @@ bool Ring::append_recv_buf_to(
 	return true;
 }
 
+void Ring::discard_stale_recv_completion(
+	RecvComp &rc,
+	conflux::uring::CqeFlags orig_flags) {
+	discard_recv_bufs(rc);
+	if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
+		reclaim_retired_incremental_recv(rc.fd, rc.gen);
+	} else if (rc.res > 0 && cqe_has_buffer(orig_flags)) {
+		clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
+	}
+}
+
+void Ring::discard_closing_recv_completion(
+	RecvComp &rc,
+	conflux::uring::CqeFlags orig_flags) {
+	discard_recv_bufs(rc);
+	if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
+		reclaim_retired_incremental_recv(rc.fd, rc.gen);
+	} else if (cqe_has_buffer(orig_flags)) {
+		clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
+	}
+}
+
+bool Ring::handle_ws_cancel_recv_handoff(
+	RecvComp &rc,
+	WsInstallEntry &entry,
+	conflux::uring::CqeFlags orig_flags) {
+	if (!append_recv_buf_to(entry.initial_buf, rc)) {
+		return false;
+	}
+	clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
+	return true;
+}
+
+std::optional<std::size_t> Ring::append_recv_payload_to_conn(
+	Conn &conn,
+	RecvComp &rc) {
+#if CONFLUX_HAS_TLS
+	if (conn.ssl != nullptr) {
+		if (!append_recv_buf_to(conn.tls_rx_cipher, rc)) {
+			return std::nullopt;
+		}
+		return conn.tls_rx_cipher.size();
+	}
+#endif
+	if (!append_recv_buf_to(conn.partial, rc)) {
+		return std::nullopt;
+	}
+	return conn.partial.size();
+}
+
+bool Ring::update_incremental_recv_state(
+	int fd,
+	Conn &conn,
+	conflux::uring::CqeFlags orig_flags) {
+	if (buf_ring_->mode() != BufferRingMode::incremental || !cqe_has_buffer(orig_flags)) {
+		return true;
+	}
+	if (cqe_has_buf_more(orig_flags)) {
+		conn.incremental_buf_id = cqe_buffer_id(orig_flags);
+		conn.have_incremental_buf_id = true;
+		if (!cqe_has_more(orig_flags)) [[unlikely]] {
+			conflux::utils::eprintln(std::format("incremental ring fault: fd={} !MORE+BUF_MORE; closing", fd));
+			queue_close(fd);
+			return false;
+		}
+		return true;
+	}
+	conn.have_incremental_buf_id = false;
+	return true;
+}
+
+void Ring::mark_request_receive_started(
+	Conn &conn) {
+	conn.last_activity = std::chrono::steady_clock::now();
+	if (!conn.is_tls && !conn.partial.empty() && !conn.request_in_progress) {
+		conn.request_started = conn.last_activity;
+		conn.request_in_progress = true;
+	}
+}
+
+std::size_t Ring::raw_receive_cap() const noexcept {
+	auto bounded_add = [](std::size_t a, std::size_t b) noexcept {
+		if (a > std::numeric_limits<std::size_t>::max() - b) {
+			return std::numeric_limits<std::size_t>::max();
+		}
+		return a + b;
+	};
+	auto bounded_mul = [](std::size_t a, std::size_t b) noexcept {
+		if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {
+			return std::numeric_limits<std::size_t>::max();
+		}
+		return a * b;
+	};
+	std::size_t cap = max_body_size;
+	cap = bounded_add(cap, parser_limits.max_header_block_size);
+	cap = bounded_add(cap, parser_limits.max_request_line_size);
+	cap = bounded_add(cap, bounded_mul(parser_limits.max_chunks, conflux::http::kMaxChunkSizeLineBytes + 4));
+	cap = bounded_add(cap, conflux::http::kMaxChunkTrailerBytes);
+	return bounded_add(cap, 6);
+}
+
+void Ring::reject_oversized_receive_buffer(
+	int fd,
+	Conn &conn) {
+	{
+		std::scoped_lock lk{metrics_mu_};
+		++rejection_counters_.body_too_large;
+	}
+	if (observability_hooks_.rejection) {
+		observability_hooks_.rejection(
+			conflux::http::HttpRejectReason::body_too_large,
+			conflux::http::kHttpRequestEntityTooLarge);
+	}
+	conn.own_response =
+		"HTTP/1.1 413 Content Too Large\r\n"
+		"Content-Type: application/problem+json\r\n"
+		"Content-Length: 78\r\n"
+		"Connection: close\r\n\r\n"
+		"{\"code\":\"body_too_large\",\"detail\":\"request body exceeds the configured limit\"}";
+	conn.has_response = true;
+	conn.close_after_send = true;
+	start_response_send(fd, conn);
+}
+
+bool Ring::maybe_start_tls_sniff(
+	Conn &conn) {
+#if CONFLUX_HAS_TLS
+	if (!conn.ssl && conn.tls_hs_done && !conn.partial.empty()) {
+		if (static_cast<unsigned char>(conn.partial.front()) == 0x16U) {
+			conn.ssl.reset(SSL_new(ssl_ctx));
+			if (conn.ssl) {
+				BIO *rbio = BIO_new(BIO_s_mem());
+				if (rbio != nullptr) {
+					BIO_set_mem_eof_return(rbio, -1);
+				}
+				BIO *wbio = BIO_new(BIO_s_mem());
+				if (rbio == nullptr || wbio == nullptr) {
+					if (rbio != nullptr) {
+						BIO_free(rbio);
+					}
+					if (wbio != nullptr) {
+						BIO_free(wbio);
+					}
+					conn.ssl.reset();
+					queue_close(conn.fd);
+					return false;
+				}
+				SSL_set_bio(conn.ssl.get(), rbio, wbio);
+				SSL_set_accept_state(conn.ssl.get());
+			} else {
+				queue_close(conn.fd);
+				return false;
+			}
+			conn.is_tls = true;
+			conn.tls_hs_done = false;
+			conn.tls_rx_cipher.append(conn.partial.data(), conn.partial.size());
+			conn.partial.clear();
+		} else {
+			conn.tls_hs_done = false;
+		}
+	}
+#endif
+	return true;
+}
+
 void Ring::phase1_copy_recv_bufs() {
 	for (auto &rc: recvs) {
 		auto const ufd = static_cast<std::size_t>(rc.fd);
@@ -228,153 +393,40 @@ void Ring::phase1_copy_recv_bufs() {
 			|| ufd >= fd_table.size()
 			|| (!ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0))) {
 			auto const orig_flags = rc.flags;
-			discard_recv_bufs(rc);
-			if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
-				reclaim_retired_incremental_recv(rc.fd, rc.gen);
-			} else if (rc.res > 0 && cqe_has_buffer(orig_flags)) {
-				clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
-			}
+			discard_stale_recv_completion(rc, orig_flags);
 			continue;
 		}
 		if (ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0)) {
 			auto const orig_flags = rc.flags;
-			if (!append_recv_buf_to(ws_it->second.initial_buf, rc)) {
-				continue;
-			}
-			clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
+			handle_ws_cancel_recv_handoff(rc, ws_it->second, orig_flags);
 			continue;
 		}
 		auto &conn = fd_table[ufd];
 		if (conn.close_after_send) [[unlikely]] {
 			auto const orig_flags = rc.flags;
-			discard_recv_bufs(rc);
-			if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
-				reclaim_retired_incremental_recv(rc.fd, rc.gen);
-			} else if (cqe_has_buffer(orig_flags)) {
-				clear_retired_incremental_if_final(rc.fd, rc.gen, orig_flags);
-			}
+			discard_closing_recv_completion(rc, orig_flags);
 			continue;
 		}
 		auto const orig_flags = rc.flags;
-		bool appended = false;
-		std::size_t recv_buffered = 0;
-#if CONFLUX_HAS_TLS
-		if (conn.ssl != nullptr) {
-			appended = append_recv_buf_to(conn.tls_rx_cipher, rc);
-			recv_buffered = conn.tls_rx_cipher.size();
-		} else
-#endif
-		{
-			appended = append_recv_buf_to(conn.partial, rc);
-			recv_buffered = conn.partial.size();
-		}
-		if (!appended) [[unlikely]] {
+		auto const recv_buffered = append_recv_payload_to_conn(conn, rc);
+		if (!recv_buffered) [[unlikely]] {
 			queue_close(static_cast<int>(ufd));
 			continue;
 		}
-		if (buf_ring_->mode() == BufferRingMode::incremental && cqe_has_buffer(orig_flags)) {
-			if (cqe_has_buf_more(orig_flags)) {
-				conn.incremental_buf_id = cqe_buffer_id(orig_flags);
-				conn.have_incremental_buf_id = true;
-				if (!cqe_has_more(orig_flags)) [[unlikely]] {
-					conflux::utils::eprintln(
-						std::format("incremental ring fault: fd={} !MORE+BUF_MORE; closing", static_cast<int>(ufd)));
-					queue_close(static_cast<int>(ufd));
-					continue;
-				}
-			} else {
-				conn.have_incremental_buf_id = false;
-			}
+		if (!update_incremental_recv_state(static_cast<int>(ufd), conn, orig_flags)) {
+			continue;
 		}
-		conn.last_activity = std::chrono::steady_clock::now();
-		if (!conn.is_tls && !conn.partial.empty() && !conn.request_in_progress) {
-			conn.request_started = conn.last_activity;
-			conn.request_in_progress = true;
-		}
+		mark_request_receive_started(conn);
 		if (conn.send_queued) {
 			continue;
 		}
-		auto bounded_add = [](std::size_t a, std::size_t b) noexcept {
-			if (a > std::numeric_limits<std::size_t>::max() - b) {
-				return std::numeric_limits<std::size_t>::max();
-			}
-			return a + b;
-		};
-		auto bounded_mul = [](std::size_t a, std::size_t b) noexcept {
-			if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {
-				return std::numeric_limits<std::size_t>::max();
-			}
-			return a * b;
-		};
-		std::size_t raw_receive_cap = max_body_size;
-		raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_header_block_size);
-		raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_request_line_size);
-		raw_receive_cap = bounded_add(
-			raw_receive_cap,
-			bounded_mul(parser_limits.max_chunks, conflux::http::kMaxChunkSizeLineBytes + 4));
-		raw_receive_cap = bounded_add(raw_receive_cap, conflux::http::kMaxChunkTrailerBytes);
-		raw_receive_cap = bounded_add(raw_receive_cap, 6);
-		if (recv_buffered > raw_receive_cap) {
-			{
-				std::scoped_lock lk{metrics_mu_};
-				++rejection_counters_.body_too_large;
-			}
-			if (observability_hooks_.rejection) {
-				observability_hooks_.rejection(
-					conflux::http::HttpRejectReason::body_too_large,
-					conflux::http::kHttpRequestEntityTooLarge);
-			}
-			conn.own_response =
-				"HTTP/1.1 413 Content Too Large\r\n"
-				"Content-Type: application/problem+json\r\n"
-				"Content-Length: 78\r\n"
-				"Connection: close\r\n\r\n"
-				"{\"code\":\"body_too_large\",\"detail\":\"request body exceeds the configured limit\"}";
-			conn.has_response = true;
-			conn.close_after_send = true;
-			start_response_send(rc.fd, conn);
+		if (*recv_buffered > raw_receive_cap()) {
+			reject_oversized_receive_buffer(rc.fd, conn);
 			continue;
 		}
-#if CONFLUX_HAS_TLS
-		// Protocol sniff: ssl==nullptr && tls_hs_done==true is the "undecided" sentinel
-		// (set in handle_accept when ssl_ctx!=nullptr). Decide on the very first std::byte.
-		if (!conn.ssl && conn.tls_hs_done && !conn.partial.empty()) {
-			if (static_cast<unsigned char>(conn.partial.front()) == 0x16U) {
-				// TLS ClientHello record type — create SSL and start handshake.
-				conn.ssl.reset(SSL_new(ssl_ctx));
-				if (conn.ssl) {
-					BIO *rbio = BIO_new(BIO_s_mem());
-					if (rbio != nullptr) {
-						BIO_set_mem_eof_return(rbio, -1);
-					}
-					BIO *wbio = BIO_new(BIO_s_mem());
-					if (rbio == nullptr || wbio == nullptr) {
-						if (rbio != nullptr) {
-							BIO_free(rbio);
-						}
-						if (wbio != nullptr) {
-							BIO_free(wbio);
-						}
-						conn.ssl.reset();
-						queue_close(conn.fd);
-						continue;
-					}
-					SSL_set_bio(conn.ssl.get(), rbio, wbio);
-					SSL_set_accept_state(conn.ssl.get());
-				} else {
-					queue_close(conn.fd);
-					continue;
-				}
-				conn.is_tls = true;
-				conn.tls_hs_done = false; // handshake not yet complete
-				conn.tls_rx_cipher.append(conn.partial.data(), conn.partial.size());
-				conn.partial.clear();
-			} else {
-				// Plain HTTP on TLS-capable port — disable handshake sentinel.
-				conn.tls_hs_done = false;
-			}
+		if (!maybe_start_tls_sniff(conn)) {
+			continue;
 		}
-#endif // CONFLUX_HAS_TLS
 	}
 }
 
