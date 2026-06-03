@@ -19,6 +19,7 @@ required_paths=(
     "$stage_dir/source/CMakePresets.json"
     "$stage_dir/source/CHANGELOG.md"
     "$stage_dir/source/LICENSE"
+    "$stage_dir/source/NOTICE"
     "$stage_dir/source/README.md"
     "$stage_dir/source/RELEASE_POLICY.md"
     "$stage_dir/source/SECURITY.md"

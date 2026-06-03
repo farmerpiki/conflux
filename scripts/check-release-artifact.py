@@ -46,6 +46,7 @@ def main(argv: list[str]) -> int:
         stage / "source" / "CMakePresets.json",
         stage / "source" / "CHANGELOG.md",
         stage / "source" / "LICENSE",
+        stage / "source" / "NOTICE",
         stage / "source" / "README.md",
         stage / "source" / "RELEASE_POLICY.md",
         stage / "source" / "SECURITY.md",
