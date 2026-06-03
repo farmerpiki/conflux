@@ -238,19 +238,23 @@ public:
 	[[gnu::pure]] [[nodiscard]] CURLM *get() const noexcept { return multi_; }
 };
 
+#if CONFLUX_HAS_HTTP2 || (CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY))
 [[nodiscard]] bool curl_feature(
 	int bit) {
 	auto const *info = curl_version_info(CURLVERSION_NOW);
 	return info != nullptr && (info->features & bit) != 0;
 }
-
-[[nodiscard]] bool curl_has_http2() {
-#ifdef CURL_VERSION_HTTP2
-	return curl_feature(CURL_VERSION_HTTP2);
-#else
-	return false;
 #endif
+
+#if CONFLUX_HAS_HTTP2
+[[nodiscard]] bool curl_has_http2() {
+	#ifdef CURL_VERSION_HTTP2
+	return curl_feature(CURL_VERSION_HTTP2);
+	#else
+	return false;
+	#endif
 }
+#endif
 
 #if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 [[nodiscard]] bool curl_has_http3() {
@@ -581,7 +585,9 @@ enum class TortureVersion {
 [[nodiscard]] conflux::http::Router make_stress_router() {
 	conflux::http::Router r = make_matrix_router();
 	auto large = std::make_shared<std::string>(128UL * 1024, 'S');
-	r.get("/static/large.bin", [large](conflux::http::OwnedRequest const &) { return conflux::http::Response::text(*large); });
+	r.get("/static/large.bin", [large](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::text(*large);
+	});
 	return r;
 }
 
@@ -602,10 +608,14 @@ struct ExpectedCurlRequest {
 		if (i % 3U == 0U) {
 			return CURL_HTTP_VERSION_NONE;
 		}
+	#if CONFLUX_HAS_HTTP2
 		if (i % 3U == 1U || !curl_has_http2()) {
 			return CURL_HTTP_VERSION_1_1;
 		}
 		return CURL_HTTP_VERSION_2_0;
+	#else
+		return CURL_HTTP_VERSION_1_1;
+	#endif
 	case TortureVersion::Default: return CURL_HTTP_VERSION_1_1;
 	case TortureVersion::Http3  : return CURL_HTTP_VERSION_NONE;
 	}
@@ -726,9 +736,16 @@ void setopt_abort_data(
 
 [[nodiscard]] bool torture_supported(
 	TortureVersion version) {
-	if (version == TortureVersion::Http2 && !curl_has_http2()) {
-		WARN("CONFLUX_CURL_TORTURE_HTTP_VERSION=2 requested, but libcurl lacks HTTP/2");
+	if (version == TortureVersion::Http2) {
+	#if CONFLUX_HAS_HTTP2
+		if (!curl_has_http2()) {
+			WARN("CONFLUX_CURL_TORTURE_HTTP_VERSION=2 requested, but libcurl lacks HTTP/2");
+			return false;
+		}
+	#else
+		WARN("CONFLUX_CURL_TORTURE_HTTP_VERSION=2 requested, but HTTP/2 is unavailable in this build");
 		return false;
+	#endif
 	}
 	if (version == TortureVersion::Http3) {
 	#if !CONFLUX_HAS_HTTP3 || !defined(CURL_HTTP_VERSION_3ONLY)

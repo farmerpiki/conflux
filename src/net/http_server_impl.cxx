@@ -184,8 +184,8 @@ void HttpServer::initialize(
 			.ktls = cfg.ktls,
 		};
 		impl_->tls_ctx.emplace(primary_opts);
-		SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
 	#if CONFLUX_HAS_HTTP2
+		SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
 		conflux::http::detail::http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 	#endif
 	#if CONFLUX_HAS_HTTP3
@@ -291,7 +291,8 @@ void HttpServer::request_shutdown() noexcept {
 			auto const ec = errno;
 			try {
 				conflux::utils::eprintln(std::format("http_server.request_shutdown write fd={} errno={}", efd, ec));
-			} catch (...) {} // NOLINT(bugprone-empty-catch): noexcept shutdown must not fail if diagnostic emission fails.
+			} catch (...) {
+			} // NOLINT(bugprone-empty-catch): noexcept shutdown must not fail if diagnostic emission fails.
 		}
 	}
 }

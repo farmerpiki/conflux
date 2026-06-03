@@ -1752,6 +1752,7 @@ def check_external_dependency_tokens() -> None:
     config = read("cmake/conflux-config.cmake.in")
     metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
     registry = read("cmake/ConfluxExternalDependencyRegistry.cmake")
+    dependencies = read("cmake/Dependencies.cmake")
     metadata_tokens = external_tokens_from_metadata()
     errors: list[str] = []
     required_registry_prefixes = [
@@ -1776,6 +1777,24 @@ def check_external_dependency_tokens() -> None:
         "CONFLUX_EXTERNAL_DEPENDENCY_TARGETS_${_candidate}": "package metadata generator must map external targets through registry target lists",
     }
     errors.extend(message for marker, message in metadata_markers.items() if marker not in metadata)
+    dependency_markers = {
+        "ConfluxExternalDependencyRegistry": "build-time dependency discovery must include the external dependency registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_TOKENS": "build-time dependency discovery must validate external dependency tokens through the registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_KIND_${token}": "build-time dependency discovery must resolve external dependency kind through the registry",
+        "CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_${token}": "build-time dependency discovery must resolve pkg-config packages through the registry",
+        "conflux_pkg_provider_from_registry": "build-time pkg-config discovery must use registry tokens",
+    }
+    errors.extend(message for marker, message in dependency_markers.items() if marker not in dependencies)
+    direct_pkg_calls = re.findall(
+        r"^\s*conflux_pkg_provider\(\s*([A-Z][A-Z0-9_]*)\s+(?:TRUE|FALSE)\s+[^)$]",
+        dependencies,
+        re.MULTILINE,
+    )
+    if direct_pkg_calls:
+        errors.append(
+            "build-time pkg-config discovery must use registry tokens: "
+            + ", ".join(sorted(set(direct_pkg_calls)))
+        )
     if re.search(r'token STREQUAL "[A-Z0-9_]+"', config):
         errors.append("package config must not carry a separate external-token resolver ladder")
     if re.search(r"set\(_token [A-Z0-9_]+\)", metadata):
