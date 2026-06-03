@@ -22,7 +22,6 @@ import conflux.types;
 
 import conflux.crypto;
 import conflux.json;
-import conflux.net.async_client;
 import conflux.http.extended;
 import conflux.net.app;
 import conflux.net.auth;
@@ -40,7 +39,6 @@ import conflux.net.http_server;
 import conflux.net.ip_filter;
 import conflux.net.metrics;
 import conflux.net.openapi;
-import conflux.net.proxy;
 import conflux.net.rate_limit;
 import conflux.net.redirect;
 import conflux.net.request_id;
@@ -55,7 +53,6 @@ import conflux.net.vhost;
 import conflux.net.jwt;
 #endif
 import conflux.net.compress;
-import conflux.net.proxy;
 import conflux.net.http.static_core;
 import conflux.net.http1_parser;
 #if CONFLUX_HAS_TLS
@@ -79,9 +76,6 @@ using conflux::work::WorkPoolOptions;
 
 // Actual port chosen by the OS; set once in ensure_server().
 std::uint16_t g_test_port = 0;
-std::uint16_t g_redirect_follow_source_port = 0;
-std::uint16_t g_redirect_follow_target_port = 0;
-std::uint16_t g_redirect_follow_async_port = 0;
 
 void ensure_server() {
 	static std::once_flag flag;
@@ -200,94 +194,6 @@ void ensure_server() {
 		// Create server on heap so port() can be queried from this std::thread
 		// while run() blocks on the worker std::thread.
 		g_test_port = test_servers().start(cfg, std::move(router));
-	});
-}
-void ensure_redirect_follow_servers() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		Config cfg = mw_config();
-
-		conflux::http::Router target;
-		target.get("/echo-headers", [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(
-				std::format(
-					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-					std::string{req.headers["authorization"]},
-					std::string{req.headers["cookie"]},
-					std::string{req.headers["proxy-authorization"]},
-					std::string{req.headers["host"]}));
-		});
-		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
-
-		conflux::http::Router source;
-		source.get("/echo-headers", [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(
-				std::format(
-					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-					std::string{req.headers["authorization"]},
-					std::string{req.headers["cookie"]},
-					std::string{req.headers["proxy-authorization"]},
-					std::string{req.headers["host"]}));
-		});
-		auto echo_redirect = [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(
-				std::format(
-					"method={}\nbody={}\ncontent-type={}",
-					req.method,
-					req.body,
-					std::string{req.headers["content-type"]}));
-		};
-		source.get("/echo-redirect", echo_redirect);
-		source.post("/echo-redirect", echo_redirect);
-		source.get("/same", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/echo-headers");
-		});
-		source.get("/cross", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect(
-				std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
-		});
-		source.post("/see-other", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/echo-redirect", 303);
-		});
-		source.post("/temporary", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/echo-redirect", 307);
-		});
-		source.get("/loop", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/loop");
-		});
-		source.get("/async-start", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/async-final");
-		});
-		source.get("/async-final", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("async-ok");
-		});
-		g_redirect_follow_source_port = test_servers().start(cfg, std::move(source));
-
-		conflux::http::Router front;
-		auto popts = conflux::http::ProxyOptions{
-			.upstream_host = "127.0.0.1",
-			.upstream_port = g_redirect_follow_source_port,
-		};
-		front.get_context(
-			"/async-follow",
-			[popts](conflux::http::RequestView const &, chttp::RequestContext const &ctx)
-				-> conflux::work::root::Task<conflux::http::Response> {
-				HttpClient client{};
-				auto result = co_await async_send(
-					client,
-					ctx.ring,
-					chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/async-start", popts.upstream_port))
-						.follow_redirects(2));
-				if (!result) {
-					co_return conflux::http::Response::bad_gateway(
-						std::format(
-							"redirect follow failed: {} ({})",
-							result.error().message,
-							static_cast<int>(result.error().kind)));
-				}
-				co_return conflux::http::Response::text(std::move(result->body));
-			});
-		g_redirect_follow_async_port = test_servers().start(cfg, std::move(front));
 	});
 }
 // Connect, send a GET, parse Content-Length, return the full response.
@@ -1023,9 +929,6 @@ void ensure_trace_server() {
 
 std::uint16_t g_vhost_port = 0;
 std::uint16_t g_vhost_direct_port = 0;
-std::uint16_t g_proxy_port = 0;
-std::shared_ptr<ScopedTestServer> g_proxy_upstream;
-std::shared_ptr<ScopedTestServer> g_proxy_front;
 void ensure_vhost_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -1074,37 +977,6 @@ void ensure_vhost_direct_server() {
 		vhost_router.set_default(std::move(def_router));
 
 		g_vhost_direct_port = test_servers().start(mw_config(), std::move(vhost_router));
-	});
-}
-void ensure_proxy_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		auto cfg = mw_config();
-
-		conflux::http::Router upstream;
-		upstream.get("/ping", [](conflux::http::OwnedRequest const &) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(25));
-			auto resp = conflux::http::Response::text("proxied-ok");
-			resp.headers["X-Upstream"] = "yes";
-			return resp;
-		});
-		g_proxy_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
-
-		conflux::http::Router front;
-		auto popts = conflux::http::ProxyOptions{
-			.upstream_host = "127.0.0.1",
-			.upstream_port = g_proxy_upstream->port(),
-			.path_prefix = "/proxy",
-		};
-		front.add_context(
-			"GET",
-			"/proxy/ping",
-			[popts = std::move(popts)](conflux::http::RequestView const &req, chttp::RequestContext const &ctx)
-				-> conflux::work::root::Task<conflux::http::Response> {
-				co_return co_await conflux::http::async_proxy(req, popts, ctx.ring);
-			});
-		g_proxy_front = std::make_shared<ScopedTestServer>(cfg, std::move(front));
-		g_proxy_port = g_proxy_front->port();
 	});
 }
 
