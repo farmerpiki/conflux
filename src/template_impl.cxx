@@ -1240,13 +1240,11 @@ TmplValue Environment::Impl::eval_base(
 	return {};
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
-TmplValue Environment::Impl::eval_legacy_base(
-	std::string const &base,
-	TmplValue const &context) const {
+std::optional<TmplValue> Environment::Impl::eval_legacy_literal(
+	std::string_view base) const {
 	auto b = trim(base);
 	if (b.empty()) {
-		return {};
+		return TmplValue{};
 	}
 
 	if ((b.front() == '"' && b.back() == '"') || (b.front() == '\'' && b.back() == '\'')) {
@@ -1271,7 +1269,19 @@ TmplValue Environment::Impl::eval_legacy_base(
 		return TmplValue{false};
 	}
 	if (b == "none" || b == "None") {
-		return {};
+		return TmplValue{};
+	}
+
+	return std::nullopt;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+std::optional<TmplValue> Environment::Impl::eval_legacy_collection(
+	std::string_view base,
+	TmplValue const &context) const {
+	auto b = trim(base);
+	if (b.empty()) {
+		return TmplValue{};
 	}
 
 	if (b.front() == '[' && b.back() == ']') {
@@ -1314,6 +1324,18 @@ TmplValue Environment::Impl::eval_legacy_base(
 			}
 		}
 		return obj;
+	}
+
+	return std::nullopt;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+std::optional<TmplValue> Environment::Impl::eval_legacy_operator(
+	std::string_view base,
+	TmplValue const &context) const {
+	auto b = trim(base);
+	if (b.empty()) {
+		return TmplValue{};
 	}
 
 	{
@@ -1366,6 +1388,25 @@ TmplValue Environment::Impl::eval_legacy_base(
 		}
 	}
 
+	return std::nullopt;
+}
+
+TmplValue Environment::Impl::eval_legacy_base(
+	std::string const &base,
+	TmplValue const &context) const {
+	auto b = trim(base);
+	if (b.empty()) {
+		return {};
+	}
+	if (auto literal = eval_legacy_literal(b); literal) {
+		return std::move(*literal);
+	}
+	if (auto collection = eval_legacy_collection(b, context); collection) {
+		return std::move(*collection);
+	}
+	if (auto operation = eval_legacy_operator(b, context); operation) {
+		return std::move(*operation);
+	}
 	return eval_legacy_path(b, context);
 }
 
