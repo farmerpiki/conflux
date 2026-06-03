@@ -1934,6 +1934,21 @@ def check_component_registry_contract() -> None:
     }
     errors = sorted(message for marker, message in required_markers.items() if marker not in registry)
     declarations = component_declarations_from_registry()
+    declaration_match = re.search(
+        r"set\(CONFLUX_COMPONENT_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if declaration_match is None:
+        errors.append("missing CONFLUX_COMPONENT_DECLARATIONS")
+    else:
+        declaration_entries = re.findall(r'"([^"]*)"', declaration_match.group("body"))
+        if len(declaration_entries) != len(declarations):
+            errors.append("component registry contains malformed component declarations")
+    targets = [target for target, _, _, _ in declarations]
+    duplicate_targets = sorted(name for name, count in Counter(targets).items() if count > 1)
+    if duplicate_targets:
+        errors.append("component registry duplicate targets: " + ";".join(duplicate_targets))
     exports = [export for _, export, _, _ in declarations]
     duplicate_exports = sorted(name for name, count in Counter(exports).items() if count > 1)
     if duplicate_exports:
@@ -1949,6 +1964,58 @@ def check_component_registry_contract() -> None:
             errors.append(f"requestable component {export} must use STABLE or ADVANCED tier")
         if kind == "REQUESTABLE" and tier == "INTERNAL_SUPPORT":
             errors.append(f"requestable component {export} must not use INTERNAL_SUPPORT tier")
+    alias_match = re.search(
+        r"set\(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if alias_match is None:
+        errors.append("missing CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS")
+    else:
+        alias_entries = re.findall(r'"([^"]*)"', alias_match.group("body"))
+        aliases = re.findall(
+            r'"([^"|]+)\|([A-Z0-9_]+)\|(VISIBLE|METRICS|OPENSSL)"',
+            alias_match.group("body"),
+        )
+        if len(alias_entries) != len(aliases):
+            errors.append("component registry contains malformed installed surface alias declarations")
+        alias_components = [component for component, _macro, _condition in aliases]
+        unknown_alias_components = sorted(set(alias_components) - set(exports))
+        if unknown_alias_components:
+            errors.append("installed surface aliases reference unknown components: " + ";".join(unknown_alias_components))
+        duplicate_alias_macros = sorted(
+            name
+            for name, count in Counter(macro for _component, macro, _condition in aliases).items()
+            if count > 1
+        )
+        if duplicate_alias_macros:
+            errors.append("installed surface aliases contain duplicate macros: " + ";".join(duplicate_alias_macros))
+    impl_match = re.search(
+        r"set\(CONFLUX_HEADER_IMPL_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if impl_match is None:
+        errors.append("missing CONFLUX_HEADER_IMPL_DECLARATIONS")
+    else:
+        impl_entries = re.findall(r'"([^"]*)"', impl_match.group("body"))
+        impls = re.findall(r'"([^"|]+)\|([^"|]+)\|([^"]+)"', impl_match.group("body"))
+        if len(impl_entries) != len(impls):
+            errors.append("component registry contains malformed header implementation declarations")
+        duplicate_impl_targets = sorted(
+            name
+            for name, count in Counter(target for target, _export, _pattern in impls).items()
+            if count > 1
+        )
+        duplicate_impl_exports = sorted(
+            name
+            for name, count in Counter(export for _target, export, _pattern in impls).items()
+            if count > 1
+        )
+        if duplicate_impl_targets:
+            errors.append("header implementation declarations contain duplicate targets: " + ";".join(duplicate_impl_targets))
+        if duplicate_impl_exports:
+            errors.append("header implementation declarations contain duplicate exports: " + ";".join(duplicate_impl_exports))
     if errors:
         fail("\n".join(errors))
 
