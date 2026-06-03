@@ -43,6 +43,8 @@ def main(argv: list[str]) -> int:
         stage / "source" / "RELEASE_POLICY.md",
         stage / "source" / "SECURITY.md",
         stage / "source" / "SUPPORT.md",
+        stage / "source" / "include" / "conflux" / "json.hxx",
+        stage / "source" / "include" / "conflux" / "features.hxx",
         stage / "source" / "src",
         stage / "install" / "include" / "conflux" / "json.hxx",
         stage / "install" / "include" / "conflux" / "features.hxx",

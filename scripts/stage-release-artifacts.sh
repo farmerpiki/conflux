@@ -119,6 +119,7 @@ tar -C "$root" -cf - \
 cp "$build_dir/generated/bridge/module_header_bridge_manifest.json" \
     "$stage_dir/artifacts/module-header-bridge-manifest.json"
 cp "$root/docs/releases/evidence-template.md" "$stage_dir/evidence-template.md"
+cp -a "$stage_dir/install/include" "$stage_dir/source/include"
 
 package_config="$(find "$stage_dir/install" -path '*/cmake/conflux/conflux-config.cmake' -print -quit)"
 if [[ -z "$package_config" ]]; then
