@@ -4109,6 +4109,163 @@ template<class T>
 [[nodiscard]] FpStatus fp_decode_struct(T &out, FpCursor &c, FpLimits const &lim) noexcept;
 
 template<class T>
+[[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_value(T &out, FpCursor &c, FpLimits const &lim) noexcept;
+
+template<class T>
+	requires is_vector_of_v<T>
+[[nodiscard]] inline FpStatus fp_decode_vector(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	using E = typename T::value_type;
+	if (*c.p != '[') {
+		return FpStatus::bail;
+	}
+	if (c.depth + 1 > lim.max_depth) {
+		return FpStatus::bail;
+	}
+	++c.depth;
+	++c.p;
+	std::size_t string_reuse_index = 0;
+	if constexpr (!is_basic_string_of_char_v<E>) {
+		out.clear();
+	}
+	c.skip_ws();
+	if (!c.at_end() && *c.p == ']') {
+		++c.p;
+		--c.depth;
+		out.clear();
+		return FpStatus::ok;
+	}
+	if (out.capacity() == 0) {
+		out.reserve(fp_vector_initial_reserve<E>(c.remaining()));
+	}
+	for (;;) {
+		if constexpr (
+			(std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E> || is_fixed_numeric_array_v<E>) {
+			if (c.p >= c.end) {
+				return FpStatus::bail;
+			}
+			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+				c.skip_ws();
+				if (c.p >= c.end) {
+					return FpStatus::bail;
+				}
+			}
+			E &slot = out.emplace_back();
+			FpStatus st{};
+			if constexpr (std::floating_point<E>) {
+				st = fp_parse_floating<E>(c, slot);
+			} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
+				st = fp_parse_integer<E>(c, slot);
+			} else {
+				st = fp_decode_value<E>(slot, c, lim);
+			}
+			if (st != FpStatus::ok) {
+				out.pop_back();
+				return st;
+			}
+		} else {
+			E *slot{};
+			if constexpr (is_basic_string_of_char_v<E>) {
+				if (string_reuse_index < out.size()) {
+					slot = &out[string_reuse_index];
+				} else {
+					slot = &out.emplace_back();
+				}
+				++string_reuse_index;
+			} else {
+				slot = &out.emplace_back();
+			}
+			if (FpStatus const st = fp_decode_value<E>(*slot, c, lim); st != FpStatus::ok) {
+				return st;
+			}
+		}
+		if (c.at_end()) {
+			return FpStatus::bail;
+		}
+		if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+			c.skip_ws();
+			if (c.at_end()) {
+				return FpStatus::bail;
+			}
+		}
+		if (*c.p == ',') {
+			++c.p;
+			continue;
+		}
+		if (*c.p == ']') {
+			++c.p;
+			--c.depth;
+			if constexpr (is_basic_string_of_char_v<E>) {
+				out.resize(string_reuse_index);
+			}
+			return FpStatus::ok;
+		}
+		return FpStatus::bail;
+	}
+}
+
+template<class T>
+	requires is_fixed_numeric_array_v<T>
+[[nodiscard]] inline FpStatus fp_decode_fixed_numeric_array(
+	T &out,
+	FpCursor &c,
+	FpLimits const &lim) noexcept {
+	using E = typename T::value_type;
+	constexpr std::size_t N = std::tuple_size_v<T>;
+	if (*c.p != '[') {
+		return FpStatus::bail;
+	}
+	if (c.depth + 1 > lim.max_depth) {
+		return FpStatus::bail;
+	}
+	++c.depth;
+	++c.p;
+	for (std::size_t i = 0; i < N; ++i) {
+		if (c.p >= c.end) {
+			return FpStatus::bail;
+		}
+		if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+			c.skip_ws();
+			if (c.p >= c.end) {
+				return FpStatus::bail;
+			}
+		}
+		FpStatus st{};
+		if constexpr (std::floating_point<E>) {
+			st = fp_parse_floating<E>(c, out[i]);
+		} else {
+			st = fp_parse_integer<E>(c, out[i]);
+		}
+		if (st != FpStatus::ok) {
+			return FpStatus::bail;
+		}
+		if (c.p >= c.end) {
+			return FpStatus::bail;
+		}
+		if (static_cast<unsigned char>(*c.p) <= 0x20U) {
+			c.skip_ws();
+			if (c.p >= c.end) {
+				return FpStatus::bail;
+			}
+		}
+		if (i + 1U < N) {
+			if (*c.p != ',') {
+				return FpStatus::bail;
+			}
+			++c.p;
+		}
+	}
+	if (c.p >= c.end || *c.p != ']') {
+		return FpStatus::bail;
+	}
+	++c.p;
+	--c.depth;
+	return FpStatus::ok;
+}
+
+template<class T>
 [[nodiscard]] [[gnu::always_inline]] inline FpStatus fp_decode_value(
 	T &out,
 	FpCursor &c,
@@ -4162,145 +4319,9 @@ template<class T>
 		}
 		return FpStatus::ok;
 	} else if constexpr (is_vector_of_v<T>) {
-		using E = typename T::value_type;
-		if (*c.p != '[') {
-			return FpStatus::bail;
-		}
-		if (c.depth + 1 > lim.max_depth) {
-			return FpStatus::bail;
-		}
-		++c.depth;
-		++c.p;
-		std::size_t string_reuse_index = 0;
-		if constexpr (!is_basic_string_of_char_v<E>) {
-			out.clear();
-		}
-		c.skip_ws();
-		if (!c.at_end() && *c.p == ']') {
-			++c.p;
-			--c.depth;
-			out.clear();
-			return FpStatus::ok;
-		}
-		if (out.capacity() == 0) {
-			out.reserve(fp_vector_initial_reserve<E>(c.remaining()));
-		}
-		for (;;) {
-			if constexpr (
-				(std::integral<E> && !std::same_as<E, bool>) || std::floating_point<E> || is_fixed_numeric_array_v<E>) {
-				if (c.p >= c.end) {
-					return FpStatus::bail;
-				}
-				if (static_cast<unsigned char>(*c.p) <= 0x20U) {
-					c.skip_ws();
-					if (c.p >= c.end) {
-						return FpStatus::bail;
-					}
-				}
-				E &slot = out.emplace_back();
-				FpStatus st{};
-				if constexpr (std::floating_point<E>) {
-					st = fp_parse_floating<E>(c, slot);
-				} else if constexpr (std::integral<E> && !std::same_as<E, bool>) {
-					st = fp_parse_integer<E>(c, slot);
-				} else {
-					st = fp_decode_value<E>(slot, c, lim);
-				}
-				if (st != FpStatus::ok) {
-					out.pop_back();
-					return st;
-				}
-			} else {
-				E *slot{};
-				if constexpr (is_basic_string_of_char_v<E>) {
-					if (string_reuse_index < out.size()) {
-						slot = &out[string_reuse_index];
-					} else {
-						slot = &out.emplace_back();
-					}
-					++string_reuse_index;
-				} else {
-					slot = &out.emplace_back();
-				}
-				if (FpStatus const st = fp_decode_value<E>(*slot, c, lim); st != FpStatus::ok) {
-					return st;
-				}
-			}
-			if (c.at_end()) {
-				return FpStatus::bail;
-			}
-			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
-				c.skip_ws();
-				if (c.at_end()) {
-					return FpStatus::bail;
-				}
-			}
-			if (*c.p == ',') {
-				++c.p;
-				continue;
-			}
-			if (*c.p == ']') {
-				++c.p;
-				--c.depth;
-				if constexpr (is_basic_string_of_char_v<E>) {
-					out.resize(string_reuse_index);
-				}
-				return FpStatus::ok;
-			}
-			return FpStatus::bail;
-		}
+		return fp_decode_vector<T>(out, c, lim);
 	} else if constexpr (is_fixed_numeric_array_v<T>) {
-		using E = typename T::value_type;
-		constexpr std::size_t N = std::tuple_size_v<T>;
-		if (*c.p != '[') {
-			return FpStatus::bail;
-		}
-		if (c.depth + 1 > lim.max_depth) {
-			return FpStatus::bail;
-		}
-		++c.depth;
-		++c.p;
-		for (std::size_t i = 0; i < N; ++i) {
-			if (c.p >= c.end) {
-				return FpStatus::bail;
-			}
-			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
-				c.skip_ws();
-				if (c.p >= c.end) {
-					return FpStatus::bail;
-				}
-			}
-			FpStatus st{};
-			if constexpr (std::floating_point<E>) {
-				st = fp_parse_floating<E>(c, out[i]);
-			} else {
-				st = fp_parse_integer<E>(c, out[i]);
-			}
-			if (st != FpStatus::ok) {
-				return FpStatus::bail;
-			}
-			if (c.p >= c.end) {
-				return FpStatus::bail;
-			}
-			if (static_cast<unsigned char>(*c.p) <= 0x20U) {
-				c.skip_ws();
-				if (c.p >= c.end) {
-					return FpStatus::bail;
-				}
-			}
-			if (i + 1U < N) {
-				if (*c.p != ',') {
-					return FpStatus::bail;
-				}
-				++c.p;
-			}
-		}
-		if (c.p >= c.end || *c.p != ']') {
-			return FpStatus::bail;
-		}
-		++c.p;
-		--c.depth;
-		return FpStatus::ok;
+		return fp_decode_fixed_numeric_array<T>(out, c, lim);
 	} else if constexpr (has_members_spec<T>::value) {
 		return fp_decode_struct<T>(out, c, lim);
 	} else {
