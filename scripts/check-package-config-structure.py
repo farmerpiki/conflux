@@ -1703,6 +1703,8 @@ def check_component_registry_contract() -> None:
     required_markers = {
         "set(CONFLUX_COMPONENT_DECLARATIONS": "component registry must keep a single authoritative declaration list",
         "set(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS": "component registry must keep installed surface alias declarations",
+        "set(CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS": "component registry must declare generated header support package components",
+        "function(conflux_generated_header_support_target_for_export": "component registry must resolve generated header support exports",
         "list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "public component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS": "explicit component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS": "experimental component declarations must be derived from the authoritative registry",
@@ -1767,7 +1769,24 @@ def support_component_exports_from_registry() -> set[str]:
 
 
 def generated_header_support_exports() -> set[str]:
-    return {"headers", "header_impl"}
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
+    match = re.search(
+        r"set\(CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if match is None:
+        fail("missing CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS")
+    exports = {
+        export
+        for _target, export in re.findall(
+            r'"([^"|]+)\|([^"|]+)"',
+            match.group("body"),
+        )
+    }
+    if not {"headers", "header_impl"}.issubset(exports):
+        fail("generated header support declarations must include headers and header_impl")
+    return exports
 
 
 def check_external_dependency_tokens() -> None:
@@ -2282,12 +2301,14 @@ def check_package_metadata_generator_contract() -> None:
         "CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS": "package metadata generator must validate explicit components against registry declarations",
         "CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS": "package metadata generator must validate experimental components against registry declarations",
         "CONFLUX_SUPPORT_COMPONENT_DECLARATIONS": "package metadata generator must validate support components against registry declarations",
-        '_component STREQUAL "headers"': "package metadata generator must allow generated header support components",
-        '_component MATCHES "^header_impl_"': "package metadata generator must allow generated header implementation support components",
+        "CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS": "package metadata generator must validate generated header support components against registry declarations",
+        "list(APPEND _conflux_support_registry_exports": "package metadata generator must fold generated header support declarations into support validation",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in metadata)
     if missing:
         fail("\n".join(missing))
+    if '_component MATCHES "^header_impl_"' in metadata:
+        fail("package metadata generator must not allow generated header support components by name pattern")
     header_install = read("cmake/ConfluxHeaderInstall.cmake")
     if 'install(DIRECTORY "${CONFLUX_GENERATED_INCLUDE_DIR}/conflux/detail/generated/"' in header_install:
         fail("header interface must not install the entire generated detail header directory")

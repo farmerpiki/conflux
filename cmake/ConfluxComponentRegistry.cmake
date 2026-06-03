@@ -77,6 +77,28 @@ set(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS
     "template_watch|TEMPLATES_WATCH|VISIBLE"
     "pg|DB|VISIBLE")
 
+set(CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS
+    "conflux_headers|headers"
+    "conflux_header_impl|header_impl"
+    "conflux_header_impl_core|header_impl_core"
+    "conflux_header_impl_json|header_impl_json"
+    "conflux_header_impl_runtime|header_impl_runtime"
+    "conflux_header_impl_file_io_sync|header_impl_file_io_sync"
+    "conflux_header_impl_file_map|header_impl_file_map"
+    "conflux_header_impl_file_io|header_impl_file_io"
+    "conflux_header_impl_socket_io|header_impl_socket_io"
+    "conflux_header_impl_dns|header_impl_dns"
+    "conflux_header_impl_process|header_impl_process"
+    "conflux_header_impl_crypto|header_impl_crypto"
+    "conflux_header_impl_http_core|header_impl_http_core"
+    "conflux_header_impl_http_server|header_impl_http_server"
+    "conflux_header_impl_http_static|header_impl_http_static"
+    "conflux_header_impl_http_client|header_impl_http_client"
+    "conflux_header_impl_http_proxy|header_impl_http_proxy"
+    "conflux_header_impl_templates|header_impl_templates"
+    "conflux_header_impl_pg|header_impl_pg"
+    "conflux_header_impl_smtp|header_impl_smtp")
+
 set(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS)
 set(CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS)
 set(CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS)
@@ -117,4 +139,18 @@ function(conflux_component_target_for_export out export_name)
     endforeach()
     message(FATAL_ERROR
         "conflux: unknown component export name '${export_name}'")
+endfunction()
+
+function(conflux_generated_header_support_target_for_export out export_name)
+    foreach(_entry IN LISTS CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS)
+        string(REPLACE "|" ";" _parts "${_entry}")
+        list(GET _parts 0 _target)
+        list(GET _parts 1 _export_name)
+        if(_export_name STREQUAL export_name)
+            set(${out} "${_target}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    message(FATAL_ERROR
+        "conflux: unknown generated header support export name '${export_name}'")
 endfunction()

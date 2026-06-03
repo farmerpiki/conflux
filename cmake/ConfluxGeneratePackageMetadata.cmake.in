@@ -118,12 +118,6 @@ endfunction()
 
 function(_conflux_validate_registry_subset components registry_exports label)
     foreach(_component IN LISTS ${components})
-        if(label STREQUAL "support"
-                AND (_component STREQUAL "headers"
-                    OR _component STREQUAL "header_impl"
-                    OR _component MATCHES "^header_impl_"))
-            continue()
-        endif()
         if(NOT _component IN_LIST ${registry_exports})
             _conflux_fail(
                 "${label} component '${_component}' is not declared by ConfluxComponentRegistry.cmake")
@@ -150,6 +144,10 @@ _conflux_registry_exports(_conflux_experimental_registry_exports
     CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS)
 _conflux_registry_exports(_conflux_support_registry_exports
     CONFLUX_SUPPORT_COMPONENT_DECLARATIONS)
+_conflux_registry_exports(_conflux_generated_header_support_registry_exports
+    CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS)
+list(APPEND _conflux_support_registry_exports
+    ${_conflux_generated_header_support_registry_exports})
 _conflux_validate_registry_subset(_conflux_requestable_components
     _conflux_requestable_registry_exports requestable)
 _conflux_validate_registry_subset(_conflux_explicit_components

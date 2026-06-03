@@ -61,6 +61,12 @@ function(conflux_header_support_component target export_name)
     if(NOT TARGET ${target})
         return()
     endif()
+    conflux_generated_header_support_target_for_export(_expected_target
+        ${export_name})
+    if(NOT "${target}" STREQUAL "${_expected_target}")
+        message(FATAL_ERROR
+            "conflux: generated header support component '${export_name}' must pair with target '${_expected_target}', got '${target}'")
+    endif()
     list(APPEND CONFLUX_HEADER_INSTALL_TARGETS ${target})
     list(APPEND CONFLUX_PACKAGE_SUPPORT_COMPONENTS ${export_name})
     list(APPEND CONFLUX_PACKAGE_SUPPORT_TARGETS conflux::${export_name})
@@ -107,9 +113,15 @@ function(conflux_validate_header_impl_metadata)
                 message(FATAL_ERROR
                     "conflux: header implementation component '${_component}' must use the header_impl_ package namespace")
             endif()
+            conflux_generated_header_support_target_for_export(_expected_target
+                ${_component})
             if(NOT _target STREQUAL "conflux_${_component}")
                 message(FATAL_ERROR
                     "conflux: header implementation component '${_component}' must pair with target 'conflux_${_component}', got '${_target}'")
+            endif()
+            if(NOT _target STREQUAL _expected_target)
+                message(FATAL_ERROR
+                    "conflux: header implementation component '${_component}' must be declared as generated header support target '${_expected_target}', got '${_target}'")
             endif()
             if(NOT _namespaced_target STREQUAL "conflux::${_component}")
                 message(FATAL_ERROR
