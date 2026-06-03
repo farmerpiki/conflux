@@ -81,7 +81,7 @@ session_min_secret_bytes = 16
 	REQUIRE(jwt_opts->secrets.previous.size() == 1);
 	CHECK(jwt_opts->secrets.previous[0] == "jwt-old-secret-16-bytes");
 
-	auto old_token = conflux::http::jwt_sign(R"({"sub":"rotated"})", "jwt-old-secret-16-bytes");
+	auto old_token = conflux::http::jwt_sign_unchecked(R"({"sub":"rotated"})", "jwt-old-secret-16-bytes");
 	auto decoded_old = conflux::http::jwt_decode(old_token, *jwt_opts);
 	REQUIRE(decoded_old.has_value());
 	CHECK(decoded_old->sub == "rotated");
@@ -93,14 +93,14 @@ session_min_secret_bytes = 16
 	CHECK(public_jwt_opts->max_token_lifetime == std::chrono::minutes{15});
 
 	auto missing_exp = conflux::http::jwt_decode(
-		conflux::http::jwt_sign(R"({"sub":"no-exp"})", "jwt-active-secret-16-bytes"),
+		conflux::http::jwt_sign_unchecked(R"({"sub":"no-exp"})", "jwt-active-secret-16-bytes"),
 		*public_jwt_opts);
 	REQUIRE_FALSE(missing_exp.has_value());
 	CHECK(missing_exp.error() == "missing exp claim");
 
 	auto const now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	auto valid_public_token = conflux::http::jwt_sign(
+	auto valid_public_token = conflux::http::jwt_sign_unchecked(
 		std::format(R"({{"sub":"bounded","iat":{},"exp":{}}})", now, now + 300),
 		"jwt-active-secret-16-bytes");
 	auto decoded_public = conflux::http::jwt_decode(valid_public_token, *public_jwt_opts);
@@ -113,7 +113,7 @@ session_min_secret_bytes = 16
 	REQUIRE(cookie_opts->secrets.previous.size() == 1);
 	CHECK(cookie_opts->secrets.previous[0] == "cookie-old-secret-16");
 
-	auto signed_old_cookie = conflux::http::sign_cookie("user42", "cookie-old-secret-16");
+	auto signed_old_cookie = conflux::http::sign_cookie_unchecked("user42", "cookie-old-secret-16");
 	auto verified_old_cookie = conflux::http::verify_cookie(signed_old_cookie, cookie_opts->secrets);
 	REQUIRE(verified_old_cookie.has_value());
 	CHECK(*verified_old_cookie == "user42");

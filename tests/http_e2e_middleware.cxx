@@ -2855,7 +2855,7 @@ void ensure_jwt_server() {
 }
 std::string make_jwt(
 	std::string_view payload_json) {
-	return conflux::http::jwt_sign(payload_json, g_jwt_secret);
+	return conflux::http::jwt_sign_unchecked(payload_json, g_jwt_secret);
 }
 std::string make_jwt_with_header(
 	std::string_view header_json,
@@ -2896,7 +2896,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: wrong secret returns 401") {
 	ensure_jwt_server();
-	auto token = conflux::http::jwt_sign(R"({"sub":"bad","exp":9999999999})", "wrong-secret");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"bad","exp":9999999999})", "wrong-secret");
 	auto resp =
 		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
@@ -2934,7 +2934,7 @@ TEST_CASE(
 		return conflux::http::Response::json(std::format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
 	});
 	auto port = test_servers().start(cfg, std::move(router));
-	auto token = conflux::http::jwt_sign(R"({"sub":"victim"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"victim"})", "sec");
 	auto resp =
 		http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -2945,7 +2945,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt_decode: valid token with no exp returns claims") {
 	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"alice","iss":"test"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"alice","iss":"test"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	REQUIRE(result->sub == "alice");
@@ -2957,7 +2957,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.issuer = "expected",
 		.verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","iss":"other"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","iss":"other"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("issuer") != std::string::npos);
@@ -2968,7 +2968,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "myapp",
 		.verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":"myapp"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"u","aud":"myapp"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
@@ -2978,7 +2978,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "myapp",
 		.verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":"other"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"u","aud":"other"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("audience") != std::string::npos);
@@ -2989,7 +2989,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "myapp",
 		.verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"u","aud":["svc","myapp"]})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"u","aud":["svc","myapp"]})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
@@ -2999,8 +2999,9 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "myapp",
 		.verify_exp = false};
-	auto token =
-		conflux::http::jwt_sign("{\n\t\"sub\"\t:\t\"u\",\r\n\t\"aud\"\n:\n[\n\t\"svc\",\r\n\t\"myapp\"\n]\n}", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(
+		"{\n\t\"sub\"\t:\t\"u\",\r\n\t\"aud\"\n:\n[\n\t\"svc\",\r\n\t\"myapp\"\n]\n}",
+		"sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	REQUIRE(result->sub == "u");
@@ -3011,8 +3012,8 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "expected",
 		.verify_exp = false};
-	auto good = conflux::http::jwt_sign(R"({"sub":"x","aud":["other","expected"]})", "sec");
-	auto bad = conflux::http::jwt_sign(R"({"sub":"expected","aud":["other"]})", "sec");
+	auto good = conflux::http::jwt_sign_unchecked(R"({"sub":"x","aud":["other","expected"]})", "sec");
+	auto bad = conflux::http::jwt_sign_unchecked(R"({"sub":"expected","aud":["other"]})", "sec");
 	REQUIRE(conflux::http::jwt_decode(good, opts).has_value());
 	auto result = conflux::http::jwt_decode(bad, opts);
 	REQUIRE(!result.has_value());
@@ -3024,7 +3025,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.audience = "expected",
 		.verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","aud":[,"expected"]})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","aud":[,"expected"]})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().starts_with("invalid payload JSON:"));
@@ -3040,7 +3041,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt_decode: malformed numeric claims are rejected") {
 	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","exp":"soon"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","exp":"soon"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error() == "invalid exp claim");
@@ -3051,7 +3052,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.verify_exp = false,
 		.verify_nbf = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","nbf":"later"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","nbf":"later"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error() == "invalid nbf claim");
@@ -3062,7 +3063,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.verify_exp = false,
 		.verify_nbf = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","iat":"earlier"})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","iat":"earlier"})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error() == "invalid iat claim");
@@ -3072,7 +3073,7 @@ TEST_CASE(
 	auto now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
-	auto token = conflux::http::jwt_sign(std::format(R"({{"sub":"x","exp":{}}})", now), "sec");
+	auto token = conflux::http::jwt_sign_unchecked(std::format(R"({{"sub":"x","exp":{}}})", now), "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error() == "token expired");
@@ -3086,7 +3087,7 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.verify_exp = false,
 		.verify_nbf = true};
-	auto token = conflux::http::jwt_sign(std::format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
+	auto token = conflux::http::jwt_sign_unchecked(std::format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("not yet valid") != std::string::npos);
@@ -3097,14 +3098,14 @@ TEST_CASE(
 		.secrets = single_secret_rotation("sec", 3),
 		.verify_exp = false,
 		.verify_nbf = true};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","nbf":1})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","nbf":1})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: verify_exp=false allows expired token") {
 	conflux::http::JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
-	auto token = conflux::http::jwt_sign(R"({"sub":"x","exp":1})", "sec");
+	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"x","exp":1})", "sec");
 	auto result = conflux::http::jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 	REQUIRE(result->sub == "x");

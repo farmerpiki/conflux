@@ -365,8 +365,8 @@ struct JwtSegments {
 
 export namespace conflux::http {
 
-std::string jwt_sign(std::string_view payload_json, std::string_view secret);
-std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
+std::string jwt_sign_unchecked(std::string_view payload_json, std::string_view secret);
+std::string jwt_sign_unchecked(std::string_view header_json, std::string_view payload_json, std::string_view secret);
 
 JwtOptions JwtOptions::public_server() {
 	JwtOptions opts{};
@@ -437,9 +437,9 @@ std::expected<std::string, std::string> jwt_sign(
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return std::unexpected{valid.error()};
 	}
-	return jwt_sign(payload_json, opts.secrets.active);
+	return jwt_sign_unchecked(payload_json, opts.secrets.active);
 }
-std::string jwt_sign(
+std::string jwt_sign_unchecked(
 	std::string_view payload_json,
 	std::string_view secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
@@ -462,9 +462,9 @@ std::expected<std::string, std::string> jwt_sign(
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return std::unexpected{valid.error()};
 	}
-	return jwt_sign(header_json, payload_json, opts.secrets.active);
+	return jwt_sign_unchecked(header_json, payload_json, opts.secrets.active);
 }
-std::string jwt_sign(
+std::string jwt_sign_unchecked(
 	std::string_view header_json,
 	std::string_view payload_json,
 	std::string_view secret) {

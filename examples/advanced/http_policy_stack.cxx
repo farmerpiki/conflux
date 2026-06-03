@@ -36,6 +36,7 @@ int main() {
 	namespace http = conflux::http;
 
 	auto app = http::App::default_server();
+	auto const cookie_secrets = http::single_secret_rotation("0123456789abcdef");
 	TempFile access_log{
 		std::filesystem::temp_directory_path() / std::format("conflux_policy_stack_access_{}.jsonl", ::getpid())};
 	auto const &log_path = access_log.path;
@@ -80,7 +81,7 @@ int main() {
 	app.use(
 		conflux::http::trailing_slash_middleware(
 			{.mode = conflux::http::TrailingSlashMode::remove, .redirect_status = 308}));
-	app.use(conflux::http::cookie_signing_middleware({.secrets = http::single_secret_rotation("0123456789abcdef")}));
+	app.use(conflux::http::cookie_signing_middleware({.secrets = cookie_secrets}));
 	app.use(conflux::http::csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(conflux::http::etag_middleware({.weak = true}));
 	app.use(
@@ -137,12 +138,13 @@ int main() {
 				req.cookies["csrf_token"]));
 	});
 
-	app.get("/login", [](conflux::http::OwnedRequest const &) {
+	app.get("/login", [cookie_secrets](conflux::http::OwnedRequest const &) {
+		auto signed_session = conflux::http::sign_cookie("demo-user", cookie_secrets);
+		if (!signed_session) {
+			return conflux::http::Response::internal_error("failed to sign session cookie");
+		}
 		auto resp = conflux::http::Response::text("signed session cookie set; try /me\n");
-		resp.set_cookie(
-			"session",
-			conflux::http::sign_cookie("demo-user", "0123456789abcdef"),
-			"Path=/; HttpOnly; SameSite=Lax");
+		resp.set_cookie("session", std::move(*signed_session), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 

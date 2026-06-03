@@ -33,7 +33,7 @@ std::string mac_b64(
 
 } // namespace cookie_signing_detail
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
-std::string sign_cookie(
+std::string sign_cookie_unchecked(
 	std::string_view value,
 	std::string_view secret) {
 	auto mac = cookie_signing_detail::mac_b64(value, secret);
@@ -50,10 +50,10 @@ std::expected<std::string, std::string> sign_cookie(
 	if (auto valid = conflux::http::validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
 		return std::unexpected{valid.error()};
 	}
-	return sign_cookie(value, secrets.active);
+	return sign_cookie_unchecked(value, secrets.active);
 }
 // Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
-std::optional<std::string> verify_cookie(
+std::optional<std::string> verify_cookie_unchecked(
 	std::string_view signed_value,
 	std::string_view secret) {
 	auto dot = signed_value.rfind('.');
