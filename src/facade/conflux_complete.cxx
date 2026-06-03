@@ -50,10 +50,6 @@ export import conflux.net.cancel;
 export import conflux.net.http;
 #endif
 
-#if CONFLUX_SURFACE_HAS_HTTP_SERVER
-export import conflux.net.http.server;
-#endif
-
 #if CONFLUX_SURFACE_HAS_HTTP_PROTOCOL
 export import conflux.net.http.protocol;
 #endif
@@ -63,7 +59,6 @@ export import conflux.net.http.parse_helpers;
 #endif
 
 #if CONFLUX_SURFACE_HAS_HTTP_ROUTER
-export import conflux.net.router;
 export import conflux.net.router_dispatch;
 export import conflux.net.router_match;
 export import conflux.net.router_static;
@@ -71,15 +66,6 @@ export import conflux.net.router_static;
 
 #if CONFLUX_SURFACE_HAS_HTTP_STATIC
 export import conflux.net.http.static_async;
-export import conflux.net.http.static_files;
-#endif
-
-#if CONFLUX_SURFACE_HAS_HTTP2
-export import conflux.net.http2;
-#endif
-
-#if CONFLUX_SURFACE_HAS_HTTP3
-export import conflux.net.http3;
 #endif
 
 #if CONFLUX_SURFACE_HAS_FILE_WATCH

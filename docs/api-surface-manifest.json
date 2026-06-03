@@ -69,17 +69,12 @@
       "conflux.net.io_buffer",
       "conflux.net.cancel",
       "conflux.net.http",
-      "conflux.net.http.server",
       "conflux.net.http.protocol",
       "conflux.net.http.parse_helpers",
-      "conflux.net.router",
       "conflux.net.router_dispatch",
       "conflux.net.router_match",
       "conflux.net.router_static",
       "conflux.net.http.static_async",
-      "conflux.net.http.static_files",
-      "conflux.net.http2",
-      "conflux.net.http3",
       "conflux.file_watch",
       "conflux.net.smtp"
     ]
