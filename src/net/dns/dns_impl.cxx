@@ -1220,71 +1220,22 @@ root::Task<ResolveResult> Resolver::resolve_nss_thread(
 	return std::move(task);
 }
 
-root::Task<ResolveResult> Resolver::resolve_flow(
+root::Task<ResolveResult> Resolver::resolve_native_udp(
 	SocketTaskRing *external_ring,
+	SocketTaskRing *task_ring,
 	std::string_view host,
 	std::uint16_t port,
-	ResolveOptions const &per_opts) {
-	auto const effective_opts = apply_resolv_defaults(per_opts, impl_->resolv_query_timeout);
-	if (auto ep = try_parse_ip_literal(host, port); ep.has_value()) {
-		ResolveResult r;
-		r.endpoints.push_back(*ep);
-		return ready_resolve_success(std::move(r));
-	}
-
-	if (!is_valid_hostname(host)) {
-		return ready_resolve_error(
-			DnsError{DnsErrorKind::invalid_hostname, std::format("invalid hostname '{}'", host)});
-	}
-
-	// /etc/hosts lookup
-	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		if (auto hosts_result = hosts_lookup_result(impl_->hosts_cache, host, port, effective_opts); hosts_result) {
-			return ready_resolve_success(std::move(*hosts_result));
-		}
-	}
-
-	std::string const cache_key =
-		effective_opts.bypass_cache ?
-			std::string{} :
-			make_cache_key(host, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
+	ResolveOptions const &opts,
+	std::string const &cache_key) {
 	InFlightKey const inflight_key{cache_key, external_ring};
 
-	// LRU cache lookup
-	if (impl_->cache && !cache_key.empty()) {
-		if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
-			if (hit->is_negative) {
-				return ready_resolve_error(DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"});
-			}
-			hit->from_cache = true;
-			return ready_resolve_success(std::move(*hit));
-		}
-	}
-
-	auto cache_insert = [cache = impl_->cache, cache_key = cache_key, max_ttl = impl_->opts.cache_max_ttl](
-							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
-		try {
-			if (cache && !cache_key.empty() && !r.endpoints.empty()) {
-				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
-				cache->put(cache_key, r, ttl);
-			}
-		} catch (...) { ignore_best_effort_dns_failure(); }
-		return r;
-	};
-
-	if (impl_->backend == ResolverBackend::nss_thread) {
-		return resolve_nss_thread(external_ring, host, port, effective_opts, cache_key);
-	}
-
-	auto const base_ns =
-		effective_opts.override_nameservers.empty() ? impl_->nameservers : effective_opts.override_nameservers;
+	auto const base_ns = opts.override_nameservers.empty() ? impl_->nameservers : opts.override_nameservers;
 	auto const ns_list = nameservers_with_attempts(base_ns, impl_->attempts);
 
 	if (ns_list.empty()) {
 		return ready_resolve_error(DnsError{DnsErrorKind::no_servers, "resolve: no nameservers configured"});
 	}
 
-	SocketTaskRing *task_ring = (external_ring != nullptr) ? external_ring : impl_->task_ring.get();
 	if (task_ring == nullptr) {
 		return ready_resolve_error(DnsError{DnsErrorKind::no_ring, "resolve: no ring available"});
 	}
@@ -1337,11 +1288,22 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	if (coalesced_out.has_value()) {
 		return std::move(*coalesced_out);
 	}
-	auto const timeout = effective_native_timeout(effective_opts);
+	auto const timeout = effective_native_timeout(opts);
 	codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
-	bool const do_v4 = effective_opts.allow_v4;
-	bool const do_v6 = effective_opts.allow_v6;
+	bool const do_v4 = opts.allow_v4;
+	bool const do_v6 = opts.allow_v6;
 	auto const candidates = resolve_candidates(host, impl_->search_domains, impl_->ndots);
+
+	auto cache_insert = [cache = impl_->cache, cache_key = cache_key, max_ttl = impl_->opts.cache_max_ttl](
+							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
+		try {
+			if (cache && !cache_key.empty() && !r.endpoints.empty()) {
+				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
+				cache->put(cache_key, r, ttl);
+			}
+		} catch (...) { ignore_best_effort_dns_failure(); }
+		return r;
+	};
 
 	auto fanout_success = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](ResolveResult r) -> ResolveResult {
@@ -1400,7 +1362,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		port,
 		do_v4,
 		do_v6,
-		effective_opts.prefer,
+		opts.prefer,
 		timeout,
 		edns);
 	auto inner_control = inner_task.control();
@@ -1459,6 +1421,54 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	  inflight_key)
 												.detach();
 	return std::move(out_task);
+}
+
+root::Task<ResolveResult> Resolver::resolve_flow(
+	SocketTaskRing *external_ring,
+	std::string_view host,
+	std::uint16_t port,
+	ResolveOptions const &per_opts) {
+	auto const effective_opts = apply_resolv_defaults(per_opts, impl_->resolv_query_timeout);
+	if (auto ep = try_parse_ip_literal(host, port); ep.has_value()) {
+		ResolveResult r;
+		r.endpoints.push_back(*ep);
+		return ready_resolve_success(std::move(r));
+	}
+
+	if (!is_valid_hostname(host)) {
+		return ready_resolve_error(
+			DnsError{DnsErrorKind::invalid_hostname, std::format("invalid hostname '{}'", host)});
+	}
+
+	// /etc/hosts lookup
+	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
+		if (auto hosts_result = hosts_lookup_result(impl_->hosts_cache, host, port, effective_opts); hosts_result) {
+			return ready_resolve_success(std::move(*hosts_result));
+		}
+	}
+
+	std::string const cache_key =
+		effective_opts.bypass_cache ?
+			std::string{} :
+			make_cache_key(host, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
+
+	// LRU cache lookup
+	if (impl_->cache && !cache_key.empty()) {
+		if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
+			if (hit->is_negative) {
+				return ready_resolve_error(DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"});
+			}
+			hit->from_cache = true;
+			return ready_resolve_success(std::move(*hit));
+		}
+	}
+
+	if (impl_->backend == ResolverBackend::nss_thread) {
+		return resolve_nss_thread(external_ring, host, port, effective_opts, cache_key);
+	}
+
+	SocketTaskRing *task_ring = (external_ring != nullptr) ? external_ring : impl_->task_ring.get();
+	return resolve_native_udp(external_ring, task_ring, host, port, effective_opts, cache_key);
 }
 conflux::work::root::Task<ResolveResult> Resolver::resolve(
 	std::string_view host,

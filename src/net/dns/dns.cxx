@@ -661,6 +661,13 @@ private:
 		std::uint16_t port,
 		ResolveOptions const &opts,
 		std::string const &cache_key);
+	[[nodiscard]] root::Task<ResolveResult> resolve_native_udp(
+		SocketTaskRing *external_ring,
+		SocketTaskRing *task_ring,
+		std::string_view host,
+		std::uint16_t port,
+		ResolveOptions const &opts,
+		std::string const &cache_key);
 
 	struct Impl;
 	std::shared_ptr<Impl> impl_;
