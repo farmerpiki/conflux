@@ -2608,6 +2608,8 @@ def check_release_artifact_staging_contract() -> None:
         "scripts/release-sku-field.py": "release artifact staging must include the release SKU helper",
         "release_sku=": "release artifact manifest must record the selected release SKU",
         "package_components=": "release artifact manifest must record selected package components",
+        'release_sku" != "release-json"': "release artifact staging must avoid the release-json preset for other SKUs",
+        'build-${release_sku}': "release artifact staging must use SKU-specific build dirs for non-default SKUs",
         "selected_examples=source/examples/%s": "release artifact manifest must record selected examples by SKU",
         "selected_docs=source/docs/%s": "release artifact manifest must record selected docs by SKU",
         '"$stage_dir/source/include"': "release artifact staging must include generated public headers in the source tree",
@@ -2691,7 +2693,18 @@ def check_release_artifact_staging_contract() -> None:
         "selected_docs": "release artifact guard must validate selected docs manifest metadata",
         "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
+    generic_guard_required = {
+        "expected_feature_set = sku_entry.get(\"feature_set\")": "release artifact guard must validate selected feature set through the SKU manifest",
+        "release artifact must record {sku} package components": "release artifact guard must validate selected package components through the SKU manifest",
+        "release artifact must record {sku} selected examples": "release artifact guard must validate selected examples generically",
+        "release artifact must record {sku} selected docs": "release artifact guard must validate selected docs generically",
+    }
+    generic_guard_forbidden = {
+        "release artifact guard currently supports release-json": "release artifact guard must not be hard-coded to one SKU",
+    }
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)
+    missing.extend(message for marker, message in generic_guard_required.items() if marker not in guard)
+    missing.extend(message for marker, message in generic_guard_forbidden.items() if marker in guard)
     if missing:
         fail("\n".join(missing))
 

@@ -82,6 +82,10 @@ feature_set="$(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sk
 sku_components="$(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" components)"
 mapfile -t sku_examples < <(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" examples)
 mapfile -t sku_docs < <(python3 "$root/scripts/release-sku-field.py" "$root" "$release_sku" docs)
+if [[ "$release_sku" != "release-json" && "$build_dir_set" -eq 0 && "$root" == "$(pwd)" ]]; then
+    build_dir="${tmp_root}/build-${release_sku}"
+    build_dir_set=1
+fi
 
 prepare_dir "$build_dir"
 prepare_dir "$stage_dir"

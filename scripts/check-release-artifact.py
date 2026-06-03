@@ -22,12 +22,10 @@ def read_manifest(path: Path) -> dict[str, str]:
     return entries
 
 
-def release_sku(stage: Path, manifest: dict[str, str]) -> str:
+def release_sku(manifest: dict[str, str]) -> str:
     sku = manifest.get("release_sku")
     if not sku:
         fail("release artifact must record release_sku")
-    if sku != "release-json":
-        fail("release artifact guard currently supports release-json")
     return sku
 
 
@@ -70,21 +68,25 @@ def main(argv: list[str]) -> int:
             fail(f"missing {path.relative_to(stage)}")
 
     release_manifest = read_manifest(stage / "release-artifact-manifest.txt")
-    sku = release_sku(stage, release_manifest)
-    if release_manifest.get("feature_set") != "release-json":
-        fail("release artifact must be staged with feature_set=release-json")
-    if release_manifest.get("package_components") != "core;json;file_io_sync":
-        fail("release artifact must record release-json package components")
-    if release_manifest.get("source_generated_header_artifact") != "source/include/conflux":
-        fail("release artifact must record source/include/conflux generated headers")
-    if release_manifest.get("selected_examples") != f"source/examples/{sku}":
-        fail("release artifact must record release-json selected examples")
-    if release_manifest.get("selected_docs") != f"source/docs/{sku}":
-        fail("release artifact must record release-json selected docs")
+    sku = release_sku(release_manifest)
     sku_manifest = json.loads((stage / "source" / "docs" / "release-skus.json").read_text(encoding="utf-8"))
     sku_entry = sku_manifest.get(sku)
     if not isinstance(sku_entry, dict):
-        fail("staged release SKU manifest does not define release-json")
+        fail(f"staged release SKU manifest does not define {sku}")
+    expected_feature_set = sku_entry.get("feature_set")
+    if release_manifest.get("feature_set") != expected_feature_set:
+        fail(f"release artifact must be staged with feature_set={expected_feature_set}")
+    expected_components = sku_entry.get("components")
+    if not isinstance(expected_components, list) or not all(isinstance(item, str) and item for item in expected_components):
+        fail(f"staged release SKU manifest has invalid components for {sku}")
+    if release_manifest.get("package_components") != ";".join(expected_components):
+        fail(f"release artifact must record {sku} package components")
+    if release_manifest.get("source_generated_header_artifact") != "source/include/conflux":
+        fail("release artifact must record source/include/conflux generated headers")
+    if release_manifest.get("selected_examples") != f"source/examples/{sku}":
+        fail(f"release artifact must record {sku} selected examples")
+    if release_manifest.get("selected_docs") != f"source/docs/{sku}":
+        fail(f"release artifact must record {sku} selected docs")
     for source_path in sku_entry.get("docs", []):
         selected = stage / "source" / "docs" / sku / Path(source_path).name
         if not selected.is_file():
