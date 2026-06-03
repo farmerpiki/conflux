@@ -921,92 +921,136 @@ void Ring::arm_timer() {
 	}
 }
 
+bool Ring::handle_drain_deadline(
+	std::chrono::steady_clock::time_point now) {
+	bool const drain_active = drain_control != nullptr && drain_control->active.load(std::memory_order_acquire);
+	if (!drain_active || now < drain_control->deadline) {
+		return false;
+	}
+	drain_control->deadline_hit.store(true, std::memory_order_release);
+	{
+		std::scoped_lock lk{metrics_mu_};
+		++pressure_counters_.drain_deadline_hit;
+	}
+	for (auto &conn: fd_table) {
+		if (conn.fd >= 0 && !conn.closing) {
+			if (conn.deferred_response) {
+				conn.deferred_response->cancel_shutdown();
+			}
+			drain_control->forced_closed.fetch_add(1, std::memory_order_relaxed);
+			{
+				std::scoped_lock lk{metrics_mu_};
+				++pressure_counters_.drain_forced_close;
+			}
+			queue_close(conn.fd);
+		}
+	}
+	return true;
+}
+
+void Ring::expire_deferred_waits(
+	std::chrono::steady_clock::time_point now) {
+	for (auto &[_, wait]: deferred_waits) {
+		if (wait.response) {
+			wait.response->expire_if_past_deadline(now);
+		}
+	}
+}
+
+bool Ring::close_if_shutdown_send_deadline(
+	Conn &conn,
+	std::chrono::steady_clock::time_point now) {
+	if (shutting_down && conn.send_queued && conn.close_after_send && now >= conn.close_after_send_deadline) {
+		queue_close(conn.fd);
+		return true;
+	}
+	return false;
+}
+
+#if CONFLUX_HAS_TLS
+bool Ring::close_if_tls_sniff_timeout(
+	Conn &conn,
+	std::chrono::steady_clock::time_point now,
+	std::chrono::milliseconds sniff_limit) {
+	bool const sniff_undecided = conn.ssl == nullptr && conn.tls_hs_done && conn.partial.empty();
+	if (!sniff_undecided || tls_sniff_timeout_ms == 0) {
+		return false;
+	}
+	if (now - conn.last_activity > sniff_limit) {
+		queue_close(conn.fd);
+	}
+	return true;
+}
+#endif
+
+void Ring::handle_request_timeout(
+	Conn &conn,
+	std::chrono::steady_clock::time_point now,
+	std::chrono::milliseconds req_limit) {
+	if (request_timeout_ms == 0) {
+		return;
+	}
+	auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
+	if (now - ref <= req_limit) {
+		return;
+	}
+	if (conn.request_in_progress) {
+		auto const fd = conn.fd;
+		auto reason = conflux::http::HttpRejectReason::body_timeout;
+		if (incomplete_h1_headers(conn)) {
+			reason = conflux::http::HttpRejectReason::header_timeout;
+		}
+		invalidate_recv_if_armed(fd);
+		emit_timeout_rejection(conn, *this, reason);
+		start_response_send(fd, conn);
+	} else {
+		queue_close(conn.fd);
+	}
+}
+
+void Ring::handle_connection_timer(
+	Conn &conn,
+	std::chrono::steady_clock::time_point now,
+	std::chrono::milliseconds req_limit,
+	std::chrono::milliseconds sniff_limit) {
+	if (conn.fd < 0) {
+		return;
+	}
+	if (close_if_shutdown_send_deadline(conn, now) || conn.is_sse) {
+		return;
+	}
+	if (conn.is_deferred) {
+		if (conn.deferred_response) {
+			conn.deferred_response->expire_if_past_deadline(now);
+		}
+		return;
+	}
+	if (conn.send_queued) {
+		return;
+	}
+#if CONFLUX_HAS_TLS
+	if (close_if_tls_sniff_timeout(conn, now, sniff_limit)) {
+		return;
+	}
+#endif
+	handle_request_timeout(conn, now, req_limit);
+}
+
 void Ring::handle_timer() {
 	bool const drain_active = drain_control != nullptr && drain_control->active.load(std::memory_order_acquire);
 	if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0 && !drain_active) {
 		return;
 	}
 	auto now = std::chrono::steady_clock::now();
-	if (drain_active && now >= drain_control->deadline) {
-		drain_control->deadline_hit.store(true, std::memory_order_release);
-		{
-			std::scoped_lock lk{metrics_mu_};
-			++pressure_counters_.drain_deadline_hit;
-		}
-		for (auto &conn: fd_table) {
-			if (conn.fd >= 0 && !conn.closing) {
-				if (conn.deferred_response) {
-					conn.deferred_response->cancel_shutdown();
-				}
-				drain_control->forced_closed.fetch_add(1, std::memory_order_relaxed);
-				{
-					std::scoped_lock lk{metrics_mu_};
-					++pressure_counters_.drain_forced_close;
-				}
-				queue_close(conn.fd);
-			}
-		}
+	if (handle_drain_deadline(now)) {
 		arm_timer();
 		return;
 	}
 	auto req_limit = std::chrono::milliseconds{request_timeout_ms};
 	auto sniff_limit = std::chrono::milliseconds{tls_sniff_timeout_ms};
-	for (auto &[_, wait]: deferred_waits) {
-		if (wait.response) {
-			wait.response->expire_if_past_deadline(now);
-		}
-	}
+	expire_deferred_waits(now);
 	for (auto &conn: fd_table) {
-		if (conn.fd < 0) {
-			continue;
-		}
-		if (shutting_down && conn.send_queued && conn.close_after_send && now >= conn.close_after_send_deadline) {
-			queue_close(conn.fd);
-			continue;
-		}
-		if (conn.is_sse) {
-			continue;
-		} // SSE streams are exempt
-		if (conn.is_deferred) {
-			// Deferred responses self-expire: expire_if_past_deadline forces a 504 and
-			// wakes the eventfd that the deferred-poll SQE is watching.
-			if (conn.deferred_response) {
-				conn.deferred_response->expire_if_past_deadline(now);
-			}
-			continue;
-		}
-		if (conn.send_queued) {
-			continue;
-		} // mid-send: handler already responded
-#if CONFLUX_HAS_TLS
-		// TLS sniff-undecided sentinel: ssl==nullptr && tls_hs_done==true && partial empty.
-		// Use the (usually shorter) sniff timeout to reap silent connections that opened
-		// the TCP socket but never sent a std::byte.
-		bool const sniff_undecided = conn.ssl == nullptr && conn.tls_hs_done && conn.partial.empty();
-		if (sniff_undecided && tls_sniff_timeout_ms != 0) {
-			if (now - conn.last_activity > sniff_limit) {
-				queue_close(conn.fd);
-			}
-			continue;
-		}
-#endif
-		if (request_timeout_ms != 0) {
-			auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
-			if (now - ref > req_limit) {
-				if (conn.request_in_progress) {
-					auto const fd = conn.fd;
-					auto reason = conflux::http::HttpRejectReason::body_timeout;
-					if (incomplete_h1_headers(conn)) {
-						reason = conflux::http::HttpRejectReason::header_timeout;
-					}
-					invalidate_recv_if_armed(fd);
-					emit_timeout_rejection(conn, *this, reason);
-					start_response_send(fd, conn);
-				} else {
-					queue_close(conn.fd);
-				}
-			}
-		}
+		handle_connection_timer(conn, now, req_limit, sniff_limit);
 	}
 	arm_timer(); // re-arm for next tick
 }

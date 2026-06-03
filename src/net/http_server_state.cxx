@@ -700,6 +700,24 @@ struct Ring {
 	void arm_shutdown_read();
 	// Arm a one-shot periodic timer that fires every ~1 second for connection reaping.
 	void arm_timer();
+	[[nodiscard]] bool handle_drain_deadline(std::chrono::steady_clock::time_point now);
+	void expire_deferred_waits(std::chrono::steady_clock::time_point now);
+	[[nodiscard]] bool close_if_shutdown_send_deadline(Conn &conn, std::chrono::steady_clock::time_point now);
+#if CONFLUX_HAS_TLS
+	[[nodiscard]] bool close_if_tls_sniff_timeout(
+		Conn &conn,
+		std::chrono::steady_clock::time_point now,
+		std::chrono::milliseconds sniff_limit);
+#endif
+	void handle_request_timeout(
+		Conn &conn,
+		std::chrono::steady_clock::time_point now,
+		std::chrono::milliseconds req_limit);
+	void handle_connection_timer(
+		Conn &conn,
+		std::chrono::steady_clock::time_point now,
+		std::chrono::milliseconds req_limit,
+		std::chrono::milliseconds sniff_limit);
 	void handle_timer();
 	void handle_shutdown();
 	void handle_accept_error([[maybe_unused]] int res, [[maybe_unused]] conflux::uring::CqeFlags flg);
