@@ -11,6 +11,7 @@ set(CONFLUX_PACKAGE_HAS_METRICS "@CONFLUX_HAS_METRICS@")
 include("${CMAKE_CURRENT_LIST_DIR}/conflux-component-targets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/conflux-component-deps.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/conflux-component-external-deps.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxComponentRegistry.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ConfluxExternalDependencyRegistry.cmake")
 
 set(conflux_AVAILABLE_COMPONENTS "${_conflux_requestable_components}")
@@ -188,36 +189,43 @@ foreach(_conflux_component IN LISTS conflux_VISIBLE_COMPONENTS)
     list(APPEND _conflux_installed_surface_definitions
         "CONFLUX_SURFACE_HAS_${_conflux_surface_macro}=1")
 endforeach()
-if("http" IN_LIST conflux_VISIBLE_COMPONENTS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions HTTP_FACADE 1)
-endif()
-if("net_config" IN_LIST conflux_VISIBLE_COMPONENTS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions HTTP_CONFIG 1)
-endif()
-if("http_observability" IN_LIST conflux_VISIBLE_COMPONENTS
-        AND CONFLUX_PACKAGE_HAS_METRICS STREQUAL "true")
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions HTTP_METRICS 1)
-endif()
-if("http_auth" IN_LIST conflux_VISIBLE_COMPONENTS
-        AND "OPENSSL" IN_LIST conflux_RESOLVED_EXTERNAL_DEPS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions TLS_JWT 1)
-endif()
-if("template" IN_LIST conflux_VISIBLE_COMPONENTS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions TEMPLATES 1)
-endif()
-if("template_watch" IN_LIST conflux_VISIBLE_COMPONENTS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions TEMPLATES_WATCH 1)
-endif()
-if("pg" IN_LIST conflux_VISIBLE_COMPONENTS)
-    _conflux_append_surface_definition(
-        _conflux_installed_surface_definitions DB 1)
-endif()
+foreach(_conflux_alias_entry IN LISTS CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS)
+    string(REPLACE "|" ";" _conflux_alias_parts "${_conflux_alias_entry}")
+    list(GET _conflux_alias_parts 0 _conflux_alias_component)
+    list(GET _conflux_alias_parts 1 _conflux_alias_macro)
+    list(GET _conflux_alias_parts 2 _conflux_alias_condition)
+    set(_conflux_alias_enabled FALSE)
+    if(_conflux_alias_condition STREQUAL "VISIBLE")
+        if(_conflux_alias_component IN_LIST conflux_VISIBLE_COMPONENTS)
+            set(_conflux_alias_enabled TRUE)
+        endif()
+    elseif(_conflux_alias_condition STREQUAL "METRICS")
+        if(_conflux_alias_component IN_LIST conflux_VISIBLE_COMPONENTS
+                AND CONFLUX_PACKAGE_HAS_METRICS STREQUAL "true")
+            set(_conflux_alias_enabled TRUE)
+        endif()
+    elseif(_conflux_alias_condition STREQUAL "OPENSSL")
+        if(_conflux_alias_component IN_LIST conflux_VISIBLE_COMPONENTS
+                AND "OPENSSL" IN_LIST conflux_RESOLVED_EXTERNAL_DEPS)
+            set(_conflux_alias_enabled TRUE)
+        endif()
+    else()
+        message(FATAL_ERROR
+            "conflux package has unknown installed surface alias condition '${_conflux_alias_condition}'")
+    endif()
+    if(_conflux_alias_enabled)
+        _conflux_append_surface_definition(
+            _conflux_installed_surface_definitions
+            ${_conflux_alias_macro}
+            1)
+    endif()
+endforeach()
+unset(_conflux_alias_enabled)
+unset(_conflux_alias_condition)
+unset(_conflux_alias_macro)
+unset(_conflux_alias_component)
+unset(_conflux_alias_parts)
+unset(_conflux_alias_entry)
 if("db" IN_LIST conflux_VISIBLE_COMPONENTS)
     _conflux_append_surface_definition(
         _conflux_installed_surface_definitions DB_COMPAT 1)

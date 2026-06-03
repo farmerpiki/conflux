@@ -1702,6 +1702,7 @@ def check_component_registry_contract() -> None:
     registry = read("cmake/ConfluxComponentRegistry.cmake")
     required_markers = {
         "set(CONFLUX_COMPONENT_DECLARATIONS": "component registry must keep a single authoritative declaration list",
+        "set(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS": "component registry must keep installed surface alias declarations",
         "list(APPEND CONFLUX_PUBLIC_COMPONENT_DECLARATIONS": "public component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS": "explicit component declarations must be derived from the authoritative registry",
         "list(APPEND CONFLUX_EXPERIMENTAL_COMPONENT_DECLARATIONS": "experimental component declarations must be derived from the authoritative registry",
@@ -1734,6 +1735,27 @@ def check_component_registry_contract() -> None:
             errors.append(f"requestable component {export} must not use INTERNAL_SUPPORT tier")
     if errors:
         fail("\n".join(errors))
+
+
+def installed_surface_aliases_from_registry() -> set[str]:
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
+    match = re.search(
+        r"set\(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if match is None:
+        fail("missing CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS")
+    aliases = {
+        macro
+        for _component, macro, condition in re.findall(
+            r'"([^"|]+)\|([A-Z0-9_]+)\|(VISIBLE|METRICS|OPENSSL)"',
+            match.group("body"),
+        )
+    }
+    if not aliases:
+        fail("missing installed surface alias declarations")
+    return aliases
 
 
 def public_component_exports_from_registry() -> set[str]:
@@ -1822,6 +1844,23 @@ def check_external_dependency_tokens() -> None:
     ]:
         if "ConfluxExternalDependencyRegistry.cmake" not in text:
             errors.append(f"{path} must install the external dependency registry")
+    if errors:
+        fail("\n".join(errors))
+
+
+def check_component_registry_install_contract() -> None:
+    config = read("cmake/conflux-config.cmake.in")
+    install_text = read("cmake/ConfluxInstall.cmake")
+    header_text = read("cmake/ConfluxHeaderInterface.cmake")
+    errors: list[str] = []
+    if "ConfluxComponentRegistry.cmake" not in config:
+        errors.append("package config must include the component registry")
+    for path, text in [
+        ("cmake/ConfluxInstall.cmake", install_text),
+        ("cmake/ConfluxHeaderInterface.cmake", header_text),
+    ]:
+        if "ConfluxComponentRegistry.cmake" not in text:
+            errors.append(f"{path} must install the component registry")
     if errors:
         fail("\n".join(errors))
 
@@ -2398,9 +2437,7 @@ def check_installed_surface_aliases() -> None:
         for suffix in re.findall(r"conflux_set_api_surface_presence\(([a-z0-9_]+)", options)
     }
     build_macros.add("FEATURES")
-    installed_aliases = set(
-        re.findall(r"_conflux_installed_surface_definitions ([A-Z0-9_]+) 1", config),
-    )
+    installed_aliases = installed_surface_aliases_from_registry()
     allowed_install_only = {"DB_COMPAT"}
     component_macros = {export.upper() for export in component_exports_from_registry()}
     missing_build_macros = sorted(installed_aliases - build_macros - allowed_install_only)
@@ -2420,6 +2457,15 @@ def check_installed_surface_aliases() -> None:
         fail(
             "\n".join(errors),
         )
+    required_config_markers = {
+        "CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS": "package config must derive installed surface aliases from the component registry",
+        "_conflux_alias_condition STREQUAL \"VISIBLE\"": "package config must handle visible component surface aliases",
+        "_conflux_alias_condition STREQUAL \"METRICS\"": "package config must handle metrics-gated surface aliases",
+        "_conflux_alias_condition STREQUAL \"OPENSSL\"": "package config must handle OpenSSL-gated surface aliases",
+    }
+    missing_markers = sorted(message for marker, message in required_config_markers.items() if marker not in config)
+    if missing_markers:
+        fail("\n".join(missing_markers))
 
 
 def check_file_io_sync_effective_flag_contract() -> None:
@@ -2609,6 +2655,7 @@ def main() -> int:
     check_header_impl_lists_have_no_duplicates()
     check_header_source_ids_exist()
     check_component_registry_contract()
+    check_component_registry_install_contract()
     check_header_support_components_are_limited()
     check_header_public_components_use_registry_exports()
     check_header_interface_contracts()
