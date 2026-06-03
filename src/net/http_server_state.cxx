@@ -660,8 +660,20 @@ struct Ring {
 	void on_streamed_splice_done(int fd, std::uint32_t conn_gen, std::size_t delivered, std::exception_ptr const &err);
 #if CONFLUX_HAS_TLS
 	[[nodiscard]] bool tls_write_plaintext(int fd, Conn &conn, std::string_view bytes);
+	void queue_tls_send(int fd, Conn &conn);
 #endif
 	void note_send_zc_tls_bypass_if_candidate(Conn &conn) noexcept;
+	void defer_send_retry(int fd, std::uint32_t gen);
+	template<typename Handle>
+	[[nodiscard]] bool try_queue_existing_fixed_send_buffer(int fd, Conn &conn, std::uint32_t gen, Handle handle);
+	template<typename Handle>
+	[[nodiscard]] bool try_queue_send_zc(int fd, std::uint32_t gen, std::span<char const> resp_view, Handle handle);
+	template<typename Handle>
+	[[nodiscard]] bool
+	try_queue_fixed_send_buffer(int fd, Conn &conn, std::uint32_t gen, std::size_t len, Handle handle);
+	template<typename Handle>
+	void submit_plain_response_send(int fd, Conn &conn, Handle handle);
+	void queue_plain_response_send(int fd, Conn &conn);
 	void queue_send(int fd);
 	[[nodiscard]] static bool response_send_ready(Conn const &conn) noexcept;
 	void start_response_send(int fd, Conn &conn);
