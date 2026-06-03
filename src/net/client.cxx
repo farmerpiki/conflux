@@ -572,6 +572,166 @@ bool recv_chunked(
 	return std::nullopt;
 }
 
+[[nodiscard]] HttpError make_blocking_connect_error(
+	std::string_view host,
+	std::uint16_t port,
+	ConnectFailure failure,
+	std::string const &failure_message,
+	int failure_errno) {
+	bool const is_dns = failure == ConnectFailure::dns;
+	return HttpError{
+		.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
+		.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
+		.os_errno = failure_errno,
+		.message = failure_message.empty() ?
+					   std::format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", host, port) :
+					   failure_message,
+	};
+}
+
+#if CONFLUX_HAS_TLS
+struct BlockingTlsSetup {
+	std::optional<conflux::net_tls::TlsContext> ctx;
+	std::optional<conflux::net_tls::TlsStream> stream;
+};
+
+[[nodiscard]] std::expected<void, HttpError> configure_blocking_tls_verification(
+	conflux::net_tls::TlsContext &tls_ctx,
+	bool verify,
+	HttpClientOptions const &opts) {
+	tls_ctx.set_verify_peer(verify);
+	if (!verify) {
+		return {};
+	}
+	if (!opts.ca_bundle_path.empty()) {
+		if (SSL_CTX_load_verify_locations(tls_ctx.native_handle(), opts.ca_bundle_path.c_str(), nullptr) != 1) {
+			return std::unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = "TLS CA bundle load failed",
+				});
+		}
+		return {};
+	}
+	if (!tls_ctx.set_default_verify_paths()) {
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = "TLS default verify paths load failed",
+			});
+	}
+	return {};
+}
+
+[[nodiscard]] std::expected<void, HttpError> configure_blocking_tls_stream(
+	conflux::net_tls::TlsStream &tls_stream,
+	std::string_view server_name,
+	bool verify) {
+	if (!tls_stream.set_server_name(server_name)) {
+		tls_stream.shutdown_safe();
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
+	}
+	if (verify && !tls_stream.set_verify_hostname(server_name)) {
+		tls_stream.shutdown_safe();
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = "hostname verification setup failed"});
+	}
+	return {};
+}
+
+[[nodiscard]] std::expected<void, HttpError> perform_blocking_tls_handshake(
+	conflux::net_tls::TlsStream &tls_stream,
+	bool verify,
+	int tls_timeout_sec,
+	HttpTelemetry &tel) {
+	auto t_tls = std::chrono::steady_clock::now();
+	if (tls_stream.handshake_connect(tls_timeout_sec)) {
+		tel.tls = std::chrono::steady_clock::now() - t_tls;
+		tel.tls_verified = verify;
+		tel.negotiated_protocol = "https/1.1";
+		if (auto const *ssl = tls_stream.native_handle(); ssl != nullptr) {
+			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
+				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
+				tel.tls_version = SSL_CIPHER_get_version(cipher);
+			}
+		}
+		return {};
+	}
+	long const vr = SSL_get_verify_result(tls_stream.native_handle());
+	int const alert = ERR_GET_REASON(ERR_get_error());
+	std::string verify_reason;
+	if (verify && vr != X509_V_OK) {
+		if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
+			verify_reason = s;
+		}
+	}
+	tls_stream.shutdown_safe();
+	return std::unexpected(
+		HttpError{
+			.kind = HttpErrorKind::tls,
+			.phase = HttpPhase::tls,
+			.tls_alert = alert,
+			.verify_reason = std::move(verify_reason),
+			.message = "TLS handshake failed",
+		});
+}
+
+[[nodiscard]] std::expected<BlockingTlsSetup, HttpError> setup_blocking_tls(
+	int fd,
+	ClientRequest const &req,
+	HttpClientOptions const &opts,
+	HttpTimeouts const &timeouts,
+	std::string_view url_host,
+	HttpTelemetry &tel) {
+	bool const verify = req.verify_peer() && opts.verify_peer;
+	auto const server_name = req.server_name().empty() ? url_host : req.server_name();
+
+	BlockingTlsSetup setup;
+	try {
+		setup.ctx.emplace();
+	} catch (conflux::net_tls::TlsError const &e) {
+		::close(fd);
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = e.what(),
+			});
+	}
+	if (auto verified = configure_blocking_tls_verification(*setup.ctx, verify, opts); !verified) {
+		::close(fd);
+		return std::unexpected(std::move(verified).error());
+	}
+
+	try {
+		setup.stream.emplace(*setup.ctx, fd);
+	} catch (conflux::net_tls::TlsError const &e) {
+		::close(fd);
+		return std::unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = e.what(),
+			});
+	}
+	if (auto configured = configure_blocking_tls_stream(*setup.stream, server_name, verify); !configured) {
+		::close(fd);
+		return std::unexpected(std::move(configured).error());
+	}
+	if (auto handshake = perform_blocking_tls_handshake(*setup.stream, verify, to_sec(timeouts.tls), tel); !handshake) {
+		::close(fd);
+		return std::unexpected(std::move(handshake).error());
+	}
+	return setup;
+}
+#endif
+
 [[nodiscard]] std::expected<Connection, HttpError> open_blocking_connection(
 	ClientRequest const &req,
 	HttpClientOptions const &opts,
@@ -594,16 +754,8 @@ bool recv_chunked(
 		conn_fail_errno,
 		opts.resolver);
 	if (fd < 0) {
-		bool const is_dns = conn_fail == ConnectFailure::dns;
 		return std::unexpected(
-			HttpError{
-				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
-				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
-				.os_errno = conn_fail_errno,
-				.message = conn_fail_message.empty() ?
-							   std::format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
-							   conn_fail_message,
-			});
+			make_blocking_connect_error(url.host, url.port, conn_fail, conn_fail_message, conn_fail_errno));
 	}
 
 #if CONFLUX_HAS_TLS
@@ -613,103 +765,12 @@ bool recv_chunked(
 
 	if (use_tls) {
 #if CONFLUX_HAS_TLS
-		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
-		int const tls_sec = to_sec(timeouts.tls);
-
-		try {
-			tls_ctx.emplace();
-		} catch (conflux::net_tls::TlsError const &e) {
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = e.what(),
-				});
+		auto tls_setup = setup_blocking_tls(fd, req, opts, timeouts, url.host, tel);
+		if (!tls_setup) {
+			return std::unexpected(std::move(tls_setup).error());
 		}
-		tls_ctx->set_verify_peer(verify);
-		if (verify) {
-			if (!opts.ca_bundle_path.empty()) {
-				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr)
-					!= 1) {
-					::close(fd);
-					return std::unexpected(
-						HttpError{
-							.kind = HttpErrorKind::tls,
-							.phase = HttpPhase::tls,
-							.message = "TLS CA bundle load failed",
-						});
-				}
-			} else if (!tls_ctx->set_default_verify_paths()) {
-				::close(fd);
-				return std::unexpected(
-					HttpError{
-						.kind = HttpErrorKind::tls,
-						.phase = HttpPhase::tls,
-						.message = "TLS default verify paths load failed",
-					});
-			}
-		}
-
-		try {
-			tls_stream.emplace(*tls_ctx, fd);
-		} catch (conflux::net_tls::TlsError const &e) {
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = e.what(),
-				});
-		}
-		if (!tls_stream->set_server_name(sni_sv)) {
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
-		}
-		if (verify && !tls_stream->set_verify_hostname(sni_sv)) {
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = "hostname verification setup failed"});
-		}
-
-		auto t_tls = std::chrono::steady_clock::now();
-		if (!tls_stream->handshake_connect(tls_sec)) {
-			long const vr = SSL_get_verify_result(tls_stream->native_handle());
-			int const alert = ERR_GET_REASON(ERR_get_error());
-			std::string verify_reason;
-			if (verify && vr != X509_V_OK) {
-				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
-					verify_reason = s;
-				}
-			}
-			tls_stream->shutdown_safe();
-			::close(fd);
-			return std::unexpected(
-				HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.tls_alert = alert,
-					.verify_reason = std::move(verify_reason),
-					.message = "TLS handshake failed",
-				});
-		}
-		tel.tls = std::chrono::steady_clock::now() - t_tls;
-		tel.tls_verified = verify;
-		tel.negotiated_protocol = "https/1.1";
-
-		if (auto const *ssl = tls_stream->native_handle(); ssl != nullptr) {
-			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
-				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
-				tel.tls_version = SSL_CIPHER_get_version(cipher);
-			}
-		}
+		tls_ctx = std::move(tls_setup->ctx);
+		tls_stream = std::move(tls_setup->stream);
 #else
 		::close(fd);
 		return std::unexpected(
