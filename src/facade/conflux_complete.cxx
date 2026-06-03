@@ -39,10 +39,6 @@ export import conflux.net.io_buffer;
 export import conflux.net.cancel;
 #endif
 
-#if CONFLUX_SURFACE_HAS_HTTP_FACADE
-export import conflux.net.http;
-#endif
-
 #if CONFLUX_SURFACE_HAS_HTTP_PROTOCOL
 export import conflux.net.http.protocol;
 #endif
