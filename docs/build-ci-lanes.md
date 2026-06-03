@@ -259,6 +259,11 @@ should perform the fresh configure/build/install/consume flow from CTest, set
 `-DCONFLUX_RUN_INSTALL_TREE_SMOKE=ON`; the default smoke feature set remains
 `core` so it stays cheap and liburing-free.
 
+Release SKU install-tree smoke presets cover the manifest-backed preview SKUs:
+`release-json-install-smoke`, `release-http-api-install-smoke`, and
+`release-web-server-install-smoke`. Their requested package component lists are
+checked against `docs/release-skus.json` by `scripts/check-package-config.sh`.
+
 ## Provider Policy Lane
 
 Use:
