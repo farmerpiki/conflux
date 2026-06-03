@@ -1952,6 +1952,17 @@ def check_package_config_uses_generated_component_metadata() -> None:
     if re.search(r"@CONFLUX_INSTALL_NEEDS_.*pkg_check_modules|if\(@CONFLUX_INSTALL_NEEDS_", config):
         fail("package config must not resolve optional deps from install-wide booleans")
 
+    metadata = read("cmake/ConfluxGeneratePackageMetadata.cmake.in")
+    required_metadata_markers = {
+        "_conflux_component_dependency_closure": "package metadata generator must compute component dependency closures",
+        "requestable component '${_component}' must not depend on experimental component": "package metadata generator must reject requestable-to-experimental dependency leakage",
+    }
+    missing_metadata = sorted(
+        message for marker, message in required_metadata_markers.items() if marker not in metadata
+    )
+    if missing_metadata:
+        fail("\n".join(missing_metadata))
+
 
 def check_install_and_dependency_contracts() -> None:
     install = read("cmake/ConfluxInstall.cmake")
