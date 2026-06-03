@@ -1130,6 +1130,112 @@ struct TreeBuilder {
 		return obj_node_idx;
 	}
 
+	[[nodiscard]] std::expected<Tokenizer::ParsedStr, JsonError> parse_object_member_name() {
+		char const key_ch = tok.src[tok.pos];
+		if (key_ch == '"') {
+			tok.adv();
+			return tok.parse_str_body();
+		}
+		if constexpr (Mode == ParseMode::json5) {
+			if (key_ch == '\'') {
+				tok.adv();
+				return tok.parse_str_body_sq();
+			}
+			return tok.parse_unquoted_key();
+		} else {
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+		}
+	}
+
+	[[nodiscard]] std::expected<void, JsonError> parse_object_member(
+		std::size_t members_start,
+		std::optional<MemberNameIndex> &seen_hash,
+		DuplicateKeyPolicy dup_policy,
+		std::size_t depth) {
+		if (auto ok = skip_ws_checked(); !ok) {
+			staging_members.resize(members_start);
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos >= tok.src.size()) [[unlikely]] {
+			staging_members.resize(members_start);
+			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+		}
+
+		auto parsed_name = parse_object_member_name();
+		if (!parsed_name) [[unlikely]] {
+			staging_members.resize(members_start);
+			return std::unexpected(std::move(parsed_name).error());
+		}
+		MemberNameKey const name_key{.off = parsed_name->off, .len = parsed_name->len, .flags = parsed_name->flags};
+		std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
+		auto const dup_index = dedup_member_index(members_start, name_key, seen_hash);
+		bool const is_dup = dup_index.has_value();
+		if (is_dup) {
+			++store.parse_stats.duplicate_member_hits;
+		}
+		if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
+			staging_members.resize(members_start);
+			return std::unexpected(
+				mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
+		}
+
+		if (auto ok = skip_ws_checked(); !ok) {
+			staging_members.resize(members_start);
+			return std::unexpected(std::move(ok).error());
+		}
+		if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
+			staging_members.resize(members_start);
+			return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ':'"));
+		}
+		tok.adv();
+
+		if (is_dup && dup_policy == DuplicateKeyPolicy::first_wins) {
+			if (auto skipped = skip_value(depth + 1); !skipped) {
+				staging_members.resize(members_start);
+				return std::unexpected(std::move(skipped).error());
+			}
+			++store.parse_stats.first_wins_rollbacks;
+			return {};
+		}
+
+		auto val = parse_value(depth + 1);
+		if (!val) {
+			staging_members.resize(members_start);
+			return std::unexpected(std::move(val).error());
+		}
+		if (is_dup) {
+			auto &m = staging_members[*dup_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+			m.val_node = static_cast<std::uint32_t>(*val);
+			++store.parse_stats.last_wins_updates;
+			return {};
+		}
+
+		std::size_t const new_member_index = staging_members.size();
+		staging_members.push_back(
+			{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
+		if (seen_hash.has_value()) {
+			seen_hash->emplace(name_key, new_member_index);
+			++store.parse_stats.duplicate_hash_inserts;
+		}
+
+		std::size_t const cur_count = staging_members.size() - members_start;
+		if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
+			seen_hash.emplace(0, MemberNameHash{&store}, MemberNameEq{&store}, MemberNameIndexAlloc{store.hash_mr_});
+			++store.parse_stats.duplicate_hash_promotions;
+			std::size_t reserve_count = cur_count;
+			if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
+				reserve_count += cur_count;
+			}
+			seen_hash->reserve(reserve_count);
+			for (std::size_t i = members_start; i < staging_members.size(); ++i) {
+				auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				seen_hash->emplace(MemberNameKey{m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)}, i);
+				++store.parse_stats.duplicate_hash_inserts;
+			}
+		}
+		return {};
+	}
+
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_object(
 		std::size_t depth) {
@@ -1151,109 +1257,8 @@ struct TreeBuilder {
 		std::optional<MemberNameIndex> seen_hash;
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
-			if (auto ok = skip_ws_checked(); !ok) {
-				staging_members.resize(members_start);
-				return std::unexpected(std::move(ok).error());
-			}
-			if (tok.pos >= tok.src.size()) [[unlikely]] {
-				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
-			}
-			char const key_ch = tok.src[tok.pos];
-			std::expected<Tokenizer::ParsedStr, JsonError> parsed_name;
-			if (key_ch == '"') {
-				tok.adv();
-				parsed_name = tok.parse_str_body();
-			} else [[unlikely]] {
-				if constexpr (Mode == ParseMode::json5) {
-					if (key_ch == '\'') {
-						tok.adv();
-						parsed_name = tok.parse_str_body_sq();
-					} else {
-						parsed_name = tok.parse_unquoted_key();
-					}
-				} else {
-					staging_members.resize(members_start);
-					return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
-				}
-			}
-			if (!parsed_name) [[unlikely]] {
-				staging_members.resize(members_start);
-				return std::unexpected(std::move(parsed_name).error());
-			}
-			MemberNameKey const name_key{.off = parsed_name->off, .len = parsed_name->len, .flags = parsed_name->flags};
-			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			auto const dup_index = dedup_member_index(members_start, name_key, seen_hash);
-			bool const is_dup = dup_index.has_value();
-			if (is_dup) {
-				++store.parse_stats.duplicate_member_hits;
-			}
-			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
-				staging_members.resize(members_start);
-				return std::unexpected(
-					mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
-			}
-
-			if (auto ok = skip_ws_checked(); !ok) {
-				staging_members.resize(members_start);
-				return std::unexpected(std::move(ok).error());
-			}
-			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
-				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected ':'"));
-			}
-			tok.adv();
-
-			if (is_dup && dup_policy == DuplicateKeyPolicy::first_wins) {
-				if (auto skipped = skip_value(depth + 1); !skipped) {
-					staging_members.resize(members_start);
-					return std::unexpected(std::move(skipped).error());
-				}
-				++store.parse_stats.first_wins_rollbacks;
-			} else {
-				auto val = parse_value(depth + 1);
-				if (!val) {
-					staging_members.resize(members_start);
-					return std::unexpected(std::move(val).error());
-				}
-
-				if (is_dup) {
-					// last_wins: update the first occurrence's val_node directly.
-					auto &m = staging_members[*dup_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-					m.val_node = static_cast<std::uint32_t>(*val);
-					++store.parse_stats.last_wins_updates;
-				} else {
-					std::size_t const new_member_index = staging_members.size();
-					staging_members.push_back(
-						{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
-					if (seen_hash.has_value()) {
-						seen_hash->emplace(name_key, new_member_index);
-						++store.parse_stats.duplicate_hash_inserts;
-					}
-
-					// Promote linear → PMR hash-index once we cross the threshold.
-					std::size_t const cur_count = staging_members.size() - members_start;
-					if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
-						seen_hash.emplace(
-							0,
-							MemberNameHash{&store},
-							MemberNameEq{&store},
-							MemberNameIndexAlloc{store.hash_mr_});
-						++store.parse_stats.duplicate_hash_promotions;
-						std::size_t reserve_count = cur_count;
-						if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
-							reserve_count += cur_count;
-						}
-						seen_hash->reserve(reserve_count);
-						for (std::size_t i = members_start; i < staging_members.size(); ++i) {
-							auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-							seen_hash->emplace(
-								MemberNameKey{m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)},
-								i);
-							++store.parse_stats.duplicate_hash_inserts;
-						}
-					}
-				}
+			if (auto member = parse_object_member(members_start, seen_hash, dup_policy, depth); !member) {
+				return std::unexpected(std::move(member).error());
 			}
 
 			if (auto ok = skip_ws_checked(); !ok) {
