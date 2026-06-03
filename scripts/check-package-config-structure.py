@@ -1417,15 +1417,11 @@ def check_package_smoke_wrapper_contracts() -> None:
     )
     if core_cmake_definitions.get("CONFLUX_JSON_HASH_PROVIDER") != "XXHASH":
         errors.append("core-isolated package smoke must force the external JSON hash provider")
-    liburing_free_forbidden = shell_semicolon_flag_value(
-        read("scripts/check-package-smoke-liburing-free.sh"),
-        "--forbid-external-deps",
-    )
-    for token in ["LIBURING", "LIBPQ", "OPENSSL"]:
-        if token not in liburing_free_forbidden:
-            errors.append(
-                f"liburing-free package smoke must explicitly forbid {token}",
-            )
+    liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    if 'external-dependency-tokens.py" "$source_root" --exclude XXHASH' not in liburing_free:
+        errors.append(
+            "liburing-free package smoke must derive forbidden external deps from the registry while allowing the JSON hash provider",
+        )
     runtime_pkg_config_probes = shell_pkg_config_exists_probes(
         read("scripts/check-package-smoke-runtime.sh"),
     )
@@ -2329,12 +2325,15 @@ def check_package_smoke_external_tokens() -> None:
     tokens = external_tokens_from_metadata()
     runner = read("scripts/run-package-config-smoke.sh")
     liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    token_helper = read("scripts/external-dependency-tokens.py")
     scripts = "\n".join(
         runner if path == "scripts/run-package-config-smoke.sh" else read(path)
         for path in [
             "scripts/run-package-config-smoke.sh",
             "scripts/check-package-smoke-liburing-free.sh",
             "scripts/check-package-smoke-core-isolated.sh",
+            "scripts/external-dependency-tokens.py",
+            "cmake/ConfluxExternalDependencyRegistry.cmake",
         ]
     )
     missing = sorted(token for token in tokens if token not in scripts)
@@ -2342,34 +2341,36 @@ def check_package_smoke_external_tokens() -> None:
         fail(f"external tokens missing from package smoke isolation scripts: {';'.join(missing)}")
 
     for variable, value in re.findall(r"^(forbid_[A-Za-z0-9_]*external_deps)=\"([^\"]*)\"", runner, re.MULTILINE):
+        if "$(" in value:
+            continue
         policy_tokens = {token for token in value.split(";") if token}
         unknown = sorted(policy_tokens - tokens)
         if unknown:
             fail(f"{variable} contains unknown external tokens: {';'.join(unknown)}")
 
-    all_policy = shell_semicolon_list_var(runner, "forbid_all_external_deps")
     errors: list[str] = []
-    append_set_delta_errors(
-        errors,
-        tokens,
-        all_policy,
-        "external tokens missing from package smoke all-forbidden policy: ",
-        "unknown external tokens in package smoke all-forbidden policy: ",
-    )
+    helper_required = {
+        "CONFLUX_EXTERNAL_DEPENDENCY_TOKENS": "external dependency token helper must read the registry token list",
+        "--exclude": "external dependency token helper must support policy exclusions",
+        "unknown excluded external dependency tokens": "external dependency token helper must reject unknown exclusions",
+    }
+    runner_required = {
+        'scripts/external-dependency-tokens.py" "$source_root"': "package smoke runner must derive forbidden external tokens from the registry",
+        "external_deps_except": "package smoke runner must express forbidden token policies as registry exclusions",
+        "forbid_all_external_deps=\"$(python3": "package smoke runner must derive the all-forbidden policy from the registry",
+    }
+    liburing_free_required = {
+        'scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH': "liburing-free package smoke must derive forbidden external tokens from the registry",
+    }
+    errors.extend(message for marker, message in helper_required.items() if marker not in token_helper)
+    errors.extend(message for marker, message in runner_required.items() if marker not in runner)
+    errors.extend(message for marker, message in liburing_free_required.items() if marker not in liburing_free)
 
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
     if "--forbid-external-deps" in core_isolated:
         errors.append("core-isolated package smoke must rely on the default core external-dependency policy")
     if "--components core" not in core_isolated:
         errors.append("core-isolated package smoke must request the core component")
-    liburing_free_forbidden = shell_semicolon_flag_value(liburing_free, "--forbid-external-deps")
-    append_set_delta_errors(
-        errors,
-        tokens - {"XXHASH"},
-        liburing_free_forbidden,
-        "external tokens missing from liburing-free forbidden list: ",
-        "unknown external tokens in liburing-free forbidden list: ",
-    )
     if errors:
         fail("\n".join(errors))
 

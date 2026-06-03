@@ -40,6 +40,7 @@ require_structure_guard_markers() {
 [[ -f scripts/check-package-smoke-core-isolated.sh ]] || fail "missing core-isolated package smoke lane"
 [[ -f scripts/check-package-smoke-runtime.sh ]] || fail "missing runtime package smoke lane"
 [[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
+[[ -f scripts/external-dependency-tokens.py ]] || fail "missing external dependency token helper"
 [[ -f scripts/check-provider-policy-matrix.sh ]] || fail "missing provider-policy matrix guard"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
 [[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
@@ -142,7 +143,7 @@ check_install_tree_ctest_helpers|package-config structure guard must verify inst
 mixed-module-header-smoke>|package-config structure guard must reject empty-argument generator expressions in install-tree smoke CTests
 check_package_smoke_wrapper_contracts|package-config structure guard must verify package smoke wrapper contracts
 core-isolated package smoke must force the external JSON hash provider|package-config structure guard must keep core-isolated provider-noise coverage
-external tokens missing from package smoke all-forbidden policy|package-config structure guard must verify full core-isolated external-token coverage through the default core policy
+external dependency token helper must read the registry token list|package-config structure guard must keep package smoke external-token policies registry-derived
 def cmake_function_body|package-config structure guard must centralize CMake function-body extraction
 def shell_semicolon_list_var|package-config structure guard must parse shell semicolon-list policies
 def append_set_delta_errors|package-config structure guard must centralize set-delta error reporting

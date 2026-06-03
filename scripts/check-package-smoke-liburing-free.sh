@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude XXHASH)"
 
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \
@@ -12,6 +13,6 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 	--feature-set json \
 	--interface-mode HEADER_INTERFACE \
 	--forbid-components 'http;http1;http2;http3;http_protocol;work;dns;template;db;pg' \
-	--forbid-external-deps 'LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2' \
+	--forbid-external-deps "$forbid_external_deps" \
 	--generator Ninja \
 	-- -DCONFLUX_POSTGRES_PROVIDER=OFF

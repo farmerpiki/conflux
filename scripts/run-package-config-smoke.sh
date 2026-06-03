@@ -118,11 +118,14 @@ forbid_json_components="http;http1;http2;http3;http_protocol;template;pg;db;dns;
 forbid_template_components="http;http1;http2;http3;http_protocol;pg;db;dns"
 forbid_pg_components="http;http1;http2;http3;http_protocol;template;db"
 forbid_http_components="template;pg;db"
-forbid_all_external_deps="LIBURING;XXHASH;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
-forbid_external_deps_without_json_hash="LIBURING;LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
-forbid_template_external_deps="LIBURING;LIBPQ;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
-forbid_dns_external_deps="LIBPQ;OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
-forbid_pg_external_deps="OPENSSL;ZLIB;LIBDEFLATE;ZLIB_NG;LIBISAL;BROTLI;ZSTD;NGHTTP2;NGTCP2;NGTCP2_CRYPTO_OSSL;NGHTTP3;ARGON2"
+external_deps_except() {
+    python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --exclude "$@"
+}
+forbid_all_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root")"
+forbid_external_deps_without_json_hash="$(external_deps_except XXHASH)"
+forbid_template_external_deps="$(external_deps_except XXHASH OPENSSL ZLIB LIBDEFLATE ZLIB_NG LIBISAL BROTLI ZSTD)"
+forbid_dns_external_deps="$(external_deps_except LIBURING XXHASH)"
+forbid_pg_external_deps="$(external_deps_except LIBURING XXHASH LIBPQ)"
 
 if [[ "$components" != *";"* ]]; then
     case "$components" in
