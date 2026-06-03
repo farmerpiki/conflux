@@ -75,6 +75,7 @@ python3 scripts/check-component-map.py
 python3 scripts/check-cost-lifetime-docs.py
 python3 scripts/check-planning-state.py
 python3 scripts/check-release-docs.py
+python3 scripts/check-release-skus.py
 python3 scripts/check-package-docs.py
 python3 scripts/check-release-notes.py
 bash scripts/check-package-config.sh

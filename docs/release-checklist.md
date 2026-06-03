@@ -39,6 +39,7 @@ python3 scripts/check_no_std_streams.py
 python3 scripts/check-first-contact-public-dialect.py
 python3 scripts/check-planning-state.py
 python3 scripts/check-release-docs.py
+python3 scripts/check-release-skus.py
 python3 scripts/check-package-docs.py
 python3 scripts/check-release-notes.py
 cmake --preset release-clang-libcxx
@@ -181,7 +182,8 @@ outside the tracked source tree.
   template.
 - Planning/release docs guards pass:
   `scripts/check-planning-state.py`, `scripts/check-release-docs.py`,
-  `scripts/check-package-docs.py`, and `scripts/check-release-notes.py`.
+  `scripts/check-release-skus.py`, `scripts/check-package-docs.py`, and
+  `scripts/check-release-notes.py`.
 - Liburing-free HEADER_INTERFACE installs are generated-header artifact
   evidence. They must request `core;types;json;file_io_sync` availability, with
   the smoke compile lane using `core;json;file_io_sync`, not runtime-facing/http components.
